@@ -18,42 +18,23 @@ use crate::git::{
     ai, blame, branches, changes, commit, log, remote, revisions, stash, status, watch, worktree,
 };
 
-use super::access::{Needs, Peer};
+use super::access::{Needs, Peer, Program};
+use super::calls::Row;
 use super::{Core, CoreError, CoreResult};
 
-/// Answered by the code host layer, which needs the core, rather than by the table below.
-const PULL_REQUEST_URL: &str = "git.pullRequestUrl";
-
-/// What a client must be allowed to call `method`.
-pub(crate) fn needs(method: &str) -> Needs {
-    if reads(method) || method == PULL_REQUEST_URL {
-        Needs::Watch
-    } else if matches!(method, "git.push") {
-        Needs::Person
-    } else {
-        Needs::Full
-    }
-}
-
-/// Whether only Sikemux's own window or notch may call `method` from this
-/// host; another program here may only read.
-pub(crate) fn for_person(method: &str) -> bool {
-    !reads(method) && method != PULL_REQUEST_URL
-}
-
-/// Each method's parameters by the names clients send them under, the first of
-/// them the repository it works in, the git function it runs, `read` for one
-/// that only reads, and `core` for one that runs with the core as well.
+/// Each method's [`Row`], its parameters by the names clients send them under, the first of
+/// them the repository it works in, and the git function it runs, `core` before it for one
+/// that runs with the core as well.
 macro_rules! methods {
-    ($($name:literal $($read:ident)? $(, $with:ident)? => $run:path { $repo:ident: String $(, $arg:ident: $ty:ty)* $(,)? }),* $(,)?) => {
-        pub(super) fn reads(method: &str) -> bool {
+    ($($name:literal $needs:ident $(, $flag:ident)* $(; $with:ident)? => $run:path { $repo:ident: String $(, $arg:ident: $ty:ty)* $(,)? }),* $(,)?) => {
+        pub(super) fn row(method: &str) -> Option<Row> {
             match method {
-                $($name => methods!(@read $($read)?),)*
-                _ => false,
+                $($name => Some(Row::of(Needs::$needs) $(.$flag())*),)*
+                _ => None,
             }
         }
 
-        async fn run(core: &Core, peer: &Peer, method: &str, params: Value) -> CoreResult<Value> {
+        pub(crate) async fn call(core: &Core, peer: &Peer, method: &str, params: Value) -> CoreResult<Value> {
             match method {
                 $($name => {
                     #[derive(Deserialize)]
@@ -67,10 +48,13 @@ macro_rules! methods {
             }
         }
     };
-    (@read read) => { true };
-    (@read) => { false };
     (@call $run:path, $core:ident, (core), $($arg:ident),*) => { $run($core, $($arg),*) };
     (@call $run:path, $core:ident, (), $($arg:ident),*) => { $run($($arg),*) };
+}
+
+/// Whether `method` only reads, which any program, a mod among them, may do.
+pub(super) fn reads(method: &str) -> bool {
+    row(method).is_some_and(|row| matches!(row.program, Program::Anyone))
 }
 
 /// Refuses a device a repository outside the workspace's projects.
@@ -97,24 +81,20 @@ fn lived_in(core: &Core, path: &Path) -> bool {
             .any(|agent| agent.cwd.starts_with(path))
 }
 
-pub(crate) async fn call(
+#[derive(Deserialize)]
+pub(super) struct PullRequestUrlParams {
+    repo: String,
+}
+
+/// Where to open a pull request for the repository's branch, which the code host layer says.
+pub(super) async fn pull_request_url(
     core: &Core,
     peer: &Peer,
-    method: &str,
-    params: Value,
-) -> CoreResult<Value> {
-    if method == PULL_REQUEST_URL {
-        #[derive(Deserialize)]
-        struct Asked {
-            repo: String,
-        }
-        let Asked { repo } = serde_json::from_value(params).map_err(unfit)?;
-        confine(core, peer, &repo).await?;
-        let (origin, branch) = remote::origin_and_branch(repo).await?;
-        let url = codehost::compare_url(core, &origin, &branch).await?;
-        return Ok(Value::String(url));
-    }
-    run(core, peer, method, params).await
+    params: PullRequestUrlParams,
+) -> CoreResult<String> {
+    confine(core, peer, &params.repo).await?;
+    let (origin, branch) = remote::origin_and_branch(params.repo).await?;
+    Ok(codehost::compare_url(core, &origin, &branch).await?)
 }
 
 /// The repository of `project`, preferring the one the person picked for it.
@@ -142,60 +122,60 @@ async fn remove_worktree(
 }
 
 methods!(
-    "git.status" read => status::git_status { repo: String },
-    "git.discoverRepos" read => status::git_discover_repos { root: String },
-    "git.projectRepo" read, core => project_repo { project: String },
-    "git.overview" read => log::git_overview { repo: String },
-    "git.log" read => log::git_log { repo: String },
-    "git.commitsNaming" read => log::git_commits_naming { repo: String, key: String },
-    "git.diff" read => changes::git_diff { repo: String, path: String, staged: bool },
-    "git.stage" => changes::git_stage { repo: String, path: String },
-    "git.unstage" => changes::git_unstage { repo: String, path: String },
-    "git.stagePaths" => changes::git_stage_paths { repo: String, paths: Vec<String> },
-    "git.unstagePaths" => changes::git_unstage_paths { repo: String, paths: Vec<String> },
-    "git.stageAll" => changes::git_stage_all { repo: String },
-    "git.unstageAll" => changes::git_unstage_all { repo: String },
-    "git.discardFiles" => changes::git_discard_files { repo: String, paths: Vec<String>, mode: String },
-    "git.branches" read => branches::git_branches { repo: String },
-    "git.checkout" => branches::git_checkout { repo: String, branch: String },
-    "git.checkoutSmart" => branches::git_checkout_smart { repo: String, branch: String },
-    "git.branchCreate" => branches::git_branch_create { repo: String, name: String, start_point: Option<String> },
-    "git.branchDelete" => branches::git_branch_delete { repo: String, name: String, force: bool },
-    "git.branchRename" => branches::git_branch_rename { repo: String, old_name: String, new_name: String },
-    "git.merge" => branches::git_merge { repo: String, branch: String },
-    "git.mergeSquash" => branches::git_merge_squash { repo: String, branch: String },
-    "git.reset" => branches::git_reset { repo: String, rev: String, mode: String },
-    "git.revert" => branches::git_revert { repo: String, rev: String },
-    "git.worktrees" read => worktree::git_worktree_list { repo: String },
-    "git.worktreeCreate" => worktree::git_worktree_create { repo: String, path: String, branch: String, create_branch: bool, start_point: Option<String> },
-    "git.worktreeRemove", core => remove_worktree { repo: String, path: String, force: bool },
-    "git.show" read => revisions::git_show { repo: String, rev: String },
-    "git.fileAt" read => revisions::git_file_at { repo: String, rev: String, path: String },
-    "git.fileDiff" read => revisions::git_file_diff { repo: String, path: String, base_rev: String, head_rev: Option<String>, full: bool },
-    "git.commitFiles" read => revisions::git_commit_files { repo: String, rev: String },
-    "git.compare" read => revisions::git_compare { repo: String, base: String, head: String },
-    "git.blame" read => blame::git_blame { repo: String, path: String, contents: Option<String> },
-    "git.push" => commit::git_push { repo: String },
-    "git.pull" => commit::git_pull { repo: String },
-    "git.aiMessage" => ai::git_ai_message { repo: String, provider: Option<String>, model: Option<String> },
-    "git.stashList" read => stash::git_stash_list { repo: String },
-    "git.stashPush" => stash::git_stash_push { repo: String, message: Option<String>, mode: String },
-    "git.stashApply" => stash::git_stash_apply { repo: String, refname: String, sha: String },
-    "git.stashPop" => stash::git_stash_pop { repo: String, refname: String, sha: String },
-    "git.stashDrop" => stash::git_stash_drop { repo: String, refname: String, sha: String },
-    "git.stashBranch" => stash::git_stash_branch { repo: String, refname: String, sha: String, name: String },
-    "git.stashRename" => stash::git_stash_rename { repo: String, refname: String, sha: String, new_message: String },
-    "git.remotes" read => remote::git_remotes { repo: String },
-    "git.remoteAdd" => remote::git_remote_add { repo: String, name: String, url: String },
-    "git.remoteRemove" => remote::git_remote_remove { repo: String, name: String },
-    "git.remoteRename" => remote::git_remote_rename { repo: String, old_name: String, new_name: String },
-    "git.remoteSetUrl" => remote::git_remote_set_url { repo: String, name: String, url: String },
-    "git.fetch" => remote::git_fetch { repo: String, remote: Option<String> },
-    "git.fetchRef" => remote::git_fetch_ref { repo: String, remote: String, source: String, branch: String },
-    "git.remoteBranches" read => remote::git_remote_branches { repo: String, remote: String },
-    "git.checkoutRemoteBranch" => remote::git_checkout_remote_branch { repo: String, remote: String, branch: String, local_name: Option<String> },
-    "git.deleteRemoteBranch" => remote::git_delete_remote_branch { repo: String, remote: String, branch: String },
-    "git.setUpstream" => remote::git_set_upstream { repo: String, branch: String, upstream: Option<String> },
+    "git.status" Watch, any_program => status::git_status { repo: String },
+    "git.discoverRepos" Watch, any_program => status::git_discover_repos { root: String },
+    "git.projectRepo" Watch, any_program; core => project_repo { project: String },
+    "git.overview" Watch, any_program => log::git_overview { repo: String },
+    "git.log" Watch, any_program => log::git_log { repo: String },
+    "git.commitsNaming" Watch, any_program => log::git_commits_naming { repo: String, key: String },
+    "git.diff" Watch, any_program => changes::git_diff { repo: String, path: String, staged: bool },
+    "git.stage" Full => changes::git_stage { repo: String, path: String },
+    "git.unstage" Full => changes::git_unstage { repo: String, path: String },
+    "git.stagePaths" Full, counted => changes::git_stage_paths { repo: String, paths: Vec<String> },
+    "git.unstagePaths" Full => changes::git_unstage_paths { repo: String, paths: Vec<String> },
+    "git.stageAll" Full => changes::git_stage_all { repo: String },
+    "git.unstageAll" Full => changes::git_unstage_all { repo: String },
+    "git.discardFiles" Full, counted => changes::git_discard_files { repo: String, paths: Vec<String>, mode: String },
+    "git.branches" Watch, any_program => branches::git_branches { repo: String },
+    "git.checkout" Full => branches::git_checkout { repo: String, branch: String },
+    "git.checkoutSmart" Full, counted => branches::git_checkout_smart { repo: String, branch: String },
+    "git.branchCreate" Full, counted => branches::git_branch_create { repo: String, name: String, start_point: Option<String> },
+    "git.branchDelete" Full => branches::git_branch_delete { repo: String, name: String, force: bool },
+    "git.branchRename" Full => branches::git_branch_rename { repo: String, old_name: String, new_name: String },
+    "git.merge" Full, counted => branches::git_merge { repo: String, branch: String },
+    "git.mergeSquash" Full => branches::git_merge_squash { repo: String, branch: String },
+    "git.reset" Full => branches::git_reset { repo: String, rev: String, mode: String },
+    "git.revert" Full => branches::git_revert { repo: String, rev: String },
+    "git.worktrees" Watch, any_program => worktree::git_worktree_list { repo: String },
+    "git.worktreeCreate" Full => worktree::git_worktree_create { repo: String, path: String, branch: String, create_branch: bool, start_point: Option<String> },
+    "git.worktreeRemove" Full; core => remove_worktree { repo: String, path: String, force: bool },
+    "git.show" Watch, any_program => revisions::git_show { repo: String, rev: String },
+    "git.fileAt" Watch, any_program => revisions::git_file_at { repo: String, rev: String, path: String },
+    "git.fileDiff" Watch, any_program => revisions::git_file_diff { repo: String, path: String, base_rev: String, head_rev: Option<String>, full: bool },
+    "git.commitFiles" Watch, any_program => revisions::git_commit_files { repo: String, rev: String },
+    "git.compare" Watch, any_program, counted => revisions::git_compare { repo: String, base: String, head: String },
+    "git.blame" Watch, any_program, counted => blame::git_blame { repo: String, path: String, contents: Option<String> },
+    "git.push" Owner, counted => commit::git_push { repo: String },
+    "git.pull" Full, counted => commit::git_pull { repo: String },
+    "git.aiMessage" Full, counted => ai::git_ai_message { repo: String, provider: Option<String>, model: Option<String> },
+    "git.stashList" Watch, any_program => stash::git_stash_list { repo: String },
+    "git.stashPush" Full, counted => stash::git_stash_push { repo: String, message: Option<String>, mode: String },
+    "git.stashApply" Full => stash::git_stash_apply { repo: String, refname: String, sha: String },
+    "git.stashPop" Full => stash::git_stash_pop { repo: String, refname: String, sha: String },
+    "git.stashDrop" Full => stash::git_stash_drop { repo: String, refname: String, sha: String },
+    "git.stashBranch" Full => stash::git_stash_branch { repo: String, refname: String, sha: String, name: String },
+    "git.stashRename" Full => stash::git_stash_rename { repo: String, refname: String, sha: String, new_message: String },
+    "git.remotes" Watch, any_program => remote::git_remotes { repo: String },
+    "git.remoteAdd" Full => remote::git_remote_add { repo: String, name: String, url: String },
+    "git.remoteRemove" Full => remote::git_remote_remove { repo: String, name: String },
+    "git.remoteRename" Full => remote::git_remote_rename { repo: String, old_name: String, new_name: String },
+    "git.remoteSetUrl" Full => remote::git_remote_set_url { repo: String, name: String, url: String },
+    "git.fetch" Full => remote::git_fetch { repo: String, remote: Option<String> },
+    "git.fetchRef" Full => remote::git_fetch_ref { repo: String, remote: String, source: String, branch: String },
+    "git.remoteBranches" Watch, any_program => remote::git_remote_branches { repo: String, remote: String },
+    "git.checkoutRemoteBranch" Full => remote::git_checkout_remote_branch { repo: String, remote: String, branch: String, local_name: Option<String> },
+    "git.deleteRemoteBranch" Full => remote::git_delete_remote_branch { repo: String, remote: String, branch: String },
+    "git.setUpstream" Full => remote::git_set_upstream { repo: String, branch: String, upstream: Option<String> },
 );
 
 /// Whether `asked` lies inside one of the projects, or is a worktree of one

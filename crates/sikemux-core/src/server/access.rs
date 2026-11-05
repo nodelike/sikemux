@@ -32,8 +32,10 @@ pub(crate) enum Peer {
 pub(crate) enum Needs {
     Watch,
     Full,
-    Person,
-    Local,
+    /// Full control, and joined through this host's own account.
+    Owner,
+    /// Not for any paired device: only programs on this host.
+    NoDevice,
 }
 
 /// What a paired device may do now.
@@ -63,18 +65,21 @@ pub(crate) struct Setup {
     pub app_signed: bool,
 }
 
-/// Who may send a request: what a paired device needs for it, and whether
-/// only Sikemux's own window or notch may send it from this host.
+/// Who may send a request: what a paired device needs for it, and which programs on this
+/// host may send it.
 pub(crate) struct Rule {
     pub needs: Needs,
-    person: Person,
+    program: Program,
 }
 
-enum Person {
+/// Which programs on this host may send a request.
+#[derive(Clone, Copy)]
+pub(crate) enum Program {
     Anyone,
-    AppOnly,
+    /// Only Sikemux's own window or notch.
+    App,
     /// Only the app once this host is set up as far as the check asks.
-    AppOnlyWhen(fn(Setup) -> bool),
+    AppWhen(fn(Setup) -> bool),
 }
 
 /// The rule for `request`. A host with no window is set up from a terminal,
@@ -82,24 +87,21 @@ enum Person {
 /// owns it, `logout`, and `pair` until its first device is in. A host signed in
 /// once stays its account's until the app, root or the account moves it.
 pub(crate) fn rule(request: &Request) -> Rule {
-    let (needs, person) = match request {
-        Request::Call(ask::Call { method, .. }) => (
-            super::calls::needs(method),
-            match super::calls::for_person(method) {
-                true => Person::AppOnly,
-                false => Person::Anyone,
-            },
-        ),
+    let (needs, program) = match request {
+        Request::Call(ask::Call { method, .. }) => {
+            let row = super::calls::row(method);
+            (row.needs, row.program)
+        }
         Request::SetOwner(ask::SetOwner { owner: None }) => {
-            (Needs::Local, Person::AppOnlyWhen(|setup| setup.app_signed))
+            (Needs::NoDevice, Program::AppWhen(|setup| setup.app_signed))
         }
         Request::SetOwner(ask::SetOwner { owner: Some(_) }) | Request::SignRegistration(_) => (
-            Needs::Local,
-            Person::AppOnlyWhen(|setup| setup.app_signed || setup.signed_in),
+            Needs::NoDevice,
+            Program::AppWhen(|setup| setup.app_signed || setup.signed_in),
         ),
         Request::AnswerPairing(_) => (
-            Needs::Local,
-            Person::AppOnlyWhen(|setup| setup.app_signed || setup.paired),
+            Needs::NoDevice,
+            Program::AppWhen(|setup| setup.app_signed || setup.paired),
         ),
         Request::List
         | Request::Attach(_)
@@ -120,9 +122,9 @@ pub(crate) fn rule(request: &Request) -> Rule {
         | Request::SetForeground(_)
         | Request::Workspace
         | Request::Attentions
-        | Request::Host => (Needs::Watch, Person::Anyone),
-        Request::AcpWake(_) | Request::AcpPermissionReply(_) => (Needs::Watch, Person::AppOnly),
-        Request::ShellAtPrompt(_) => (Needs::Full, Person::Anyone),
+        | Request::Host => (Needs::Watch, Program::Anyone),
+        Request::AcpWake(_) | Request::AcpPermissionReply(_) => (Needs::Watch, Program::App),
+        Request::ShellAtPrompt(_) => (Needs::Full, Program::Anyone),
         Request::Spawn(_)
         | Request::Resize(_)
         | Request::Kill(_)
@@ -141,13 +143,13 @@ pub(crate) fn rule(request: &Request) -> Rule {
         | Request::AcpSetConfig(_)
         | Request::StartChat(_)
         | Request::ResumeChat(_)
-        | Request::AcpSwitchAccount(_) => (Needs::Full, Person::AppOnly),
+        | Request::AcpSwitchAccount(_) => (Needs::Full, Program::App),
         Request::ListManifests
         | Request::ExplainAgentDetection(_)
         | Request::StopAll
         | Request::Shutdown(_)
         | Request::RemoteStatus
-        | Request::WatchView => (Needs::Local, Person::Anyone),
+        | Request::WatchView => (Needs::NoDevice, Program::Anyone),
         Request::Configure(_)
         | Request::ReloadManifests
         | Request::RegisterWindow
@@ -158,18 +160,18 @@ pub(crate) fn rule(request: &Request) -> Rule {
         | Request::AllowDevices(_)
         | Request::PublishOnScreen(_)
         | Request::FocusAgent(_)
-        | Request::PublishBackdrop(_) => (Needs::Local, Person::AppOnly),
+        | Request::PublishBackdrop(_) => (Needs::NoDevice, Program::App),
     };
-    Rule { needs, person }
+    Rule { needs, program }
 }
 
 impl Rule {
     /// Whether only the app may send the request from this host, set up as `setup` says.
-    pub(crate) fn for_person(&self, setup: Setup) -> bool {
-        match self.person {
-            Person::Anyone => false,
-            Person::AppOnly => true,
-            Person::AppOnlyWhen(set_up) => set_up(setup),
+    pub(crate) fn only_the_app(&self, setup: Setup) -> bool {
+        match self.program {
+            Program::Anyone => false,
+            Program::App => true,
+            Program::AppWhen(set_up) => set_up(setup),
         }
     }
 }
@@ -200,10 +202,8 @@ pub(crate) fn permit(peer: &Peer, standing: Option<Standing>, needs: Needs) -> C
         return Err(CoreError::from(UNPAIRED));
     };
     match needs {
-        Needs::Local => Err(CoreError::from(LOCAL_ONLY)),
-        Needs::Person if !owners || access != DeviceAccess::Full => {
-            Err(CoreError::from(OWNER_ONLY))
-        }
+        Needs::NoDevice => Err(CoreError::from(LOCAL_ONLY)),
+        Needs::Owner if !owners || access != DeviceAccess::Full => Err(CoreError::from(OWNER_ONLY)),
         Needs::Full if access == DeviceAccess::Watch => Err(CoreError::from(WATCH_ONLY)),
         _ => Ok(()),
     }

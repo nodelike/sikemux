@@ -7,6 +7,8 @@ mod features;
 mod pricing;
 mod report;
 
+pub(crate) use features::Counted;
+
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};

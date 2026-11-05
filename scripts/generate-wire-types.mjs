@@ -887,7 +887,7 @@ function coreCalls() {
   const text = texts[SOURCES.indexOf(file)];
   return [
     ...text.matchAll(
-      /^\s*"([\w.]+)"\s*\w+\s*\((.*?)\)\s*->\s*(.+?):\s*[A-Z]\w*(?:,\s*any_program)?\s*=>/gm,
+      /^\s*"([\w.]+)"\s*\w+\s*\((.*?)\)\s*->\s*(.+?):\s*[A-Z]\w*(?:,\s*\w+(?:\([^)]*\))?)*\s*=>/gm,
     ),
   ].map(([, method, takes, gives]) => ({
     method,

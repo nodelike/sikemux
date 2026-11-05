@@ -854,7 +854,7 @@ fn answers_pairing(core: &Core, phone: &str) -> bool {
     let peer = Peer::Device {
         id: phone.to_owned(),
     };
-    access::permit(&peer, core.remote.standing_of(phone), Needs::Person).is_ok()
+    access::permit(&peer, core.remote.standing_of(phone), Needs::Owner).is_ok()
 }
 
 /// The phone has this agent open on screen, so it already sees it.

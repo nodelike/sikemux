@@ -504,7 +504,7 @@ async fn run_requests(
             client.respond(request_id, Err(refused));
             continue;
         }
-        if client.peer == Peer::Local && rule.for_person(core.remote.setup()) {
+        if client.peer == Peer::Local && rule.only_the_app(core.remote.setup()) {
             client.respond(request_id, Err(access::APP_ONLY.into()));
             continue;
         }
@@ -909,7 +909,12 @@ async fn run_requests(
                 }
             }
             Request::Call(ask::Call { method, params }) => {
-                core.activity_log.call_used(&method, &params, &client.peer);
+                core.activity_log.call_used(
+                    calls::row(&method).counted,
+                    &method,
+                    &params,
+                    &client.peer,
+                );
                 let device = client.peer.device_id();
                 tokio::spawn(super::layout::asked_by(device, async move {
                     let result = calls::call(core, &client, &method, params).await;

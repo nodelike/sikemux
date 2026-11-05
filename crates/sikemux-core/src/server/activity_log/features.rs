@@ -1,7 +1,7 @@
 //! Which features were used each UTC day, for the usage report: the core's
-//! calls and the window's commands that do something, never those that only
-//! read or watch. Each counts by name, with who asked: the app, a program on
-//! this host such as an agent's tools or the CLI, or a paired device.
+//! calls whose row says so and the window's commands. Each counts by name, with
+//! who asked: the app, a program on this host such as an agent's tools or the
+//! CLI, or a paired device.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,76 +16,6 @@ use super::super::access::Peer;
 use super::{in_background, ActivityLog, DAY_MS};
 
 const WRITE_EVERY: Duration = Duration::from_secs(10 * 60);
-
-const CALLS: &[&str] = &[
-    "startChat",
-    "startTerminalAgent",
-    "createAgent",
-    "resumeSession",
-    "steerQueued",
-    "editMessage",
-    "chatFind",
-    "sleepAgent",
-    "renameAgent",
-    "moveAgentToProject",
-    "createAgentWorktree",
-    "agentReview",
-    "removeAgentWorktree",
-    "answerQuestion",
-    "answerQuestions",
-    "sendSession",
-    "shareChat",
-    "pinChat",
-    "setSpaces",
-    "splitPane",
-    "separatePane",
-    "duplicateTab",
-    "addAgentAccount",
-    "selectAgentAccount",
-    "setAccountAutoSwitch",
-    "agentSignIn",
-    "modelProviderConnect",
-    "createSkill",
-    "installSkill",
-    "adoptSkill",
-    "boardAdd",
-    "boardAddTicket",
-    "boardUpdate",
-    "commitStaged",
-    "commitLines",
-    "git.commit",
-    "git.aiMessage",
-    "git.push",
-    "git.pull",
-    "git.branchCreate",
-    "git.checkoutSmart",
-    "git.stashPush",
-    "git.blame",
-    "git.merge",
-    "git.compare",
-    "git.stagePaths",
-    "git.discardFiles",
-    "searchStream",
-    "searchReplace",
-    "lsp.locations",
-    "taskStart",
-    "taskRerunFailed",
-    "startPreview",
-    "runCustomCommand",
-    "openSshTerminal",
-    "linkHost",
-    "openOnHost",
-    "answerPairing",
-    "stashPrompt",
-    "stashFile",
-    "stashPicture",
-    "attachStash",
-    "themeFromPixels",
-    "setFaceStyle",
-    "setAgentNameTheme",
-    "updateInstall",
-    "installCli",
-];
 
 /// The window's commands that never reach the core as a call of their own.
 const COMMANDS: &[&str] = &[
@@ -109,13 +39,22 @@ const COMMANDS: &[&str] = &[
     "text.sizeIncrease",
 ];
 
+/// Whether a call's use goes in the report, and under what name.
+#[derive(Clone, Copy)]
+pub(crate) enum Counted {
+    No,
+    Yes,
+    /// Under the name the call's params give in this field, as a plugin's.
+    ByField(&'static str),
+}
+
 #[derive(Default)]
 pub(super) struct Uses {
     counts: HashMap<(i64, String, &'static str), i64>,
     written: Option<Instant>,
 }
 
-/// A plugin's own name, as the plugins compiled in are named.
+/// A name a counted call's params may give, as the plugins compiled in are named.
 fn plain(name: &str) -> bool {
     name.len() <= 32
         && name
@@ -124,19 +63,26 @@ fn plain(name: &str) -> bool {
 }
 
 impl ActivityLog {
-    pub(crate) fn call_used(self: &Arc<Self>, method: &str, params: &Value, peer: &Peer) {
+    pub(crate) fn call_used(
+        self: &Arc<Self>,
+        counted: Counted,
+        method: &str,
+        params: &Value,
+        peer: &Peer,
+    ) {
         let via = match peer {
             Peer::App => "app",
             Peer::Local => "local",
             Peer::Device { .. } => "device",
             Peer::Share { .. } => return,
         };
-        let feature = match method {
-            "plugin" => params["plugin"]
+        let feature = match counted {
+            Counted::No => None,
+            Counted::Yes => Some(method.to_owned()),
+            Counted::ByField(field) => params[field]
                 .as_str()
                 .filter(|name| plain(name))
-                .map(|name| format!("plugin.{name}")),
-            method => CALLS.contains(&method).then(|| method.to_owned()),
+                .map(|name| format!("{field}.{name}")),
         };
         if let Some(feature) = feature {
             self.used(feature, via);
