@@ -1,4 +1,3 @@
-import type { ThemeRegistration } from "shiki/core";
 import type { Theme } from "../wire.generated";
 
 /* The palette every surface Shiki colours reads from: the diff panes and the
@@ -27,7 +26,18 @@ export function codeThemeName(theme: Theme): string {
     return `sikemux-${theme.id.replace(/[^a-z0-9_-]/gi, "-")}-${hash(JSON.stringify(theme))}`;
 }
 
-export function createCodeTheme(theme: Theme, name: string): ThemeRegistration {
+/** What Shiki takes as a theme, without this folder depending on Shiki. */
+export type CodeTheme = {
+    name: string;
+    type: "dark" | "light";
+    colors: Record<string, string>;
+    tokenColors: {
+        scope: string[];
+        settings: { foreground: string; fontStyle?: string };
+    }[];
+};
+
+export function createCodeTheme(theme: Theme, name: string): CodeTheme {
     const h = theme.highlight;
     return {
         name,
