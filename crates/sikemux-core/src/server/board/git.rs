@@ -28,6 +28,7 @@ pub(super) fn commit_all(
     if !output.status.success() {
         return Err(format!("git commit failed: {}", said(&output)));
     }
+    super::chat_goal::committed(core, agent);
     Ok(true)
 }
 

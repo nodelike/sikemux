@@ -202,6 +202,8 @@ pub const PLUGINS_CHANGED_METHOD: &str = "plugins.changed";
 pub const TOOLS_MANIFEST_METHOD: &str = "tools.manifest";
 /// What the git shim asks for to end an agent's commit, not a tool.
 pub const COMMIT_FOOTER_METHOD: &str = "git.footer";
+/// What an agent's own commit tells the core once git has made it, not a tool.
+pub const COMMIT_MADE_METHOD: &str = "git.made";
 /// What the git shim asks before a command that could take in or throw away
 /// other agents' work, not a tool.
 pub const GIT_GUARD_METHOD: &str = "git.guard";
@@ -263,6 +265,7 @@ pub fn validate_harness(request: &HarnessRequest) -> Result<(), String> {
         && request.method != PLUGINS_CHANGED_METHOD
         && request.method != TOOLS_MANIFEST_METHOD
         && request.method != COMMIT_FOOTER_METHOD
+        && request.method != COMMIT_MADE_METHOD
         && request.method != GIT_GUARD_METHOD
         && request.method != SHIP_CHECK_METHOD
         && request.method != SHIP_RAN_METHOD

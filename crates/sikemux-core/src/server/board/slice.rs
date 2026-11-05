@@ -2203,6 +2203,9 @@ fn lost(core: &Arc<Core>, project: &str) {
 
 /// Moves the slices `event` is about, and the cards they finish.
 fn heard(core: &Arc<Core>, event: RepoEvent) {
+    if let RepoEvent::Committed { agent, .. } = &event {
+        super::chat_goal::committed(core, agent);
+    }
     let from = match &event {
         RepoEvent::Committed { project, sha, .. } => Git::quick(Path::new(project))
             .trimmed(&["rev-parse", &format!("{sha}^")])

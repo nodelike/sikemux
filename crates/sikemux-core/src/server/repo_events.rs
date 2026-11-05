@@ -2,11 +2,14 @@
 //! lands and checks them, for the board to follow in the order it happened.
 
 use std::collections::{BTreeSet, VecDeque};
+use std::path::Path;
 use std::sync::Mutex;
 
 use sikemux_process::sync::Locked;
 use sikemux_view::slice::{CheckRun, Verdict};
 use tokio::sync::Notify;
+
+use super::Core;
 
 /// Told events the board has not read yet, past which the oldest go.
 const MAX_WAITING: usize = 256;
@@ -45,6 +48,37 @@ pub(crate) enum RepoEvent {
         verdict: Option<Verdict>,
         output: String,
     },
+}
+
+/// A commit an agent made, which exists now.
+pub(crate) struct CommitMade<'a> {
+    pub agent: &'a str,
+    /// The top of the checkout it was made in.
+    pub top: &'a Path,
+    pub sha: &'a str,
+    /// The files it changed, from the top of the checkout.
+    pub paths: &'a [String],
+    pub message: &'a str,
+}
+
+/// The one event a commit is, however it was made: the board hears of it in order with the rest
+/// of the project's events, and what else follows from it follows from here.
+pub(crate) fn commit_made(core: &Core, made: CommitMade<'_>) {
+    let (project, on_branch) = core.workspaces.project_checkout(made.top);
+    core.repo_events.tell(RepoEvent::Committed {
+        project,
+        agent: made.agent.to_owned(),
+        sha: made.sha.to_owned(),
+        on_branch,
+    });
+    core.collisions.committed(
+        core,
+        made.agent,
+        made.top,
+        made.paths,
+        made.sha,
+        made.message,
+    );
 }
 
 impl RepoEvent {

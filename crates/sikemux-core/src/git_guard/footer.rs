@@ -177,7 +177,9 @@ prepare-commit-msg|commit-msg)
 	if [ -f "$hook" ] && [ -x "$hook" ]; then "$hook" "$@" || exit; fi
 	if [ "$name" = commit-msg ] && grep -q '^Agent-Signature: ' "$1"; then exit 0; fi
 	SIKEMUX_NOTE_FILE=$note exec '{footer}' "$name" "$@" ;;
-post-commit|post-merge|post-rewrite)
+post-commit)
+	SIKEMUX_NOTE_FILE=$note '{footer}' "$name" "$@" </dev/null ;;
+post-merge|post-rewrite)
 	if [ -n "$note" ] && [ -f "$note" ]; then SIKEMUX_NOTE_FILE=$note '{footer}' "$name" "$@" </dev/null; fi ;;
 esac
 [ -x "$hook" ] || exit 0
@@ -199,6 +201,9 @@ pub(super) fn run(args: Vec<OsString>) -> i32 {
         [hook, ..] if hook == "post-commit" || hook == "post-merge" => {
             if std::env::var_os(AMEND).is_none() {
                 note_file.as_deref().map(put_note);
+                if hook == "post-commit" {
+                    tell_made();
+                }
             }
         }
         [hook, kind, ..] if hook == "post-rewrite" && kind == "amend" => {
@@ -319,6 +324,21 @@ struct Answer {
 pub(super) fn endpoint() -> Option<PathBuf> {
     sikemux_process::paths::handed_cli_endpoint()
         .or_else(crate::cli::endpoint::default_endpoint_path)
+}
+
+/// Tells the core the commit exists now, which it hears of for an agent's commit alone.
+fn tell_made() {
+    let (Some(endpoint), Ok(top)) = (endpoint(), std::env::current_dir()) else {
+        return;
+    };
+    let _ = crate::cli::client::attempt(
+        &endpoint,
+        &top.to_string_lossy(),
+        None,
+        crate::cli::protocol::COMMIT_MADE_METHOD,
+        &json!({}),
+        ANSWER_WAIT,
+    );
 }
 
 fn ask() -> Option<Answer> {

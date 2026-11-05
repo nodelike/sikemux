@@ -17,6 +17,7 @@ use super::owners::{git, latest, run, staged_in, Author};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::callers::{self, CommitGrant};
 use crate::server::connection::blocking;
+use crate::server::repo_events::CommitMade;
 use crate::server::saved;
 use crate::server::Core;
 use crate::trailers::{self, Agent, Commit, PendingNote};
@@ -46,9 +47,6 @@ fn footer(
     index: Option<&Path>,
     amend: bool,
 ) -> Result<(Vec<String>, Option<PendingNote>), String> {
-    if let Some(committer) = fallback.filter(|_| !amend) {
-        crate::server::board::chat_goal::committed(core, committer);
-    }
     let (staged, (tree, parents)) = std::thread::scope(|scope| {
         let made_of = scope.spawn(|| made_of(dir, index, amend));
         let staged = staged_in(core, dir, index, amend);
@@ -330,4 +328,41 @@ pub(crate) fn commit(
         callers::end_commit(pid);
     }
     output.map_err(|error| format!("git did not run: {error}"))
+}
+
+/// An agent's own `git commit` made `HEAD`, as its hook says.
+pub(crate) async fn made(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
+    let agent = (request.agent_id.clone()).ok_or("only an agent's commits are told")?;
+    let (core, dir) = (core.clone(), PathBuf::from(&request.project));
+    blocking(move || {
+        let top = git(&dir, &["rev-parse", "--show-toplevel"])?;
+        let top = Path::new(top.trim());
+        let head = git(top, &["log", "-1", "--format=%H%x00%B"])?;
+        let (sha, message) = head.split_once('\0').ok_or("git read no commit")?;
+        let paths = git(
+            top,
+            &[
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                "--root",
+                "HEAD",
+            ],
+        )?;
+        let paths: Vec<String> = paths.lines().map(str::to_owned).collect();
+        crate::server::repo_events::commit_made(
+            &core,
+            CommitMade {
+                agent: &agent,
+                top,
+                sha,
+                paths: &paths,
+                message,
+            },
+        );
+        Ok(Value::Null)
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
