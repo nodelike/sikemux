@@ -1457,19 +1457,19 @@ async function emit(path, contents) {
 
 // A gate's id in the core's gate table is the name the wire gives it.
 const gateTable = await readFile(
-  resolve(root, `${CORE}/server/board/slice.rs`),
+  resolve(root, `${CORE}/server/board/slice/ladder.rs`),
   "utf8",
 );
 const gateKeys = [
   ...gateTable.matchAll(/Gate::(\w+)\) => Rule \{[^}]*?key: "(\w+)"/gu),
 ];
 if (gateKeys.length === 0)
-  fail("the gate table in board/slice.rs names no gate's key");
+  fail("the gate table in board/slice/ladder.rs names no gate's key");
 for (const [, variant, key] of gateKeys) {
   const wire = variant[0].toLowerCase() + variant.slice(1);
   if (key !== wire)
     fail(
-      `the gate table in board/slice.rs gives Gate::${variant} the id "${key}", but the wire calls it "${wire}"`,
+      `the gate table in board/slice/ladder.rs gives Gate::${variant} the id "${key}", but the wire calls it "${wire}"`,
     );
 }
 
