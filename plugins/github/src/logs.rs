@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::{ExcerptQuery, JobRef};
 use sikemux_plugin_api::codehost::{JobLog, LogExcerpt, LogLine};
 use sikemux_plugin_api::http::{Read, MAX_ANSWER};
@@ -88,34 +89,10 @@ pub async fn job(data_dir: &Path, input: JobRef) -> GithubResult<JobLog> {
     }
 }
 
-const DEFAULT_TAIL: usize = 200;
-const MAX_TAIL: usize = 2000;
-
 /// The end of a job's log, optionally only the lines that mention something.
 pub async fn excerpt(data_dir: &Path, input: ExcerptQuery) -> GithubResult<LogExcerpt> {
     let whole = job(data_dir, input.job).await?;
-    let needle = input
-        .grep
-        .map(|grep| grep.to_lowercase())
-        .filter(|grep| !grep.is_empty());
-    let mut lines: Vec<LogLine> = whole
-        .lines
-        .into_iter()
-        .filter(|line| {
-            needle
-                .as_deref()
-                .is_none_or(|needle| line.text.to_lowercase().contains(needle))
-        })
-        .collect();
-    let tail = input.tail.unwrap_or(DEFAULT_TAIL).clamp(1, MAX_TAIL);
-    let cut = lines.len() > tail;
-    if cut {
-        lines.drain(..lines.len() - tail);
-    }
-    Ok(LogExcerpt {
-        lines,
-        truncated: cut || whole.truncated,
-    })
+    Ok(answers::log_excerpt(whole, input.grep, input.tail))
 }
 
 /// GitHub answers "not found" for a log that aged out, for one a job has not

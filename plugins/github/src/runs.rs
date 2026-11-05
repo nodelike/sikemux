@@ -9,6 +9,7 @@ use std::sync::{LazyLock, Mutex};
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::json;
+use sikemux_plugin_api::codehost::asks::numeric;
 use sikemux_plugin_api::codehost::asks::{AttemptRef, JobRef, Rerun, RerunJob, RunQuery, RunRef};
 use sikemux_plugin_api::codehost::{
     Billable, Job, Outcome, Run, RunDetail, RunPage, RunTiming, Step,
@@ -19,7 +20,7 @@ use sikemux_plugin_api::account::chosen;
 use crate::client;
 use crate::common::LIST_PAGES;
 use crate::error::{GithubError, GithubResult};
-use crate::repo::{number, RepoPath};
+use crate::repo::RepoPath;
 
 /// Runs whose last read is kept, so reading one again while it is unchanged
 /// costs nothing against the rate limit.
@@ -143,12 +144,12 @@ fn known_status(value: &str) -> bool {
 }
 
 pub fn run_path(run: &RunRef, rest: &str) -> GithubResult<String> {
-    let id = number(&run.run_id)?;
+    let id = numeric(&run.run_id)?;
     run.repo.path(&format!("/actions/runs/{id}{rest}"))
 }
 
 pub fn job_path(job: &JobRef, rest: &str) -> GithubResult<String> {
-    let id = number(&job.job_id)?;
+    let id = numeric(&job.job_id)?;
     job.repo.path(&format!("/actions/jobs/{id}{rest}"))
 }
 
@@ -156,7 +157,7 @@ pub fn job_path(job: &JobRef, rest: &str) -> GithubResult<String> {
 /// interchangeably; `head_sha` keeps only one commit's runs, which is how a pull
 /// request's checks are found.
 pub async fn list(data_dir: &Path, input: RunQuery) -> GithubResult<RunPage> {
-    let workflow_id = input.workflow_id.as_deref().map(number).transpose()?;
+    let workflow_id = input.workflow_id.as_deref().map(numeric).transpose()?;
     let per_page = input
         .per_page
         .unwrap_or(DEFAULT_PER_PAGE)

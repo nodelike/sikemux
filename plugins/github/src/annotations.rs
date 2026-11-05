@@ -5,13 +5,14 @@
 use std::path::Path;
 
 use serde::Deserialize;
+use sikemux_plugin_api::codehost::asks::numeric;
 use sikemux_plugin_api::codehost::asks::CheckRunRef;
 use sikemux_plugin_api::codehost::{Annotation, JobSummary};
 
 use crate::client;
 use crate::common::LIST_PAGES;
 use crate::error::GithubResult;
-use crate::repo::{number, RepoPath};
+use crate::repo::RepoPath;
 
 #[derive(Deserialize)]
 struct AnnotationRow {
@@ -40,7 +41,7 @@ impl From<AnnotationRow> for Annotation {
 }
 
 fn check_run_path(input: &CheckRunRef, rest: &str) -> GithubResult<String> {
-    let id = number(&input.check_run_id)?;
+    let id = numeric(&input.check_run_id)?;
     input.repo.path(&format!("/check-runs/{id}{rest}"))
 }
 

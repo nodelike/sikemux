@@ -7,6 +7,7 @@ use std::path::Path;
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::{
     Dispatch, ExcerptQuery, JobRef, RepoRef, Rerun, RunQuery, RunRef, WorkflowRef,
 };
@@ -389,34 +390,10 @@ fn lines_of(text: &str, truncated: bool) -> Vec<LogLine> {
         .collect()
 }
 
-const DEFAULT_TAIL: usize = 200;
-const MAX_TAIL: usize = 2000;
-
 /// The end of a step's log for an agent, optionally only the lines that mention something.
 pub async fn excerpt(data_dir: &Path, input: ExcerptQuery) -> BitbucketResult<LogExcerpt> {
     let whole = log(data_dir, input.job).await?;
-    let needle = input
-        .grep
-        .map(|grep| grep.to_lowercase())
-        .filter(|grep| !grep.is_empty());
-    let mut lines: Vec<LogLine> = whole
-        .lines
-        .into_iter()
-        .filter(|line| {
-            needle
-                .as_deref()
-                .is_none_or(|needle| line.text.to_lowercase().contains(needle))
-        })
-        .collect();
-    let tail = input.tail.unwrap_or(DEFAULT_TAIL).clamp(1, MAX_TAIL);
-    let cut = lines.len() > tail;
-    if cut {
-        lines.drain(..lines.len() - tail);
-    }
-    Ok(LogExcerpt {
-        lines,
-        truncated: cut || whole.truncated,
-    })
+    Ok(answers::log_excerpt(whole, input.grep, input.tail))
 }
 
 /// A step that has not started yet has no log, which reads as an empty one.

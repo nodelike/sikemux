@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use serde::Deserialize;
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::{Repo, RepoListing};
 
@@ -13,13 +14,7 @@ use crate::error::{BitbucketError, BitbucketResult};
 pub const HOST: &str = "bitbucket.org";
 
 fn valid_slug(slug: &str) -> bool {
-    !slug.is_empty()
-        && slug.len() <= 128
-        && slug != "."
-        && slug != ".."
-        && slug
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    answers::valid_name(slug, 128)
 }
 
 /// Where a repository lives on Bitbucket. Bitbucket's own word for its owner
@@ -108,27 +103,16 @@ pub fn slug(repo: &Repo) -> String {
     format!("{}/{}", repo.owner, repo.name)
 }
 
-/// The repository a git remote points at, in any of the ways a remote can be
-/// written: scp-like `git@host:ws/repo.git`, or an `https`, `ssh` or `git` URL.
+/// The repository a git remote points at.
 pub fn from_remote(remote: &str) -> Option<Repo> {
-    let remote = remote.trim();
-    let (host, path) = if let Some((_, rest)) = remote.split_once("://") {
-        let rest = rest.split_once('@').map_or(rest, |(_, after)| after);
-        let (authority, path) = rest.split_once('/')?;
-        (authority.split(':').next()?.to_string(), path.to_string())
-    } else {
-        let rest = remote.split_once('@').map_or(remote, |(_, after)| after);
-        let (host, path) = rest.split_once(':')?;
-        (host.to_string(), path.to_string())
-    };
-    let path = path.trim_end_matches('/').trim_end_matches(".git");
+    let (host, path) = answers::split_remote(remote)?;
     let mut parts = path.split('/').filter(|part| !part.is_empty());
     let (owner, name) = (parts.next()?, parts.next()?);
-    if parts.next().is_some() || host.is_empty() || !valid_slug(owner) || !valid_slug(name) {
+    if parts.next().is_some() || !valid_slug(owner) || !valid_slug(name) {
         return None;
     }
     Some(Repo {
-        host: host.to_ascii_lowercase(),
+        host,
         owner: owner.to_string(),
         name: name.to_string(),
     })

@@ -5,7 +5,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
 
-use crate::PluginError;
+use crate::ServiceError;
 
 /// An id given as a number or as text, kept as text.
 fn id_text<'de, D: Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
@@ -28,9 +28,9 @@ fn id_text_if_any<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<S
 }
 
 /// `id` as the number a host's API takes.
-pub fn numeric(id: &str) -> Result<u64, PluginError> {
+pub fn numeric<S>(id: &str) -> Result<u64, ServiceError<S>> {
     id.parse()
-        .map_err(|_| PluginError::bad_params(format!("`{id}` is not an id")))
+        .map_err(|_| ServiceError::BadArg(format!("`{id}` is not an id")))
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

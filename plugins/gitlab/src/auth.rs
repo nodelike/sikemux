@@ -6,7 +6,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::AccountQuery;
 use sikemux_plugin_api::codehost::Signed;
 use sikemux_plugin_api::http::Read;
@@ -208,15 +209,10 @@ pub async fn account_for(data_dir: &Path, input: AccountQuery) -> GitlabResult<O
                 .is_none_or(|host| config::same_server(host, &account.host))
         })
         .collect();
-    for account in &on_server {
-        let id = account.id.clone();
-        let seen: GitlabResult<serde_json::Value> =
-            as_account(Some(id.clone()), client::API.get(data_dir, &path, &[])).await;
-        match seen {
-            Ok(_) => return Ok(Some(id)),
-            Err(GitlabError::Unconfigured) => return Ok(None),
-            Err(_) => continue,
-        }
+    let ids = on_server.iter().map(|account| account.id.clone()).collect();
+    let seen = answers::first_that_sees(&client::API, data_dir, ids, &path).await?;
+    if seen.is_some() {
+        return Ok(seen);
     }
     Ok(input
         .host

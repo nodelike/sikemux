@@ -28,7 +28,7 @@ mod review;
 use std::path::Path;
 
 use serde_json::Value;
-use sikemux_plugin_api::account::as_account;
+use sikemux_plugin_api::account::{as_account, named_in};
 use sikemux_plugin_api::codehost::asks::{
     AccountQuery, Answers, CommitRef, CommitsQuery, Dispatch, ExcerptQuery, FeedbackQuery,
     FilesQuery, ImageRef, InboxQuery, IssueQuery, IssueRef, JobRef, Merge, MineQuery, NewComment,
@@ -40,6 +40,7 @@ use sikemux_plugin_api::codehost::{
     Notification, Pull, PullCommit, Release, RepoListing, Resolved, Review, ReviewFeedback,
     RunDetail, RunPage, RunTiming, TimelineItem, Workflow, WorkflowFile,
 };
+use sikemux_plugin_api::host_work;
 use sikemux_plugin_api::store;
 use sikemux_plugin_api::{
     answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
@@ -73,15 +74,6 @@ fn has_account(data_dir: &Path) -> bool {
     store::has_account::<config::BitbucketConfig>(data_dir)
 }
 
-/// Which account a call is for; with none named, the default one.
-fn account_of(input: &Value) -> Option<String> {
-    input
-        .get("account")
-        .and_then(Value::as_str)
-        .filter(|account| !account.is_empty())
-        .map(str::to_string)
-}
-
 impl Plugin for Bitbucket {
     fn call<'a>(
         &'a self,
@@ -89,7 +81,7 @@ impl Plugin for Bitbucket {
         method: &'a str,
         input: Value,
     ) -> PluginFuture<'a, Value> {
-        let account = account_of(&input);
+        let account = named_in(&input);
         Box::pin(as_account(account, dispatch(self, ctx, method, input)))
     }
 
@@ -100,7 +92,7 @@ impl Plugin for Bitbucket {
         input: Value,
         sink: StreamSink,
     ) -> PluginFuture<'a, ()> {
-        let account = account_of(&input);
+        let account = named_in(&input);
         Box::pin(as_account(account, dispatch_stream(ctx, method, sink)))
     }
 
@@ -152,158 +144,6 @@ impl CodeHost for Bitbucket {
         Box::pin(async move { Ok(resolve(ask)) })
     }
 
-    fn account_for<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: AccountQuery,
-    ) -> PluginFuture<'a, Option<String>> {
-        work(auth::account_for(dir, ask.repo))
-    }
-
-    fn my_repos<'a>(&'a self, dir: &'a Path, ask: MineQuery) -> PluginFuture<'a, Vec<RepoListing>> {
-        work(repo::mine(dir, ask.limit))
-    }
-
-    fn branches<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<String>> {
-        work(repo::branches(dir, ask))
-    }
-
-    fn image<'a>(&'a self, dir: &'a Path, ask: ImageRef) -> PluginFuture<'a, String> {
-        work(images::image(dir, ask))
-    }
-
-    fn workflows<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<Workflow>> {
-        work(pipelines::workflows(dir, ask))
-    }
-
-    fn workflow_file<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: WorkflowRef,
-    ) -> PluginFuture<'a, WorkflowFile> {
-        work(pipelines::workflow_file(dir, ask))
-    }
-
-    fn dispatch_workflow<'a>(&'a self, dir: &'a Path, ask: Dispatch) -> PluginFuture<'a, ()> {
-        work(pipelines::dispatch(dir, ask))
-    }
-
-    fn runs<'a>(&'a self, dir: &'a Path, ask: RunQuery) -> PluginFuture<'a, RunPage> {
-        work(pipelines::list(dir, ask))
-    }
-
-    fn run<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, RunDetail> {
-        work(pipelines::detail(dir, ask))
-    }
-
-    fn run_timing<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, RunTiming> {
-        work(pipelines::timing(dir, ask))
-    }
-
-    fn rerun<'a>(&'a self, dir: &'a Path, ask: Rerun) -> PluginFuture<'a, ()> {
-        work(pipelines::rerun(dir, ask))
-    }
-
-    fn cancel<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, ()> {
-        work(pipelines::cancel(dir, ask))
-    }
-
-    fn job_log<'a>(&'a self, dir: &'a Path, ask: JobRef) -> PluginFuture<'a, JobLog> {
-        work(pipelines::log(dir, ask))
-    }
-
-    fn job_log_excerpt<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: ExcerptQuery,
-    ) -> PluginFuture<'a, LogExcerpt> {
-        work(pipelines::excerpt(dir, ask))
-    }
-
-    fn pulls<'a>(&'a self, dir: &'a Path, ask: PullQuery) -> PluginFuture<'a, Vec<Pull>> {
-        work(pulls::list(dir, ask))
-    }
-
-    fn pull_files<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FilesQuery,
-    ) -> PluginFuture<'a, Vec<ChangedFile>> {
-        work(pulls::files(dir, ask))
-    }
-
-    fn pull_commits<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: PullRef,
-    ) -> PluginFuture<'a, Vec<PullCommit>> {
-        work(pulls::commits(dir, ask))
-    }
-
-    fn pull_reviews<'a>(&'a self, dir: &'a Path, ask: PullRef) -> PluginFuture<'a, Vec<Review>> {
-        work(pulls::reviews(dir, ask))
-    }
-
-    fn commit_pulls<'a>(&'a self, dir: &'a Path, ask: CommitRef) -> PluginFuture<'a, Vec<Pull>> {
-        work(pulls::of_commit(dir, ask))
-    }
-
-    fn commit_authors<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: CommitsQuery,
-    ) -> PluginFuture<'a, Vec<CommitAuthor>> {
-        work(pulls::commit_authors(dir, ask))
-    }
-
-    fn merge_pull<'a>(&'a self, dir: &'a Path, ask: Merge) -> PluginFuture<'a, ()> {
-        work(pulls::merge(dir, ask))
-    }
-
-    fn create_pull<'a>(&'a self, dir: &'a Path, ask: NewPull) -> PluginFuture<'a, Pull> {
-        work(pulls::create(dir, ask))
-    }
-
-    fn edit_pull<'a>(&'a self, dir: &'a Path, ask: PullEdit) -> PluginFuture<'a, Pull> {
-        work(pulls::edit(dir, ask))
-    }
-
-    fn set_pull_state<'a>(&'a self, dir: &'a Path, ask: SetPullState) -> PluginFuture<'a, ()> {
-        work(pulls::set_state(dir, ask))
-    }
-
-    fn review_pull<'a>(&'a self, dir: &'a Path, ask: NewReview) -> PluginFuture<'a, ()> {
-        work(pulls::review(dir, ask))
-    }
-
-    fn review_feedback<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FeedbackQuery,
-    ) -> PluginFuture<'a, Vec<ReviewFeedback>> {
-        work(review::feedback(dir, ask))
-    }
-
-    fn answer_review<'a>(&'a self, dir: &'a Path, ask: Answers) -> PluginFuture<'a, ()> {
-        work(review::answer(dir, ask))
-    }
-
-    fn issues<'a>(&'a self, dir: &'a Path, ask: IssueQuery) -> PluginFuture<'a, IssuePage> {
-        work(issues::list(dir, ask))
-    }
-
-    fn issue<'a>(&'a self, dir: &'a Path, ask: IssueRef) -> PluginFuture<'a, Issue> {
-        work(issues::get(dir, ask))
-    }
-
-    fn create_issue<'a>(&'a self, dir: &'a Path, ask: NewIssue) -> PluginFuture<'a, Issue> {
-        work(issues::create(dir, ask))
-    }
-
-    fn set_issue_state<'a>(&'a self, dir: &'a Path, ask: SetIssueState) -> PluginFuture<'a, ()> {
-        work(issues::set_state(dir, ask))
-    }
-
     /// Bitbucket numbers issues apart from pull requests, so a thread says which it is.
     fn comments<'a>(&'a self, dir: &'a Path, ask: ThreadRef) -> PluginFuture<'a, Vec<Comment>> {
         let ThreadRef { repo, number, of } = ask;
@@ -340,12 +180,40 @@ impl CodeHost for Bitbucket {
         })
     }
 
-    fn releases<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<Release>> {
-        work(issues::releases(dir, ask))
-    }
-
-    fn inbox<'a>(&'a self, dir: &'a Path, _ask: InboxQuery) -> PluginFuture<'a, Vec<Notification>> {
-        work(issues::inbox(dir))
+    host_work! {
+        inbox(dir, _ask: InboxQuery) -> Vec<Notification> = issues::inbox(dir);
+        account_for(dir, ask: AccountQuery) -> Option<String> = auth::account_for(dir, ask.repo);
+        my_repos(dir, ask: MineQuery) -> Vec<RepoListing> = repo::mine(dir, ask.limit);
+        branches(dir, ask: RepoRef) -> Vec<String> = repo::branches(dir, ask);
+        image(dir, ask: ImageRef) -> String = images::image(dir, ask);
+        workflows(dir, ask: RepoRef) -> Vec<Workflow> = pipelines::workflows(dir, ask);
+        workflow_file(dir, ask: WorkflowRef) -> WorkflowFile = pipelines::workflow_file(dir, ask);
+        dispatch_workflow(dir, ask: Dispatch) -> () = pipelines::dispatch(dir, ask);
+        runs(dir, ask: RunQuery) -> RunPage = pipelines::list(dir, ask);
+        run(dir, ask: RunRef) -> RunDetail = pipelines::detail(dir, ask);
+        run_timing(dir, ask: RunRef) -> RunTiming = pipelines::timing(dir, ask);
+        rerun(dir, ask: Rerun) -> () = pipelines::rerun(dir, ask);
+        cancel(dir, ask: RunRef) -> () = pipelines::cancel(dir, ask);
+        job_log(dir, ask: JobRef) -> JobLog = pipelines::log(dir, ask);
+        job_log_excerpt(dir, ask: ExcerptQuery) -> LogExcerpt = pipelines::excerpt(dir, ask);
+        pulls(dir, ask: PullQuery) -> Vec<Pull> = pulls::list(dir, ask);
+        pull_files(dir, ask: FilesQuery) -> Vec<ChangedFile> = pulls::files(dir, ask);
+        pull_commits(dir, ask: PullRef) -> Vec<PullCommit> = pulls::commits(dir, ask);
+        pull_reviews(dir, ask: PullRef) -> Vec<Review> = pulls::reviews(dir, ask);
+        commit_pulls(dir, ask: CommitRef) -> Vec<Pull> = pulls::of_commit(dir, ask);
+        commit_authors(dir, ask: CommitsQuery) -> Vec<CommitAuthor> = pulls::commit_authors(dir, ask);
+        merge_pull(dir, ask: Merge) -> () = pulls::merge(dir, ask);
+        create_pull(dir, ask: NewPull) -> Pull = pulls::create(dir, ask);
+        edit_pull(dir, ask: PullEdit) -> Pull = pulls::edit(dir, ask);
+        set_pull_state(dir, ask: SetPullState) -> () = pulls::set_state(dir, ask);
+        review_pull(dir, ask: NewReview) -> () = pulls::review(dir, ask);
+        review_feedback(dir, ask: FeedbackQuery) -> Vec<ReviewFeedback> = review::feedback(dir, ask);
+        answer_review(dir, ask: Answers) -> () = review::answer(dir, ask);
+        issues(dir, ask: IssueQuery) -> IssuePage = issues::list(dir, ask);
+        issue(dir, ask: IssueRef) -> Issue = issues::get(dir, ask);
+        create_issue(dir, ask: NewIssue) -> Issue = issues::create(dir, ask);
+        set_issue_state(dir, ask: SetIssueState) -> () = issues::set_state(dir, ask);
+        releases(dir, ask: RepoRef) -> Vec<Release> = issues::releases(dir, ask);
     }
 }
 

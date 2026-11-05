@@ -7,7 +7,8 @@ use std::path::Path;
 
 use reqwest::Method;
 use serde::Deserialize;
-use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::account::chosen;
+use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::Signed;
 use sikemux_plugin_api::http::Read;
@@ -217,18 +218,8 @@ pub async fn sign_out(data_dir: &Path) -> GithubResult<()> {
 /// The first account, default first, that can see the repository, so a
 /// project owned by a work organisation opens as the work account by itself.
 pub async fn account_for(data_dir: &Path, repo: RepoRef) -> GithubResult<Option<String>> {
-    let path = repo.path("")?;
-    for account in config::load(data_dir)?.in_order() {
-        let id = account.id.clone();
-        let seen: GithubResult<serde_json::Value> =
-            as_account(Some(id.clone()), client::API.get(data_dir, &path, &[])).await;
-        match seen {
-            Ok(_) => return Ok(Some(id)),
-            Err(GithubError::Unconfigured) => return Ok(None),
-            Err(_) => continue,
-        }
-    }
-    Ok(None)
+    let accounts = answers::ids_in_order(&config::load(data_dir)?);
+    answers::first_that_sees(&client::API, data_dir, accounts, &repo.path("")?).await
 }
 
 #[cfg(test)]

@@ -18,6 +18,23 @@ pub fn work<'a, T, E: Into<PluginError>>(
     Box::pin(async move { work.await.map_err(Into::into) })
 }
 
+/// `CodeHost` methods that only run one piece of the plugin's work, each written
+/// `method(dir, ask: Ask) -> Answer = work;`.
+#[macro_export]
+macro_rules! host_work {
+    ($($method:ident($dir:ident, $ask:ident: $asks:ty) -> $answer:ty = $work:expr;)*) => {
+        $(
+            fn $method<'a>(
+                &'a self,
+                $dir: &'a std::path::Path,
+                $ask: $asks,
+            ) -> $crate::PluginFuture<'a, $answer> {
+                $crate::codehost::work($work)
+            }
+        )*
+    };
+}
+
 macro_rules! code_host {
     ($($(#[$doc:meta])* $method:ident $name:literal $($read:ident)? ($ask:ty) -> $answer:ty;)*) => {
         /// A code host as Sikemux reads it. Each method takes the folder only

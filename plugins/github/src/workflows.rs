@@ -5,6 +5,7 @@ use std::path::Path;
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use sikemux_plugin_api::codehost::asks::numeric;
 use sikemux_plugin_api::codehost::asks::{Dispatch, FileAt, RepoRef, WorkflowRef};
 use sikemux_plugin_api::codehost::{Workflow, WorkflowFile};
 use sikemux_plugin_api::http::Read;
@@ -12,7 +13,7 @@ use sikemux_plugin_api::http::Read;
 use crate::client;
 use crate::common::LIST_PAGES;
 use crate::error::{GithubError, GithubResult};
-use crate::repo::{number, required, RepoPath};
+use crate::repo::{required, RepoPath};
 
 #[derive(Deserialize)]
 struct WorkflowRow {
@@ -79,7 +80,7 @@ fn valid_ref(value: &str) -> bool {
 }
 
 fn workflow_id(id: Option<String>) -> GithubResult<u64> {
-    number(&required(id, "workflowId")?)
+    numeric(&required(id, "workflowId")?)
 }
 
 pub async fn dispatch(data_dir: &Path, input: Dispatch) -> GithubResult<()> {

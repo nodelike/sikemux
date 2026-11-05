@@ -41,15 +41,16 @@ mod workflows;
 use std::path::Path;
 
 use serde_json::Value;
-use sikemux_plugin_api::account::as_account;
+use sikemux_plugin_api::account::{as_account, named_in};
 use sikemux_plugin_api::codehost::asks::*;
-use sikemux_plugin_api::codehost::{self, work, CodeHost};
+use sikemux_plugin_api::codehost::{self, CodeHost};
 use sikemux_plugin_api::codehost::{
     Annotation, Artifact, ChangedFile, Check, Comment, CommitAuthor, Issue, IssuePage, JobLog,
     JobSummary, LogExcerpt, Notification, PendingApproval, Pull, PullCommit, PullCounts, Release,
     RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming, TimelineItem,
     Workflow, WorkflowFile,
 };
+use sikemux_plugin_api::host_work;
 use sikemux_plugin_api::store;
 use sikemux_plugin_api::{answer, params, reply, Plugin, PluginContext, PluginError, PluginFuture};
 
@@ -76,15 +77,6 @@ async fn signed_in(data_dir: &Path, outcome: GithubResult<String>) -> Result<Val
     reply(as_account(Some(id), auth::status(data_dir)).await)
 }
 
-/// Which account a call is for; with none named, the default one.
-fn account_of(input: &Value) -> Option<String> {
-    input
-        .get("account")
-        .and_then(Value::as_str)
-        .filter(|account| !account.is_empty())
-        .map(str::to_string)
-}
-
 impl Plugin for Github {
     fn call<'a>(
         &'a self,
@@ -92,7 +84,7 @@ impl Plugin for Github {
         method: &'a str,
         input: Value,
     ) -> PluginFuture<'a, Value> {
-        let account = account_of(&input);
+        let account = named_in(&input);
         Box::pin(as_account(account, self.dispatch(ctx, method, input)))
     }
 }
@@ -126,252 +118,56 @@ impl CodeHost for Github {
         Box::pin(async move { Ok(resolve(dir, ask)) })
     }
 
-    fn account_for<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: AccountQuery,
-    ) -> PluginFuture<'a, Option<String>> {
-        work(auth::account_for(dir, ask.repo))
-    }
-
-    fn my_repos<'a>(&'a self, dir: &'a Path, ask: MineQuery) -> PluginFuture<'a, Vec<RepoListing>> {
-        work(repo::mine(dir, ask.limit))
-    }
-
-    fn branches<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<String>> {
-        work(workflows::branches(dir, ask))
-    }
-
-    fn image<'a>(&'a self, dir: &'a Path, ask: ImageRef) -> PluginFuture<'a, String> {
-        work(images::image(dir, ask))
-    }
-
-    fn workflows<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<Workflow>> {
-        work(workflows::list(dir, ask))
-    }
-
-    fn workflow_file<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: WorkflowRef,
-    ) -> PluginFuture<'a, WorkflowFile> {
-        work(workflows::file(dir, ask))
-    }
-
-    fn workflow_file_at<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FileAt,
-    ) -> PluginFuture<'a, WorkflowFile> {
-        work(workflows::file_at(dir, ask))
-    }
-
-    fn dispatch_workflow<'a>(&'a self, dir: &'a Path, ask: Dispatch) -> PluginFuture<'a, ()> {
-        work(workflows::dispatch(dir, ask))
-    }
-
-    fn runs<'a>(&'a self, dir: &'a Path, ask: RunQuery) -> PluginFuture<'a, RunPage> {
-        work(runs::list(dir, ask))
-    }
-
-    fn run<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, RunDetail> {
-        work(runs::detail(dir, ask))
-    }
-
-    fn run_attempt<'a>(&'a self, dir: &'a Path, ask: AttemptRef) -> PluginFuture<'a, RunDetail> {
-        work(runs::attempt(dir, ask))
-    }
-
-    fn run_timing<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, RunTiming> {
-        work(runs::timing(dir, ask))
-    }
-
-    fn rerun<'a>(&'a self, dir: &'a Path, ask: Rerun) -> PluginFuture<'a, ()> {
-        work(runs::rerun(dir, ask))
-    }
-
-    fn rerun_job<'a>(&'a self, dir: &'a Path, ask: RerunJob) -> PluginFuture<'a, ()> {
-        work(runs::rerun_job(dir, ask))
-    }
-
-    fn cancel<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, ()> {
-        work(runs::cancel(dir, ask))
-    }
-
-    fn delete_run<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, ()> {
-        work(runs::delete(dir, ask))
-    }
-
-    fn delete_run_logs<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, ()> {
-        work(runs::delete_logs(dir, ask))
-    }
-
-    fn job_log<'a>(&'a self, dir: &'a Path, ask: JobRef) -> PluginFuture<'a, JobLog> {
-        work(logs::job(dir, ask))
-    }
-
-    fn job_log_excerpt<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: ExcerptQuery,
-    ) -> PluginFuture<'a, LogExcerpt> {
-        work(logs::excerpt(dir, ask))
-    }
-
-    fn annotations<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: CheckRunRef,
-    ) -> PluginFuture<'a, Vec<Annotation>> {
-        work(annotations::list(dir, ask))
-    }
-
-    fn job_summary<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: CheckRunRef,
-    ) -> PluginFuture<'a, Option<JobSummary>> {
-        work(annotations::summary(dir, ask))
-    }
-
-    fn checks<'a>(&'a self, dir: &'a Path, ask: ChecksQuery) -> PluginFuture<'a, Vec<Check>> {
-        work(checks::list(dir, ask))
-    }
-
-    fn artifacts<'a>(&'a self, dir: &'a Path, ask: RunRef) -> PluginFuture<'a, Vec<Artifact>> {
-        work(artifacts::list(dir, ask))
-    }
-
-    fn pending_approvals<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: RunRef,
-    ) -> PluginFuture<'a, Vec<PendingApproval>> {
-        work(approvals::pending(dir, ask))
-    }
-
-    fn review_deployment<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: DeploymentReview,
-    ) -> PluginFuture<'a, ()> {
-        work(approvals::review(dir, ask))
-    }
-
-    fn pulls<'a>(&'a self, dir: &'a Path, ask: PullQuery) -> PluginFuture<'a, Vec<Pull>> {
-        work(pulls::list(dir, ask))
-    }
-
-    fn pull_counts<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, PullCounts> {
-        work(pulls::counts(dir, ask))
-    }
-
-    fn issue_counts<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, PullCounts> {
-        work(pulls::issue_counts(dir, ask))
-    }
-
-    fn pull<'a>(&'a self, dir: &'a Path, ask: PullRef) -> PluginFuture<'a, Pull> {
-        work(pulls::get(dir, ask))
-    }
-
-    fn pull_files<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FilesQuery,
-    ) -> PluginFuture<'a, Vec<ChangedFile>> {
-        work(pulls::files(dir, ask))
-    }
-
-    fn pull_commits<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: PullRef,
-    ) -> PluginFuture<'a, Vec<PullCommit>> {
-        work(pulls::commits(dir, ask))
-    }
-
-    fn pull_reviews<'a>(&'a self, dir: &'a Path, ask: PullRef) -> PluginFuture<'a, Vec<Review>> {
-        work(pulls::reviews(dir, ask))
-    }
-
-    fn commit_pulls<'a>(&'a self, dir: &'a Path, ask: CommitRef) -> PluginFuture<'a, Vec<Pull>> {
-        work(pulls::of_commit(dir, ask))
-    }
-
-    fn commit_authors<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: CommitsQuery,
-    ) -> PluginFuture<'a, Vec<CommitAuthor>> {
-        work(pulls::commit_authors(dir, ask))
-    }
-
-    fn merge_pull<'a>(&'a self, dir: &'a Path, ask: Merge) -> PluginFuture<'a, ()> {
-        work(pulls::merge(dir, ask))
-    }
-
-    fn create_pull<'a>(&'a self, dir: &'a Path, ask: NewPull) -> PluginFuture<'a, Pull> {
-        work(pulls::create(dir, ask))
-    }
-
-    fn set_pull_state<'a>(&'a self, dir: &'a Path, ask: SetPullState) -> PluginFuture<'a, ()> {
-        work(pulls::set_state(dir, ask))
-    }
-
-    fn review_pull<'a>(&'a self, dir: &'a Path, ask: NewReview) -> PluginFuture<'a, ()> {
-        work(pulls::review(dir, ask))
-    }
-
-    fn review_feedback<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: FeedbackQuery,
-    ) -> PluginFuture<'a, Vec<ReviewFeedback>> {
-        work(review::feedback(dir, ask))
-    }
-
-    fn answer_review<'a>(&'a self, dir: &'a Path, ask: Answers) -> PluginFuture<'a, ()> {
-        work(review::answer(dir, ask))
-    }
-
-    fn issues<'a>(&'a self, dir: &'a Path, ask: IssueQuery) -> PluginFuture<'a, IssuePage> {
-        work(issues::list(dir, ask))
-    }
-
-    fn issue<'a>(&'a self, dir: &'a Path, ask: IssueRef) -> PluginFuture<'a, Issue> {
-        work(issues::get(dir, ask))
-    }
-
-    fn create_issue<'a>(&'a self, dir: &'a Path, ask: NewIssue) -> PluginFuture<'a, Issue> {
-        work(issues::create(dir, ask))
-    }
-
-    fn set_issue_state<'a>(&'a self, dir: &'a Path, ask: SetIssueState) -> PluginFuture<'a, ()> {
-        work(issues::set_state(dir, ask))
-    }
-
-    fn comments<'a>(&'a self, dir: &'a Path, ask: ThreadRef) -> PluginFuture<'a, Vec<Comment>> {
-        work(common::comments(dir, ask))
-    }
-
-    fn timeline<'a>(
-        &'a self,
-        dir: &'a Path,
-        ask: ThreadRef,
-    ) -> PluginFuture<'a, Vec<TimelineItem>> {
-        work(common::timeline(dir, ask))
-    }
-
-    fn add_comment<'a>(&'a self, dir: &'a Path, ask: NewComment) -> PluginFuture<'a, ()> {
-        work(common::add_comment(dir, ask))
-    }
-
-    fn releases<'a>(&'a self, dir: &'a Path, ask: RepoRef) -> PluginFuture<'a, Vec<Release>> {
-        work(releases::list(dir, ask))
-    }
-
-    fn inbox<'a>(&'a self, dir: &'a Path, ask: InboxQuery) -> PluginFuture<'a, Vec<Notification>> {
-        work(inbox::list(dir, ask))
+    host_work! {
+        inbox(dir, ask: InboxQuery) -> Vec<Notification> = inbox::list(dir, ask);
+        account_for(dir, ask: AccountQuery) -> Option<String> = auth::account_for(dir, ask.repo);
+        my_repos(dir, ask: MineQuery) -> Vec<RepoListing> = repo::mine(dir, ask.limit);
+        branches(dir, ask: RepoRef) -> Vec<String> = workflows::branches(dir, ask);
+        image(dir, ask: ImageRef) -> String = images::image(dir, ask);
+        workflows(dir, ask: RepoRef) -> Vec<Workflow> = workflows::list(dir, ask);
+        workflow_file(dir, ask: WorkflowRef) -> WorkflowFile = workflows::file(dir, ask);
+        workflow_file_at(dir, ask: FileAt) -> WorkflowFile = workflows::file_at(dir, ask);
+        dispatch_workflow(dir, ask: Dispatch) -> () = workflows::dispatch(dir, ask);
+        runs(dir, ask: RunQuery) -> RunPage = runs::list(dir, ask);
+        run(dir, ask: RunRef) -> RunDetail = runs::detail(dir, ask);
+        run_attempt(dir, ask: AttemptRef) -> RunDetail = runs::attempt(dir, ask);
+        run_timing(dir, ask: RunRef) -> RunTiming = runs::timing(dir, ask);
+        rerun(dir, ask: Rerun) -> () = runs::rerun(dir, ask);
+        rerun_job(dir, ask: RerunJob) -> () = runs::rerun_job(dir, ask);
+        cancel(dir, ask: RunRef) -> () = runs::cancel(dir, ask);
+        delete_run(dir, ask: RunRef) -> () = runs::delete(dir, ask);
+        delete_run_logs(dir, ask: RunRef) -> () = runs::delete_logs(dir, ask);
+        job_log(dir, ask: JobRef) -> JobLog = logs::job(dir, ask);
+        job_log_excerpt(dir, ask: ExcerptQuery) -> LogExcerpt = logs::excerpt(dir, ask);
+        annotations(dir, ask: CheckRunRef) -> Vec<Annotation> = annotations::list(dir, ask);
+        job_summary(dir, ask: CheckRunRef) -> Option<JobSummary> = annotations::summary(dir, ask);
+        checks(dir, ask: ChecksQuery) -> Vec<Check> = checks::list(dir, ask);
+        artifacts(dir, ask: RunRef) -> Vec<Artifact> = artifacts::list(dir, ask);
+        pending_approvals(dir, ask: RunRef) -> Vec<PendingApproval> = approvals::pending(dir, ask);
+        review_deployment(dir, ask: DeploymentReview) -> () = approvals::review(dir, ask);
+        pulls(dir, ask: PullQuery) -> Vec<Pull> = pulls::list(dir, ask);
+        pull_counts(dir, ask: RepoRef) -> PullCounts = pulls::counts(dir, ask);
+        issue_counts(dir, ask: RepoRef) -> PullCounts = pulls::issue_counts(dir, ask);
+        pull(dir, ask: PullRef) -> Pull = pulls::get(dir, ask);
+        pull_files(dir, ask: FilesQuery) -> Vec<ChangedFile> = pulls::files(dir, ask);
+        pull_commits(dir, ask: PullRef) -> Vec<PullCommit> = pulls::commits(dir, ask);
+        pull_reviews(dir, ask: PullRef) -> Vec<Review> = pulls::reviews(dir, ask);
+        commit_pulls(dir, ask: CommitRef) -> Vec<Pull> = pulls::of_commit(dir, ask);
+        commit_authors(dir, ask: CommitsQuery) -> Vec<CommitAuthor> = pulls::commit_authors(dir, ask);
+        merge_pull(dir, ask: Merge) -> () = pulls::merge(dir, ask);
+        create_pull(dir, ask: NewPull) -> Pull = pulls::create(dir, ask);
+        set_pull_state(dir, ask: SetPullState) -> () = pulls::set_state(dir, ask);
+        review_pull(dir, ask: NewReview) -> () = pulls::review(dir, ask);
+        review_feedback(dir, ask: FeedbackQuery) -> Vec<ReviewFeedback> = review::feedback(dir, ask);
+        answer_review(dir, ask: Answers) -> () = review::answer(dir, ask);
+        issues(dir, ask: IssueQuery) -> IssuePage = issues::list(dir, ask);
+        issue(dir, ask: IssueRef) -> Issue = issues::get(dir, ask);
+        create_issue(dir, ask: NewIssue) -> Issue = issues::create(dir, ask);
+        set_issue_state(dir, ask: SetIssueState) -> () = issues::set_state(dir, ask);
+        comments(dir, ask: ThreadRef) -> Vec<Comment> = common::comments(dir, ask);
+        timeline(dir, ask: ThreadRef) -> Vec<TimelineItem> = common::timeline(dir, ask);
+        add_comment(dir, ask: NewComment) -> () = common::add_comment(dir, ask);
+        releases(dir, ask: RepoRef) -> Vec<Release> = releases::list(dir, ask);
     }
 }
 
