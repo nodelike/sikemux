@@ -94,7 +94,7 @@ function bundleCore(binary) {
   writeFileSync(plist, JSON.stringify(info));
   run("plutil", ["-convert", "xml1", plist]);
   copyFileSync(
-    join(packaging, "icons", "icon.icns"),
+    join(packaging, "icons", "build", "sikemux.icns"),
     join(contents, "Resources", "sikemux.icns"),
   );
   copyFileSync(
@@ -122,9 +122,6 @@ function bundleCore(binary) {
 }
 
 const requestedTarget = hostTriple();
-if (requestedTarget.includes("apple-darwin")) {
-  run("bash", [join(root, "scripts", "icons.sh")]);
-}
 mkdirSync(binariesDir, { recursive: true });
 
 const suffix = requestedTarget.includes("windows") ? ".exe" : "";

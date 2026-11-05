@@ -94,9 +94,9 @@ lay_out_shared() {
   local root="$1"
   mkdir -p "$root/usr/share/applications"
   desktop_entry sikemux >"$root/usr/share/applications/$APP_IDENTIFIER.desktop"
-  for icon in 32x32:32x32 128x128:128x128 128x128@2x:256x256 icon:512x512; do
-    mkdir -p "$root/usr/share/icons/hicolor/${icon#*:}/apps"
-    install -m 644 "$ROOT/packaging/icons/${icon%%:*}.png" "$root/usr/share/icons/hicolor/${icon#*:}/apps/sikemux.png"
+  for size in 32 128 256 512; do
+    mkdir -p "$root/usr/share/icons/hicolor/${size}x${size}/apps"
+    install -m 644 "$ROOT/brand/linux/icon-$size.png" "$root/usr/share/icons/hicolor/${size}x${size}/apps/sikemux.png"
   done
 }
 

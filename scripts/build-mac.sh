@@ -61,7 +61,7 @@ mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$APP_PATH/Co
 /usr/bin/ditto "$ROOT/packaging/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"
 ln -s "$CORE_LINK_TARGET" "$APP_PATH/Contents/MacOS/sikemux-host"
 /usr/bin/ditto "$ROOT/packaging/icons/build/Assets.car" "$APP_PATH/Contents/Resources/Assets.car"
-/usr/bin/ditto "$ROOT/packaging/icons/icon.icns" "$APP_PATH/Contents/Resources/icon.icns"
+/usr/bin/ditto "$ROOT/packaging/icons/build/sikemux.icns" "$APP_PATH/Contents/Resources/icon.icns"
 /usr/libexec/PlistBuddy \
   -c "Add :CFBundleDevelopmentRegion string English" \
   -c "Add :CFBundleDisplayName string $APP_NAME" \
@@ -89,7 +89,7 @@ mkdir "$LAYOUT/.background"
 /usr/bin/ditto "$APP_PATH" "$LAYOUT/$APP_NAME.app"
 ln -s /Applications "$LAYOUT/Applications"
 /usr/bin/ditto "$ROOT/packaging/dmg/background.tiff" "$LAYOUT/.background/background.tiff"
-/usr/bin/ditto "$ROOT/packaging/icons/icon.icns" "$LAYOUT/.VolumeIcon.icns"
+/usr/bin/ditto "$ROOT/packaging/icons/build/sikemux.icns" "$LAYOUT/.VolumeIcon.icns"
 /usr/bin/hdiutil create -volname "$APP_NAME" -srcfolder "$LAYOUT" -fs HFS+ -format UDRW -ov -quiet "$LAYOUT.rw.dmg" ||
   fail "could not lay out the DMG"
 VOLUME="$LAYOUT.volume"

@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 #
-# Compile sikemux.icon → Liquid Glass Assets.car + legacy .icns, in one
-# pass. Called from `make dev` and `make build` (via build-mac.sh), so
-# `packaging/icons/sikemux.icon` is the single source of every icon the app
-# wears: build-mac.sh copies Assets.car and icon.icns into the bundle.
+# Compile sikemux.icon → Liquid Glass Assets.car + legacy .icns under
+# packaging/icons/build, in one pass, for build-mac.sh to put in the bundle.
 #
 set -euo pipefail
 
@@ -12,9 +10,7 @@ ROOT="$(pwd -P)"
 ICON_SOURCE="$ROOT/packaging/icons/sikemux.icon"
 ICON_BUILD="$ROOT/packaging/icons/build"
 
-# Skip the rebuild when the .icon source hasn't changed since the last
-# compile — actool takes a couple of seconds and we don't want to add
-# that to every `make dev` restart.
+# actool takes a couple of seconds, so only a changed .icon source reruns it.
 STAMP="$ICON_BUILD/.stamp"
 if [[ -f "$STAMP" ]]; then
   NEWEST_SRC="$(find "$ICON_SOURCE" -type f -newer "$STAMP" -print -quit)"
@@ -48,10 +44,5 @@ if [[ ! -f "$ICON_BUILD/Assets.car" ]]; then
   exit 1
 fi
 
-# Sync the legacy .icns macOS shows before Liquid Glass.
-if [[ -f "$ICON_BUILD/sikemux.icns" ]]; then
-  cp "$ICON_BUILD/sikemux.icns" "$ROOT/packaging/icons/icon.icns"
-fi
-
 touch "$STAMP"
-echo "  ✓ Assets.car + icon.icns synced from sikemux.icon"
+echo "  ✓ Assets.car + sikemux.icns built from sikemux.icon"

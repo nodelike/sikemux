@@ -133,6 +133,7 @@
   - `brand/wordmark/`: the name lettered in Figtree as the site's nav sets it, alone or beside
     the mark, in white, black, or purple mark with white name, as SVG and PNG at 2048 wide.
   - `brand/macos/`: the real Dock icon (Liquid Glass) at 128 to 1024.
+  - `brand/linux/`: the icon the Linux packages install, at 32 to 512.
   - `brand/social/avatar-400.png`: profile picture.
 - The source is `packaging/icons/sikemux.icon`. After changing it, run `pnpm brand` to
   redraw everything; the Dock icon is taken from the installed `/Applications/Sikemux.app`
