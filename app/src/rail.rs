@@ -1587,7 +1587,7 @@ impl Workbench {
             ("sideRailWidth", json!(self.rails.side_width)),
             ("tabRailOpen", json!(self.rails.tab_open)),
             ("tabRailWidth", json!(self.rails.tab_width)),
-            ("tabTabRailPage", json!(page)),
+            ("tabRailPage", json!(page)),
             ("tabRailScope", json!(scope)),
             ("tabRailAllAgents", json!(self.rails.all_harnesses)),
             ("windowView", json!(self.window_view)),
