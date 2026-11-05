@@ -11,7 +11,7 @@ import { AgentFace } from '@/devices/Buddy';
 import { Row, Rows } from '@/ui/list';
 import { EmptyState } from '@/ui/prompt';
 import { AgentState, ShellCount, SubagentCount, TriggerTime } from '@/devices/AgentMarks';
-import { type Palette, useStyles } from '@/ui/theme';
+import { useStyles } from '@/ui/theme';
 import { listed, Recent } from '@/devices/DeviceRecent';
 
 export type Tab = 'agents' | 'terminals' | 'board';
@@ -177,7 +177,7 @@ function Trigger({ shown, minute }: { shown: AgentShown; minute: number }) {
   return <TriggerTime at={Number(shown.nextTrigger)} now={minute * 60_000} />;
 }
 
-const makeStyles = (colors: Palette) => {
+const makeStyles = () => {
   return StyleSheet.create({
     open: { marginTop: 10 },
   });

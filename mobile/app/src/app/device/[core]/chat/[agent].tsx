@@ -1,21 +1,18 @@
+import { useChatFind, useRevealFound } from '@/chat/useChatFind';
+import { useEditingRow } from '@/chat/useEditingRow';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { AccessibilityInfo, Keyboard, type ScrollViewProps, type TextInput, Pressable, StyleSheet, Text, View } from 'react-native';
+import { type TextInput, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import MaskedView from '@react-native-masked-view/masked-view';
-import { KeyboardChatScrollView, KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
-import Animated, { useAnimatedStyle } from 'react-native-reanimated';
+import { KeyboardStickyView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { activityText, composerPlaceholder } from '@shared/chat/chatStatus';
 import { sentPrompts } from '@/chat/promptHistory';
 import { activeToolLabel } from '@shared/chat/toolLabels';
-import { shownParts } from '@shared/chat/transcript';
 import type { ChatMessage } from '@shared/chat/types';
 import { ChatMenu } from '@/chat/ChatMenu';
-import { ChatFind } from '@/chat/chatFind';
-import type { FindHit } from '@shared/wire.generated';
 import { FindBar } from '@/chat/FindBar';
 import { FindingContext } from '@/chat/found';
 import { ChatTitle } from '@/chat/ChatTitle';
@@ -39,124 +36,18 @@ import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
 import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
-import { retry as reconnect, useDevices, useLive, type Live } from '@/devices/hub';
+import { retry as reconnect, useDevices, useLive } from '@/devices/hub';
 import { dismissCardsFor } from '@/notify/cards';
 import { deviceName } from '@/devices/paired';
 import { agentLabel } from '@shared/agents/catalog';
 import { subagentsOf } from '@shared/chat/subagents';
-import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { Button } from '@/ui/controls';
-import { pauseBackdrop } from '@/ui/motion';
 import { goBack } from '@/ui/navigate';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
 import { Working } from '@/devices/AgentMarks';
-import { fonts, type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
-
-const noSubscribe = () => () => {};
-
-function capitalised(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1) + (text.endsWith('.') ? '' : '.');
-}
-
-/** Above the composer while the host is out of reach: the chat stays, and what is sent waits. */
-function Reconnecting({ live, hostName, onTry }: { live: Live; hostName: string; onTry: () => void }) {
-  const styles = useStyles(makeStyles);
-  const closed = live.status === 'closed';
-  return (
-    <View style={styles.reconnect} accessibilityLiveRegion="polite">
-      {closed ? null : <Working />}
-      <Text style={styles.reconnectText} numberOfLines={2}>
-        {closed ? `Can't reach ${hostName}. ${capitalised(live.problem)}` : `Reconnecting to ${hostName}…`}
-      </Text>
-      <Pressable onPress={onTry} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Try reaching ${hostName} now`}>
-        <Text style={styles.reconnectTry}>Try now</Text>
-      </Pressable>
-    </View>
-  );
-}
-
-/** Something this phone asked for that did not happen, said where the person is looking. */
-function Notice({ text, onDismiss }: { text: string; onDismiss: () => void }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={styles.notice} accessibilityLiveRegion="polite">
-      <Icon name="IconWarning" size={13} color={colors.danger} />
-      <Text style={styles.noticeText}>{capitalised(text)}</Text>
-      <Pressable onPress={onDismiss} hitSlop={10} accessibilityRole="button" accessibilityLabel="Dismiss">
-        <Icon name="IconClose" size={13} color={colors.inkDim} />
-      </Pressable>
-    </View>
-  );
-}
-
-/** A turn ending and a request arriving are felt and, with a screen reader, heard. */
-function useArrivals(running: boolean, waiting: string | undefined, said: { done: string; asks: string }) {
-  const was = useRef(running);
-  const asked = useRef(waiting);
-  useEffect(() => {
-    if (was.current && !running) {
-      haptics.success();
-      AccessibilityInfo.announceForAccessibility(said.done);
-    }
-    was.current = running;
-  }, [running, said.done]);
-  // A streaming reply needs the JavaScript thread more than the moving backdrop does.
-  useEffect(() => (running ? pauseBackdrop() : undefined), [running]);
-  useEffect(() => {
-    if (waiting && waiting !== asked.current) {
-      haptics.warning();
-      AccessibilityInfo.announceForAccessibility(said.asks);
-    }
-    asked.current = waiting;
-  }, [waiting, said.asks]);
-}
-
-/** How far the transcript fades out under the header and above the composer. */
-const FADE = 22;
-
-function Fade({ id, from }: { id: string; from: 0 | 1 }) {
-  return (
-    <Svg width="100%" height={FADE}>
-      <Defs>
-        <LinearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <Stop offset="0" stopColor="#000" stopOpacity={from} />
-          <Stop offset="1" stopColor="#000" stopOpacity={1 - from} />
-        </LinearGradient>
-      </Defs>
-      <Rect x="0" y="0" width="100%" height="100%" fill={`url(#${id})`} />
-    </Svg>
-  );
-}
-
-/** The header and composer float over the backdrop, so the transcript fades into them rather than ending on a line. */
-function EdgeFades() {
-  const { bottom } = useSafeAreaInsets();
-  const { height, progress } = useReanimatedKeyboardAnimation();
-  // The bottom fade rises with the composer, which rides the keyboard less the home bar it covers.
-  const rise = useAnimatedStyle(() => ({ transform: [{ translateY: height.value + progress.value * bottom }] }));
-  return (
-    <View style={{ flex: 1 }}>
-      <Fade id="transcript-top" from={0} />
-      <View style={{ flex: 1, overflow: 'hidden' }}>
-        <Animated.View style={[{ flex: 1 }, rise]}>
-          <View style={{ flex: 1, backgroundColor: '#000' }} />
-          <Fade id="transcript-bottom" from={1} />
-        </Animated.View>
-      </View>
-    </View>
-  );
-}
-
-/** The keyboard covers the home bar, so the transcript makes room for only what rises above it. */
-function KeyboardScroller(props: ScrollViewProps) {
-  const { bottom } = useSafeAreaInsets();
-  return <KeyboardChatScrollView {...props} keyboardLiftBehavior="whenAtEnd" offset={bottom} />;
-}
-
-// Someone reading the latest keeps reading it as the keyboard rises, frame by frame with it.
-const renderScrollComponent = (props: ScrollViewProps) => <KeyboardScroller {...props} />;
+import { type Palette, typeFor, useColors, useStyles, useType } from '@/ui/theme';
+import { EdgeFades, Notice, Reconnecting, capitalised, renderScrollComponent, useArrivals } from '@/chat/ChatChrome';
 
 export default function Chat() {
   const { core, agent } = useLocalSearchParams<{ core: string; agent: string }>();
@@ -191,10 +82,6 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     setOpen((shown) => (shown === owner ? undefined : owner));
   };
   const [editing, setEditing] = useState<string>();
-  const [find, setFind] = useState<ChatFind | null>(null);
-  const finding = useSyncExternalStore(find?.subscribe ?? noSubscribe, () => find?.snapshot().finding ?? null);
-  // A place found is brought into view once the rows it unfolded or paged in are drawn.
-  const [shown, setShown] = useState<{ row: string }>();
   // The list redraws its rows when a summary opens or closes, and only then, so it watches those folds alone.
   const openWork = useSyncExternalStore(session.folds.subscribe, () => session.folds.openUnder('work/'));
   const workOpen = (id: string) => session.folds.isOpen(`work/${id}`, false);
@@ -203,6 +90,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     const opened = new Set(openWork.split('\n'));
     return shownRows(state.messages, (id) => opened.has(`work/${id}`));
   }, [state.messages, openWork]);
+  const { find, finding, shown, shownIndex, openFind, closeFind } = useChatFind(session, rows, workOpen, () => setEditing(undefined));
   const watchOnly = access === 'watch';
   const canEdit = !watchOnly && state.capabilities.editing && state.connection === 'ready' && !state.running && chat.attached === 'live';
   if (editing !== undefined && !canEdit) setEditing(undefined);
@@ -251,60 +139,12 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     },
     editing !== undefined || find !== null,
   );
-  const showHit = (hit: FindHit) => {
-    const row = session.snapshot().view.messages.find((message) => message.id === hit.row);
-    if (!row) return;
-    const { from } = rowFold(row, workOpen);
-    const tucked = !shownParts(row.parts, from).some((held) => held.id === hit.part);
-    if (row.fold && tucked) session.folds.set(`work/${row.fold.id}`, true);
-    setShown({ row: hit.row });
-  };
-  const showing = useRef(showHit);
-  useEffect(() => {
-    showing.current = showHit;
-  });
-  const shownIndex = shown ? rows.findIndex((row) => row.id === shown.row) : -1;
-  // Only a new place moves the transcript, not the rows growing under it.
-  const revealed = useRef(shown);
-  useEffect(() => {
-    if (shownIndex < 0 || revealed.current === shown) return;
-    revealed.current = shown;
-    scroll.reveal(shownIndex, 0.3);
-  }, [shown, shownIndex, scroll]);
-  const openFind = () => {
-    setEditing(undefined);
-    setFind(new ChatFind(session, (hit) => showing.current(hit)));
-  };
-  const closeFind = () => {
-    find?.close();
-    setFind(null);
-    setShown(undefined);
-  };
+  useRevealFound(scroll, shown, shownIndex);
   const startEdit = (message: ChatMessage) => {
     setOpen(undefined);
     setEditing(message.id);
   };
-  const editingIndex = editing === undefined ? -1 : rows.findIndex((row) => row.id === editing);
-  useEffect(() => {
-    if (editingIndex < 0) return;
-    // The editor sits just above the keyboard once it is up.
-    const shown = Keyboard.addListener('keyboardDidShow', () => scroll.reveal(editingIndex, 1));
-    return () => shown.remove();
-  }, [editingIndex, scroll]);
-  const editingRow = useMemo(
-    () =>
-      editing === undefined
-        ? undefined
-        : {
-            onCancel: () => setEditing(undefined),
-            onSend: (text: string) => {
-              session.edit(editing, text);
-              setEditing(undefined);
-              scroll.toEnd();
-            },
-          },
-    [editing, session, scroll],
-  );
+  const editingRow = useEditingRow(editing, setEditing, session, scroll, rows);
   const activity = chat.stoppingTurn ? 'Stopping…' : activityText({ ...state, permissions: chat.permissions }, activeToolLabel(state));
   const title = state.title ?? live.snapshot?.inbox.agents.find((shown) => shown.agentId === agentId)?.title ?? agentLabel(provider);
   const steerable = state.capabilities.steering === true && state.running && !watchOnly;
@@ -643,34 +483,5 @@ const makeStyles = (colors: Palette) => {
     missing: { gap: 16, paddingHorizontal: 18, paddingVertical: 24 },
     bottomStatus: { borderTopWidth: 1, borderTopColor: colors.border },
     gone: { ...type.meta, textAlign: 'center' },
-    reconnect: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 10,
-      marginHorizontal: 10,
-      marginTop: 8,
-      paddingVertical: 9,
-      paddingHorizontal: 12,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.overlay,
-    },
-    reconnectText: { flex: 1, fontFamily: fonts.ui, fontSize: 13, color: colors.secondary },
-    reconnectTry: { fontFamily: fonts.uiSemibold, fontSize: 13, color: colors.ink },
-    notice: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 9,
-      marginHorizontal: 10,
-      marginTop: 8,
-      paddingVertical: 9,
-      paddingHorizontal: 12,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.overlay,
-    },
-    noticeText: { flex: 1, fontFamily: fonts.ui, fontSize: 13, color: colors.secondary },
   });
 };
