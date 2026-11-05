@@ -80,7 +80,7 @@ pub(crate) fn ensure_live(core: &Arc<Core>) {
     let (changed, watching) = watch::channel(());
     let app = LiveApp {
         platform: crate::server::host::PLATFORM,
-        version: core.build.version.clone(),
+        version: core.config.build.version.clone(),
     };
     let account = Arc::new(HostAccount(Arc::downgrade(core)));
     let outbox = inner.outbox.clone();
@@ -97,7 +97,7 @@ pub(super) fn leave_with_retired_key(core: &Arc<Core>) {
     };
     let app = LiveApp {
         platform: crate::server::host::PLATFORM,
-        version: core.build.version.clone(),
+        version: core.config.build.version.clone(),
     };
     let account = Arc::new(RetiredHost {
         core: Arc::downgrade(core),

@@ -28,7 +28,7 @@ use super::{lifecycle, Core, CoreError, CoreResult};
 /// Where this core's agents reach their tools; none for a core without a
 /// tool endpoint.
 pub(crate) fn tools(core: &Core) -> Option<Tools> {
-    let config = &core.listening.get()?.config;
+    let config = &core.config;
     Some(Tools {
         executable: std::env::current_exe().ok()?.canonicalize().ok()?,
         endpoint: config.cli_endpoint.clone()?,

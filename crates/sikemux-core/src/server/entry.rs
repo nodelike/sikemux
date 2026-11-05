@@ -153,7 +153,7 @@ pub fn main(
             .collect();
         std::thread::spawn(sikemux_pty::user_shell::warm_login_shell_environment);
         sikemux_process::jobs::own();
-        let exit = exit_code(run_runtime(handover::resume(recovery, build)));
+        let exit = exit_code(super::on_runtime(handover::resume(recovery, build)));
         sikemux_process::jobs::leave();
         return exit;
     }
@@ -163,23 +163,15 @@ pub fn main(
     };
     std::thread::spawn(sikemux_pty::user_shell::warm_login_shell_environment);
     sikemux_process::jobs::own();
-    let exit = exit_code(super::run(ServerConfig {
+    let exit = exit_code(super::run(ServerConfig::production(
         socket,
-        idle_exit: args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
-        cli_endpoint: args
-            .cli_endpoint
+        args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),
+        args.cli_endpoint
             .or_else(crate::cli::endpoint::default_endpoint_path),
-        attachment_dir: args
-            .data_dir
-            .as_deref()
-            .and_then(super::attachments::pasted_dir),
-        data_dir: args.data_dir,
+        args.data_dir,
         build,
-        remote_direct_only: false,
-        accounts_api: Some(crate::accounts::api_base()),
-        secret_store: true,
         plugins,
-    }));
+    )));
     sikemux_process::jobs::leave();
     exit
 }
@@ -263,18 +255,6 @@ mod path_tests {
             Some("/usr/bin:/bin:/usr/sbin:/sbin")
         );
     }
-}
-
-fn run_runtime(
-    work: impl std::future::Future<Output = Result<(), ServerError>>,
-) -> Result<(), ServerError> {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .thread_name("sikemux-core")
-        .build()?;
-    let result = runtime.block_on(work);
-    runtime.shutdown_timeout(Duration::from_millis(100));
-    result
 }
 
 fn exit_code(result: Result<(), ServerError>) -> i32 {

@@ -34,7 +34,7 @@ struct Jira<'a> {
 impl<'a> Jira<'a> {
     fn of(core: &Core, ticket: &'a Ticket) -> Option<Self> {
         (ticket.provider == Tracker::Jira).then(|| Self {
-            plugins: core.plugins,
+            plugins: core.config.plugins,
             key: &ticket.key,
             site: ticket.url.as_deref().and_then(site_of),
         })

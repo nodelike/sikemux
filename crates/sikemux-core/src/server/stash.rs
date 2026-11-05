@@ -575,9 +575,9 @@ fn context(item: &StashItem) -> Option<Value> {
 
 async fn download(core: &Core, item: &StashItem) -> CoreResult<PathBuf> {
     let dir = core
-        .listening
-        .get()
-        .and_then(|listening| listening.config.attachment_dir.clone())
+        .config
+        .attachment_dir
+        .clone()
         .ok_or_else(|| CoreError::from("this host has nowhere to keep files"))?;
     let bytes = file(core, item, MAX_ITEM_BYTES).await?;
     let name = item.name.clone().unwrap_or_default();

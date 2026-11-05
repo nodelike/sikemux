@@ -159,10 +159,10 @@ async fn on_library<T: Serialize + Send + 'static>(
     work: impl FnOnce(&Path) -> CoreResult<T> + Send + 'static,
 ) -> CoreResult<Value> {
     let data_dir = core
-        .workspaces
-        .data_dir()
-        .ok_or_else(|| CoreError::from("this host keeps no skills"))?
-        .to_path_buf();
+        .config
+        .data_dir
+        .clone()
+        .ok_or_else(|| CoreError::from("this host keeps no skills"))?;
     blocking(move || Ok(serde_json::to_value(work(&data_dir)?)?)).await
 }
 

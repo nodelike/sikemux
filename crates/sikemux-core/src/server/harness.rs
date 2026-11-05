@@ -154,8 +154,6 @@ pub(crate) struct Harness {
     state: Mutex<State>,
     changes: watch::Sender<u64>,
     tool_calls: Option<PathBuf>,
-    /// The app data folder, which holds the skills library.
-    pub(crate) data_dir: Option<PathBuf>,
     waits: AtomicUsize,
     plugins: watch::Sender<u64>,
     plugin_waits: AtomicUsize,
@@ -179,7 +177,6 @@ impl Harness {
             }),
             changes: watch::channel(0).0,
             tool_calls: data_dir.map(|dir| dir.join(TOOL_CALLS_FILE)),
-            data_dir: data_dir.map(Path::to_path_buf),
             waits: AtomicUsize::new(0),
             plugins: watch::channel(0).0,
             plugin_waits: AtomicUsize::new(0),
@@ -801,7 +798,7 @@ async fn show_page(core: &Arc<Core>, mut request: HarnessRequest) -> Result<Valu
         Some(_) => Some(integer(&request.params, "height", 0, 4000, 1)? as u32),
     };
     let dir = core
-        .harness
+        .config
         .data_dir
         .clone()
         .ok_or("Pages need Sikemux's data folder, and this core was started without one")?
@@ -937,7 +934,7 @@ const SKILL_LOADS: &str =
 
 async fn skills_call(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let data_dir = core
-        .harness
+        .config
         .data_dir
         .clone()
         .ok_or("Skills need Sikemux's data folder, and this core was started without one")?;

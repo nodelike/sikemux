@@ -373,8 +373,6 @@ pub(crate) struct Workspaces {
     recent_stale: Notify,
     /// The launchers whose agents were asked what they offer since the core started.
     offers_read: Mutex<HashSet<String>>,
-    /// Which plugins the person switched off, which the workspace shows.
-    plugins: Option<super::plugins::Provided>,
 }
 
 /// The project among `projects` that `folder` lies in, a worktree of one counting as in it.
@@ -424,7 +422,6 @@ impl Workspaces {
             wake: Wake::default(),
             recent_stale: Notify::new(),
             offers_read: Mutex::default(),
-            plugins: None,
         };
         if upgraded {
             workspaces.file.save(&workspaces.published.locked().saved);
@@ -432,19 +429,10 @@ impl Workspaces {
         workspaces
     }
 
-    pub(crate) fn with_plugins(self, plugins: Option<super::plugins::Provided>) -> Self {
-        Self { plugins, ..self }
-    }
-
     /// Waits until every change so far is on disk, for a core about to stop
     /// or hand over to another.
     pub(crate) fn flush(&self) {
         self.file.flush();
-    }
-
-    /// The core's data folder, which holds the skills library.
-    pub(crate) fn data_dir(&self) -> Option<&Path> {
-        self.data_dir.as_deref()
     }
 
     /// Changes what is saved, keeps it, and tells the core when anything
@@ -1153,7 +1141,7 @@ impl Workspaces {
                 .permission_mode
                 .clone()
                 .unwrap_or_else(|| PermissionMode::Bypass.as_str().into()),
-            disabled_plugins: super::plugins::disabled_in(self.plugins),
+            disabled_plugins: Default::default(),
             launchers: published
                 .launchers
                 .iter()

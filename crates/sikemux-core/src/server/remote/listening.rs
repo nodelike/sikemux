@@ -119,7 +119,7 @@ pub(crate) fn stop_network(core: &Core) {
 /// allows.
 pub(super) async fn apply_network(core: &Arc<Core>, fetched: Network) {
     let relays = network::usable_relays(&fetched);
-    let version = &core.build.version;
+    let version = &core.config.build.version;
     let (moved, endpoint, required, was_required) = {
         let mut inner = core.remote.inner.locked();
         let required = if inner.never_too_old {

@@ -306,7 +306,7 @@ async fn run(
             Ok(done)
         }
         Reach::Tool(name) => {
-            let Some(Provided(plugins)) = core.plugins else {
+            let Some(Provided(plugins)) = core.config.plugins else {
                 return Err("connectors are not loaded on this host".into());
             };
             plugins

@@ -9,13 +9,7 @@ use super::Core;
 pub(crate) fn follow(core: &Core) {
     #[cfg(target_os = "macos")]
     {
-        let Some(socket) = core
-            .listening
-            .get()
-            .map(|listening| listening.config.socket.clone())
-        else {
-            return;
-        };
+        let socket = core.config.socket.clone();
         let enabled = core.preferences.get().notch.enabled;
         tokio::task::spawn_blocking(move || {
             if let Err(error) = mac::configure(&socket, enabled) {

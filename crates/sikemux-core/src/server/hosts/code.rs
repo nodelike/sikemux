@@ -227,9 +227,9 @@ fn clone_dir(core: &Core, host: &str, code: &Code) -> PathBuf {
     };
     let digest = hex::encode(sha2::Sha256::digest(key.as_bytes()));
     let base = core
-        .listening
-        .get()
-        .and_then(|listening| listening.config.data_dir.clone())
+        .config
+        .data_dir
+        .clone()
         .unwrap_or_else(std::env::temp_dir)
         .join(CLONES);
     base.join(format!("{}-{}", slug(&code.project), &digest[..12]))

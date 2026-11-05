@@ -491,9 +491,9 @@ async fn answer(core: Arc<Core>, id: String, viewer: String, sealed: String) -> 
 async fn pasted_picture(core: &Core, path: PathBuf) -> CoreResult<String> {
     use base64::Engine;
     let dir = core
-        .listening
-        .get()
-        .and_then(|listening| listening.config.attachment_dir.clone())
+        .config
+        .attachment_dir
+        .clone()
         .ok_or("this host keeps no pasted pictures")?;
     super::connection::blocking(move || {
         let kept = match (std::fs::canonicalize(&dir), std::fs::canonicalize(&path)) {

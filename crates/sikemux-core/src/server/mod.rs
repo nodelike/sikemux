@@ -234,6 +234,29 @@ impl ServerConfig {
             plugins: None,
         }
     }
+
+    /// What a released core runs with, however it came to be running.
+    pub(crate) fn production(
+        socket: PathBuf,
+        idle_exit: Duration,
+        cli_endpoint: Option<PathBuf>,
+        data_dir: Option<PathBuf>,
+        build: BuildIdentity,
+        plugins: Option<plugins::Provided>,
+    ) -> Self {
+        Self {
+            socket,
+            idle_exit,
+            build,
+            cli_endpoint,
+            attachment_dir: data_dir.as_deref().and_then(attachments::pasted_dir),
+            data_dir,
+            remote_direct_only: false,
+            accounts_api: Some(crate::accounts::api_base()),
+            secret_store: true,
+            plugins,
+        }
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -323,10 +346,8 @@ impl Drop for CapacityPermit {
     }
 }
 
-/// What this core listens on and was started with, which a hand-over passes
-/// to its replacement.
+/// What this core listens on, which a hand-over passes to its replacement.
 pub(crate) struct Listening {
-    pub config: ServerConfig,
     pub listener_fd: std::os::fd::RawFd,
     pub lock_fd: std::os::fd::RawFd,
 }
@@ -341,13 +362,13 @@ pub(crate) struct Core {
     clients: Mutex<HashMap<ClientId, Arc<ClientConn>>>,
     next_client_id: AtomicU64,
     shutdown: watch::Sender<bool>,
-    pub(crate) build: BuildIdentity,
+    pub(crate) config: ServerConfig,
     pub(crate) detection: RwLock<ManifestRegistry>,
     manifest_dir: Mutex<Option<PathBuf>>,
     pub(crate) harness: harness::Harness,
     pub(crate) window: window::Window,
     pub(crate) updating: upgrade::Updating,
-    pub(crate) listening: OnceLock<Listening>,
+    pub(crate) listening: Listening,
     pub(crate) tools: Mutex<Option<tools::ToolEndpoint>>,
     pub(crate) chats: chat::Chats,
     pub(crate) remote: remote::Remote,
@@ -378,9 +399,7 @@ pub(crate) struct Core {
     pub(crate) tasks: tasks::Tasks,
     pub(crate) git: git::Projects,
     /// The code-host lists clients look at, kept and read again while they do.
-    pub(crate) plugins: Option<plugins::Provided>,
     pub(crate) code_host_lists: codehost::Lists,
-    /// The plugin views panes look at, kept and read again while they do.
     /// The files clients have open, watched wherever they are.
     pub(crate) open_files: open_files::OpenFiles,
     pub(crate) layouts: layout::Layouts,
@@ -422,30 +441,51 @@ impl Core {
     /// device on another machine, whose paths mean nothing here.
     pub(crate) fn launch_identity(&self) -> crate::protocol::LaunchIdentity {
         crate::protocol::LaunchIdentity {
-            version: self.build.version.clone(),
+            version: self.config.build.version.clone(),
             cli_executable: std::env::current_exe().ok(),
-            cli_endpoint: self
-                .listening
-                .get()
-                .and_then(|listening| listening.config.cli_endpoint.clone()),
+            cli_endpoint: self.config.cli_endpoint.clone(),
         }
     }
 
     #[cfg(test)]
     fn new(build: BuildIdentity, data_dir: Option<&Path>) -> Result<Arc<Self>, ServerError> {
-        Self::continuing(build, data_dir, 0, None)
+        sikemux_process::user_environment::search_path_only_from_now();
+        let config = ServerConfig {
+            build,
+            data_dir: data_dir.map(Path::to_owned),
+            ..ServerConfig::new(PathBuf::new())
+        };
+        let listening = Listening {
+            listener_fd: -1,
+            lock_fd: -1,
+        };
+        Self::built(config, listening, 0)
+    }
+
+    /// Brings the data folder up to date and puts what agents find first on their PATH in
+    /// place, then builds the core, so nothing it starts, the chats taken up from an earlier
+    /// core included, runs without its checks.
+    fn open(
+        config: ServerConfig,
+        listening: Listening,
+        uptime_ms: u64,
+    ) -> Result<Arc<Self>, ServerError> {
+        data_format::upgrade(&config);
+        if let Some(data_dir) = config.data_dir.as_deref() {
+            crate::git_guard::shim::install(data_dir, config.cli_endpoint.as_deref());
+        }
+        Self::built(config, listening, uptime_ms)
     }
 
     /// A core whose clock reads `uptime_ms` already: a core that replaced an earlier one keeps
     /// its clock, so the times the earlier one stamped on sessions still mean the same moment.
-    fn continuing(
-        build: BuildIdentity,
-        data_dir: Option<&Path>,
+    fn built(
+        config: ServerConfig,
+        listening: Listening,
         uptime_ms: u64,
-        plugins: Option<plugins::Provided>,
     ) -> Result<Arc<Self>, ServerError> {
-        #[cfg(test)]
-        sikemux_process::user_environment::search_path_only_from_now();
+        let data_dir = config.data_dir.clone();
+        let data_dir = data_dir.as_deref();
         let started = Instant::now()
             .checked_sub(Duration::from_millis(uptime_ms))
             .unwrap_or_else(Instant::now);
@@ -470,19 +510,19 @@ impl Core {
             clients: Mutex::new(HashMap::new()),
             next_client_id: AtomicU64::new(1),
             shutdown: watch::channel(false).0,
-            build,
+            config,
             detection: RwLock::new(detection),
             manifest_dir: Mutex::new(None),
             harness,
             window: window::Window::new(first_session_id()),
             updating: upgrade::Updating::default(),
-            listening: OnceLock::new(),
+            listening,
             tools: Mutex::new(None),
             chats: chat::Chats::new(data_dir),
             remote: remote::Remote::default(),
             shares: share::Shares::default(),
             hooks: hooks::Hooks::default(),
-            workspaces: workspace::Workspaces::new(data_dir).with_plugins(plugins),
+            workspaces: workspace::Workspaces::new(data_dir),
             seen: seen::Seen::default(),
             lifecycle: lifecycle::Lifecycle::default(),
             ship: ship::Ships::default(),
@@ -504,7 +544,6 @@ impl Core {
             usage_wake: Notify::new(),
             tasks: tasks::Tasks::new(data_dir),
             git: git::Projects::default(),
-            plugins,
             code_host_lists: Default::default(),
             open_files: Default::default(),
             layouts: layout::Layouts::new(data_dir),
@@ -1065,33 +1104,25 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
         .await
         .map_err(std::io::Error::other)??;
     data_format::upgrade(&config);
-    let core = Core::continuing(
-        config.build.clone(),
-        config.data_dir.as_deref(),
-        0,
-        config.plugins,
-    )?;
-    install_shim(&config);
-    if let Some(path) = config.cli_endpoint.clone() {
-        match tools::ToolEndpoint::start(core.clone(), path).await {
-            Ok(tools) => {
-                *core.tools.locked() = Some(tools);
-            }
-            Err(error) => eprintln!("sikemux core: agents' tools are unavailable: {error}"),
-        }
-    }
+    let listening = Listening {
+        listener_fd: listener.as_raw_fd(),
+        lock_fd: lock.as_raw_fd(),
+    };
+    let core = Core::open(config, listening, 0)?;
+    *core.tools.locked() = start_tools(&core).await;
     chat::restore(&core);
+    // Only a core started afresh: one that took over keeps the tabs that were open.
     workspace::restore(&core);
-    core.chats.clear_history();
-    run_core(core, listener, lock, config).await
+    run_core(core, listener, lock).await
 }
 
-/// Puts what agents find first on their PATH in place, before any agent starts, the chats
-/// taken up again from an earlier core included, so none runs without its checks.
-pub(crate) fn install_shim(config: &ServerConfig) {
-    if let Some(data_dir) = config.data_dir.as_deref() {
-        crate::git_guard::shim::install(data_dir, config.cli_endpoint.as_deref());
-    }
+/// The agents' tool endpoint, when this core publishes one.
+pub(crate) async fn start_tools(core: &Arc<Core>) -> Option<tools::ToolEndpoint> {
+    let path = core.config.cli_endpoint.clone()?;
+    tools::ToolEndpoint::start(core.clone(), path)
+        .await
+        .inspect_err(|error| eprintln!("sikemux core: agents' tools are unavailable: {error}"))
+        .ok()
 }
 
 /// The accept loop of a core, whether it started fresh or took over from an
@@ -1100,13 +1131,9 @@ pub(crate) async fn run_core(
     core: Arc<Core>,
     listener: std::os::unix::net::UnixListener,
     lock: File,
-    config: ServerConfig,
 ) -> Result<(), ServerError> {
-    let _ = core.listening.set(Listening {
-        config: config.clone(),
-        listener_fd: listener.as_raw_fd(),
-        lock_fd: lock.as_raw_fd(),
-    });
+    let config = core.config.clone();
+    core.chats.clear_history();
     local_peer::settle();
     listener.set_nonblocking(true)?;
     let listener = tokio::net::UnixListener::from_std(listener)?;
@@ -1282,11 +1309,18 @@ async fn say_stopping(core: &Core) {
 }
 
 pub fn run(config: ServerConfig) -> Result<(), ServerError> {
+    on_runtime(serve(config))
+}
+
+/// Runs a core on a runtime of its own until it stops, then ends what outlives its tasks.
+pub(crate) fn on_runtime(
+    core: impl std::future::Future<Output = Result<(), ServerError>>,
+) -> Result<(), ServerError> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("sikemux-core")
         .build()?;
-    let result = runtime.block_on(serve(config));
+    let result = runtime.block_on(core);
     lsp::drain_all();
     runtime.shutdown_timeout(Duration::from_millis(100));
     result

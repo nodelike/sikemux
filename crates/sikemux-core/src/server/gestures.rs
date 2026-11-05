@@ -135,7 +135,7 @@ fn items(answer: &Value) -> impl Iterator<Item = &Value> {
 /// The same person to the GIF service across searches, without saying who.
 fn customer(core: &Core) -> String {
     let place = core
-        .harness
+        .config
         .data_dir
         .as_ref()
         .map(|dir| dir.to_string_lossy().into_owned())

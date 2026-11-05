@@ -527,7 +527,7 @@ pub(crate) fn tool_ran(core: &Arc<Core>, deploy: Deploy, tool: &str, answer: Res
 /// Reads a deploy tool's run until it ends, within `FOLLOW_LOOKS`. No verdict
 /// when the core did not see the end.
 async fn followed(core: &Arc<Core>, tool: &str, mut answer: Value) -> (Option<Verdict>, String) {
-    let Some(Provided(plugins)) = core.plugins else {
+    let Some(Provided(plugins)) = core.config.plugins else {
         return (None, answer_words(&answer));
     };
     let mut reading = tool.to_owned();

@@ -266,7 +266,7 @@ async fn begin(core: &Arc<Core>, binary: &Path, replacement: Replacement) -> Res
     {
         return Err("the core is already updating".into());
     }
-    let own = core.build.clone();
+    let own = core.config.build.clone();
     let checked = binary.to_owned();
     let preflight =
         blocking(move || check_binary(&checked, &own, replacement).map_err(Into::into)).await;

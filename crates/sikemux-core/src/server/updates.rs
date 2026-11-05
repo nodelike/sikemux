@@ -172,7 +172,7 @@ fn is_host() -> bool {
 fn channel(core: &Core) -> UpdateChannel {
     match (
         core.preferences.get().update_channel,
-        BuildChannel::of_release(&core.build.version),
+        BuildChannel::of_release(&core.config.build.version),
     ) {
         (UpdateChannel::Stable, BuildChannel::Nightly) if is_host() => UpdateChannel::Nightly,
         (channel, _) => channel,
@@ -238,7 +238,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
     };
     core.updates.edit(&core, |held| {
         held.status.updates = own_app().is_some();
-        held.status.current = core.build.version.clone();
+        held.status.current = core.config.build.version.clone();
         held.status.install_command = by_installer.clone();
         held.status.automatic = automatic;
     });
@@ -428,7 +428,7 @@ async fn ask_root(core: &Core) -> (Vec<UpdateStep>, Option<String>) {
     }
     let in_place = match &last {
         UpdateStep::Installed { version, .. } | UpdateStep::Current { version } => {
-            Some(version.clone()).filter(|version| *version != core.build.version)
+            Some(version.clone()).filter(|version| *version != core.config.build.version)
         }
         _ => None,
     };

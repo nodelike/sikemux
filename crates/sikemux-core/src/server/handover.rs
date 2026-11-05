@@ -40,7 +40,10 @@ use super::data_format;
 use super::harness::HarnessRecord;
 use super::prepare::Owner;
 use super::session::{self, Session, SessionParts};
-use super::{lock_path, run_core, tools, Core, CoreError, CoreResult, ServerConfig, ServerError};
+use super::{
+    lock_path, run_core, start_tools, tools, Core, CoreError, CoreResult, Listening, ServerConfig,
+    ServerError,
+};
 
 const STATE_FILE: &str = "state.json";
 const DEFAULT_ROWS: u16 = 24;
@@ -206,9 +209,6 @@ fn set_close_on_exec(fd: RawFd, close: bool) {
 /// could not be written down has its agent stopped, and is left in `handed`
 /// as one to start again.
 pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver]) -> CoreError {
-    let Some(listening) = core.listening.get() else {
-        return "the core is not listening yet".into();
-    };
     let directory = match private_directory() {
         Ok(directory) => directory,
         Err(error) => return error.into(),
@@ -265,10 +265,10 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         chats.push(unwritable.clone());
         *chat = HandOver::Resume(Box::new(unwritable));
     }
-    let config = &listening.config;
+    let (config, listening) = (&core.config, &core.listening);
     let state = HandoverState {
         format: RESUME_FORMAT,
-        from_build: core.build.clone(),
+        from_build: core.config.build.clone(),
         uptime_ms: core.uptime_ms(),
         socket: config.socket.clone(),
         listener_fd: listening.listener_fd,
@@ -823,26 +823,19 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
     let data_dir = state
         .as_ref()
         .map_or_else(|| recovery.data_dir.clone(), |state| state.data_dir.clone());
-    let config = ServerConfig {
+    let config = ServerConfig::production(
         socket,
-        idle_exit: state.as_ref().map_or(recovery.idle_exit, |state| {
+        state.as_ref().map_or(recovery.idle_exit, |state| {
             Duration::from_millis(state.idle_exit_ms)
         }),
-        build: build.clone(),
-        cli_endpoint: state.as_ref().map_or_else(
+        state.as_ref().map_or_else(
             || recovery.cli_endpoint.clone(),
             |state| state.cli_endpoint.clone(),
         ),
-        attachment_dir: data_dir.as_deref().and_then(super::attachments::pasted_dir),
         data_dir,
-        remote_direct_only: false,
-        accounts_api: Some(crate::accounts::api_base()),
-        secret_store: true,
-        plugins: recovery.plugins,
-    };
-    super::data_format::upgrade(&config);
-    let uptime_ms = state.as_ref().map_or(0, |state| state.uptime_ms);
-    let core = Core::continuing(build, config.data_dir.as_deref(), uptime_ms, config.plugins)?;
+        build,
+        recovery.plugins,
+    );
     let mut inherited = Inherited {
         open: recovery.inherited.clone(),
         claimed: HashSet::new(),
@@ -863,6 +856,12 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         &config.socket,
         &mut inherited,
     )?;
+    let listening = Listening {
+        listener_fd: listener.as_raw_fd(),
+        lock_fd: lock.as_raw_fd(),
+    };
+    let uptime_ms = state.as_ref().map_or(0, |state| state.uptime_ms);
+    let core = Core::open(config, listening, uptime_ms)?;
 
     let mut from = "an unknown build".to_owned();
     let mut tools_record = None;
@@ -943,12 +942,7 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
     }
     inherited.close_unclaimed();
     if endpoint.is_none() {
-        if let Some(path) = config.cli_endpoint.clone() {
-            match tools::ToolEndpoint::start(core.clone(), path).await {
-                Ok(started) => endpoint = Some(started),
-                Err(error) => eprintln!("sikemux core: agents' tools are unavailable: {error}"),
-            }
-        }
+        endpoint = start_tools(&core).await;
     }
     *core.tools.locked() = endpoint;
     if let Err(error) = std::fs::remove_dir_all(&recovery.directory) {
@@ -962,13 +956,11 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         core.all_sessions().len(),
         chats.len() + carried
     );
-    super::install_shim(&config);
     for record in chats {
         chat::resume(&core, record);
     }
     chat::restore(&core);
-    core.chats.clear_history();
-    run_core(core, listener, lock, config).await
+    run_core(core, listener, lock).await
 }
 
 /// The handle of a process this core inherited from the one it replaced. It

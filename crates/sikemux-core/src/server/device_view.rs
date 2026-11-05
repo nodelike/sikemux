@@ -172,6 +172,7 @@ impl Core {
         let preferences = self.preferences.get();
         let mut workspace = self.workspaces.view();
         workspace.palette = self.look.tokens_by_name();
+        workspace.disabled_plugins = super::plugins::disabled_in(self.config.plugins);
         self.names.fill(&mut workspace.agents);
         self.faces.fill(&mut workspace.agents);
         let accounts = self.workspaces.accounts();

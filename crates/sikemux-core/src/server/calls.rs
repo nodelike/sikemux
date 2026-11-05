@@ -1007,10 +1007,7 @@ struct ChatFile {
 /// pictures pasted into chats; one that can drive sessions can already read
 /// anything through a terminal, so it may read files dropped from elsewhere.
 async fn chat_file(core: &Core, peer: &Peer, params: ChatFileParams) -> CoreResult<ChatFile> {
-    let pasted = core
-        .listening
-        .get()
-        .and_then(|listening| listening.config.attachment_dir.clone());
+    let pasted = core.config.attachment_dir.clone();
     let path = params.path;
     let kept = match pasted {
         Some(dir) => {
@@ -1056,9 +1053,9 @@ struct Kept {
 /// program in the terminal can be given its path.
 async fn keep_pasted(core: &Core, params: KeepPastedParams) -> CoreResult<Kept> {
     let dir = core
-        .listening
-        .get()
-        .and_then(|listening| listening.config.attachment_dir.clone())
+        .config
+        .attachment_dir
+        .clone()
         .ok_or_else(|| CoreError::from("this host has nowhere to keep files"))?;
     let path =
         blocking(move || attachments::save(&dir, &params.name, &params.mime, &params.data)).await?;
@@ -1081,7 +1078,7 @@ async fn page(core: &Core, params: PageParams) -> CoreResult<PageHtml> {
         return Err("that is not a page's id".into());
     }
     let dir = core
-        .harness
+        .config
         .data_dir
         .clone()
         .ok_or("this core keeps no pages")?

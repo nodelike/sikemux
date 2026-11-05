@@ -267,7 +267,7 @@ async fn handshake(
                     protocol: PROTOCOL.into(),
                     version: agreed,
                     pid,
-                    build: core.build.clone(),
+                    build: core.config.build.clone(),
                 },
                 None => ServerMessage::HelloRejected {
                     protocol: PROTOCOL.into(),
@@ -584,9 +584,7 @@ async fn run_requests(
                 core.window.register(client.clone());
                 super::notch::follow(&core);
                 core.usage_wake.notify_one();
-                if let Some(listening) = core.listening.get() {
-                    crate::waiting::wake(&listening.config.socket);
-                }
+                crate::waiting::wake(&core.config.socket);
                 core.agents_changed();
                 client.answer::<ask::RegisterWindow>(request_id, Ok(()));
             }
@@ -888,9 +886,9 @@ async fn run_requests(
                 data,
             }) => {
                 let dir = core
-                    .listening
-                    .get()
-                    .and_then(|listening| listening.config.attachment_dir.clone())
+                    .config
+                    .attachment_dir
+                    .clone()
                     .ok_or_else(|| CoreError::from("this host has nowhere to keep files"));
                 let open = core.chats.running(&agent_id).map(drop).or_else(|error| {
                     core.open_agents()
