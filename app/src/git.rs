@@ -25,6 +25,7 @@ use crate::editor::OpenAt;
 use crate::syntax::{self, LineRuns};
 use crate::theme::{self, Tokens, SPACE_2, SPACE_3, TEXT_2XS};
 use crate::ui;
+use crate::workbench::Workbench;
 
 /// What the Git tab holds: the local workbench pane.
 pub struct GitTab {
@@ -75,6 +76,32 @@ pub use sikemux_core::git::diff::DiffKind;
 
 pub(crate) mod pane;
 pub mod repos;
+
+/// The project's Git view: the repository picker while none is chosen, else its pane, which
+/// takes the keys when it was just opened.
+pub(crate) fn pane(
+    bench: &Workbench,
+    window: &gpui_kit::Window,
+    cx: &mut gpui_kit::Context<Workbench>,
+) -> gpui_kit::AnyElement {
+    if bench.git_repo().is_none() && bench.git_repos().is_some() {
+        return ui::pane(cx)
+            .child(repos::picker(bench, cx))
+            .into_any_element();
+    }
+    match &bench.git.pane {
+        Some(pane) => {
+            if bench.claims_keys(crate::workbench::TakesKeys::Git) {
+                let focused = pane.clone();
+                cx.defer_in(window, move |_, window, cx| {
+                    focused.update(cx, |pane, cx| pane.take_keys(window, cx));
+                });
+            }
+            pane.clone().into_any_element()
+        }
+        None => ui::pane(cx).into_any_element(),
+    }
+}
 mod review;
 
 /// A diff side longer than this is drawn without colours.

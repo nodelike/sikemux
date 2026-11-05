@@ -896,11 +896,7 @@ fn strip_tab(
                 None => ui::picture(
                     crate::pane_kind::of(kind).icon,
                     13.,
-                    if kind == PaneKind::Terminal {
-                        t.live
-                    } else {
-                        t.text_tertiary
-                    },
+                    crate::pane_kind::tint(kind, &t),
                 )
                 .into_any_element(),
             })

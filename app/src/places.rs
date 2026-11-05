@@ -9,7 +9,8 @@ use sikemux_view::layout::{Pane, PaneKind};
 use sikemux_wire::protocol::ProjectInfo;
 
 use crate::tabs;
-use crate::workbench::{RailPage, Strip, Workbench};
+use crate::workbench::{Strip, Workbench};
+use sikemux_view::prefs::TabRailPage;
 
 /// Defines unit actions named by today's command ids.
 macro_rules! commands {
@@ -153,7 +154,7 @@ impl Workbench {
         });
         match file {
             Some((strip, tab)) => self.activate_tab(&strip, &tab),
-            None => self.open_rail_on(RailPage::Files, cx),
+            None => self.open_rail_on(TabRailPage::Files, cx),
         }
     }
 
@@ -162,7 +163,7 @@ impl Workbench {
         let Some(strip @ Strip::Project(_)) = self.strip() else {
             return;
         };
-        self.open_rail_on(RailPage::Agents, cx);
+        self.open_rail_on(TabRailPage::Agents, cx);
         let in_front = self
             .tab()
             .and_then(|tab| tabs::first_view(&tab.pane))
@@ -285,7 +286,7 @@ impl Workbench {
     }
 
     /// Opens the tab rail on `page`.
-    pub fn open_rail_on(&mut self, page: RailPage, cx: &mut Context<Self>) {
+    pub fn open_rail_on(&mut self, page: TabRailPage, cx: &mut Context<Self>) {
         if !self.rails.tab_open {
             self.rails.tab_open = true;
             self.keep_rails(cx);

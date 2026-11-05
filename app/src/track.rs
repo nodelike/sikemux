@@ -10,11 +10,11 @@ use gpui_kit::{
     canvas, div, px, relative, AnimationExt, AnyElement, App, Context, DispatchPhase, Div,
     ElementId, Hsla, IntoElement, ParentElement, ScrollEvent, Styled, Task, TouchPhase, Window,
 };
-use sikemux_view::layout::PaneKind;
 
 use crate::panes;
 use crate::swipe::{self, Ends, Swipe, Swiped};
-use crate::workbench::{RailPage, Workbench};
+use crate::workbench::Workbench;
+use sikemux_view::prefs::TabRailPage;
 
 thread_local! {
     /// The innermost row under the pointer as the gesture began, which alone follows it, so
@@ -220,7 +220,11 @@ impl Workbench {
     /// Follows a scroll over the tab rail; true when it took it as a swipe between pages.
     fn swipe_rail(&mut self, event: &ScrollEvent, cx: &mut Context<Self>) -> bool {
         let front = self.rails.page;
-        match self.rails.slide.scroll(event, &RailPage::ALL, &front) {
+        match self
+            .rails
+            .slide
+            .scroll(event, &crate::pane_kind::PAGES, &front)
+        {
             Scrolled::Ignored => return false,
             Scrolled::Glided => return true,
             Scrolled::Moved => {}
@@ -237,12 +241,12 @@ impl Workbench {
     }
 
     /// Shows another of the tab rail's pages, springing over to it.
-    pub fn show_rail_page(&mut self, page: RailPage, cx: &mut Context<Self>) {
+    pub fn show_rail_page(&mut self, page: TabRailPage, cx: &mut Context<Self>) {
         let was = std::mem::replace(&mut self.rails.page, page);
         if was != page {
             self.keep_rails(cx);
         }
-        if let Some(moved) = self.rails.slide.turn(was, page, &RailPage::ALL) {
+        if let Some(moved) = self.rails.slide.turn(was, page, &crate::pane_kind::PAGES) {
             settle(self, moved, |bench: &mut Self| &mut bench.rails.slide, cx);
         }
         cx.notify();
@@ -295,13 +299,8 @@ pub(crate) fn settle<T: 'static, K: 'static>(
 /// Whether a swipe over this tab pages between tabs; an editor or a page scrolls sideways
 /// itself, so its gestures stay its own.
 fn pages_sideways(tab: &sikemux_view::layout::Tab) -> bool {
-    !matches!(
-        crate::tabs::first_view(&tab.pane),
-        Some((
-            PaneKind::Files | PaneKind::Desk | PaneKind::Browser | PaneKind::Mod,
-            _
-        ))
-    )
+    crate::tabs::first_view(&tab.pane)
+        .is_none_or(|(kind, _)| crate::pane_kind::of(kind).swipe_pages)
 }
 
 /// The stage's tabs: the one in front, with the one beside it while they move.
@@ -344,10 +343,13 @@ pub fn stage(
 /// The tab rail's pages: the one shown, with the one beside it while they move.
 pub fn rail(
     bench: &Workbench,
-    page: impl Fn(RailPage, &mut Context<Workbench>) -> AnyElement,
+    page: impl Fn(TabRailPage, &mut Context<Workbench>) -> AnyElement,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let (shown, start, motion) = bench.rails.slide.shown(bench.rails.page, &RailPage::ALL);
+    let (shown, start, motion) = bench
+        .rails
+        .slide
+        .shown(bench.rails.page, &crate::pane_kind::PAGES);
     let cards = shown
         .into_iter()
         .map(|(shown, place)| (page(shown, cx), place))

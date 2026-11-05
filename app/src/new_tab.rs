@@ -3,6 +3,8 @@
 
 use gpui_kit::{Context, Window};
 
+use sikemux_view::layout::PaneKind;
+
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
 use crate::keymap;
@@ -22,71 +24,75 @@ struct Choice {
     in_project: bool,
 }
 
-const CHOICES: [Choice; 9] = [
-    Choice {
-        command: "terminal.new",
-        label: "Terminal",
-        detail: "A new shell",
-        icon: Icon::Terminal,
-        in_project: false,
-    },
-    Choice {
-        command: "agent.choose",
-        label: "Agent",
-        detail: "Start or resume an agent",
-        icon: Icon::Agent,
-        in_project: true,
-    },
-    Choice {
-        command: "browser.tabNew",
-        label: "Browser",
-        detail: "A page on the agent's desk",
-        icon: Icon::Globe,
-        in_project: true,
-    },
-    Choice {
-        command: "simulator.new",
-        label: "iOS Simulator",
-        detail: "Drive an iPhone on the agent's desk",
-        icon: Icon::Phone,
-        in_project: true,
-    },
-    Choice {
-        command: "palette.files",
-        label: "Files",
-        detail: "Open a project file",
-        icon: Icon::Editor,
-        in_project: true,
-    },
-    Choice {
-        command: "window.git",
-        label: "Git",
-        detail: "Changes, branches, remotes and stashes",
-        icon: Icon::Git,
-        in_project: true,
-    },
-    Choice {
-        command: "search.global",
-        label: "Search",
-        detail: "Search across the project",
-        icon: Icon::Search,
-        in_project: true,
-    },
-    Choice {
-        command: "window.board",
-        label: "Agent board",
-        detail: "What the project's agents are doing",
-        icon: Icon::Board,
-        in_project: true,
-    },
-    Choice {
-        command: "palette.mods",
-        label: "Mod",
-        detail: "A panel you or an agent made",
-        icon: Icon::Dashboard,
-        in_project: false,
-    },
-];
+impl Choice {
+    /// A tab of `kind`, called and marked as such tabs are.
+    fn of(kind: PaneKind, command: &'static str, detail: &'static str, in_project: bool) -> Self {
+        let kind = crate::pane_kind::of(kind);
+        Self {
+            command,
+            label: kind.label,
+            detail,
+            icon: kind.icon,
+            in_project,
+        }
+    }
+}
+
+fn choices() -> [Choice; 9] {
+    [
+        Choice::of(PaneKind::Terminal, "terminal.new", "A new shell", false),
+        Choice::of(
+            PaneKind::Agent,
+            "agent.choose",
+            "Start or resume an agent",
+            true,
+        ),
+        Choice {
+            command: "browser.tabNew",
+            label: "Browser",
+            detail: "A page on the agent's desk",
+            icon: Icon::Globe,
+            in_project: true,
+        },
+        Choice {
+            command: "simulator.new",
+            label: "iOS Simulator",
+            detail: "Drive an iPhone on the agent's desk",
+            icon: Icon::Phone,
+            in_project: true,
+        },
+        Choice::of(
+            PaneKind::Files,
+            "palette.files",
+            "Open a project file",
+            true,
+        ),
+        Choice::of(
+            PaneKind::Git,
+            "window.git",
+            "Changes, branches, remotes and stashes",
+            true,
+        ),
+        Choice::of(
+            PaneKind::Search,
+            "search.global",
+            "Search across the project",
+            true,
+        ),
+        Choice::of(
+            PaneKind::Board,
+            "window.board",
+            "What the project's agents are doing",
+            true,
+        ),
+        Choice::of(
+            PaneKind::Mod,
+            "palette.mods",
+            "A panel you or an agent made",
+            false,
+        ),
+    ]
+}
 
 /// The row that sets Sikemux up on the SSH host in front.
 const INSTALL: &str = "host.install";
@@ -98,7 +104,7 @@ impl Workbench {
             return self.toggle_ssh_new_tab(alias, window, cx);
         }
         let in_project = matches!(self.strip(), Some(Strip::Project(_)));
-        let rows = CHOICES
+        let rows = choices()
             .iter()
             .filter(|choice| cx.build_action(choice.command, None).is_ok())
             .filter(|choice| cfg!(target_os = "macos") || choice.command != "simulator.new")

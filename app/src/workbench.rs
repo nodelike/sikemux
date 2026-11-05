@@ -297,18 +297,6 @@ impl Render for DraggedRail {
 /// How often the Limits panel reads the plan limits again while it shows, as the Mac app does.
 const LIMITS_EVERY: Duration = Duration::from_secs(5 * 60);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum RailPage {
-    Agents,
-    Terminals,
-    Files,
-}
-
-impl RailPage {
-    /// The pages in the order they sit, left to right.
-    pub const ALL: [RailPage; 3] = [RailPage::Agents, RailPage::Terminals, RailPage::Files];
-}
-
 /// An agent as the rails and tabs show it.
 #[derive(Clone)]
 pub struct AgentRow {
@@ -551,7 +539,7 @@ impl Workbench {
                 resizers: [cx.focus_handle(), cx.focus_handle()],
                 peeking: None,
                 unpeek: None,
-                page: RailPage::Agents,
+                page: TabRailPage::Agents,
                 keeping: None,
                 all_projects: false,
                 goal_focus: None,
@@ -638,7 +626,7 @@ impl Workbench {
     /// agent.
     fn limits_shown(&self) -> bool {
         self.rails.tab_open
-            && self.rails.page == RailPage::Agents
+            && self.rails.page == TabRailPage::Agents
             && !self.rails.all_harnesses
             && self.launcher().is_some()
     }
@@ -2698,11 +2686,7 @@ impl Workbench {
     }
 
     fn write_rails(&self) {
-        let page = match self.rails.page {
-            RailPage::Agents => TabRailPage::Agents,
-            RailPage::Terminals => TabRailPage::Terminals,
-            RailPage::Files => TabRailPage::Files,
-        };
+        let page = self.rails.page;
         let scope = if self.rails.all_projects {
             TabRailScope::All
         } else {
@@ -2718,7 +2702,7 @@ impl Workbench {
             ("sideRailWidth", json!(self.rails.side_width)),
             ("tabRailOpen", json!(self.rails.tab_open)),
             ("tabRailWidth", json!(self.rails.tab_width)),
-            ("tabRailPage", json!(page)),
+            ("tabTabRailPage", json!(page)),
             ("tabRailScope", json!(scope)),
             ("tabRailAllAgents", json!(self.rails.all_harnesses)),
             ("windowView", json!(self.window_view)),
@@ -3172,16 +3156,13 @@ impl Workbench {
             .tab()
             .and_then(|tab| tabs::first_view(&tab.pane))
             .map(|(kind, _)| kind);
-        match front {
-            Some(PaneKind::Git) => self.git_pane(window, cx),
-            Some(PaneKind::Search) => self.search_pane(cx),
-            Some(PaneKind::Board) => self.board_pane(cx),
-            _ => {}
+        if let Some(kind) = front {
+            crate::pane_kind::make(kind, self, window, cx);
         }
     }
 
     /// Makes the Git pane when the project's Git tab comes to the front.
-    fn git_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn git_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.project() else {
             return;
         };
@@ -3233,7 +3214,7 @@ impl Workbench {
     }
 
     /// Makes the Search pane when the project's Search tab comes to the front.
-    fn search_pane(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn search_pane(&mut self, cx: &mut Context<Self>) {
         let Some(project) = self.project() else {
             return;
         };
@@ -3326,7 +3307,7 @@ impl Workbench {
     }
 
     /// Makes the board pane when the project's board tab comes to the front.
-    fn board_pane(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn board_pane(&mut self, cx: &mut Context<Self>) {
         let Some(project) = self.project() else {
             return;
         };
@@ -3356,22 +3337,11 @@ impl Workbench {
             "openTab",
             json!({ "project": project.id, "kind": "search", "target": project.path.to_string_lossy() }),
         );
-        let path = project.path.to_string_lossy().into_owned();
         let seed = self.selection(window, cx);
-        let target = self.target();
-        let search = match self.search.as_ref().filter(|search| {
-            let search = search.read(cx);
-            search.project == path && search.place() == target.place()
-        }) {
-            Some(search) => search.clone(),
-            None => {
-                let bench = cx.weak_entity();
-                let search = cx.new(|cx| SearchPane::new(target, path, bench, cx));
-                self.search = Some(search.clone());
-                search
-            }
-        };
-        search.update(cx, |search, cx| search.focus_find(seed, window, cx));
+        self.search_pane(cx);
+        if let Some(search) = self.search.clone() {
+            search.update(cx, |search, cx| search.focus_find(seed, window, cx));
+        }
     }
 
     /// The first line of the text selected where the keyboard is: a field or file, or a chat.
@@ -3797,7 +3767,7 @@ impl Workbench {
             title,
             agents,
         });
-        self.rails.page = RailPage::Agents;
+        self.rails.page = TabRailPage::Agents;
         self.rails.tab_open = true;
         self.show_workbench(cx);
         if let Some(agent) = first {

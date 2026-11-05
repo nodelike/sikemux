@@ -25,7 +25,7 @@ use crate::theme::{
     TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, Button, Group, IconButton, Row, Tone, Variant};
-use crate::workbench::{AgentRow, Edge, RailPage, RailWidth, Strip, Workbench};
+use crate::workbench::{AgentRow, Edge, RailWidth, Strip, Workbench};
 
 impl Rails {
     /// Opens, sizes and pages the rails as the person's preferences keep them.
@@ -36,11 +36,7 @@ impl Rails {
             |width: f64, range: RailWidth| (width as f32).clamp(range.min, range.max).round();
         self.side_width = width(preferences.side_rail_width, SIDE_RAIL);
         self.tab_width = width(preferences.tab_rail_width, crate::agents::TAB_RAIL);
-        self.page = match preferences.tab_rail_page {
-            TabRailPage::Agents => RailPage::Agents,
-            TabRailPage::Terminals => RailPage::Terminals,
-            TabRailPage::Files => RailPage::Files,
-        };
+        self.page = preferences.tab_rail_page;
         self.all_projects = preferences.tab_rail_scope == TabRailScope::All;
         self.all_harnesses = preferences.tab_rail_all_agents;
     }
@@ -66,7 +62,7 @@ pub struct Rails {
     pub(crate) peeking: Option<Edge>,
     pub(crate) unpeek: Option<gpui_kit::Task<()>>,
     /// Which of its pages the tab rail shows.
-    pub page: RailPage,
+    pub page: TabRailPage,
     /// The rails' state waiting to be kept in the core's preferences, once a drag settles.
     pub(crate) keeping: Option<gpui_kit::Task<()>>,
     pub(crate) all_projects: bool,
@@ -85,7 +81,7 @@ pub struct Rails {
     /// Where the tab rail's frame was last drawn, left, top, width and height, for the driver.
     pub(crate) frame: Rc<std::cell::Cell<[f32; 4]>>,
     /// The tab rail's pages while they move between one another.
-    pub(crate) slide: crate::track::Slide<RailPage>,
+    pub(crate) slide: crate::track::Slide<TabRailPage>,
 }
 
 pub const SIDE_RAIL: RailWidth = RailWidth {
@@ -487,7 +483,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                                 .disabled(!has_project)
                                 .on_click(on(|bench, key, cx| {
                                     bench.choose_host(HostChoice::Account(key.to_owned()), cx);
-                                    bench.show_rail_page(RailPage::Files, cx);
+                                    bench.show_rail_page(TabRailPage::Files, cx);
                                 })),
                         )
                         .separator()
@@ -782,20 +778,11 @@ fn lit_surface(bench: &Workbench) -> Option<PaneKind> {
         .tab()
         .and_then(|tab| tabs::first_view(&tab.pane))
         .map(|(kind, _)| kind);
-    let paged = front.is_none_or(|kind| page_of(kind).is_some());
+    let paged = front.is_none_or(|kind| crate::pane_kind::page_of(kind).is_some());
     if !(bench.rails.tab_open && paged) {
         return front;
     }
-    Some(match bench.rails.page {
-        RailPage::Agents => PaneKind::Agent,
-        RailPage::Terminals => PaneKind::Terminal,
-        RailPage::Files => PaneKind::Files,
-    })
-}
-
-/// The tab rail's page that lists a surface's tabs.
-fn page_of(kind: PaneKind) -> Option<RailPage> {
-    crate::pane_kind::of(kind).page
+    Some(crate::pane_kind::listed_on(bench.rails.page))
 }
 
 /// The hover group of a project's row, whose × shows on hover.
@@ -947,24 +934,19 @@ fn rollup(bench: &Workbench, project: &str, cx: &App) -> Option<gpui_kit::AnyEle
     ui::status_mark(&format!("project:{project}"), status, cx)
 }
 
-/// What a project opens, in the order the rail lists them.
-const SURFACES: [PaneKind; 6] = [
-    PaneKind::Files,
-    PaneKind::Terminal,
-    PaneKind::Agent,
-    PaneKind::Git,
-    PaneKind::Search,
-    PaneKind::Board,
-];
-
 /// The project's surfaces, hung off a spine with a tick to each, the one in front lit.
 fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let bench = cx.entity().downgrade();
-    let rows = SURFACES.map(|kind| {
-        let shown = crate::pane_kind::of(kind);
-        let (label, command) = shown.surface.unwrap_or_default();
-        (shown.icon, SharedString::from(label), command, kind)
+    let rows = crate::pane_kind::SURFACES.map(|surface| {
+        let kind = surface.kind;
+        let label = SharedString::from(surface.label);
+        (
+            crate::pane_kind::of(kind).icon,
+            label,
+            surface.command,
+            kind,
+        )
     });
     let last = rows.len() - 1;
     div()
@@ -984,7 +966,7 @@ fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElemen
                     .relative()
                     .h(px(25.))
                     .on_click(move |_, window, cx| {
-                        if let Some(page) = page_of(kind) {
+                        if let Some(page) = crate::pane_kind::page_of(kind) {
                             let _ = bench.update(cx, |bench, cx| {
                                 if bench.rails.tab_open {
                                     bench.show_rail_page(page, cx);

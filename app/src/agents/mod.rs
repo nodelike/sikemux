@@ -24,8 +24,9 @@ use crate::theme::{
     TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, Field, Group, IconButton, Row, Segmented};
-use crate::workbench::{AgentRow, Edge, RailPage, RailWidth, Strip, TeamLink, Workbench};
+use crate::workbench::{AgentRow, Edge, RailWidth, Strip, TeamLink, Workbench};
 use sikemux_view::inbox::RemoteAgent;
+use sikemux_view::prefs::TabRailPage;
 
 pub const TAB_RAIL: RailWidth = RailWidth {
     min: 240.,
@@ -138,16 +139,16 @@ fn page_body() -> gpui_kit::Div {
 }
 
 /// One of the tab rail's pages, whole.
-fn page_panel(bench: &Workbench, page: RailPage, cx: &mut Context<Workbench>) -> AnyElement {
+fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>) -> AnyElement {
     match page {
-        RailPage::Files => {
+        TabRailPage::Files => {
             return page_body()
                 .child(page_header("Files", bench, cx))
                 .child(crate::files::page(bench, cx))
                 .into_any_element();
         }
-        RailPage::Terminals => return terminals_page(bench, cx),
-        RailPage::Agents => {}
+        TabRailPage::Terminals => return terminals_page(bench, cx),
+        TabRailPage::Agents => {}
     }
     if let crate::hosts::HostChoice::Ssh(alias) = bench.chosen_host() {
         return ssh_page(bench, alias, cx);
@@ -1740,7 +1741,7 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let page = |id: &'static str,
                 glyph: Icon,
                 label: &'static str,
-                shown: RailPage,
+                shown: TabRailPage,
                 cx: &mut Context<Workbench>| {
         IconButton::new(id, glyph, label)
             .width(32.)
@@ -1763,17 +1764,23 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             "page-agents",
             Icon::Agents,
             "Agents",
-            RailPage::Agents,
+            TabRailPage::Agents,
             cx,
         ))
         .child(page(
             "page-terminals",
             Icon::Terminal,
             "Terminals",
-            RailPage::Terminals,
+            TabRailPage::Terminals,
             cx,
         ))
-        .child(page("page-files", Icon::File, "Files", RailPage::Files, cx))
+        .child(page(
+            "page-files",
+            Icon::File,
+            "Files",
+            TabRailPage::Files,
+            cx,
+        ))
 }
 
 /// A rail page's title bar.

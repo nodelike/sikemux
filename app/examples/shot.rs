@@ -119,7 +119,7 @@ fn main() -> anyhow::Result<()> {
         if let Some(bench) = bench.borrow().clone() {
             cx.update(|cx| {
                 bench.update(cx, |bench, cx| {
-                    bench.rails.page = workbench::RailPage::Files;
+                    bench.rails.page = sikemux_view::prefs::TabRailPage::Files;
                     cx.notify();
                 })
             });

@@ -8,8 +8,8 @@ use std::time::{Duration, Instant};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     canvas, div, px, relative, AnyElement, App, AppContext, Bounds, Context, CursorStyle,
-    DragMoveEvent, EmptyView, Focusable, Hsla, InteractiveElement, IntoElement, MouseButton,
-    ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window,
+    DragMoveEvent, EmptyView, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::json;
 use sikemux_view::layout::{Pane, PaneKind, SplitDir, Tab};
@@ -17,9 +17,9 @@ use sikemux_wire::protocol::SessionId;
 
 use crate::drag::DraggedTab;
 use crate::pane_kind::Separable;
-use crate::theme::{SPACE_1, TEXT_XS};
-use crate::workbench::{Strip, TakesKeys, Workbench};
-use crate::{desk, home, motion, terminal, ui};
+use crate::theme::SPACE_1;
+use crate::workbench::{Strip, Workbench};
+use crate::{motion, ui};
 
 /// The room between two panes, which is also where a divider is dragged.
 pub const GAP: f32 = 10.;
@@ -395,7 +395,9 @@ fn pane(
                 .on_drop(cx.listener(move |bench, dropped: &DraggedTab, _, cx| {
                     bench.drop_split(&dropping, dropped, cx);
                 }))
-                .child(view(bench, tab, id, *kind, target, window, cx))
+                .child(crate::pane_kind::draw(
+                    *kind, bench, tab, id, target, window, cx,
+                ))
                 .child({
                     let (drawn, view) = (Rc::clone(&bench.panes.drawn), id.clone());
                     canvas(
@@ -445,10 +447,7 @@ fn stack(
         let mark = ui::picture(
             crate::pane_kind::of(kind).icon,
             13.,
-            match kind {
-                PaneKind::Terminal => t.live,
-                _ => t.text_tertiary,
-            },
+            crate::pane_kind::tint(kind, &t),
         );
         Some(
             ui::Tab::new(
@@ -515,96 +514,6 @@ fn preview(side: Side, cx: &App) -> impl IntoElement {
             a: 0.55,
             ..t.accent
         })
-}
-
-/// A desk of another host, which this app does not show yet.
-fn elsewhere(bench: &Workbench, host: &str, cx: &mut Context<Workbench>) -> AnyElement {
-    let name = bench.host_name(host);
-    ui::pane(cx)
-        .flex()
-        .items_center()
-        .justify_center()
-        .child(ui::meta(format!("This runs on {name}"), cx))
-        .into_any_element()
-}
-
-fn view(
-    bench: &Workbench,
-    tab: &str,
-    id: &str,
-    kind: PaneKind,
-    target: &str,
-    window: &Window,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    if let (crate::hosts::Place::Account(host), PaneKind::Desk) = (bench.place(), kind) {
-        return elsewhere(bench, &host, cx);
-    }
-    match kind {
-        PaneKind::Terminal => ui::pane(cx)
-            .child(terminal::pane(
-                bench,
-                &cx.entity(),
-                &bench.place(),
-                target,
-                cx,
-            ))
-            .into_any_element(),
-        PaneKind::Files => ui::pane(cx)
-            .child(crate::editor::pane(bench, &cx.entity(), target, window, cx))
-            .into_any_element(),
-        PaneKind::Git if bench.git_repo().is_none() && bench.git_repos().is_some() => ui::pane(cx)
-            .child(crate::git::repos::picker(bench, cx))
-            .into_any_element(),
-        PaneKind::Git => match &bench.git.pane {
-            Some(pane) => {
-                if bench.claims_keys(TakesKeys::Git) {
-                    let focused = pane.clone();
-                    cx.defer_in(window, move |_, window, cx| {
-                        focused.update(cx, |pane, cx| pane.take_keys(window, cx));
-                    });
-                }
-                pane.clone().into_any_element()
-            }
-            None => ui::pane(cx).into_any_element(),
-        },
-        PaneKind::Search => match &bench.search {
-            Some(pane) => ui::pane(cx).child(pane.clone()).into_any_element(),
-            None => ui::pane(cx).into_any_element(),
-        },
-        PaneKind::Board => match &bench.board {
-            Some(pane) => {
-                if bench.claims_keys(TakesKeys::Board) {
-                    let focus = pane.read(cx).focus_handle(cx);
-                    cx.defer_in(window, move |_, window, cx| window.focus(&focus, cx));
-                }
-                ui::pane(cx).child(pane.clone()).into_any_element()
-            }
-            None => ui::pane(cx).into_any_element(),
-        },
-        PaneKind::Mod => match bench.mod_panes.get(id) {
-            Some(pane) => ui::pane(cx).child(pane.clone()).into_any_element(),
-            None => ui::pane(cx).into_any_element(),
-        },
-        PaneKind::Agent => home::agent_view(bench, tab, id, target, cx),
-        PaneKind::Desk => desk::pane(bench, target, window, cx),
-        PaneKind::ProjectSettings => crate::project_settings::pane(bench, target, window, cx),
-        PaneKind::InstallSikemux => crate::install_pane::pane(bench, target, cx),
-        PaneKind::Stash => crate::stash::pane(bench, cx),
-        PaneKind::Unknown => ui::pane(cx)
-            .child(
-                div()
-                    .size_full()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(crate::theme::ui_text(TEXT_XS))
-                    .text_color(crate::theme::Tokens::get(cx).text_tertiary)
-                    .child("This tab needs a newer Sikemux."),
-            )
-            .into_any_element(),
-        _ => home::agent_view(bench, tab, id, "", cx),
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -952,28 +861,7 @@ impl Workbench {
         else {
             return;
         };
-        match kind {
-            PaneKind::Terminal => {
-                let focus = target.parse::<SessionId>().ok().and_then(|session| {
-                    let key = self.terminals.key(&self.place(), session);
-                    self.terminals.focus(key)
-                });
-                if let Some(focus) = focus {
-                    window.focus(focus, cx);
-                }
-            }
-            PaneKind::Agent => {
-                if let Some(composing) = self
-                    .chats
-                    .open
-                    .get(target)
-                    .and_then(|chat| chat.composer.as_ref())
-                {
-                    composing.draft.read(cx).focus_handle(cx).focus(window, cx);
-                }
-            }
-            _ => self.keys.focus.focus(window, cx),
-        }
+        crate::pane_kind::focus(*kind, self, target, window, cx);
     }
 
     /// Moves the divider beside the view in focus `towards`, growing the view: along the

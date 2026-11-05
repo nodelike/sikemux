@@ -130,6 +130,18 @@ pub struct BoardPane {
     _reading: Task<()>,
 }
 
+/// The project's board, which takes the keys when it was just opened.
+pub(crate) fn pane(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
+    let Some(pane) = &bench.board else {
+        return crate::ui::pane(cx).into_any_element();
+    };
+    if bench.claims_keys(crate::workbench::TakesKeys::Board) {
+        let focus = pane.read(cx).focus_handle(cx);
+        cx.defer_in(window, move |_, window, cx| window.focus(&focus, cx));
+    }
+    crate::ui::pane(cx).child(pane.clone()).into_any_element()
+}
+
 impl BoardPane {
     pub fn new(
         asks: UnboundedSender<Ask>,

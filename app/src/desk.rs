@@ -1655,9 +1655,9 @@ impl Workbench {
             "files": files,
             "spots": crate::drive::spots(),
             "rail": match self.rails.page {
-                crate::workbench::RailPage::Agents => "agents",
-                crate::workbench::RailPage::Terminals => "terminals",
-                crate::workbench::RailPage::Files => "files",
+                crate::workbench::TabRailPage::Agents => "agents",
+                crate::workbench::TabRailPage::Terminals => "terminals",
+                crate::workbench::TabRailPage::Files => "files",
             },
             "railBounds": self.rails.frame.get(),
             "tree": self.files.drive_state(),
@@ -1769,12 +1769,26 @@ const PILL_MIN: f32 = 120.;
 const DESK_PILL: &str = "desk-pill";
 
 /// The desk of `agent`.
+/// A desk of another host, which this app does not show yet.
+fn elsewhere(bench: &Workbench, host: &str, cx: &mut Context<Workbench>) -> AnyElement {
+    let name = bench.host_name(host);
+    ui::pane(cx)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(ui::meta(format!("This runs on {name}"), cx))
+        .into_any_element()
+}
+
 pub fn pane(
     bench: &Workbench,
     agent: &str,
     window: &Window,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
+    if let crate::hosts::Place::Account(host) = bench.place() {
+        return elsewhere(bench, &host, cx);
+    }
     let t = Tokens::get(cx).clone();
     let kind = bench.desk_kind(agent, cx);
     if kind == DeskKind::Simulator {
