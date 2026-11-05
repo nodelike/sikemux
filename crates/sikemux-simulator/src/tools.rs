@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
@@ -29,6 +29,9 @@ const LAUNCH_READS: usize = 33;
 const LAUNCH_IN_FLIGHT: Duration = Duration::from_secs(60);
 /// How many reads, a step apart, to wait for an action to change the screen.
 const CHANGE_READS: usize = 5;
+/// What the helper says when a read finds no app in front.
+const NO_APP_IN_FRONT: &str = "No translation object";
+const NO_APP_WAIT: Duration = Duration::from_secs(30);
 /// How many reads, a step apart, to wait for Home to bring the Home Screen up from an app:
 /// it always does, but a busy device starts leaving the app late. Six seconds.
 const HOME_READS: usize = 20;
@@ -926,10 +929,25 @@ fn clip(text: &str, limit: usize) -> String {
     clipped
 }
 
+/// Reads the screen, looking again while no app is in front, as happens while one
+/// opens or leaves: on a busy device that has been seen to last well over ten seconds.
 async fn read_screen(manager: &SimulatorManager, device: &Device) -> Result<Read, String> {
-    let reply = manager
-        .request("tree", json!({ "udid": device.udid }))
-        .await?;
+    let started = Instant::now();
+    let reply = loop {
+        match manager
+            .request("tree", json!({ "udid": device.udid }))
+            .await
+        {
+            Err(error)
+                if error.contains(NO_APP_IN_FRONT)
+                    && started.elapsed() < NO_APP_WAIT
+                    && !near_deadline() =>
+            {
+                pause(SETTLE_STEP).await?;
+            }
+            reply => break reply?,
+        }
+    };
     let size = app_size(&reply).or(device.screen);
     let (app, elements) = elements_from(&reply, size);
     Ok(Read {

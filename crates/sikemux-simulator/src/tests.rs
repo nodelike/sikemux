@@ -588,6 +588,40 @@ done
         )
     }
 
+    /// CI's fixture run failed `sim.tap` when a read caught the moment with no app in front.
+    #[test]
+    fn a_read_that_finds_no_app_in_front_looks_again() {
+        let log_dir = tempfile::tempdir().unwrap();
+        let no_app = log_dir.path().join("no-app");
+        let script = recording_helper(&log_dir.path().join("requests")).replace(
+            r#"*'"type":"tree"'*) echo"#,
+            &format!(
+                r#"*'"type":"tree"'*) [ -e '{}' ] && rm '{}' && echo "{{\"id\":$id,\"type\":\"error\",\"reason\":\"simulator\",\"message\":\"No translation object returned for simulator.\"}}" && continue; echo"#,
+                no_app.display(),
+                no_app.display()
+            ),
+        );
+        let (_dir, manager) = helper(&script);
+        run_now(
+            &manager,
+            "agent-1",
+            "/tmp",
+            "sim.attach",
+            &json!({ "device": "iPhone 17" }),
+        )
+        .expect("attach");
+        std::fs::write(&no_app, "").unwrap();
+        run_now(
+            &manager,
+            "agent-1",
+            "/tmp",
+            "sim.tap",
+            &json!({ "index": 0 }),
+        )
+        .expect("tap");
+        assert!(!no_app.exists(), "the read that found no app was made");
+    }
+
     #[test]
     fn drags_through_each_point_in_order_and_lets_go() {
         let log_dir = tempfile::tempdir().unwrap();

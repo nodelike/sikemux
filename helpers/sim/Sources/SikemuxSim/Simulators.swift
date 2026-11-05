@@ -283,22 +283,10 @@ actor Simulators {
     /// element, which a busy device answers slowly enough for a whole read to take a minute.
     static let treeKeys: Set<AXKeys> = [.type, .label, .value, .uniqueID, .frameDict, .enabled, .traits, .pid]
 
-    /// How long a read keeps looking when no app is in front, as happens for a moment while one opens or
-    /// leaves, before saying so.
-    static let treeWait: TimeInterval = 10
-
     func tree(_ udid: String?) async throws -> Any {
-        let automation = try await booted(udid).uiAutomation(backend: .accessibility)
-        let options = AccessibilityRequestOptions(format: .nested, keys: Self.treeKeys, enableLogging: false)
-        let deadline = Date().addingTimeInterval(Self.treeWait)
-        while true {
-            do {
-                let response = try await automation.describe(.frontmost, options: options)
-                return try JSONSerialization.jsonObject(with: JSONEncoder().encode(response.elements.elements))
-            } catch AccessibilityError.noTranslationObject where Date() < deadline {
-                try await Task.sleep(nanoseconds: 250_000_000)
-            }
-        }
+        let response = try await booted(udid).uiAutomation(backend: .accessibility)
+            .describe(.frontmost, options: AccessibilityRequestOptions(format: .nested, keys: Self.treeKeys, enableLogging: false))
+        return try JSONSerialization.jsonObject(with: JSONEncoder().encode(response.elements.elements))
     }
 
     /// Looks again every quarter second until `wait` runs out, since a label is often still on its way in
