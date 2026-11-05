@@ -25,7 +25,6 @@ use super::board::{self, Hold, Summary, Waits};
 use super::connection::blocking;
 use super::display;
 use super::notify::provider_name;
-use super::questions::ForPerson;
 use super::roster;
 use super::{Core, CoreResult};
 use sikemux_view::slice::Gate;
@@ -805,26 +804,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         items.push(item);
     }
     let questions = core.harness.questions.for_person();
-    let mut latest: HashMap<&str, &ForPerson> = HashMap::new();
     for question in &questions {
-        let waits = question.assumption.is_none() || question.blocked;
-        if waits
-            && latest
-                .get(question.agent_id.as_str())
-                .is_none_or(|kept| kept.at < question.at)
-        {
-            latest.insert(&question.agent_id, question);
-        }
-    }
-    for question in &questions {
-        let waits = question.assumption.is_none() || question.blocked;
-        if waits
-            && !latest
-                .get(question.agent_id.as_str())
-                .is_some_and(|kept| kept.id == question.id)
-        {
-            continue;
-        }
         let (case, what) = match (&question.assumption, question.blocked) {
             (Some(assumption), false) => (
                 Case::Assumption,

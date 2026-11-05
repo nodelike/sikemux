@@ -31,6 +31,13 @@ use super::notify::Signal;
 use super::wake::{sooner, Wake};
 use super::Core;
 
+mod relay;
+mod reply;
+
+use relay::*;
+pub(crate) use relay::{answer_relayed, closed_elsewhere, relayed_here};
+use reply::*;
+
 const FILE: &str = "agent-questions.json";
 /// Where the person's answers to secret questions wait for their agents.
 const SECRETS: &str = "agent-secrets";
@@ -300,6 +307,7 @@ pub(crate) struct Questions {
 }
 
 /// A question that waits on the person.
+#[derive(Clone)]
 pub(crate) struct ForPerson {
     pub id: String,
     pub agent_id: String,
@@ -444,7 +452,8 @@ impl Questions {
             .any(|question| question.agent_id == agent_id)
     }
 
-    /// The questions put to the person, with a tool or in a reply, oldest first.
+    /// The questions put to the person, with a tool or in a reply, oldest first: of those an
+    /// agent waits on, only its latest.
     pub(crate) fn for_person(&self) -> Vec<ForPerson> {
         let state = self.state.locked();
         let asked = (state.open.iter())
@@ -476,7 +485,20 @@ impl Questions {
                 answers: question.answers(),
                 at: question.at,
             });
-        asked.chain(replied).collect()
+        let questions: Vec<ForPerson> = asked.chain(replied).collect();
+        let waits = |question: &ForPerson| question.assumption.is_none() || question.blocked;
+        let mut latest: HashMap<&str, (u64, &str)> = HashMap::new();
+        for question in questions.iter().filter(|question| waits(question)) {
+            let kept = latest.entry(&question.agent_id).or_insert((0, ""));
+            if kept.1.is_empty() || kept.0 < question.at {
+                *kept = (question.at, &question.id);
+            }
+        }
+        let shown: HashSet<String> = latest.values().map(|(_, id)| (*id).to_owned()).collect();
+        (questions.iter())
+            .filter(|question| !waits(question) || shown.contains(&question.id))
+            .cloned()
+            .collect()
     }
 
     /// Whether the agent's last turn ended asking the person something in its reply.
@@ -1081,243 +1103,6 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
     format!(
         "Sikemux put this question to {to} in place of this tool, so do not ask it again. Stop here and end your turn without guessing: the answer comes to you as your next message."
     )
-}
-
-/// How a question opens when it offers more work, so a yes or a no answers it, or an
-/// offer that leaves the person to say opens, whatever it ends in.
-const OFFERS: [&str; 10] = [
-    "shall i ",
-    "should i ",
-    "want me to ",
-    "do you want me to ",
-    "would you like me to ",
-    "can i ",
-    "may i ",
-    "shall we ",
-    "if you want, i can ",
-    "if you'd like, i can ",
-];
-
-/// What an agent's reply asks the person, in its own words, one ask for each paragraph or list
-/// item that asks, in order, each with whether a yes or a no answers it.
-/// A paragraph or list item counts when its last sentence ends in a question mark, so one
-/// answered in the same paragraph does not, or offers more as "If you want, I can…" does.
-/// A last sentence that means nothing alone, such as "Yes or no?", stands for the latest real
-/// question before it, anywhere in the reply.
-fn asked_in(reply: &str) -> Vec<(String, bool)> {
-    let mut found: Vec<(String, bool)> = Vec::new();
-    let mut earlier: Vec<String> = Vec::new();
-    for paragraph in paragraphs(reply) {
-        let mut sentences = sentences_of(&paragraph);
-        sentences.pop();
-        earlier.extend(sentences.into_iter().filter(|sentence| {
-            sentence.trim_end_matches([')', '"']).ends_with('?') && bare_ask(sentence).is_none()
-        }));
-        let Some((sentence, polar)) = last_ask(&paragraph) else {
-            continue;
-        };
-        let Some(takes_yes_or_no) = bare_ask(&sentence) else {
-            earlier.push(sentence.clone());
-            found.push((sentence, polar));
-            continue;
-        };
-        let meant =
-            (earlier.iter()).rfind(|question| !takes_yes_or_no || answers_yes_or_no(question));
-        match meant {
-            Some(question) => {
-                found.retain(|(asked, _)| asked != question);
-                let polar = takes_yes_or_no || answers_yes_or_no(question);
-                found.push((question.clone(), polar));
-            }
-            None => found.push((sentence, takes_yes_or_no)),
-        }
-    }
-    found
-}
-
-/// The reply's paragraphs and list items, as one line each. Code, quotes, headings and table
-/// rows say nothing to the person.
-fn paragraphs(reply: &str) -> Vec<String> {
-    let mut paragraphs = Vec::new();
-    let mut block: Vec<&str> = Vec::new();
-    let mut fenced = false;
-    for line in reply.lines().chain(std::iter::once("")) {
-        let line = line.trim();
-        if line.starts_with("```") || line.starts_with("~~~") {
-            fenced = !fenced;
-            paragraphs.push(block.join(" "));
-            block.clear();
-            continue;
-        }
-        if fenced {
-            continue;
-        }
-        let item = list_item(line);
-        let apart = line.is_empty()
-            || line.starts_with('#')
-            || line.starts_with('>')
-            || line.starts_with('|');
-        if apart || item.is_some() {
-            paragraphs.push(block.join(" "));
-            block.clear();
-        }
-        if let Some(item) = item {
-            block.push(item);
-        } else if !apart {
-            block.push(line);
-        }
-    }
-    paragraphs.retain(|paragraph| !paragraph.trim().is_empty());
-    paragraphs
-}
-
-/// A list item's text without its marker.
-fn list_item(line: &str) -> Option<&str> {
-    let marked = ["- ", "* ", "+ "]
-        .iter()
-        .find_map(|marker| line.strip_prefix(marker));
-    marked.or_else(|| {
-        let digits = line
-            .find(|c: char| !c.is_ascii_digit())
-            .filter(|at| *at > 0)?;
-        line[digits..]
-            .strip_prefix(". ")
-            .or_else(|| line[digits..].strip_prefix(") "))
-    })
-}
-
-/// How a question opens that a yes or a no cannot answer.
-const OPEN_ASKS: [&str; 9] = [
-    "what ", "which ", "who ", "whom ", "whose ", "where ", "when ", "why ", "how ",
-];
-
-/// The paragraph's last sentence, without its emphasis, when it asks the person something or
-/// offers more, and whether a yes or a no answers it, read after a lead-in such as "Next
-/// step:".
-fn last_ask(paragraph: &str) -> Option<(String, bool)> {
-    let paragraph = paragraph.trim();
-    let (ends, asks) = sentence_ends(paragraph);
-    let start = ends.last().copied().unwrap_or(0);
-    let sentence = plain(paragraph[start..].trim());
-    let lower = sentence.to_lowercase();
-    let asked = after_lead_in(&lower);
-    let leaves = asked.starts_with("if you")
-        && !asked.contains(" or ")
-        && OFFERS.iter().any(|opening| asked.starts_with(opening));
-    (asks || leaves).then(|| {
-        let polar = answers_yes_or_no(&sentence);
-        (sentence, polar)
-    })
-}
-
-/// The paragraph's sentences, without their emphasis.
-fn sentences_of(paragraph: &str) -> Vec<String> {
-    let paragraph = paragraph.trim();
-    let (ends, _) = sentence_ends(paragraph);
-    let starts = std::iter::once(0).chain(ends.iter().copied());
-    let stops = ends.iter().copied().chain(std::iter::once(paragraph.len()));
-    starts
-        .zip(stops)
-        .map(|(start, stop)| plain(paragraph[start..stop].trim()))
-        .collect()
-}
-
-/// Where the paragraph's sentences end, and whether its last ends in a question mark. No
-/// sentence ends inside backticks or emphasis, and inside backticks nothing asks.
-fn sentence_ends(paragraph: &str) -> (Vec<usize>, bool) {
-    let (mut coded, mut strong, mut stressed) = (false, false, false);
-    let mut ends: Vec<usize> = Vec::new();
-    let mut ending = false;
-    let mut asks = false;
-    let chars: Vec<(usize, char)> = paragraph.char_indices().collect();
-    let mut at = 0;
-    while at < chars.len() {
-        let (index, c) = chars[at];
-        let before = at.checked_sub(1).map(|before| chars[before].1);
-        let next = chars.get(at + 1).map(|(_, next)| *next);
-        at += 1;
-        if c == '`' {
-            coded = !coded;
-            ending = false;
-            continue;
-        }
-        if coded {
-            continue;
-        }
-        match c {
-            '*' | '_' if next == Some(c) => {
-                strong = !strong;
-                at += 1;
-                continue;
-            }
-            '*' => {
-                stressed = !stressed;
-                continue;
-            }
-            '_' if emphasis_underscore(before, next) => {
-                stressed = !stressed;
-                continue;
-            }
-            _ => {}
-        }
-        if c.is_whitespace() && ending && !strong && !stressed {
-            ends.push(index);
-        }
-        ending = matches!(c, '.' | '?' | '!') || (ending && matches!(c, ')' | '"'));
-        if c == '?'
-            && chars[at..]
-                .iter()
-                .all(|(_, rest)| matches!(rest, '*' | '_' | ')'))
-        {
-            asks = true;
-        }
-    }
-    (ends, asks)
-}
-
-fn after_lead_in(lower: &str) -> &str {
-    lower.rsplit(": ").next().unwrap_or(lower)
-}
-
-fn answers_yes_or_no(sentence: &str) -> bool {
-    let lower = sentence.to_lowercase();
-    let asked = after_lead_in(&lower);
-    !asked.contains(" or ") && !OPEN_ASKS.iter().any(|opening| asked.starts_with(opening))
-}
-
-/// For a question that means nothing without what came before it, whether it takes a yes or a
-/// no; none for any other sentence.
-fn bare_ask(sentence: &str) -> Option<bool> {
-    let lower = sentence.to_lowercase();
-    match after_lead_in(&lower).trim_end_matches(['?', '!', '.']) {
-        "yes or no" | "yes/no" | "y/n" | "ok" | "okay" | "right" | "agreed" | "sound good"
-        | "sounds good" | "good to go" | "go ahead" => Some(true),
-        "thoughts" | "your thoughts" | "your call" | "what do you think" | "what do you say" => {
-            Some(false)
-        }
-        _ => None,
-    }
-}
-
-/// Whether an underscore marks emphasis rather than joining a word, as in `snake_case`.
-fn emphasis_underscore(before: Option<char>, next: Option<char>) -> bool {
-    !before.is_some_and(char::is_alphanumeric) || !next.is_some_and(char::is_alphanumeric)
-}
-
-/// Markdown text as the person reads it: without the backticks, asterisks and emphasis
-/// underscores that mark it up.
-fn plain(text: &str) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    let kept = chars.iter().enumerate().filter(|&(at, &c)| match c {
-        '`' | '*' => false,
-        '_' => !emphasis_underscore(
-            at.checked_sub(1).map(|before| chars[before]),
-            chars.get(at + 1).copied(),
-        ),
-        _ => true,
-    });
-    let text: String = kept.map(|(_, c)| *c).collect();
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// The chat's turn ended by itself, so what its reply asks the person waits on them as a
@@ -1935,130 +1720,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
     }
     tell_phones(core);
     tell_window(core);
-}
-
-/// Puts each question now for the person, whose asker's team is led from a
-/// linked host, to the person there instead.
-fn relay(core: &Core) {
-    let candidates: Vec<String> = core
-        .harness
-        .questions
-        .state
-        .locked()
-        .open
-        .iter()
-        .filter(|question| {
-            matches!(question.stage, Stage::Person { .. })
-                && question.relayed.is_none()
-                && question.from_host.is_none()
-        })
-        .map(|question| question.agent_id.clone())
-        .collect();
-    if candidates.is_empty() {
-        return;
-    }
-    let hosts: HashMap<String, String> = candidates
-        .into_iter()
-        .filter_map(|agent_id| {
-            let host = super::hosts::route::lead_host(core, &agent_id)?;
-            Some((agent_id, host))
-        })
-        .collect();
-    if hosts.is_empty() {
-        return;
-    }
-    let mut relayed = Vec::new();
-    {
-        let mut state = core.harness.questions.state.locked();
-        for question in &mut state.open {
-            let Some(host) = hosts.get(&question.agent_id) else {
-                continue;
-            };
-            if !matches!(question.stage, Stage::Person { .. }) || question.relayed.is_some() {
-                continue;
-            }
-            question.relayed = Some(host.clone());
-            relayed.push((host.clone(), question.clone()));
-        }
-        if !relayed.is_empty() {
-            core.harness.questions.changed(&mut state);
-        }
-    }
-    for (host, question) in relayed {
-        super::hosts::route::relay_question(
-            core,
-            &host,
-            serde_json::to_value(&question).unwrap_or_default(),
-        );
-    }
-}
-
-/// A question an agent on a linked host asked, which waits on the person
-/// here, where its team is led from.
-pub(crate) fn relayed_here(core: &Core, host: &str, params: Value) -> Result<Value, String> {
-    let mut question: Question =
-        serde_json::from_value(params).map_err(|error| error.to_string())?;
-    let foreign = core
-        .hosts
-        .team
-        .get(&question.agent_id)
-        .filter(|foreign| foreign.host == host)
-        .ok_or("that agent is not one of a team this host shares with yours")?;
-    if question.text.len() > MAX_QUESTION_BYTES || question.choices.len() > MAX_CHOICES {
-        return Err("that question is larger than this host takes".into());
-    }
-    question.name = format!("{} on {}", foreign.name, super::hosts::name_of(core, host));
-    question.project = foreign.project;
-    question.relayed = None;
-    question.from_host = Some(host.to_owned());
-    question.stage = match question.stage {
-        Stage::Person { lead, passed } => Stage::Person { lead, passed },
-        Stage::Lead { .. } => Stage::Person {
-            lead: None,
-            passed: false,
-        },
-    };
-    let mut state = core.harness.questions.state.locked();
-    state.open.retain(|open| open.id != question.id);
-    state.open.push(question);
-    core.harness.questions.changed(&mut state);
-    Ok(Value::Null)
-}
-
-/// The person on the linked host this question was put to answered it.
-pub(crate) async fn answer_relayed(
-    core: &Arc<Core>,
-    host: &str,
-    params: Value,
-) -> Result<Value, String> {
-    let params: AnswerParams = serde_json::from_value(params).map_err(|error| error.to_string())?;
-    let relayed_there = core
-        .harness
-        .questions
-        .state
-        .locked()
-        .open
-        .iter()
-        .any(|question| question.id == params.id && question.relayed.as_deref() == Some(host));
-    if !relayed_there {
-        return Ok(json!({ "answered": false }));
-    }
-    answer(core, params).await?;
-    Ok(json!({ "answered": true }))
-}
-
-/// A question an agent on a linked host asked no longer waits on the person.
-pub(crate) fn closed_elsewhere(core: &Core, host: &str, params: Value) -> Result<Value, String> {
-    let id = params["id"].as_str().unwrap_or_default();
-    let mut state = core.harness.questions.state.locked();
-    let before = state.open.len();
-    state
-        .open
-        .retain(|question| !(question.id == id && question.from_host.as_deref() == Some(host)));
-    if state.open.len() != before {
-        core.harness.questions.changed(&mut state);
-    }
-    Ok(Value::Null)
 }
 
 /// A question that waits on the person, as phones are told of it.
