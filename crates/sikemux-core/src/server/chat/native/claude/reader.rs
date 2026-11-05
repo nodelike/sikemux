@@ -1,6 +1,7 @@
 //! Reads what Claude Code writes on its output and tells the chat, as the
 //! ACP session updates the app reads from every agent.
 
+use crate::launch::claude_model;
 use sikemux_fold::update::{agent_text, compaction, notice, text_content, thought, turn_answer};
 use sikemux_fold::UpdateKind;
 use sikemux_view::chat::StopReason;
@@ -15,7 +16,7 @@ use sikemux_process::sync::Locked;
 use crate::server::chat::failure::{Failure, FailureKind};
 
 use super::super::super::feed;
-use super::super::super::reset::{month_day, WallClock, Zone};
+use super::super::super::reset::{month_day, twelve_hour, WallClock, Zone};
 use super::super::super::states::{self, Held, Subagent, Task as TaskState};
 use super::super::super::Respond;
 use super::super::json::{self, text};
@@ -148,15 +149,6 @@ fn usage_total(usage: &Value) -> Option<u64> {
     })
 }
 
-/// A model with a million-token window says so in its name.
-fn window_from_name(model: &str) -> Option<u64> {
-    model
-        .to_ascii_lowercase()
-        .split(|ch: char| !ch.is_ascii_alphanumeric())
-        .any(|part| part == "1m")
-        .then_some(1_000_000)
-}
-
 /// The commands the chat offers, from the list Claude Code sends.
 pub(crate) fn available_commands(commands: &Value) -> Value {
     let commands: Vec<Value> = commands
@@ -284,11 +276,7 @@ fn resets_in_text(said: &str) -> Option<u64> {
         Some(clock) => (clock, true),
         None => (clock.strip_suffix("am")?, false),
     };
-    let (hour, minute) = clock.split_once(':').unwrap_or((clock, "0"));
-    let (hour, minute) = (hour.parse::<i32>().ok()?, minute.parse::<i32>().ok()?);
-    if !(1..=12).contains(&hour) || !(0..60).contains(&minute) {
-        return None;
-    }
+    let (hour, minute) = twelve_hour(clock, pm)?;
     let date = match parts.as_slice() {
         [] => None,
         [day] | [day, _] => {
@@ -301,7 +289,6 @@ fn resets_in_text(said: &str) -> Option<u64> {
         }
         _ => return None,
     };
-    let hour = hour % 12 + if pm { 12 } else { 0 };
     WallClock {
         zone,
         date,
@@ -462,8 +449,8 @@ impl Reader {
     }
 
     pub fn note_model(&mut self, model: &str) {
-        if let Some(size) = window_from_name(model) {
-            self.data.size = size;
+        if claude_model::names_long_window(model) {
+            self.data.size = claude_model::LONG_WINDOW;
         }
     }
 
@@ -974,13 +961,8 @@ impl Reader {
                 }
             }
         }
-        let end = if turn.cancelled {
-            TurnEnd::Completed(turn_answer(StopReason::Cancelled))
-        } else if let Some(failure) = turn.failure {
-            TurnEnd::Failed {
-                failure: self.offline(failure),
-                response: Some(turn_answer(StopReason::EndTurn)),
-            }
+        let end = if let Some(end) = self.ended_already(&mut turn) {
+            end
         } else if result.is_error {
             let said = result
                 .result
@@ -1187,34 +1169,34 @@ impl Reader {
     }
 
     /// A failure Claude gave no reason for reads as the network's when the turn
-    /// was retrying with no answer from Anthropic, or Claude's words say so.
+    /// was retrying with no answer from Anthropic.
     fn offline(&self, failure: Failure) -> Failure {
-        let networked = failure.kind == FailureKind::Other
-            && (self.data.offline_retries
-                || crate::server::chat::failure::sounds_offline(&failure.title));
-        if networked {
+        if failure.kind == FailureKind::Other && self.data.offline_retries {
             Failure::lost_connection(failure.title)
         } else {
             failure
         }
     }
 
+    /// How a turn ends whatever Claude said of it: stopped, or failed already.
+    fn ended_already(&self, turn: &mut Turn) -> Option<TurnEnd> {
+        if turn.cancelled {
+            return Some(TurnEnd::Completed(turn_answer(StopReason::Cancelled)));
+        }
+        turn.failure.take().map(|failure| TurnEnd::Failed {
+            failure: self.offline(failure),
+            response: Some(turn_answer(StopReason::EndTurn)),
+        })
+    }
+
     /// Claude Code went idle: anything the turn still waited on is over.
     fn idle(&mut self) {
         let turn = self.shared.locked().turn.take();
         match turn {
-            Some(turn) => {
-                let end = match turn.failure {
-                    Some(failure) if !turn.cancelled => TurnEnd::Failed {
-                        failure: self.offline(failure),
-                        response: Some(turn_answer(StopReason::EndTurn)),
-                    },
-                    _ => TurnEnd::Completed(turn_answer(if turn.cancelled {
-                        StopReason::Cancelled
-                    } else {
-                        StopReason::EndTurn
-                    })),
-                };
+            Some(mut turn) => {
+                let end = self
+                    .ended_already(&mut turn)
+                    .unwrap_or_else(|| TurnEnd::Completed(turn_answer(StopReason::EndTurn)));
                 self.data.offline_retries = false;
                 self.sink.end_turn(turn.number, end);
             }
@@ -1722,11 +1704,5 @@ mod tests {
         assert_eq!(names, ["review", "mcp:github:issue"]);
         assert_eq!(update["availableCommands"][0]["input"]["hint"], "[pr]");
         assert!(update["availableCommands"][1]["input"].is_null());
-    }
-
-    #[test]
-    fn a_million_token_model_says_so_in_its_name() {
-        assert_eq!(window_from_name("claude-opus-5-5[1m]"), Some(1_000_000));
-        assert_eq!(window_from_name("claude-opus-5-5"), None);
     }
 }

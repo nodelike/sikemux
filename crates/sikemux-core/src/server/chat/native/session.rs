@@ -17,7 +17,7 @@ use uuid::Uuid;
 use crate::launch::PermissionMode;
 
 use crate::agent_accounts::sign_in::{self, SignIn};
-use crate::server::chat::failure::{Failure, FailureKind};
+use crate::server::chat::failure::{sounds_offline, Failure, FailureKind};
 use crate::server::chat::permission;
 use crate::server::chat::prompt::MAX_CONTEXT_ITEMS;
 use crate::server::inbox::Fault;
@@ -115,6 +115,28 @@ pub(crate) enum TurnEnd {
     /// The agent can take no more turns in this session, for this reason, and
     /// is started again.
     Broken(String),
+}
+
+impl TurnEnd {
+    /// A failure or refusal whose words say the network was at fault reads as
+    /// one, whichever agent it came from, so the prompt goes again once it is back.
+    fn read_offline(self) -> Self {
+        match self {
+            Self::Failed { failure, response }
+                if failure.kind == FailureKind::Other && sounds_offline(&failure.title) =>
+            {
+                Self::Failed {
+                    failure: Failure::lost_connection(failure.title),
+                    response,
+                }
+            }
+            Self::Refused(message) if sounds_offline(&message) => Self::Failed {
+                failure: Failure::lost_connection(message),
+                response: None,
+            },
+            end => end,
+        }
+    }
 }
 
 /// What became of a message put into the running turn.
@@ -267,6 +289,7 @@ impl Sink {
     /// Settles turn `turn`, or hands a failure another account may fix to
     /// the chat's loop to decide on, with the turn still running.
     pub fn end_turn(&self, turn: u64, end: TurnEnd) {
+        let end = end.read_offline();
         let chat = &self.chat;
         chat.end_unprompted();
         chat.cancel_permissions();

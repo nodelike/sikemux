@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 
 use crate::server::chat::failure::{Failure, FailureKind};
 
-use super::super::super::reset::{month_day, WallClock, Zone};
+use super::super::super::reset::{month_day, twelve_hour, WallClock, Zone};
 use super::super::super::states::{self, Outcome, Subagent};
 use super::super::json::text_or_empty as text;
 use super::super::rpc_driver::{self, RpcSession};
@@ -143,15 +143,11 @@ fn resets_at(message: &str) -> Option<u64> {
         "PM" => true,
         _ => return None,
     };
-    let (hour, minute) = clock.split_once(':')?;
-    let (hour, minute): (i32, i32) = (hour.parse().ok()?, minute.parse().ok()?);
-    if !(1..=12).contains(&hour) || !(0..60).contains(&minute) {
-        return None;
-    }
+    let (hour, minute) = twelve_hour(clock, pm)?;
     WallClock {
         zone: Zone::Host,
         date,
-        hour: hour % 12 + if pm { 12 } else { 0 },
+        hour,
         minute,
     }
     .unix_ms()

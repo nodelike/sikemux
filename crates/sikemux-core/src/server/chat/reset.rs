@@ -380,6 +380,14 @@ pub(crate) enum Zone {
     Utc,
 }
 
+/// A clock such as `2:46` or `3` as the hour of the day and its minute.
+pub(super) fn twelve_hour(clock: &str, pm: bool) -> Option<(i32, i32)> {
+    let (hour, minute) = clock.split_once(':').unwrap_or((clock, "0"));
+    let (hour, minute): (i32, i32) = (hour.parse().ok()?, minute.parse().ok()?);
+    ((1..=12).contains(&hour) && (0..60).contains(&minute))
+        .then(|| (hour % 12 + if pm { 12 } else { 0 }, minute))
+}
+
 /// A reset time as an agent writes it out, to the minute.
 pub(crate) struct WallClock {
     pub zone: Zone,

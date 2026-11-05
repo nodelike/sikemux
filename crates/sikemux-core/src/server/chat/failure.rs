@@ -1,5 +1,6 @@
 //! What an agent says when a turn fails, read into what the person can do
-//! about it, the same for every driver.
+//! about it. Each driver reads its agent's own errors; words that say the
+//! network failed read the same for every agent.
 
 use sikemux_fold::UpdateKind;
 

@@ -2,6 +2,7 @@
 //! account folder. Every launch, in a terminal or a chat, by the app or by the
 //! core, is built here.
 
+pub mod claude_model;
 pub mod discovery;
 pub mod homes;
 pub mod model_feed;
