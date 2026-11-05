@@ -15,7 +15,7 @@ use tokio::sync::watch;
 use super::super::changed::Topic;
 use super::super::{session, spare, Core, CoreResult};
 use super::account::{self, SignInCodeParams};
-use crate::protocol::{BuildChannel, SessionId};
+use sikemux_wire::protocol::{BuildChannel, SessionId};
 
 /// Long enough to type a password, download the core and sign in.
 const INSTALL_WAIT: Duration = Duration::from_secs(15 * 60);

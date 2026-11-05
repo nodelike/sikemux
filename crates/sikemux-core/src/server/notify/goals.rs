@@ -16,9 +16,9 @@ use super::{
     alert_phones, project_name, Draft, NotificationKind, Notifier, MAX_BODY_CHARS,
     MAX_DETAIL_CHARS, MAX_TITLE_CHARS,
 };
-use crate::protocol::Event;
 use crate::server::Core;
 use crate::text::clipped_line;
+use sikemux_wire::protocol::Event;
 
 /// How long after a goal first moves the person is told, so whatever moves with
 /// it comes along.

@@ -14,7 +14,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
-use crate::protocol::{AgentState, Continuation, SessionId};
+use sikemux_wire::protocol::{AgentState, Continuation, SessionId};
 
 use super::agent::AgentActivity;
 use super::{launching, session, Core, CoreError, CoreResult};

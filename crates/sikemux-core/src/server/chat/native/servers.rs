@@ -4,7 +4,7 @@ use agent_client_protocol::schema::v1::{EnvVariable, HttpHeader, McpServer};
 use serde_json::{Map, Value};
 
 use crate::launch::tools::TOOLS_SERVER;
-use crate::protocol::ChatLaunch;
+use sikemux_wire::protocol::ChatLaunch;
 
 /// Whether Sikemux's own tools are among `servers`.
 pub(super) fn offers_sikemux_tools(servers: &[McpServer]) -> bool {

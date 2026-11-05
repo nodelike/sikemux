@@ -32,7 +32,7 @@ use sikemux_pty::shell_protocol::{ShellMetadataSnapshot, SshLink};
 use tokio::io::unix::AsyncFd;
 
 use crate::frozen::RESUME_FORMAT;
-use crate::protocol::{BuildIdentity, SessionExit, SessionId, SessionKind};
+use sikemux_wire::protocol::{BuildIdentity, SessionExit, SessionId, SessionKind};
 
 use super::agent::{self, AgentActivity, AgentRecord};
 use super::chat::{self, ChatRecord, HandOver, LiveChat};

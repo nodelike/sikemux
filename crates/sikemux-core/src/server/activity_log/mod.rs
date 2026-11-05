@@ -99,7 +99,7 @@ pub(crate) fn transcript_of(
     })
 }
 
-pub(crate) fn chat_launched(core: &Core, launch: &crate::protocol::ChatLaunch) {
+pub(crate) fn chat_launched(core: &Core, launch: &sikemux_wire::protocol::ChatLaunch) {
     let home = named_account(&launch.provider, &launch.env).map(PathBuf::from);
     let place = Place {
         agent: launch.provider.clone(),
@@ -111,7 +111,7 @@ pub(crate) fn chat_launched(core: &Core, launch: &crate::protocol::ChatLaunch) {
 }
 
 /// For an agent a terminal starts, the session its command resumes, if any.
-pub(crate) fn resumed_by(spawn: &crate::protocol::TerminalSpawn) -> Option<Option<String>> {
+pub(crate) fn resumed_by(spawn: &sikemux_wire::protocol::TerminalSpawn) -> Option<Option<String>> {
     let command = spawn.direct_command.as_ref()?;
     let agent = spawn.context.as_ref()?.agent_type.as_deref()?;
     Some(crate::launch::terminal::resumed_session(agent, &command.args).map(str::to_owned))
@@ -612,7 +612,7 @@ impl ActivityLog {
     /// every chat driver answers a prompt with.
     pub(crate) fn turn_answered(
         self: &Arc<Self>,
-        launch: &crate::protocol::ChatLaunch,
+        launch: &sikemux_wire::protocol::ChatLaunch,
         answer: &Value,
     ) {
         let kind = AgentKind::from_name(&launch.provider);

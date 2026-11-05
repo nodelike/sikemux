@@ -17,7 +17,6 @@ use super::{
     add_card, auto, holder, lease, slice, title_of, waits, Adding, Board, By, Card, Status,
     MAX_TITLE_CHARS,
 };
-use crate::protocol::{ChatContext, FOR_AGENT_URI};
 use crate::server::chat::feed::{Feed, Said};
 use crate::server::chat::Chat;
 use crate::server::connection::blocking;
@@ -27,6 +26,7 @@ use crate::server::{memory, Core};
 use crate::text::clipped;
 use sikemux_fold::update::goal_notice;
 use sikemux_fold::ChatEventKind;
+use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
 
 /// A turn this long is one nobody would call quick.
 const LONG_TURN_MS: u64 = 5 * 60 * 1000;

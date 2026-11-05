@@ -7,7 +7,7 @@ fn main() {
         std::process::exit(code);
     }
     let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
-    let build = sikemux_core::protocol::BuildIdentity::new(
+    let build = sikemux_wire::protocol::BuildIdentity::new(
         env!("CARGO_PKG_VERSION"),
         "standalone",
         0,

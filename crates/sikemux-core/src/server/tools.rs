@@ -23,7 +23,7 @@ use crate::cli::protocol::{
     CliClientCommand, CliClientHello, CliCloseReason, CliEndpointDescriptor, CliOpenOutcome,
     CliServerResponse, CLI_PROTOCOL_VERSION, MAX_CLI_FRAME_BYTES, MAX_CLI_RESPONSE_BYTES,
 };
-use crate::protocol::WindowCall;
+use sikemux_wire::protocol::WindowCall;
 
 use super::{harness, Core};
 

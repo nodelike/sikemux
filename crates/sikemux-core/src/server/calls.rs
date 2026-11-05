@@ -17,12 +17,12 @@ use super::{
     messages, model_providers, names, plugins, questions, remote, saved, saved_sessions, share,
     ship, skill_library, who_wrote, Core, CoreError, CoreResult,
 };
-use crate::protocol::RemoteStatus;
 use sikemux_view::catalog::CatalogAgent;
 use sikemux_view::chat::ToolDetail;
 use sikemux_view::memory::MemoryView;
 use sikemux_view::prefs::Preferences;
 use sikemux_view::questions::AgentQuestion;
+use sikemux_wire::protocol::RemoteStatus;
 
 /// What one row of the table says about its method: what a paired device needs, which
 /// programs on this host may call it, and whether its use goes in the usage report.

@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_view::chat::PermissionKind;
 
-use crate::protocol::PermissionChoices;
+use sikemux_wire::protocol::PermissionChoices;
 
 /// One answer a permission request offers.
 pub fn option(id: &str, name: &str, kind: PermissionKind) -> Value {

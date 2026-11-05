@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::protocol::{encode_control, read_frame_within, FrameKind};
+use sikemux_wire::protocol::{encode_control, read_frame_within, FrameKind};
 
 pub(crate) const LINK_ALPN: &[u8] = b"sikemux/link/1";
 /// The code a host closes a connection with when it is not linked with the

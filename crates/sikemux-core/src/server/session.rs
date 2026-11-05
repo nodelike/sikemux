@@ -23,7 +23,7 @@ use sikemux_wire::grid::{FindOptions, FindResult, GridPoint, TerminalInput};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::{mpsc, Notify};
 
-use crate::protocol::{
+use sikemux_wire::protocol::{
     encode_grid, encode_snapshot, AttachHeader, Continuation, Event, RequestId, SessionExit,
     SessionId, SessionInfo, SessionKind, StreamId,
 };
@@ -376,7 +376,7 @@ impl PendingStart {
         self.session.id
     }
 
-    pub(crate) fn task(&self) -> Option<&crate::protocol::TaskSessionInfo> {
+    pub(crate) fn task(&self) -> Option<&sikemux_wire::protocol::TaskSessionInfo> {
         self.session.owner.task.as_ref()
     }
 
@@ -1434,14 +1434,14 @@ const NOT_HERE: &str = "that terminal is not on this host";
 
 #[derive(Deserialize)]
 pub(crate) struct SessionParams {
-    id: crate::protocol::SessionId,
+    id: sikemux_wire::protocol::SessionId,
 }
 
 /// A draft to paste into a terminal once it is ready, left at the prompt for
 /// the person to send.
 #[derive(Deserialize)]
 pub(crate) struct TypeWhenReadyParams {
-    id: crate::protocol::SessionId,
+    id: sikemux_wire::protocol::SessionId,
     draft: String,
 }
 

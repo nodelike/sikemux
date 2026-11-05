@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::ChatContext;
+use sikemux_wire::protocol::ChatContext;
 
 use super::super::{Core, CoreResult};
 use super::{Chat, ChatCommand};

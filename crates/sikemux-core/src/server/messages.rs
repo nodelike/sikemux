@@ -16,7 +16,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
-use crate::protocol::{AgentStatus, ChatState, WorkspaceAgent};
+use sikemux_wire::protocol::{AgentStatus, ChatState, WorkspaceAgent};
 
 use self::log::{Entry, MessageLog, Outcome};
 use super::chat::{self, Delivery};

@@ -6,11 +6,10 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use sikemux_core::client::{
-    await_deferred_upgrade, await_upgrade, frozen_request, probe, ClientError,
-};
+use sikemux_client::client::ClientError;
+use sikemux_core::client::{await_deferred_upgrade, await_upgrade, frozen_request, probe};
 use sikemux_core::frozen::{FrozenReply, FrozenRequest};
-use sikemux_core::protocol::BuildIdentity;
+use sikemux_wire::protocol::BuildIdentity;
 
 use crate::login_item::{start_core, CoreLaunch};
 

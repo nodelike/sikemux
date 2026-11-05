@@ -61,7 +61,7 @@ pub struct PromptChatParams {
     #[serde(default)]
     paths: Vec<String>,
     #[serde(default)]
-    context: Vec<crate::protocol::ChatContext>,
+    context: Vec<sikemux_wire::protocol::ChatContext>,
 }
 
 /// Sends the person's message as `AcpPrompt` does, for a client whose own request

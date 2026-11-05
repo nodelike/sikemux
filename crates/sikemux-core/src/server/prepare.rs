@@ -17,7 +17,9 @@ use sikemux_pty::user_shell::{configured_shell, login_shell_environment};
 use sikemux_pty::validate_pty_dimensions;
 
 use crate::git_guard::{homes, shim};
-use crate::protocol::{Continuation, LaunchIdentity, SessionKind, TaskSessionInfo, TerminalSpawn};
+use sikemux_wire::protocol::{
+    Continuation, LaunchIdentity, SessionKind, TaskSessionInfo, TerminalSpawn,
+};
 
 use super::CoreResult;
 

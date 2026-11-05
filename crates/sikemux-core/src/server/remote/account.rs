@@ -12,7 +12,7 @@ pub(crate) async fn set_owner(
     peer: &Peer,
 ) -> CoreResult<RemoteStatus> {
     if let Some(owner) = &owner {
-        crate::accounts::check_user_id(owner).map_err(CoreError::from)?;
+        sikemux_client::accounts::check_user_id(owner).map_err(CoreError::from)?;
         core.remote.may_join(owner, peer)?;
         core.remote.bind(Some(owner.clone()))?;
     }

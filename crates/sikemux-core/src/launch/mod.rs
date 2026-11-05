@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::user_environment::shell_var;
 use sikemux_pty::launch::account_dir;
 
-pub use crate::protocol::PermissionMode;
+pub use sikemux_wire::protocol::PermissionMode;
 
 /// One agent, as the person set it up: which program, which account and which
 /// of their shell's variables it gets.

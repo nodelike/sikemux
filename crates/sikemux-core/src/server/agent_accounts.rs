@@ -14,7 +14,7 @@ use crate::agent_accounts::{chat_account, defaults, folders, status, usage, Book
 use crate::agent_catalog::{AgentEntry, AGENTS};
 use crate::flights::{shared, Flights};
 use crate::launch::discovery;
-use crate::protocol::ChatAccount;
+use sikemux_wire::protocol::ChatAccount;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

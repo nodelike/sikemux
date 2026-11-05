@@ -15,10 +15,10 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
-use crate::protocol::WindowCall;
 use crate::text::clipped;
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::ChatContext;
+use sikemux_wire::protocol::WindowCall;
 
 use super::activity::Activity;
 use super::approvals::{Approval, Keeper};
@@ -687,7 +687,7 @@ fn busy(core: &Core, agent_id: &str) -> bool {
         return chat.turn_running();
     }
     if let Some(foreign) = core.hosts.team.get(agent_id) {
-        return foreign.status == crate::protocol::AgentStatus::Working;
+        return foreign.status == sikemux_wire::protocol::AgentStatus::Working;
     }
     core.agent_session(agent_id)
         .and_then(|session| session.agent.as_ref().map(|agent| !agent.idle()))

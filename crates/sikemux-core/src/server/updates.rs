@@ -21,10 +21,10 @@ use super::connection::blocking;
 use super::{upgrade, Core, CoreError, CoreResult};
 use crate::frozen::UpdateBlocker;
 use crate::host_update::{self, HostUpdate, UpdateStep, INSTALLED_CORE};
-use crate::protocol::BuildChannel;
 use crate::release_feed::{self, Newest};
 use crate::releases::{bundled_credits, ReleaseCredits};
 use sikemux_view::prefs::UpdateChannel;
+use sikemux_wire::protocol::BuildChannel;
 
 const FIRST_CHECK: Duration = Duration::from_secs(4);
 const CHECK_EVERY: Duration = Duration::from_secs(30 * 60);

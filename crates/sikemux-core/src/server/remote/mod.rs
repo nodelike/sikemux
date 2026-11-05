@@ -20,17 +20,18 @@ use tokio::sync::{oneshot, watch, Notify};
 use tokio::task::JoinHandle;
 
 use crate::accounts::live::{self, Link, Push, Want};
-use crate::accounts::network;
 use crate::accounts::protocol::{AccountEvent, AccountEventType, DeviceRole, LiveApp, PushResult};
-use crate::join::{self, Expected, Refusal, TrustedKeys, JOIN_ALPN};
-use crate::protocol::{
+use crate::join::{self, Expected, Refusal, TrustedKeys};
+use crate::push::NotificationKey;
+use sikemux_client::accounts::network;
+use sikemux_client::join::JOIN_ALPN;
+use sikemux_client::remote::CORE_ALPN;
+use sikemux_wire::accounts::protocol::{JoinTicket, Network, Relay, RevokeReason};
+use sikemux_wire::protocol::{
     AccountLink, AccountLinkState, AllowedDevice, DeviceAccess, DeviceInfo, Event,
     NotificationState, NotifyPrefs, NotifyWhen, PendingDevice, PhoneNotifications, RemoteStatus,
     UpdateRequired,
 };
-use crate::push::NotificationKey;
-use crate::remote::CORE_ALPN;
-use sikemux_wire::accounts::protocol::{JoinTicket, Network, Relay, RevokeReason};
 
 use super::access::{Peer, Setup, Standing};
 use super::changed::Topic;
@@ -551,8 +552,10 @@ impl Remote {
         nonce: &str,
         user_id: &str,
     ) -> CoreResult<(String, String)> {
-        crate::accounts::check_registration(nonce, user_id).map_err(CoreError::from)?;
-        self.sign_with_key(|key| crate::accounts::registration_message(nonce, user_id, key))
+        sikemux_client::accounts::check_registration(nonce, user_id).map_err(CoreError::from)?;
+        self.sign_with_key(|key| {
+            sikemux_client::accounts::registration_message(nonce, user_id, key)
+        })
     }
 
     fn sign_live(&self, nonce: &str) -> Option<(String, String)> {
@@ -561,18 +564,18 @@ impl Remote {
 
     /// The core's key and its signature over the share text for `nonce`.
     pub(super) fn sign_share(&self, nonce: &str) -> Option<(String, String)> {
-        crate::accounts::check_live(nonce).ok()?;
+        sikemux_client::accounts::check_live(nonce).ok()?;
         let inner = self.inner.locked();
         let secret = inner.secret.as_ref()?;
         let key = secret.public().to_string();
-        let message = crate::accounts::share_message(nonce, &key);
+        let message = sikemux_client::accounts::share_message(nonce, &key);
         Some((key, hex::encode(secret.sign(message.as_bytes()).to_bytes())))
     }
 
     /// The core's key and its signature over the webhook text for `nonce`.
     pub(super) fn sign_hooks(&self, nonce: &str) -> Option<(String, String)> {
-        crate::accounts::check_live(nonce).ok()?;
-        self.sign_with_key(|key| crate::accounts::hooks_message(nonce, key))
+        sikemux_client::accounts::check_live(nonce).ok()?;
+        self.sign_with_key(|key| sikemux_client::accounts::hooks_message(nonce, key))
             .ok()
     }
 
@@ -594,8 +597,8 @@ impl Remote {
     /// The core's key and its signature over the shared chat viewer's text
     /// for `nonce`, a share connection's challenge.
     pub(super) fn sign_share_viewer(&self, nonce: &str) -> CoreResult<(String, String)> {
-        crate::accounts::check_live(nonce).map_err(CoreError::from)?;
-        self.sign_with_key(|key| crate::accounts::share_viewer_message(nonce, key))
+        sikemux_client::accounts::check_live(nonce).map_err(CoreError::from)?;
+        self.sign_with_key(|key| sikemux_client::accounts::share_viewer_message(nonce, key))
     }
 
     fn sign_with_key(&self, message: impl FnOnce(&str) -> String) -> CoreResult<(String, String)> {
@@ -889,9 +892,9 @@ fn keep(inner: &Inner, (trusted, account): &(String, Option<String>)) -> CoreRes
 }
 
 fn sign_live(secret: &SecretKey, nonce: &str) -> Option<(String, String)> {
-    crate::accounts::check_live(nonce).ok()?;
+    sikemux_client::accounts::check_live(nonce).ok()?;
     let key = secret.public().to_string();
-    let message = crate::accounts::live_message(nonce, &key);
+    let message = sikemux_client::accounts::live_message(nonce, &key);
     Some((key, hex::encode(secret.sign(message.as_bytes()).to_bytes())))
 }
 
@@ -1104,7 +1107,7 @@ mod tests {
         assert_eq!(stored.owner.as_deref(), Some("user_2nightly"));
 
         let before = std::fs::read(&path).unwrap();
-        let core = Core::new(crate::protocol::BuildIdentity::default(), None).unwrap();
+        let core = Core::new(sikemux_wire::protocol::BuildIdentity::default(), None).unwrap();
         {
             let mut inner = core.remote.inner.locked();
             inner.path = Some(path.clone());
@@ -1217,7 +1220,7 @@ mod tests {
             .unwrap();
         assert_eq!(key, text("key"));
         assert_eq!(
-            crate::accounts::registration_message(&text("nonce"), &text("userId"), &key),
+            sikemux_client::accounts::registration_message(&text("nonce"), &text("userId"), &key),
             text("message")
         );
         assert_eq!(signature, text("signature"));
@@ -1247,7 +1250,7 @@ mod tests {
     /// A core signed in to an account with `phones` paired, saving to `dir`
     /// and listening only on loopback.
     fn signed_in(dir: &Path, phones: &[&DeviceInfo]) -> Arc<Core> {
-        let core = Core::new(crate::protocol::BuildIdentity::default(), None).unwrap();
+        let core = Core::new(sikemux_wire::protocol::BuildIdentity::default(), None).unwrap();
         {
             let mut inner = core.remote.inner.locked();
             inner.path = Some(dir.join("core.sock.remote.json"));
@@ -1538,7 +1541,7 @@ mod tests {
                 .map(|key| key.public())
         };
 
-        let offline = Core::new(crate::protocol::BuildIdentity::default(), None).unwrap();
+        let offline = Core::new(sikemux_wire::protocol::BuildIdentity::default(), None).unwrap();
         start(&offline, &config("http://127.0.0.1:9".into())).await;
         assert_eq!(retired(), Some(old.public()));
         let file = std::fs::read_to_string(file_path(&socket_path)).unwrap();
@@ -1547,7 +1550,7 @@ mod tests {
 
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
-        let core = Core::new(crate::protocol::BuildIdentity::default(), None).unwrap();
+        let core = Core::new(sikemux_wire::protocol::BuildIdentity::default(), None).unwrap();
         start(&core, &config(base)).await;
         let (stream, _) = listener.accept().await.unwrap();
         let (_, mut socket) = ServerBuilder::new().accept(stream).await.unwrap();
@@ -1618,7 +1621,7 @@ mod tests {
     #[tokio::test]
     async fn a_build_older_than_the_server_allows_stays_off_until_it_is_allowed_again() {
         let dir = tempfile::tempdir().unwrap();
-        let build = crate::protocol::BuildIdentity {
+        let build = sikemux_wire::protocol::BuildIdentity {
             version: "0.5.0-nightly.1".into(),
             ..Default::default()
         };

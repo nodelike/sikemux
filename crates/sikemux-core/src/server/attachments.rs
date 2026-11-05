@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 
-use crate::protocol::MAX_ATTACHMENT_BYTES;
+use sikemux_wire::protocol::MAX_ATTACHMENT_BYTES;
 
 use super::{Core, CoreError, CoreResult};
 

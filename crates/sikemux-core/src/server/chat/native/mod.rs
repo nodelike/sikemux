@@ -28,7 +28,7 @@ use sikemux_fold::update::stamp_replayed;
 use tokio::sync::mpsc;
 
 use crate::agent_catalog::ChatDriver;
-use crate::protocol::ChatLaunch;
+use sikemux_wire::protocol::ChatLaunch;
 
 use super::rebind::Outcome;
 use super::{Chat, ChatCommand};

@@ -17,7 +17,7 @@ use tokio::sync::{watch, Notify};
 use crate::frozen::{
     FrozenReply, FrozenRequest, UpdateBlocker, UpgradeInfo, RESUME_FORMAT, UPGRADE_INFO_ARG,
 };
-use crate::protocol::encode_frozen;
+use sikemux_wire::protocol::encode_frozen;
 
 use super::access::{Peer, APP_ONLY};
 use super::chat::{self, HandOver};
@@ -301,7 +301,7 @@ async fn drop_writer(writer: &mut FrameWriter) {
 /// core's hand-over, or, for an update, that is the build already running.
 fn check_binary(
     binary: &Path,
-    own: &crate::protocol::BuildIdentity,
+    own: &sikemux_wire::protocol::BuildIdentity,
     replacement: Replacement,
 ) -> Result<(), String> {
     if !binary.is_absolute() {

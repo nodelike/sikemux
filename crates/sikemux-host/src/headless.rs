@@ -8,11 +8,10 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use sikemux_core::client::{
-    self, probe, wait_for_core, ClientError, ClientEvent, CoreClient, ProbeError,
-};
-use sikemux_core::protocol::{AccountLinkState, Event, RemoteStatus, Request, Response};
+use sikemux_client::client::{ClientError, ClientEvent, CoreClient};
+use sikemux_core::client::{self, probe, wait_for_core, ProbeError};
 use sikemux_core::waiting;
+use sikemux_wire::protocol::{AccountLinkState, Event, RemoteStatus, Request, Response};
 
 use crate::core_start;
 use crate::login_item::{self, CoreLaunch, IDENTIFIER};

@@ -13,13 +13,13 @@ use crate::launch::homes;
 use crate::launch::terminal::{self, TerminalRun};
 use crate::launch::tools::Tools;
 use crate::launch::{AgentSpec, PermissionMode};
-use crate::protocol::{
-    ask, ChatAccount, ChatLaunch, ChatStart, Continuation, Event, RequestId, SessionId,
-    SpawnTarget, TerminalSpawn, WAKE_WAIT,
-};
 use serde_json::{json, Value};
 use sikemux_process::vars;
 use sikemux_pty::launch::{LaunchKind, PtyAgentProfile, PtyContext, PtyDirectCommand};
+use sikemux_wire::protocol::{
+    ask, ChatAccount, ChatLaunch, ChatStart, Continuation, Event, RequestId, SessionId,
+    SpawnTarget, TerminalSpawn, WAKE_WAIT,
+};
 
 use super::chat;
 use super::connection::{blocking, ClientConn};

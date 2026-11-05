@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::mpsc;
 
 use super::{remote, Core};
-use crate::protocol::{Event, NetworkChange as NetworkEvent};
+use sikemux_wire::protocol::{Event, NetworkChange as NetworkEvent};
 
 /// Passes each change on to whatever waits on the network, then tells the app.
 pub(super) async fn run(core: Arc<Core>) {

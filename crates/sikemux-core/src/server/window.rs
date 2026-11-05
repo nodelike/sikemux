@@ -15,7 +15,9 @@ use serde_json::Value;
 use sikemux_process::sync::Locked;
 use tokio::sync::oneshot;
 
-use crate::protocol::{encode_control, CallId, Event, ServerMessage, WindowAnswer, WindowCall};
+use sikemux_wire::protocol::{
+    encode_control, CallId, Event, ServerMessage, WindowAnswer, WindowCall,
+};
 
 use super::connection::{ClientConn, ClientId};
 

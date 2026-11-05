@@ -14,8 +14,8 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use crate::agent_accounts::usage;
-use crate::protocol::ChatLaunch;
 use sikemux_fold::ChatEventKind;
+use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::{launching, Core};
 use super::kept;

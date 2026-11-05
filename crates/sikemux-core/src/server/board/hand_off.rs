@@ -12,13 +12,13 @@ use sikemux_process::sync::Locked;
 use super::{
     add_card, lease, long_text, project_at, project_view, slice, title_of, Adding, BoardView, By,
 };
-use crate::protocol::{ChatContext, Event, FOR_AGENT_URI};
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
 use crate::server::worktree::agent::{self, Unclaimed};
 use crate::server::worktree::{self, AgentWorktree};
 use crate::server::{chat, workspace, Core};
 use crate::text::{clipped, clipped_line};
+use sikemux_wire::protocol::{ChatContext, Event, FOR_AGENT_URI};
 
 /// The longest card title made from what was typed; the whole text goes into its details.
 const TITLE_CHARS: usize = 80;

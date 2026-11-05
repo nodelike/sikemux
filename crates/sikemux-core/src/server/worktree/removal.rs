@@ -10,10 +10,10 @@ use serde_json::Value;
 
 use super::AgentWorktree;
 use crate::git::Git;
-use crate::protocol::{AgentState, WorkspaceAgent};
 use crate::server::connection::blocking;
 use crate::server::{board, ports, tasks};
 use crate::server::{Core, CoreError, CoreResult};
+use sikemux_wire::protocol::{AgentState, WorkspaceAgent};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

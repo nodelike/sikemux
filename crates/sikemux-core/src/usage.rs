@@ -14,10 +14,10 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
-use crate::protocol::BuildChannel;
 use crate::server::activity_log::{ReportedDay, ReportedTokens};
 use crate::server::Core;
 use sikemux_view::prefs::{Preferences, UpdateChannel};
+use sikemux_wire::protocol::BuildChannel;
 
 const CAPTURE_ENDPOINT: &str = "https://eu.i.posthog.com/i/v0/e/";
 const BATCH_ENDPOINT: &str = "https://eu.i.posthog.com/batch/";

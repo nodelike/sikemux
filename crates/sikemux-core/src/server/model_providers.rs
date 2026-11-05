@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::launch::model_feed::Snapshot;
 use crate::launch::providers::{self, Helper, Kind, Provider, Providers, KEY_SERVICE};
-use crate::protocol::ChatLaunch;
+use sikemux_wire::protocol::ChatLaunch;
 
 use super::connection::blocking;
 use super::{Core, CoreError, CoreResult};

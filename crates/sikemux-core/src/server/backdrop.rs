@@ -2,7 +2,7 @@
 //! from the person's preferences so that no app has to send it.
 
 use super::Core;
-use crate::protocol::BackdropImage;
+use sikemux_wire::protocol::BackdropImage;
 
 /// Publishes the backdrop the preferences describe, shrinking a newly chosen picture first.
 pub(crate) fn follow(core: &Core) {

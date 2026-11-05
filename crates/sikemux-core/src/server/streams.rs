@@ -18,7 +18,7 @@ use tokio::runtime::RuntimeFlavor;
 
 use super::connection::{ClientConn, ClientId};
 use super::{CoreError, CoreResult};
-use crate::protocol::{Event, ServerMessage};
+use sikemux_wire::protocol::{Event, ServerMessage};
 
 const BATCH_ITEMS: usize = 200;
 const BATCH_AGE: Duration = Duration::from_millis(16);

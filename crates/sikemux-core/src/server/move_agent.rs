@@ -11,8 +11,8 @@ use serde::Deserialize;
 use super::workspace::AddProjectParams;
 use super::{launching, session, Core, CoreError, CoreResult};
 use crate::agent_catalog::{self, AgentKind};
-use crate::protocol::WorkspaceAgent;
 use crate::sessions::relocate::relocate;
+use sikemux_wire::protocol::WorkspaceAgent;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -22,10 +22,10 @@ use crate::server::chat::prompt::MAX_CONTEXT_ITEMS;
 use crate::server::inbox::Fault;
 
 use super::SessionEnd;
-use crate::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
 use sikemux_fold::update::turn_answer;
 use sikemux_fold::{ChatEventKind, UpdateKind};
 use sikemux_view::chat::StopReason;
+use sikemux_wire::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
 
 use super::super::feed::{Earlier, Reach};
 use super::super::kept::Progress;

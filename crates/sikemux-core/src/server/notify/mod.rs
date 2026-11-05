@@ -27,10 +27,13 @@ use tokio::sync::{mpsc, Notify};
 
 use crate::accounts::live::Push;
 use crate::accounts::protocol::PushKind;
-use crate::protocol::{AgentState, Attention, Event, NotifyPrefs, NotifyWhen, PendingDevice};
-use crate::push::{self, Notification, NotificationCategory, NotificationKind, MAX_PLAINTEXT};
+use crate::push::{self, MAX_PLAINTEXT};
 use crate::text::clipped_line;
 use sikemux_view::inbox::InboxItem;
+use sikemux_view::push::{Notification, NotificationCategory, NotificationKind};
+use sikemux_wire::protocol::{
+    AgentState, Attention, Event, NotifyPrefs, NotifyWhen, PendingDevice,
+};
 
 pub(crate) use goals::GoalMoved;
 pub(crate) use presence::{Presence, SystemPresence};

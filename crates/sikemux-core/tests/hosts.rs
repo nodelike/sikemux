@@ -15,11 +15,12 @@ use std::time::{Duration, Instant};
 
 use folded::Chat;
 use serde_json::{json, Value};
-use sikemux_core::client::{probe, CoreClient};
-use sikemux_core::protocol::RemoteStatus;
-use sikemux_core::remote::SecretKey;
+use sikemux_client::client::CoreClient;
+use sikemux_client::remote::SecretKey;
+use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use sikemux_wire::accounts::protocol::JoinTicket;
+use sikemux_wire::protocol::RemoteStatus;
 
 const WAIT: Duration = Duration::from_secs(90);
 const FAKE_AGENT: &str = env!("CARGO_BIN_EXE_sikemux-fake-acp-agent");

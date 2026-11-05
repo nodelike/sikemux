@@ -10,8 +10,8 @@ use tokio::sync::Notify;
 
 use super::connection::ClientConn;
 use super::{access, display, goals, inbox, layout, load, updates, workspace, Core};
-use crate::protocol::{encode_device_view, AgentGroup, Event};
 use sikemux_view::device::DeviceView;
+use sikemux_wire::protocol::{encode_device_view, AgentGroup, Event};
 
 /// How often what a paired device shows of this host is looked at again
 /// while something in it moves by itself, such as an agent mid-turn.
@@ -90,7 +90,7 @@ impl Core {
     /// Every chat and agent terminal running here.
     /// Every session, with what the app calls its agent and whether the
     /// person has seen what the agent last did.
-    pub(crate) fn session_infos(&self) -> Vec<crate::protocol::SessionInfo> {
+    pub(crate) fn session_infos(&self) -> Vec<sikemux_wire::protocol::SessionInfo> {
         let mut sessions: Vec<_> = self
             .all_sessions()
             .iter()
@@ -124,7 +124,7 @@ impl Core {
 
     /// The chats under the app's names, most recently active first, with
     /// whether the person has seen what each last did.
-    pub(crate) fn chat_infos(&self) -> Vec<crate::protocol::ChatInfo> {
+    pub(crate) fn chat_infos(&self) -> Vec<sikemux_wire::protocol::ChatInfo> {
         let mut chats = self.workspaces.listed(self.chats.list());
         for chat in &mut chats {
             chat.name = self.names.name(&chat.agent_id);
@@ -145,8 +145,8 @@ impl Core {
     pub(crate) fn ranked_infos(
         &self,
     ) -> (
-        Vec<crate::protocol::ChatInfo>,
-        Vec<crate::protocol::SessionInfo>,
+        Vec<sikemux_wire::protocol::ChatInfo>,
+        Vec<sikemux_wire::protocol::SessionInfo>,
     ) {
         let mut sessions = self.session_infos();
         let mut chats = self.chat_infos();
@@ -157,7 +157,7 @@ impl Core {
     }
 
     /// The face each agent wears, by agent id; one showing its logo has none.
-    pub(crate) fn agent_faces(&self) -> HashMap<String, crate::protocol::AgentFace> {
+    pub(crate) fn agent_faces(&self) -> HashMap<String, sikemux_wire::protocol::AgentFace> {
         let mut agents = self.workspaces.view().agents;
         self.names.fill(&mut agents);
         self.faces.fill(&mut agents);
@@ -169,7 +169,7 @@ impl Core {
 
     /// The workspace as clients are sent it, each agent under its name and
     /// in its face.
-    pub(crate) fn workspace_view(&self) -> crate::protocol::Workspace {
+    pub(crate) fn workspace_view(&self) -> sikemux_wire::protocol::Workspace {
         let preferences = self.preferences.get();
         let mut workspace = self.workspaces.view();
         workspace.palette = self.look.tokens_by_name();

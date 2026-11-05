@@ -1,7 +1,7 @@
 //! The events a chat keeps for the clients that attach later: text streamed into one
 //! message joined up, written to the history on disk, paged back through and rewound.
 
-use crate::protocol::ChatContext;
+use sikemux_wire::protocol::ChatContext;
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 
@@ -707,9 +707,9 @@ pub(super) mod tests {
     use super::super::super::history::MAX_HISTORY_BYTES;
     use super::super::{Feed, MAX_REPLAY_BYTES, MAX_REPLAY_EVENTS};
     use super::*;
-    use crate::protocol::PermissionMode;
     use sikemux_fold::Fold;
     use sikemux_view::chat::ChatChange;
+    use sikemux_wire::protocol::PermissionMode;
 
     pub(in super::super) fn text(kind: &str, message: Option<&str>, text: &str) -> Value {
         let mut update = json!({

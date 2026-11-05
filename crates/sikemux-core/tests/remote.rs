@@ -11,17 +11,18 @@ use folded::{prompts, Chat, Folded};
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr};
 use serde_json::json;
-use sikemux_core::client::{probe, ClientError, ClientEvent, CoreClient};
-use sikemux_core::grid::{decode_frame, Screen};
-use sikemux_core::protocol::{
+use sikemux_client::client::{ClientError, ClientEvent, CoreClient};
+use sikemux_client::remote::{self, SecretKey};
+use sikemux_core::client::probe;
+use sikemux_core::server::{self, ServerConfig, ServerError};
+use sikemux_view::chat::{ChatChange, ChatPage, ChatRole};
+use sikemux_view::device::DeviceView;
+use sikemux_wire::grid::{decode_frame, Screen};
+use sikemux_wire::protocol::{
     Attention, AttentionKind, BackdropImage, BuildIdentity, ChatAttachment, ChatLaunch, ChatMark,
     ChatState, DeviceAccess, Event, LaunchIdentity, PermissionMode, RemoteStatus, SessionId,
     SpawnTarget, TerminalSpawn, MAX_ATTACHMENT_BYTES,
 };
-use sikemux_core::remote::{self, SecretKey};
-use sikemux_core::server::{self, ServerConfig, ServerError};
-use sikemux_view::chat::{ChatChange, ChatPage, ChatRole};
-use sikemux_view::device::DeviceView;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const WAIT: Duration = Duration::from_secs(30);

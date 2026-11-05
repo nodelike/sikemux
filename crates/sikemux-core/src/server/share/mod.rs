@@ -22,7 +22,7 @@ use sikemux_view::share::{ShareAsk, ShareFrame, ShareReply, SharedChat, SharedFi
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use crate::protocol::ChatAttachment;
+use sikemux_wire::protocol::ChatAttachment;
 
 use super::access::Peer;
 use super::changed::Topic;
@@ -375,7 +375,7 @@ const CHAT_EVENT: &[u8] = br#"{"type":"event","event":{"kind":"chat","#;
 /// whether it is a snapshot. A chat event goes out as the core wrote it; the
 /// answer to the share's attach becomes a snapshot.
 fn published<'a>(core: &Core, id: &str, frame: &'a [u8]) -> Option<(Cow<'a, [u8]>, bool)> {
-    use crate::protocol::{Event, FrameKind, Response, ServerMessage};
+    use sikemux_wire::protocol::{Event, FrameKind, Response, ServerMessage};
     let (kind, payload) = frame.get(4..)?.split_first()?;
     if *kind != FrameKind::Control as u8 {
         return None;

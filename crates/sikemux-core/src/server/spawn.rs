@@ -14,7 +14,7 @@ use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
 use crate::launch::PermissionMode;
-use crate::protocol::Event;
+use sikemux_wire::protocol::Event;
 
 use super::chat;
 use super::connection::blocking;

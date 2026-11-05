@@ -8,10 +8,10 @@ use std::time::Duration;
 
 use super::codehost::repo as codehost;
 use super::connection::blocking;
-use crate::protocol::{ProjectCodeHost, ProjectGit, ProjectPull, PullChecks};
 use serde::Deserialize;
 use serde_json::Value;
 use sikemux_process::sync::Locked;
+use sikemux_wire::protocol::{ProjectCodeHost, ProjectGit, ProjectPull, PullChecks};
 
 use super::changed::Topic;
 use crate::git::{

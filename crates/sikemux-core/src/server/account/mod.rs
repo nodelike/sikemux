@@ -460,7 +460,7 @@ fn subject(access_token: &str) -> Result<String, String> {
         .and_then(|part| URL_SAFE_NO_PAD.decode(part).ok())
         .and_then(|bytes| serde_json::from_slice::<Claims>(&bytes).ok())
         .ok_or("the sign-in token could not be read")?;
-    crate::accounts::check_user_id(&payload.sub)?;
+    sikemux_client::accounts::check_user_id(&payload.sub)?;
     Ok(payload.sub)
 }
 

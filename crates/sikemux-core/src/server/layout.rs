@@ -12,8 +12,8 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::{CliOpenTarget, CliTargetKind};
-use crate::protocol::{SessionId, SessionInfo, Workspace};
 use sikemux_view::layout::{Layout, Pane, PaneKind, SplitDir, Tab};
+use sikemux_wire::protocol::{SessionId, SessionInfo, Workspace};
 
 use super::kept::Kept;
 use super::{Core, CoreError, CoreResult};

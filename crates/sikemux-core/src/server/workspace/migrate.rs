@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::{check_agent, dress, is_chat_provider, Kept, Saved};
-use crate::protocol::{
+use sikemux_wire::protocol::{
     ChatAccount, CodeHostChoice, PinnedChat, ProjectInfo, SpaceInfo, WorkspaceAgent,
 };
 

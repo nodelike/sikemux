@@ -16,12 +16,12 @@ use super::finish::{self, change_run, Step};
 use super::review::MAX_ROUNDS;
 use super::{git, Card, State};
 use crate::cli::protocol::{REVIEWER_OFFER, TOOLS_OFFER_ENV};
-use crate::protocol::Event;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
 use crate::server::spawn::Ending;
 use crate::server::worktree;
 use crate::server::{chat, messages, Core};
+use sikemux_wire::protocol::Event;
 
 const MAX_DIFF_BYTES: usize = 200 * 1024;
 const MAX_FINDINGS: usize = 50;

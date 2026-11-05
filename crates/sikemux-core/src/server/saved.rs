@@ -13,10 +13,10 @@ use crate::agent_accounts::folders::{sessions_root, sessions_shared};
 use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::HarnessRequest;
 use crate::launch::{account_variable, named_account};
-use crate::protocol::ChatLaunch;
 use crate::sessions::asked;
 use crate::sessions::recent::RecentProvider;
 use crate::sessions::search::{self, Scope, SearchRequest, SearchResult, SessionMatch, MAX_LIMIT};
+use sikemux_wire::protocol::ChatLaunch;
 
 use super::connection::blocking;
 use super::messages;

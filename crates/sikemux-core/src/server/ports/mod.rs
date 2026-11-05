@@ -19,9 +19,9 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use crate::protocol::SessionId;
 use crate::server::changed::Topic;
 use crate::tasks::config::{self, ConfigLoad, Stated};
+use sikemux_wire::protocol::SessionId;
 
 use super::connection::{blocking, ClientId};
 use super::wake::Wake;

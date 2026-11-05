@@ -46,8 +46,8 @@ impl Fake {
 
 impl Account for Fake {
     fn sign_live(&self, nonce: &str) -> Option<(String, String)> {
-        crate::accounts::check_live(nonce).ok()?;
-        let message = crate::accounts::live_message(nonce, &self.key());
+        sikemux_client::accounts::check_live(nonce).ok()?;
+        let message = sikemux_client::accounts::live_message(nonce, &self.key());
         Some((
             self.key(),
             hex::encode(self.secret.sign(message.as_bytes()).to_bytes()),
@@ -131,7 +131,7 @@ impl Server {
         assert_eq!(hello["key"], account.key());
         assert!(hello.get("token").is_none());
         assert_eq!(hello["app"]["platform"], "macos");
-        let message = crate::accounts::live_message(&nonce, &account.key());
+        let message = sikemux_client::accounts::live_message(&nonce, &account.key());
         assert_eq!(
             hello["signature"],
             hex::encode(account.secret.sign(message.as_bytes()).to_bytes())

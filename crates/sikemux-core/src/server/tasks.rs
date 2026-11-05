@@ -17,7 +17,6 @@ use tokio::time::Instant;
 use super::changed::Topic;
 use crate::harness::runs::Run;
 use crate::launch::PermissionMode;
-use crate::protocol::{SessionId, SpawnTarget};
 use crate::tasks::check::{self, Check, CheckItem, Checked, Listening};
 use crate::tasks::config::{self, ConfigLoad, Stated, TrustCommand};
 use crate::tasks::detect::{self, AddedTask, PERSONAL_PREFIX};
@@ -25,6 +24,7 @@ use crate::tasks::java::{self, JavaChoice};
 use crate::tasks::results::{self, TestResults};
 use crate::tasks::tools;
 use sikemux_pty::task::{TaskSource, TaskSpawnRequest};
+use sikemux_wire::protocol::{SessionId, SpawnTarget};
 
 use super::connection::blocking;
 use super::kept::Kept;

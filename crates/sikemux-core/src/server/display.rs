@@ -3,7 +3,7 @@
 
 use std::cmp::Reverse;
 
-use crate::protocol::{
+use sikemux_wire::protocol::{
     AgentGroup, AgentState, AgentStatus, ChatInfo, ChatState, SessionInfo, SessionKind,
 };
 

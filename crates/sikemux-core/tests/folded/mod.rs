@@ -8,11 +8,11 @@ use std::time::Duration;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
-use sikemux_core::client::ClientEvent;
-use sikemux_core::protocol::{ChatAttachment, Event};
+use sikemux_client::client::ClientEvent;
 use sikemux_view::chat::{
     ChatChange, ChatConnection, ChatHead, ChatMessage, ChatPart, ChatRole, ChatView, StopReason,
 };
+use sikemux_wire::protocol::{ChatAttachment, Event};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 #[derive(Clone, Debug, Default)]

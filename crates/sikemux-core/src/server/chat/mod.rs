@@ -37,13 +37,13 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::acp::native as acp_native;
 use crate::launch::PermissionMode;
-use crate::protocol::{
-    ask, AgentState, Attention, AttentionKind, ChatAccount, ChatAttachment, ChatContext, ChatInfo,
-    ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId,
-};
 use native::{ended_status, SessionEnd};
 use pickers::current_choice;
 use prompt::bounded_text;
+use sikemux_wire::protocol::{
+    ask, AgentState, Attention, AttentionKind, ChatAccount, ChatAttachment, ChatContext, ChatInfo,
+    ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId,
+};
 
 use super::activity::Activity;
 use super::connection::{ClientConn, ClientId};

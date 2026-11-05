@@ -6,8 +6,7 @@
 
 use std::collections::BTreeMap;
 
-pub use sikemux_client::join::*;
-
+use sikemux_client::join::JoinHello;
 use sikemux_wire::accounts::protocol::JoinTicket;
 
 /// How far the host's clock may disagree with the server's.
@@ -276,7 +275,8 @@ pub(crate) mod vector {
 mod tests {
     use super::vector::vector;
     use super::*;
-    use crate::protocol::DeviceAccess;
+    use sikemux_client::join::JoinReply;
+    use sikemux_wire::protocol::DeviceAccess;
 
     #[test]
     fn the_shared_vector_signs_the_text_the_server_signs_and_checks_out() {

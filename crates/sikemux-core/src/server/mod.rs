@@ -174,7 +174,7 @@ use sikemux_pty::task::{
 use tokio::sync::{watch, Notify};
 
 use crate::client::{probe, ProbeError};
-use crate::protocol::{encode_control, BuildIdentity, Event, ServerMessage, SessionId};
+use sikemux_wire::protocol::{encode_control, BuildIdentity, Event, ServerMessage, SessionId};
 
 use connection::{ClientConn, ClientId};
 use session::Session;
@@ -440,8 +440,8 @@ fn first_session_id() -> SessionId {
 impl Core {
     /// The core's own identity for a session it spawns itself, or for a
     /// device on another machine, whose paths mean nothing here.
-    pub(crate) fn launch_identity(&self) -> crate::protocol::LaunchIdentity {
-        crate::protocol::LaunchIdentity {
+    pub(crate) fn launch_identity(&self) -> sikemux_wire::protocol::LaunchIdentity {
+        sikemux_wire::protocol::LaunchIdentity {
             version: self.config.build.version.clone(),
             cli_executable: std::env::current_exe().ok(),
             cli_endpoint: self.config.cli_endpoint.clone(),
@@ -660,7 +660,7 @@ impl Core {
         resume_id: Option<&str>,
     ) -> (
         names::AgentName,
-        Option<Option<crate::protocol::AgentBuddy>>,
+        Option<Option<sikemux_wire::protocol::AgentBuddy>>,
     ) {
         let starting = names::Starting {
             agent_id,

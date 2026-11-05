@@ -5,13 +5,13 @@ use serde_json::json;
 
 use super::*;
 use crate::accounts::protocol::PushResult;
-use crate::protocol::{
-    AgentState, AttentionKind, DeviceAccess, DeviceInfo, NotificationState, NotifyMute, NotifyPrefs,
-};
 use crate::push::NotificationKey;
 use crate::server::access::Peer;
 use crate::server::chat::permission;
 use crate::server::connection::ClientConn;
+use sikemux_wire::protocol::{
+    AgentState, AttentionKind, DeviceAccess, DeviceInfo, NotificationState, NotifyMute, NotifyPrefs,
+};
 
 const T: u64 = 1_791_000_000_000;
 
@@ -44,7 +44,7 @@ fn prefs(when: NotifyWhen) -> NotifyPrefs {
 /// A signed-in host with one phone that asked for notifications, and a chat
 /// agent `chat-1` working in `/work/sikemux`.
 fn host(when: NotifyWhen) -> Host {
-    let core = Core::new(crate::protocol::BuildIdentity::default(), None).unwrap();
+    let core = Core::new(sikemux_wire::protocol::BuildIdentity::default(), None).unwrap();
     let secret = SecretKey::generate();
     let host = secret.public().to_string();
     let phone = SecretKey::generate().public().to_string();
@@ -309,7 +309,7 @@ async fn a_problem_says_what_went_wrong_once_a_minute() {
     assert_eq!(sent[0].1.kind, NotificationKind::Problem);
     assert_eq!(
         sent[0].1.channel,
-        Some(crate::push::NotificationChannel::Problems)
+        Some(sikemux_view::push::NotificationChannel::Problems)
     );
     assert_eq!(
         sent[0].1.detail.as_deref(),

@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use crate::protocol::{ChatContext, ChatState};
 use crate::server::connection::blocking;
 use crate::server::{display, launching, saved, Core, CoreError, CoreResult};
+use sikemux_wire::protocol::{ChatContext, ChatState};
 
 const AGENT_URI: &str = "sikemux://agent/";
 /// An earlier chat of the project, as `<cli>/<session id>`, to open again for the message.

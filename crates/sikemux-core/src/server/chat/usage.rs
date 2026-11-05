@@ -5,10 +5,10 @@ use serde_json::{json, Value};
 
 use crate::agent_catalog::AgentKind;
 use crate::launch::named_account;
-use crate::protocol::ChatStart;
 use crate::server::chat::pickers::current_choice;
 use crate::sessions::context::read_session_context;
 use sikemux_fold::ChatEventKind;
+use sikemux_wire::protocol::ChatStart;
 
 use super::Chat;
 

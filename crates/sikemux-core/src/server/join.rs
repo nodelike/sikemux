@@ -6,8 +6,9 @@ use std::time::Duration;
 use iroh::endpoint::{Connection, SendStream};
 use tokio::sync::Semaphore;
 
-use crate::join::{self, JoinHello, JoinReply, Refusal, APPROVAL_TIMEOUT};
-use crate::protocol::{DeviceAccess, PendingDevice};
+use crate::join::{joiner_name, Refusal};
+use sikemux_client::join::{self, JoinHello, JoinReply, APPROVAL_TIMEOUT};
+use sikemux_wire::protocol::{DeviceAccess, PendingDevice};
 
 use super::notify::Signal;
 use super::remote;
@@ -99,7 +100,7 @@ pub(super) async fn serve(core: Arc<Core>, connection: Connection) {
     let request = PendingDevice {
         id: uuid::Uuid::new_v4().to_string(),
         device_id: phone,
-        name: clean(&join::joiner_name(&hello), NAME_LIMIT),
+        name: clean(&joiner_name(&hello), NAME_LIMIT),
         platform: clean(&hello.platform, PLATFORM_LIMIT),
         from_account: true,
         expires_at: sikemux_process::clock::epoch_ms() + APPROVAL_TIMEOUT.as_millis() as u64,
@@ -153,9 +154,9 @@ mod tests {
 
     use super::*;
     use crate::join::vector::{vector, Vector};
-    use crate::join::JOIN_ALPN;
-    use crate::protocol::{AllowedDevice, BuildIdentity, DeviceAccess, RemoteStatus};
+    use sikemux_client::join::JOIN_ALPN;
     use sikemux_wire::accounts::protocol::JoinTicket;
+    use sikemux_wire::protocol::{AllowedDevice, BuildIdentity, DeviceAccess, RemoteStatus};
 
     const ACCOUNT: &str = "user_2vectorTest";
     const WAIT: Duration = Duration::from_secs(30);
@@ -293,12 +294,15 @@ mod tests {
         assert_eq!(status.devices[0].name, "Pixel 8");
         assert_eq!(status.devices[0].access, DeviceAccess::Watch);
 
-        let (client, mut events) = crate::remote::connect(&endpoint, host.addr())
+        let (client, mut events) = sikemux_client::remote::connect(&endpoint, host.addr())
             .await
             .expect("the joined phone connects like any paired device");
         let first = tokio::time::timeout(WAIT, events.recv()).await.unwrap();
         assert!(
-            matches!(first, Some(crate::client::ClientEvent::DeviceView(_))),
+            matches!(
+                first,
+                Some(sikemux_client::client::ClientEvent::DeviceView(_))
+            ),
             "the joined phone hears the host's view first, as a paired one does"
         );
         client

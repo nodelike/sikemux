@@ -33,7 +33,7 @@ pub(crate) type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 fn connector() -> &'static Connector {
     static CONNECTOR: OnceLock<Connector> = OnceLock::new();
-    CONNECTOR.get_or_init(|| match super::tls_config() {
+    CONNECTOR.get_or_init(|| match sikemux_client::accounts::tls_config() {
         Some(config) => Connector::Rustls(tokio_rustls::TlsConnector::from(config)),
         None => Connector::Plain,
     })

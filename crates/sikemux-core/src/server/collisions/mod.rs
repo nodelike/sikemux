@@ -1527,7 +1527,7 @@ fn terminals_at_work(
         .filter(|agent| {
             agent.reach == super::messages::Reach::Terminal
                 && agent.project == project
-                && agent.status == crate::protocol::AgentStatus::Working
+                && agent.status == sikemux_wire::protocol::AgentStatus::Working
         })
         .map(|agent| agent.agent_id.clone())
         .filter(|agent| holds(core, place, agent))

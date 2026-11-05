@@ -9,12 +9,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::log;
-use crate::protocol::{CodeHostChoice, ProjectCodeHost, ProjectPull, PullChecks};
 use crate::server::board::Pull;
 use crate::server::plugins::{self, Category, CodeHostSpec, Failure, Provided};
 use crate::server::workspace::project_of;
 use crate::server::Core;
 use sikemux_plugin_api::codehost::{Repo as RemoteRepo, Resolved};
+use sikemux_wire::protocol::{CodeHostChoice, ProjectCodeHost, ProjectPull, PullChecks};
 
 /// A code host the core reaches through its plugin, as the plugin's manifest
 /// describes it.

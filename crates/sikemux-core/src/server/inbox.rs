@@ -11,12 +11,14 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use crate::protocol::{AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, SessionInfo};
 use crate::text::{clipped, clipped_line};
 use sikemux_view::inbox::{
     AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandTo, InboxHandoff, InboxItem,
     InboxKind, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent, ShipHold, ShipKind,
     TeamLink, PROPOSED_ENVIRONMENTS_ITEM,
+};
+use sikemux_wire::protocol::{
+    AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, SessionInfo,
 };
 
 use super::board::{self, Hold, Summary, Waits};

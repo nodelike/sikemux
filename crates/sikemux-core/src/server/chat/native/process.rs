@@ -19,7 +19,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::git_guard;
-use crate::protocol::ChatLaunch;
+use sikemux_wire::protocol::ChatLaunch;
 
 /// How much of what the agent printed to its error stream is kept, to say why
 /// it stopped.

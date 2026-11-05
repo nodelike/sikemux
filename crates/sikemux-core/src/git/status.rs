@@ -450,9 +450,9 @@ pub async fn git_project_repo(
 }
 
 /// The repository's branch chip, read from the same cached walk as its status.
-pub(crate) async fn git_chip(repo: String) -> Result<crate::protocol::ProjectGit, String> {
+pub(crate) async fn git_chip(repo: String) -> Result<sikemux_wire::protocol::ProjectGit, String> {
     let status = git_status(repo).await?;
-    Ok(crate::protocol::ProjectGit {
+    Ok(sikemux_wire::protocol::ProjectGit {
         branch: status.branch,
         ahead: u32::try_from(status.ahead).unwrap_or(0),
         behind: u32::try_from(status.behind).unwrap_or(0),

@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use tokio::time::Instant;
 
 use crate::cli::protocol::HarnessRequest;
-use crate::protocol::AgentStatus;
+use sikemux_wire::protocol::AgentStatus;
 
 use super::chat::feed::Said;
 use super::connection::blocking;

@@ -9,19 +9,18 @@ use std::sync::{Arc, Once};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use sikemux_core::client::{
-    ensure_running, probe, Attached, ClientEvent, CoreClient, EventSink, Reply,
-};
-use sikemux_core::grid::{decode_frame, Screen, MODE_ALT_SCREEN, MODE_MOUSE_ANY};
-use sikemux_core::protocol::{
-    ask, encode_control, read_frame_sync, AgentState, AgentStateEvent, BuildIdentity,
-    ClientMessage, Continuation, Event, LaunchIdentity, Request, Response, ServerMessage,
-    SessionExit, SessionId, SpawnTarget, StreamId, TerminalSpawn, PROTOCOL, PROTOCOL_VERSION,
-};
+use sikemux_client::client::{Attached, ClientEvent, CoreClient, EventSink, Reply};
+use sikemux_core::client::{ensure_running, probe};
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use sikemux_pty::launch::{LaunchKind, PtyContext};
 use sikemux_pty::output_log::OutputQuery;
 use sikemux_pty::task::{TaskSource, TaskSpawnRequest};
+use sikemux_wire::grid::{decode_frame, Screen, MODE_ALT_SCREEN, MODE_MOUSE_ANY};
+use sikemux_wire::protocol::{
+    ask, encode_control, read_frame_sync, AgentState, AgentStateEvent, BuildIdentity,
+    ClientMessage, Continuation, Event, LaunchIdentity, Request, Response, ServerMessage,
+    SessionExit, SessionId, SpawnTarget, StreamId, TerminalSpawn, PROTOCOL, PROTOCOL_VERSION,
+};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -350,7 +349,7 @@ async fn handshake_succeeds_and_a_wrong_version_is_rejected() {
     assert!(
         matches!(
             CoreClient::connect(&core.dir.path().join("missing.sock")).await,
-            Err(sikemux_core::client::ClientError::Io(_))
+            Err(sikemux_client::client::ClientError::Io(_))
         ),
         "connecting to a missing socket fails"
     );

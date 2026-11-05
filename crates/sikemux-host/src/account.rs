@@ -7,12 +7,12 @@ use std::time::Duration;
 use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use sikemux_client::client::CoreClient;
 use sikemux_core::accounts::host::{
     HostSignIn, HostSignInFinish, HostSignInPoll, HostSignInStart, HostSignInState,
     HostSignInStatus,
 };
 use sikemux_core::accounts::protocol::Device;
-use sikemux_core::client::CoreClient;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -70,7 +70,7 @@ pub async fn sign_in_by_code(
             break (account, nonce);
         }
     };
-    sikemux_core::accounts::check_user_id(&account).map_err(|error| error.to_string())?;
+    sikemux_client::accounts::check_user_id(&account).map_err(|error| error.to_string())?;
     let signed = core
         .sign_registration(nonce.clone(), account.clone())
         .await

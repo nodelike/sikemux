@@ -13,13 +13,13 @@ use sikemux_process::sync::Locked;
 use super::environments::{Environment, Passes};
 use super::review::Review;
 use super::{blind, finish, Board, Card, Owner, Status, Team};
-use crate::protocol::Event;
 use crate::server::calls::given;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
 use crate::server::spawn::Ending;
 use crate::server::worktree::{self, AgentWorktree};
 use crate::server::{chat, messages, Core};
+use sikemux_wire::protocol::Event;
 
 pub(super) const MAX_SLOTS: u32 = 8;
 const DEFAULT_SLOTS: u32 = 2;

@@ -12,13 +12,12 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-pub use sikemux_client::client::*;
-
 use crate::frozen::{FrozenReply, FrozenRequest};
-use crate::protocol::{
+use crate::waiting;
+use sikemux_client::client::{hello_frame, hello_reply, ClientError, CoreHello};
+use sikemux_wire::protocol::{
     encode_frozen, read_frame_sync, BuildIdentity, FrameKind, ServerMessage, PROTOCOL_VERSION,
 };
-use crate::waiting;
 
 const PROBE_TIMEOUT: Duration = Duration::from_secs(1);
 const START_TIMEOUT: Duration = Duration::from_secs(5);

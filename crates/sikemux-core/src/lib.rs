@@ -31,16 +31,10 @@ pub mod join;
 #[cfg(unix)]
 pub mod launch;
 pub use sikemux_base::{download, http, pages, runtime};
-pub use sikemux_wire::grid;
-pub use sikemux_wire::protocol;
 #[cfg(unix)]
 pub mod push;
 pub mod release_feed;
 pub mod releases;
-#[cfg(unix)]
-pub use sikemux_client::device;
-#[cfg(unix)]
-pub use sikemux_client::remote;
 #[cfg(unix)]
 #[cfg(unix)]
 pub mod server;

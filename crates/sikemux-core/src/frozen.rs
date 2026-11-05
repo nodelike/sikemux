@@ -2,8 +2,8 @@
 //! can ask a core it cannot otherwise talk to to replace itself or stop.
 //!
 //! The shape of everything in this module is fixed for good: a client sends
-//! one [`crate::protocol::FrameKind::Frozen`] frame holding a [`FrozenRequest`] as its first
-//! frame, the core answers with one [`crate::protocol::FrameKind::Frozen`] frame holding a
+//! one [`sikemux_wire::protocol::FrameKind::Frozen`] frame holding a [`FrozenRequest`] as its first
+//! frame, the core answers with one [`sikemux_wire::protocol::FrameKind::Frozen`] frame holding a
 //! [`FrozenReply`], and closes the connection. Add new requests as new `op`
 //! values; never change or remove a field.
 
@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::BuildIdentity;
+use sikemux_wire::protocol::BuildIdentity;
 
 /// The format of the state a core hands to its replacement. A core only
 /// replaces itself with a binary that reads its format.

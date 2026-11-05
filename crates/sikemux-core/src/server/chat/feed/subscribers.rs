@@ -9,11 +9,11 @@ use sikemux_view::chat::ChatChange;
 use super::super::super::connection::{ClientConn, ClientId};
 use super::super::history::History;
 use super::{Feed, Inner, Standing};
-use crate::protocol::{
-    ask, encode_control, fits, ChatAttachment, ChatMark, Event, RequestId, ServerMessage,
-};
 use sikemux_fold::Fold;
 use sikemux_process::sync::Locked;
+use sikemux_wire::protocol::{
+    ask, encode_control, fits, ChatAttachment, ChatMark, Event, RequestId, ServerMessage,
+};
 
 /// A client hearing the chat, and the last change it was sent when it fell
 /// behind: a slow client is sent only how the chat stands once it catches up.

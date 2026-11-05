@@ -7,7 +7,7 @@
 //! as the app is: it lets devices in, links hosts, adds projects and agent
 //! accounts, shares chats and commits, so a host with no window is run from it.
 
-use crate::protocol::{ask, DeviceAccess, Request};
+use sikemux_wire::protocol::{ask, DeviceAccess, Request};
 
 use super::{CoreError, CoreResult};
 
@@ -212,7 +212,7 @@ pub(crate) fn permit(peer: &Peer, standing: Option<Standing>, needs: Needs) -> C
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::{AllowedDevice, SessionId};
+    use sikemux_wire::protocol::{AllowedDevice, SessionId};
 
     const SESSION: SessionId = 1;
 

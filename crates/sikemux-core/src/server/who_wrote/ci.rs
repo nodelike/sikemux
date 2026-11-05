@@ -12,10 +12,10 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use super::{git, remember, Found};
-use crate::protocol::CodeHostChoice;
 use crate::server::codehost::log;
 use crate::server::codehost::repo::{self as codehost, Conclusion, Repo};
 use crate::server::Core;
+use sikemux_wire::protocol::CodeHostChoice;
 
 const ASK_BUDGET: Duration = Duration::from_secs(10);
 const LOG_BUDGET: Duration = Duration::from_secs(20);

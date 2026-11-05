@@ -12,17 +12,18 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
+use sikemux_client::client::{ClientEvent, CoreClient};
 use sikemux_core::cli::auth::{new_nonce, same_secret, server_proof};
 use sikemux_core::cli::protocol::{
     CliClientCommand, CliClientHello, CliCloseReason, CliEndpointDescriptor, CliOpenRequest,
     CliOpenTarget, CliServerResponse, CliTargetKind, HarnessRequest, CLI_PROTOCOL_VERSION,
 };
-use sikemux_core::client::{probe, ClientEvent, CoreClient};
-use sikemux_core::protocol::{
+use sikemux_core::client::probe;
+use sikemux_core::server::{self, ServerConfig, ServerError};
+use sikemux_wire::protocol::{
     ask, encode_control, read_frame_sync, ClientMessage, Request, WindowAnswer, WindowCall,
     PROTOCOL, PROTOCOL_VERSION,
 };
-use sikemux_core::server::{self, ServerConfig, ServerError};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const WAIT: Duration = Duration::from_secs(30);

@@ -20,9 +20,9 @@ use crate::accounts::protocol::{
     Challenge, Device, DeviceList, DeviceRegistration, DeviceRole, Platform,
 };
 use crate::accounts::HostRequest;
-use crate::protocol::DeviceInfo;
-use crate::protocol::Event;
 use sikemux_wire::accounts::protocol::{DeviceKey, JoinTicket};
+use sikemux_wire::protocol::DeviceInfo;
+use sikemux_wire::protocol::Event;
 
 use super::super::{Core, CoreError, CoreResult};
 use super::join::{link_with, LinkParams};
@@ -451,7 +451,7 @@ mod tests {
             id: "paired".into(),
             name: "Paired".into(),
             platform: "ios".into(),
-            access: crate::protocol::DeviceAccess::Full,
+            access: sikemux_wire::protocol::DeviceAccess::Full,
             paired_at: 0,
             last_seen: None,
         };

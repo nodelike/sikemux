@@ -9,7 +9,7 @@ use agent_client_protocol::schema::v1::{
 use serde_json::Value;
 use url::Url;
 
-use crate::protocol::{ChatContext, FOR_AGENT_URI};
+use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
 
 const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ATTACHMENTS: usize = 32;

@@ -25,8 +25,8 @@ use uuid::Uuid;
 
 use crate::agent_catalog::AgentKind;
 use crate::launch::PermissionMode;
-use crate::protocol::ChatLaunch;
 use crate::sessions::{self, roots::account_root};
+use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::feed::Reach;
 use super::super::Respond;
@@ -863,7 +863,7 @@ mod tests {
             message_id: None,
             text: "look".into(),
             paths: vec!["/tmp/a.rs".into()],
-            context: vec![crate::protocol::ChatContext {
+            context: vec![sikemux_wire::protocol::ChatContext {
                 uri: "jira://X-1".into(),
                 title: "X-1".into(),
                 text: "the issue".into(),

@@ -41,6 +41,8 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "ti
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 sikemux-core = { path = "../sikemux-core" }
+sikemux-view = { path = "../sikemux-view" }
+sikemux-wire = { path = "../sikemux-wire" }
 sikemux-loopback = { path = "../sikemux-loopback" }
 sikemux-keychain = { path = "../sikemux-keychain" }
 sikemux-process = { path = "../sikemux-process" }
@@ -59,6 +61,7 @@ sikemux-plugin-slack = { path = "../../plugins/slack", optional = true }
 sikemux-plugin-vercel = { path = "../../plugins/vercel", optional = true }
 
 [target.'cfg(unix)'.dependencies]
+sikemux-client = { path = "../sikemux-client" }
 libc = "0.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]

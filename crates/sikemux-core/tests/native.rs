@@ -14,14 +14,15 @@ use std::time::{Duration, Instant};
 
 use folded::{prompts, said, Chat, Folded};
 use serde_json::Value;
-use sikemux_core::client::{probe, CoreClient};
-use sikemux_core::protocol::{
-    ask, encode_control, read_frame_sync, BuildIdentity, ChatAccount, ChatAttachment, ChatLaunch,
-    ClientMessage, PermissionMode, Request, PROTOCOL, PROTOCOL_VERSION,
-};
+use sikemux_client::client::CoreClient;
+use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use sikemux_view::chat::{
     ChatPage, ChatRole, FailureKind, PermissionAsk, PermissionKind, StopReason,
+};
+use sikemux_wire::protocol::{
+    ask, encode_control, read_frame_sync, BuildIdentity, ChatAccount, ChatAttachment, ChatLaunch,
+    ClientMessage, PermissionMode, Request, PROTOCOL, PROTOCOL_VERSION,
 };
 
 const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");

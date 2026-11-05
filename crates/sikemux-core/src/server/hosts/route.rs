@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 
-use crate::protocol::AgentStatus;
+use sikemux_wire::protocol::AgentStatus;
 
 use super::super::connection::blocking;
 use super::super::follow::{self, Happened};

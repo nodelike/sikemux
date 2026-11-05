@@ -11,9 +11,10 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use sikemux_core::client::{probe, CoreClient};
+use sikemux_client::client::CoreClient;
+use sikemux_core::client::probe;
 use sikemux_core::host_update::{HostUpdate, UpdateStep};
-use sikemux_core::protocol::BuildChannel;
+use sikemux_wire::protocol::BuildChannel;
 
 use crate::headless;
 use crate::style;

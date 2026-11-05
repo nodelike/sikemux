@@ -16,22 +16,21 @@ use std::time::{Duration, Instant};
 
 use folded::Folded;
 use serde_json::{json, Value};
+use sikemux_client::client::{ClientEvent, CoreClient};
 use sikemux_core::cli::auth::new_nonce;
 use sikemux_core::cli::protocol::{
     CliClientCommand, CliClientHello, CliEndpointDescriptor, CliServerResponse, HarnessRequest,
     CLI_PROTOCOL_VERSION,
 };
-use sikemux_core::client::{
-    await_deferred_upgrade, await_upgrade, frozen_request, probe, ClientEvent, CoreClient,
-};
+use sikemux_core::client::{await_deferred_upgrade, await_upgrade, frozen_request, probe};
 use sikemux_core::frozen::{FrozenReply, FrozenRequest};
-use sikemux_core::grid::{decode_frame, Screen};
-use sikemux_core::protocol::{
+use sikemux_pty::output_log::OutputQuery;
+use sikemux_view::chat::{PermissionKind, StopReason};
+use sikemux_wire::grid::{decode_frame, Screen};
+use sikemux_wire::protocol::{
     BuildIdentity, ChatAttachment, ChatLaunch, ChatMark, Event, LaunchIdentity, PermissionMode,
     SessionId, SpawnTarget, StreamId, TerminalSpawn, BUILD_ID_OVERRIDE_ENV,
 };
-use sikemux_pty::output_log::OutputQuery;
-use sikemux_view::chat::{PermissionKind, StopReason};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");

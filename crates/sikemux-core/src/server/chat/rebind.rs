@@ -9,7 +9,7 @@ use sikemux_fold::UpdateKind;
 use crate::agent_accounts::sign_in::{self, SignIn};
 
 use super::native::SessionEnd;
-use crate::protocol::{ChatAccount, ChatContext, ChatLaunch};
+use sikemux_wire::protocol::{ChatAccount, ChatContext, ChatLaunch};
 
 use super::super::Core;
 use super::Chat;

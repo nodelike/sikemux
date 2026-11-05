@@ -8,7 +8,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use sikemux_core::client::{ensure_running, probe, wait_for_core, ClientError, CoreHello};
+use sikemux_client::client::{ClientError, CoreHello};
+use sikemux_core::client::{ensure_running, probe, wait_for_core};
 
 #[cfg(target_os = "macos")]
 use launchd as service;

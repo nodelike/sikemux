@@ -11,7 +11,7 @@ use sikemux_process::user_environment::shell_var;
 use tokio::sync::watch;
 
 use crate::launch::providers;
-use crate::protocol::ChatLaunch;
+use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::callers;
 use super::super::Core;

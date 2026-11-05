@@ -11,7 +11,7 @@ use sikemux_pty::agent_detection::{
     DetectionInput, ManifestRegistry,
 };
 
-use crate::protocol::{AgentState, AgentStateEvent, Event};
+use sikemux_wire::protocol::{AgentState, AgentStateEvent, Event};
 
 use super::activity::Activity;
 use super::messages;

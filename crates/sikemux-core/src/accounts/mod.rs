@@ -9,20 +9,14 @@ pub mod share;
 #[cfg(unix)]
 pub(crate) mod socket;
 
-#[cfg(unix)]
-pub use sikemux_client::accounts::{
-    check_live, check_registration, check_user_id, live_message, network, registration_message,
-    tls_config,
-};
-pub use sikemux_client::accounts::{hooks_message, share_message, share_viewer_message};
 pub mod protocol;
 
-impl From<crate::protocol::BuildChannel> for protocol::Channel {
-    fn from(build: crate::protocol::BuildChannel) -> Self {
+impl From<sikemux_wire::protocol::BuildChannel> for protocol::Channel {
+    fn from(build: sikemux_wire::protocol::BuildChannel) -> Self {
         match build {
-            crate::protocol::BuildChannel::Dev => Self::Dev,
-            crate::protocol::BuildChannel::Nightly => Self::Nightly,
-            crate::protocol::BuildChannel::Stable => Self::Stable,
+            sikemux_wire::protocol::BuildChannel::Dev => Self::Dev,
+            sikemux_wire::protocol::BuildChannel::Nightly => Self::Nightly,
+            sikemux_wire::protocol::BuildChannel::Stable => Self::Stable,
         }
     }
 }
@@ -93,7 +87,7 @@ impl HostRequest {
 pub fn client() -> Result<&'static reqwest::Client, String> {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     let unreachable = || "this host cannot reach the accounts server".to_owned();
-    let tls = tls_config().ok_or_else(unreachable)?;
+    let tls = sikemux_client::accounts::tls_config().ok_or_else(unreachable)?;
     crate::http::shared(&CLIENT, || {
         crate::http::builder()
             .tls_backend_preconfigured((*tls).clone())

@@ -8,9 +8,6 @@ use base64::Engine;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
-pub use sikemux_view::push::{
-    Notification, NotificationCategory, NotificationChannel, NotificationKind,
-};
 
 pub const ENVELOPE_VERSION: u8 = 1;
 /// A sealed notification is padded to one of these sizes, so its length says
@@ -174,7 +171,7 @@ mod tests {
             phone
         );
 
-        let notification: Notification =
+        let notification: sikemux_view::push::Notification =
             serde_json::from_value(vector["notification"].clone()).unwrap();
         let plaintext = serde_json::to_string(&notification).unwrap();
         assert_eq!(plaintext, text(&vector, "plaintext"));

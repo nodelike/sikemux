@@ -13,11 +13,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
-use crate::protocol::{ChatContext, ChatStart, PermissionMode};
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::chat::{
     ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, QueuedMessage, SentContext, ToolDetail,
 };
+use sikemux_wire::protocol::{ChatContext, ChatStart, PermissionMode};
 
 use super::super::connection::{ClientConn, ClientId};
 use super::history::{History, HistoryState, Page, MAX_HISTORY_BYTES};
@@ -1039,8 +1039,8 @@ impl super::find::Rows for FindRows<'_> {
 mod tests {
     use super::replay::tests::{asks, text, turn, update};
     use super::*;
-    use crate::protocol::{ChatAttachment, ChatMark, Event, ServerMessage};
     use sikemux_fold::UpdateKind;
+    use sikemux_wire::protocol::{ChatAttachment, ChatMark, Event, ServerMessage};
 
     #[test]
     fn a_chat_folded_from_its_end_carries_the_start_of_every_subagent_it_speaks_of() {
@@ -1121,7 +1121,7 @@ mod tests {
         feed.let_out();
         let mut views = Vec::new();
         while let Ok(frame) = frames.try_recv() {
-            let frame = crate::protocol::read_frame_sync(&mut &frame[..])
+            let frame = sikemux_wire::protocol::read_frame_sync(&mut &frame[..])
                 .unwrap()
                 .unwrap();
             let Ok(ServerMessage::Event {
@@ -1279,11 +1279,11 @@ mod tests {
             since,
         );
         while let Ok(frame) = frames.try_recv() {
-            let frame = crate::protocol::read_frame_sync(&mut &frame[..])
+            let frame = sikemux_wire::protocol::read_frame_sync(&mut &frame[..])
                 .unwrap()
                 .unwrap();
             if let Ok(ServerMessage::Response {
-                response: crate::protocol::Response::ChatAttached { attachment },
+                response: sikemux_wire::protocol::Response::ChatAttached { attachment },
                 ..
             }) = serde_json::from_slice(&frame.payload)
             {

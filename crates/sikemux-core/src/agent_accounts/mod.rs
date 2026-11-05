@@ -18,7 +18,7 @@ use sikemux_pty::user_shell::login_shell_environment;
 use tokio::process::Command;
 
 use crate::launch::{account_environment, AgentSpec};
-use crate::protocol::ChatAccount;
+use sikemux_wire::protocol::ChatAccount;
 
 const MAX_PROFILES: usize = 64;
 const MAX_TEXT: usize = 4_096;

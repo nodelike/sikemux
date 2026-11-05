@@ -21,9 +21,9 @@ use sikemux_process::sync::Locked;
 
 use crate::acp::{air, native, permission_mode_id};
 use crate::launch::PermissionMode;
-use crate::protocol::ChatLaunch;
 use crate::server::chat::failure::Failure;
 use crate::server::chat::prompt::prompt_blocks;
+use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::Respond;
 use super::pending::{Answered, Purpose};

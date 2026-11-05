@@ -9,7 +9,7 @@ use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, Notify};
 
-use crate::protocol::{
+use sikemux_wire::protocol::{
     ask, ask::Ask, decode_input, encode_control, encode_lines, fits, read_frame, ClientMessage,
     FrameKind, HostRegistration, LaunchIdentity, Request, RequestId, Response, ServerMessage,
     SessionId, SpawnTarget, StreamId, OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
@@ -1269,12 +1269,12 @@ mod tests {
 
     #[test]
     fn a_hello_from_before_versions_were_agreed_still_reads() {
-        let hello: crate::protocol::ClientMessage =
+        let hello: sikemux_wire::protocol::ClientMessage =
             serde_json::from_str(r#"{"type":"hello","protocol":"sikemux-core","version":9}"#)
                 .expect("reads");
         assert!(matches!(
             hello,
-            crate::protocol::ClientMessage::Hello {
+            sikemux_wire::protocol::ClientMessage::Hello {
                 version: 9,
                 newest: None,
                 ..

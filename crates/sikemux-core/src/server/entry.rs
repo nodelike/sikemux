@@ -7,7 +7,7 @@ use sikemux_process::vars;
 use sikemux_pty::launch::OPTIONAL_PTY_ENV;
 
 use crate::frozen::{UpgradeInfo, UPGRADE_INFO_ARG};
-use crate::protocol::{BuildIdentity, SessionId};
+use sikemux_wire::protocol::{BuildIdentity, SessionId};
 
 use super::handover::{self, Recovery};
 use super::{ServerConfig, ServerError, DEFAULT_IDLE_EXIT, NEVER_IDLE_EXIT};

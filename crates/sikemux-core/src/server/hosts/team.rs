@@ -10,7 +10,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use crate::protocol::AgentStatus;
+use sikemux_wire::protocol::AgentStatus;
 
 use super::super::kept::Kept;
 

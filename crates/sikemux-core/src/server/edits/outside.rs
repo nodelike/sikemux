@@ -16,11 +16,11 @@ use sikemux_process::sync::Locked;
 
 use super::prior::{text_of, Before, Priors, MAX_FILE_BYTES};
 use super::{changed, line_count, owners::run, Edit, Store};
-use crate::protocol::AgentStatus;
 use crate::server::collisions::{Written, GRACE_MS};
 use crate::server::messages::{listed, Listed};
 use crate::server::wake::sooner;
 use crate::server::Core;
+use sikemux_wire::protocol::AgentStatus;
 
 /// Changes this close behind one whose grace has passed are looked at with it.
 const TOGETHER_MS: u64 = 500;

@@ -23,12 +23,12 @@ use crate::agent_catalog::{AgentKind, AGENTS};
 use crate::cli::protocol::is_tool_agent_id;
 use crate::launch::providers::{Helper, Providers, Wiring};
 use crate::launch::{skills, AgentSpec, PermissionMode};
-use crate::protocol::{
+use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRequest};
+use sikemux_view::device::RecentInfo;
+use sikemux_wire::protocol::{
     AgentBuddy, Backdrop, BackdropImage, ChatAccount, ChatInfo, ChatLaunch, ChatState,
     LauncherInfo, PinnedChat, ProjectInfo, SessionInfo, SpaceInfo, Workspace, WorkspaceAgent,
 };
-use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRequest};
-use sikemux_view::device::RecentInfo;
 
 use super::calls::given;
 use super::changed::Topic;

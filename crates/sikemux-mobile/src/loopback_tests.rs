@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use serde_json::json;
-use sikemux_core::client::{probe, CoreClient};
-use sikemux_core::protocol::BuildIdentity;
+use sikemux_client::client::CoreClient;
+use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig};
+use sikemux_wire::protocol::BuildIdentity;
 
 use iroh::endpoint::presets;
 use iroh::Endpoint;

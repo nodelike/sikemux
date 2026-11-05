@@ -19,7 +19,7 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use crate::launch::PermissionMode;
-use crate::protocol::ChatLaunch;
+use sikemux_wire::protocol::ChatLaunch;
 
 use super::super::feed::Reach;
 use super::super::Respond;

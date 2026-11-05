@@ -18,12 +18,12 @@ use std::time::Duration;
 
 use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, RelayMode};
-use sikemux_core::accounts::network;
-use sikemux_core::client::CoreClient;
-use sikemux_core::protocol::{
+use sikemux_client::accounts::network;
+use sikemux_client::client::CoreClient;
+use sikemux_client::remote::{self, SecretKey};
+use sikemux_wire::protocol::{
     BackdropImage, DeviceAccess, LaunchIdentity, SpawnTarget, TerminalSpawn,
 };
-use sikemux_core::remote::{self, SecretKey};
 
 type Failure = Box<dyn std::error::Error>;
 

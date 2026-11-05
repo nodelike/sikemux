@@ -12,8 +12,8 @@ use sikemux_process::sync::Locked;
 
 use super::kept::Kept;
 use super::{CoreError, CoreResult};
-use crate::protocol::{AgentFace, WorkspaceAgent};
 use sikemux_view::device::FaceStyle;
+use sikemux_wire::protocol::{AgentFace, WorkspaceAgent};
 
 const FILE: &str = "face-style.json";
 const EVERY_PACK: &str = "all";

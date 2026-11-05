@@ -9,8 +9,8 @@ use std::time::Duration;
 use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
-use crate::protocol::Event;
 pub(crate) use sikemux_wire::changed::Topic;
+use sikemux_wire::protocol::Event;
 
 use super::Core;
 

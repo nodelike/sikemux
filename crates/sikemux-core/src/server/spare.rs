@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use crate::protocol::{SessionId, SpawnTarget, TerminalSpawn};
+use sikemux_wire::protocol::{SessionId, SpawnTarget, TerminalSpawn};
 use sikemux_wire::pty::launch::{LaunchKind, PtyContext};
 
 use super::layout::At;
