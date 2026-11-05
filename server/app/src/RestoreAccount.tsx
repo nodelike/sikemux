@@ -1,7 +1,8 @@
 import { useAuth } from "@clerk/react";
 import { useCallback, useEffect, useState } from "react";
 
-import { api, formatDay, problemText, signedInToken } from "./api.ts";
+import { formatDay } from "@shared/lib/format";
+import { api, problemText, signedInToken } from "./api.ts";
 
 export type AccountState =
   | { state: "loading" }

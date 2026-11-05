@@ -9,7 +9,11 @@ import {
 import { ChatActivity } from "./ChatActivity";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
-import { copyText } from "@shared/chat/messageMeta";
+import {
+  copyText,
+  EARLIER_LOST,
+  rowTime,
+} from "@shared/chat/messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
 import { formatDetail, shownParts } from "@shared/chat/transcript";
 import type { ChatMessage, ChatRows } from "@shared/chat/types";
@@ -19,9 +23,6 @@ import { WorkSummary } from "./WorkSummary";
    them a slice at a time. Laid out from the bottom, rows added above the view
    never move it. */
 const FIRST_ROWS = 40;
-
-/** Said above a chat whose host no longer keeps its first turns. */
-export const EARLIER_LOST = "Earlier messages are no longer kept.";
 
 /** Where each finished turn that folds starts and ends among the rows, by the index of each row in it. */
 function foldSpans(
@@ -152,11 +153,7 @@ export function ChatTranscript({
                   live={state.running && index === state.messages.length - 1}
                   copyable={copyText(state.messages, index)}
                   rate={meta?.rate ?? null}
-                  at={
-                    message.role === "user"
-                      ? (message.sentAt ?? null)
-                      : (meta?.at ?? null)
-                  }
+                  at={rowTime(message)}
                   took={meta?.took ?? null}
                 />
               </div>

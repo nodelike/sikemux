@@ -3,7 +3,8 @@ import { Animated, Easing, Image, Pressable, StyleSheet, Text, TextInput, View, 
 
 import { durationLabel } from '@shared/chat/durationLabel';
 import { basename } from '@shared/lib/paths';
-import { rateLabel, sentLabel } from '@shared/chat/messageMeta';
+import { EARLIER_LOST, rateLabel, sentLabel } from '@shared/chat/messageMeta';
+import type { Subagents } from '@shared/chat/subagents';
 import { cutLongBlocks, showRestLabel } from '@shared/chat/longText';
 import type { MdElement } from '@shared/markdown/types';
 import { revealBlocks, visibleText } from '@shared/markdown/visible';
@@ -60,27 +61,9 @@ export const ProviderContext = createContext('agent');
 /** The chat's own agent, which an answer to its own question needs no name for. */
 export const AgentContext = createContext('');
 
-/** The chat's subagents: each one's card by its session, for a notice that names one, and the rows it wrote. */
-export type Subagents = { card: (sessionId: string) => SubagentCard | undefined; rows: Readonly<Record<string, ChatMessage[]>> };
-
 export const SubagentsContext = createContext<Subagents>({ card: () => undefined, rows: {} });
 
-/** The cards of the chat's subagents as its rows carry them, looked up only when a notice names one. */
-export function subagentsOf(messages: readonly ChatMessage[], rows: Readonly<Record<string, ChatMessage[]>>): Subagents {
-  const card = (sessionId: string) => {
-    for (const held of [messages, ...Object.values(rows)]) {
-      for (let at = held.length - 1; at >= 0; at -= 1) {
-        for (const part of held[at].parts) if (part.kind === 'subagent' && part.subagent.sessionId === sessionId) return part.subagent;
-      }
-    }
-    return undefined;
-  };
-  return { card, rows };
-}
-
 type PageRef = NonNullable<Extract<ChatPart, { kind: 'tool' }>['page']>;
-
-const EARLIER_LOST = 'Earlier messages are no longer kept.';
 
 /**
  * A message too long to draw at once shows its start and the rest on a tap, unless the person

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { emptyChat } from '@shared/chat/rows';
 import type { AsyncTask, SubagentCard } from '@shared/chat/types';
-import { hasLiveWork, liveKey, liveWork, planEntries } from './liveWork';
+import { hasLiveWork, liveKey, liveWork } from './liveWork';
 
 const subagent = (sessionId: string, name: string): SubagentCard => ({ sessionId, name, task: 'look around', state: 'running', calls: 0 });
 const task = (asyncTaskId: string, name: string, taskType: string): AsyncTask => ({
@@ -15,22 +15,6 @@ const task = (asyncTaskId: string, name: string, taskType: string): AsyncTask =>
 });
 
 describe('live work', () => {
-  it('reads a plan as its named steps', () => {
-    expect(
-      planEntries([
-        { content: ' Read the tests ', priority: 'medium', status: 'completed' },
-        { content: 'Fix the race', priority: 'medium', status: 'in_progress' },
-        { content: '', priority: 'medium', status: 'pending' },
-        { content: 'Commit', priority: 'medium', status: 'unknown' as 'pending' },
-      ]),
-    ).toEqual([
-      { content: 'Read the tests', status: 'completed' },
-      { content: 'Fix the race', status: 'in_progress' },
-      { content: 'Commit', status: 'pending' },
-    ]);
-    expect(planEntries(undefined)).toEqual([]);
-  });
-
   it('counts running subagents, tasks by kind, waiting messages and an unfinished plan', () => {
     const work = liveWork({
       ...emptyChat,

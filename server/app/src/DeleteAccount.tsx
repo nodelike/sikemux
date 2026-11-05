@@ -7,7 +7,8 @@ import {
 } from "@sikemux/protocol/account";
 import { useId, useState, type SubmitEvent } from "react";
 
-import { api, formatDay, problemText, signedInToken } from "./api.ts";
+import { formatDay } from "@shared/lib/format";
+import { api, problemText, signedInToken } from "./api.ts";
 import type { Load } from "./Devices.tsx";
 import { BackIcon } from "./icons.tsx";
 import { useReverified } from "./Reverify.tsx";

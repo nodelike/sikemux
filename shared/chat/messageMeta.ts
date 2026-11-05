@@ -1,5 +1,13 @@
 import type { ChatMessage } from "./types";
 
+/** Said above a chat whose host no longer keeps its first turns. */
+export const EARLIER_LOST = "Earlier messages are no longer kept.";
+
+/** When a row happened: a prompt when it was sent, an answer when its turn finished. */
+export function rowTime(message: ChatMessage): number | null {
+    return (message.role === "user" ? message.sentAt : message.meta?.at) ?? null;
+}
+
 export function rateLabel(rate: number): string {
     return `~${rate < 10 ? rate.toFixed(1) : Math.round(rate)} tok/s`;
 }

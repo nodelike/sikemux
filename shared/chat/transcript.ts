@@ -1,7 +1,7 @@
 import { tokenCount } from "./contextUsage";
 import { toolKind, toolTarget } from "./toolLabels";
 import { callCount } from "./toolView";
-import type { AsyncTask, ChatPart, ChatRows, SubagentCard, WorkflowAgent } from "./types";
+import type { AsyncTask, ChatPart, SubagentCard, WorkflowAgent } from "./types";
 
 const MAX_DETAIL_CHARS = 120_000;
 
@@ -137,10 +137,3 @@ export function groupTasks(tasks: AsyncTask[]): [string, AsyncTask[]][] {
     return [...groups];
 }
 
-/** Every subagent card the chat holds, by its session. */
-export function subagentCards(chat: Pick<ChatRows, "messages" | "subagentRows" | "runningSubagents">): Map<string, SubagentCard> {
-    const cards = new Map(chat.runningSubagents.map((card) => [card.sessionId, card]));
-    for (const rows of [chat.messages, ...Object.values(chat.subagentRows)])
-        for (const message of rows) for (const part of message.parts) if (part.kind === "subagent") cards.set(part.subagent.sessionId, part.subagent);
-    return cards;
-}

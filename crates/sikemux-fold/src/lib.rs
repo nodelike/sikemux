@@ -1126,6 +1126,13 @@ impl Fold {
                         entries
                             .iter()
                             .filter_map(|entry| PlanEntry::deserialize(entry).ok())
+                            .filter_map(|entry| {
+                                let content = entry.content.trim();
+                                (!content.is_empty()).then(|| PlanEntry {
+                                    content: content.to_owned(),
+                                    ..entry.clone()
+                                })
+                            })
                             .collect()
                     });
                 self.set_head("plan");

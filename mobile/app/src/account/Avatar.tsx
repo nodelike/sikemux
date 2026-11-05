@@ -2,14 +2,9 @@ import { useState } from 'react';
 import { Image, PixelRatio, StyleSheet, Text, View } from 'react-native';
 import { useUser } from '@clerk/expo';
 
+import { clerkImageUrl } from '@shared/lib/format';
 import { initials } from '@shared/lib/initials';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
-
-/** Clerk's image host scales the whole picture to fit the size asked for; its crop and cover fits zoom in on a slice of it. */
-function sized(url: string, size: number): string {
-  const pixels = PixelRatio.getPixelSizeForLayoutSize(size);
-  return `${url}${url.includes('?') ? '&' : '?'}width=${pixels}&height=${pixels}&fit=scale-down&quality=100`;
-}
 
 /** The signed-in account's picture, or its initials on a neutral circle when it has none. */
 export function Avatar({ size }: { size: number }) {
@@ -17,7 +12,7 @@ export function Avatar({ size }: { size: number }) {
   const { user } = useUser();
   const [failed, setFailed] = useState<string>();
   const url = user?.hasImage ? user.imageUrl : undefined;
-  const picture = url && url !== failed ? sized(url, size) : undefined;
+  const picture = url && url !== failed ? clerkImageUrl(url, PixelRatio.getPixelSizeForLayoutSize(size)) : undefined;
   const letters = user ? initials(user.fullName, user.primaryEmailAddress?.emailAddress) : '';
   return (
     <View style={[styles.circle, { width: size, height: size, borderRadius: size / 2 }]}>

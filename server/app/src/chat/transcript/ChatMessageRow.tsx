@@ -270,9 +270,7 @@ function PartGroups({
 }
 
 function NoticePart({ notice }: { notice: TaskNotice }) {
-  const subagent = useContext(ChatSubagentsContext).cards.get(
-    notice.subagent ?? "",
-  );
+  const subagent = useContext(ChatSubagentsContext).card(notice.subagent ?? "");
   if (subagent) return <SubagentPart subagent={subagent} />;
   return (
     <div className={`chat-notice state-${notice.state}`} role="status">

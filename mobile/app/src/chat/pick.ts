@@ -4,13 +4,12 @@ import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { Asset } from 'expo-media-library';
 
+import { isDrawnType } from '@shared/lib/imagePaths';
 import type { LibraryPhoto } from './library';
 import type { Attachment } from './uploads';
 
 /** A photo is sent no larger than this on its longest side, which agents read at full detail. */
 const LONGEST_EDGE = 2048;
-/** Pictures the transcript can draw from this phone; others are sent as files. */
-const DRAWN = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 let picks = 0;
 const nextId = () => `pick-${(picks += 1)}`;
@@ -96,7 +95,7 @@ export async function pickFiles(limit: number): Promise<Attachment[]> {
     const mime = asset.mimeType ?? 'application/octet-stream';
     return {
       id: nextId(),
-      kind: DRAWN.has(mime) ? 'image' : 'file',
+      kind: isDrawnType(mime) ? 'image' : 'file',
       name: asset.name,
       mime,
       uri: asset.uri,

@@ -1,3 +1,4 @@
+import { isDrawnType } from '@shared/lib/imagePaths';
 import { Directory, File, Paths, UploadTask, UploadType } from 'expo-file-system';
 import type { StashItem, StashTarget } from '@protocol';
 import { answerProblem, ApiProblem, bearer } from '@protocol/api';
@@ -53,8 +54,6 @@ function readJson(text: string): unknown {
   }
 }
 
-const DRAWN = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
-
 /** Brings a stashed file down to this phone, ready to go with a message like one picked here. */
 export async function fetchStashFile(token: TokenSource, item: StashItem): Promise<Attachment> {
   const folder = new Directory(Paths.cache, 'stash', item.id);
@@ -74,7 +73,7 @@ export async function fetchStashFile(token: TokenSource, item: StashItem): Promi
   const mime = item.mime ?? 'application/octet-stream';
   return {
     id: `stash-${item.id}`,
-    kind: DRAWN.has(mime) ? 'image' : 'file',
+    kind: isDrawnType(mime) ? 'image' : 'file',
     name,
     mime,
     uri: destination.uri,

@@ -1,6 +1,7 @@
 import type { ShareClientMessage, ShareServerMessage } from "../../server/protocol/generated/types";
 import { ShareCloseCode } from "../../server/protocol/generated/types";
 import { setAgentCatalog } from "../agents/catalog";
+import { imageType } from "../lib/imagePaths";
 import { applyChanges, emptyChat, fromView, withPage } from "../chat/rows";
 import type { ChatChange, ChatRows, ToolDetail } from "../chat/types";
 import type { ShareAsk, SharedChat, ShareFrame, ShareReply } from "../wire.generated";
@@ -64,15 +65,6 @@ const BACKOFF_CAP_MS = 60_000;
 const ANSWER_WAIT_MS = 30_000;
 /** A fresh token goes out this long before the last one expires. */
 const AUTH_AHEAD_MS = 15_000;
-const IMAGE_TYPES: Record<string, string> = {
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    heic: "image/heic",
-    svg: "image/svg+xml",
-};
 
 /** When a sign-in token expires, in milliseconds since the epoch, or 0 when it cannot be read. */
 function expiresAt(token: string): number {
@@ -180,7 +172,7 @@ export class ShareSession {
     readImage = (path: string): Promise<string | null> => {
         const held = this.images.get(path);
         if (held) return held;
-        const type = IMAGE_TYPES[path.split(".").pop()?.toLowerCase() ?? ""];
+        const type = imageType(path);
         const read = type
             ? this.ask({ type: "file", path }).then((answer) => (answer?.file ? `data:${type};base64,${answer.file.data}` : null))
             : Promise.resolve(null);

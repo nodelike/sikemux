@@ -1,21 +1,11 @@
 import type { ChatRows } from '@shared/chat/rows';
-import type { PlanEntry as AgentPlanEntry } from '@shared/wire.generated';
+import type { PlanEntry } from '@shared/wire.generated';
 import { groupTasks, subagentActivity, taskDetail, workflowAgentDetail } from '@shared/chat/transcript';
 import type { AsyncTask, SubagentCard } from '@shared/chat/types';
 import { counted } from '@/devices/words';
 import type { Held } from './outbox';
 
-export type PlanEntry = { content: string; status: 'pending' | 'in_progress' | 'completed' };
-
-/** The checklist an agent keeps for its turn, as the steps it names. */
-export function planEntries(plan: readonly AgentPlanEntry[] | undefined): PlanEntry[] {
-  return (plan ?? []).flatMap((entry): PlanEntry[] => {
-    const content = entry.content.trim();
-    if (!content) return [];
-    const status = entry.status === 'completed' || entry.status === 'in_progress' ? entry.status : 'pending';
-    return [{ content, status }];
-  });
-}
+export type { PlanEntry };
 
 /** What the agent still has going besides the turn, and what waits to be sent. */
 export type LiveWork = {
@@ -28,7 +18,7 @@ export type LiveWork = {
 };
 
 export function liveWork(chat: Pick<ChatRows, 'plan' | 'runningSubagents' | 'tasks' | 'queued'>): LiveWork {
-  const plan = planEntries(chat.plan);
+  const plan = chat.plan ?? [];
   return {
     subagents: chat.runningSubagents,
     tasks: groupTasks(chat.tasks),

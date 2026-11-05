@@ -1,4 +1,5 @@
 import { useAuth } from "@clerk/react";
+import { shareUrl } from "@sikemux/protocol/live";
 import { lazy, Suspense, useEffect, useMemo } from "react";
 import { webCipher } from "@shared/share/cipher";
 import { parseShareLink, type ShareLink } from "@shared/share/link";
@@ -10,9 +11,6 @@ import "../chat/styles.css";
 import { config } from "../config.ts";
 
 const ShareSignIn = lazy(() => import("./ShareSignIn.tsx"));
-
-/** The share socket of the API this page talks to. */
-const SOCKET = `${config.apiUrl.replace(/^http/, "ws")}/v1/share`;
 
 /**
  * A chat someone shared, at `/s/<id>#<key>`: the app's chat view, read-only, for anyone
@@ -54,7 +52,7 @@ function Watching({ link }: { link: ShareLink }) {
     () =>
       new ShareSession({
         link,
-        url: SOCKET,
+        url: shareUrl(config.apiUrl),
         cipher: webCipher(link),
         token: (fresh) => getToken(fresh ? { skipCache: true } : undefined),
       }),

@@ -8,8 +8,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { agentLabel } from '@shared/agents/catalog';
 import { activityText } from '@shared/chat/chatStatus';
+import { subagentsOf } from '@shared/chat/subagents';
 import { activeToolLabel } from '@shared/chat/toolLabels';
 import type { ChatMessage } from '@shared/chat/types';
+import { shareUrl } from '@protocol/live';
 import { parseShareLink, type ShareLink } from '@shared/share/link';
 import { sharedChatTitle, ShareSession, type ShareSnapshot } from '@shared/share/session';
 import { apiUrl } from '@/account/config';
@@ -17,7 +19,7 @@ import { Folds, FoldsContext, rowFold, shownRows } from '@/chat/folds';
 import { SharedFilesContext } from '@/chat/hostFiles';
 import { ToolDetailContext } from '@/chat/Tools';
 import { useTranscriptScroll } from '@/chat/transcriptScroll';
-import { Activity, Earlier, EarlierLost, Message, ProviderContext, SubagentsContext, subagentsOf, WorkSummary } from '@/chat/Transcript';
+import { Activity, Earlier, EarlierLost, Message, ProviderContext, SubagentsContext, WorkSummary } from '@/chat/Transcript';
 import { phoneCipher } from '@/share/cipher';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { useMinute } from '@/ui/motion';
@@ -93,7 +95,7 @@ function Watching({ link }: { link: ShareLink }) {
     () =>
       new ShareSession({
         link,
-        url: `${apiUrl().replace(/^http/, 'ws')}/v1/share`,
+        url: shareUrl(apiUrl()),
         cipher: phoneCipher(link),
         token: signInToken,
       }),

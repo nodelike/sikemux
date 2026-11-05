@@ -8,20 +8,8 @@ import { LockCover } from '@/lock/LockScreen';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, radius, useColors, useStyles } from '@/ui/theme';
+import { imageType } from '@shared/lib/imagePaths';
 import { useHostFile } from './hostFiles';
-
-const MIME: Record<string, string> = {
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  gif: 'image/gif',
-  webp: 'image/webp',
-  heic: 'image/heic',
-  heif: 'image/heif',
-  bmp: 'image/bmp',
-  tif: 'image/tiff',
-  tiff: 'image/tiff',
-};
 
 /** A picture a call returned is held as text; the share sheet and the folder picker both want a file. */
 function onDisk(uri: string, name: string): string {
@@ -40,8 +28,7 @@ async function save(shown: string, name: string): Promise<boolean> {
     return result.action === Share.sharedAction;
   }
   const folder = await Directory.pickDirectoryAsync();
-  const extension = name.slice(name.lastIndexOf('.') + 1).toLowerCase();
-  const copy = folder.createFile(name, MIME[extension] ?? 'application/octet-stream');
+  const copy = folder.createFile(name, imageType(name) ?? 'application/octet-stream');
   copy.write(await new File(uri).bytes());
   return true;
 }

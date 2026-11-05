@@ -40,7 +40,6 @@ import {
   ProviderContext,
   Queued,
   SubagentsContext,
-  subagentsOf,
   WorkSummary,
 } from '@/chat/Transcript';
 import { useChat } from '@/chat/useChat';
@@ -49,6 +48,7 @@ import { retry as reconnect, useDevices, useLive, type Live } from '@/devices/hu
 import { dismissCardsFor } from '@/notify/cards';
 import { deviceName } from '@/devices/paired';
 import { agentLabel } from '@shared/agents/catalog';
+import { subagentsOf } from '@shared/chat/subagents';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { Button } from '@/ui/controls';

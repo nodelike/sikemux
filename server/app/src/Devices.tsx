@@ -9,7 +9,8 @@ import {
   type KeyboardEvent,
 } from "react";
 
-import { api, formatDay, problemText, signedInToken } from "./api.ts";
+import { formatDay } from "@shared/lib/format";
+import { api, problemText, signedInToken } from "./api.ts";
 import { LaptopIcon, PhoneIcon } from "./icons.tsx";
 
 export type Load =

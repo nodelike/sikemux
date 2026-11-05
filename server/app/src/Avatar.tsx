@@ -1,3 +1,4 @@
+import { clerkImageUrl } from "@shared/lib/format";
 import { useUser } from "@clerk/react";
 import { initials } from "@shared/lib/initials";
 import { useState } from "react";
@@ -18,7 +19,7 @@ export function Avatar({ size = 26 }: { size?: number }) {
     >
       {picture && picture !== failed ? (
         <img
-          src={`${picture}${picture.includes("?") ? "&" : "?"}width=${size * 2}&height=${size * 2}&fit=scale-down&quality=100`}
+          src={clerkImageUrl(picture, size * 2)}
           alt=""
           width={size}
           height={size}

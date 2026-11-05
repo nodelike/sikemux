@@ -41,6 +41,16 @@ export function formatTimeLeft(until: number, now: number): string {
 const BYTE_UNITS = ["KB", "MB", "GB", "TB"];
 
 /** A size: `512 B`, `2.0 KB`, `15 MB`. */
+/** A day the way the apps write one, like 12 November 2026. */
+export function formatDay(iso: string, month: "short" | "long" = "long"): string {
+    return new Date(iso).toLocaleDateString(undefined, { day: "numeric", month, year: "numeric" });
+}
+
+/** Clerk's image host scales the whole picture to fit the size asked for; its crop and cover fits zoom in on a slice of it. */
+export function clerkImageUrl(url: string, pixels: number): string {
+    return `${url}${url.includes("?") ? "&" : "?"}width=${pixels}&height=${pixels}&fit=scale-down&quality=100`;
+}
+
 export function formatBytes(bytes: number): string {
     if (Math.abs(bytes) < 1024) return `${bytes} B`;
     let value = bytes / 1024;

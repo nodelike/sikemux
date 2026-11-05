@@ -36,6 +36,9 @@ export function toolElapsed(part: ToolPart, timed = true): string | null {
     return timed && part.startedAt !== undefined && part.endedAt !== undefined ? durationLabel(part.endedAt - part.startedAt) : null;
 }
 
+/** Lines of a call's output shown before "Show all". */
+export const OUTPUT_FOLD_LINES = 12;
+
 export const callsLabel = (count: number): string => `${count} tool ${count === 1 ? "call" : "calls"}`;
 
 export const callCount = (count: number): string => `${count} ${count === 1 ? "call" : "calls"}`;

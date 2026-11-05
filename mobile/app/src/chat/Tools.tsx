@@ -7,6 +7,7 @@ import { attachmentName } from '@shared/chat/transcript';
 import {
   callCount,
   callsLabel,
+  OUTPUT_FOLD_LINES,
   secondsSince,
   toolElapsed,
   toolGroupSummary,
@@ -58,8 +59,6 @@ function useToolDetail(part: ToolPart): Fetched {
   return read ? fetched : { detail: null, problem: 'the host is not here to send it' };
 }
 
-/** Lines of output shown before "Show all", as on the Mac. */
-const OUTPUT_FOLD_LINES = 12;
 /** JetBrains Mono's advance at the rows' 11.5px, for lining the verbs up in one column. */
 const KIND_CHAR = 6.9;
 

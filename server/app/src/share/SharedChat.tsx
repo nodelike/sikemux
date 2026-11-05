@@ -23,7 +23,7 @@ import LiveStack from "../chat/transcript/LiveStack";
 import { newFoldMemory } from "@shared/chat/longText";
 import { RemoteOriginContext } from "../chat/transcript/origin";
 import { activeToolLabel } from "@shared/chat/toolLabels";
-import { subagentCards } from "@shared/chat/transcript";
+import { subagentsOf } from "@shared/chat/subagents";
 import { useMessageArrival } from "../chat/transcript/useMessageArrival";
 import { useStickToBottom } from "../chat/transcript/useStickToBottom";
 import { AgentIcon, IconArrowDown, IconEye, IconPlug } from "@shared/ui/Icons";
@@ -104,13 +104,9 @@ export function SharedChat({
   const activeTool = useMemo(() => activeToolLabel(state), [state]);
   const activity =
     snapshot.status === "live" ? activityText(state, activeTool) : null;
-  const { messages, subagentRows, runningSubagents } = state;
   const subagents = useMemo(
-    () => ({
-      cards: subagentCards({ messages, subagentRows, runningSubagents }),
-      rows: subagentRows,
-    }),
-    [messages, subagentRows, runningSubagents],
+    () => subagentsOf(state.messages, state.subagentRows),
+    [state.messages, state.subagentRows],
   );
   const problem =
     snapshot.status === "ended"

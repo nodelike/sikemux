@@ -64,6 +64,11 @@ export function liveUrl(api: string): string {
   return `${api.replace(/^http/, "ws")}/v1/live`;
 }
 
+/** Where a shared chat's viewers connect, from the same API. */
+export function shareUrl(api: string): string {
+  return `${api.replace(/^http/, "ws")}/v1/share`;
+}
+
 /** When a Clerk session token stops being accepted, in milliseconds since 1970. */
 function tokenExpiry(token: string): number {
   const payload = (token.split(".")[1] ?? "")

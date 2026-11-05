@@ -22,15 +22,6 @@ export function problemText(error: unknown): string {
   return error instanceof Error ? error.message : TRY_AGAIN;
 }
 
-/** A day the way the app writes one, like 12 November 2026. */
-export function formatDay(iso: string, month: "short" | "long" = "long") {
-  return new Date(iso).toLocaleDateString(undefined, {
-    day: "numeric",
-    month,
-    year: "numeric",
-  });
-}
-
 /** The API's routes, signed in with `token`. */
 export const api = (token: string) =>
   connectApi({

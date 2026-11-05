@@ -1,14 +1,14 @@
 import { createContext } from "react";
 import type { AgentType } from "@shared/agents/catalog";
-import type { ChatMessage, SubagentCard, ToolDetail } from "@shared/chat/types";
+import type { Subagents } from "@shared/chat/subagents";
+import type { ToolDetail } from "@shared/chat/types";
 
 export const ChatAgentContext = createContext<AgentType>("agent");
 
-/** Every subagent card the chat holds, and each subagent's own rows, by its session. */
-export const ChatSubagentsContext = createContext<{
-  cards: ReadonlyMap<string, SubagentCard>;
-  rows: Readonly<Record<string, ChatMessage[]>>;
-}>({ cards: new Map(), rows: {} });
+export const ChatSubagentsContext = createContext<Subagents>({
+  card: () => undefined,
+  rows: {},
+});
 
 /** Fetches what a tool call did, line by line, for a row opened to show it. */
 export const ToolDetailContext = createContext<

@@ -1,3 +1,4 @@
+import { formatDay } from '@shared/lib/format';
 import { useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { useAuth } from '@clerk/expo';
@@ -16,7 +17,7 @@ export function RestoreAccount({ deletesAt }: { deletesAt: string }) {
   const { getToken, signOut } = useAuth();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
-  const day = new Date(deletesAt).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+  const day = formatDay(deletesAt);
 
   const restore = async () => {
     setBusy(true);

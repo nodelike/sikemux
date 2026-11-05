@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
 import type { PendingHost } from '@protocol';
 
-import { formatAgo } from '@shared/lib/format';
+import { formatAgo, formatDay } from '@shared/lib/format';
 import { platformName } from '@shared/remote/access';
 import { problem as problemOf } from '@/core/problem';
 import { api } from '@/account/api';
@@ -23,10 +23,6 @@ type Step = { kind: 'enter' } | { kind: 'check'; code: string; host: PendingHost
 function asked(at: string): string {
   const ago = formatAgo(at);
   return `Asked ${ago === 'now' ? 'just now' : ago}`;
-}
-
-function removedOn(at: string): string {
-  return new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 /**
@@ -110,7 +106,7 @@ export default function HostSignIn() {
             </Rows>
             {host.removedAt ? (
               <Text style={styles.warning}>
-                This host was removed from your account on {removedOn(host.removedAt)}. Add it back only if you are setting it up again
+                This host was removed from your account on {formatDay(host.removedAt)}. Add it back only if you are setting it up again
                 yourself.
               </Text>
             ) : null}

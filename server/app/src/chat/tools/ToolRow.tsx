@@ -85,6 +85,7 @@ import {
   toolUrl,
 } from "@shared/chat/toolLabels";
 import {
+  OUTPUT_FOLD_LINES,
   toolElapsed,
   toolIconName,
   toolRowKind,
@@ -186,7 +187,6 @@ function ToolTarget({ text }: { text: string }) {
   );
 }
 
-const OUTPUT_FOLD_LINES = 12;
 
 /* A command and what it printed, the way a terminal would have shown them. */
 function ToolTerminal({

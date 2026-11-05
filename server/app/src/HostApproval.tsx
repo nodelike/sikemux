@@ -4,7 +4,8 @@ import type { PendingHost } from "@sikemux/protocol";
 import { errorCode, orReverify } from "@sikemux/protocol/account";
 import { useState, type SubmitEvent } from "react";
 
-import { api, formatDay, problemText, signedInToken } from "./api.ts";
+import { formatDay } from "@shared/lib/format";
+import { api, problemText, signedInToken } from "./api.ts";
 import { Panel } from "./Consent.tsx";
 import { useReverified } from "./Reverify.tsx";
 
