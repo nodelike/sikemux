@@ -49,15 +49,8 @@ pub struct AwsProfile {
 fn aws_file(variable: &str, default: &str) -> Option<PathBuf> {
     let home = std::env::var("HOME").ok();
     match process::user_environment::var(variable).filter(|path| !path.is_empty()) {
-        Some(path) => Some(expand_home(&path, home.as_deref())),
+        Some(path) => Some(process::files::expand_home(&path, home.as_deref())),
         None => Some(PathBuf::from(home?).join(".aws").join(default)),
-    }
-}
-
-fn expand_home(path: &str, home: Option<&str>) -> PathBuf {
-    match (path.strip_prefix("~/"), home) {
-        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
-        _ => PathBuf::from(path),
     }
 }
 
@@ -413,6 +406,7 @@ mod tests {
 
     #[test]
     fn a_path_from_the_shell_may_start_at_home() {
+        use sikemux_plugin_api::process::files::expand_home;
         assert_eq!(
             expand_home("~/work/aws-config", Some("/Users/me")),
             PathBuf::from("/Users/me/work/aws-config")

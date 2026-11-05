@@ -78,3 +78,11 @@ fn staging_path(parent: &Path, path: &Path) -> PathBuf {
         NEXT.fetch_add(1, Ordering::Relaxed)
     ))
 }
+
+/// `~/data/app.db` is the person's own home folder, as it would be in a terminal.
+pub fn expand_home(path: &str, home: Option<&str>) -> std::path::PathBuf {
+    match (path.strip_prefix("~/"), home) {
+        (Some(rest), Some(home)) => std::path::PathBuf::from(home).join(rest),
+        _ => std::path::PathBuf::from(path),
+    }
+}

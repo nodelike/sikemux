@@ -21,6 +21,7 @@ use sikemux_plugin_api::codehost::{
 };
 use sikemux_plugin_api::http::Read;
 use sikemux_plugin_api::process::sync::Locked;
+use sikemux_plugin_api::terminal::plain;
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};
@@ -410,22 +411,7 @@ pub fn readable(line: &str) -> String {
         .rsplit('\r')
         .find(|part| !part.trim().is_empty())
         .unwrap_or_default();
-    let mut out = String::with_capacity(shown.len());
-    let mut chars = shown.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                for next in chars.by_ref() {
-                    if next.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-            continue;
-        }
-        out.push(c);
-    }
+    let out = plain(shown);
     let before = out.split("section_start:").next().unwrap_or_default();
     before
         .split("section_end:")

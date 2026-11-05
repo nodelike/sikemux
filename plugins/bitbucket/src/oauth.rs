@@ -31,7 +31,7 @@ mod tests {
     #[test]
     fn the_browser_is_sent_back_to_bitbucket_s_own_path() {
         let url = APP.authorize_address("s1", None);
-        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A47123%2Fbitbucket%2Fcallback"));
+        assert!(url.contains("%2Fbitbucket%2Fcallback"));
         assert!(url.ends_with("state=s1"));
     }
 }

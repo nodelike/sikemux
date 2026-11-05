@@ -45,13 +45,7 @@ fn manifest_hash() -> String {
 fn published_helper() -> Option<&'static PinnedFile> {
     static HELPER: OnceLock<Option<PinnedFile>> = OnceLock::new();
     HELPER
-        .get_or_init(|| {
-            PinnedFile::recorded(
-                option_env!("SIKEMUX_HELPER_ASSET"),
-                option_env!("SIKEMUX_HELPER_SIZE"),
-                option_env!("SIKEMUX_HELPER_SHA256"),
-            )
-        })
+        .get_or_init(|| sikemux_base::recorded_helper!())
         .as_ref()
 }
 

@@ -68,7 +68,7 @@ pub fn execute(manager: &SimulatorManager, request: &HarnessRequest) -> Result<V
         .as_deref()
         .ok_or("simulator tools need the agent's id")?;
     if request.method == SIM_OFFERED_METHOD {
-        let offered = super::offered();
+        let offered = manager.offered();
         manager.note_offered(agent_id, offered);
         return Ok(json!({ "offered": offered }));
     }
@@ -76,7 +76,7 @@ pub fn execute(manager: &SimulatorManager, request: &HarnessRequest) -> Result<V
         manager.cancel(agent_id);
         return Ok(json!({}));
     }
-    if let Some(reason) = refusal(super::enabled(), super::unsupported_reason()) {
+    if let Some(reason) = refusal(manager.enabled(), super::unsupported_reason()) {
         return Err(reason);
     }
     let acting = drives(&request.method);
@@ -353,10 +353,10 @@ pub fn inspect(manager: &SimulatorManager, agent_id: Option<&str>) -> Value {
     let attached = agent_id.and_then(|agent_id| manager.attached(agent_id));
     let available = agent_id
         .and_then(|agent_id| manager.offered_to(agent_id))
-        .unwrap_or_else(super::offered);
+        .unwrap_or_else(|| manager.offered());
     let reason = (!available).then(|| {
         super::unsupported_reason().unwrap_or_else(|| {
-            if super::enabled() {
+            if manager.enabled() {
                 "This agent started before the iOS Simulator tools were turned on; start a new one to use them.".into()
             } else {
                 TURNED_OFF.into()

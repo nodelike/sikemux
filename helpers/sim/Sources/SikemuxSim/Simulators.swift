@@ -528,7 +528,7 @@ actor Simulators {
             return simulator
         }
         guard let simulator = simulators.first(where: { $0.state == .booted }) else {
-            throw Failure(reason: "notBooted", message: "No simulator is running. Boot one first.")
+            throw Failure(reason: "notBooted", message: "No simulator is running.")
         }
         return simulator
     }
@@ -538,7 +538,7 @@ actor Simulators {
         let simulator = try find(udid)
         guard simulator.state == .booted else {
             forget(simulator.udid)
-            throw Failure(reason: "notBooted", message: "\(simulator.name) is not running. Boot it first.")
+            throw Failure(reason: "notBooted", message: "\(simulator.name) is not running.")
         }
         known[simulator.udid] = simulator
         return simulator

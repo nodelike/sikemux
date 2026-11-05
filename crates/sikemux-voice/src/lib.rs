@@ -308,14 +308,7 @@ impl Voice {
 
 /// A helper built alongside the app, as `make dev` does, rather than downloaded.
 fn local_helper() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("SIKEMUX_VOICE_EXECUTABLE") {
-        return Some(PathBuf::from(path));
-    }
-    let beside = std::env::current_exe()
-        .ok()?
-        .parent()?
-        .join("sikemux-voice");
-    beside.is_file().then_some(beside)
+    sikemux_base::download::local_helper("SIKEMUX_VOICE_EXECUTABLE", "sikemux-voice")
 }
 
 fn helper_executable(models_dir: &Path) -> Option<PathBuf> {

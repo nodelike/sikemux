@@ -21,12 +21,9 @@ pub struct Session {
     alive: Arc<AtomicBool>,
 }
 
-/// `~/data/app.db` is the person's own home folder, as it would be in a terminal.
 fn expand(path: &str) -> PathBuf {
-    match (path.strip_prefix("~/"), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) => PathBuf::from(home).join(rest),
-        _ => PathBuf::from(path),
-    }
+    let home = std::env::var("HOME").ok();
+    sikemux_plugin_api::process::files::expand_home(path, home.as_deref())
 }
 
 impl Session {

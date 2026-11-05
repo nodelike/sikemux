@@ -7,6 +7,8 @@ use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use sikemux_plugin_api::terminal::plain;
+
 use crate::client::{at, number, some_text, text, Session};
 use crate::error::{VercelError, VercelResult};
 use crate::projects::segment;
@@ -205,31 +207,6 @@ fn uid(raw: &Value) -> VercelResult<String> {
 pub async fn detail(data_dir: &Path, input: DeploymentRef) -> VercelResult<Deployment> {
     let session = Session::of(data_dir, input.team.as_deref()).await?;
     Ok(deployment(&read(&session, &input.id).await?))
-}
-
-/// Drops the colour codes and other control characters a build prints, which mean nothing outside a terminal.
-pub fn plain(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut chars = line.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            if chars.next_if_eq(&'[').is_some() {
-                for c in chars.by_ref() {
-                    if c.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            } else {
-                chars.next();
-            }
-            continue;
-        }
-        if c.is_control() && c != '\t' {
-            continue;
-        }
-        out.push(c);
-    }
-    out
 }
 
 /// The lines of a build's events, each with when it was printed and whether it went to stderr.

@@ -7,6 +7,7 @@ pub mod codehost;
 mod error;
 pub mod http;
 pub mod images;
+pub mod json;
 mod manifest;
 pub mod network;
 pub mod oauth;
@@ -15,6 +16,7 @@ pub mod ratelimit;
 pub mod service;
 pub mod signin;
 pub mod store;
+pub mod terminal;
 
 use std::collections::BTreeMap;
 use std::future::Future;

@@ -299,7 +299,7 @@ pub fn welcome(
         bench.parts.activity.clone(),
         cx,
     )
-    .max_w(px(756.))
+    .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
     .mx(px(22.))
 }
 

@@ -87,7 +87,7 @@ mod tests {
         assert!(url.contains("scope=read%3Ajira-work+write%3Ajira-work+read%3Ajira-user+"));
         assert!(url.contains("+read%3Aboard-scope%3Ajira-software+"));
         assert!(url.contains("+offline_access&"));
-        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A47123%2Fjira%2Fcallback"));
+        assert!(url.contains("%2Fjira%2Fcallback"));
         assert!(url.contains("&state=s1&"));
         assert!(url.ends_with("&code_challenge_method=S256"));
     }

@@ -15,10 +15,7 @@ use crate::oauth;
 
 const API: &str = "https://api.linear.app/graphql";
 
-/// The value at `path` in `value`, or null when there is none.
-pub fn at<'a>(value: &'a Value, path: &str) -> &'a Value {
-    value.pointer(path).unwrap_or(&Value::Null)
-}
+pub use sikemux_plugin_api::json::at;
 
 pub static HTTP: Http<Linear> = Http::new(Redirects::Follow, 8);
 static KEYS: Held<String> = Held::secrets();

@@ -4,6 +4,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use sikemux_plugin_api::terminal::plain;
+
 use crate::common::{aws_json, cli_value, Target};
 use crate::error::{AwsError, AwsResult};
 
@@ -75,26 +77,6 @@ fn utc_text(millis: i64) -> String {
                 .ok()
         })
         .unwrap_or_else(|| millis.to_string())
-}
-
-/// Drops terminal colour codes, which loggers often write into CloudWatch.
-fn plain(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars();
-    while let Some(c) = chars.next() {
-        if c == '\u{1b}' {
-            if chars.next() == Some('[') {
-                for code in chars.by_ref() {
-                    if code.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }
 
 fn trimmed(raw: RawEvent) -> LogEvent {

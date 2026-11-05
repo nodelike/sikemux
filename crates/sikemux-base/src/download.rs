@@ -42,6 +42,27 @@ impl From<std::io::Error> for DownloadError {
     }
 }
 
+/// A helper built alongside the app rather than downloaded: named by `variable`, or beside the app.
+pub fn local_helper(variable: &str, name: &str) -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os(variable) {
+        return Some(PathBuf::from(path));
+    }
+    let beside = std::env::current_exe().ok()?.parent()?.join(name);
+    beside.is_file().then_some(beside)
+}
+
+/// The helper this crate's build script recorded, when there was one to record.
+#[macro_export]
+macro_rules! recorded_helper {
+    () => {
+        $crate::download::PinnedFile::recorded(
+            option_env!("SIKEMUX_HELPER_ASSET"),
+            option_env!("SIKEMUX_HELPER_SIZE"),
+            option_env!("SIKEMUX_HELPER_SHA256"),
+        )
+    };
+}
+
 /// A file as the build recorded it: where it is published, its size and its SHA-256.
 #[derive(Clone, Debug, Deserialize)]
 pub struct PinnedFile {

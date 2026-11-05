@@ -303,6 +303,9 @@ fn parse_reply(line: &str) -> Option<(u64, Reply)> {
                 .unwrap_or("the simulator failed");
             let message = match fields.get("reason").and_then(Value::as_str) {
                 Some(reason @ "streamUnavailable") => format!("{message} ({reason})"),
+                Some("notBooted") => {
+                    format!("{message} Call sim_attach to start it, or ask the person.")
+                }
                 _ => message.to_owned(),
             };
             Some((id, Err(message)))
@@ -313,20 +316,12 @@ fn parse_reply(line: &str) -> Option<(u64, Reply)> {
 
 /// A helper built alongside the app, as `make dev` does.
 pub fn local_helper() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("SIKEMUX_SIM_EXECUTABLE") {
-        return Some(PathBuf::from(path));
-    }
-    let beside = std::env::current_exe().ok()?.parent()?.join("sikemux-sim");
-    beside.is_file().then_some(beside)
+    download::local_helper("SIKEMUX_SIM_EXECUTABLE", "sikemux-sim")
 }
 
 /// The helper published beside this release, which the app downloads the first time it is needed.
 pub fn published_helper() -> Option<PinnedFile> {
-    PinnedFile::recorded(
-        option_env!("SIKEMUX_HELPER_ASSET"),
-        option_env!("SIKEMUX_HELPER_SIZE"),
-        option_env!("SIKEMUX_HELPER_SHA256"),
-    )
+    sikemux_base::recorded_helper!()
 }
 
 fn downloaded_helper(host: &dyn Host) -> SimResult<PathBuf> {
@@ -558,11 +553,14 @@ mod tests {
 
     #[test]
     fn an_error_carries_the_helpers_message() {
-        let (id, reply) = parse_reply(r#"{"id":3,"type":"error","reason":"notBooted","message":"iPhone 17 is not running. Boot it first."}"#).unwrap();
+        let (id, reply) = parse_reply(
+            r#"{"id":3,"type":"error","reason":"notBooted","message":"iPhone 17 is not running."}"#,
+        )
+        .unwrap();
         assert_eq!(id, 3);
         assert_eq!(
             reply.unwrap_err().to_string(),
-            "iPhone 17 is not running. Boot it first."
+            "iPhone 17 is not running. Call sim_attach to start it, or ask the person."
         );
     }
 

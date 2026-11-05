@@ -40,8 +40,6 @@ const MAX_UPLOAD_FILES: usize = 20;
 const DRAG_STEPS: u32 = 12;
 const DRAG_STEP_DELAY: Duration = Duration::from_millis(16);
 const NARROW_VIEWPORT: u64 = 700;
-/// The width of a chat's reply column, where `page_show` puts a page.
-const PAGE_WIDTH: u64 = 756;
 const PAGE_VIEWPORT_HEIGHT: u64 = 600;
 const PAGE_SCRIPT_LIMIT: Duration = Duration::from_secs(20);
 
@@ -748,7 +746,7 @@ async fn run(
             let width = params
                 .get("width")
                 .and_then(Value::as_u64)
-                .unwrap_or(PAGE_WIDTH);
+                .unwrap_or(crate::REPLY_COLUMN_WIDTH as u64);
             let html = tokio::task::spawn_blocking(move || sikemux_base::pages::build(&source))
                 .await
                 .map_err(|error| error.to_string())??;

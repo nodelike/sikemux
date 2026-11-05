@@ -90,7 +90,7 @@ pub(super) fn permission(
     column().child(
         div()
             .w_full()
-            .max_w(px(756.))
+            .max_w(px(sikemux_browser::REPLY_COLUMN_WIDTH))
             .mt(SPACE_3)
             .mb(SPACE_3)
             .p(SPACE_3)

@@ -247,7 +247,7 @@ impl Simulators {
 
     /// Whether agents started from now on get the `sim_*` tools.
     pub fn offer_to_agents(&self, offered: bool) {
-        sikemux_simulator::set_enabled(offered);
+        self.engine.set_enabled(offered);
     }
 
     fn hear(&mut self, heard: Heard, cx: &mut Context<Self>) {

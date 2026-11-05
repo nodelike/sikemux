@@ -50,6 +50,8 @@ pub use tab::{Opener, ParentView, Tab, TabSpec};
 pub(crate) use sikemux_base::runtime::spawn;
 
 pub const BLANK_URL: &str = "about:blank";
+/// The width of a chat's reply column, which a page shown in a reply is laid out for.
+pub const REPLY_COLUMN_WIDTH: f32 = 756.0;
 /// Past this many dialogs in `DIALOG_WINDOW`, a page's dialogs are answered
 /// with Cancel unseen, the way browsers offer to stop a page's dialogs.
 pub(crate) const DIALOG_LIMIT: usize = 3;

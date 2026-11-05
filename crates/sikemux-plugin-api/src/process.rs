@@ -12,7 +12,7 @@ pub mod clock {
 }
 
 pub mod files {
-    pub use sikemux_process::files::write_atomic;
+    pub use sikemux_process::files::{expand_home, write_atomic};
 }
 
 pub mod sync {

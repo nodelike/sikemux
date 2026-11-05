@@ -125,6 +125,7 @@ pub struct SimulatorManager {
     /// The helper tests run in place of the app's own, which is downloaded if it must be.
     helper: Option<PathBuf>,
     claims: Claims,
+    enabled: AtomicBool,
     shared: Mutex<Shared>,
     /// One call at a time per agent.
     turns: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -175,14 +176,6 @@ pub(crate) async fn pause(duration: Duration) -> Result<(), String> {
     checkpoint()
 }
 
-/// The helper says "Boot it first", but agents start a device with `sim_attach`.
-fn for_agents(message: String) -> String {
-    message.replace(
-        "Boot it first.",
-        "Call sim_attach to start it, or ask the person.",
-    )
-}
-
 impl SimulatorManager {
     pub fn new(host: Arc<dyn Host>) -> Arc<Self> {
         Self::made(host, None, Claims::shared())
@@ -204,6 +197,7 @@ impl SimulatorManager {
             host,
             helper,
             claims,
+            enabled: AtomicBool::new(true),
             shared: Mutex::default(),
             turns: Mutex::default(),
             cancels: Mutex::default(),
@@ -218,6 +212,21 @@ impl SimulatorManager {
 
     pub fn host(&self) -> &Arc<dyn Host> {
         &self.host
+    }
+
+    /// The person turned the simulator tools on or off in Settings; the app says so as it starts too.
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Relaxed);
+    }
+
+    pub(crate) fn enabled(&self) -> bool {
+        self.enabled.load(Ordering::Relaxed)
+    }
+
+    /// Whether agents are offered the `sim_*` tools: the person has not turned them
+    /// off, and this Mac can run simulators.
+    pub(crate) fn offered(&self) -> bool {
+        self.enabled() && capable()
     }
 
     pub(crate) fn emit(&self, event: &str, payload: Value) {
@@ -255,7 +264,7 @@ impl SimulatorManager {
         let limit = remaining().map_or(limit, |left| limit.min(left));
         let answer = self.sim.call_within(executable, request, limit).await;
         checkpoint()?;
-        answer.map_err(|error| for_agents(error.to_string()))
+        answer.map_err(|error| error.to_string())
     }
 
     /// Runs one of an agent's calls once its earlier ones are done, within the call's deadline.
@@ -666,23 +675,6 @@ impl SimulatorManager {
                 .insert(process.map(str::to_owned), generation);
         }
     }
-}
-
-static ENABLED: AtomicBool = AtomicBool::new(true);
-
-/// The person turned the simulator tools on or off in Settings; the app says so as it starts too.
-pub fn set_enabled(enabled: bool) {
-    ENABLED.store(enabled, Ordering::Relaxed);
-}
-
-pub fn enabled() -> bool {
-    ENABLED.load(Ordering::Relaxed)
-}
-
-/// Whether agents are offered the `sim_*` tools: the person has not turned them
-/// off, and this Mac can run simulators.
-pub fn offered() -> bool {
-    enabled() && capable()
 }
 
 /// This Mac can run the helper and Xcode's simulators.
