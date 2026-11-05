@@ -10,6 +10,7 @@ mod draft;
 mod moments;
 mod pulls;
 
+use crate::server::changed::What;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -171,8 +172,7 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn tell_clients(core: &Core, (project, _): &Goal) {
-    core.changes
-        .changed(Topic::GoalSummary, Some(project), None);
+    core.changed(What::ReadIn(Topic::GoalSummary, Some(project), None));
 }
 
 /// `goalSummary`: what is kept for the goal, at once. When asked to refresh it, the goal is read
@@ -259,7 +259,7 @@ fn refresh(core: &Core, goal: &Goal, gathered: &Gathered, again: bool) {
     match write(core, gathered) {
         Ok((summary, title)) => {
             if title.is_some_and(|title| core.goal_summaries.name(goal, title)) {
-                core.changes.changed(Topic::Boards, Some(&goal.0), None);
+                core.changed(What::ReadIn(Topic::Boards, Some(&goal.0), None));
             }
             written.summary = Some(summary);
             written.stamp = Some(stamp);

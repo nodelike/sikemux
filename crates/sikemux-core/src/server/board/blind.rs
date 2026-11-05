@@ -4,6 +4,7 @@
 //! to fix. It starts with nothing of the builder's, and no agent may reach it
 //! or be reached by it. Each round gets a fresh one.
 
+use crate::server::changed::What;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -284,8 +285,8 @@ async fn start(core: &Arc<Core>, step: &Step, agent: &str, head: &str) -> Result
     let text = task(&step.card, &checkout.cwd, head, &from, &diff, cut);
     let chat = chat::begin(core, launch, None, Some(launcher), false, true)
         .map_err(|error| error.to_string())?;
-    core.broadcast_local(&Event::ChatBegun { chat: chat.info() });
-    core.view_changed();
+    core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
+    core.changed(What::View);
     chat::until_started(core, chat)
         .await
         .map_err(|error| error.to_string())?;

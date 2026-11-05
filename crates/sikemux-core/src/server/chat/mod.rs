@@ -21,6 +21,7 @@ mod states;
 mod turn;
 mod usage;
 
+use crate::server::changed::What;
 use sikemux_fold::update::{notice, turn_answer};
 use sikemux_fold::UpdateKind;
 use sikemux_view::chat::StopReason;
@@ -299,7 +300,7 @@ impl Chat {
                         sikemux_fold::update::stop_reason(&payload) == Some(StopReason::Cancelled);
                     if !cancelled && self.feed.running_subagents() > 0 {
                         self.hold_for_subagents();
-                        core.agents_changed();
+                        core.changed(What::Agents);
                         None
                     } else {
                         Some(Activity::Finished { cancelled })
@@ -775,7 +776,7 @@ impl Chat {
     pub(crate) fn set_permission_mode(&self, mode: PermissionMode) {
         self.feed.set_permission_mode(mode);
         if let Some(core) = self.core.upgrade() {
-            core.view_changed();
+            core.changed(What::View);
         }
     }
 
@@ -791,7 +792,7 @@ impl Chat {
         self.tell_saved_usage(&start);
         self.readiness.send_replace(Readiness::Ready(start));
         if let Some(core) = self.core.upgrade() {
-            core.agents_changed();
+            core.changed(What::Agents);
         }
     }
 
@@ -909,7 +910,7 @@ impl Chat {
 
     fn announce(&self, event: &Event) {
         if let Some(core) = self.core.upgrade() {
-            core.broadcast_event(event);
+            core.changed(What::Event(event));
         }
     }
 

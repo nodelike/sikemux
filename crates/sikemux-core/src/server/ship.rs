@@ -6,6 +6,7 @@
 //! deploy to an environment the project marked safe goes without asking, and
 //! one that goes is followed to its end and kept as evidence on the slice.
 
+use crate::server::changed::What;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -287,7 +288,7 @@ pub(crate) fn check(
             ship,
         });
     }
-    core.agents_changed();
+    core.changed(What::Agents);
     Err(said)
 }
 
@@ -714,6 +715,6 @@ fn take(core: &Core, id: &str) -> CoreResult<Hold> {
             .ok_or("that action no longer waits on you")?;
         state.holds.remove(at)
     };
-    core.agents_changed();
+    core.changed(What::Agents);
     Ok(hold)
 }

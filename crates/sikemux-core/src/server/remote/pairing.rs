@@ -1,6 +1,7 @@
 //! Letting devices in: join tickets, the person's answer to each new device, and what each may do.
 
 use super::*;
+use crate::server::changed::What;
 
 pub(crate) fn set_access(core: &Core, id: &str, access: DeviceAccess) -> CoreResult<RemoteStatus> {
     core.remote.change(|stored| {
@@ -90,11 +91,11 @@ pub(crate) fn announce(core: &Core) -> RemoteStatus {
     if let Some(core) = core.arc() {
         tokio::spawn(async move { crate::server::account::show(&core).await });
     }
-    core.changes.changed(Topic::Hosts, None, None);
+    core.changed(What::Read(Topic::Hosts));
     let status = core.remote.status();
-    core.broadcast_local(&Event::Remote {
+    core.changed(What::Event(&Event::Remote {
         status: status.clone(),
-    });
+    }));
     status
 }
 

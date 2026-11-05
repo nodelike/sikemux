@@ -2,6 +2,7 @@
 //! only who it names, as a context item with no text, and the core writes the note.
 //! An earlier chat the person names is opened again first, in a tab of its own.
 
+use crate::server::changed::What;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
@@ -100,7 +101,7 @@ async fn woken(
         })
         .await?
     };
-    core.view_changed();
+    core.changed(What::View);
     {
         let (core, agent_id) = (core.clone(), agent.id.clone());
         tokio::spawn(async move {
@@ -161,7 +162,7 @@ pub(crate) fn fill(core: &Core, caller: &str, context: &mut Vec<ChatContext>) {
         }
     });
     if named {
-        core.agents_changed();
+        core.changed(What::Agents);
     }
 }
 

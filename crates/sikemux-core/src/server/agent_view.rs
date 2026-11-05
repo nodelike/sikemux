@@ -2,6 +2,7 @@
 //! saved session. Whichever view it is in, what the person had typed comes
 //! with it. An agent at work stays where it is.
 
+use crate::server::changed::What;
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -62,7 +63,7 @@ async fn to_terminal(core: &Arc<Core>, agent_id: &str) -> CoreResult<Value> {
     if let (Some(terminal), Some(draft)) = (core.session(pty), session::typable(&draft)) {
         session::type_when_ready(&terminal, draft, session::Typist::Other);
     }
-    core.view_changed();
+    core.changed(What::View);
     Ok(json!({ "ptyId": pty }))
 }
 
@@ -84,7 +85,7 @@ async fn to_chat(
             core.drafts.set(&key, draft, None)?;
             super::drafts::changed(core, vec![key]);
         }
-        core.view_changed();
+        core.changed(What::View);
     }
     launching::start_saved(core, agent_id, false).await?;
     Ok(Value::Null)

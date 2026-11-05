@@ -2,6 +2,7 @@
 //! desks, what comes next and by when. The window owns the browser and the editors, so it tells
 //! the core what its desks hold.
 
+use crate::server::changed::What;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -49,7 +50,7 @@ pub(super) fn set_desks(core: &Core, client: ClientId, params: DesksParams) {
     if *kept != held {
         *kept = held;
         drop(kept);
-        core.changes.changed(Topic::Goals, None, None);
+        core.changed(What::Read(Topic::Goals));
     }
 }
 
@@ -75,7 +76,7 @@ pub(super) fn view_moved(core: &Core, inbox: &Inbox) {
     if *seen != moved {
         *seen = moved;
         drop(seen);
-        core.changes.changed(Topic::Goals, None, None);
+        core.changed(What::Read(Topic::Goals));
     }
 }
 

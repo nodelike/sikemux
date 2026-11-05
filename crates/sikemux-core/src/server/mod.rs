@@ -174,8 +174,9 @@ use sikemux_pty::task::{
 use tokio::sync::{watch, Notify};
 
 use crate::client::{probe, ProbeError};
-use sikemux_wire::protocol::{encode_control, BuildIdentity, Event, ServerMessage, SessionId};
+use sikemux_wire::protocol::{BuildIdentity, Event, SessionId};
 
+use changed::What;
 use connection::{ClientConn, ClientId};
 use session::Session;
 
@@ -584,7 +585,7 @@ impl Core {
     /// Resolves the person's theme again, for apps, devices and programs' colour queries.
     pub(crate) fn theme_changed(&self) {
         self.look.set(themes::palette(&self.preferences.get()));
-        self.view_changed();
+        self.changed(What::View);
     }
 
     pub(crate) fn manifest_dir(&self) -> Option<PathBuf> {
@@ -676,7 +677,7 @@ impl Core {
         }
         let (named, changed) = self.names.give(starting, self.open_agents());
         if changed || reopened.is_some() {
-            self.view_changed();
+            self.changed(What::View);
         }
         (named, reopened)
     }
@@ -789,53 +790,7 @@ impl Core {
                 session::detach(&session, stream);
             }
         }
-        self.view_changed();
-    }
-
-    /// Paired devices hear only of terminals ending and changing; the rest
-    /// reaches them in the device view.
-    pub(crate) fn broadcast_event(&self, event: &Event) {
-        match event {
-            Event::Attention { attention } => {
-                self.notify
-                    .send(notify::Signal::Attention(Box::new(attention.clone())));
-            }
-            Event::AttentionCleared { id, agent_id } => self.notify.send(notify::Signal::Cleared {
-                id: id.clone(),
-                agent_id: agent_id.clone(),
-            }),
-            Event::AgentState(state) => self.notify.send(notify::Signal::AgentState {
-                agent_id: state.agent_id.clone(),
-                state: state.state,
-            }),
-            _ => {}
-        }
-        let devices_hear = matches!(
-            event,
-            Event::Exited { .. } | Event::ShellMetadata(_) | Event::Changed { .. }
-        );
-        self.broadcast_to(event, |client| devices_hear || client.peer.is_local());
-    }
-
-    pub(crate) fn broadcast_local(&self, event: &Event) {
-        self.broadcast_to(event, |client| client.peer.is_local());
-    }
-
-    fn broadcast_to(&self, event: &Event, to: impl Fn(&ClientConn) -> bool) {
-        let Ok(frame) = encode_control(&ServerMessage::Event {
-            event: event.clone(),
-        }) else {
-            return;
-        };
-        let frame: Arc<[u8]> = frame.into();
-        for client in self.clients() {
-            if to(&client) {
-                client.send(frame.clone());
-            }
-        }
-        if device_view::shows(event) {
-            self.view_changed();
-        }
+        self.changed(What::View);
     }
 
     /// Ends the connections of one paired device, or of every one.
@@ -866,7 +821,7 @@ impl Core {
             if let Some(session) = core.session(id) {
                 session::mark_task_output_noticed(&session);
             }
-            core.broadcast_event(&Event::TaskOutput { id });
+            core.changed(What::Event(&Event::TaskOutput { id }));
             harness::note_output(&core, id);
         });
     }
@@ -1075,7 +1030,9 @@ async fn poll_sessions(core: Arc<Core>) {
                 .as_mut()
                 .and_then(|shell| shell.take_due_event(now));
             if let Some(update) = update {
-                core.broadcast_event(&Event::ShellMetadata(update.into_event(session.id)));
+                core.changed(What::Event(&Event::ShellMetadata(
+                    update.into_event(session.id),
+                )));
             }
         }
     }
@@ -1230,11 +1187,11 @@ const STOPPING_FLUSH: Duration = Duration::from_millis(200);
 /// Tells the app and the notch the core is stopping on purpose, before its socket closes, so
 /// neither starts it again. A core that dies without a word is started again.
 async fn say_stopping(core: &Core) {
-    core.broadcast_local(&Event::Changed {
+    core.changed(What::Event(&Event::Changed {
         topic: changed::Topic::Stopping,
         project: None,
         paths: None,
-    });
+    }));
     let deadline = Instant::now() + STOPPING_FLUSH;
     for client in core.clients() {
         client

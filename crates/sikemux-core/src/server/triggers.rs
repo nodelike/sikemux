@@ -3,6 +3,7 @@
 //! board, which Auto carries when it is on, and stays until it is removed. A webhook trigger fires
 //! on each request to its address instead of at a time.
 
+use crate::server::changed::What;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -345,7 +346,7 @@ fn show(core: &Core, trigger: &Trigger) {
     if let Some(feed) = core.chats.heard(&trigger.agent_id) {
         feed.set_triggers(core.triggers.shown(&trigger.agent_id));
     }
-    core.view_changed();
+    core.changed(What::View);
 }
 
 fn caller(request: &HarnessRequest, tool: &str) -> Result<String, String> {

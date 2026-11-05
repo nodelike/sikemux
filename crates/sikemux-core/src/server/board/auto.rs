@@ -2,6 +2,7 @@
 //! up, the board starts an agent of its own in a git worktree of its own, a
 //! few at once, and ships its work when its turn ends.
 
+use crate::server::changed::What;
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
@@ -681,8 +682,8 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
             start_sha: tree.start_sha,
         })
     });
-    core.broadcast_local(&Event::ChatBegun { chat: chat.info() });
-    core.view_changed();
+    core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
+    core.changed(What::View);
     chat::until_started(core, chat)
         .await
         .map_err(|error| error.to_string())?;

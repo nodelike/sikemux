@@ -9,6 +9,7 @@
 
 mod profile;
 
+use crate::server::changed::What;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -206,8 +207,7 @@ pub(crate) async fn show(core: &Core) {
         changed
     };
     if changed {
-        core.view_changed();
-        core.changes.changed(Topic::Account, None, None);
+        core.changed(What::Read(Topic::Account));
     }
 }
 

@@ -4,6 +4,7 @@
 //! Only the sign-in code shown on that terminal's own screen, on the line login prints it on,
 //! is approved for the account; the host is then noted as installed from the alias.
 
+use crate::server::changed::What;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -121,7 +122,7 @@ pub(crate) async fn install_host(core: &Arc<Core>, params: InstallParams) -> Cor
         );
         run
     };
-    core.changes.changed(Topic::Hosts, None, None);
+    core.changed(What::Read(Topic::Hosts));
     let remote = match params.work {
         Work::Install => installer(),
         Work::Update => format!("{} && {}", installer(), over_ssh("restart")),
@@ -200,7 +201,7 @@ fn settle(core: &Core, alias: &str, run: u64, ended: Result<(), String>) {
     {
         setup.ended.send_replace(Some(ended));
     }
-    core.changes.changed(Topic::Hosts, None, None);
+    core.changed(What::Read(Topic::Hosts));
 }
 
 async fn finish(core: Arc<Core>, id: SessionId, alias: String, run: u64, needs_code: bool) {

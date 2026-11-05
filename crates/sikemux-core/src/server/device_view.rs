@@ -1,6 +1,7 @@
 //! What each device is shown of this host, built from the core's state and
 //! sent again whenever anything in it changes.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -26,9 +27,9 @@ pub(crate) struct DeviceViews {
     /// Pokes the device view awake once something may be watching it.
     watched: Notify,
     /// Sends the device view before its next tick, once an agent's state changed.
-    stale: Notify,
+    pub(super) stale: Notify,
     /// Sends it at once, without waiting for more changes to go with it.
-    due: Notify,
+    pub(super) due: Notify,
     /// The view each client was last sent: by the device with what it has in front of its
     /// own, or under none for every other client.
     sent: Mutex<HashMap<Option<String>, Vec<u8>>>,
@@ -40,20 +41,6 @@ impl Core {
     /// Something may watch the device view now, so it wakes to send it.
     pub(crate) fn view_watched(&self) {
         self.device_view.watched.notify_one();
-    }
-
-    /// Something a device's view of this host shows changed; the view goes
-    /// out again shortly, once with any changes that follow it.
-    pub(crate) fn view_changed(&self) {
-        self.device_view.stale.notify_one();
-        self.notify.inbox_moved();
-    }
-
-    /// Something the person did changed the view, such as the tab in front, so it goes out
-    /// at once: a window shows its tabs as the view says.
-    pub(crate) fn view_changed_now(&self) {
-        self.device_view.due.notify_one();
-        self.view_changed();
     }
 
     /// Tells [`Seen`] the agents each phone shows: the chats and terminals it
@@ -307,31 +294,6 @@ impl Core {
     }
 }
 
-/// Whether the device view shows what `event` tells of. What it shows that
-/// no event tells of reaches it through [`Core::view_changed`].
-pub(super) fn shows(event: &Event) -> bool {
-    match event {
-        Event::Exited { .. }
-        | Event::SshLink { .. }
-        | Event::AgentState(_)
-        | Event::Attention { .. }
-        | Event::AttentionCleared { .. }
-        | Event::ChatBegun { .. }
-        | Event::TerminalTitle { .. } => true,
-        Event::ShellMetadata(_)
-        | Event::TaskOutput { .. }
-        | Event::Chat { .. }
-        | Event::DeviceView { .. }
-        | Event::Remote { .. }
-        | Event::Network { .. }
-        | Event::FocusAgent { .. }
-        | Event::Notice { .. }
-        | Event::AccountDevice { .. }
-        | Event::Changed { .. }
-        | Event::Stream { .. } => false,
-    }
-}
-
 /// Sends devices the view when anything in it may have changed, and on a
 /// tick only while something in it moves by itself.
 pub(super) async fn serve(core: Arc<Core>) {
@@ -368,7 +330,7 @@ pub(super) async fn serve(core: Arc<Core>) {
         let now = core.window.client_id();
         if now != window {
             window = now;
-            core.agents_changed();
+            core.changed(What::Agents);
         }
         moving = core.publish_device_view();
         built = tokio::time::Instant::now();

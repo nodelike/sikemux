@@ -1,6 +1,7 @@
 //! The git panel's methods, `git.*`, for every client, and the watch on each
 //! project that tells them all when to read again.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -232,7 +233,7 @@ fn read_chips(core: &Arc<Core>, folders: Vec<String>) {
             changed
         };
         if changed {
-            core.view_changed();
+            core.changed(What::View);
         }
     });
 }
@@ -367,7 +368,7 @@ pub(crate) fn read_hosts(core: &Arc<Core>, folders: Vec<String>) {
             changed
         };
         if changed {
-            core.view_changed();
+            core.changed(What::View);
         }
     });
 }
@@ -479,8 +480,7 @@ pub(crate) fn follow_projects(core: &Core) {
         }
         for project in projects {
             super::project_files::moved(project, paths.as_deref());
-            core.changes
-                .changed(Topic::Git, Some(project), paths.clone());
+            core.changed(What::ReadIn(Topic::Git, Some(project), paths.clone()));
             if state_moved {
                 core.collisions.head_moved(&core, project);
             }

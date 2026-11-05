@@ -3,6 +3,7 @@
 //! chats alike. Every chat, however it starts, passes through here or
 //! [`own_tools`].
 
+use crate::server::changed::What;
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -287,9 +288,9 @@ pub(crate) async fn start(
     launch.account = chosen.account;
     launch.fallbacks = chosen.fallbacks;
     let started = chat::begin(core, launch, by, Some(launcher_id), waits_for_person, false)?;
-    core.broadcast_local(&Event::ChatBegun {
+    core.changed(What::Event(&Event::ChatBegun {
         chat: started.info(),
-    });
+    }));
     Ok(started)
 }
 

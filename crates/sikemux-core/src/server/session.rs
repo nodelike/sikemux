@@ -1,3 +1,4 @@
+use crate::server::changed::What;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -824,12 +825,12 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
     for waiter in std::mem::take(&mut *session.line_waiters.locked()) {
         let _ = waiter.found.send(None);
     }
-    core.broadcast_event(&Event::Exited {
+    core.changed(What::Event(&Event::Exited {
         id: session.id,
         code,
         signal: signal.clone(),
         killed: session.killed.load(Ordering::Acquire),
-    });
+    }));
     drop(screen);
     core.ports.changed();
     if let Some(number) = session.owner.rail_number {
@@ -929,17 +930,19 @@ fn broadcast_output(core: &Arc<Core>, session: &Session, bytes: &[u8]) {
             };
             session.title_pending.store(false, Ordering::Release);
             let title = session.screen.locked().window_title.clone();
-            core.broadcast_local(&Event::TerminalTitle { id, title });
+            core.changed(What::Event(&Event::TerminalTitle { id, title }));
         });
     }
     if let Some(update) = shell_output.ready {
-        core.broadcast_event(&Event::ShellMetadata(update.into_event(session.id)));
+        core.changed(What::Event(&Event::ShellMetadata(
+            update.into_event(session.id),
+        )));
     }
     if let Some(link) = shell_output.ssh {
-        core.broadcast_event(&Event::SshLink {
+        core.changed(What::Event(&Event::SshLink {
             id: session.id,
             link,
-        });
+        }));
         if let Some(alias) = &session.owner.ssh_host {
             super::ssh::moved(core);
             if link == sikemux_pty::shell_protocol::SshLink::Connected {

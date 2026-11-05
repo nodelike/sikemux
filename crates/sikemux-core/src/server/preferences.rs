@@ -2,6 +2,7 @@
 //! the same choices. Each one's default is `Preferences::default()`.
 
 use super::changed::Topic;
+use crate::server::changed::What;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
@@ -212,7 +213,7 @@ pub(crate) fn set(core: &Core, key: &str, value: Value) -> CoreResult<Preference
         _ => {}
     }
     core.theme_changed();
-    core.changes.changed(Topic::Preferences, None, None);
+    core.changed(What::Read(Topic::Preferences));
     Ok(core.preferences.get())
 }
 

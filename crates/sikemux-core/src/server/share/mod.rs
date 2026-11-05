@@ -9,6 +9,7 @@
 mod link;
 mod seal;
 
+use crate::server::changed::What;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -157,7 +158,7 @@ fn view_of(running: &Running) -> ShareView {
 /// Clients read the shares again: one began, ended, or its state, problem
 /// or viewers moved.
 fn changed(core: &Core) {
-    core.changes.changed(Topic::Shares, None, None);
+    core.changed(What::Read(Topic::Shares));
 }
 
 fn save(core: &Core, inner: &Inner) {

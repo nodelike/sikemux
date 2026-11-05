@@ -3,6 +3,7 @@
 //! for: `git:<repository>`, `chat:<agent>`. Beside its text a draft can hold `extra`,
 //! JSON only the apps read, such as a message's attachments.
 
+use crate::server::changed::What;
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -115,7 +116,7 @@ pub(crate) fn changed(core: &Core, keys: Vec<String>) {
             feed.set_draft(core.drafts.chat_draft(agent));
         }
     }
-    core.changes.changed(Topic::Drafts, None, Some(keys));
+    core.changed(What::ReadIn(Topic::Drafts, None, Some(keys)));
 }
 
 pub(crate) struct Drafts(Held);

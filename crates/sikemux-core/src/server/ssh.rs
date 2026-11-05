@@ -1,6 +1,7 @@
 //! The hosts in the person's SSH config, each with how its terminals are
 //! reaching it, and a watch on the config that tells clients when it changes.
 
+use crate::server::changed::What;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::Weak;
@@ -120,7 +121,7 @@ fn watch(core: &Core) {
                         .any(|path| path.file_name().is_some_and(|name| name == "config"))
                 });
                 if let (true, Some(core)) = (touches_config, weak.upgrade()) {
-                    core.changes.changed(Topic::Ssh, None, None);
+                    core.changed(What::Read(Topic::Ssh));
                 }
             })
             .ok()?;
@@ -153,8 +154,8 @@ pub(crate) fn config_file() -> Result<String, String> {
 
 /// A terminal to an SSH host started, ended, or changed how it reaches it.
 pub(crate) fn moved(core: &Core) {
-    core.changes.changed(Topic::Ssh, None, None);
-    core.changes.changed(Topic::Hosts, None, None);
+    core.changed(What::Read(Topic::Ssh));
+    core.changed(What::Read(Topic::Hosts));
 }
 
 /// How many times a dropped connection is retried before the terminal goes

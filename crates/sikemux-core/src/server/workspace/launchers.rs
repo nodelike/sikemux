@@ -2,6 +2,7 @@
 //! behind it, and the launch a chat gets from them.
 
 use super::*;
+use crate::server::changed::What;
 
 /// The launcher that starts `agent`: its CLI on the account it runs on.
 pub(crate) fn launcher_of(agent: &WorkspaceAgent) -> String {
@@ -195,7 +196,7 @@ pub(super) async fn refresh(core: Arc<Core>, asked: u64) {
     }
     core.workspaces.set_launchers(found);
     // The accounts' kept plan limits are listed by launcher, so they show once launchers are.
-    core.changes.changed(Topic::Usage, None, None);
+    core.changed(What::Read(Topic::Usage));
 }
 
 impl Workspaces {

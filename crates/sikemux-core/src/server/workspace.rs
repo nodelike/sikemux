@@ -5,6 +5,7 @@
 //! on each of the person's accounts and finds its program itself; a launch
 //! builds its environment afresh, keys and all.
 
+use crate::server::changed::What;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -1269,7 +1270,7 @@ pub(crate) async fn set_defaults(core: &Arc<Core>, params: DefaultsParams) -> Co
     {
         refresh_launchers(core.clone()).await;
     }
-    core.view_changed();
+    core.changed(What::View);
     Ok(())
 }
 
@@ -1433,7 +1434,7 @@ fn agents_closed(core: &Core, before: HashSet<String>) {
 pub(crate) fn settle(core: &Arc<Core>) {
     core.names.settle(core.open_agents());
     super::session_watch::follow(core);
-    core.agents_changed();
+    core.changed(What::Agents);
 }
 
 impl super::part::Part for Workspaces {

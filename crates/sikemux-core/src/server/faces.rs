@@ -4,6 +4,7 @@
 //! agent's group, which clients already have.
 
 use super::Core;
+use crate::server::changed::What;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
@@ -174,7 +175,7 @@ impl Faces {
 /// Sets the style the person picked and shows it on every device.
 pub(crate) fn set_style_shown(core: &Core, style: FaceStyleChange) -> CoreResult<FaceStyle> {
     let style = core.faces.set_style(style)?;
-    core.view_changed();
+    core.changed(What::View);
     Ok(style)
 }
 

@@ -2,6 +2,7 @@
 //! the account which hosts it has, links with each it is not linked with,
 //! with a ticket it asks for itself, and calls each what the account calls it.
 
+use crate::server::changed::What;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -365,14 +366,14 @@ pub(crate) fn tell_joined(core: &Arc<Core>, key: String) {
         else {
             return;
         };
-        core.broadcast_local(&Event::AccountDevice {
+        core.changed(What::Event(&Event::AccountDevice {
             key,
             name: device.name,
             platform: serde_json::to_value(device.platform)
                 .ok()
                 .and_then(|platform| platform.as_str().map(str::to_owned))
                 .unwrap_or_default(),
-        });
+        }));
     });
 }
 

@@ -4,6 +4,7 @@
 
 mod bridge;
 
+use crate::server::changed::What;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -300,7 +301,7 @@ pub(super) async fn list(core: &Arc<Core>) -> CoreResult<ModList> {
 
 /// Every client lists the mods again, with no mod's page read again.
 fn settled_changed(core: &Core) {
-    core.changes.changed(Topic::Mods, None, Some(Vec::new()));
+    core.changed(What::ReadIn(Topic::Mods, None, Some(Vec::new())));
 }
 
 #[derive(Deserialize)]
@@ -461,8 +462,7 @@ pub(super) fn turn_off(core: &Core, params: OffParams) -> CoreResult<()> {
             false => settled.off.remove(&params.id),
         };
     });
-    core.changes
-        .changed(Topic::Mods, None, Some(vec![params.id]));
+    core.changed(What::ReadIn(Topic::Mods, None, Some(vec![params.id])));
     Ok(())
 }
 
@@ -569,7 +569,7 @@ pub(crate) fn watch(core: &Arc<Core>) {
                     return;
                 };
                 let ids: Vec<String> = touched(&real, &paths).into_iter().collect();
-                core.changes.changed(Topic::Mods, None, Some(ids));
+                core.changed(What::ReadIn(Topic::Mods, None, Some(ids)));
             }
         })
         .ok();

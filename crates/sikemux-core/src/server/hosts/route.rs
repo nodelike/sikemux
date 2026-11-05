@@ -4,6 +4,7 @@
 //! team does is told to the hosts its teammates run on, which journal it for
 //! `agent_wait` and show it.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
@@ -182,7 +183,7 @@ pub(super) fn happened_here(core: &Core, host: &str, params: Value) -> CoreResul
             pin(core);
         }
     }
-    core.agents_changed();
+    core.changed(What::Agents);
     super::changed(core);
     Ok(Value::Null)
 }
@@ -283,7 +284,7 @@ pub(super) fn team_here(core: &Core, host: &str, params: Value) -> CoreResult<Va
         }
     }
     pin(core);
-    core.agents_changed();
+    core.changed(What::Agents);
     super::changed(core);
     Ok(Value::Null)
 }
@@ -376,7 +377,7 @@ pub(super) fn host_gone(core: &Core, host: &str, why: &str) {
             }
         }
     }
-    core.agents_changed();
+    core.changed(What::Agents);
 }
 
 /// Hands a letter to its agent on the host it runs on, or leaves it waiting

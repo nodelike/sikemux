@@ -1,3 +1,4 @@
+use crate::server::changed::What;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::OnceLock;
@@ -46,7 +47,7 @@ fn next_sequence() -> u64 {
 /// app whether or not one has the chat open. A chat's permission requests
 /// already notify, so its state stays out of the notices.
 pub(crate) fn publish_chat_state(core: &Core, agent_id: &str, state: AgentState) {
-    core.agents_changed();
+    core.changed(What::Agents);
     let event = Event::AgentState(AgentStateEvent {
         agent_id: agent_id.to_owned(),
         state,
@@ -56,7 +57,7 @@ pub(crate) fn publish_chat_state(core: &Core, agent_id: &str, state: AgentState)
         reason: "the chat's turn as the core runs it".into(),
         matched_rule: None,
     });
-    core.broadcast_to(&event, |client| client.peer.is_local());
+    core.changed(What::ChatState(&event));
 }
 
 pub(crate) fn sequence_mark() -> u64 {
@@ -239,9 +240,9 @@ impl AgentActivity {
             spawn::terminal_turn_ended(core, &self.agent_id, Ending::Finished);
         }
         if next != previous {
-            core.agents_changed();
+            core.changed(What::Agents);
         }
-        core.broadcast_event(&Event::AgentState(AgentStateEvent {
+        core.changed(What::Event(&Event::AgentState(AgentStateEvent {
             agent_id: self.agent_id.clone(),
             state: next,
             sequence: next_sequence(),
@@ -249,7 +250,7 @@ impl AgentActivity {
             confidence: confidence.into(),
             reason,
             matched_rule,
-        }));
+        })));
     }
 }
 

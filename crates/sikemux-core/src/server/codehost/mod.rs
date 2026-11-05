@@ -3,6 +3,7 @@
 //! keeps each list a connection shows, reads it again while one does, and
 //! tells clients when it changed, so no client keeps time of its own.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -143,8 +144,7 @@ impl Shows for Listed {
         }
         for (project, names) in names {
             let names = names.into_iter().map(str::to_owned).collect();
-            core.changes
-                .changed(Topic::CodeHost, Some(&project), Some(names));
+            core.changed(What::ReadIn(Topic::CodeHost, Some(&project), Some(names)));
         }
     }
 
@@ -295,7 +295,7 @@ pub(crate) fn picked(core: &Core, project: &str) {
         .remove(project)
         .is_some();
     if forgot {
-        core.changes.changed(Topic::CodeHost, Some(project), None);
+        core.changed(What::ReadIn(Topic::CodeHost, Some(project), None));
     }
 }
 

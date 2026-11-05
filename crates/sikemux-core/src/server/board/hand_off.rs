@@ -3,6 +3,7 @@
 //! board whose promise is what they typed. Its Built gate needs the project's
 //! check to pass on its work, run by the core.
 
+use crate::server::changed::What;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -207,8 +208,8 @@ async fn start_worker(
                 }
             };
             unclaimed.0 = None;
-            core.broadcast_local(&Event::ChatBegun { chat: chat.info() });
-            core.view_changed();
+            core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
+            core.changed(What::View);
             super::tell_clients(&core);
             Ok(Started {
                 project,

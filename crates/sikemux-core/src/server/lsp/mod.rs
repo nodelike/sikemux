@@ -15,6 +15,7 @@ mod server;
 mod transport;
 mod types;
 
+use crate::server::changed::What;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
@@ -105,8 +106,7 @@ fn publisher(core: Weak<Core>) -> Publish {
             }
         }
         if let Some(core) = core.upgrade() {
-            core.changes
-                .changed(Topic::Lsp, Some(&project), Some(vec![path]));
+            core.changed(What::ReadIn(Topic::Lsp, Some(&project), Some(vec![path])));
         }
     })
 }

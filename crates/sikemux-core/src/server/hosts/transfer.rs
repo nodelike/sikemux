@@ -6,6 +6,7 @@
 //! but only once the other host has taken every chat and tab; anything short of that leaves
 //! this host as it was.
 
+use crate::server::changed::What;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::Arc;
@@ -334,7 +335,7 @@ pub(super) async fn take_here(core: &Arc<Core>, params: Value, body: Option<Rece
             agents.insert(chat.id, made.id);
         }
     }
-    core.view_changed();
+    core.changed(What::View);
     let (laid, wanted) = layout::lay_out_carried(core, &project.id, &take.from, take.tabs, &agents)
         .await
         .map_err(|error| error.to_string())?;

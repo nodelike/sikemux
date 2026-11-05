@@ -2,6 +2,7 @@
 //! the person's own global skills beside it, which Sikemux never changes
 //! unless asked to move one in. Any client manages them through these calls.
 
+use crate::server::changed::What;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -289,7 +290,7 @@ pub(crate) fn watch_global(core: &Arc<Core>) {
             }
             kept.push(skill);
             drop(kept);
-            core.changes.changed(Topic::Skills, None, None);
+            core.changed(What::Read(Topic::Skills));
         });
     });
 }

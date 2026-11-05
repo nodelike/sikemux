@@ -4,6 +4,7 @@
 use super::follow::Happened;
 use super::notify::Signal;
 use super::Core;
+use crate::server::changed::What;
 
 pub(crate) enum Activity<'a> {
     /// It began a turn of work.
@@ -94,25 +95,14 @@ impl Core {
             }
         }
         if came_to_rest {
-            self.agents_changed();
+            self.changed(What::Agents);
         }
     }
 
     /// The agent stopped running, whether it ended by itself or was closed.
     pub(crate) fn note_agent_gone(&self, agent_id: &str) {
         self.journal_agent(agent_id, Happened::Gone);
-        self.agents_changed();
-    }
-
-    /// Something about the agents changed that the messages waiting for them,
-    /// their questions and the board depend on: one came to rest, started,
-    /// went away, or the window opened or closed.
-    pub(crate) fn agents_changed(&self) {
-        self.harness.mailbox.wake.now();
-        self.harness.questions.wake.now();
-        self.boards.wake.now();
-        self.updates.chats_changed();
-        self.view_changed();
+        self.changed(What::Agents);
     }
 
     /// Whether the agent's turns are told to a lead still here, who reads them

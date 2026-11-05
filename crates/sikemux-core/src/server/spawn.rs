@@ -4,6 +4,7 @@
 //! the new agent's turn ends, its final answer goes back to the agent that
 //! started it.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -239,8 +240,8 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
         core.names.forget(&plan.agent_id);
         error.to_string()
     })?;
-    core.broadcast_local(&Event::ChatBegun { chat: chat.info() });
-    core.view_changed();
+    core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
+    core.changed(What::View);
     let answer = json!({
         "agentId": plan.agent_id,
         "name": named.name,
@@ -382,8 +383,8 @@ fn start(
             eprintln!("sikemux core: a worker's own checkout was not kept on its record: {error}");
         }
     }
-    core.broadcast_local(&Event::ChatBegun { chat: chat.info() });
-    core.view_changed();
+    core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
+    core.changed(What::View);
     let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
     Ok(Opened::New(Started {
         agent_id,

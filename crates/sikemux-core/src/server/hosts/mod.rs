@@ -23,6 +23,7 @@ pub(crate) mod spawn;
 pub(crate) mod team;
 pub(crate) mod transfer;
 
+use crate::server::changed::What;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
 use std::path::Path;
@@ -581,7 +582,7 @@ pub(crate) fn halt(core: &Core) {
 /// changed.
 fn changed(core: &Core) {
     remote::announce(core);
-    core.view_changed();
+    core.changed(What::View);
 }
 
 /// Tries hosts out of reach again while something waits for them or agents
@@ -650,7 +651,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
             match dialed {
                 Ok(connection) => adopt(&core, &link.id, connection),
                 Err(_) => {
-                    core.changes.changed(Topic::Hosts, None, None);
+                    core.changed(What::Read(Topic::Hosts));
                     core.hosts.wake.now();
                 }
             }

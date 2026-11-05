@@ -12,6 +12,7 @@ pub(crate) use features::Counted;
 use super::changed::Topic;
 use super::connection::blocking;
 use super::CoreResult;
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
@@ -1449,6 +1450,6 @@ mod tests {
 
 pub(crate) fn set_price_for(core: &Core, params: ActivityPriceParams) -> CoreResult<()> {
     core.activity_log.set_price(&params.model, params.price)?;
-    core.changes.changed(Topic::Activity, None, None);
+    core.changed(What::Read(Topic::Activity));
     Ok(())
 }

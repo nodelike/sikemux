@@ -5,6 +5,7 @@
 //! knowledge it can; knowledge that no longer holds is marked stale, stays
 //! out of briefs and waits in the inbox until someone corrects or retires it.
 
+use crate::server::changed::What;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -198,9 +199,9 @@ impl crate::server::part::Part for Memory {
 /// Clients read what is kept again, and the inbox moves when knowledge went
 /// stale or holds again.
 fn tell_clients(core: &Core, stale_moved: bool) {
-    core.changes.changed(Topic::Memory, None, None);
+    core.changed(What::Read(Topic::Memory));
     if stale_moved {
-        core.view_changed();
+        core.changed(What::View);
     }
 }
 

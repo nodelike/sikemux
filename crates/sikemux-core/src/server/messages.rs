@@ -4,6 +4,7 @@
 //! A busy chat takes it into its turn when it can; an agent that cannot gets
 //! the messages waiting for it together once its turn ends.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
@@ -641,7 +642,7 @@ fn log<'a>(core: &Core, to: &str, queued: impl IntoIterator<Item = &'a Queued>, 
         logged = true;
     }
     if logged {
-        core.view_changed();
+        core.changed(What::View);
     }
 }
 
@@ -1135,7 +1136,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     }
     let sent = deliver(core, &target, letter).await?;
     core.seen.called(&target.agent_id);
-    core.agents_changed();
+    core.changed(What::Agents);
     if let Some(id) = answers {
         core.harness
             .questions

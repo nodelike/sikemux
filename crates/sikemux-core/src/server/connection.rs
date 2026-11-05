@@ -1,3 +1,4 @@
+use crate::server::changed::What;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -585,7 +586,7 @@ async fn run_requests(
                 super::notch::follow(&core);
                 core.usage_wake.notify_one();
                 crate::waiting::wake(&core.config.socket);
-                core.agents_changed();
+                core.changed(What::Agents);
                 client.answer::<ask::RegisterWindow>(request_id, Ok(()));
             }
             Request::PluginsChanged => {
@@ -631,7 +632,7 @@ async fn run_requests(
                     Err(error) => Err(error),
                 };
                 match result {
-                    Ok(()) => core.view_changed(),
+                    Ok(()) => core.changed(What::View),
                     Err(error) => client.respond(request_id, Err(error)),
                 }
             }
@@ -734,7 +735,7 @@ async fn run_requests(
                     .await;
                 }
                 client.forget_stream(stream);
-                core.view_changed();
+                core.changed(What::View);
                 client.answer::<ask::Detach>(request_id, Ok(()));
             }
             Request::Resize(ask::Resize { id, cols, rows }) => {
@@ -751,7 +752,7 @@ async fn run_requests(
                     Err(error) => Err(error.into()),
                 };
                 if result.is_ok() {
-                    core.view_changed();
+                    core.changed(What::View);
                 }
                 client.answer::<ask::Resize>(request_id, result);
             }
@@ -977,7 +978,7 @@ async fn run_requests(
             Request::PublishOnScreen(ask::PublishOnScreen { agent_ids, focused }) => {
                 super::launching::show_terminals(&core, &agent_ids);
                 core.seen.show(client.id, agent_ids, focused);
-                core.view_changed();
+                core.changed(What::View);
                 client.answer::<ask::PublishOnScreen>(request_id, Ok(()));
             }
             Request::FocusAgent(ask::FocusAgent { agent_id }) => {

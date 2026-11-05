@@ -1,6 +1,7 @@
 //! How busy this host is, for the rows clients show it in. It rides in the view while a client
 //! that shows it is attached, and the view goes out again when what those rows show moves.
 
+use crate::server::changed::What;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,7 +24,7 @@ pub(crate) async fn watch(core: Arc<Core>) {
     loop {
         ticker.tick().await;
         if core.shows_load() && core.load_moved(&now()) {
-            core.view_changed();
+            core.changed(What::View);
         }
     }
 }

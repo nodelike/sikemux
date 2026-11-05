@@ -6,6 +6,7 @@
 //! core has no app around it: root puts the new core in place, once no chat
 //! is in a turn, and the core hands itself over to it.
 
+use crate::server::changed::What;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -212,9 +213,9 @@ impl Updates {
 
     fn edit(&self, core: &Core, change: impl FnOnce(&mut Held)) {
         change(&mut self.held.locked());
-        core.changes.changed(Topic::Update, None, None);
+        core.changed(What::Read(Topic::Update));
         if is_host() {
-            core.view_changed();
+            core.changed(What::View);
         }
     }
 

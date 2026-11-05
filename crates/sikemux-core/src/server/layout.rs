@@ -2,6 +2,7 @@
 //! same ones. Agents' tabs follow the workspace: a new agent gets a tab at the
 //! end of its project's strip, and a tab goes once nothing it shows is left.
 
+use crate::server::changed::What;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::path::Path;
@@ -503,7 +504,7 @@ fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> Co
         core.layouts.kept.save(&*kept);
         answer
     };
-    core.view_changed_now();
+    core.changed(What::ViewNow);
     core.spares.front_changed();
     Ok(answer)
 }

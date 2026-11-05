@@ -4,6 +4,7 @@
 //! offers the one thing that sets it up. The question never prompts: with no key the SSH
 //! config already offers, it finds nothing.
 
+use crate::server::changed::What;
 use std::collections::HashSet;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -72,7 +73,7 @@ pub(crate) fn ask(core: &Arc<Core>, alias: &str, again: bool) {
         core.hosts.probing.locked().remove(&alias);
         if let Some(found) = found {
             core.hosts.probes.locked().insert(alias, found);
-            core.changes.changed(Topic::Hosts, None, None);
+            core.changed(What::Read(Topic::Hosts));
         }
     });
 }

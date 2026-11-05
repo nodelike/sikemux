@@ -4,6 +4,7 @@
 //! in `boards/` in the data folder, one file per project, so a board outlives
 //! a window reload, a restart and an update.
 
+use crate::server::changed::What;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
@@ -1665,7 +1666,7 @@ pub(crate) fn add_for_trigger(
 
 /// The triggers that add cards to the project's board changed, so its clients hear of it.
 pub(crate) fn triggers_changed(core: &Core, project: &str) {
-    core.changes.changed(Topic::Boards, Some(project), None);
+    core.changed(What::ReadIn(Topic::Boards, Some(project), None));
 }
 
 fn take(core: &Core, card: &mut Card, agent: &str) {
@@ -3457,7 +3458,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
 fn tell_clients(core: &Core) {
     let dirty = std::mem::take(&mut core.boards.state.locked().dirty);
     for project in dirty {
-        core.changes.changed(Topic::Boards, Some(&project), None);
+        core.changed(What::ReadIn(Topic::Boards, Some(&project), None));
     }
 }
 

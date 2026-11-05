@@ -1,6 +1,7 @@
 //! The Hosts group every client shows: the hosts linked with this one, and
 //! the SSH hosts a terminal is open to, each with how it is reached.
 
+use crate::server::changed::What;
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
 
@@ -147,5 +148,5 @@ pub(crate) fn note_installed(core: &Core, key: String, alias: String) {
     map.insert(key, alias);
     core.hosts.installed_kept.save(&*map);
     drop(map);
-    core.changes.changed(Topic::Hosts, None, None);
+    core.changed(What::Read(Topic::Hosts));
 }

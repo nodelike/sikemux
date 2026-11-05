@@ -2,6 +2,7 @@
 //! everything that waits on the network can try again at once instead of
 //! sitting out its backoff.
 
+use crate::server::changed::What;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -22,7 +23,7 @@ pub(super) async fn run(core: Arc<Core>) {
             remote::network_back(&core).await;
             core.chats.retry_offline_failures();
         }
-        core.broadcast_local(&Event::Network { change });
+        core.changed(What::Event(&Event::Network { change }));
     }
 }
 

@@ -3,6 +3,7 @@
 //! agent to the session it starts, keeps titles in step with the ones the CLI
 //! saves, and writes a name the person gave back into the CLI's own session.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -491,7 +492,7 @@ async fn settle(core: &Arc<Core>, group: &Group, rows: Vec<AgentSession>) {
         } else {
             take_title(core, agent, row);
         }
-        core.view_changed();
+        core.changed(What::View);
     }
     for (session_id, name) in names {
         name_session(core, group, session_id, name).await;

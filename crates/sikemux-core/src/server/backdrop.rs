@@ -2,6 +2,7 @@
 //! from the person's preferences so that no app has to send it.
 
 use super::Core;
+use crate::server::changed::What;
 use sikemux_wire::protocol::BackdropImage;
 
 /// Publishes the backdrop the preferences describe, shrinking a newly chosen picture first.
@@ -30,7 +31,7 @@ pub(crate) fn follow(core: &Core) {
 
 fn publish(core: &Core, texture: bool, image: Option<BackdropImage>) {
     match core.workspaces.publish_backdrop(texture, image) {
-        Ok(()) => core.view_changed(),
+        Ok(()) => core.changed(What::View),
         Err(error) => eprintln!("sikemux core: the pane picture is not sent to devices: {error}"),
     }
 }

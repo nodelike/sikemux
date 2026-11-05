@@ -2,6 +2,7 @@
 //! history, and those the person pinned.
 
 use super::*;
+use crate::server::changed::What;
 
 /// An agent's session a client takes up again, named by its agent and the project it ran in.
 #[derive(Deserialize)]
@@ -280,7 +281,7 @@ pub(crate) async fn recents(core: Arc<Core>) {
         .await;
         if let Ok((found, homes)) = found {
             if core.workspaces.set_recent(found, homes) {
-                core.view_changed();
+                core.changed(What::View);
             }
         }
         core.workspaces.recent_stale.notified().await;

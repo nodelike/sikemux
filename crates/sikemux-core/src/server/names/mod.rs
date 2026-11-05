@@ -7,6 +7,7 @@
 
 mod words;
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -1040,7 +1041,7 @@ pub(crate) async fn rename_agent(
         let named = core
             .names
             .rename(&params.agent_id, &params.name, core.open_agents())?;
-        core.view_changed();
+        core.changed(What::View);
         Ok(named)
     })
     .await

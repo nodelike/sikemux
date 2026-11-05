@@ -4,6 +4,7 @@
 //! The person answers in the asker's chat, the notch or Sikemux's rail, and
 //! the first answer reaches the asker as a message.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -2205,8 +2206,8 @@ fn tell_window(core: &Arc<Core>) {
             return;
         }
         if state.dirty {
-            core.view_changed();
-            core.changes.changed(Topic::Questions, None, None);
+            core.changed(What::View);
+            core.changed(What::Read(Topic::Questions));
         }
         state.dirty = false;
         state.told_window = window;

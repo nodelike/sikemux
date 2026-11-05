@@ -2,6 +2,7 @@
 //! and dependency folders as much as anywhere, and names in a `files` change
 //! when one moves on disk, so an editor reads it again.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
@@ -143,8 +144,11 @@ fn start(core: Weak<Core>) -> CoreResult<RecommendedWatcher> {
                     .collect()
             };
             if !named.is_empty() {
-                core.changes
-                    .changed(Topic::Files, None, Some(named.into_iter().collect()));
+                core.changed(What::ReadIn(
+                    Topic::Files,
+                    None,
+                    Some(named.into_iter().collect()),
+                ));
             }
         }
     });

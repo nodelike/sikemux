@@ -3,6 +3,7 @@
 //! take it up, and the person is asked to resume the owner or hand the slice on. An owner keeps
 //! the lease for as long as something it waits on can still bring it back by itself.
 
+use crate::server::changed::What;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -303,7 +304,7 @@ async fn bring_back(core: &Arc<Core>, stalled: &Stalled) -> Result<String, Strin
     let _ = blocking(move || {
         // Only a name the person chose comes back by itself; another agent may have this one now.
         let _ = (owner.names).rename(&kept, &name, owner.open_agents());
-        owner.view_changed();
+        owner.changed(What::View);
         Ok(())
     })
     .await;

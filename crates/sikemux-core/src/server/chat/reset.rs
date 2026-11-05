@@ -2,6 +2,7 @@
 //! send its stopped prompt again. Each waits on a timer of its own, and the
 //! list is kept on disk so a core that restarts goes on waiting.
 
+use crate::server::changed::What;
 use sikemux_fold::update::notice;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -236,7 +237,7 @@ pub(super) fn schedule(
 
 fn not_retrying(core: &Core, chat: &Chat) {
     core.inbox.not_retrying(chat.agent_id());
-    core.view_changed();
+    core.changed(What::View);
 }
 
 /// Stops the chat waiting for its limit to reset, as something sent to it

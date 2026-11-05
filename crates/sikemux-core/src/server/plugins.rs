@@ -5,6 +5,7 @@
 //! call says they are missing.
 
 use super::connection::blocking;
+use crate::server::changed::What;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -234,8 +235,7 @@ pub(crate) fn set_disabled(core: &Core, disabled: Disabled) {
     if let Some(Provided(plugins)) = core.config.plugins {
         plugins.set_disabled(disabled.ids);
         core.harness.plugins_changed();
-        core.changes.changed(Topic::Plugins, None, None);
-        core.view_changed();
+        core.changed(What::Read(Topic::Plugins));
     }
 }
 
@@ -342,7 +342,7 @@ pub(crate) fn sign_in_moved(core: &Core, plugin: &str, method: &str) {
             .any(|account| account == method)
     });
     if account_moved {
-        core.changes.changed(Topic::Plugins, None, None);
+        core.changed(What::Read(Topic::Plugins));
     }
 }
 

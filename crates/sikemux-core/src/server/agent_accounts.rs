@@ -1,6 +1,7 @@
 //! The core's calls about the person's agent accounts, which the app's
 //! settings and rail make.
 
+use crate::server::changed::What;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Once};
 
@@ -110,7 +111,7 @@ async fn change(
     edit(&mut book)?;
     core.workspaces.set_accounts(book.clone())?;
     refresh_launchers(core.clone()).await;
-    core.changes.changed(Topic::AgentAccounts, None, None);
+    core.changed(What::Read(Topic::AgentAccounts));
     Ok(book)
 }
 
@@ -229,8 +230,8 @@ async fn recheck(
         if status::keep(&provider, config_path, &checked, generation) {
             core.workspaces
                 .note_status(&provider, config_path, &checked.status);
-            core.view_changed();
-            core.changes.changed(Topic::AgentStatus, None, None);
+            core.changed(What::View);
+            core.changed(What::Read(Topic::AgentStatus));
         }
         checked
     })
@@ -273,7 +274,7 @@ fn follow_late_answers(core: &Arc<Core>) {
             loop {
                 discovery::answered_late().notified().await;
                 refresh_launchers(core.clone()).await;
-                core.changes.changed(Topic::AgentStatus, None, None);
+                core.changed(What::Read(Topic::AgentStatus));
             }
         });
     });
@@ -352,7 +353,7 @@ fn signed_out(core: &Core, provider: &str, config_path: Option<&str>) {
     core.workspaces
         .note_status(provider, config_path, &signed_out);
     status::remember(provider, config_path, signed_out);
-    core.view_changed();
+    core.changed(What::View);
 }
 
 pub(super) fn cancel_resume(core: &Arc<Core>, resuming: Resuming) {
@@ -430,7 +431,7 @@ pub(super) async fn read_usages(core: &Arc<Core>) -> Vec<AccountUsage> {
             found.len()
         );
     });
-    core.changes.changed(Topic::Usage, None, None);
+    core.changed(What::Read(Topic::Usage));
     found
 }
 

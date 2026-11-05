@@ -12,6 +12,7 @@ mod fragile;
 mod merge;
 mod watch;
 
+use crate::server::changed::What;
 use sikemux_fold::UpdateKind;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -1200,7 +1201,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         });
     }
     if publish {
-        core.view_changed();
+        core.changed(What::View);
     }
 }
 

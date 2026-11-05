@@ -2,6 +2,7 @@
 //! Codex on this host, through each CLI's own login. The page a sign-in opens
 //! goes to every client, so the person can finish it from any device.
 
+use crate::server::changed::What;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -104,7 +105,7 @@ pub(super) fn pages() -> Vec<Page> {
 }
 
 fn pages_changed(core: &Core) {
-    core.changes.changed(Topic::AgentSignIn, None, None);
+    core.changed(What::Read(Topic::AgentSignIn));
 }
 
 #[derive(Deserialize)]

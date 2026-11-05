@@ -3,6 +3,7 @@
 //! host's chats lands in that chat's draft as soon as the host hears of it; any other waits
 //! until the person attaches it from a composer.
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -281,7 +282,7 @@ pub struct ItemParams {
 /// Takes an item out of the account's stash for good, on every device.
 pub(crate) async fn remove(core: &Core, params: ItemParams) -> CoreResult<()> {
     host_request(core, Method::DELETE, &item_path(&params.id)?, None).await?;
-    core.changes.changed(Topic::Stash, None, None);
+    core.changed(What::Read(Topic::Stash));
     Ok(())
 }
 
@@ -294,7 +295,7 @@ pub(crate) struct SeeParams {
 pub(crate) async fn see(core: &Core, params: SeeParams) -> CoreResult<StashSeen> {
     let body = serde_json::to_value(StashSeen { at: params.at })?;
     let seen = as_host(core, Method::PUT, "/v1/stash/seen", Some(body)).await?;
-    core.changes.changed(Topic::Stash, None, None);
+    core.changed(What::Read(Topic::Stash));
     Ok(seen)
 }
 
@@ -379,7 +380,7 @@ pub(crate) async fn attach(core: &Core, params: AttachParams) -> CoreResult<Atta
         .ok_or_else(|| CoreError::from("that item is already on its way to a chat"))?;
     let paths = into_draft(core, &item, &params.agent_id).await?;
     take(core, &item.id).await?;
-    core.changes.changed(Topic::Stash, None, None);
+    core.changed(What::Read(Topic::Stash));
     Ok(Attached::new(params.agent_id, paths))
 }
 
@@ -490,7 +491,7 @@ pub(crate) async fn stash_prompt(core: &Core, params: PromptParams) -> CoreResul
     }
     core.drafts.set(&key, String::new(), None)?;
     super::drafts::changed(core, vec![key]);
-    core.changes.changed(Topic::Stash, None, None);
+    core.changed(What::Read(Topic::Stash));
     Ok(Stashed { id: prompt.id })
 }
 
@@ -654,7 +655,7 @@ pub(crate) fn heard(core: &Arc<Core>, events: &[AccountEvent]) {
         )
     });
     if stash_moved {
-        core.changes.changed(Topic::Stash, None, None);
+        core.changed(What::Read(Topic::Stash));
     }
     if ids.is_empty() {
         return;
@@ -733,7 +734,7 @@ async fn deliver_to(core: &Arc<Core>, item: &StashItem, target: &StashTarget) ->
     };
     into_draft(core, item, &agent_id).await?;
     take(core, &item.id).await?;
-    core.changes.changed(Topic::Stash, None, None);
+    core.changed(What::Read(Topic::Stash));
     Ok(())
 }
 

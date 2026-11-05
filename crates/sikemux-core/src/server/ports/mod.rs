@@ -9,6 +9,7 @@ mod darwin;
 #[cfg(target_os = "linux")]
 mod linux;
 
+use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::path::Path;
@@ -323,7 +324,7 @@ fn look(core: &Core) -> Vec<ListeningPort> {
     if state.found != found {
         state.found = found.clone();
         drop(state);
-        core.changes.changed(Topic::Ports, None, None);
+        core.changed(What::Read(Topic::Ports));
     }
     found
 }
