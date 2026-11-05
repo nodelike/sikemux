@@ -227,7 +227,7 @@ pub(super) struct Slice {
     /// Its owner said it is done since its latest work, so the owner's gate
     /// passes as soon as what it needs is so.
     #[serde(default)]
-    done_said: bool,
+    pub(super) done_said: bool,
     /// The goal's standing assertions it fulfils, with the evidence each needs.
     #[serde(default)]
     asserts: Vec<Named>,

@@ -1397,6 +1397,13 @@ impl Chats {
         }
     }
 
+    /// The feeds chats kept while they sleep, which clients still read, by agent.
+    pub(crate) fn resting_feeds(&self) -> Vec<(String, Arc<Feed>)> {
+        (self.resting.locked().iter())
+            .map(|resting| (resting.agent_id.clone(), resting.feed.clone()))
+            .collect()
+    }
+
     /// The feed the agent's chat kept while it slept, no longer kept apart.
     fn take_rest(&self, agent_id: &str) -> Option<Arc<Feed>> {
         let mut resting = self.resting.locked();
@@ -1637,6 +1644,8 @@ impl Chats {
             .locked()
             .retain(|resting| resting.agent_id != chat.agent_id());
         chats.insert(chat.agent_id().to_owned(), chat.clone());
+        // A goal that ended while it slept gets its line in the chat now.
+        core.boards.wake.now();
         Ok((chat, queue))
     }
 }

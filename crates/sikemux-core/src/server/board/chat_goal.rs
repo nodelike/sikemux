@@ -18,7 +18,7 @@ use super::{
     MAX_TITLE_CHARS,
 };
 use crate::protocol::{ChatContext, FOR_AGENT_URI};
-use crate::server::chat::feed::Said;
+use crate::server::chat::feed::{Feed, Said};
 use crate::server::chat::Chat;
 use crate::server::connection::blocking;
 use crate::server::goal_summary;
@@ -520,11 +520,13 @@ fn at_work(core: &Core, agent: &str) -> bool {
 
 /// The goal each open chat works on now: the goal above the card it holds, or the slice it lost
 /// and that nobody took since.
-fn goals_held(core: &Core, chats: &[Arc<Chat>]) -> HashMap<String, ChatGoal> {
+fn goals_held<'a>(
+    core: &Core,
+    agents: impl IntoIterator<Item = &'a str>,
+) -> HashMap<String, ChatGoal> {
     let state = core.boards.state.locked();
     let mut found = HashMap::new();
-    for chat in chats {
-        let agent = chat.agent_id();
+    for agent in agents {
         let Some(project) = core.names.get(agent).map(|named| named.project) else {
             continue;
         };
@@ -567,7 +569,11 @@ fn finished(core: &Core, goal: &Attached) -> bool {
 pub(super) fn settle(core: &Core) {
     tell_plain_changes(core);
     let open = core.chats.all();
-    let held = goals_held(core, &open);
+    let resting = core.chats.resting_feeds();
+    let held = goals_held(
+        core,
+        (open.iter().map(|chat| chat.agent_id())).chain(resting.iter().map(|(a, _)| a.as_str())),
+    );
     let goals = &core.boards.chat_goals;
     let mut lines: Vec<(Arc<Chat>, Option<Attached>, Option<Attached>)> = Vec::new();
     {
@@ -625,7 +631,15 @@ pub(super) fn settle(core: &Core) {
         }
     }
     for chat in &open {
-        apply_head(core, chat, held.get(chat.agent_id()).cloned());
+        apply_head(
+            core,
+            chat.agent_id(),
+            &chat.feed,
+            held.get(chat.agent_id()).cloned(),
+        );
+    }
+    for (agent, feed) in &resting {
+        apply_head(core, agent, feed, held.get(agent).cloned());
     }
 }
 
@@ -657,9 +671,9 @@ fn tell_plain_changes(core: &Core) {
     state.dirty.extend(changed);
 }
 
-fn apply_head(core: &Core, chat: &Chat, goal: Option<ChatGoal>) {
+fn apply_head(core: &Core, agent: &str, feed: &Feed, goal: Option<ChatGoal>) {
     let chats = core.boards.chat_goals.chats.locked();
-    let record = chats.get(chat.agent_id());
+    let record = chats.get(agent);
     let goal = goal.map(|goal| ChatGoal {
         undoable: record
             .and_then(|record| record.goal.as_ref())
@@ -668,15 +682,15 @@ fn apply_head(core: &Core, chat: &Chat, goal: Option<ChatGoal>) {
     });
     let offer = record.and_then(|record| record.offer.clone());
     drop(chats);
-    chat.feed.set_goal(goal, offer);
+    feed.set_goal(goal, offer);
 }
 
 fn push_head(core: &Core, agent: &str) {
     let Some(chat) = core.chats.get(agent) else {
         return;
     };
-    let goal = goals_held(core, std::slice::from_ref(&chat)).remove(agent);
-    apply_head(core, &chat, goal);
+    let goal = goals_held(core, [agent]).remove(agent);
+    apply_head(core, agent, &chat.feed, goal);
 }
 
 /// Whether the card's owner closed, for a card with no slice, which keeps its owner since a card

@@ -10,6 +10,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
+use sikemux_wire::slice::{CheckRun, Wait, WaitOn};
 
 use super::{
     hand_off, hand_off::HandOnParams, holder, name_of, project_at, project_view, remember_team,
@@ -84,7 +85,8 @@ fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
             let Some(owner) = card.owner_id().filter(|_| held) else {
                 continue;
             };
-            if wait::of(core, board, card, now).is_none() {
+            let waits = wait::of(core, board, card, now);
+            if waits.is_none() || waits.is_some_and(|wait| nothing_is_checking(card, &wait)) {
                 found.push(Unattended {
                     project: board.project.clone(),
                     id: card.id,
@@ -95,6 +97,20 @@ fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
         }
     }
     found
+}
+
+/// A slice with a commit reads as waiting on a check, but none runs until its owner says it is
+/// done, so an owner that never said so, or closed, would hold the slice for good.
+fn nothing_is_checking(card: &Card, wait: &Wait) -> bool {
+    let said_done = card.slice.as_ref().is_some_and(|slice| slice.done_said);
+    !said_done
+        && matches!(
+            wait.on,
+            WaitOn::Check {
+                run: CheckRun::Queued,
+                ..
+            }
+        )
 }
 
 /// Whether the owner waits on something that brings it back by itself, or that the person knows
