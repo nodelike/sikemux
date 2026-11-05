@@ -1,4 +1,4 @@
-# Sikemux v0.6.1-nightly.3
+# Sikemux v0.6.1-nightly.4
 
 Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
 
@@ -7,26 +7,18 @@ Nightlies are signed and delivered exactly like stable releases, but they carry 
 - **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android.
 - **This nightly links only with hosts on the 0.6.1 nightlies.** Hosts on stable 0.6.0 can't reach it.
 
-## New since nightly.2
+## New since nightly.3
 
-- **A goal's page reads as a summary.** It leads with Needs you, What happened, Decided, and Running and next. Sikemux writes what happened, and a click on a sentence opens the chat, commit or evidence behind it. A summary says how old its record is, and it knows where the goal's pull requests stand.
-- **Goals tell you when they move.** A slice landing, a goal finishing or an ETA slipping sends one short notification on your Mac and phone, and a click opens the goal. Turn it off in Settings › Notifications.
-- **Approve in the chat.** What an agent waits on you for now stands above its composer, as questions do: the exact command with Allow once and Refuse, or a gate's evidence beside its button. Answering there clears it from Home and the notification too.
-- **Stalled owners lose their slices.** An owner whose chat closed loses its slice at once, and one that has left it untouched for 30 minutes loses it then. You're asked whether to resume it or hand it on. After Stop Everything, agents keep theirs.
-- **ETAs are times on your clock.** A slice's wait reads "check · ETA 16:40" rather than a duration.
-- **Chats open in Goals.** An agent's chat opens right there instead of throwing the window back to the workbench, and a chat you start from Home shows only what you wrote.
-- **Closing a terminal's tab or pane ends its shell**, so rows no longer pile up in the rail.
+- **Environments.** A project can name its environments, what recognises each (a Rundeck job, Vercel's target, an AWS profile, a kube context, a Terraform workspace or a command of the project's) and who passes it: nobody, the check, a person, or production. A deploy to a safe one goes, one after the check goes once it passes, and anything that reads as production or can't be recognised waits for you. A project with none set works as before.
+- **Slices follow them.** A slice goes Built, then a step per environment. Each deploy is followed to its end and kept as evidence on the slice. Agents can only propose environments; you decide.
+- **Held deploys say why.** Needs you and the agent's chat say where a held deploy is going and why it waited.
 
 ## Fixes
 
-- Editing a message keeps what Sikemux told the agent alongside it, such as the goal card it tracks.
-- A reply ending "Yes or no?" shows the question it stands for, with Yes and No to tap.
-- Agents get Bitbucket's and GitLab's tools whenever an account is signed in, not only in a folder with a remote on that host.
-- Connector sign-in has its Rundeck username and password, Allow plain HTTP, and SigNoz email and password forms back.
-- A board card whose owner closed counts as nobody's, so it can't stay stuck.
-- Starting an agent from the board says why it can't.
-- ⌘W in Goals never closes a tab you can't see.
-- Anything you can click shows the pointer, and Home's rows stay readable in a narrow window.
-- The account menu opens Connectors.
+- An agent waiting on you shows as waiting everywhere: tabs, the tab rail, the project row and the notch. Only the question tool did before, so a question in a reply or a held deploy could show purple or nothing.
+- A Chat from Home's composer no longer adds a goal card. Plan first and Hand off still do, and Hand off has its own icon.
+- What happened on a goal reads clearly to someone who hasn't seen the code, and goals older than about 13 days keep their chats.
+- `/` offers the agent's commands in a chat that waited for you.
+- An agent's `git_commit` can push its own commits in a repository with attribution off.
 
-For the complete patch history, compare [`v0.6.1-nightly.2...v0.6.1-nightly.3`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.2...v0.6.1-nightly.3).
+For the complete patch history, compare [`v0.6.1-nightly.3...v0.6.1-nightly.4`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.3...v0.6.1-nightly.4).
