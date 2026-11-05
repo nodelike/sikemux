@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { SECRET_ANSWERED } from '@shared/chat/agentLetters';
-import type { AgentQuestion } from '@/core/protocol';
+import type { AgentQuestion } from '@shared/wire.generated';
 import { Chip, Field } from '@/ui/controls';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';

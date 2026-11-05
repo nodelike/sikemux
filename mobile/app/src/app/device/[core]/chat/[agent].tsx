@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 import { activityText, composerPlaceholder } from '@shared/chat/chatStatus';
-import { sentPrompts } from '@shared/chat/promptHistory';
+import { sentPrompts } from '@/chat/promptHistory';
 import { activeToolLabel } from '@shared/chat/toolLabels';
 import { shownParts } from '@shared/chat/transcript';
 import type { ChatMessage } from '@shared/chat/types';

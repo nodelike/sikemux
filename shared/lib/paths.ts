@@ -1,5 +1,3 @@
-import { IS_WINDOWS } from "./platform";
-
 export function basename(path: string): string {
     return (
         path
@@ -21,16 +19,6 @@ export function normalizePath(path: string): string {
 
 export function joinPath(base: string, ...parts: string[]): string {
     return [normalizePath(base), ...parts.map((part) => part.replaceAll("\\", "/").replace(/^\/+|\/+$/g, ""))].filter(Boolean).join("/");
-}
-
-export function relativePath(path: string, root: string): string | null {
-    const normalizedPath = normalizePath(path);
-    const normalizedRoot = normalizePath(root);
-    const comparePath = IS_WINDOWS ? normalizedPath.toLocaleLowerCase() : normalizedPath;
-    const compareRoot = IS_WINDOWS ? normalizedRoot.toLocaleLowerCase() : normalizedRoot;
-    if (comparePath === compareRoot) return "";
-    if (!comparePath.startsWith(`${compareRoot}/`)) return null;
-    return normalizedPath.slice(normalizedRoot.length + 1);
 }
 
 export function expandHome(path: string, home: string | null | undefined): string {

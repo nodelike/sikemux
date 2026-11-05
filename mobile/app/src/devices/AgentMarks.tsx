@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 
-import type { AgentGroup } from '@/core/protocol';
+import type { AgentGroup } from '@shared/wire.generated';
 import { counted } from './words';
 
 import { Icon } from '@/ui/Icon';

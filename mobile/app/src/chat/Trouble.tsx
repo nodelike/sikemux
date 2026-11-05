@@ -100,7 +100,9 @@ export function Trouble({
           <Icon name="IconWarning" size={14} color={colors.danger} />
         </View>
         <Text style={styles.text} selectable>
-          {network ? `Lost connection to ${agentMaker(provider) ?? 'the model provider'}. Sikemux sends it again when you're back online.` : state.error}
+          {network
+            ? `Lost connection to ${agentMaker(provider) ?? 'the model provider'}. Sikemux sends it again when you're back online.`
+            : state.error}
         </Text>
       </View>
       {network && failure?.details ? (

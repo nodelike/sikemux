@@ -5,7 +5,7 @@ import { SvgXml } from 'react-native-svg';
 import { buddyStateOfGroup, type BuddyState } from '@shared/buddies/catalogue';
 import { drawnFace, type DrawnFace } from '@shared/buddies/faces';
 import { buddyMarkup, FULL_BOX } from '@shared/buddies/render';
-import type { AgentFace as Face, AgentGroup, FaceStyle } from '@/core/protocol';
+import type { AgentFace as Face, AgentGroup, FaceStyle } from '@shared/wire.generated';
 import { AgentIcon } from '@/ui/Icon';
 import { useAnimating } from '@/ui/motion';
 

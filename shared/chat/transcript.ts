@@ -136,4 +136,3 @@ export function groupTasks(tasks: AsyncTask[]): [string, AsyncTask[]][] {
     }
     return [...groups];
 }
-

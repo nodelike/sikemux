@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import type { ProjectInfo } from '@/core/protocol';
+import type { ProjectInfo } from '@shared/wire.generated';
 import { agentLabel } from '@shared/agents/catalog';
 import { AgentIcon, DrawnIcon, Icon } from '@/ui/Icon';
 import { Sheet } from '@/ui/Sheet';

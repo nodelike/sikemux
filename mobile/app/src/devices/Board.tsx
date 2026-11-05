@@ -3,11 +3,11 @@ import { Text, View, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
 import type { ConnectionLike } from '@sikemux/native';
 
-import { cardQuestion, COLUMN_LABELS, shortTitle, type BoardCard, type BoardColumn } from '@shared/agents/agentBoard';
-import type { ChatTrigger } from '@shared/wire.generated';
-import { kindLabel, outcomeLabel, rowKeys, whoLabel } from '@shared/agents/agentMessages';
+import type { AgentQuestion, BoardCard, BoardColumn, ChatTrigger, ProjectInfo } from '@shared/wire.generated';
+import { cardQuestion, COLUMN_LABELS, shortTitle } from '@/devices/agentBoard';
+import { kindLabel, outcomeLabel, rowKeys, whoLabel } from '@/devices/agentMessages';
 import { formatAge } from '@shared/lib/format';
-import type { AgentQuestion, ProjectInfo, Snapshot } from '@/core/protocol';
+import type { Snapshot } from '@/core/protocol';
 import { useHostCall } from '@/core/hostCalls';
 import { projectAt, projectName } from '@/devices/words';
 import { AgentIcon, Icon } from '@/ui/Icon';

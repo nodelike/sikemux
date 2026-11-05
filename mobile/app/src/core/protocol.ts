@@ -5,30 +5,6 @@
 
 import type { DeviceView, HostInfo, Inbox } from '@shared/wire.generated';
 
-export type {
-  AgentFace,
-  AgentGroup,
-  AgentQuestion,
-  AgentStatus,
-  ChatInfo,
-  ChatState,
-  DeviceAccess,
-  DeviceInfo,
-  FaceStyle,
-  HostInfo,
-  Inbox,
-  InboxItem,
-  LauncherInfo,
-  LinkedHost,
-  Preferences,
-  ProjectInfo,
-  RecentInfo,
-  RemoteAgent,
-  RemotePairing,
-  SessionInfo,
-  BuildChannel,
-} from '@shared/wire.generated';
-
 /** Everything the phone shows of one host, as it last sent it. */
 export type Snapshot = DeviceView;
 

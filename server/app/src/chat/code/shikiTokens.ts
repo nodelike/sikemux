@@ -1,6 +1,6 @@
 import { createJavaScriptRegexEngine } from "shiki/engine/javascript";
 import { bundledLanguages, createHighlighter } from "./shiki";
-import type { Grammar, HighlighterCore } from "shiki/core";
+import type { HighlighterCore } from "shiki/core";
 import { createCodeTheme } from "../themes/codeTheme";
 import type { Theme } from "@shared/wire.generated";
 import { codeLines } from "./codeLines";
@@ -58,11 +58,6 @@ async function loadGrammar(
 }
 
 /** The grammar itself, for reading a file one line at a time. */
-export async function textMateGrammar(lang: string): Promise<Grammar | null> {
-  const shiki = await highlighter();
-  return (await loadGrammar(shiki, lang)) ? shiki.getLanguage(lang) : null;
-}
-
 async function prepare(
   lang: string,
   theme: Theme,

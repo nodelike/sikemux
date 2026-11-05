@@ -10,7 +10,7 @@ import {
   workflowAgentDetail,
 } from '@shared/chat/transcript';
 import type { WorkflowAgent } from '@shared/chat/types';
-import { queuedLabel } from '@shared/chat/queuedMessages';
+import { queuedLabel } from '@/chat/queuedMessages';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { SectionLabel } from '@/ui/list';

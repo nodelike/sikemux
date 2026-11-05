@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { basename, dirname, expandHome, joinPath, relativePath } from "./paths";
+import { basename, dirname, expandHome, joinPath } from "./paths";
 
 describe("path helpers", () => {
     it("extracts basenames for unix-style paths", () => {
@@ -18,9 +18,8 @@ describe("path helpers", () => {
         expect(dirname("C:\\work\\sikemux\\src\\main.ts")).toBe("C:\\work\\sikemux\\src");
     });
 
-    it("joins and compares mixed Windows path separators", () => {
+    it("joins mixed Windows path separators", () => {
         expect(joinPath("C:\\work\\sikemux", "src", "main.ts")).toBe("C:/work/sikemux/src/main.ts");
-        expect(relativePath("C:\\work\\sikemux\\src\\main.ts", "C:/work/sikemux")).toBe("src/main.ts");
     });
 
     it("expands home paths", () => {

@@ -1,8 +1,7 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
 
 import { formatAge } from '@shared/lib/format';
-import type { ClosedAgent, PluginOutcome, ProjectEntry, SessionMatch } from '@shared/wire.generated';
-import type { AgentGroup, ProjectInfo } from '@/core/protocol';
+import type { AgentGroup, ClosedAgent, PluginOutcome, ProjectEntry, ProjectInfo, SessionMatch } from '@shared/wire.generated';
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
 import { connectionOf, useLive } from '@/devices/hub';

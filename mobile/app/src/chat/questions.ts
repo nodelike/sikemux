@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ConnectionLike } from '@sikemux/native';
 
-import type { QuestionAnswer } from '@shared/agents/questions';
-import type { AgentQuestion } from '@/core/protocol';
+import type { AgentQuestion } from '@shared/wire.generated';
 
 import { callHost, useHostCall } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
+
+export type QuestionAnswer =
+  { readonly answer: string } | { readonly choice: number } | { readonly choices: number[] } | { readonly fine: true };
 
 const NONE: AgentQuestion[] = [];
 const NO_IDS: ReadonlySet<string> = new Set();

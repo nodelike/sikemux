@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import type { RemoteAgent } from '@/core/protocol';
+import type { RemoteAgent } from '@shared/wire.generated';
 import { AgentIcon } from '@/ui/Icon';
 import { Row } from '@/ui/list';
 import { AgentState, Dot } from '@/devices/AgentMarks';

@@ -1,14 +1,13 @@
 import { ChatAttachment, type ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
-import { answerText } from '@shared/chat/answerText';
+import { answerText } from '@/chat/answerText';
 import { applyChanges, type ChatRows } from '@shared/chat/rows';
 import type { ChatChange, ChatView, PermissionAsk, ToolDetail } from '@shared/chat/types';
-import type { FindAnswer, FindParams } from '@shared/wire.generated';
+import type { ChatInfo, FindAnswer, FindParams } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';
-import type { ChatInfo } from '@/core/protocol';
 import type { ChatDelivery } from '@/devices/hub';
 import { Draft } from './draft';
 import { Feed } from './feed';

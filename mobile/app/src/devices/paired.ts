@@ -1,6 +1,6 @@
 import { File, Paths } from 'expo-file-system';
 
-import type { BuildChannel, DeviceAccess } from '@/core/protocol';
+import type { BuildChannel, DeviceAccess } from '@shared/wire.generated';
 import type { DeviceKind } from '@/ui/Icon';
 import { readWhole, writeWhole } from './disk';
 

@@ -6,11 +6,10 @@ import Svg, { Circle, Defs, LinearGradient, Rect, Stop } from 'react-native-svg'
 
 import { unknownCommand } from '@shared/chat/composerInput';
 import { contextShare, contextTone, money, tokenCount } from '@shared/chat/contextUsage';
-import { currentLabel } from '@shared/chat/sessionConfig';
+import { currentLabel } from '@/chat/sessionConfig';
 import { rowOf, toolKind, toolPath } from '@shared/chat/toolLabels';
 import type { ChatRows } from '@shared/chat/rows';
 import type { ChatCommandInfo, ContextUsage, PermissionAsk, ToolCall } from '@shared/chat/types';
-import { isYolo } from '@shared/agents/agentLaunch';
 import { agentLabel, agentReadsUsage, canSwitchMode, useAgentBrand } from '@shared/agents/catalog';
 import { problem } from '@/core/problem';
 import { haptics } from '@/ui/haptics';
@@ -266,7 +265,7 @@ export function YoloToggle({
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const on = isYolo(mode);
+  const on = mode === 'bypass';
   const switches = canSwitchMode(provider, core);
   const look = (
     <>
