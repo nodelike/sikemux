@@ -1,4 +1,4 @@
-import release from '../../../../server/protocol/release.json';
+import release from '@sikemux/protocol/release.json';
 import Constants from 'expo-constants';
 
 /** How long a deleted account can be restored, and how long backups outlive it after that. */

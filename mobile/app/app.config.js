@@ -2,7 +2,7 @@
  * Builds are "Sikemux Dev" unless APP_VARIANT=production. The two install side by side,
  * each with its own key and paired hosts.
  */
-const release = require('../../server/protocol/release.json');
+const release = require('../../server/protocol/src/release.json');
 
 /** Google's OAuth clients: production's in the `sikemux` Google Cloud project, dev's in `sikemux-dev`. */
 const GOOGLE = {

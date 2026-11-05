@@ -22,7 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const certificate = join(app, 'certs/updates-certificate.pem');
-const release = JSON.parse(readFileSync(join(app, '../../server/protocol/release.json'), 'utf8'));
+const release = JSON.parse(readFileSync(join(app, '../../server/protocol/src/release.json'), 'utf8'));
 const ASSET_URL = release.assetUrl;
 const PLATFORMS = release.platforms;
 const CHANNELS = release.channels;

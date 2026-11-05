@@ -41,7 +41,13 @@ export async function bundleInputs() {
         name: 'packages',
         setup(builder) {
           builder.onResolve({ filter: /^@sikemux\/protocol\// }, (args) => ({
-            path: resolve(repo, 'server/protocol/src', `${args.path.slice('@sikemux/protocol/'.length)}.ts`),
+            path: resolve(
+              repo,
+              'server/protocol/src',
+              args.path.endsWith('.json')
+                ? args.path.slice('@sikemux/protocol/'.length)
+                : `${args.path.slice('@sikemux/protocol/'.length)}.ts`,
+            ),
           }));
           builder.onResolve({ filter: /.*/ }, (args) => (OWN.test(args.path) ? undefined : { path: args.path, external: true }));
         },
