@@ -21,11 +21,6 @@ use crate::workbench::Workbench;
 
 actions!(finder, [Next, Previous, Choose, Close]);
 
-/// Named by today's command id, so a shortcut the person set for it still finds it.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "palette.files")]
-pub struct OpenFile;
-
 const SHOWN: usize = 200;
 
 pub fn install(cx: &mut App) {

@@ -46,11 +46,6 @@ use crate::track::{self, Scrolled, Slide};
 use crate::ui::{self, Cheatsheet, Choice, Choices, Confirm, Prompt};
 use crate::workbench::{AgentRow, Workbench};
 
-/// Brings the project's Git tab to the front, opening one when it has none.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "window.git")]
-pub struct FocusGit;
-
 pub(crate) const ROW_HEIGHT: f32 = 26.;
 /// The pane's keys, by page, as its cheatsheet lists them.
 const KEYS: [ui::Section; 4] = [

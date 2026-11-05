@@ -31,19 +31,14 @@ use tokio::sync::mpsc;
 use crate::battery::Battery;
 use crate::chat::{Answering, Chat, ComposeStage, Composing, Question, Sent, START};
 use crate::core::{utc_offset_minutes, Ask, ChatAsk, ChatNews, Link, Target, Update};
-use crate::desk::{
-    FocusAddress, NewPage, NewSimulator, PageBack, PageForward, ReloadPage, ReopenPage, ToggleDesk,
-};
-use crate::editor::OpenAt;
 use crate::files::FileTree;
-use crate::finder::{OpenFile, ProjectFiles};
-use crate::git::{FocusGit, GitPane};
+use crate::finder::ProjectFiles;
+use crate::git::GitPane;
 use crate::hosts::Place;
 use crate::motion;
 use crate::overlays::{Layer, Overlays};
 use crate::reads::{Read, Reads};
-use crate::search::{FocusSearch, FocusSearchWindow, SearchPane};
-use crate::terminal::NewTerminal;
+use crate::search::SearchPane;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
@@ -83,6 +78,8 @@ const PICTURE_BUDGET: usize = 256 * 1024 * 1024;
 /// The one store: what the core last said, and what only this window decides.
 /// The longest a space's name may be, as on the Mac.
 pub(crate) const MAX_SPACE_NAME: usize = 40;
+
+pub(crate) mod actions;
 
 pub struct Workbench {
     pub connection: crate::boot::Connection,
@@ -354,24 +351,7 @@ impl Workbench {
             cx.hide();
             false
         });
-        crate::faces::install(cx);
-        crate::file_icons::install(cx);
-        crate::syntax::install(cx);
-        crate::finder::install(cx);
-        crate::palette::install(cx);
-        crate::desk::install(cx);
-        crate::welcome::install(cx);
-        crate::keymap::install(asks.clone(), cx);
-        crate::chat::install(cx);
-        crate::terminal::install(cx);
-        crate::files::install(cx);
-        crate::command_popup::install(cx);
-        crate::pairing::install(cx);
-        crate::editor::install(cx);
-        crate::search::install(cx);
-        crate::settings::install(cx);
-        crate::project_switcher::install(cx);
-        crate::chat::model_picker::install(cx);
+        actions::install(asks.clone(), cx);
         crate::hang_watch::start(window, cx);
         crate::ui::grain::animate(window, cx, |bench| {
             bench.battery.is_some_and(|battery| !battery.charging)
@@ -4136,22 +4116,6 @@ impl Parts {
     }
 }
 
-/// A shortcut that opens a place of the workbench, which takes the goals' place first.
-fn opening<A, F>(cx: &Context<Workbench>, open: F) -> impl Fn(&A, &mut Window, &mut App) + use<A, F>
-where
-    A: gpui::Action,
-    F: Fn(&mut Workbench, &mut Window, &mut Context<Workbench>) + 'static,
-{
-    let this = cx.weak_entity();
-    move |_: &A, window: &mut Window, cx: &mut App| {
-        this.update(cx, |bench, cx| {
-            bench.show_workbench(cx);
-            open(bench, window, cx)
-        })
-        .ok();
-    }
-}
-
 impl Workbench {
     /// A docked rail and its handle, `tuck` of the way under the stage. It keeps its width as
     /// it goes, so nothing in it wraps again; the stage takes the room it gives up.
@@ -4245,9 +4209,7 @@ impl Workbench {
 
 impl Render for Workbench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        use crate::keymap::*;
-        use crate::panes::Towards;
-        use sikemux_view::layout::SplitDir;
+        use crate::keymap::SHELL;
         let asked = self.asked(window, cx);
         #[cfg(feature = "drive")]
         if asked.is_some() {
@@ -4289,212 +4251,13 @@ impl Render for Workbench {
                 crate::chat::question_keys(shell, &agent, false, &this)
             })
             .capture_key_down(cx.listener(|bench, event, _, cx| bench.switcher_key(event, cx)))
-            .on_action(
-                cx.listener(|bench, _: &crate::places::ClosePlace, _, cx| bench.close_place(cx)),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::places::LastPlace, _, cx| {
-                    bench.go_to_last_place(cx)
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::places::NextGroup, _, cx| bench.next_group(cx)),
-            )
-            .on_action(cx.listener(|bench, _: &ToggleYolo, _, _| bench.toggle_yolo_in_front()))
-            .on_action(opening::<crate::places::FocusTerminals, _>(
-                cx,
-                |bench, _, _| bench.call("showTerminals", json!({})),
-            ))
-            .on_action(opening::<crate::places::FocusFiles, _>(
-                cx,
-                |bench, _, cx| bench.focus_files(cx),
-            ))
-            .on_action(opening::<crate::places::FocusAgents, _>(
-                cx,
-                Workbench::focus_agents,
-            ))
-            .on_action(opening::<crate::places::FocusBoard, _>(
-                cx,
-                |bench, _, cx| bench.focus_board(cx),
-            ))
-            .on_action(cx.listener(|bench, _: &crate::places::ToggleGoals, _, cx| {
-                bench.toggle_goals_view(cx)
-            }))
-            .on_action(
-                cx.listener(|bench, _: &crate::switcher::NextPlace, window, cx| {
-                    bench.step_place(1, window, cx);
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::switcher::PreviousPlace, window, cx| {
-                    bench.step_place(-1, window, cx);
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::commands::OpenCommands, window, cx| {
-                    bench.toggle_commands(window, cx);
-                }),
-            )
-            .on_action(cx.listener(
-                |bench, _: &crate::agents::palette::ChooseAgent, window, cx| {
-                    match bench.chosen_host() {
-                        crate::hosts::HostChoice::Ssh(alias) => bench.open_install_pane(&alias),
-                        _ => bench.toggle_agent_palette(window, cx),
-                    }
-                },
-            ))
-            .on_action(
-                cx.listener(|bench, _: &crate::picker::OpenProject, window, cx| {
-                    bench.toggle_picker(crate::picker::Picking::Projects, window, cx);
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::picker::OpenHost, window, cx| {
-                    bench.toggle_picker(crate::picker::Picking::Hosts, window, cx);
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::picker::OpenPlace, window, cx| {
-                    bench.toggle_picker(crate::picker::Picking::Both, window, cx);
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &crate::new_tab::NewTab, window, cx| {
-                    bench.toggle_new_tab(window, cx);
-                }),
-            )
-            .on_action(cx.listener(|bench, _: &crate::mods::OpenMod, window, cx| {
-                bench.toggle_mods_palette(window, cx);
-            }))
-            .on_action(
-                cx.listener(|bench, _: &crate::theme_palette::SwitchTheme, window, cx| {
-                    bench.toggle_theme_palette(window, cx);
-                }),
-            )
             .on_modifiers_changed(
                 cx.listener(|bench, event, window, cx| bench.voice_keys(event, window, cx)),
             )
             .capture_key_down(cx.listener(|bench, _: &gpui_kit::KeyDownEvent, _, cx| {
                 bench.voice.update(cx, |voice, cx| voice.abandon_hold(cx))
             }))
-            .on_action(cx.listener(|bench, _: &OpenFile, window, cx| {
-                bench.toggle_finder(window, cx);
-                cx.notify();
-            }))
-            .on_action(opening::<NewTerminal, _>(cx, |bench, _, cx| {
-                bench.new_terminal(cx)
-            }))
-            .on_action(cx.listener(|bench, action: &RunProjectAction, _, cx| {
-                bench.run_command(json!({ "action": action.id }), action.label.clone(), cx)
-            }))
-            .on_action(
-                cx.listener(|bench, _: &TextSizeIncrease, _, _| {
-                    bench.resize_front_text(Some(true))
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &TextSizeDecrease, _, _| {
-                    bench.resize_front_text(Some(false))
-                }),
-            )
-            .on_action(cx.listener(|bench, _: &TextSizeReset, _, _| bench.resize_front_text(None)))
-            .on_action(opening::<FocusGit, _>(cx, |bench, _, cx| {
-                bench.open_git(cx)
-            }))
-            .on_action(opening::<FocusSearch, _>(cx, Workbench::open_search))
-            .on_action(opening::<FocusSearchWindow, _>(cx, Workbench::open_search))
-            .on_action(
-                cx.listener(|bench, _: &crate::settings::ToggleSettings, window, cx| {
-                    crate::settings::toggle(bench, window, cx)
-                }),
-            )
-            .on_action(opening::<NewChat, _>(cx, Workbench::new_chat))
-            .on_action(opening::<FocusTerminal, _>(cx, |bench, _, cx| {
-                bench.focus_terminal(cx)
-            }))
-            .on_action(cx.listener(|bench, _: &ToggleDesk, _, cx| bench.toggle_front_desk(cx)))
-            .on_action(opening::<NewPage, _>(cx, |bench, _, cx| {
-                bench.new_front_page(cx)
-            }))
-            .on_action(opening::<ReopenPage, _>(cx, |bench, _, cx| {
-                bench.reopen_front_page(cx)
-            }))
-            .on_action(cx.listener(|bench, _: &FocusAddress, _, cx| bench.focus_front_address(cx)))
-            .on_action(cx.listener(|bench, _: &ReloadPage, _, cx| bench.reload_front_page(cx)))
-            .on_action(cx.listener(|bench, _: &PageBack, _, cx| bench.step_front_page(-1, cx)))
-            .on_action(cx.listener(|bench, _: &PageForward, _, cx| bench.step_front_page(1, cx)))
-            .on_action(cx.listener(|bench, _: &NewSimulator, _, cx| {
-                bench.front_simulator(cx);
-                bench.parts.redraw_stage(cx);
-            }))
-            .on_action(cx.listener(|bench, _: &PreviousTab, _, _| bench.step_tab(-1, |_, _| true)))
-            .on_action(cx.listener(|bench, _: &NextTab, _, _| bench.step_tab(1, |_, _| true)))
-            .on_action(cx.listener(|bench, _: &PreviousOfKind, window, cx| {
-                if !bench.step_desk_page(-1, window, cx) {
-                    bench.step_tab(-1, same_kind);
-                }
-            }))
-            .on_action(cx.listener(|bench, _: &NextOfKind, window, cx| {
-                if !bench.step_desk_page(1, window, cx) {
-                    bench.step_tab(1, same_kind);
-                }
-            }))
-            .on_action(cx.listener(|bench, _: &GoToTab1, _, _| bench.go_to_tab(Some(1))))
-            .on_action(cx.listener(|bench, _: &GoToTab2, _, _| bench.go_to_tab(Some(2))))
-            .on_action(cx.listener(|bench, _: &GoToTab3, _, _| bench.go_to_tab(Some(3))))
-            .on_action(cx.listener(|bench, _: &GoToTab4, _, _| bench.go_to_tab(Some(4))))
-            .on_action(cx.listener(|bench, _: &GoToTab5, _, _| bench.go_to_tab(Some(5))))
-            .on_action(cx.listener(|bench, _: &GoToTab6, _, _| bench.go_to_tab(Some(6))))
-            .on_action(cx.listener(|bench, _: &GoToTab7, _, _| bench.go_to_tab(Some(7))))
-            .on_action(cx.listener(|bench, _: &GoToTab8, _, _| bench.go_to_tab(Some(8))))
-            .on_action(cx.listener(|bench, _: &GoToLastTab, _, _| bench.go_to_tab(None)))
-            .on_action(cx.listener(|bench, _: &CloseTab, window, cx| bench.close_front(window, cx)))
-            .on_action(cx.listener(|bench, _: &FocusMode, _, cx| bench.toggle_focus_mode(cx)))
-            .on_action(
-                cx.listener(|bench, _: &SplitRow, _, cx| bench.split_front(SplitDir::Row, cx)),
-            )
-            .on_action(
-                cx.listener(|bench, _: &SplitColumn, _, cx| {
-                    bench.split_front(SplitDir::Column, cx)
-                }),
-            )
-            .on_action(
-                cx.listener(|bench, _: &SplitStack, _, cx| bench.split_front(SplitDir::Stack, cx)),
-            )
-            .on_action(cx.listener(|bench, _: &FocusLeft, window, cx| {
-                bench.focus_towards(Towards::Left, window, cx)
-            }))
-            .on_action(cx.listener(|bench, _: &FocusRight, window, cx| {
-                bench.focus_towards(Towards::Right, window, cx)
-            }))
-            .on_action(cx.listener(|bench, _: &FocusUp, window, cx| {
-                bench.focus_towards(Towards::Up, window, cx)
-            }))
-            .on_action(cx.listener(|bench, _: &FocusDown, window, cx| {
-                bench.focus_towards(Towards::Down, window, cx)
-            }))
-            .on_action(
-                cx.listener(|bench, _: &ResizeLeft, _, _| bench.resize_towards(Towards::Left)),
-            )
-            .on_action(
-                cx.listener(|bench, _: &ResizeRight, _, _| bench.resize_towards(Towards::Right)),
-            )
-            .on_action(cx.listener(|bench, _: &ResizeUp, _, _| bench.resize_towards(Towards::Up)))
-            .on_action(
-                cx.listener(|bench, _: &ResizeDown, _, _| bench.resize_towards(Towards::Down)),
-            )
-            .on_action(cx.listener(|bench, _: &ZoomPane, _, cx| bench.toggle_zoom(cx)))
-            .on_action(cx.listener(|bench, _: &QuitAndStopEverything, _, _| {
-                let _ = bench.asks.send(Ask::Shutdown);
-            }))
-            .on_action(|_: &Minimize, window, _| window.minimize_window())
-            .on_action(|_: &Zoom, window, _| window.zoom_window())
-            .on_action(|_: &ToggleFullScreen, window, _| window.toggle_fullscreen())
-            .on_action(
-                cx.listener(|bench, open: &OpenAt, _, cx| {
-                    crate::editor::go(bench, open.clone(), cx)
-                }),
-            )
+            .map(|shell| actions::listen_others(actions::listen(shell, cx), cx))
             .flex()
             .flex_col()
             .font_family(theme::UI)

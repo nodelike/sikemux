@@ -11,10 +11,6 @@ use crate::keymap;
 use crate::palette::{Mark, Row, Spec};
 use crate::workbench::{Strip, Workbench};
 
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "palette.newTab")]
-pub struct NewTab;
-
 struct Choice {
     command: &'static str,
     label: &'static str,

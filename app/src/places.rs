@@ -12,33 +12,6 @@ use crate::tabs;
 use crate::workbench::{Strip, Workbench};
 use sikemux_view::prefs::TabRailPage;
 
-/// Defines unit actions named by today's command ids.
-macro_rules! commands {
-    ($($(#[$doc:meta])* $name:ident = $id:literal,)*) => {$(
-        $(#[$doc])*
-        #[derive(Clone, Default, PartialEq, gpui::Action)]
-        #[action(name = $id)]
-        pub struct $name;
-    )*};
-}
-
-commands! {
-    /// Closes the project or host in front, asking first when it would stop agents at
-    /// work or lose unsaved files.
-    ClosePlace = "session.close",
-    /// Goes back to the project or host in front before this one.
-    LastPlace = "session.lastUsed",
-    /// Jumps from the projects to the hosts, or back.
-    NextGroup = "session.nextGroup",
-    /// The tab rail's terminals.
-    FocusTerminals = "session.command",
-    FocusFiles = "window.files",
-    FocusAgents = "window.agents",
-    FocusBoard = "window.board",
-    /// Switches the window between the workbench and the goals.
-    ToggleGoals = "window.goals",
-}
-
 impl Workbench {
     /// Notes the place in front, keeping the one before it for [`LastPlace`].
     pub fn note_place(&mut self) {

@@ -10,10 +10,6 @@ use crate::palette::{Row, Spec};
 use crate::theme;
 use crate::workbench::Workbench;
 
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "theme.switch")]
-pub struct SwitchTheme;
-
 const ID: &str = "theme.switch";
 
 fn rows(themes: Vec<ThemeSummary>) -> Vec<Row> {

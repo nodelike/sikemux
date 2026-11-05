@@ -12,10 +12,6 @@ use crate::icons::Icon;
 use crate::palette::{Choice, Mark, Row, Spec};
 use crate::workbench::Workbench;
 
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "agent.choose")]
-pub struct ChooseAgent;
-
 const NEW: &str = "new:";
 const SIGN_IN: &str = "signin:";
 const INSTALL: &str = "install:";

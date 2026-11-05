@@ -1125,7 +1125,7 @@ impl TabMenu {
             .item(
                 PopupMenuItem::new("Close")
                     .icon(Icon::Close)
-                    .action(Box::new(crate::keymap::CloseTab))
+                    .action(Box::new(crate::workbench::actions::CloseTab))
                     .on_click(close),
             )
             .item(
@@ -1169,7 +1169,7 @@ impl TabMenu {
         let mut popup = popup
             .item(
                 close("Close", vec![self.tab.clone()], true)
-                    .action(Box::new(crate::keymap::CloseTab)),
+                    .action(Box::new(crate::workbench::actions::CloseTab)),
             )
             .item(close("Close Others", others, false))
             .item(close("Close to the Left", left, false))

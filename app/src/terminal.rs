@@ -36,21 +36,16 @@ use tokio::sync::{mpsc, oneshot};
 use crate::core::{Ask, Screenful, TerminalAsk};
 use crate::hosts::Place;
 use crate::icons::Icon;
-use crate::keymap::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::send_to::{self, Recipient};
 use crate::theme::{self, Tokens, SPACE_0, SPACE_1H, SPACE_2};
 use crate::ui;
+use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::workbench::{TakesKeys, Workbench};
 
 const PAGE: u64 = 256;
 /// History lines kept around the ones in view.
 const HISTORY_KEPT: usize = 4_000;
 const LINE_HEIGHT: f32 = 1.32;
-/// Named by today's command id, so a shortcut the person set for it still finds it.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "terminal.new")]
-pub struct NewTerminal;
-
 /// The key context a terminal's keys are bound in.
 const CONTEXT: &str = "Terminal";
 

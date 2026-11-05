@@ -256,7 +256,7 @@ impl AgentMenu {
             .item(
                 PopupMenuItem::new("Close")
                     .icon(Icon::Close)
-                    .action(Box::new(crate::keymap::CloseTab))
+                    .action(Box::new(crate::workbench::actions::CloseTab))
                     .on_click(self.on_bench({
                         let id = id.clone();
                         move |bench, cx| bench.close_agents(vec![id.clone()], cx)

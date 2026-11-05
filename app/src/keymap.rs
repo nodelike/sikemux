@@ -17,6 +17,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::core::Ask;
+use crate::workbench::actions::{applies, Applies, QuitAndStopEverything};
 
 static TABLE: &str = include_str!("../../crates/sikemux-core/src/assets/keybindings.json");
 
@@ -24,33 +25,13 @@ static TABLE: &str = include_str!("../../crates/sikemux-core/src/assets/keybindi
 /// own binding for the same keys, such as the editor's ⌘[, takes them first.
 pub const SHELL: &str = "Workbench";
 
-/// The shortcuts that still work while a palette, picker or other view with `Modal` in its
-/// context has the keys, as on the Mac: the ones that open another palette or Settings.
-const OVER_MODALS: [&str; 4] = [
-    "palette.commands",
-    "palette.files",
-    "search.global",
-    "settings.toggle",
-];
-
-/// Shortcuts that leave Settings open; any other closes it first.
-const KEEP_SETTINGS: [&str; 3] = ["text.sizeIncrease", "text.sizeDecrease", "text.sizeReset"];
-
-/// What closing means while Settings covers the window: closing Settings, not a tab or
-/// project hidden behind it.
-const CLOSE_SETTINGS: [&str; 2] = ["pane.close", "session.close"];
-
-/// Commands that act on a desk's page only while the keys are in it, leaving the same keys to
-/// the editor and everything else.
-const PAGE_ONLY: [&str; 3] = ["browser.reload", "browser.back", "browser.forward"];
-
 /// Where the shortcut of command `id` works: the welcome takes even the palettes' keys. Keys
 /// held with Option alone stay with a terminal or text field being typed in, since shells read
 /// Option as Meta and other keyboard layouts type with it.
 fn context(id: &str, keys: &str) -> String {
-    let place = if PAGE_ONLY.contains(&id) {
+    let place = if applies(id, Applies::OnPage) {
         "BrowserPage"
-    } else if OVER_MODALS.contains(&id) {
+    } else if applies(id, Applies::OverModals) {
         "Workbench && !Onboarding"
     } else {
         "Workbench && !Modal"
@@ -77,71 +58,11 @@ actions!(
     ]
 );
 
-/// Defines unit actions named by today's command ids.
-macro_rules! commands {
-    ($($(#[$doc:meta])* $name:ident = $id:literal,)*) => {$(
-        $(#[$doc])*
-        #[derive(Clone, Default, PartialEq, gpui::Action)]
-        #[action(name = $id)]
-        pub struct $name;
-    )*};
-}
-
-commands! {
-    PreviousTab = "window.previous",
-    NextTab = "window.next",
-    /// The previous tab showing the same kind of pane as the one in front.
-    PreviousOfKind = "tab.previous",
-    NextOfKind = "tab.next",
-    GoToTab1 = "tab.goto1",
-    GoToTab2 = "tab.goto2",
-    GoToTab3 = "tab.goto3",
-    GoToTab4 = "tab.goto4",
-    GoToTab5 = "tab.goto5",
-    GoToTab6 = "tab.goto6",
-    GoToTab7 = "tab.goto7",
-    GoToTab8 = "tab.goto8",
-    /// The last tab, wherever it is.
-    GoToLastTab = "tab.goto9",
-    CloseTab = "pane.close",
-    /// Hides both rails.
-    FocusMode = "view.focusMode",
-    /// Starts a chat with the agent the rail is set to.
-    NewChat = "agent.new",
-    /// Brings the project's terminal forward, opening one when it has none.
-    FocusTerminal = "window.terminal",
-    /// Bigger text in the chat, editor or terminal that has the focus.
-    TextSizeIncrease = "text.sizeIncrease",
-    TextSizeDecrease = "text.sizeDecrease",
-    TextSizeReset = "text.sizeReset",
-    /// Lets the agent in front run without asking, or has it ask again.
-    ToggleYolo = "agent.permissions",
-    /// A new shell beside the view in focus, to its right or below it, or behind it as a tab.
-    SplitRow = "pane.splitRow",
-    SplitColumn = "pane.splitColumn",
-    SplitStack = "pane.splitStack",
-    FocusLeft = "pane.focusLeft",
-    FocusRight = "pane.focusRight",
-    FocusUp = "pane.focusUp",
-    FocusDown = "pane.focusDown",
-    ResizeLeft = "pane.resizeLeft",
-    ResizeRight = "pane.resizeRight",
-    ResizeUp = "pane.resizeUp",
-    ResizeDown = "pane.resizeDown",
-    /// The view in focus fills its tab, or gives the room back.
-    ZoomPane = "pane.zoom",
-}
-
 actions!(
     rail_resizer,
     [EdgeLeft, EdgeRight, EdgeFarLeft, EdgeFarRight]
 );
 actions!(retitle, [CancelRetitle]);
-
-/// Stops every agent and terminal the core runs, then quits.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "app.quitAndStopEverything")]
-pub struct QuitAndStopEverything;
 
 /// One command, as the shared table names, describes and binds it by default.
 #[derive(Deserialize)]
@@ -377,8 +298,8 @@ pub fn command_for(keystroke: &Keystroke, cx: &App) -> Option<String> {
 
 /// Whether running command `id` leaves Settings open, and whether all it does then is close it.
 pub fn over_settings(id: &str) -> (bool, bool) {
-    let keeps = OVER_MODALS.contains(&id) || KEEP_SETTINGS.contains(&id);
-    (keeps, CLOSE_SETTINGS.contains(&id))
+    let keeps = applies(id, Applies::OverModals) || applies(id, Applies::KeepsSettings);
+    (keeps, applies(id, Applies::ClosesSettings))
 }
 
 /// Whether `keystroke` is the keys command `id` is bound to now.

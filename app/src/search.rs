@@ -35,17 +35,6 @@ use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
 
-/// Brings the project's Search tab forward with its query in hand, opening one when it
-/// has none.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "search.global")]
-pub struct FocusSearch;
-
-/// The same, from the shortcut that picks the Search tab among the project's surfaces.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "window.search")]
-pub struct FocusSearchWindow;
-
 actions!(search, [ShowReplace]);
 
 /// Lets Tab in the find field open the replace field rather than leave the pane.

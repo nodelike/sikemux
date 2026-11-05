@@ -41,38 +41,6 @@ use crate::toast;
 use crate::ui::{self, IconButton};
 use crate::workbench::{shows, Strip, Workbench};
 
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "desk.toggle")]
-pub struct ToggleDesk;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.tabNew")]
-pub struct NewPage;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.tabReopen")]
-pub struct ReopenPage;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "simulator.new")]
-pub struct NewSimulator;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.address")]
-pub struct FocusAddress;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.reload")]
-pub struct ReloadPage;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.back")]
-pub struct PageBack;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "browser.forward")]
-pub struct PageForward;
-
 /// The browser engine and what the desks show of it.
 pub struct Desks {
     engine: Option<Arc<BrowserManager>>,

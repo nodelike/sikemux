@@ -21,9 +21,9 @@ use sikemux_view::prefs::{DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
 
 use crate::core::{Ask, Target};
 use crate::hosts::Place as Host;
-use crate::keymap::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
 use crate::ui;
+use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::workbench::{Strip, TakesKeys, Workbench};
 
 mod blame;
@@ -98,7 +98,7 @@ pub fn install(cx: &mut App) {
         // ⇧⌘F searches the project from the editor too, rather than Kit's replace.
         KeyBinding::new(
             keys("cmd-shift-f", "ctrl-shift-f"),
-            crate::search::FocusSearch,
+            crate::workbench::actions::FocusSearch,
             text,
         ),
     ]);

@@ -14,18 +14,6 @@ use crate::reads::Read;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::{Strip, Workbench};
 
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "project.open")]
-pub struct OpenProject;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "ssh.open")]
-pub struct OpenHost;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "session.open")]
-pub struct OpenPlace;
-
 const PROJECT: &str = "project:";
 const FOLDER: &str = "folder:";
 const HOST: &str = "host:";

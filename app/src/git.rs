@@ -71,7 +71,7 @@ impl GitTab {
     }
 }
 
-pub use pane::{FocusGit, GitPane};
+pub use pane::GitPane;
 pub use sikemux_core::git::diff::DiffKind;
 
 pub(crate) mod pane;

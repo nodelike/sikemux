@@ -14,10 +14,6 @@ use crate::palette::{Row, Spec};
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
 
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "palette.commands")]
-pub struct OpenCommands;
-
 const REMEMBERED: usize = 20;
 const BUILTIN: &str = "builtin:";
 const CUSTOM: &str = "custom:";

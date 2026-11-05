@@ -11,11 +11,6 @@ use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
 use crate::workbench::{Strip, Workbench};
 
-/// Named by its command id, so a shortcut the person sets for it finds it.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "palette.mods")]
-pub struct OpenMod;
-
 /// The palette's row that asks an agent for a new mod.
 const MAKE: &str = "mods:make";
 /// How the palette's rows that copy an example start.

@@ -15,14 +15,6 @@ use crate::theme::{self, Tokens, SPACE_2, SPACE_2H, SPACE_3, TEXT_SM};
 use crate::ui;
 use crate::workbench::{Strip, Workbench};
 
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "session.next")]
-pub struct NextPlace;
-
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "session.previous")]
-pub struct PreviousPlace;
-
 /// The modifier the person holds while stepping, which opens the place when let go.
 #[derive(Clone, Copy, PartialEq)]
 enum Held {

@@ -29,11 +29,6 @@ pub(crate) mod rows;
 
 pub use index::Page;
 
-/// Named by today's command id, so a shortcut the person set for it still finds it.
-#[derive(Clone, Default, PartialEq, gpui::Action)]
-#[action(name = "settings.toggle")]
-pub struct ToggleSettings;
-
 actions!(
     settings,
     [CloseSettings, FocusSearch, ResultUp, ResultDown, OpenResult]
