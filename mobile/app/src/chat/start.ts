@@ -22,8 +22,7 @@ type FirstMessage = {
 };
 
 /** `failed` hands the files back as they ended up, and says whether the host made the worktree for the next try. */
-type StartOutcome =
-  { kind: 'started'; agentId: string } | { kind: 'failed'; problem: string; files: Attachment[]; inWorktree: boolean };
+type StartOutcome = { kind: 'started'; agentId: string } | { kind: 'failed'; problem: string; files: Attachment[]; inWorktree: boolean };
 
 type Progress = {
   /** The agent is running on the host, before its first message has gone. */
