@@ -13,7 +13,7 @@ use sikemux_view::goals::{
     GoalsView, LooseNeed,
 };
 use sikemux_view::inbox::{Inbox, InboxItem, InboxKind, InboxNeed};
-use sikemux_view::slice::SliceState;
+use sikemux_view::slice::{Passer, SliceState, WaitOn};
 use sikemux_wire::protocol::SessionId;
 
 use super::board::{self, BoardView, CardView, Column};
@@ -213,7 +213,7 @@ impl Placed<'_> {
         row.next = match (need, failed) {
             (Some((item, need)), _) => Some(GoalNext::Need {
                 need,
-                what: asks(item),
+                what: asks_on(item, &row.title),
             }),
             (None, Some(failed)) => Some(GoalNext::Failed {
                 slice: failed.title.clone(),
@@ -222,10 +222,26 @@ impl Placed<'_> {
             (None, None) => gate
                 .and_then(|next| {
                     let card = self.board.cards.iter().find(|card| card.id == next.card)?;
-                    Some(GoalNext::Gate {
-                        gate: next.clone(),
-                        slice: card.title.clone(),
-                        owner: card.owner_name.clone(),
+                    // Whose gate it is: it says so of its owner, naming the slice only when the
+                    // goal holds others, and an idle owner is all that holds it up.
+                    let owners = next.passer == Passer::Owner;
+                    let idle = owners && row.state == SliceState::Waiting && next.wait.is_none();
+                    let at_work = owners
+                        && card.title == row.title
+                        && matches!(
+                            next.wait.as_ref().map(|wait| &wait.on),
+                            Some(WaitOn::Agent { .. })
+                        );
+                    Some(match (&card.owner_name, idle || at_work) {
+                        (Some(agent), true) => GoalNext::Agent {
+                            agent: agent.clone(),
+                            idle,
+                        },
+                        (owner, _) => GoalNext::Gate {
+                            gate: next.clone(),
+                            slice: card.title.clone(),
+                            owner: owner.clone(),
+                        },
                     })
                 })
                 .or_else(|| {
@@ -360,6 +376,17 @@ fn asks(item: &InboxItem) -> String {
     match (item.kind, &item.detail) {
         (InboxKind::Question, Some(asked)) => asked.clone(),
         _ => item.what.clone(),
+    }
+}
+
+/// What an item says on the row of the goal `title`, which needn't name that goal again.
+fn asks_on(item: &InboxItem, title: &str) -> String {
+    let what = asks(item);
+    match &item.name {
+        Some(name) if item.stalled.is_some() && what.contains(title) => {
+            format!("@{name} stalled")
+        }
+        _ => what,
     }
 }
 
