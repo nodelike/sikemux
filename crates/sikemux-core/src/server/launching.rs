@@ -516,10 +516,8 @@ fn remember_kind(core: &Core, kind: &str) {
     if core.preferences.get().last_agent_type.as_deref() == Some(kind) {
         return;
     }
-    if core.preferences.set("lastAgentType", kind.into()).is_ok() {
-        core.changes
-            .changed(super::changed::Topic::Preferences, None, None);
-        core.view_changed();
+    if let Err(error) = super::preferences::set(core, "lastAgentType", kind.into()) {
+        eprintln!("sikemux core: the kind of agent last started was not kept: {error}");
     }
 }
 

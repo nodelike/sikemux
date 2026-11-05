@@ -387,7 +387,10 @@ calls! { core, client, method, params;
     "setDraft" SetDraft (super::drafts::SetDraftParams) -> (): Owner => super::drafts::set(&core, params)?,
     "diagramLayout": Owner => answer(super::diagrams::layout(&core, parse(params)?)),
     "setDiagramLayout": Owner => super::diagrams::set_layout(&core, parse(params)?),
-    "setPreference": Owner => answer(super::preferences::set_by_client(&core, parse(params)?)?),
+    "setPreference": Owner => {
+        let params: super::preferences::SetPreferenceParams = parse(params)?;
+        answer(super::preferences::set(&core, &params.key, params.value)?)
+    },
     "setWorktreeDefault" SetWorktreeDefault (super::preferences::WorktreeDefaultParams) -> (): Owner => super::preferences::set_worktree_default(&core, params)?,
     "theme": Watch, any_program => answer(super::themes::palette_for(&core, parse_or_default(params)?)),
     "typeWhenReady": Full => super::session::type_when_asked(&core, client, parse(params)?),

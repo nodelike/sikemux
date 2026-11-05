@@ -53,14 +53,11 @@ pub(crate) fn whats_new(core: &Core) -> WhatsNew {
 
 /// A first run has nothing new to show, so finishing the introduction counts
 /// the release running as seen.
-pub(crate) fn introduced(core: &Core, key: &str) -> CoreResult<()> {
+pub(crate) fn introduced(core: &Core) -> CoreResult<()> {
     let preferences = core.preferences.get();
-    if key == "onboardingComplete"
-        && preferences.onboarding_complete
-        && preferences.last_seen_version.is_empty()
-    {
+    if preferences.onboarding_complete && preferences.last_seen_version.is_empty() {
         core.preferences
-            .set("lastSeenVersion", core.config.build.version.clone().into())?;
+            .store("lastSeenVersion", core.config.build.version.clone().into())?;
     }
     Ok(())
 }

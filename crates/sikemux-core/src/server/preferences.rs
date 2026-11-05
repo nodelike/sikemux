@@ -51,9 +51,9 @@ impl Prefs {
         read(&self.0.values.locked())
     }
 
-    /// Sets the preference `key`, refusing a key there is none of or a value
-    /// it cannot hold.
-    pub(crate) fn set(&self, key: &str, value: Value) -> CoreResult<Preferences> {
+    /// Keeps the preference `key`, refusing a key there is none of or a value it cannot hold.
+    /// A running core goes through [`set`], for what follows from it.
+    pub(super) fn store(&self, key: &str, value: Value) -> CoreResult<Preferences> {
         let preferences = put(&mut self.0.values.locked(), key, value)?;
         self.save_soon();
         Ok(preferences)
@@ -211,8 +211,8 @@ fn commands_within_limits(commands: Vec<CustomCommand>) -> Vec<CustomCommand> {
 
 #[derive(Deserialize)]
 pub(crate) struct SetPreferenceParams {
-    key: String,
-    value: Value,
+    pub(crate) key: String,
+    pub(crate) value: Value,
 }
 
 /// Whether a new chat in the project at the folder `project` starts in a worktree of its own.
@@ -222,32 +222,19 @@ pub struct WorktreeDefaultParams {
     pub on: bool,
 }
 
-/// Sets one preference and does what follows from it.
-pub(crate) fn set_by_client(
-    core: &Arc<Core>,
-    params: SetPreferenceParams,
-) -> CoreResult<Preferences> {
-    core.preferences.set(&params.key, params.value)?;
-    super::about::introduced(core, &params.key)?;
-    if params.key == "notch" {
-        super::notch::follow(core);
+/// The only way a running core changes a preference: sets it and does what follows from it.
+pub(crate) fn set(core: &Core, key: &str, value: Value) -> CoreResult<Preferences> {
+    core.preferences.store(key, value)?;
+    match key {
+        "notch" => super::notch::follow(core),
+        "updateChannel" => core.updates.check_soon(),
+        "paneShader" | "paneImage" => super::backdrop::follow(core),
+        "onboardingComplete" => super::about::introduced(core)?,
+        _ => {}
     }
-    if params.key == "updateChannel" {
-        core.updates.check_soon();
-    }
-    if matches!(params.key.as_str(), "paneShader" | "paneImage") {
-        super::backdrop::follow(core);
-    }
-    if matches!(
-        params.key.as_str(),
-        "agentWorktreeDefaults" | "lastAgentType"
-    ) {
-        core.view_changed();
-    }
-    let preferences = core.preferences.get();
     core.theme_changed();
     core.changes.changed(Topic::Preferences, None, None);
-    Ok(preferences)
+    Ok(core.preferences.get())
 }
 
 /// Whether a new chat in the project starts in a worktree of its own.
@@ -257,9 +244,10 @@ pub(crate) fn set_worktree_default(core: &Core, params: WorktreeDefaultParams) -
         true => defaults.insert(params.project, true),
         false => defaults.remove(&params.project),
     };
-    core.preferences
-        .set("agentWorktreeDefaults", serde_json::to_value(defaults)?)?;
-    core.view_changed();
-    core.changes.changed(Topic::Preferences, None, None);
+    set(
+        core,
+        "agentWorktreeDefaults",
+        serde_json::to_value(defaults)?,
+    )?;
     Ok(())
 }

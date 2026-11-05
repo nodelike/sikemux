@@ -1,20 +1,20 @@
 //! What devices draw behind their panes: the host's grain, and the picture in its place, taken
 //! from the person's preferences so that no app has to send it.
 
-use std::sync::Arc;
-
 use super::Core;
 use crate::protocol::BackdropImage;
 
 /// Publishes the backdrop the preferences describe, shrinking a newly chosen picture first.
-pub(crate) fn follow(core: &Arc<Core>) {
+pub(crate) fn follow(core: &Core) {
+    let Some(core) = core.arc() else {
+        return;
+    };
     let preferences = core.preferences.get();
     let texture = preferences.pane_shader;
     let Some(path) = preferences.pane_image.filter(|_| texture) else {
-        publish(core, texture, None);
+        publish(&core, texture, None);
         return;
     };
-    let core = core.clone();
     tokio::task::spawn_blocking(move || {
         let id = picture_id(&path);
         if id.is_some() && id == core.workspaces.backdrop_image_id() {

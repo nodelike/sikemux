@@ -77,7 +77,7 @@ pub(super) fn carry(core: &Arc<Core>, data_dir: Option<&Path>) {
             continue;
         }
         if let Some(value) = prefs.get(&key) {
-            let _ = core.preferences.set(&key, value.clone());
+            let _ = core.preferences.store(&key, value.clone());
         }
         done.insert(step);
     }
