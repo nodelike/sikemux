@@ -2,6 +2,8 @@
 //! Sikemux themes, Ghostty's catalogue with the app's colours worked out from
 //! each terminal palette, and the person's own, kept in preferences.
 
+use super::{Core, CoreResult};
+use serde::Deserialize;
 use std::sync::{Mutex, OnceLock};
 
 use sikemux_process::sync::Locked;
@@ -612,6 +614,42 @@ fn ghostty_theme(
             bright_cyan: terminal(14),
             bright_white: terminal(15),
         },
+    })
+}
+
+/// Which theme to answer for; the person's pick when none is named.
+#[derive(Deserialize, Default)]
+pub(crate) struct ThemeParams {
+    id: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ThemePaletteParams {
+    pub(crate) theme: sikemux_wire::theme::Theme,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ThemeFromColoursParams {
+    name: String,
+    colours: Vec<String>,
+    accent: Option<String>,
+}
+
+/// The palette of the theme `params` names, or of the person's pick.
+pub(crate) fn palette_for(core: &Core, params: ThemeParams) -> Palette {
+    match params.id {
+        Some(theme_id) => palette(&Preferences {
+            theme_id,
+            ..core.preferences.get()
+        }),
+        None => core.look.palette(),
+    }
+}
+
+pub(crate) fn built_from_colours(params: ThemeFromColoursParams) -> CoreResult<Theme> {
+    from_colours(&params.name, &params.colours, params.accent.as_deref()).ok_or_else(|| {
+        "a theme needs 21 colours, each #rrggbb, the selection's may be empty".into()
     })
 }
 

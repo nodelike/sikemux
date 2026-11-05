@@ -8,12 +8,12 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::kept::Kept;
-use super::{CoreError, CoreResult};
+use super::{Core, CoreError, CoreResult};
 
 const FILE: &str = "diagrams.json";
 /// Past this many diagrams the one looked at longest ago goes.
@@ -84,4 +84,23 @@ impl Diagrams {
         self.kept.save_soon(&*held);
         Ok(())
     }
+}
+
+#[derive(Deserialize)]
+pub(crate) struct DiagramParams {
+    key: String,
+    /// The arrangement to keep; without one the kept arrangement is forgotten.
+    #[serde(default)]
+    layout: Option<Value>,
+}
+
+/// The arrangement kept under the key, as the apps read it.
+pub(crate) fn layout(core: &Core, params: DiagramParams) -> Value {
+    json!({ "layout": core.diagrams.get(&params.key) })
+}
+
+/// Keeps the arrangement under the key, or forgets it.
+pub(crate) fn set_layout(core: &Core, params: DiagramParams) -> CoreResult<Value> {
+    core.diagrams.set(&params.key, params.layout)?;
+    Ok(json!({}))
 }

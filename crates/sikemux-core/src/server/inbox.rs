@@ -3,6 +3,7 @@
 //! to review, then finished work, then work under way. Built from what the
 //! core already keeps; only how each agent's latest turn went is kept here.
 
+use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -19,10 +20,11 @@ use sikemux_wire::inbox::{
 };
 
 use super::board::{self, Hold, Summary, Waits};
+use super::connection::blocking;
 use super::display;
 use super::notify::provider_name;
 use super::questions::ForPerson;
-use super::Core;
+use super::{Core, CoreResult};
 use sikemux_wire::slice::Gate;
 
 use super::board::environments::Step;
@@ -1352,4 +1354,34 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
         failed: here(ranked(failed)),
         waiting: here(waiting),
     }
+}
+
+/// What waits on the person, ranked as devices' views list it.
+pub(super) async fn read(core: &Arc<Core>) -> CoreResult<sikemux_wire::inbox::Inbox> {
+    let core = core.clone();
+    blocking(move || {
+        let (chats, sessions) = core.ranked_infos();
+        Ok(view(&core, &chats, &sessions))
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DigestParams {
+    since: Option<u64>,
+    /// Only what is about this project, by its path.
+    project: Option<String>,
+}
+
+/// What finished, failed and waits since the person last left, or `since`.
+pub(crate) async fn read_digest(
+    core: &Arc<Core>,
+    params: DigestParams,
+) -> CoreResult<sikemux_wire::inbox::InboxDigest> {
+    let project = (params.project)
+        .map(|project| board::project_at(core, &project))
+        .transpose()?;
+    let core = core.clone();
+    blocking(move || Ok(digest(&core, params.since, project.as_deref()))).await
 }

@@ -515,6 +515,11 @@ async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<S
     Ok(user_id)
 }
 
+#[derive(Deserialize)]
+pub(crate) struct AccountPictureParams {
+    pub(crate) hash: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -4,6 +4,9 @@
 //! Parts go in batches, and a producer waits while its client is behind
 //! rather than anything piling up or being dropped.
 
+use super::Core;
+use serde::Deserialize;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -165,4 +168,40 @@ async fn flush_while_open(stream: Arc<Stream>) {
             stream.flush();
         }
     }
+}
+
+#[derive(Deserialize)]
+pub(crate) struct StreamParams {
+    /// None stops every stream on the connection, as a reloaded page does.
+    pub(crate) stream: Option<u64>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SearchStreamParams {
+    stream: u64,
+    #[serde(flatten)]
+    search: crate::server::search::SearchParams,
+}
+
+/// Starts a search whose files arrive as the client's stream `stream`.
+pub(crate) fn search_stream(
+    core: &Core,
+    client: &ClientConn,
+    params: SearchStreamParams,
+) -> CoreResult<Value> {
+    let stream = core.streams.open(
+        super::connection::connection_of(core, client)?,
+        params.stream,
+    )?;
+    let owner = client.id.to_string();
+    tokio::task::spawn_blocking(move || {
+        let found = crate::server::search::search(params.search, &owner, &|file| {
+            stream.push(json!({ "file": file }))
+        });
+        match found {
+            Ok(summary) => stream.finish(Some(json!({ "summary": summary }))),
+            Err(message) => stream.fail(json!({ "category": "search", "message": message })),
+        }
+    });
+    Ok(json!({ "stream": params.stream }))
 }

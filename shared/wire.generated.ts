@@ -4404,11 +4404,7 @@ export interface KeepSeededParams {
     keep: number[];
 }
 
-/**
- * Sends the person's message as `AcpPrompt` does, for a client whose own request
- * carries no context: the agents, earlier chats and issues the message names.
- * The chat a goal's button acts on.
- */
+/** The chat a goal's button acts on. */
 export interface ChatGoalParams {
     agentId: string;
 }

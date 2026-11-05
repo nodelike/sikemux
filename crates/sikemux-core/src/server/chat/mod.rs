@@ -2,6 +2,7 @@
 //! Protocol with, so a turn keeps going while the window is closed and a
 //! permission request waits for the person to come back.
 
+pub(crate) mod calls;
 pub(crate) mod failure;
 pub(crate) mod feed;
 pub(crate) mod find;
@@ -2263,7 +2264,7 @@ pub(crate) fn history(
 /// one, whole and with their meta, under the window's size.
 pub(crate) fn page(
     core: &Core,
-    params: super::calls::ChatPageParams,
+    params: calls::ChatPageParams,
 ) -> CoreResult<sikemux_wire::chat::ChatPage> {
     use feed::Anchor;
     let anchor = match (params.before, params.after, params.around) {

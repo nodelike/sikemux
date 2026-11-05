@@ -515,3 +515,21 @@ async fn pasted_picture(core: &Core, path: PathBuf) -> CoreResult<String> {
     })
     .await
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ShareChatParams {
+    agent_id: String,
+    lifetime_ms: u64,
+    title: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct StopShareParams {
+    pub(crate) id: String,
+}
+
+/// Shares the chat `params` names for as long as they say.
+pub(crate) fn share_chat_for(core: &Arc<Core>, params: ShareChatParams) -> CoreResult<ShareView> {
+    share_chat(core, &params.agent_id, params.lifetime_ms, params.title)
+}

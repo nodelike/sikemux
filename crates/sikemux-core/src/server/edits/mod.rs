@@ -34,8 +34,9 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::chat::Chat;
+use super::connection::blocking;
 use super::workspace::project_of;
-use super::Core;
+use super::{Core, CoreResult};
 pub(crate) use lines::{changed, hunk, replaced, Lines, Replaced};
 pub(crate) use owners::{authors, before, commit_lines, git, owners_at, CommitLines, Owners};
 
@@ -569,4 +570,69 @@ fn located(file: &str, old: Option<&str>, new: &str) -> Lines {
     };
     let first = before.matches('\n').count() as u64 + 1;
     lines::changed(old.unwrap_or_default(), new, first)
+}
+
+#[derive(Deserialize)]
+pub(crate) struct CheckoutParams {
+    dir: PathBuf,
+    #[serde(default)]
+    staged: bool,
+}
+
+/// Which agent wrote each uncommitted line of a checkout.
+pub(crate) async fn change_owners(core: &Arc<Core>, params: CheckoutParams) -> CoreResult<Owners> {
+    let core = core.clone();
+    blocking(move || Ok(owners_at(&core, &params.dir, params.staged)?)).await
+}
+
+#[derive(Deserialize)]
+pub(crate) struct CommitParams {
+    dir: PathBuf,
+    message: String,
+}
+
+/// Commits what the person staged in the git panel, with the footer naming
+/// the agents whose lines it holds. What git said.
+pub(crate) async fn commit_staged(core: &Arc<Core>, params: CommitParams) -> CoreResult<String> {
+    let core = core.clone();
+    blocking(move || {
+        let output = footer::commit(&core, &params.dir, &[], &params.message, None)?;
+        let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+        if output.status.success() {
+            core.activity_log
+                .record_commit(&params.dir.to_string_lossy());
+            Ok(said(&output.stdout))
+        } else if output.stderr.trim_ascii().is_empty() {
+            Err(said(&output.stdout).into())
+        } else {
+            Err(said(&output.stderr).into())
+        }
+    })
+    .await
+}
+
+/// The files agents changed in a project and the lines they changed, by
+/// agent, chat run, turn or path, oldest first.
+pub(crate) async fn read_edits(core: &Arc<Core>, filter: Filter) -> CoreResult<Vec<Edit>> {
+    let core = core.clone();
+    blocking(move || {
+        let project = core.workspaces.project_of(&filter.project);
+        Ok(core.edits.read(&project, &filter))
+    })
+    .await
+}
+
+/// The file tree's and the editor's methods on this host's disk, each read
+/// answering with at most a piece of a file so other replies keep moving.
+pub(crate) async fn on_disk(core: &Core, method: &str, params: Value) -> CoreResult<Value> {
+    let method = method.to_owned();
+    let ran = blocking(move || {
+        crate::files::run(&method, params, crate::files::PIECE_BYTES)
+            .map_err(|error| super::CoreError::from(error.to_string()))
+    })
+    .await?;
+    if let Some(path) = ran.saved {
+        core.edits.saved(path);
+    }
+    Ok(ran.answer)
 }

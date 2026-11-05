@@ -3,6 +3,7 @@
 //! chats alike. Every chat, however it starts, passes through here or
 //! [`own_tools`].
 
+use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -533,4 +534,31 @@ pub(crate) fn resume_chat(
         Ok(choice) => start_chat(core, client, request_id, choice),
         Err(error) => client.respond(request_id, Err(error)),
     }
+}
+
+/// A saved agent to start; one moved to another agent before it ran waits for the person.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct StartParams {
+    pub(crate) agent_id: String,
+    #[serde(default)]
+    pub(crate) waits_for_person: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TerminalParams {
+    agent_id: String,
+    cols: u16,
+    rows: u16,
+}
+
+/// Starts the agent's terminal at the size the app shows it.
+pub(crate) async fn start_terminal_at(
+    core: &Arc<Core>,
+    params: TerminalParams,
+) -> CoreResult<Value> {
+    let size = (params.cols, params.rows);
+    let pty = start_terminal(core, &params.agent_id, size, None).await?;
+    Ok(json!({ "ptyId": pty }))
 }

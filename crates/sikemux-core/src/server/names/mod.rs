@@ -8,14 +8,17 @@
 mod words;
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
+use super::connection::blocking;
 use super::kept::Kept;
+use super::{Core, CoreResult};
 use crate::protocol::AgentBuddy;
 use words::{ANIME, NATURE};
 
@@ -958,4 +961,131 @@ fn valid_name(name: &str) -> Result<String, String> {
             "a name is one word of up to {MAX_NAME_CHARS} letters and digits, starting with a letter"
         ))
     }
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct NameThemeParams {
+    theme: NameTheme,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NameAgentParams {
+    agent_id: String,
+    cwd: PathBuf,
+    provider: Option<String>,
+    resume_id: Option<String>,
+    /// How the app draws it, kept for when it is opened again.
+    buddy: Option<AgentBuddy>,
+    title: Option<String>,
+}
+
+/// An agent's name, with the character it wore before it closed when it
+/// opens again under a name the person chose.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NamedAgent {
+    #[serde(flatten)]
+    named: AgentName,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    buddy: Option<AgentBuddy>,
+}
+
+/// The name the core gave an agent the app starts or opens again, given now
+/// when it has none.
+pub(crate) async fn name_agent(
+    core: &Arc<Core>,
+    params: NameAgentParams,
+) -> CoreResult<NamedAgent> {
+    if !crate::cli::protocol::is_tool_agent_id(&params.agent_id) {
+        return Err("that is not an agent id".into());
+    }
+    if !params.cwd.is_absolute() {
+        return Err("an agent's folder must be an absolute path".into());
+    }
+    let core = core.clone();
+    blocking(move || {
+        let (named, kept) = core.name_agent(
+            &params.agent_id,
+            &params.cwd,
+            params.provider.as_deref(),
+            params.resume_id.as_deref(),
+        );
+        let buddy = match kept {
+            Some(kept) => kept,
+            None => {
+                core.names
+                    .note_look(&params.agent_id, params.buddy, params.title);
+                None
+            }
+        };
+        Ok(NamedAgent { named, buddy })
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct RenameAgentParams {
+    agent_id: String,
+    name: String,
+}
+
+pub(crate) async fn rename_agent(
+    core: &Arc<Core>,
+    params: RenameAgentParams,
+) -> CoreResult<AgentName> {
+    let core = core.clone();
+    blocking(move || {
+        let named = core
+            .names
+            .rename(&params.agent_id, &params.name, core.open_agents())?;
+        core.view_changed();
+        Ok(named)
+    })
+    .await
+}
+
+/// The names of the agents running here and of the workers they started on
+/// linked hosts, each with the agent that started it, so a device can list
+/// workers after their lead.
+pub(crate) async fn agent_names(core: &Arc<Core>) -> CoreResult<Vec<AgentName>> {
+    let core = core.clone();
+    blocking(move || {
+        let mut agents = core.running_agents();
+        agents.extend(core.hosts.team.ids());
+        Ok(core.names.of(&agents))
+    })
+    .await
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClosedAgentsParams {
+    pub cwd: PathBuf,
+}
+
+/// The closed agents of the project at `cwd` that keep the names the person
+/// gave them, newest first.
+pub(crate) async fn closed_agents(
+    core: &Arc<Core>,
+    params: ClosedAgentsParams,
+) -> CoreResult<Vec<ClosedAgent>> {
+    let core = core.clone();
+    blocking(move || {
+        let project = core.workspaces.project_of(&params.cwd);
+        Ok(core.names.closed(&project, core.open_agents()))
+    })
+    .await
+}
+
+pub(crate) fn name_theme(core: &Core) -> NameThemeParams {
+    NameThemeParams {
+        theme: core.names.theme(),
+    }
+}
+
+pub(crate) fn set_name_theme(core: &Core, params: NameThemeParams) -> NameThemeParams {
+    core.names.set_theme(params.theme);
+    params
 }

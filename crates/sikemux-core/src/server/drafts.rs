@@ -326,3 +326,28 @@ impl Drafts {
         }
     }
 }
+
+/// The drafts to read: those under `keys`, else every one.
+#[derive(Deserialize, Default)]
+pub struct DraftsParams {
+    pub(crate) keys: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SetDraftParams {
+    pub key: String,
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<Value>,
+    /// The draft's revision the app last read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rev: Option<u64>,
+}
+
+/// Keeps the draft `params` names and tells every client.
+pub(crate) fn set(core: &Core, params: SetDraftParams) -> CoreResult<()> {
+    core.drafts
+        .save(&params.key, params.text, params.extra, params.rev)?;
+    changed(core, vec![params.key]);
+    Ok(())
+}

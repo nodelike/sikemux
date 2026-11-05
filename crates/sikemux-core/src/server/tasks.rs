@@ -3,6 +3,7 @@
 //! person's own list hold, whether the person trusts commands someone else
 //! wrote, and what stops a task from starting.
 
+use super::access::Peer;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -1416,4 +1417,49 @@ pub(crate) async fn publish_runs(core: Arc<Core>) {
             core.changes.changed(Topic::Runs, None, None);
         }
     }
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ProjectParams {
+    pub(crate) project: String,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TrustProjectParams {
+    project: String,
+    fingerprint: String,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct TrustAnswerParams {
+    id: String,
+    trust: bool,
+}
+
+/// The name of the device the person acted from, when it was not this host's own window.
+pub(crate) fn answered_by(core: &Core, peer: &Peer) -> Option<String> {
+    let device = peer.device_id()?;
+    Some(core.remote.device_name(&device).unwrap_or(device))
+}
+
+pub(crate) async fn trust_project_for(
+    core: &Arc<Core>,
+    peer: &Peer,
+    params: TrustProjectParams,
+) -> CoreResult<()> {
+    trust_project(
+        core,
+        params.project,
+        params.fingerprint,
+        answered_by(core, peer),
+    )
+    .await
+}
+
+pub(crate) fn answer_trust_for(
+    core: &Core,
+    peer: &Peer,
+    params: TrustAnswerParams,
+) -> CoreResult<()> {
+    answer_trust(core, &params.id, params.trust, answered_by(core, peer))
 }

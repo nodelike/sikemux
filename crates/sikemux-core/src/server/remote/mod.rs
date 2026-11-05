@@ -3,6 +3,7 @@
 //! release cores keep separate ones; the core's key and the digest of what
 //! that file trusts live in the person's secret store.
 
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -985,6 +986,30 @@ fn load(keeper: &Keeper, path: &Path) -> CoreResult<(Stored, HostKey, String)> {
     }
     write_stored(path, &stored)?;
     Ok((stored, key, trusted))
+}
+
+pub(crate) fn signed((key, signature): (String, String)) -> Value {
+    json!({ "key": key, "signature": signature })
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct NonceParams {
+    nonce: String,
+}
+
+impl Remote {
+    /// Signs what a program on this host, such as the CLI, asks the accounts server as this host.
+    pub(crate) fn host_request_signature(
+        &self,
+        request: &crate::accounts::HostRequest,
+    ) -> CoreResult<Value> {
+        Ok(signed(self.sign_host_request(request)?))
+    }
+
+    /// Signs a share viewer's nonce as this host.
+    pub(crate) fn share_viewer_signature(&self, params: NonceParams) -> CoreResult<Value> {
+        Ok(signed(self.sign_share_viewer(&params.nonce)?))
+    }
 }
 
 #[cfg(test)]

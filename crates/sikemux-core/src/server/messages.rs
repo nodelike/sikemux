@@ -2099,3 +2099,65 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
         mailbox.wake.now();
     });
 }
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessagesParams {
+    pub project: String,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// A project's messages between agents, one row each, newest first, under the
+/// project's own path.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentMessageRows {
+    pub project: String,
+    pub rows: Vec<log::Row>,
+}
+
+/// Runs `read` off the async threads on the project at `project`, which must be an absolute
+/// path, under the project's own path.
+async fn in_project<T: Send + 'static>(
+    core: &Arc<Core>,
+    project: &str,
+    read: impl FnOnce(&Core, String) -> T + Send + 'static,
+) -> CoreResult<T> {
+    let path = Path::new(project);
+    if !path.is_absolute() {
+        return Err("project must be the project's absolute path".into());
+    }
+    let (core, path) = (core.clone(), path.to_owned());
+    blocking(move || {
+        let project = core.workspaces.project_of(&path);
+        Ok(read(&core, project))
+    })
+    .await
+}
+
+/// The project's log of messages between agents, newest first, under the
+/// project's own path, which keys it in the inbox's `agentMessages`.
+pub(crate) async fn agent_messages(
+    core: &Arc<Core>,
+    params: AgentMessagesParams,
+) -> CoreResult<Value> {
+    let limit = params.limit;
+    in_project(core, &params.project, move |core, project| {
+        let entries = logged(core, &project, limit);
+        json!({ "project": project, "entries": entries })
+    })
+    .await
+}
+
+/// The project's messages between agents folded into one row each, newest first.
+pub(crate) async fn agent_message_rows(
+    core: &Arc<Core>,
+    params: AgentMessagesParams,
+) -> CoreResult<AgentMessageRows> {
+    in_project(core, &params.project, |core, project| {
+        let rows = logged_rows(core, &project);
+        AgentMessageRows { project, rows }
+    })
+    .await
+}

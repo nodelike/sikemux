@@ -756,3 +756,10 @@ pub(super) fn plain_stalled(core: &Core, card: &Card) -> Option<lease::Stalled> 
         why: lease::Why::Closed,
     })
 }
+
+/// The chat a goal's button acts on.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatGoalParams {
+    pub agent_id: String,
+}

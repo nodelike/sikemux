@@ -4,6 +4,7 @@
 //! hosts and trackers while the app is closed. Without them, as in tests, every
 //! call says they are missing.
 
+use super::connection::blocking;
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -564,6 +565,20 @@ fn ssh_hostname(host: &str) -> Option<String> {
         .find_map(|line| line.strip_prefix("hostname "))
         .map(str::to_owned)
         .filter(|real| real != host)
+}
+
+/// Refuses a program an agent started: it could sign the person's plugin in
+/// to an account of its own choosing.
+pub(crate) async fn not_an_agent(client: &ClientConn) -> CoreResult<()> {
+    let Some(pid) = client.pid else {
+        return Ok(());
+    };
+    match blocking(move || Ok(super::callers::agent_of(pid))).await? {
+        Some(_) => {
+            Err("an agent cannot sign the person in to a service; the person runs this".into())
+        }
+        None => Ok(()),
+    }
 }
 
 #[cfg(test)]

@@ -9,6 +9,9 @@ mod report;
 
 pub(crate) use features::Counted;
 
+use super::changed::Topic;
+use super::connection::blocking;
+use super::CoreResult;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
@@ -1215,6 +1218,39 @@ fn streaks(days: &[ActivityDay], today: i64) -> ActivityStreaks {
     }
 }
 
+#[derive(Deserialize)]
+pub(crate) struct CommandUsed {
+    pub(crate) id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ActivitySummaryParams {
+    /// Minutes the person's clock is ahead of UTC, which places each event on their own day.
+    utc_offset_minutes: i64,
+    project: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct ActivityPriceParams {
+    model: String,
+    price: Option<PriceOverride>,
+}
+
+pub(crate) async fn summary_for(
+    core: &Arc<Core>,
+    params: ActivitySummaryParams,
+) -> CoreResult<ActivitySummary> {
+    let core = core.clone();
+    blocking(move || {
+        Ok(core.activity_log.summary(
+            params.utc_offset_minutes * 60_000,
+            params.project.as_deref(),
+        ))
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1409,4 +1445,10 @@ mod tests {
         assert_eq!((run.active_days, run.current, run.longest), (5, 2, 3));
         assert_eq!(streaks(&active(&[97, 98]), 100).current, 0);
     }
+}
+
+pub(crate) fn set_price_for(core: &Core, params: ActivityPriceParams) -> CoreResult<()> {
+    core.activity_log.set_price(&params.model, params.price)?;
+    core.changes.changed(Topic::Activity, None, None);
+    Ok(())
 }

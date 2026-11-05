@@ -1,6 +1,8 @@
 //! How the person wants Sikemux to behave, kept here so every app follows
 //! the same choices. Each one's default is `Preferences::default()`.
 
+use super::changed::Topic;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,7 +12,7 @@ use serde_json::{Map, Value};
 use sikemux_process::sync::Locked;
 
 use super::kept::Kept;
-use super::{CoreError, CoreResult};
+use super::{Core, CoreError, CoreResult};
 use crate::protocol::{
     CustomCommand, Preferences, MAX_PROJECT_DEPTH, MAX_TERMINAL_FONT_SIZE, MAX_TEXT_SCALE,
     MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE, UI_TEXT_SCALES,
@@ -205,4 +207,59 @@ fn commands_within_limits(commands: Vec<CustomCommand>) -> Vec<CustomCommand> {
             ..command
         })
         .collect()
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SetPreferenceParams {
+    key: String,
+    value: Value,
+}
+
+/// Whether a new chat in the project at the folder `project` starts in a worktree of its own.
+#[derive(Serialize, Deserialize)]
+pub struct WorktreeDefaultParams {
+    pub project: String,
+    pub on: bool,
+}
+
+/// Sets one preference and does what follows from it.
+pub(crate) fn set_by_client(
+    core: &Arc<Core>,
+    params: SetPreferenceParams,
+) -> CoreResult<Preferences> {
+    core.preferences.set(&params.key, params.value)?;
+    super::about::introduced(core, &params.key)?;
+    if params.key == "notch" {
+        super::notch::follow(core);
+    }
+    if params.key == "updateChannel" {
+        core.updates.check_soon();
+    }
+    if matches!(params.key.as_str(), "paneShader" | "paneImage") {
+        super::backdrop::follow(core);
+    }
+    if matches!(
+        params.key.as_str(),
+        "agentWorktreeDefaults" | "lastAgentType"
+    ) {
+        core.view_changed();
+    }
+    let preferences = core.preferences.get();
+    core.theme_changed();
+    core.changes.changed(Topic::Preferences, None, None);
+    Ok(preferences)
+}
+
+/// Whether a new chat in the project starts in a worktree of its own.
+pub(crate) fn set_worktree_default(core: &Core, params: WorktreeDefaultParams) -> CoreResult<()> {
+    let mut defaults = core.preferences.get().agent_worktree_defaults;
+    match params.on {
+        true => defaults.insert(params.project, true),
+        false => defaults.remove(&params.project),
+    };
+    core.preferences
+        .set("agentWorktreeDefaults", serde_json::to_value(defaults)?)?;
+    core.view_changed();
+    core.changes.changed(Topic::Preferences, None, None);
+    Ok(())
 }

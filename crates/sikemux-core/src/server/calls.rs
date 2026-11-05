@@ -2,26 +2,22 @@
 //! device gains a method here without its native code changing, so one a
 //! released app calls is never removed or renamed.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::access::{Needs, Peer, Program};
+use super::access::{Needs, Program};
 use super::activity_log::Counted;
-use super::attachments;
-use super::changed::Topic;
+use super::chat::calls as chat_calls;
 use super::connection::{blocking, ClientConn};
-use super::edits::{self, Edit, Filter, Owners};
-use super::names::{AgentName, ClosedAgent, NameTheme};
 use super::workspace;
 use super::{
-    agent_accounts, agent_sign_in, board, goal_summary, goals, inbox, memory, messages,
-    model_providers, plugins, questions, remote, saved, saved_sessions, share, ship, skill_library,
-    who_wrote, Core, CoreError, CoreResult,
+    agent_accounts, agent_sign_in, attachments, board, edits, goal_summary, goals, inbox, memory,
+    messages, model_providers, names, plugins, questions, remote, saved, saved_sessions, share,
+    ship, skill_library, who_wrote, Core, CoreError, CoreResult,
 };
-use crate::protocol::{AgentBuddy, Preferences, RemoteStatus};
+use crate::protocol::{Preferences, RemoteStatus};
 use sikemux_wire::catalog::CatalogAgent;
 use sikemux_wire::chat::ToolDetail;
 use sikemux_wire::memory::MemoryView;
@@ -126,68 +122,38 @@ macro_rules! calls {
 }
 
 calls! { core, client, method, params;
-    "chatFile": Watch, any_program => answer(chat_file(&core, &client.peer, parse(params)?).await?),
-    "keepPasted": Full => answer(keep_pasted(&core, parse(params)?).await?),
-    "page": Watch, any_program => answer(page(&core, parse(params)?).await?),
-    "nameAgent": NoDevice => answer(name_agent(&core, parse(params)?).await?),
-    "renameAgent": Full, counted => answer(rename_agent(&core, parse(params)?).await?),
-    "promptChat" PromptChat (PromptChatParams) -> (): Full => prompt_chat(&core, params).await?,
-    "closedAgents" ClosedAgents (ClosedAgentsParams) -> Vec<super::names::ClosedAgent>: Full => {
-        closed_agents(&core, params).await?
-    },
-    "agentNames": Watch, any_program => answer(agent_names(&core).await?),
+    "chatFile": Watch, any_program => answer(attachments::chat_file(&core, &client.peer, parse(params)?).await?),
+    "keepPasted": Full => answer(attachments::keep_pasted(&core, parse(params)?).await?),
+    "page": Watch, any_program => answer(super::harness::read_page(&core, parse(params)?).await?),
+    "nameAgent": NoDevice => answer(names::name_agent(&core, parse(params)?).await?),
+    "renameAgent": Full, counted => answer(names::rename_agent(&core, parse(params)?).await?),
+    "promptChat" PromptChat (chat_calls::PromptChatParams) -> (): Full => chat_calls::prompt_chat(&core, params).await?,
+    "closedAgents" ClosedAgents (names::ClosedAgentsParams) -> Vec<names::ClosedAgent>: Full => names::closed_agents(&core, params).await?,
+    "agentNames": Watch, any_program => answer(names::agent_names(&core).await?),
     "agentCatalog" AgentCatalog (NoParams) -> Vec<CatalogAgent>: Watch, any_program => super::catalog::view(),
-    "agentNameTheme": Full => answer(NameThemeParams { theme: core.names.theme() }),
-    "setAgentNameTheme": Owner, counted => {
-        let params: NameThemeParams = parse(params)?;
-        core.names.set_theme(params.theme);
-        answer(params)
-    },
+    "agentNameTheme": Full => answer(names::name_theme(&core)),
+    "setAgentNameTheme": Owner, counted => answer(names::set_name_theme(&core, parse(params)?)),
     "hostLoad": Watch, any_program => answer(super::load::now()),
-    "stopChatIfIdle": NoDevice => {
-        let params: AgentParams = parse(params)?;
-        answer(json!({ "stopped": super::lifecycle::sleep(&core, &params.agent_id) }))
-    },
+    "stopChatIfIdle": NoDevice => answer(json!({ "stopped": super::lifecycle::sleep(&core, &parse::<AgentParams>(params)?.agent_id) })),
     "switchAgentView": Owner => answer(super::agent_view::switch(&core, parse(params)?).await?),
-    "sleepAgent": Owner, counted => {
-        let params: AgentParams = parse(params)?;
-        answer(super::lifecycle::sleep_agent(&core, &params.agent_id)?)
-    },
+    "sleepAgent": Owner, counted => answer(super::lifecycle::sleep_agent(&core, &parse::<AgentParams>(params)?.agent_id)?),
     "sleepIdleChats": NoDevice => answer(json!({ "slept": super::lifecycle::sleep_idle(&core) })),
-    "startTerminalAgent": NoDevice, counted => {
-        let params: TerminalParams = parse(params)?;
-        let size = (params.cols, params.rows);
-        let pty = super::launching::start_terminal(&core, &params.agent_id, size, None).await?;
-        answer(json!({ "ptyId": pty }))
-    },
-    "commandUsed": NoDevice => {
-        let used: CommandUsed = parse(params)?;
-        core.activity_log.command_used(&used.id);
-        answer(())
-    },
-    "composing": Owner => {
-        let params: AgentParams = parse(params)?;
-        super::chat::composing(&core, &params.agent_id);
-        answer(())
-    },
+    "startTerminalAgent": NoDevice, counted => super::launching::start_terminal_at(&core, parse(params)?).await,
+    "commandUsed": NoDevice => answer(core.activity_log.command_used(&parse::<super::activity_log::CommandUsed>(params)?.id)),
+    "composing": Owner => answer(super::chat::composing(&core, &parse::<AgentParams>(params)?.agent_id)),
     "startChat": NoDevice, counted => {
-        let params: StartParams = parse(params)?;
+        let params: super::launching::StartParams = parse(params)?;
         answer(super::launching::start_saved(&core, &params.agent_id, params.waits_for_person).await?)
     },
     "resumeSession": Full, counted => answer(super::launching::resume_session(&core, parse(params)?).await?),
-    "activitySummary": Watch, any_program => answer(activity_summary(&core, parse(params)?).await?),
-    "setActivityPrice": Owner => {
-        let params: ActivityPriceParams = parse(params)?;
-        core.activity_log.set_price(&params.model, params.price)?;
-        core.changes.changed(Topic::Activity, None, None);
-        answer(())
-    },
-    "steerQueued" SteerQueued (QueuedParams) -> (): Full, counted => {
+    "activitySummary": Watch, any_program => answer(super::activity_log::summary_for(&core, parse(params)?).await?),
+    "setActivityPrice": Owner => answer(super::activity_log::set_price_for(&core, parse(params)?)?),
+    "steerQueued" SteerQueued (chat_calls::QueuedParams) -> (): Full, counted => {
         super::chat::queue::steer(&core, &params.agent_id, params.ids, params.message).await?
     },
-    "editMessage" EditMessage (EditParams) -> (): Full, counted => edit_message(&core, params).await?,
+    "editMessage" EditMessage (chat_calls::EditParams) -> (): Full, counted => chat_calls::edit_message(&core, params).await?,
     "chatPage": Watch, any_program => {
-        let params: ChatPageParams = parse(params)?;
+        let params: chat_calls::ChatPageParams = parse(params)?;
         let reading = core.clone();
         answer(blocking(move || super::chat::page(&reading, params)).await?)
     },
@@ -195,10 +161,10 @@ calls! { core, client, method, params;
         let (reading, client) = (core.clone(), client.id);
         blocking(move || super::chat::find(&reading, client, params)).await?
     },
-    "chatToolDetail" ChatToolDetail (ToolDetailParams) -> ToolDetail: Watch, any_program => {
+    "chatToolDetail" ChatToolDetail (chat_calls::ToolDetailParams) -> ToolDetail: Watch, any_program => {
         super::chat::tool_detail(&core, &params.agent_id, &params.tool_call_id)?
     },
-    "dropQueued" DropQueued (QueuedParams) -> (): Full => {
+    "dropQueued" DropQueued (chat_calls::QueuedParams) -> (): Full => {
         super::chat::queue::remove(&core, &params.agent_id, &params.ids)?
     },
     "agentSessions" AgentSessions (saved::SearchParams) -> Vec<crate::sessions::search::SessionMatch>: Full, any_program => {
@@ -306,10 +272,7 @@ calls! { core, client, method, params;
     "resizeSplit": Full => answer(super::layout::resize_split(&core, parse(params)?)?),
     "account": Watch => answer(core.account.shown()),
     "remoteImage": Watch => answer(super::remote_image::fetch(&core.remote_images, parse(params)?).await?),
-    "accountPicture": Watch => {
-        let params: AccountPictureParams = parse(params)?;
-        answer(super::account::picture(&core, &params.hash).await)
-    },
+    "accountPicture": Watch => answer(super::account::picture(&core, &parse::<super::account::AccountPictureParams>(params)?.hash).await),
     "accountSignIn": Owner => answer(super::account::sign_in(&core, client.peer.clone()).await?),
     "accountSignInFinish": Owner => answer(super::account::sign_in_finished(&core).await?),
     "accountSignInCancel": Owner => {
@@ -318,13 +281,10 @@ calls! { core, client, method, params;
     },
     "accountSignOut": Owner => answer(super::account::sign_out(&core, &client.peer).await?),
     "sshHosts": Watch, any_program => {
-        let core = core.clone();
-        answer(blocking(move || Ok(super::ssh::hosts(&core))).await?)
+        let reading = core.clone();
+        answer(blocking(move || Ok(super::ssh::hosts(&reading))).await?)
     },
-    "removeTrigger": Full => {
-        let params: TriggerParams = parse(params)?;
-        answer(super::triggers::remove(&core, params.trigger))
-    },
+    "removeTrigger": Full => answer(super::triggers::remove(&core, parse::<super::triggers::TriggerParams>(params)?.trigger)),
     "cancelResume" CancelResume (agent_accounts::Resuming) -> (): Full => agent_accounts::cancel_resume(&core, params),
     "setAgentAccounts": Owner => {
         agent_accounts::set(&core, parse(params)?).await?;
@@ -355,19 +315,8 @@ calls! { core, client, method, params;
         agent_accounts::authenticate(&core, parse(params)?).await?;
         answer(())
     },
-    "shareChat": Owner, counted => {
-        let params: ShareChatParams = parse(params)?;
-        answer(share::share_chat(
-            &core,
-            &params.agent_id,
-            params.lifetime_ms,
-            params.title,
-        )?)
-    },
-    "stopShare": Owner => {
-        let params: StopShareParams = parse(params)?;
-        answer(share::stop(&core, &params.id)?)
-    },
+    "shareChat": Owner, counted => answer(share::share_chat_for(&core, parse(params)?)?),
+    "stopShare": Owner => answer(share::stop(&core, &parse::<share::StopShareParams>(params)?.id)?),
     "shares": Full, any_program => answer(share::list(&core)),
     "pairing" Pairing (NoParams) -> remote::Pairing: Owner, any_program => remote::pairing(&core),
     "deviceChallenge": Owner => answer(super::hosts::account::device_challenge(&core).await?),
@@ -377,14 +326,8 @@ calls! { core, client, method, params;
     "deviceJoinTicket": Owner => {
         answer(super::hosts::account::device_join_ticket(&core, parse(params)?).await?)
     },
-    "signHostRequest": NoDevice => {
-        let request: crate::accounts::HostRequest = parse(params)?;
-        answer(signed(core.remote.sign_host_request(&request)?))
-    },
-    "signShareViewer": NoDevice => {
-        let params: NonceParams = parse(params)?;
-        answer(signed(core.remote.sign_share_viewer(&params.nonce)?))
-    },
+    "signHostRequest": NoDevice => core.remote.host_request_signature(&parse(params)?),
+    "signShareViewer": NoDevice => core.remote.share_viewer_signature(parse(params)?),
     "answerPairing" AnswerPairing (remote::PairingAnswer) -> remote::Pairing: Owner, counted => remote::answer_pairing(&core, params)?,
     "changeDevice" ChangeDevice (remote::DeviceChange) -> remote::Pairing: Owner => remote::change_device(&core, params)?,
     "projectFiles": Full => {
@@ -394,7 +337,7 @@ calls! { core, client, method, params;
     "projectEntries" ProjectEntries (super::project_files::ProjectEntriesParams) -> Vec<crate::fuzzy::Entry>: Full => {
         blocking(move || super::project_files::entries(params).map_err(CoreError::from)).await?
     },
-    "searchStream": Full, counted => answer(search_stream(&core, client, parse(params)?)?),
+    "searchStream": Full, counted => answer(super::streams::search_stream(&core, client, parse(params)?)?),
     "searchReplace": Full, counted => {
         let params = parse(params)?;
         answer(blocking(move || super::search::replace(params).map_err(CoreError::from)).await?)
@@ -404,8 +347,7 @@ calls! { core, client, method, params;
         answer(blocking(move || super::search::window(params).map_err(CoreError::from)).await?)
     },
     "streamCancel": Watch => {
-        let params: StreamParams = parse(params)?;
-        core.streams.cancel(client.id, params.stream);
+        core.streams.cancel(client.id, parse::<super::streams::StreamParams>(params)?.stream);
         answer(Value::Null)
     },
     "projectRoots": Full => {
@@ -418,11 +360,7 @@ calls! { core, client, method, params;
     },
     "sshConfigFile": Full => answer(blocking(|| super::ssh::config_file().map_err(CoreError::from)).await?),
     "faceStyle": Watch => answer(core.faces.style()),
-    "setFaceStyle": Owner, counted => {
-        let style = core.faces.set_style(parse(params)?)?;
-        core.view_changed();
-        answer(style)
-    },
+    "setFaceStyle": Owner, counted => answer(super::faces::set_style_shown(&core, parse(params)?)?),
     "preferences" Preferences (NoParams) -> Preferences: Watch => core.preferences.get(),
     "mods": Watch => answer(super::mods::list(&core).await?),
     "modPage": Watch => answer(super::mods::page(&core, parse(params)?).await?),
@@ -434,10 +372,7 @@ calls! { core, client, method, params;
     "turnModOff": Owner => answer(super::mods::turn_off(&core, parse(params)?)?),
     "removeMod": Owner => answer(super::mods::remove(&core, parse(params)?).await?),
     "addExampleMod": Owner => answer(super::mods::add_example(&core, parse(params)?).await?),
-    "stash": Owner => {
-        let params = serde_json::from_value(params).unwrap_or_default();
-        answer(super::stash::list(&core, params).await?)
-    },
+    "stash": Owner => answer(super::stash::list(&core, parse_or_default(params)?).await?),
     "stashPrompt" StashPrompt (super::stash::PromptParams) -> super::stash::Stashed: Owner, counted => {
         super::stash::stash_prompt(&core, params).await?
     },
@@ -448,110 +383,25 @@ calls! { core, client, method, params;
         super::stash::attach(&core, params).await?
     },
     "removeStash" RemoveStash (super::stash::ItemParams) -> (): Owner => super::stash::remove(&core, params).await?,
-    "drafts": Watch => {
-        let params: DraftsParams = serde_json::from_value(params).unwrap_or_default();
-        answer(core.drafts.get(params.keys.as_deref()))
-    },
-    "setDraft" SetDraft (SetDraftParams) -> (): Owner => {
-        core.drafts.save(&params.key, params.text, params.extra, params.rev)?;
-        super::drafts::changed(&core, vec![params.key]);
-    },
-    "diagramLayout": Owner => {
-        let params: DiagramParams = parse(params)?;
-        answer(json!({ "layout": core.diagrams.get(&params.key) }))
-    },
-    "setDiagramLayout": Owner => {
-        let params: DiagramParams = parse(params)?;
-        core.diagrams.set(&params.key, params.layout)?;
-        answer(json!({}))
-    },
-    "setPreference": Owner => {
-        let params: SetPreferenceParams = parse(params)?;
-        core.preferences.set(&params.key, params.value)?;
-        super::about::introduced(&core, &params.key)?;
-        if params.key == "notch" {
-            super::notch::follow(&core);
-        }
-        if params.key == "updateChannel" {
-            core.updates.check_soon();
-        }
-        if matches!(params.key.as_str(), "paneShader" | "paneImage") {
-            super::backdrop::follow(&core);
-        }
-        if matches!(params.key.as_str(), "agentWorktreeDefaults" | "lastAgentType") {
-            core.view_changed();
-        }
-        let preferences = core.preferences.get();
-        core.theme_changed();
-        core.changes.changed(Topic::Preferences, None, None);
-        answer(preferences)
-    },
-    "setWorktreeDefault" SetWorktreeDefault (WorktreeDefaultParams) -> (): Owner => {
-        let mut defaults = core.preferences.get().agent_worktree_defaults;
-        match params.on {
-            true => defaults.insert(params.project, true),
-            false => defaults.remove(&params.project),
-        };
-        core.preferences.set("agentWorktreeDefaults", serde_json::to_value(defaults)?)?;
-        core.view_changed();
-        core.changes.changed(Topic::Preferences, None, None);
-    },
-    "theme": Watch, any_program => {
-        let params: ThemeParams = serde_json::from_value(params).unwrap_or_default();
-        match params.id {
-            Some(theme_id) => answer(super::themes::palette(&crate::protocol::Preferences { theme_id, ..core.preferences.get() })),
-            None => answer(core.look.palette()),
-        }
-    },
-    "typeWhenReady": Full => {
-        let params: TypeWhenReadyParams = parse(params)?;
-        let session = core.session(params.id).ok_or("that terminal is not on this host")?;
-        let typist = super::connection::typist(client);
-        if !session.may_type(typist) {
-            return Err(super::session::SETUP_LOCKED.into());
-        }
-        if let Some(draft) = super::session::typable(&params.draft) {
-            super::session::type_when_ready(&session, draft, typist);
-        }
-        answer(json!({}))
-    },
-    "promptDraft": Full => {
-        let params: SessionParams = parse(params)?;
-        let session = core.session(params.id).ok_or("that terminal is not on this host")?;
-        answer(json!({ "draft": super::session::prompt_draft(&session) }))
-    },
-    "reconnectSsh": Full => {
-        let params: SessionParams = parse(params)?;
-        let session = core.session(params.id).ok_or("that terminal is not on this host")?;
-        blocking(move || {
-            super::session::reconnect_ssh(&session);
-            Ok(())
-        })
-        .await?;
-        answer(json!({}))
-    },
+    "drafts": Watch => answer(core.drafts.get(parse_or_default::<super::drafts::DraftsParams>(params)?.keys.as_deref())),
+    "setDraft" SetDraft (super::drafts::SetDraftParams) -> (): Owner => super::drafts::set(&core, params)?,
+    "diagramLayout": Owner => answer(super::diagrams::layout(&core, parse(params)?)),
+    "setDiagramLayout": Owner => super::diagrams::set_layout(&core, parse(params)?),
+    "setPreference": Owner => answer(super::preferences::set_by_client(&core, parse(params)?)?),
+    "setWorktreeDefault" SetWorktreeDefault (super::preferences::WorktreeDefaultParams) -> (): Owner => super::preferences::set_worktree_default(&core, params)?,
+    "theme": Watch, any_program => answer(super::themes::palette_for(&core, parse_or_default(params)?)),
+    "typeWhenReady": Full => super::session::type_when_asked(&core, client, parse(params)?),
+    "promptDraft": Full => super::session::draft_at_prompt(&core, parse(params)?),
+    "reconnectSsh": Full => super::session::reconnect(&core, parse(params)?).await,
     "newTerminal": Full => answer(super::spare::new_terminal(&core, parse(params)?).await?),
     "showTerminals": Full => answer(super::spare::show_terminals(&core).await?),
     "stripShell": Full => answer(super::spare::strip_shell(&core, parse(params)?).await?),
     "openSshTerminal": Full, counted => answer(super::spare::open_ssh_terminal(&core, parse(params)?).await?),
     "takeSpareShell": NoDevice => answer(super::spare::take(&core, parse(params)?)),
     "themes": Watch => answer(super::themes::summaries(&core.preferences.get())),
-    "themePalette": Watch => {
-        let params: ThemePaletteParams = parse(params)?;
-        answer(super::themes::palette_of(params.theme))
-    },
-    "themeFromColours": Watch => {
-        let params: ThemeFromColoursParams = parse(params)?;
-        let theme = super::themes::from_colours(&params.name, &params.colours, params.accent.as_deref());
-        answer(theme.ok_or("a theme needs 21 colours, each #rrggbb, the selection's may be empty")?)
-    },
-    "themeFromPixels": Watch, counted => {
-        let params: super::wallpaper::PixelsParams = parse(params)?;
-        let rgba = super::wallpaper::pixels(&params)?;
-        let (colours, accent) = super::wallpaper::colours(&rgba)?;
-        let theme = super::themes::from_colours(&params.name, &colours, Some(&accent));
-        answer(theme.ok_or("the wallpaper gave no theme")?)
-    },
+    "themePalette": Watch => answer(super::themes::palette_of(parse::<super::themes::ThemePaletteParams>(params)?.theme)),
+    "themeFromColours": Watch => answer(super::themes::built_from_colours(parse(params)?)?),
+    "themeFromPixels": Watch, counted => answer(super::wallpaper::theme_from_pixels(parse(params)?)?),
     "codeHostPulls": Watch => answer(super::codehost::pulls(&core, client.id, parse(params)?).await),
     "codeHostTrackedContext" CodeHostTrackedContext (super::codehost::TrackedParams) -> plugins::Outcome: Watch => {
         super::codehost::tracked_context(&core, params).await
@@ -577,9 +427,9 @@ calls! { core, client, method, params;
     "answerQuestions" AnswerQuestions (questions::AnswersParams) -> (): Full, counted => questions::answer_all(&core, params).await?,
     "allowShip" AllowShip (ship::HoldParams) -> (): Full => ship::allow(&core, params).await?,
     "refuseShip" RefuseShip (ship::HoldParams) -> (): Full => ship::refuse(&core, params).await?,
-    "agentMessages": Watch, any_program => answer(agent_messages(&core, parse(params)?).await?),
-    "agentMessageRows" AgentMessageRows (AgentMessagesParams) -> AgentMessageRows: Watch, any_program => {
-        agent_message_rows(&core, params).await?
+    "agentMessages": Watch, any_program => answer(messages::agent_messages(&core, parse(params)?).await?),
+    "agentMessageRows" AgentMessageRows (messages::AgentMessagesParams) -> messages::AgentMessageRows: Watch, any_program => {
+        messages::agent_message_rows(&core, params).await?
     },
     "boards" Boards (NoParams) -> Vec<board::BoardView>: Watch, any_program => board::boards(&core),
     "board" Board (board::BoardParams) -> board::BoardView: Watch, any_program => board::board(&core, params).await?,
@@ -618,48 +468,29 @@ calls! { core, client, method, params;
     "promoteRule" PromoteRule (memory::MemoryEntryParams) -> MemoryView: Owner => memory::promote(&core, client.peer.clone(), params).await?,
     "keepSeededRules" KeepSeededRules (memory::KeepSeededParams) -> MemoryView: Owner => memory::keep_seeded(&core, client.peer.clone(), params).await?,
     "seedRules" SeedRules (memory::MemoryParams) -> MemoryView: Owner => memory::seed_again(&core, client.peer.clone(), params).await?,
-    "chatGoalTrack" ChatGoalTrack (ChatGoalParams) -> (): Full => {
+    "chatGoalTrack" ChatGoalTrack (board::chat_goal::ChatGoalParams) -> (): Full => {
         board::chat_goal::track(&core, params.agent_id).await?
     },
-    "chatGoalUndo" ChatGoalUndo (ChatGoalParams) -> (): Full => {
+    "chatGoalUndo" ChatGoalUndo (board::chat_goal::ChatGoalParams) -> (): Full => {
         board::chat_goal::undo(&core, params.agent_id).await?
     },
-    "chatGoalNotNow" ChatGoalNotNow (ChatGoalParams) -> (): Full => board::chat_goal::not_now(&core, &params.agent_id),
+    "chatGoalNotNow" ChatGoalNotNow (board::chat_goal::ChatGoalParams) -> (): Full => board::chat_goal::not_now(&core, &params.agent_id),
     "boardRetry" BoardRetry (board::CardParams) -> board::BoardView: Full => board::person_retry(&core, params).await?,
     "boardPass" BoardPass (board::PassParams) -> board::BoardView: Full => board::person_pass(&core, params).await?,
     "boardNote" BoardNote (board::NoteParams) -> board::BoardView: Full => board::person_note(&core, params).await?,
-    "edits": Watch, any_program => answer(edits(&core, parse(params)?).await?),
-    "changeOwners": Watch, any_program => answer(change_owners(&core, parse(params)?).await?),
-    "commitStaged": Owner, counted => answer(commit_staged(&core, parse(params)?).await?),
+    "edits": Watch, any_program => answer(edits::read_edits(&core, parse(params)?).await?),
+    "changeOwners": Watch, any_program => answer(edits::change_owners(&core, parse(params)?).await?),
+    "commitStaged": Owner, counted => answer(edits::commit_staged(&core, parse(params)?).await?),
     "commitOwners": Watch, any_program => answer(who_wrote::call(&core, parse(params)?).await?),
     "commitLines": Watch, any_program, counted => answer(who_wrote::lines(&core, parse(params)?).await?),
-    "inbox": Watch, any_program => answer(inbox(&core).await?),
-    "digest": Watch, any_program => answer(digest(&core, parse(params)?).await?),
-    "ports": Owner => {
-        let params: PortsParams = parse(params)?;
-        answer(super::ports::project_ports(&core, client.id, params.project).await?)
-    },
-    "testResults": Owner => {
-        let params: ProjectParams = parse(params)?;
-        answer(super::tasks::module_tests(&core, params.project).await?)
-    },
-    "projectConfig": Owner => {
-        let params: ProjectParams = parse(params)?;
-        answer(super::tasks::project_config(&core, params.project).await?)
-    },
-    "startPreview": Owner, counted => {
-        let params: ProjectParams = parse(params)?;
-        answer(super::tasks::start_preview(&core, params.project).await?)
-    },
-    "trustProject": Owner => {
-        let params: TrustProjectParams = parse(params)?;
-        let answered_by = answered_by(&core, &client.peer);
-        answer(super::tasks::trust_project(&core, params.project, params.fingerprint, answered_by).await?)
-    },
-    "tasks": Owner => {
-        let params: ProjectParams = parse(params)?;
-        answer(super::tasks::list(&core, params.project).await?)
-    },
+    "inbox": Watch, any_program => answer(inbox::read(&core).await?),
+    "digest": Watch, any_program => answer(inbox::read_digest(&core, parse(params)?).await?),
+    "ports": Owner => answer(super::ports::project_ports(&core, client.id, parse::<super::ports::PortsParams>(params)?.project).await?),
+    "testResults": Owner => answer(super::tasks::module_tests(&core, parse::<super::tasks::ProjectParams>(params)?.project).await?),
+    "projectConfig": Owner => answer(super::tasks::project_config(&core, parse::<super::tasks::ProjectParams>(params)?.project).await?),
+    "startPreview": Owner, counted => answer(super::tasks::start_preview(&core, parse::<super::tasks::ProjectParams>(params)?.project).await?),
+    "trustProject": Owner => answer(super::tasks::trust_project_for(&core, &client.peer, parse(params)?).await?),
+    "tasks": Owner => answer(super::tasks::list(&core, parse::<super::tasks::ProjectParams>(params)?.project).await?),
     "taskRuns": Owner => answer(super::tasks::runs(&core)),
     "taskStart": Owner, counted => answer(super::tasks::start(&core, parse(params)?).await?),
     "taskRerunFailed": Owner, counted => answer(super::tasks::rerun_failed(&core, parse(params)?).await?),
@@ -668,21 +499,11 @@ calls! { core, client, method, params;
         answer(())
     },
     "trustAsks": Owner => answer(super::tasks::asks(&core)),
-    "answerTrust": Owner => {
-        let params: TrustAnswerParams = parse(params)?;
-        let answered_by = answered_by(&core, &client.peer);
-        answer(super::tasks::answer_trust(&core, &params.id, params.trust, answered_by)?)
-    },
-    "addTask": Owner => {
-        let answered_by = answered_by(&core, &client.peer);
-        answer(super::tasks::add(&core, parse(params)?, answered_by).await?)
-    },
+    "answerTrust": Owner => answer(super::tasks::answer_trust_for(&core, &client.peer, parse(params)?)?),
+    "addTask": Owner => answer(super::tasks::add(&core, parse(params)?, super::tasks::answered_by(&core, &client.peer)).await?),
     "removeTask": Owner => answer(super::tasks::remove(&core, parse(params)?).await?),
     "setCheck": Owner => answer(super::tasks::set_check(&core, parse(params)?).await?),
-    "agentModels": NoDevice => {
-        let params: AgentModelsParams = parse(params)?;
-        answer(super::chat::offered::models(&params.agent))
-    },
+    "agentModels": NoDevice => answer(super::chat::offered::models(&parse::<super::chat::offered::AgentModelsParams>(params)?.agent)),
     "plugin": Owner, counted_by("plugin") => answer(plugins::window_call(&core, parse(params)?).await),
     "pluginManifests": Owner => answer(plugins::manifests(&core)),
     "releaseNotes": Watch => answer(super::about::release_notes(parse(params)?).await?),
@@ -703,27 +524,27 @@ calls! { core, client, method, params;
         plugins::set_disabled(&core, parse(params)?);
         answer(())
     },
-    "pluginStream": Owner => answer(plugins::stream(&core, connection_of(&core, client)?, parse(params)?)?),
+    "pluginStream": Owner => answer(plugins::stream(&core, super::connection::connection_of(&core, client)?, parse(params)?)?),
     "pluginSignIn": Owner, any_program => {
-        not_an_agent(client).await?;
-        answer(plugins::sign_in(&core, connection_of(&core, client)?, parse(params)?)?)
+        plugins::not_an_agent(client).await?;
+        answer(plugins::sign_in(&core, super::connection::connection_of(&core, client)?, parse(params)?)?)
     },
     "signInCallback": Owner, any_program => {
-        not_an_agent(client).await?;
+        plugins::not_an_agent(client).await?;
         answer(plugins::sign_in_callback(&core, parse(params)?)?)
     },
-    "files.list": Full => files(&core, method, params).await,
-    "files.kinds": Full => files(&core, method, params).await,
-    "files.read": Full => files(&core, method, params).await,
-    "files.create": Full => files(&core, method, params).await,
-    "files.rename": Full => files(&core, method, params).await,
-    "files.delete": Full => files(&core, method, params).await,
-    "files.readText": Full => files(&core, method, params).await,
-    "files.copyInto": Full => files(&core, method, params).await,
-    "files.writeBytes": Full => files(&core, method, params).await,
-    "files.preview": Full => files(&core, method, params).await,
-    "files.bytes": Full => files(&core, method, params).await,
-    "files.write": Full => files(&core, method, params).await,
+    "files.list": Full => edits::on_disk(&core, method, params).await,
+    "files.kinds": Full => edits::on_disk(&core, method, params).await,
+    "files.read": Full => edits::on_disk(&core, method, params).await,
+    "files.create": Full => edits::on_disk(&core, method, params).await,
+    "files.rename": Full => edits::on_disk(&core, method, params).await,
+    "files.delete": Full => edits::on_disk(&core, method, params).await,
+    "files.readText": Full => edits::on_disk(&core, method, params).await,
+    "files.copyInto": Full => edits::on_disk(&core, method, params).await,
+    "files.writeBytes": Full => edits::on_disk(&core, method, params).await,
+    "files.preview": Full => edits::on_disk(&core, method, params).await,
+    "files.bytes": Full => edits::on_disk(&core, method, params).await,
+    "files.write": Full => edits::on_disk(&core, method, params).await,
     "lsp.release": Full => super::lsp::call(&core, client.id, method, params).await,
     "lsp.claim": Full => super::lsp::call(&core, client.id, method, params).await,
     "lsp.languages": Full => super::lsp::call(&core, client.id, method, params).await,
@@ -741,79 +562,17 @@ calls! { core, client, method, params;
     "git.pullRequestUrl": Watch, any_program => answer(super::git::pull_request_url(&core, &client.peer, parse(params)?).await?),
 }
 
-/// The file tree's and the editor's methods on this host's disk, each read
-/// answering with at most a piece of a file so other replies keep moving.
-async fn files(core: &Core, method: &str, params: Value) -> CoreResult<Value> {
-    let method = method.to_owned();
-    let ran = blocking(move || {
-        crate::files::run(&method, params, crate::files::PIECE_BYTES)
-            .map_err(|error| CoreError::from(error.to_string()))
-    })
-    .await?;
-    if let Some(path) = ran.saved {
-        core.edits.saved(path);
-    }
-    Ok(ran.answer)
-}
-
-/// Refuses a program an agent started: it could sign the person's plugin in
-/// to an account of its own choosing.
-async fn not_an_agent(client: &ClientConn) -> CoreResult<()> {
-    let Some(pid) = client.pid else {
-        return Ok(());
-    };
-    match blocking(move || Ok(super::callers::agent_of(pid))).await? {
-        Some(_) => {
-            Err("an agent cannot sign the person in to a service; the person runs this".into())
-        }
-        None => Ok(()),
-    }
-}
-
-#[derive(Deserialize)]
-struct StreamParams {
-    /// None stops every stream on the connection, as a reloaded page does.
-    stream: Option<u64>,
-}
-
-#[derive(Deserialize)]
-struct SearchStreamParams {
-    stream: u64,
-    #[serde(flatten)]
-    search: super::search::SearchParams,
-}
-
-/// The connection a call came on, for a stream to send its parts down.
-fn connection_of(core: &Core, client: &ClientConn) -> CoreResult<Arc<ClientConn>> {
-    core.client_conn(client.id)
-        .ok_or_else(|| CoreError::from("this connection is closing"))
-}
-
-/// Starts a search whose files arrive as the client's stream `stream`.
-fn search_stream(
-    core: &Core,
-    client: &ClientConn,
-    params: SearchStreamParams,
-) -> CoreResult<Value> {
-    let stream = core
-        .streams
-        .open(connection_of(core, client)?, params.stream)?;
-    let owner = client.id.to_string();
-    tokio::task::spawn_blocking(move || {
-        let found = super::search::search(params.search, &owner, &|file| {
-            stream.push(json!({ "file": file }))
-        });
-        match found {
-            Ok(summary) => stream.finish(Some(json!({ "summary": summary }))),
-            Err(message) => stream.fail(json!({ "category": "search", "message": message })),
-        }
-    });
-    Ok(json!({ "stream": params.stream }))
-}
-
 pub(super) fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
     serde_json::from_value(params)
         .map_err(|error| CoreError::from(format!("the call's params do not fit: {error}")))
+}
+
+/// Params a client may leave out, which then read as the defaults.
+fn parse_or_default<T: for<'de> Deserialize<'de> + Default>(params: Value) -> CoreResult<T> {
+    match params {
+        Value::Null => Ok(T::default()),
+        params => parse(params),
+    }
 }
 
 /// A field the params name, null or not, as against one they leave out.
@@ -823,406 +582,8 @@ pub(super) fn given<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     Option::deserialize(field).map(Some)
 }
 
-#[derive(Deserialize)]
-struct CommandUsed {
-    id: String,
-}
-
-/// The name of the device the person acted from, when it was not this host's own window.
-fn answered_by(core: &Core, peer: &Peer) -> Option<String> {
-    let device = peer.device_id()?;
-    Some(core.remote.device_name(&device).unwrap_or(device))
-}
-
 fn answer(result: impl Serialize) -> CoreResult<Value> {
     Ok(serde_json::to_value(result)?)
-}
-
-fn signed((key, signature): (String, String)) -> Value {
-    json!({ "key": key, "signature": signature })
-}
-
-#[derive(Debug, Deserialize)]
-struct NonceParams {
-    nonce: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct NameThemeParams {
-    theme: NameTheme,
-}
-
-#[derive(Deserialize)]
-struct ProjectParams {
-    project: String,
-}
-
-#[derive(Deserialize)]
-struct PortsParams {
-    project: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct TrustProjectParams {
-    project: String,
-    fingerprint: String,
-}
-
-#[derive(Deserialize)]
-struct SessionParams {
-    id: crate::protocol::SessionId,
-}
-
-/// A draft to paste into a terminal once it is ready, left at the prompt for
-/// the person to send.
-#[derive(Deserialize)]
-struct TypeWhenReadyParams {
-    id: crate::protocol::SessionId,
-    draft: String,
-}
-
-/// Which theme to answer for; the person's pick when none is named.
-#[derive(Deserialize, Default)]
-struct ThemeParams {
-    id: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ThemePaletteParams {
-    theme: sikemux_wire::theme::Theme,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ThemeFromColoursParams {
-    name: String,
-    colours: Vec<String>,
-    accent: Option<String>,
-}
-
-/// The drafts to read: those under `keys`, else every one.
-#[derive(Deserialize, Default)]
-struct DraftsParams {
-    keys: Option<Vec<String>>,
-}
-
-#[derive(Deserialize)]
-struct DiagramParams {
-    key: String,
-    /// The arrangement to keep; without one the kept arrangement is forgotten.
-    #[serde(default)]
-    layout: Option<Value>,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct SetDraftParams {
-    pub key: String,
-    pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extra: Option<Value>,
-    /// The draft's revision the app last read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub rev: Option<u64>,
-}
-
-#[derive(Deserialize)]
-struct SetPreferenceParams {
-    key: String,
-    value: Value,
-}
-
-#[derive(Deserialize)]
-struct AgentModelsParams {
-    agent: String,
-}
-
-#[derive(Deserialize)]
-struct TrustAnswerParams {
-    id: String,
-    trust: bool,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentMessagesParams {
-    pub project: String,
-    #[serde(default)]
-    pub limit: Option<usize>,
-}
-
-/// A project's messages between agents, one row each, newest first, under the
-/// project's own path.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentMessageRows {
-    pub project: String,
-    pub rows: Vec<messages::log::Row>,
-}
-
-/// The project's log of messages between agents, newest first, under the
-/// project's own path, which keys it in the inbox's `agentMessages`.
-async fn agent_messages(core: &Arc<Core>, params: AgentMessagesParams) -> CoreResult<Value> {
-    let path = Path::new(&params.project);
-    if !path.is_absolute() {
-        return Err("project must be the project's absolute path".into());
-    }
-    let path = path.to_owned();
-    let core = core.clone();
-    blocking(move || {
-        let project = core.workspaces.project_of(&path);
-        let entries = messages::logged(&core, &project, params.limit);
-        Ok(json!({ "project": project, "entries": entries }))
-    })
-    .await
-}
-
-/// The project's messages between agents folded into one row each, newest first.
-async fn agent_message_rows(
-    core: &Arc<Core>,
-    params: AgentMessagesParams,
-) -> CoreResult<AgentMessageRows> {
-    let path = Path::new(&params.project);
-    if !path.is_absolute() {
-        return Err("project must be the project's absolute path".into());
-    }
-    let path = path.to_owned();
-    let core = core.clone();
-    blocking(move || {
-        let project = core.workspaces.project_of(&path);
-        let rows = super::messages::logged_rows(&core, &project);
-        Ok(AgentMessageRows { project, rows })
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ShareChatParams {
-    agent_id: String,
-    lifetime_ms: u64,
-    title: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct StopShareParams {
-    id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ChatFileParams {
-    path: PathBuf,
-    /// For a picture shown small: the longest side, in pixels, to send it scaled to.
-    #[serde(default)]
-    max_edge: Option<u32>,
-}
-
-#[derive(Serialize)]
-struct ChatFile {
-    /// Set when the file was sent as a scaled copy, which is a JPEG.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mime: Option<&'static str>,
-    data: String,
-}
-
-/// A file a chat's message carried, in base64. Any device may read the
-/// pictures pasted into chats; one that can drive sessions can already read
-/// anything through a terminal, so it may read files dropped from elsewhere.
-async fn chat_file(core: &Core, peer: &Peer, params: ChatFileParams) -> CoreResult<ChatFile> {
-    let pasted = core.config.attachment_dir.clone();
-    let path = params.path;
-    let kept = match pasted {
-        Some(dir) => {
-            let path = path.clone();
-            blocking(move || Ok(attachments::is_kept(&dir, &path))).await?
-        }
-        None => false,
-    };
-    if !kept {
-        core.permit(peer, Needs::Full).map_err(|_| {
-            CoreError::from("this device can open only the pictures pasted into chats")
-        })?;
-    }
-    let max_edge = params.max_edge;
-    blocking(move || {
-        if let Some(data) = max_edge.and_then(|edge| attachments::thumbnail(&path, edge)) {
-            return Ok(ChatFile {
-                mime: Some("image/jpeg"),
-                data,
-            });
-        }
-        Ok(ChatFile {
-            mime: None,
-            data: attachments::read(&path)?,
-        })
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-struct KeepPastedParams {
-    name: String,
-    mime: String,
-    data: String,
-}
-
-#[derive(Serialize)]
-struct Kept {
-    path: PathBuf,
-}
-
-/// A file pasted into a terminal, kept where pictures pasted into chats are, so the
-/// program in the terminal can be given its path.
-async fn keep_pasted(core: &Core, params: KeepPastedParams) -> CoreResult<Kept> {
-    let dir = core
-        .config
-        .attachment_dir
-        .clone()
-        .ok_or_else(|| CoreError::from("this host has nowhere to keep files"))?;
-    let path =
-        blocking(move || attachments::save(&dir, &params.name, &params.mime, &params.data)).await?;
-    Ok(Kept { path })
-}
-
-#[derive(Deserialize)]
-struct PageParams {
-    id: String,
-}
-
-#[derive(Serialize)]
-struct PageHtml {
-    html: String,
-}
-
-/// A page an agent showed with `page_show`, as a chat shows it in the reply.
-async fn page(core: &Core, params: PageParams) -> CoreResult<PageHtml> {
-    if !crate::pages::is_page_id(&params.id) {
-        return Err("that is not a page's id".into());
-    }
-    let dir = core
-        .config
-        .data_dir
-        .clone()
-        .ok_or("this core keeps no pages")?
-        .join(crate::pages::FOLDER);
-    let html = blocking(move || {
-        std::fs::read_to_string(dir.join(format!("{}.html", params.id)))
-            .map_err(|_| CoreError::from("that page is gone"))
-    })
-    .await?;
-    Ok(PageHtml { html })
-}
-
-/// A page of a chat's rows: those before or after an event, or around the row holding one.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct ChatPageParams {
-    pub agent_id: String,
-    pub feed: String,
-    pub before: Option<u64>,
-    pub after: Option<u64>,
-    pub around: Option<u64>,
-    /// A subagent's rows rather than the chat's own.
-    pub session: Option<String>,
-    pub turns: Option<u32>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToolDetailParams {
-    pub agent_id: String,
-    pub tool_call_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct NameAgentParams {
-    agent_id: String,
-    cwd: PathBuf,
-    provider: Option<String>,
-    resume_id: Option<String>,
-    /// How the app draws it, kept for when it is opened again.
-    buddy: Option<AgentBuddy>,
-    title: Option<String>,
-}
-
-/// An agent's name, with the character it wore before it closed when it
-/// opens again under a name the person chose.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct NamedAgent {
-    #[serde(flatten)]
-    named: AgentName,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    buddy: Option<AgentBuddy>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ActivitySummaryParams {
-    /// Minutes the person's clock is ahead of UTC, which places each event on their own day.
-    utc_offset_minutes: i64,
-    project: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct ActivityPriceParams {
-    model: String,
-    price: Option<super::activity_log::PriceOverride>,
-}
-
-async fn activity_summary(
-    core: &Arc<Core>,
-    params: ActivitySummaryParams,
-) -> CoreResult<super::activity_log::ActivitySummary> {
-    let core = core.clone();
-    blocking(move || {
-        Ok(core.activity_log.summary(
-            params.utc_offset_minutes * 60_000,
-            params.project.as_deref(),
-        ))
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-struct AccountPictureParams {
-    hash: String,
-}
-
-/// A person's message `message_id` written again as `text`, sent with the files at `paths`.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct EditParams {
-    agent_id: String,
-    message_id: String,
-    text: String,
-    #[serde(default)]
-    paths: Vec<String>,
-}
-
-/// Takes the chat back to before the message and sends the new text in its place, as the
-/// window's own edit does, starting the chat first when it was stopped.
-async fn edit_message(core: &Arc<Core>, params: EditParams) -> CoreResult<()> {
-    super::chat::wake_for_message(core, &params.agent_id, &mut []).await?;
-    let EditParams {
-        agent_id,
-        message_id,
-        text,
-        paths,
-    } = params;
-    super::chat::edit(core, &agent_id, message_id, text, paths, Vec::new()).await
-}
-
-/// Messages waiting behind an agent's turn, by id.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QueuedParams {
-    pub agent_id: String,
-    pub ids: Vec<String>,
-    /// A message sent with them, after them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message: Option<super::chat::queue::Message>,
 }
 
 /// What a call that takes nothing is sent; whatever a client sends reads as nothing.
@@ -1239,236 +600,5 @@ impl<'de> Deserialize<'de> for NoParams {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentParams {
-    agent_id: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TriggerParams {
-    trigger: u64,
-}
-
-/// A saved agent to start; one moved to another agent before it ran waits for the person.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct StartParams {
-    agent_id: String,
-    #[serde(default)]
-    waits_for_person: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TerminalParams {
-    agent_id: String,
-    cols: u16,
-    rows: u16,
-}
-
-/// The name the core gave an agent the app starts or opens again, given now
-/// when it has none.
-async fn name_agent(core: &Arc<Core>, params: NameAgentParams) -> CoreResult<NamedAgent> {
-    if !crate::cli::protocol::is_tool_agent_id(&params.agent_id) {
-        return Err("that is not an agent id".into());
-    }
-    if !params.cwd.is_absolute() {
-        return Err("an agent's folder must be an absolute path".into());
-    }
-    let core = core.clone();
-    blocking(move || {
-        let (named, kept) = core.name_agent(
-            &params.agent_id,
-            &params.cwd,
-            params.provider.as_deref(),
-            params.resume_id.as_deref(),
-        );
-        let buddy = match kept {
-            Some(kept) => kept,
-            None => {
-                core.names
-                    .note_look(&params.agent_id, params.buddy, params.title);
-                None
-            }
-        };
-        Ok(NamedAgent { named, buddy })
-    })
-    .await
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ClosedAgentsParams {
-    pub cwd: PathBuf,
-}
-
-/// The closed agents of the project at `cwd` that keep the names the person
-/// gave them, newest first.
-async fn closed_agents(
-    core: &Arc<Core>,
-    params: ClosedAgentsParams,
-) -> CoreResult<Vec<ClosedAgent>> {
-    let core = core.clone();
-    blocking(move || {
-        let project = core.workspaces.project_of(&params.cwd);
-        Ok(core.names.closed(&project, core.open_agents()))
-    })
-    .await
-}
-
-/// Whether a new chat in the project at the folder `project` starts in a worktree of its own.
-#[derive(Serialize, Deserialize)]
-pub struct WorktreeDefaultParams {
-    pub project: String,
-    pub on: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PromptChatParams {
-    agent_id: String,
-    #[serde(default)]
-    message_id: Option<String>,
-    text: String,
-    #[serde(default)]
-    paths: Vec<String>,
-    #[serde(default)]
-    context: Vec<crate::protocol::ChatContext>,
-}
-
-/// Sends the person's message as `AcpPrompt` does, for a client whose own request
-/// carries no context: the agents, earlier chats and issues the message names.
-/// The chat a goal's button acts on.
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ChatGoalParams {
-    pub agent_id: String,
-}
-
-pub(super) async fn prompt_chat(core: &Arc<Core>, params: PromptChatParams) -> CoreResult<()> {
-    let PromptChatParams {
-        agent_id,
-        message_id,
-        text,
-        paths,
-        mut context,
-    } = params;
-    if core.workspaces.in_terminal(&agent_id) {
-        messages::from_person(core, &agent_id, text)?;
-    } else {
-        super::chat::wake_for_prompt(core, &agent_id, &mut context).await?;
-        super::chat::prompt(core, &agent_id, message_id, text, paths, context)?;
-    }
-    Ok(())
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct RenameAgentParams {
-    agent_id: String,
-    name: String,
-}
-
-async fn rename_agent(core: &Arc<Core>, params: RenameAgentParams) -> CoreResult<AgentName> {
-    let core = core.clone();
-    blocking(move || {
-        let named = core
-            .names
-            .rename(&params.agent_id, &params.name, core.open_agents())?;
-        core.view_changed();
-        Ok(named)
-    })
-    .await
-}
-
-/// The names of the agents running here and of the workers they started on
-/// linked hosts, each with the agent that started it, so a device can list
-/// workers after their lead.
-async fn agent_names(core: &Arc<Core>) -> CoreResult<Vec<AgentName>> {
-    let core = core.clone();
-    blocking(move || {
-        let mut agents = core.running_agents();
-        agents.extend(core.hosts.team.ids());
-        Ok(core.names.of(&agents))
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-struct CheckoutParams {
-    dir: PathBuf,
-    #[serde(default)]
-    staged: bool,
-}
-
-/// Which agent wrote each uncommitted line of a checkout.
-async fn change_owners(core: &Arc<Core>, params: CheckoutParams) -> CoreResult<Owners> {
-    let core = core.clone();
-    blocking(move || Ok(edits::owners_at(&core, &params.dir, params.staged)?)).await
-}
-
-#[derive(Deserialize)]
-struct CommitParams {
-    dir: PathBuf,
-    message: String,
-}
-
-/// Commits what the person staged in the git panel, with the footer naming
-/// the agents whose lines it holds. What git said.
-async fn commit_staged(core: &Arc<Core>, params: CommitParams) -> CoreResult<String> {
-    let core = core.clone();
-    blocking(move || {
-        let output = edits::footer::commit(&core, &params.dir, &[], &params.message, None)?;
-        let said = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
-        if output.status.success() {
-            core.activity_log
-                .record_commit(&params.dir.to_string_lossy());
-            Ok(said(&output.stdout))
-        } else if output.stderr.trim_ascii().is_empty() {
-            Err(said(&output.stdout).into())
-        } else {
-            Err(said(&output.stderr).into())
-        }
-    })
-    .await
-}
-
-/// The files agents changed in a project and the lines they changed, by
-/// agent, chat run, turn or path, oldest first.
-async fn edits(core: &Arc<Core>, filter: Filter) -> CoreResult<Vec<Edit>> {
-    let core = core.clone();
-    blocking(move || {
-        let project = core.workspaces.project_of(&filter.project);
-        Ok(core.edits.read(&project, &filter))
-    })
-    .await
-}
-
-/// What waits on the person, ranked as devices' views list it.
-pub(super) async fn inbox(core: &Arc<Core>) -> CoreResult<sikemux_wire::inbox::Inbox> {
-    let core = core.clone();
-    blocking(move || {
-        let (chats, sessions) = core.ranked_infos();
-        Ok(inbox::view(&core, &chats, &sessions))
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DigestParams {
-    since: Option<u64>,
-    /// Only what is about this project, by its path.
-    project: Option<String>,
-}
-
-/// What finished, failed and waits since the person last left, or `since`.
-async fn digest(
-    core: &Arc<Core>,
-    params: DigestParams,
-) -> CoreResult<sikemux_wire::inbox::InboxDigest> {
-    let project = (params.project)
-        .map(|project| board::project_at(core, &project))
-        .transpose()?;
-    let core = core.clone();
-    blocking(move || Ok(inbox::digest(&core, params.since, project.as_deref()))).await
+    pub(super) agent_id: String,
 }

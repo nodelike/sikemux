@@ -3,8 +3,10 @@
 //! the core picks the palette from the samples, as it works a theme out of
 //! Ghostty's colours.
 
+use super::CoreResult;
 use base64::Engine;
 use serde::Deserialize;
+use sikemux_wire::theme::Theme;
 
 /// Pixels sampled at most, spread evenly over the image.
 const SAMPLES: usize = 24_000;
@@ -289,6 +291,14 @@ pub(crate) fn pixels(params: &PixelsParams) -> Result<Vec<u8>, String> {
         return Err("the wallpaper's pixels are not RGBA".into());
     }
     Ok(bytes)
+}
+
+/// The theme a wallpaper's pixels make.
+pub(crate) fn theme_from_pixels(params: PixelsParams) -> CoreResult<Theme> {
+    let rgba = pixels(&params)?;
+    let (colours, accent) = colours(&rgba)?;
+    super::themes::from_colours(&params.name, &colours, Some(&accent))
+        .ok_or_else(|| "the wallpaper gave no theme".into())
 }
 
 #[cfg(test)]

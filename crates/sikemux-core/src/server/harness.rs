@@ -2,6 +2,7 @@
 //! its own runs and journal, so they work while the window is closed, and
 //! hands everything that needs the window to it.
 
+use super::{CoreError, CoreResult};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1658,6 +1659,35 @@ async fn port_holders(core: &Arc<Core>, run: &FailedRun) -> Option<String> {
             held.join(", ")
         ),
     })
+}
+
+#[derive(Deserialize)]
+pub(crate) struct PageParams {
+    id: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct PageHtml {
+    html: String,
+}
+
+/// A page an agent showed with `page_show`, as a chat shows it in the reply.
+pub(crate) async fn read_page(core: &Core, params: PageParams) -> CoreResult<PageHtml> {
+    if !crate::pages::is_page_id(&params.id) {
+        return Err("that is not a page's id".into());
+    }
+    let dir = core
+        .config
+        .data_dir
+        .clone()
+        .ok_or("this core keeps no pages")?
+        .join(crate::pages::FOLDER);
+    let html = blocking(move || {
+        std::fs::read_to_string(dir.join(format!("{}.html", params.id)))
+            .map_err(|_| CoreError::from("that page is gone"))
+    })
+    .await?;
+    Ok(PageHtml { html })
 }
 
 #[cfg(test)]

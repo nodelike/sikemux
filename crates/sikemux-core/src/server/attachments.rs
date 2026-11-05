@@ -2,6 +2,9 @@
 //! pasted into its chats, outside every project, and the agent is given their
 //! path like any other attachment.
 
+use super::access::{Needs, Peer};
+use super::connection::blocking;
+use serde::{Deserialize, Serialize};
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -10,7 +13,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 
 use crate::protocol::MAX_ATTACHMENT_BYTES;
 
-use super::{CoreError, CoreResult};
+use super::{Core, CoreError, CoreResult};
 
 const MAX_STEM_CHARS: usize = 100;
 const MAX_EXTENSION_CHARS: usize = 10;
@@ -188,6 +191,85 @@ fn extension_for(mime: &str) -> Option<&'static str> {
         "application/zip" => "zip",
         _ => return None,
     })
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ChatFileParams {
+    path: PathBuf,
+    /// For a picture shown small: the longest side, in pixels, to send it scaled to.
+    #[serde(default)]
+    max_edge: Option<u32>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct ChatFile {
+    /// Set when the file was sent as a scaled copy, which is a JPEG.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mime: Option<&'static str>,
+    data: String,
+}
+
+/// A file a chat's message carried, in base64. Any device may read the
+/// pictures pasted into chats; one that can drive sessions can already read
+/// anything through a terminal, so it may read files dropped from elsewhere.
+pub(crate) async fn chat_file(
+    core: &Core,
+    peer: &Peer,
+    params: ChatFileParams,
+) -> CoreResult<ChatFile> {
+    let pasted = core.config.attachment_dir.clone();
+    let path = params.path;
+    let kept = match pasted {
+        Some(dir) => {
+            let path = path.clone();
+            blocking(move || Ok(is_kept(&dir, &path))).await?
+        }
+        None => false,
+    };
+    if !kept {
+        core.permit(peer, Needs::Full).map_err(|_| {
+            CoreError::from("this device can open only the pictures pasted into chats")
+        })?;
+    }
+    let max_edge = params.max_edge;
+    blocking(move || {
+        if let Some(data) = max_edge.and_then(|edge| thumbnail(&path, edge)) {
+            return Ok(ChatFile {
+                mime: Some("image/jpeg"),
+                data,
+            });
+        }
+        Ok(ChatFile {
+            mime: None,
+            data: read(&path)?,
+        })
+    })
+    .await
+}
+
+#[derive(Deserialize)]
+pub(crate) struct KeepPastedParams {
+    name: String,
+    mime: String,
+    data: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct Kept {
+    path: PathBuf,
+}
+
+/// A file pasted into a terminal, kept where pictures pasted into chats are, so the
+/// program in the terminal can be given its path.
+pub(crate) async fn keep_pasted(core: &Core, params: KeepPastedParams) -> CoreResult<Kept> {
+    let dir = core
+        .config
+        .attachment_dir
+        .clone()
+        .ok_or_else(|| CoreError::from("this host has nowhere to keep files"))?;
+    let path = blocking(move || save(&dir, &params.name, &params.mime, &params.data)).await?;
+    Ok(Kept { path })
 }
 
 #[cfg(test)]

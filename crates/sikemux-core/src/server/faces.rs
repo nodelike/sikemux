@@ -3,6 +3,7 @@
 //! catalogue, and the style the person picked. How a face moves follows the
 //! agent's group, which clients already have.
 
+use super::Core;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
@@ -167,6 +168,13 @@ impl Faces {
             agent.face = face(&style, agent);
         }
     }
+}
+
+/// Sets the style the person picked and shows it on every device.
+pub(crate) fn set_style_shown(core: &Core, style: FaceStyleChange) -> CoreResult<FaceStyle> {
+    let style = core.faces.set_style(style)?;
+    core.view_changed();
+    Ok(style)
 }
 
 #[cfg(test)]

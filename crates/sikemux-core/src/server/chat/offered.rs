@@ -2,6 +2,7 @@
 //! made before any chat of it runs, such as the agent Auto starts, can list
 //! them.
 
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{LazyLock, Mutex};
 
@@ -22,4 +23,9 @@ pub(crate) fn remember(agent: &str, setup: &Value) {
 /// the core did.
 pub(crate) fn models(agent: &str) -> Option<ConfigPicker> {
     OFFERED.locked().get(agent).cloned()
+}
+
+#[derive(Deserialize)]
+pub(crate) struct AgentModelsParams {
+    pub(crate) agent: String,
 }

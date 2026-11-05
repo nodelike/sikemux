@@ -1238,6 +1238,12 @@ fn unreadable_request_id(payload: &[u8]) -> Option<RequestId> {
     message.get("requestId")?.as_u64()
 }
 
+/// The connection a call came on, for a stream to send its parts down.
+pub(super) fn connection_of(core: &Core, client: &ClientConn) -> CoreResult<Arc<ClientConn>> {
+    core.client_conn(client.id)
+        .ok_or_else(|| CoreError::from("this connection is closing"))
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

@@ -264,7 +264,7 @@ async fn run(
         Reach::Runs => Ok(serde_json::to_value(tasks::runs(core))?),
         Reach::Questions => Ok(serde_json::to_value(super::super::questions::views(core))?),
         Reach::Inbox => Ok(serde_json::to_value(
-            super::super::calls::inbox(core).await?,
+            super::super::inbox::read(core).await?,
         )?),
         Reach::Usage => Ok(serde_json::to_value(
             super::super::agent_accounts::usages(core).await,
@@ -323,7 +323,7 @@ async fn run(
             let send: Send = parse(params)?;
             let agent_id = agent_named(core, &send.agent).await?;
             let prompt = parse(json!({ "agentId": agent_id, "text": send.text }))?;
-            super::super::calls::prompt_chat(core, prompt).await?;
+            super::super::chat::calls::prompt_chat(core, prompt).await?;
             Ok(Value::Null)
         }
         Reach::BoardAdd => {

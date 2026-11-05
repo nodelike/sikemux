@@ -711,3 +711,9 @@ fn fired_request(delivery: HookDelivery) -> FiredRequest {
         body_tree: None,
     }
 }
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TriggerParams {
+    pub(crate) trigger: u64,
+}

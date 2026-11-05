@@ -107,6 +107,7 @@ pub use activity_log::{
     ActivityTotals, PriceOverride, PricingInfo,
 };
 pub use agent_accounts::{AccountUsage, Resuming};
+pub use board::chat_goal::ChatGoalParams;
 pub use board::goal::DecideParams as BoardDecideParams;
 pub use board::{
     AddParams as BoardAddParams, AddTicketParams as BoardAddTicketParams,
@@ -120,24 +121,22 @@ pub use board::{
     Ticket, TicketCard, TicketParams as BoardTicketParams, Tracker,
     UpdateParams as BoardUpdateParams,
 };
-pub use calls::ChatGoalParams;
-pub use calls::{
-    call, AgentMessageRows, AgentMessagesParams, ClosedAgentsParams, NoParams, QueuedParams,
-    SetDraftParams, ToolDetailParams, WorktreeDefaultParams,
-};
+pub use calls::{call, NoParams};
+pub use chat::calls::{QueuedParams, ToolDetailParams};
 pub use chat::find::{Direction as FindDirection, FindAnswer, FindAt, FindParams, Hit as FindHit};
 pub use chat::queue::Message as QueuedMessage;
 pub use codehost::{ReleasesParams, TrackedParams};
-pub use drafts::Draft;
+pub use drafts::{Draft, SetDraftParams};
 pub use entry::main;
 pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
 pub use hosts::{HostFound, HostReach, HostRow, LinkView as HostLink, SetUpWork, SetupRow};
 pub use memory::{KeepSeededParams, MemoryEntryParams, MemoryParams};
 pub use messages::log::{Outcome as MessageOutcome, Row as MessageRow, Tone as MessageTone};
-pub use messages::Kind as MessageKind;
+pub use messages::{AgentMessageRows, AgentMessagesParams, Kind as MessageKind};
 pub use mods::{is_mod_id, ModExample, ModInfo, ModList};
-pub use names::ClosedAgent;
+pub use names::{ClosedAgent, ClosedAgentsParams};
 pub use ports::{ListeningPort, PortOwner, ProjectPort};
+pub use preferences::WorktreeDefaultParams;
 pub use project_roots::ProjectEntry;
 pub use questions::{AnswerParams, AnswersParams};
 pub use remote::{trust_remote_file, ApprovalSetting, Pairing};

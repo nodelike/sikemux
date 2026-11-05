@@ -1,3 +1,5 @@
+use serde::Deserialize;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -27,7 +29,7 @@ use crate::protocol::{
 };
 
 use super::agent::{self, AgentActivity};
-use super::connection::ClientConn;
+use super::connection::{blocking, ClientConn};
 use super::prepare::{Owner, PreparedLaunch};
 use super::{CapacityPermit, Core, CoreError, CoreResult};
 
@@ -1426,6 +1428,55 @@ pub(crate) fn trim_if_idle(session: &Session, now: u64, idle: Duration) {
     if screen.compact_for_idle() {
         session.trimmed.store(true, Ordering::Release);
     }
+}
+
+const NOT_HERE: &str = "that terminal is not on this host";
+
+#[derive(Deserialize)]
+pub(crate) struct SessionParams {
+    id: crate::protocol::SessionId,
+}
+
+/// A draft to paste into a terminal once it is ready, left at the prompt for
+/// the person to send.
+#[derive(Deserialize)]
+pub(crate) struct TypeWhenReadyParams {
+    id: crate::protocol::SessionId,
+    draft: String,
+}
+
+/// Leaves `params.draft` at the prompt of a terminal the caller may type into, once it is ready.
+pub(crate) fn type_when_asked(
+    core: &Core,
+    client: &ClientConn,
+    params: TypeWhenReadyParams,
+) -> CoreResult<Value> {
+    let session = core.session(params.id).ok_or(NOT_HERE)?;
+    let typist = super::connection::typist(client);
+    if !session.may_type(typist) {
+        return Err(SETUP_LOCKED.into());
+    }
+    if let Some(draft) = typable(&params.draft) {
+        type_when_ready(&session, draft, typist);
+    }
+    Ok(json!({}))
+}
+
+/// What sits unsent at the terminal's prompt.
+pub(crate) fn draft_at_prompt(core: &Core, params: SessionParams) -> CoreResult<Value> {
+    let session = core.session(params.id).ok_or(NOT_HERE)?;
+    Ok(json!({ "draft": prompt_draft(&session) }))
+}
+
+/// Starts the terminal's ssh again, off the async threads.
+pub(crate) async fn reconnect(core: &Core, params: SessionParams) -> CoreResult<Value> {
+    let session = core.session(params.id).ok_or(NOT_HERE)?;
+    blocking(move || {
+        reconnect_ssh(&session);
+        Ok(())
+    })
+    .await?;
+    Ok(json!({}))
 }
 
 #[cfg(test)]
