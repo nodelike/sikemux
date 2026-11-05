@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sikemux_wire::chat::{GoalMarker, StopReason};
+use sikemux_view::chat::{GoalMarker, StopReason};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -3,7 +3,7 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sikemux_wire::chat::PermissionKind;
+use sikemux_view::chat::PermissionKind;
 
 use crate::protocol::PermissionChoices;
 

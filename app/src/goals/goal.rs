@@ -8,7 +8,7 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled,
 };
 use sikemux_core::server::{call, BoardSettingsParams, CardView};
-use sikemux_wire::slice::{Gate, NextGate, Passer, SliceState, SliceView};
+use sikemux_view::slice::{Gate, NextGate, Passer, SliceState, SliceView};
 
 use super::{
     eta_words, goal_name, state_count, state_mark, wait_words, waiting_words, At, GoalsPane,

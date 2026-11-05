@@ -2,7 +2,7 @@
 //! where the rail opens it, its page on the tab rail, and whether its menu moves it out of a
 //! split into a tab of its own.
 
-use sikemux_wire::protocol::PaneKind;
+use sikemux_view::layout::PaneKind;
 
 use crate::icons::Icon;
 use crate::workbench::RailPage;

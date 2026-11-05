@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use sikemux_wire::start::{Because, HardFact, StartMode, Triage};
+use sikemux_view::start::{Because, HardFact, StartMode, Triage};
 
 use super::board::project_at;
 use super::connection::blocking;

@@ -4,7 +4,7 @@
 
 use serde_json::{Map, Value};
 
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     DiffLine, DiffSummary, GifRef, OutputImage, OutputSummary, PageRef, ToolCall, ToolDetail,
     ToolDiff, ToolOutput,
 };

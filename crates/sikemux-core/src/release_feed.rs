@@ -14,7 +14,7 @@ use semver::Version;
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::protocol::UpdateChannel;
+use sikemux_view::prefs::UpdateChannel;
 
 const STABLE_FEED: &str =
     "https://github.com/nodelike/sikemux/releases/latest/download/latest.json";

@@ -12,7 +12,7 @@ import { build } from "vite";
 const root = resolve(import.meta.dirname, "..");
 const settingsSource = resolve(root, "helpers/notch/settings.json");
 const cssSource = resolve(root, "server/app/src/chat/styles/base.css");
-const settingsRustPath = resolve(root, "crates/sikemux-wire/src/notch.rs");
+const settingsRustPath = resolve(root, "crates/sikemux-view/src/notch.rs");
 const settingsSwiftPath = resolve(
   root,
   "helpers/notch/Sources/NotchKit/Settings.generated.swift",

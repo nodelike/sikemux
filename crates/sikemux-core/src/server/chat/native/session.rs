@@ -25,7 +25,7 @@ use super::SessionEnd;
 use crate::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
 use sikemux_fold::update::turn_answer;
 use sikemux_fold::{ChatEventKind, UpdateKind};
-use sikemux_wire::chat::StopReason;
+use sikemux_view::chat::StopReason;
 
 use super::super::feed::{Earlier, Reach};
 use super::super::kept::Progress;

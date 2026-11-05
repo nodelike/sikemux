@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use sikemux_fold::{matches, searchable, with_trees, PageOf, Query};
-use sikemux_wire::chat::{ChatMessage, ChatPart};
+use sikemux_view::chat::{ChatMessage, ChatPart};
 
 /// The most hits one call answers, and how many unless asked for fewer.
 const MOST_HITS: usize = 200;

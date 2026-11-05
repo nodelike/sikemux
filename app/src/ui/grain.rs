@@ -15,7 +15,7 @@ use gpui::{
     canvas, relative, App, AppContext, Context, Global, Hsla, IntoElement, RenderImage, Rgba,
     ShaderProgram, Styled, Task, Window,
 };
-use sikemux_wire::protocol::{PaneColours, PaneCoverage, PanePattern, Preferences};
+use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern, Preferences};
 
 use crate::theme::{self, Tokens, RADIUS_3};
 

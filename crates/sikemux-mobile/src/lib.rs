@@ -412,10 +412,6 @@ impl EventSink for ListenerSink {
         }
     }
 
-    fn takes_view_json(&self) -> bool {
-        true
-    }
-
     fn device_view(&self, view_json: &str) {
         let view_json = view_json.to_owned();
         let _ = self

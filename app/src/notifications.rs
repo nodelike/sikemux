@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use gpui_kit::Context;
 use serde::{Deserialize, Serialize};
-use sikemux_wire::protocol::{NoticeGoal, PaneKind, SessionKind};
+use sikemux_view::layout::PaneKind;
+use sikemux_wire::protocol::{NoticeGoal, SessionKind};
 use tokio::sync::mpsc;
 
 use crate::toast;

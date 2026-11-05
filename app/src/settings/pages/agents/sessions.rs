@@ -6,7 +6,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::json;
-use sikemux_wire::protocol::{MidTurnSend, RailDensity};
+use sikemux_view::prefs::{MidTurnSend, RailDensity};
 
 use crate::core::Ask;
 use crate::settings::rows::{self, Choice};

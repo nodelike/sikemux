@@ -25,7 +25,8 @@ use sikemux_core::harness::runs::RunStatus;
 use sikemux_gpui::hosts::Place;
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{core, icons, terminal, theme, WINDOW_SIZE};
-use sikemux_wire::protocol::{Pane, PaneKind, SessionId};
+use sikemux_view::layout::{Pane, PaneKind};
+use sikemux_wire::protocol::SessionId;
 
 const FRAME: Duration = Duration::from_micros(8_333);
 /// What the fake agent answers with a stream of that many words.

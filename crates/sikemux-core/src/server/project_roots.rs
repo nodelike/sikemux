@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sikemux_process::paths::expand_home;
 
-pub(crate) use crate::protocol::ProjectRoot;
-use crate::protocol::MAX_PROJECT_DEPTH;
+pub(crate) use sikemux_view::prefs::ProjectRoot;
+use sikemux_view::prefs::MAX_PROJECT_DEPTH;
 
 const MAX_PROJECT_ROOTS: usize = 32;
 const MAX_VISITED_DIRECTORIES: usize = 50_000;

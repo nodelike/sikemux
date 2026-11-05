@@ -2,7 +2,7 @@
 //! turn took and how fast it was written, and which finished turns fold their
 //! work away behind the reply they closed with.
 
-use sikemux_wire::chat::{ChatPart, ChatRole, RowMeta, WorkFold};
+use sikemux_view::chat::{ChatPart, ChatRole, RowMeta, WorkFold};
 
 use super::{Fold, Row};
 

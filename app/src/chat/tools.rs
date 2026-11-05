@@ -1,7 +1,7 @@
 //! A run of tool calls in a chat: each call's row as the core worked it out,
 //! and what the call changed or printed once the reader opens it.
 
-use sikemux_wire::chat::ToolStatus;
+use sikemux_view::chat::ToolStatus;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -15,7 +15,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, StyledText, Window,
 };
 use gpui_transcript::{FileKind, FilePress};
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     ChatPart, DiffLine, DiffSummary, OutputSummary, ToolAction, ToolCall, ToolDetail, ToolRow,
 };
 

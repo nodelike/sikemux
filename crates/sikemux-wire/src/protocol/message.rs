@@ -116,7 +116,7 @@ pub enum Request {
     /// The picture published with the backdrop, as a data URL.
     BackdropImage,
     PublishOnScreen(ask::PublishOnScreen),
-    /// Sends this client the [`DeviceView`] now and whenever it changes, as
+    /// Sends this client the device view now and whenever it changes, as
     /// paired devices get it.
     WatchView,
     FocusAgent(ask::FocusAgent),
@@ -304,7 +304,7 @@ pub enum Response {
     ChatAttached {
         attachment: ChatAttachment,
     },
-    /// Rows from before what a client holds, a [`crate::chat::ChatPage`] as
+    /// Rows from before what a client holds, a `ChatPage` as
     /// JSON. Paging goes on before its `olderBefore`; without one this reaches
     /// the start of what the host keeps.
     ChatHistory {

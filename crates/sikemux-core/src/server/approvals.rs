@@ -15,7 +15,7 @@ use crate::cli::protocol::HarnessRequest;
 use super::plugins::{self, Gated};
 use super::questions;
 use super::Core;
-use sikemux_wire::questions::QuestionChoice;
+use sikemux_view::questions::QuestionChoice;
 
 /// A development build keeps entries of its own, so it never reads or deletes the
 /// installed app's.

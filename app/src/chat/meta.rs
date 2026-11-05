@@ -7,7 +7,7 @@ use gpui_kit::{
     div, px, AnyElement, App, ClipboardItem, InteractiveElement, IntoElement, ParentElement,
     SharedString, Styled,
 };
-use sikemux_wire::chat::{ChatMessage, ChatPart, ChatRole};
+use sikemux_view::chat::{ChatMessage, ChatPart, ChatRole};
 
 use super::{ChatRow, Drawn};
 use crate::icons::Icon;

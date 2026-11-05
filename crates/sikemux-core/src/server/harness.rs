@@ -24,7 +24,8 @@ use crate::cli::protocol::{
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
 use crate::harness::journal::{EventsPage, JournalRecord, Journals};
 use crate::harness::runs::{CommandLaunch, Launch, Run, RunStatus, Runs, RunsRecord};
-use crate::protocol::{Pane, PaneKind, SessionId, TaskSessionInfo, WindowCall};
+use crate::protocol::{SessionId, TaskSessionInfo, WindowCall};
+use sikemux_view::layout::{Pane, PaneKind};
 
 use super::connection::blocking;
 use super::messages::{self, Mailbox};

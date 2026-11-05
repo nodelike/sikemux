@@ -12,7 +12,8 @@ use gpui_kit::{
     ParentElement, Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::json;
-use sikemux_wire::protocol::{Pane, PaneKind, SessionId, SplitDir, Tab};
+use sikemux_view::layout::{Pane, PaneKind, SplitDir, Tab};
+use sikemux_wire::protocol::SessionId;
 
 use crate::drag::DraggedTab;
 use crate::pane_kind::Separable;

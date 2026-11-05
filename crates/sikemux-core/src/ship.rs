@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
-use sikemux_wire::inbox::ShipKind;
+use sikemux_view::inbox::ShipKind;
 
 use crate::git_guard::{base_name, command_words, git_args, segments, shell_script};
 

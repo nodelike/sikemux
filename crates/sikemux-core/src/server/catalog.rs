@@ -1,6 +1,6 @@
 //! The agent catalog clients read, built from the core's own list.
 
-use sikemux_wire::catalog::{CatalogAgent, Driver};
+use sikemux_view::catalog::{CatalogAgent, Driver};
 
 use crate::agent_catalog::{ChatDriver, AGENTS};
 

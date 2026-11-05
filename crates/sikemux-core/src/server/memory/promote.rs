@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sikemux_process::sync::Locked;
-use sikemux_wire::memory::{MemoryView, Rule, Stays};
+use sikemux_view::memory::{MemoryView, Rule, Stays};
 
 use super::{project_at, run, tell_clients, view, Core, MemoryEntryParams};
 use crate::server::access::Peer;

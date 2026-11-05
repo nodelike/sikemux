@@ -2,7 +2,7 @@
 //! runs, why the last turn failed and what can be done about it, and a session that
 //! dropped.
 
-use sikemux_wire::chat::{ChatCapabilities, SignInMethod};
+use sikemux_view::chat::{ChatCapabilities, SignInMethod};
 use std::time::Instant;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -13,7 +13,7 @@ use gpui_kit::{
 use serde_json::json;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::Resuming;
-use sikemux_wire::chat::{ChatConnection, ChatPart, FailureKind, ToolAction};
+use sikemux_view::chat::{ChatConnection, ChatPart, FailureKind, ToolAction};
 
 use super::Chat;
 use crate::core::ChatAsk;
@@ -181,7 +181,7 @@ impl Chat {
 }
 
 /// What a running call is doing, in its row's words.
-fn doing(row: &sikemux_wire::chat::ToolRow) -> SharedString {
+fn doing(row: &sikemux_view::chat::ToolRow) -> SharedString {
     if let Some(activity) = &row.activity {
         return activity.clone().into();
     }
@@ -474,7 +474,7 @@ fn action(
 fn account_ways(
     bench: &Workbench,
     agent: &AgentRow,
-    failure: Option<&sikemux_wire::chat::ChatFailure>,
+    failure: Option<&sikemux_view::chat::ChatFailure>,
     capabilities: &ChatCapabilities,
     this: &WeakEntity<Workbench>,
 ) -> Vec<Button> {

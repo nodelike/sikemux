@@ -13,7 +13,7 @@ use gpui_kit::{
     Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ParentElement, RenderOnce,
     SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
 };
-use sikemux_wire::chat::{Compactions, ContextUsage};
+use sikemux_view::chat::{Compactions, ContextUsage};
 use sikemux_wire::protocol::ConfigPicker;
 
 use crate::chat::model_picker::Picked;

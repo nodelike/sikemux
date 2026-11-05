@@ -1,0 +1,17 @@
+[package]
+name = "sikemux-view"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "What clients read from the core as JSON and draw"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sikemux-wire = { path = "../sikemux-wire" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

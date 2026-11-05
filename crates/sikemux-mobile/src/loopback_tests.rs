@@ -136,7 +136,7 @@ async fn loopback_device(key: SecretKey) -> Device {
 /// screen would.
 #[derive(Default)]
 struct Views {
-    views: Mutex<Vec<sikemux_wire::protocol::DeviceView>>,
+    views: Mutex<Vec<sikemux_view::device::DeviceView>>,
     closed: AtomicBool,
 }
 

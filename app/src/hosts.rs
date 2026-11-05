@@ -49,7 +49,7 @@ pub enum Place {
 #[derive(Default)]
 pub struct Hosts {
     /// The account's other hosts this app reaches, by key: each one's view, as its core sends it.
-    pub(crate) views: std::collections::HashMap<String, sikemux_wire::protocol::DeviceView>,
+    pub(crate) views: std::collections::HashMap<String, sikemux_view::device::DeviceView>,
     /// The account's other hosts this app is connected to now, by key.
     pub(crate) reached: std::collections::HashSet<String>,
     /// The home folders of the account's other hosts, by the host's key.
@@ -514,7 +514,7 @@ impl Workbench {
 }
 
 /// How busy a host is, as its row shows it, from what its core sends in its view.
-pub fn load_label(load: &sikemux_wire::protocol::HostLoad) -> String {
+pub fn load_label(load: &sikemux_view::device::HostLoad) -> String {
     match load.memory_used {
         Some(bytes) => format!("{}% · {:.1} GB", load.cpu, bytes as f64 / 1024f64.powi(3)),
         None => format!("{}%", load.cpu),
@@ -574,7 +574,7 @@ fn sent_summary(sent: &Value, sending: &Sending) -> String {
 }
 
 /// A host's update status, from its view, when it updates itself.
-pub fn host_updates(view: &sikemux_wire::protocol::DeviceView) -> Option<&Value> {
+pub fn host_updates(view: &sikemux_view::device::DeviceView) -> Option<&Value> {
     view.updates
         .as_ref()
         .filter(|updates| updates["automatic"].is_boolean())

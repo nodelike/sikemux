@@ -27,7 +27,7 @@ futures-sink = { version = "0.3" }
 futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
-hashbrown = { version = "0.17" }
+hashbrown = { version = "0.17", default-features = false, features = ["default-hasher", "inline-more"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 memchr = { version = "2" }
 once_cell = { version = "1" }
@@ -44,7 +44,6 @@ serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 uuid = { version = "1", features = ["v4", "v7"] }
-vte = { version = "0.15", default-features = false, features = ["ansi", "serde", "std"] }
 
 [build-dependencies]
 cc = { version = "1", default-features = false, features = ["parallel"] }
@@ -77,7 +76,6 @@ rusqlite = { version = "0.40", features = ["bundled", "column_decltype"] }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "termios", "time"] }
 security-framework = { version = "3", features = ["OSX_10_15"] }
 security-framework-sys = { version = "2", features = ["OSX_10_15"] }
-semver = { version = "1", features = ["serde"] }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new"] }
 subtle = { version = "2", default-features = false, features = ["const-generics"] }
@@ -92,7 +90,6 @@ zeroize = { version = "1", features = ["derive"] }
 [target.aarch64-apple-darwin.build-dependencies]
 data-encoding = { version = "2", default-features = false, features = ["alloc"] }
 libc = { version = "0.2" }
-semver = { version = "1" }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", default-features = false, features = ["visit"] }
 toml_datetime = { version = "1" }
 toml_parser = { version = "1" }

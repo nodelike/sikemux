@@ -13,7 +13,7 @@ use sikemux_process::sync::Locked;
 
 use crate::protocol::{AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, SessionInfo};
 use crate::text::{clipped, clipped_line};
-use sikemux_wire::inbox::{
+use sikemux_view::inbox::{
     AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandTo, InboxHandoff, InboxItem,
     InboxKind, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent, ShipHold, ShipKind,
     TeamLink, PROPOSED_ENVIRONMENTS_ITEM,
@@ -25,7 +25,7 @@ use super::display;
 use super::notify::provider_name;
 use super::questions::ForPerson;
 use super::{Core, CoreResult};
-use sikemux_wire::slice::Gate;
+use sikemux_view::slice::Gate;
 
 use super::board::environments::Step;
 
@@ -1357,7 +1357,7 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
 }
 
 /// What waits on the person, ranked as devices' views list it.
-pub(super) async fn read(core: &Arc<Core>) -> CoreResult<sikemux_wire::inbox::Inbox> {
+pub(super) async fn read(core: &Arc<Core>) -> CoreResult<sikemux_view::inbox::Inbox> {
     let core = core.clone();
     blocking(move || {
         let (chats, sessions) = core.ranked_infos();
@@ -1378,7 +1378,7 @@ pub(crate) struct DigestParams {
 pub(crate) async fn read_digest(
     core: &Arc<Core>,
     params: DigestParams,
-) -> CoreResult<sikemux_wire::inbox::InboxDigest> {
+) -> CoreResult<sikemux_view::inbox::InboxDigest> {
     let project = (params.project)
         .map(|project| board::project_at(core, &project))
         .transpose()?;

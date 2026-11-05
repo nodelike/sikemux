@@ -171,7 +171,8 @@ impl Stream {
             }
             ClientEvent::Event(Event::TaskOutput { id }) => self.task_notices.push(id),
             ClientEvent::Event(Event::AgentState(state)) => self.agent_states.push(state),
-            ClientEvent::Event(_) | ClientEvent::WindowCall { .. } => {}
+            ClientEvent::Event(_) | ClientEvent::DeviceView(_) | ClientEvent::WindowCall { .. } => {
+            }
         }
     }
 
@@ -835,13 +836,13 @@ async fn a_client_on_this_host_can_watch_the_device_view_with_the_app_s_titles()
 
     let (watcher, mut stream) = core.connect().await;
     watcher.watch_view().await.expect("watch the view");
-    let view = loop {
+    let view: sikemux_view::device::DeviceView = loop {
         let event = tokio::time::timeout(WAIT, stream.events.recv())
             .await
             .expect("the view arrives")
             .expect("the core disconnected");
-        if let ClientEvent::Event(Event::DeviceView { view }) = event {
-            break *view;
+        if let ClientEvent::DeviceView(view) = event {
+            break serde_json::from_str(&view).expect("the core's view reads back");
         }
     };
     let session = view

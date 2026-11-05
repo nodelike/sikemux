@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 use serde_json::{json, Map, Value};
 use sikemux_markdown::{Doc, Op, Options};
 
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     ChatChange, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView, PartTree, SubagentCard,
     ToolStatus,
 };

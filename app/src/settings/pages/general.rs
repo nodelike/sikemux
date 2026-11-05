@@ -8,7 +8,7 @@ use gpui_kit::{
     PathPromptOptions, SharedString, Styled, Subscription, Window,
 };
 use serde_json::json;
-use sikemux_wire::protocol::{ProjectRoot, MAX_PROJECT_DEPTH};
+use sikemux_view::prefs::{ProjectRoot, MAX_PROJECT_DEPTH};
 
 use crate::core;
 use crate::icons::Icon;

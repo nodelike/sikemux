@@ -7,7 +7,7 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled, WeakEntity,
 };
 use gpui_transcript::FilePress;
-use sikemux_wire::chat::ContentBlock;
+use sikemux_view::chat::ContentBlock;
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::{link, Drawn};

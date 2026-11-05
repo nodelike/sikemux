@@ -6,7 +6,7 @@ use std::time::Duration;
 use gpui_kit::component::input::InputState;
 use gpui_kit::{Context, Entity, Subscription};
 use serde_json::{json, Value};
-use sikemux_wire::protocol::RecentInfo;
+use sikemux_view::device::RecentInfo;
 
 use crate::workbench::Workbench;
 

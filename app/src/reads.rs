@@ -13,8 +13,8 @@ use sikemux_core::server::{
 };
 use sikemux_plugin_api::codehost::PullList;
 use sikemux_plugin_api::{Listed, TokenForm};
-use sikemux_wire::catalog::CatalogAgent;
-use sikemux_wire::theme::ThemeSummary;
+use sikemux_view::catalog::CatalogAgent;
+use sikemux_view::theme::ThemeSummary;
 
 /// The agents the core can run, as its catalog lists them.
 #[derive(Default, PartialEq)]

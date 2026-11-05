@@ -8,7 +8,7 @@ use std::path::Path;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::memory::Learned;
+use sikemux_view::memory::Learned;
 
 use super::check::{want, FRESH_MS};
 use super::Core;

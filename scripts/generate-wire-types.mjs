@@ -13,35 +13,37 @@ const root = resolve(import.meta.dirname, "..");
 const check = process.argv.includes("--check");
 
 const WIRE = "crates/sikemux-wire/src";
+const VIEW = "crates/sikemux-view/src";
 const CORE = "crates/sikemux-core/src";
 const PLUGIN_API = "crates/sikemux-plugin-api/src";
 const SOURCES = [
   `${WIRE}/protocol.rs`,
   `${WIRE}/protocol/ask.rs`,
   `${WIRE}/protocol/message.rs`,
-  `${WIRE}/push.rs`,
+  `${VIEW}/push.rs`,
   `${WIRE}/protocol/chats.rs`,
   `${WIRE}/protocol/agent.rs`,
   `${WIRE}/protocol/workspace.rs`,
-  `${WIRE}/protocol/prefs.rs`,
+  `${VIEW}/prefs.rs`,
   `${WIRE}/protocol/device.rs`,
+  `${VIEW}/device.rs`,
   `${WIRE}/protocol/session.rs`,
   `${WIRE}/protocol/event.rs`,
-  `${WIRE}/protocol/layout.rs`,
-  `${WIRE}/chat.rs`,
-  `${WIRE}/theme.rs`,
-  `${WIRE}/notch.rs`,
-  `${WIRE}/slice.rs`,
-  `${WIRE}/goals.rs`,
-  `${WIRE}/inbox.rs`,
-  `${WIRE}/memory.rs`,
-  `${WIRE}/start.rs`,
-  `${WIRE}/share.rs`,
+  `${VIEW}/layout.rs`,
+  `${VIEW}/chat.rs`,
+  `${VIEW}/theme.rs`,
+  `${VIEW}/notch.rs`,
+  `${VIEW}/slice.rs`,
+  `${VIEW}/goals.rs`,
+  `${VIEW}/inbox.rs`,
+  `${VIEW}/memory.rs`,
+  `${VIEW}/start.rs`,
+  `${VIEW}/share.rs`,
   `${WIRE}/pty/shell_protocol.rs`,
   `${WIRE}/pty/task.rs`,
   `${WIRE}/accounts/protocol.rs`,
-  `${WIRE}/catalog.rs`,
-  `${WIRE}/questions.rs`,
+  `${VIEW}/catalog.rs`,
+  `${VIEW}/questions.rs`,
   `${CORE}/server/drafts.rs`,
   `${CORE}/server/calls.rs`,
   `${CORE}/server/chat/calls.rs`,
@@ -101,9 +103,9 @@ const SOURCES = [
 
 /** Names the clients know a type by where the Rust one would clash or say too little. */
 const RENAMES = {
-  [`${WIRE}/push.rs`]: { Notification: "NotificationCard" },
-  [`${WIRE}/catalog.rs`]: { Driver: "ChatDriver" },
-  [`${WIRE}/memory.rs`]: { Rule: "MemoryRule" },
+  [`${VIEW}/push.rs`]: { Notification: "NotificationCard" },
+  [`${VIEW}/catalog.rs`]: { Driver: "ChatDriver" },
+  [`${VIEW}/memory.rs`]: { Rule: "MemoryRule" },
   [`${CORE}/server/chat/queue.rs`]: { Message: "QueuedMessageParams" },
   [`${CORE}/server/agent_accounts.rs`]: {
     Resuming: "ChatAccountsParams",
@@ -192,6 +194,7 @@ const JSON_FIELDS = {
   "SharedEvent.changes": "ChatChange[]",
   "ShareReply.page": "ChatPage",
   "DeviceView.updates": "UpdateStatus",
+  "Event.view": "DeviceView",
 };
 
 const TS_ROOTS = [
@@ -289,13 +292,13 @@ const DEFAULTS = ["Preferences", "ToolRow"];
 /** Limits the clients check before they send, read from where the core enforces them. */
 const LIMITS = [
   [`${WIRE}/protocol.rs`, "MAX_ATTACHMENT_BYTES"],
-  [`${WIRE}/protocol/prefs.rs`, "DEFAULT_TERMINAL_FONT_SIZE"],
-  [`${WIRE}/protocol/prefs.rs`, "MIN_TERMINAL_FONT_SIZE"],
-  [`${WIRE}/protocol/prefs.rs`, "MAX_TERMINAL_FONT_SIZE"],
-  [`${WIRE}/protocol/prefs.rs`, "DEFAULT_TEXT_SCALE"],
-  [`${WIRE}/protocol/prefs.rs`, "MIN_TEXT_SCALE"],
-  [`${WIRE}/protocol/prefs.rs`, "MAX_TEXT_SCALE"],
-  [`${WIRE}/protocol/prefs.rs`, "MAX_PROJECT_DEPTH"],
+  [`${VIEW}/prefs.rs`, "DEFAULT_TERMINAL_FONT_SIZE"],
+  [`${VIEW}/prefs.rs`, "MIN_TERMINAL_FONT_SIZE"],
+  [`${VIEW}/prefs.rs`, "MAX_TERMINAL_FONT_SIZE"],
+  [`${VIEW}/prefs.rs`, "DEFAULT_TEXT_SCALE"],
+  [`${VIEW}/prefs.rs`, "MIN_TEXT_SCALE"],
+  [`${VIEW}/prefs.rs`, "MAX_TEXT_SCALE"],
+  [`${VIEW}/prefs.rs`, "MAX_PROJECT_DEPTH"],
   [`${CORE}/server/chat/prompt.rs`, "MAX_ATTACHMENTS"],
 ];
 

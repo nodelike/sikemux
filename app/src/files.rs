@@ -18,7 +18,7 @@ use gpui_kit::{
 };
 use serde_json::{json, Value};
 use sikemux_core::git::log::GitOverview;
-use sikemux_wire::protocol::PaneKind;
+use sikemux_view::layout::PaneKind;
 
 use crate::core::Target;
 use crate::hosts::Place;

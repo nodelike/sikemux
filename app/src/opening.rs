@@ -211,7 +211,7 @@ impl Workbench {
                 };
                 let tab = json!({
                     "project": project,
-                    "kind": sikemux_wire::protocol::PaneKind::Mod,
+                    "kind": sikemux_view::layout::PaneKind::Mod,
                     "target": params["mod"],
                     "title": params["title"],
                     "behind": !focus,

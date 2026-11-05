@@ -4,9 +4,7 @@ use crate::pty::shell_protocol::{PtyShellMetadataEvent, SshLink};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{
-    AgentStateEvent, Attention, ChatInfo, DeviceView, NetworkChange, RemoteStatus, SessionId,
-};
+use super::{AgentStateEvent, Attention, ChatInfo, NetworkChange, RemoteStatus, SessionId};
 
 /// The goal a notice is about, which clicking it opens.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,7 +44,7 @@ pub enum Event {
     },
     AgentState(AgentStateEvent),
     /// Sent only to the clients that started or attached to the chat: what
-    /// changed in it, a list of [`crate::chat::ChatChange`] as JSON. `seq`
+    /// changed in it, a list of `ChatChange` as JSON. `seq`
     /// counts the chat's changes, so a client can tell which the attach answer
     /// already held.
     Chat {
@@ -55,9 +53,12 @@ pub enum Event {
         changes: Value,
     },
     /// Sent only to paired devices: what they show of this host, whole, when
-    /// they connect and whenever any of it changes.
+    /// they connect and whenever any of it changes. The core's `DeviceView` as
+    /// JSON, so fields newer than a client still reach whoever reads that JSON.
+    /// Written by `encode_device_view` and read by `device_view_json`, so it never
+    /// comes through this enum in Rust.
     DeviceView {
-        view: Box<DeviceView>,
+        view: Value,
     },
     /// Sent only to clients on this host.
     Remote {

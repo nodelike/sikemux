@@ -1042,7 +1042,7 @@ impl Workbench {
     /// The chat in front, while it shows a question its keys answer; none behind the goals, which
     /// show it only as their chat.
     pub fn front_asks(&self, cx: &App) -> Option<String> {
-        if self.window_view == sikemux_wire::protocol::WindowView::Goals
+        if self.window_view == sikemux_view::prefs::WindowView::Goals
             && self.chat_in_goals(cx).is_none()
         {
             return None;

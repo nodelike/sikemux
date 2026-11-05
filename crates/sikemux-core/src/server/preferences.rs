@@ -12,7 +12,7 @@ use sikemux_process::sync::Locked;
 
 use super::kept::Kept;
 use super::{Core, CoreError, CoreResult};
-use crate::protocol::{
+use sikemux_view::prefs::{
     CustomCommand, Preferences, MAX_PROJECT_DEPTH, MAX_TERMINAL_FONT_SIZE, MAX_TEXT_SCALE,
     MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE, UI_TEXT_SCALES,
 };

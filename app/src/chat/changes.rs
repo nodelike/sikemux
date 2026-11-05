@@ -3,7 +3,7 @@
 
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use sikemux_wire::chat::{ChatChange, ChatHead, ChatMessage, ChatPart, ChatView};
+use sikemux_view::chat::{ChatChange, ChatHead, ChatMessage, ChatPart, ChatView};
 
 /// Some fields of a `T`, each read already, put in place in turn.
 pub type Fields<T> = Vec<Field<T>>;

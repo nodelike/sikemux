@@ -125,7 +125,7 @@ pub(super) fn permission(
 pub(super) fn approval(
     workbench: &Workbench,
     agent: &str,
-    item: &sikemux_wire::inbox::InboxItem,
+    item: &sikemux_view::inbox::InboxItem,
     busy: bool,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
@@ -184,11 +184,11 @@ pub(super) fn approval(
 
 /// A thumbnail that opens what it shows: a picture full size, a recording in its viewer.
 fn evidence_opens(
-    evidence: &sikemux_wire::slice::Evidence,
+    evidence: &sikemux_view::slice::Evidence,
     face: Div,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let sikemux_wire::slice::Proof::Picture { path, seconds, .. } = &evidence.proof else {
+    let sikemux_view::slice::Proof::Picture { path, seconds, .. } = &evidence.proof else {
         return face.into_any_element();
     };
     let (path, still) = (PathBuf::from(path), seconds.is_none());

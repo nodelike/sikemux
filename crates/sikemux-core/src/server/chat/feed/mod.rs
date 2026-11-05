@@ -15,7 +15,7 @@ use sikemux_process::sync::Locked;
 
 use crate::protocol::{ChatContext, ChatStart, PermissionMode};
 use sikemux_process::clock::epoch_ms;
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, QueuedMessage, SentContext, ToolDetail,
 };
 
@@ -1003,7 +1003,7 @@ impl super::find::Rows for FindRows<'_> {
         &self,
         wanted: PageOf,
         budget: usize,
-    ) -> Result<(Vec<sikemux_wire::chat::ChatMessage>, bool), String> {
+    ) -> Result<(Vec<sikemux_view::chat::ChatMessage>, bool), String> {
         let held = {
             let mut inner = self.feed.inner.locked();
             let fold = self.feed.fold(&mut inner);
@@ -1147,12 +1147,12 @@ mod tests {
         assert_eq!(view.older_before, Some(first as u64 * 2));
     }
 
-    fn prompts(rows: &[sikemux_wire::chat::ChatMessage]) -> Vec<String> {
+    fn prompts(rows: &[sikemux_view::chat::ChatMessage]) -> Vec<String> {
         rows.iter()
-            .filter(|row| row.role == sikemux_wire::chat::ChatRole::User)
+            .filter(|row| row.role == sikemux_view::chat::ChatRole::User)
             .flat_map(|row| row.parts.iter())
             .filter_map(|part| match part {
-                sikemux_wire::chat::ChatPart::Text { text, .. } => Some(text.clone()),
+                sikemux_view::chat::ChatPart::Text { text, .. } => Some(text.clone()),
                 _ => None,
             })
             .collect()
@@ -1305,7 +1305,7 @@ mod tests {
                     row.parts
                         .iter()
                         .filter_map(|part| match part {
-                            sikemux_wire::chat::ChatPart::Text { text, .. } => Some(text.as_str()),
+                            sikemux_view::chat::ChatPart::Text { text, .. } => Some(text.as_str()),
                             _ => None,
                         })
                         .collect(),

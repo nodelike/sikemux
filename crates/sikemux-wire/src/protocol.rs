@@ -6,9 +6,7 @@ mod chats;
 mod device;
 mod event;
 mod frame;
-mod layout;
 mod message;
-mod prefs;
 mod session;
 mod workspace;
 
@@ -17,9 +15,7 @@ pub use chats::*;
 pub use device::*;
 pub use event::*;
 pub use frame::*;
-pub use layout::*;
 pub use message::*;
-pub use prefs::*;
 pub use session::*;
 pub use workspace::*;
 

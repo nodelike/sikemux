@@ -5,7 +5,7 @@ use gpui_kit::{
     div, px, App, InteractiveElement, ParentElement, StatefulInteractiveElement, Styled, WeakEntity,
 };
 use sikemux_core::server::{PortOwner, ProjectPort};
-use sikemux_wire::protocol::PaneKind;
+use sikemux_view::layout::PaneKind;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1H};

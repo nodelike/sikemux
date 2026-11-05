@@ -1,7 +1,7 @@
 # ADR 0010: The phone links only the wire format and the client, and the core owns what the data means
 
 - Status: Accepted
-- Decision date: 2026-10-10, revised 2026-10-21
+- Decision date: 2026-10-10, revised 2026-10-21 and 2026-11-06
 
 ## Context
 
@@ -18,15 +18,18 @@ phone never runs.
 ## Decision
 
 - **Two crates hold everything the phone links from the core.** `sikemux-wire` is what the
-  core and its clients send each other: the protocol, the accounts types generated from
-  `server/protocol/schema`, and the terminal and CLI shapes those carry. `sikemux-client`
-  is how a client talks to a core: the connection and its requests, reaching a paired core
-  over iroh, the phone's side of joining a host, and what a device signs for the accounts
-  server.
-- **`sikemux-core` builds on them.** It re-exports both under its old module names and
-  adds what only the desktop does: finding, starting and upgrading the core on this
-  machine, and the host's checks of a join ticket. `sikemux-pty` takes its wire types from
-  `sikemux-wire`.
+  phone's Rust decodes: frames, requests and their answers, events, and joining a host,
+  with the terminal and CLI shapes those carry. `sikemux-client` is how a client talks to a
+  core: the connection and its requests, reaching a paired core over iroh, the phone's side
+  of joining a host, and what a device signs for the accounts server.
+- **What the phone only passes to TypeScript lives in a crate it does not link.**
+  `sikemux-view` holds what clients read as JSON and draw: a chat's rows, the device view,
+  goals, the inbox, preferences. A contract type goes in `sikemux-wire` if the phone's Rust
+  acts on it, and in `sikemux-view` if it does not. Such a type names `sikemux-wire`, never
+  the reverse, so a message that carries one holds it as JSON.
+- **`sikemux-core` builds on them.** It adds what only the desktop does: finding, starting
+  and upgrading the core on this machine, and the host's checks of a join ticket.
+  `sikemux-pty` takes its wire types from `sikemux-wire`.
 - **Neither crate joins `workspace-hack`.** hakari leaves them out, so the desktop app's
   dependencies never reach the phone's lockfile entries.
 - **A request the phone makes is a method of the core, called by name.** The wire format
@@ -54,6 +57,13 @@ phone never runs.
 - Changes to the core's server, its chat drivers, the harness, the terminal engine and the
   desktop's dependencies no longer change the phone's native code. Only a change to the
   wire format, the client, `sikemux-mobile` or a dependency they share needs a store build.
+- Changing what a client draws no longer does either. Before `sikemux-view` was split out,
+  54 of the 276 commits to these crates in five weeks touched only types the phone's Rust
+  never reads, and each cut installed phones off from over-the-air updates. The release
+  that carries the split goes out as a store build.
+- The device view is the one large message the core writes from a typed value and clients
+  read as text. `encode_device_view` and `device_view_json` agree on its frame, so neither
+  side builds a JSON tree for it: the bytes are what `Event::DeviceView` declares.
 - What the phone shows of a host crosses the bridge as the core's own JSON: a chat's view
   and its changes, the device view and the host's info, drawn by TypeScript in
   `mobile/app/src`. A field the core adds there reaches the phone with an over-the-air

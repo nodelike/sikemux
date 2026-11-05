@@ -2,7 +2,7 @@
 //! do for whichever of them has the focus.
 
 use gpui::{PinchEvent, TouchPhase};
-use sikemux_wire::protocol::{
+use sikemux_view::prefs::{
     MAX_TERMINAL_FONT_SIZE, MAX_TEXT_SCALE, MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE,
 };
 

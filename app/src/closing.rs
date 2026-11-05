@@ -3,7 +3,7 @@
 
 use gpui_kit::Context;
 use serde_json::json;
-use sikemux_wire::protocol::PaneKind;
+use sikemux_view::layout::PaneKind;
 
 use crate::workbench::{Choice, Strip, Workbench};
 

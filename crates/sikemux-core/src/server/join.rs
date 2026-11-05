@@ -298,12 +298,7 @@ mod tests {
             .expect("the joined phone connects like any paired device");
         let first = tokio::time::timeout(WAIT, events.recv()).await.unwrap();
         assert!(
-            matches!(
-                first,
-                Some(crate::client::ClientEvent::Event(
-                    crate::protocol::Event::DeviceView { .. }
-                ))
-            ),
+            matches!(first, Some(crate::client::ClientEvent::DeviceView(_))),
             "the joined phone hears the host's view first, as a paired one does"
         );
         client

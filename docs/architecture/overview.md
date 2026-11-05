@@ -70,7 +70,7 @@ The app is a client of the core. [ADR 0006](./0006-background-core.md) records w
   `SIKEMUX_CORE_SOCKET` to override), mode 0600. Frames are a length, a kind byte and a
   payload: requests, answers and events are JSON, terminal input and output are bytes. Every
   connection starts with a versioned handshake. What crosses is defined once, in
-  `crates/sikemux-wire`.
+  `crates/sikemux-wire` and, for what clients only read as JSON and draw, `crates/sikemux-view`.
 - **What it owns.** Terminals and terminal agents (`server/session.rs`, on `sikemux-pty`),
   which it emulates and sends as screens of cells; chat agents (`server/chat/`), whose output
   it folds into rows (`crates/sikemux-fold`); tasks and their logs; Git, search, project files
@@ -189,7 +189,8 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 | `sikemux-core`       | The core: its socket server, terminals, tasks, chat agents, the harness and tool endpoint, updating in place                                                                               |
 | `sikemux-host`       | The `sikemux` executable: the launcher, the tools MCP server and the core with the built-in plugins                                                                                        |
 | `sikemux-base`       | What the core shares with the browser, simulator and voice crates: HTTP clients, pinned downloads, the async runtime, page building and the CLI endpoint's protocol                        |
-| `sikemux-wire`       | What the core and its clients send each other. The phone links it, so it holds data and nothing that acts on it                                                                            |
+| `sikemux-wire`       | What the phone's Rust decodes: frames, requests, answers and events. The phone links it, so it holds data and nothing that acts on it                                                      |
+| `sikemux-view`       | What clients read from the core as JSON and draw. The phone does not link it, so a change reaches phones over the air                                                                      |
 | `sikemux-client`     | Talking to a core: on this host, from a paired device, and joining a host. The phone links it                                                                                              |
 | `sikemux-fold`       | A chat folded from what its agent says into the rows clients draw                                                                                                                          |
 | `sikemux-pty`        | The terminal engine: each PTY's screen, shell integration, the login-shell environment, task checks and `agent_detection/`, which reads an agent's screen to tell working, blocked or idle |

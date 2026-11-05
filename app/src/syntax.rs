@@ -20,7 +20,7 @@ use gpui_transcript::CodeRuns;
 use textmate_highlight::{Document, Library, Span, Style, Styles};
 use tokio::sync::Notify;
 
-use sikemux_wire::theme::ThemeHighlight;
+use sikemux_view::theme::ThemeHighlight;
 
 use crate::theme::{self, Tokens};
 

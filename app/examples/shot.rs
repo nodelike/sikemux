@@ -46,7 +46,7 @@ use gpui::{
 use gpui_kit::component::WindowExt;
 use serde_json::{json, Value};
 use sikemux_gpui::{core, icons, theme, toast, workbench, WINDOW_SIZE};
-use sikemux_wire::protocol::AccountInfo;
+use sikemux_view::device::AccountInfo;
 
 /// How often a wait lets the app run, moving its clock on as far, so its timers fire as they would.
 const STEP: Duration = Duration::from_millis(50);

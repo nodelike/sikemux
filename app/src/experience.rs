@@ -4,7 +4,7 @@
 
 use gpui_kit::{div, AnyElement, Context, IntoElement, Window};
 use serde_json::Value;
-use sikemux_wire::protocol::Preferences;
+use sikemux_view::prefs::Preferences;
 
 use crate::workbench::Workbench;
 use crate::{diagnostics, welcome, whats_new};

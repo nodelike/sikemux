@@ -7,8 +7,8 @@ use gpui_kit::component::theme::{Theme as KitTheme, ThemeTokens};
 use gpui_kit::{
     px, rems, Anchor, App, BoxShadow, FontFeatures, Global, Hsla, Pixels, Rems, Rgba, SharedString,
 };
+use sikemux_view::theme::{Palette, ThemeEditor, ThemeHighlight};
 use sikemux_wire::grid::TerminalColors;
-use sikemux_wire::theme::{Palette, ThemeEditor, ThemeHighlight};
 
 pub const UI: &str = "Figtree";
 

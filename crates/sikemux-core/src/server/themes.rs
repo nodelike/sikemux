@@ -9,13 +9,13 @@ use std::sync::{Mutex, OnceLock};
 use sikemux_process::sync::Locked;
 
 use base64::Engine;
-use sikemux_wire::grid::TerminalColors;
-use sikemux_wire::theme::{
+use sikemux_view::theme::{
     Palette, Theme, ThemeChrome, ThemeEditor, ThemeHighlight, ThemeSource, ThemeSummary,
     ThemeTerminal, UiTokens,
 };
+use sikemux_wire::grid::TerminalColors;
 
-use crate::protocol::{Preferences, DEFAULT_THEME_ID};
+use sikemux_view::prefs::{Preferences, DEFAULT_THEME_ID};
 
 struct Catalogue {
     sikemux: Vec<Theme>,
@@ -625,7 +625,7 @@ pub(crate) struct ThemeParams {
 
 #[derive(Deserialize)]
 pub(crate) struct ThemePaletteParams {
-    pub(crate) theme: sikemux_wire::theme::Theme,
+    pub(crate) theme: sikemux_view::theme::Theme,
 }
 
 #[derive(Deserialize)]

@@ -20,7 +20,7 @@ use sikemux_core::protocol::{
     ClientMessage, PermissionMode, Request, PROTOCOL, PROTOCOL_VERSION,
 };
 use sikemux_core::server::{self, ServerConfig, ServerError};
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     ChatPage, ChatRole, FailureKind, PermissionAsk, PermissionKind, StopReason,
 };
 
@@ -765,7 +765,7 @@ async fn a_long_claude_chat_comes_back_as_its_last_turns_and_pages_back_whole() 
     client.acp_start(launch).await.expect("resume");
     chat.until(|chat| chat.ready() && !chat.view.rows.is_empty())
         .await;
-    let answers = |rows: &[sikemux_wire::chat::ChatMessage]| {
+    let answers = |rows: &[sikemux_view::chat::ChatMessage]| {
         rows.iter()
             .filter(|row| row.role == ChatRole::Assistant)
             .count()

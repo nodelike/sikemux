@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::Core;
-use crate::protocol::HostLoad;
+use sikemux_view::device::HostLoad;
 
 /// How often the load is looked at again while a client shows it.
 const LOOK_EVERY: Duration = Duration::from_secs(30);

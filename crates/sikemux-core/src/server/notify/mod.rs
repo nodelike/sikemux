@@ -30,7 +30,7 @@ use crate::accounts::protocol::PushKind;
 use crate::protocol::{AgentState, Attention, Event, NotifyPrefs, NotifyWhen, PendingDevice};
 use crate::push::{self, Notification, NotificationCategory, NotificationKind, MAX_PLAINTEXT};
 use crate::text::clipped_line;
-use sikemux_wire::inbox::InboxItem;
+use sikemux_view::inbox::InboxItem;
 
 pub(crate) use goals::GoalMoved;
 pub(crate) use presence::{Presence, SystemPresence};

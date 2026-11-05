@@ -31,7 +31,7 @@ use sikemux_core::protocol::{
     SessionId, SpawnTarget, StreamId, TerminalSpawn, BUILD_ID_OVERRIDE_ENV,
 };
 use sikemux_pty::output_log::OutputQuery;
-use sikemux_wire::chat::{PermissionKind, StopReason};
+use sikemux_view::chat::{PermissionKind, StopReason};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");

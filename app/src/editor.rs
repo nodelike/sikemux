@@ -16,7 +16,8 @@ use gpui_kit::{
     Window,
 };
 use serde_json::{json, Value};
-use sikemux_wire::protocol::{Pane, PaneKind, DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
+use sikemux_view::layout::{Pane, PaneKind};
+use sikemux_view::prefs::{DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
 
 use crate::core::{Ask, Target};
 use crate::hosts::Place as Host;

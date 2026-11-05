@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::{CliOpenTarget, CliTargetKind};
-use crate::protocol::{Layout, Pane, PaneKind, SessionId, SessionInfo, SplitDir, Tab, Workspace};
+use crate::protocol::{SessionId, SessionInfo, Workspace};
+use sikemux_view::layout::{Layout, Pane, PaneKind, SplitDir, Tab};
 
 use super::kept::Kept;
 use super::{Core, CoreError, CoreResult};
@@ -513,7 +514,7 @@ pub(crate) fn front_project(core: &Core) -> Option<String> {
 fn strip<'a>(
     layout: &'a mut Layout,
     project: &str,
-) -> CoreResult<&'a mut crate::protocol::ProjectLayout> {
+) -> CoreResult<&'a mut sikemux_view::layout::ProjectLayout> {
     layout
         .projects
         .get_mut(project)
@@ -621,7 +622,7 @@ impl At {
 fn strip_at<'a>(
     layout: &'a mut Layout,
     at: &At,
-) -> CoreResult<&'a mut crate::protocol::ProjectLayout> {
+) -> CoreResult<&'a mut sikemux_view::layout::ProjectLayout> {
     match (&at.host, at.terminals) {
         (_, true) => Ok(&mut layout.terminals),
         (Some(host), false) => layout
@@ -661,7 +662,10 @@ fn bring_forward(layout: &mut Layout, at: &At) {
     }
 }
 
-fn tab_in<'a>(strip: &'a mut crate::protocol::ProjectLayout, tab: &str) -> CoreResult<&'a mut Tab> {
+fn tab_in<'a>(
+    strip: &'a mut sikemux_view::layout::ProjectLayout,
+    tab: &str,
+) -> CoreResult<&'a mut Tab> {
     strip
         .tabs
         .iter_mut()

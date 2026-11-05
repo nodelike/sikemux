@@ -25,7 +25,7 @@ use crate::server::codehost::repo::{self as codehost, Checks as CiChecks, CI_STA
 use crate::server::repo_events::RepoEvent;
 use crate::server::Core;
 use crate::tasks::config::ProjectCheck;
-use sikemux_wire::slice::{CheckRun, Verdict};
+use sikemux_view::slice::{CheckRun, Verdict};
 
 /// Checks running at once, across projects.
 const MAX_RUNNING: usize = 2;

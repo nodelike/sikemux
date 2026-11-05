@@ -14,8 +14,8 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Subscription, Window,
 };
 use serde_json::{json, Value};
-use sikemux_wire::protocol::{PaneColours, PaneCoverage, PanePattern};
-use sikemux_wire::theme::{ThemeSource, ThemeSummary};
+use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern};
+use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
 use crate::core::{Ask, Watch};
 use crate::icons::Icon;
@@ -253,7 +253,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
 
 /// How the pane picture is dithered: a preview drawn as the panes draw it, then each control.
 fn picture_rows(
-    preferences: &sikemux_wire::protocol::Preferences,
+    preferences: &sikemux_view::prefs::Preferences,
     fields: &Fields,
     this: &Entity<Workbench>,
     knob: &dyn Fn(&Entity<SliderState>, String) -> gpui_kit::Div,

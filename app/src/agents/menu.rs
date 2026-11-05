@@ -91,7 +91,7 @@ impl AgentMenu {
             can_skip_permissions: catalog.is_some_and(|kind| kind.bypass),
             can_share: catalog.is_some_and(|kind| kind.chat.is_some()),
             link,
-            in_front: bench.window_view == sikemux_wire::protocol::WindowView::Workbench
+            in_front: bench.window_view == sikemux_view::prefs::WindowView::Workbench
                 && bench.agent().is_some_and(|front| front.id == agent.id),
             faces_on: bench.shown().is_some_and(|view| view.face_style.on),
             agent,

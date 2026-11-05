@@ -12,7 +12,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::memory::{MemoryView, SeededRule, Seeding};
+use sikemux_view::memory::{MemoryView, SeededRule, Seeding};
 
 use super::{add, holding, run, tell_clients, view, Core, KeepSeededParams, NewMemory, State};
 use crate::agent_catalog::AgentKind;

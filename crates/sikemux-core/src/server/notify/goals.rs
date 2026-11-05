@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use sikemux_process::sync::Locked;
+use sikemux_view::slice::Slip;
 use sikemux_wire::protocol::NoticeGoal;
-use sikemux_wire::slice::Slip;
 
 use super::{
     alert_phones, project_name, Draft, NotificationKind, Notifier, MAX_BODY_CHARS,

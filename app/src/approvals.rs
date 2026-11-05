@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::{BoardPassParams, HoldParams};
-use sikemux_wire::inbox::{InboxItem, InboxKind};
+use sikemux_view::inbox::{InboxItem, InboxKind};
 
 use crate::core::Target;
 use crate::theme::{SPACE_1, TEXT_XS};

@@ -19,10 +19,12 @@ use gpui_kit::{
     StyleRefinement, Styled, Subscription, Task, WeakEntity, Window,
 };
 use serde_json::{json, Value};
+use sikemux_view::device::{DeviceView, RecentInfo};
+use sikemux_view::layout::{PaneKind, ProjectLayout, Tab};
+use sikemux_view::prefs::{MidTurnSend, Preferences, TabRailPage, TabRailScope, WindowView};
 use sikemux_wire::protocol::{
-    AgentFace, AgentGroup, AgentStatus, DeviceView, LauncherInfo, MidTurnSend, NoticeGoal,
-    PaneKind, PermissionMode, Preferences, ProjectCodeHost, ProjectInfo, ProjectLayout, RecentInfo,
-    RemoteStatus, SessionId, SessionInfo, SpaceInfo, Tab, TabRailPage, TabRailScope, WindowView,
+    AgentFace, AgentGroup, AgentStatus, LauncherInfo, NoticeGoal, PermissionMode, ProjectCodeHost,
+    ProjectInfo, RemoteStatus, SessionId, SessionInfo, SpaceInfo,
 };
 use tokio::sync::mpsc;
 
@@ -198,7 +200,7 @@ pub struct Workbench {
     pub panes: crate::panes::Panes,
     pub desks: Entity<crate::desk::Desks>,
     /// What the core was last told the desks hold.
-    pub(crate) desks_sent: Option<sikemux_wire::goals::DesksParams>,
+    pub(crate) desks_sent: Option<sikemux_view::goals::DesksParams>,
     /// Telling the core what the desks hold, once they settle.
     pub(crate) desks_telling: Option<Task<()>>,
     _desks_watched: Vec<Subscription>,
@@ -337,7 +339,7 @@ pub struct AgentRow {
     pub team: Option<TeamLink>,
 }
 
-pub use sikemux_wire::inbox::TeamLink;
+pub use sikemux_view::inbox::TeamLink;
 
 impl AgentRow {
     /// Its face, or its agent's mark while it wears none, `size` across.
@@ -2305,7 +2307,7 @@ impl Workbench {
     /// The path of the project whose tasks, runs and ports the store watches.
     /// Whether the person chose the rails' Compact density.
     pub fn rail_compact(&self) -> bool {
-        self.preferences().rail_density == sikemux_wire::protocol::RailDensity::Compact
+        self.preferences().rail_density == sikemux_view::prefs::RailDensity::Compact
     }
 
     pub fn window_handle(&self) -> AnyWindowHandle {
@@ -3668,7 +3670,7 @@ impl Workbench {
     /// Keeps a pane for each mod view of the strip in front, showing those of the tab in front
     /// and pausing the rest, and lets go of the others.
     fn mod_panes(&mut self, cx: &mut Context<Self>) {
-        let views_in = |pane: &sikemux_wire::protocol::Pane| -> Vec<(String, String)> {
+        let views_in = |pane: &sikemux_view::layout::Pane| -> Vec<(String, String)> {
             crate::panes::views(pane)
                 .filter(|view| view.kind == PaneKind::Mod)
                 .map(|view| (view.id.clone(), view.target.clone()))
@@ -4230,7 +4232,7 @@ impl Workbench {
     }
 
     /// Keeps the rail's goal up with who works it now; a goal gone takes the narrowing with it.
-    pub fn refocus_goal(&mut self, goals: &sikemux_wire::goals::GoalsView, cx: &mut Context<Self>) {
+    pub fn refocus_goal(&mut self, goals: &sikemux_view::goals::GoalsView, cx: &mut Context<Self>) {
         let Some(focus) = self.rails.goal_focus.as_mut() else {
             return;
         };
@@ -4692,7 +4694,7 @@ impl Render for Workbench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use crate::keymap::*;
         use crate::panes::Towards;
-        use sikemux_wire::protocol::SplitDir;
+        use sikemux_view::layout::SplitDir;
         let asked = self.asked(window, cx);
         #[cfg(feature = "drive")]
         if asked.is_some() {

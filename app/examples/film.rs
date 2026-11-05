@@ -881,7 +881,7 @@ struct Director {
     #[cfg(target_os = "macos")]
     stand_in: Option<native::StandIn>,
     /// Who the rail shows as signed in, kept over whatever the core says.
-    signed_in: Option<sikemux_wire::protocol::AccountInfo>,
+    signed_in: Option<sikemux_view::device::AccountInfo>,
     compositor: Compositor,
     output: (u32, u32),
     sink: Sink,
@@ -1811,7 +1811,7 @@ fn main() -> anyhow::Result<()> {
         #[cfg(target_os = "macos")]
         stand_in,
         signed_in: args.world["signedIn"]["name"].as_str().map(|name| {
-            sikemux_wire::protocol::AccountInfo {
+            sikemux_view::device::AccountInfo {
                 name: Some(name.into()),
                 email: args.world["signedIn"]["email"].as_str().map(Into::into),
                 picture_hash: None,

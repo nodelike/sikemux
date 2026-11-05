@@ -3,7 +3,7 @@
 //! keep only their own words, icons and colours for each action.
 
 use serde_json::{Map, Value};
-use sikemux_wire::chat::{ToolAction, ToolCall, ToolRow};
+use sikemux_view::chat::{ToolAction, ToolCall, ToolRow};
 
 use super::tool_rows::SPECS;
 use super::tools::sikemux_tool_name;

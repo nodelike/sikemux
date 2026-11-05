@@ -7,7 +7,7 @@ use gpui_kit::{
     div, img, px, AnyElement, App, Context, Div, FontWeight, InteractiveElement, IntoElement,
     ObjectFit, ParentElement, SharedString, StatefulInteractiveElement, Styled, StyledImage,
 };
-use sikemux_wire::slice::{Evidence, Proof, Verdict};
+use sikemux_view::slice::{Evidence, Proof, Verdict};
 
 use super::GoalsPane;
 use crate::icons::Icon;

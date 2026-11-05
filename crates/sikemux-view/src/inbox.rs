@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::{AgentFace, AgentGroup, AgentStatus, PermissionChoices, SessionId};
 use crate::slice::{Evidence, Gate};
+use sikemux_wire::protocol::{AgentFace, AgentGroup, AgentStatus, PermissionChoices, SessionId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

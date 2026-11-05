@@ -1,6 +1,6 @@
 use sikemux_core::server::{call, FindAnswer, FindParams, ToolDetailParams};
+use sikemux_view::chat::{ChatPage, ToolDetail};
 use sikemux_wire::changed::Topic;
-use sikemux_wire::chat::{ChatPage, ToolDetail};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -19,12 +19,13 @@ use sikemux_host::cli_paths;
 use sikemux_host::core_start::{self, StartError};
 use sikemux_host::login_item::{self, CoreLaunch};
 use sikemux_linked::{Happened, Linked};
+use sikemux_view::device::DeviceView;
 use sikemux_wire::grid::{
     decode_frame, decode_lines, FindOptions, FindResult, Frame, GridPoint, Lines, TerminalInput,
 };
 use sikemux_wire::protocol::{
-    ask, CallId, ChatAccount, ChatAttachment, ChatContext, ChatMark, DeviceAccess, DeviceView,
-    Event, LaunchIdentity, NetworkChange, NoticeGoal, PermissionMode, RemoteStatus, SessionId,
+    ask, CallId, ChatAccount, ChatAttachment, ChatContext, ChatMark, DeviceAccess, Event,
+    LaunchIdentity, NetworkChange, NoticeGoal, PermissionMode, RemoteStatus, SessionId,
     SpawnTarget, StreamId, TerminalSpawn, WindowAnswer, WindowCall,
 };
 use sikemux_wire::pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnapshot};
@@ -665,6 +666,12 @@ pub const NAME: &str = if cfg!(debug_assertions) {
 
 /// This app's key on the network, made the first time it is needed and kept where
 /// `sikemux_keychain` keeps secrets; a build that keeps none cannot have one.
+fn read_device_view(view: &str) -> Option<Box<DeviceView>> {
+    serde_json::from_str(view)
+        .map_err(|error| eprintln!("sikemux: the core's device view is unreadable: {error}"))
+        .ok()
+}
+
 fn device_key() -> Result<SecretKey, String> {
     let account = if cfg!(debug_assertions) {
         "dev"
@@ -1182,8 +1189,10 @@ async fn run(
                         }
                         event = events.recv() => match event {
                             Some(ClientEvent::Grid { stream, frame }) => streams.frame(stream, frame),
-                            Some(ClientEvent::Event(Event::DeviceView { view })) => {
-                                let _ = updates.send(Update::View(view));
+                            Some(ClientEvent::DeviceView(view)) => {
+                                if let Some(view) = read_device_view(&view) {
+                                    let _ = updates.send(Update::View(view));
+                                }
                             }
                             Some(ClientEvent::Event(Event::Notice { title, body, agent_id, goal })) => {
                                 let _ = updates.send(Update::Notice { title, body, agent: agent_id, goal });
@@ -1285,8 +1294,10 @@ async fn run(
                                     let news = Update::Chat(agent_id, ChatNews::Changes { seq, changes });
                                     let _ = updates.send(Update::From(host, Box::new(news)));
                                 }
-                                ClientEvent::Event(Event::DeviceView { view }) => {
-                                    let _ = updates.send(Update::HostView(host, view));
+                                ClientEvent::DeviceView(view) => {
+                                    if let Some(view) = read_device_view(&view) {
+                                        let _ = updates.send(Update::HostView(host, view));
+                                    }
                                 }
                                 ClientEvent::Event(Event::ShellMetadata(event)) => {
                                     let news = Update::Terminal(event.pty_id, Screenful::ShellChanged(event));

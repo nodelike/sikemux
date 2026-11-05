@@ -481,7 +481,7 @@ jobs:
         run: cargo clippy $GPUI_PACKAGES --all-targets --locked -- -D warnings
 
       - name: Run the core's tests on Linux
-        run: cargo test --locked -p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-client -p sikemux-keychain -p sikemux-host
+        run: cargo test --locked -p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host
 
       # The packages are unsigned and go nowhere but this run.
       - name: Install what the app packs with

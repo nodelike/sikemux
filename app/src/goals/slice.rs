@@ -7,7 +7,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled,
 };
 use sikemux_core::server::CardView;
-use sikemux_wire::slice::{Evidence, GateState, GateView, Passer, Proof, SliceView, Verdict};
+use sikemux_view::slice::{Evidence, GateState, GateView, Passer, Proof, SliceView, Verdict};
 
 use super::evidence;
 use super::goal::crumb;

@@ -3,7 +3,7 @@
 //! and how many things in it wait on the person.
 
 use gpui_kit::{AnyElement, Context, IntoElement, SharedString, Styled};
-use sikemux_wire::protocol::WindowView;
+use sikemux_view::prefs::WindowView;
 
 use super::{goal_mark, goal_name, goals_of, state_mark, At, GoalsPane};
 use crate::icons::Icon;

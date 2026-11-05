@@ -31,6 +31,7 @@ sha2 = "0.11"
 sikemux-pty = { path = "../sikemux-pty" }
 sikemux-plugin-api = { path = "../sikemux-plugin-api" }
 sikemux-wire = { path = "../sikemux-wire" }
+sikemux-view = { path = "../sikemux-view" }
 thiserror = "1"
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 url = "2"

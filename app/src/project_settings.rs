@@ -13,7 +13,8 @@ use gpui_kit::{
 };
 use serde_json::{json, Value};
 use sikemux_core::server::{Source, TaskView};
-use sikemux_wire::protocol::{PaneKind, ProjectInfo};
+use sikemux_view::layout::PaneKind;
+use sikemux_wire::protocol::ProjectInfo;
 
 use crate::icons::Icon;
 use crate::motion;

@@ -14,13 +14,13 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::NoParams;
-use sikemux_wire::goals::{
+use sikemux_view::goals::{
     DeskCounts, GoalAgent, GoalClock, GoalNext, GoalRow, GoalsView, LooseNeed,
 };
-use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
-use sikemux_wire::memory::Seeding;
+use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed};
+use sikemux_view::memory::Seeding;
+use sikemux_view::slice::SliceState;
 use sikemux_wire::protocol::{AgentGroup, AgentStatus, NoticeGoal};
-use sikemux_wire::slice::SliceState;
 
 use super::home::project_name;
 use super::{state_dot, At, FindGoal, GoalsPane, NextGoal, OpenChosen, PreviousGoal};

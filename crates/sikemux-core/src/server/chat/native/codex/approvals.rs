@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use sikemux_wire::chat::PermissionKind;
+use sikemux_view::chat::PermissionKind;
 
 use super::items::strip_shell;
 use crate::server::chat::permission::{allow_first, for_session, kind_of, option};

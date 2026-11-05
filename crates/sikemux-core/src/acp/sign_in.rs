@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use serde_json::Value;
-use sikemux_wire::chat::SignInMethod;
+use sikemux_view::chat::SignInMethod;
 
 /// The sign-in methods in `initialize`, for an agent whose program is called
 /// `command`. A terminal method in Zed's earlier `_meta` form counts only when

@@ -20,7 +20,7 @@ use sikemux_core::protocol::{
     ChatState, ClientMessage, PermissionMode, Request, PROTOCOL, PROTOCOL_VERSION,
 };
 use sikemux_core::server::{self, ServerConfig, ServerError};
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     ChatConnection, ChatPart, FailureKind, MoveReason, PermissionAsk, StopReason,
 };
 

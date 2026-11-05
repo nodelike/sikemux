@@ -291,7 +291,7 @@ for (const { where, plugin, tools } of described) {
       fail("row verb must be one lowercase word of 2 to 8 letters");
     if (!kinds.has(row.kind))
       fail(
-        `row kind "${row.kind}" is not one of ${[...kinds].join(", ")} (ToolAction in sikemux-wire)`,
+        `row kind "${row.kind}" is not one of ${[...kinds].join(", ")} (ToolAction in sikemux-view)`,
       );
     if (!icons.has(row.icon))
       fail(

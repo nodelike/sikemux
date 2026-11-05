@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 use sikemux_core::client::ClientEvent;
 use sikemux_core::protocol::{ChatAttachment, Event};
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     ChatChange, ChatConnection, ChatHead, ChatMessage, ChatPart, ChatRole, ChatView, StopReason,
 };
 use tokio::sync::mpsc::UnboundedReceiver;

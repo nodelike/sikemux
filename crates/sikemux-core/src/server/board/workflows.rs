@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::slice::Verdict;
+use sikemux_view::slice::Verdict;
 
 use super::slice::moved_by_evidence;
 use super::{State, Status};

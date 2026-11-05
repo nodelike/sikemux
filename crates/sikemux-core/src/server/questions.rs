@@ -17,8 +17,8 @@ use sikemux_process::sync::Locked;
 use crate::cli::protocol::HarnessRequest;
 use crate::protocol::WindowCall;
 use crate::text::clipped;
+use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::ChatContext;
-use sikemux_wire::questions::{AgentQuestion, QuestionChoice, QuestionState};
 
 use super::activity::Activity;
 use super::approvals::{Approval, Keeper};

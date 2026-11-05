@@ -6,7 +6,7 @@
 use super::CoreResult;
 use base64::Engine;
 use serde::Deserialize;
-use sikemux_wire::theme::Theme;
+use sikemux_view::theme::Theme;
 
 /// Pixels sampled at most, spread evenly over the image.
 const SAMPLES: usize = 24_000;

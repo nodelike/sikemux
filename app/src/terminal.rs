@@ -22,14 +22,14 @@ use gpui_kit::{
 use gpui_terminal_grid::{
     Cursor, CursorShape, Grid, Highlight, Layout, Look, Marked, Metrics, Span, Underline,
 };
+use sikemux_view::prefs::{
+    DEFAULT_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE, MIN_TERMINAL_FONT_SIZE,
+};
 use sikemux_wire::grid::{
     self as wire, Color, FindOptions, FindResult, GridPoint, Mods, MouseAction, MouseButton, Row,
     Screen, TerminalInput,
 };
-use sikemux_wire::protocol::{
-    SessionId, SessionInfo, DEFAULT_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE,
-    MIN_TERMINAL_FONT_SIZE,
-};
+use sikemux_wire::protocol::{SessionId, SessionInfo};
 use sikemux_wire::pty::shell_protocol::{ShellBoundary, ShellMetadataSnapshot, ShellPhase};
 use tokio::sync::{mpsc, oneshot};
 

@@ -26,6 +26,8 @@ const CORE_SOURCES: &[&str] = &[
     "../sikemux-client/Cargo.toml",
     "../sikemux-wire/src",
     "../sikemux-wire/Cargo.toml",
+    "../sikemux-view/src",
+    "../sikemux-view/Cargo.toml",
     "src/core_mode.rs",
     "../../Cargo.lock",
 ];

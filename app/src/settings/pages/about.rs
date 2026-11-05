@@ -6,7 +6,7 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_core::server::UpdateState;
-use sikemux_wire::protocol::UpdateChannel;
+use sikemux_view::prefs::UpdateChannel;
 
 use crate::icons::Icon;
 use crate::settings::rows;

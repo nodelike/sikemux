@@ -5,7 +5,7 @@ use std::collections::{BTreeSet, VecDeque};
 use std::sync::Mutex;
 
 use sikemux_process::sync::Locked;
-use sikemux_wire::slice::{CheckRun, Verdict};
+use sikemux_view::slice::{CheckRun, Verdict};
 use tokio::sync::Notify;
 
 /// Told events the board has not read yet, past which the oldest go.

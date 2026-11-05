@@ -7,7 +7,7 @@ use gpui_kit::{
     ParentElement, Styled, Subscription, Window,
 };
 use gpui_transcript::Change;
-use sikemux_wire::chat::ChatMessage;
+use sikemux_view::chat::ChatMessage;
 
 use super::{text_of, CancelEdit, Drawn};
 use crate::core::ChatAsk;

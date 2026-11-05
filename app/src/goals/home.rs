@@ -12,7 +12,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::{AnswerParams, BoardCardParams, BoardHandOnParams};
-use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
+use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed};
 
 use super::evidence::minute;
 use super::goal::{crumb, row};

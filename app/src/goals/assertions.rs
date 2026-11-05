@@ -10,7 +10,7 @@ use gpui_kit::{
     Styled, Subscription, Window,
 };
 use sikemux_core::server::{call, BoardAssertParams, CardView};
-use sikemux_wire::slice::{Assertion, Collect, SliceView};
+use sikemux_view::slice::{Assertion, Collect, SliceView};
 
 use super::goal::quiet_section;
 use super::GoalsPane;

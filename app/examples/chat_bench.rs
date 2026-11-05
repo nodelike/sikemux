@@ -28,8 +28,9 @@ use sikemux_fold::{ChatEvent, Fold, PageOf, PAGE_BYTES};
 use sikemux_gpui::core::{Ask, ChatAsk, ChatNews, Link, Update};
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{icons, theme, WINDOW_SIZE};
-use sikemux_wire::chat::{ChatChange, ChatHead, ChatMessage, ChatPage, ChatView};
-use sikemux_wire::protocol::{ChatAttachment, ChatMark, DeviceView, Event, PermissionMode};
+use sikemux_view::chat::{ChatChange, ChatHead, ChatMessage, ChatPage, ChatView};
+use sikemux_view::device::DeviceView;
+use sikemux_wire::protocol::{ChatAttachment, ChatMark, PermissionMode};
 use tokio::sync::mpsc;
 
 const ROWS: usize = 2_000;
@@ -548,8 +549,8 @@ fn layout() -> anyhow::Result<DeviceView> {
         let (client, mut events) = CoreClient::connect(&socket).await?;
         client.watch_view().await?;
         while let Some(event) = events.recv().await {
-            if let ClientEvent::Event(Event::DeviceView { view }) = event {
-                return Ok(*view);
+            if let ClientEvent::DeviceView(view) = event {
+                return Ok(serde_json::from_str(&view)?);
             }
         }
         Err(anyhow::anyhow!("the core sent no view"))

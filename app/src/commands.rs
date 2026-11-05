@@ -4,7 +4,8 @@
 use gpui_kit::{App, Context, SharedString, Window};
 use serde_json::{json, Value};
 use sikemux_core::server::ConfigStatus;
-use sikemux_wire::protocol::{PaneKind, SessionId};
+use sikemux_view::layout::PaneKind;
+use sikemux_wire::protocol::SessionId;
 use tokio::sync::oneshot;
 
 use crate::core;

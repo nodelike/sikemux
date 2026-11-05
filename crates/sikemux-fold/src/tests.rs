@@ -1,5 +1,5 @@
 use serde_json::json;
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     ChatChange, ChatView, DiffLine, DiffSummary, OutputImage, OutputSummary, PageRef, PlanEntry,
     PlanPriority, PlanStatus, RowMeta, StopReason, ToolCall, ToolOutput, ToolStatus,
 };
@@ -2152,7 +2152,7 @@ mod diff {
         );
     }
 
-    fn counted(diff: Option<sikemux_wire::chat::ToolDiff>) -> Option<(String, u64, u64)> {
+    fn counted(diff: Option<sikemux_view::chat::ToolDiff>) -> Option<(String, u64, u64)> {
         diff.map(|diff| (diff.path, diff.adds, diff.dels))
     }
 
@@ -2533,7 +2533,7 @@ mod tool_labels {
     }
 }
 
-fn row_of(title: &str, kind: Option<&str>, input: Value) -> sikemux_wire::chat::ToolRow {
+fn row_of(title: &str, kind: Option<&str>, input: Value) -> sikemux_view::chat::ToolRow {
     let mut raw = json!({ "toolCallId": "t1", "title": title, "rawInput": input });
     if let Some(kind) = kind {
         raw["kind"] = json!(kind);
@@ -2541,7 +2541,7 @@ fn row_of(title: &str, kind: Option<&str>, input: Value) -> sikemux_wire::chat::
     *tools::call(raw.as_object().unwrap()).row
 }
 
-fn titled(title: &str) -> sikemux_wire::chat::ToolRow {
+fn titled(title: &str) -> sikemux_view::chat::ToolRow {
     row_of(title, None, json!({}))
 }
 
@@ -2552,7 +2552,7 @@ fn an_mcp_call_is_named_for_its_server_and_reads_its_tool_as_words() {
         Some("fetch_custom"),
         json!({ "title": "Rows use underscores", "body": "a\nb" }),
     );
-    assert_eq!(row.action, sikemux_wire::chat::ToolAction::Mcp);
+    assert_eq!(row.action, sikemux_view::chat::ToolAction::Mcp);
     assert_eq!(row.server.as_deref(), Some("linear"));
     assert_eq!(row.target, "create issue");
     assert_eq!(row.detail.as_deref(), Some("Rows use underscores"));

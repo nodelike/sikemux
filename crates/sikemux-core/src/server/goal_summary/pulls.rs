@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{json, Value};
-use sikemux_wire::slice::{SourceKind, SourceLink};
+use sikemux_view::slice::{SourceKind, SourceLink};
 
 use super::moments::{fact, Gathered};
 use crate::server::codehost::repo;

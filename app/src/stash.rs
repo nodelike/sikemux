@@ -27,8 +27,8 @@ use crate::theme::{
 };
 use crate::ui::{self, IconButton};
 use crate::workbench::Workbench;
-use sikemux_wire::chat::SentContext;
-use sikemux_wire::protocol::PaneKind;
+use sikemux_view::chat::SentContext;
+use sikemux_view::layout::PaneKind;
 
 /// How long a stashed prompt can be put back from its composer.
 const UNDO_FOR: std::time::Duration = std::time::Duration::from_secs(10);

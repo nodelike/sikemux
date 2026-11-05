@@ -3,7 +3,7 @@
 
 use serde_json::{json, Value};
 
-use sikemux_wire::chat::PermissionKind;
+use sikemux_view::chat::PermissionKind;
 
 use super::super::json::{text, text_or_empty};
 use crate::server::chat::permission::{allow_first, for_session, option};

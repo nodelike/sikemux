@@ -3,7 +3,7 @@
 
 use gpui_kit::{Context, SharedString, Window};
 use serde_json::json;
-use sikemux_wire::theme::{Palette, ThemeSource, ThemeSummary};
+use sikemux_view::theme::{Palette, ThemeSource, ThemeSummary};
 
 use crate::core;
 use crate::palette::{Row, Spec};

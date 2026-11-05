@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
-use sikemux_wire::slice::{GoalSummary, GoalSummaryParams, GoalSummaryView};
+use sikemux_view::slice::{GoalSummary, GoalSummaryParams, GoalSummaryView};
 use tokio::sync::Semaphore;
 
 pub(crate) use self::draft::{draft_goal, GoalDraft};

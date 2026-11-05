@@ -5,7 +5,7 @@ use gpui_kit::{
     div, img, px, AnyElement, App, FontWeight, InteractiveElement, IntoElement, ObjectFit,
     ParentElement, SharedString, Styled, StyledImage,
 };
-use sikemux_wire::chat::{ChatMessage, GifRef};
+use sikemux_view::chat::{ChatMessage, GifRef};
 
 use super::Drawn;
 use crate::picture::{Picture, Remote};

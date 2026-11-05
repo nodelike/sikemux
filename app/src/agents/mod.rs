@@ -12,7 +12,9 @@ use gpui_kit::{
 use sikemux_core::agent_accounts::usage::{Usage, UsageWindow};
 use sikemux_core::agent_accounts::Profile;
 use sikemux_core::server::AccountUsage;
-use sikemux_wire::protocol::{LauncherInfo, PaneKind, RecentInfo};
+use sikemux_view::device::RecentInfo;
+use sikemux_view::layout::PaneKind;
+use sikemux_wire::protocol::LauncherInfo;
 
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
@@ -23,7 +25,7 @@ use crate::theme::{
 };
 use crate::ui::{self, Field, Group, IconButton, Row, Segmented};
 use crate::workbench::{AgentRow, Edge, RailPage, RailWidth, Strip, TeamLink, Workbench};
-use sikemux_wire::inbox::RemoteAgent;
+use sikemux_view::inbox::RemoteAgent;
 
 pub const TAB_RAIL: RailWidth = RailWidth {
     min: 240.,

@@ -9,7 +9,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled,
 };
 use sikemux_core::server::CardView;
-use sikemux_wire::slice::{
+use sikemux_view::slice::{
     Decision, GoalSummary, GoalSummaryView, LeftOut, LeftOutWhy, SourceKind, SourceLink,
     SummaryLine, SummarySource,
 };

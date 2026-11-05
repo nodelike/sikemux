@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use sikemux_wire::slice::{
+use sikemux_view::slice::{
     Evidence, GateState, LeftOut, LeftOutWhy, Passer, Proof, SavedChat, SourceKind, SourceLink,
     SummarySource, Verdict,
 };

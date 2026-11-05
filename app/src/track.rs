@@ -10,7 +10,7 @@ use gpui_kit::{
     canvas, div, px, relative, AnimationExt, AnyElement, App, Context, DispatchPhase, Div,
     ElementId, Hsla, IntoElement, ParentElement, ScrollEvent, Styled, Task, TouchPhase, Window,
 };
-use sikemux_wire::protocol::PaneKind;
+use sikemux_view::layout::PaneKind;
 
 use crate::panes;
 use crate::swipe::{self, Ends, Swipe, Swiped};
@@ -294,7 +294,7 @@ pub(crate) fn settle<T: 'static, K: 'static>(
 
 /// Whether a swipe over this tab pages between tabs; an editor or a page scrolls sideways
 /// itself, so its gestures stay its own.
-fn pages_sideways(tab: &sikemux_wire::protocol::Tab) -> bool {
+fn pages_sideways(tab: &sikemux_view::layout::Tab) -> bool {
     !matches!(
         crate::tabs::first_view(&tab.pane),
         Some((
@@ -307,7 +307,7 @@ fn pages_sideways(tab: &sikemux_wire::protocol::Tab) -> bool {
 /// The stage's tabs: the one in front, with the one beside it while they move.
 pub fn stage(
     bench: &Workbench,
-    front: &sikemux_wire::protocol::Tab,
+    front: &sikemux_view::layout::Tab,
     window: &Window,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {

@@ -15,12 +15,13 @@ use sikemux_core::client::{probe, ClientError, ClientEvent, CoreClient};
 use sikemux_core::grid::{decode_frame, Screen};
 use sikemux_core::protocol::{
     Attention, AttentionKind, BackdropImage, BuildIdentity, ChatAttachment, ChatLaunch, ChatMark,
-    ChatState, DeviceAccess, DeviceView, Event, LaunchIdentity, PermissionMode, RemoteStatus,
-    SessionId, SpawnTarget, TerminalSpawn, MAX_ATTACHMENT_BYTES,
+    ChatState, DeviceAccess, Event, LaunchIdentity, PermissionMode, RemoteStatus, SessionId,
+    SpawnTarget, TerminalSpawn, MAX_ATTACHMENT_BYTES,
 };
 use sikemux_core::remote::{self, SecretKey};
 use sikemux_core::server::{self, ServerConfig, ServerError};
-use sikemux_wire::chat::{ChatChange, ChatPage, ChatRole};
+use sikemux_view::chat::{ChatChange, ChatPage, ChatRole};
+use sikemux_view::device::DeviceView;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const WAIT: Duration = Duration::from_secs(30);
@@ -1159,9 +1160,10 @@ async fn until_view(
             .await
             .expect("timed out waiting for the device's view")
             .expect("the device's connection closed");
-        if let ClientEvent::Event(Event::DeviceView { view }) = event {
+        if let ClientEvent::DeviceView(view) = event {
+            let view = serde_json::from_str(&view).expect("the core's view reads back");
             if wanted(&view) {
-                return *view;
+                return view;
             }
         }
     }
@@ -1254,16 +1256,14 @@ async fn a_device_is_sent_its_view_on_connecting_and_again_when_it_changes() {
     tokio::time::sleep(Duration::from_secs(1)).await;
     let mut last = changed;
     while let Ok(event) = events.try_recv() {
-        if let ClientEvent::Event(Event::DeviceView { view }) = event {
-            assert_ne!(*view, last, "nothing changed, so nothing was sent");
-            last = *view;
+        if let ClientEvent::DeviceView(view) = event {
+            let view = serde_json::from_str(&view).expect("the core's view reads back");
+            assert_ne!(view, last, "nothing changed, so nothing was sent");
+            last = view;
         }
     }
     while let Ok(event) = app_events.try_recv() {
-        assert!(!matches!(
-            event,
-            ClientEvent::Event(Event::DeviceView { .. })
-        ));
+        assert!(!matches!(event, ClientEvent::DeviceView(_)));
     }
 }
 

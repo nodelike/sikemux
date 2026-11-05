@@ -22,17 +22,18 @@ use gpui_transcript::{
     Style, Transcript,
 };
 use serde_json::{json, Value};
-use sikemux_wire::catalog::Driver;
-use sikemux_wire::chat::{
+use sikemux_view::catalog::Driver;
+use sikemux_view::chat::{
     AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView,
     FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk,
     SubagentCard, SubagentState, ToolDetail, WorkFold,
 };
+use sikemux_view::prefs::{MidTurnSend, DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
+use sikemux_view::questions::{AgentQuestion, QuestionState};
 use sikemux_wire::protocol::{
-    AgentStatus, ChatAttachment, ChatContext, ChatMark, ConfigPicker, MidTurnSend, PermissionMode,
-    WorkspaceAgent, DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE,
+    AgentStatus, ChatAttachment, ChatContext, ChatMark, ConfigPicker, PermissionMode,
+    WorkspaceAgent,
 };
-use sikemux_wire::questions::{AgentQuestion, QuestionState};
 
 use crate::agents::setup::Installing;
 use crate::chat::composer::{Act, Composer, Notice, Strip};

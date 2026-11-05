@@ -3,7 +3,7 @@
 
 use sikemux_fold::update::{agent_text, compaction, notice, text_content, thought, turn_answer};
 use sikemux_fold::UpdateKind;
-use sikemux_wire::chat::StopReason;
+use sikemux_view::chat::StopReason;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

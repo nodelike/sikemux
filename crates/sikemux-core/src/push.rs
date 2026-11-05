@@ -8,7 +8,7 @@ use base64::Engine;
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, AES_256_GCM};
 use ring::hmac;
 use ring::rand::{SecureRandom, SystemRandom};
-pub use sikemux_wire::push::{
+pub use sikemux_view::push::{
     Notification, NotificationCategory, NotificationChannel, NotificationKind,
 };
 

@@ -8,13 +8,13 @@ use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
 use sikemux_process::sync::Locked;
-use sikemux_wire::goals::{
+use sikemux_view::goals::{
     AgentDesk, DeskCounts, DesksParams, GoalAgent, GoalClock, GoalNext, GoalRow, GoalSlice,
     GoalsView, LooseNeed,
 };
-use sikemux_wire::inbox::{Inbox, InboxItem, InboxKind, InboxNeed};
+use sikemux_view::inbox::{Inbox, InboxItem, InboxKind, InboxNeed};
+use sikemux_view::slice::SliceState;
 use sikemux_wire::protocol::SessionId;
-use sikemux_wire::slice::SliceState;
 
 use super::board::{self, BoardView, CardView, Column};
 use super::changed::Topic;

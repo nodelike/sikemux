@@ -259,6 +259,12 @@ impl EventSink for HostSink {
         let _ = self.0.send(Some(ClientEvent::Event(event)));
     }
 
+    fn device_view(&self, view_json: &str) {
+        let _ = self
+            .0
+            .send(Some(ClientEvent::DeviceView(view_json.to_owned())));
+    }
+
     fn window_call(&self, call_id: CallId, call: WindowCall) {
         let _ = self.0.send(Some(ClientEvent::WindowCall { call_id, call }));
     }

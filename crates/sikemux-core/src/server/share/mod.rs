@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::share::{ShareAsk, ShareFrame, ShareReply, SharedChat, SharedFile};
+use sikemux_view::share::{ShareAsk, ShareFrame, ShareReply, SharedChat, SharedFile};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 

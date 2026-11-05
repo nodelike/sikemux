@@ -15,7 +15,8 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Transformation, WeakEntity, Window, WindowControlArea,
 };
 use sikemux_core::server::{PortOwner, RunView, Source, TaskView};
-use sikemux_wire::protocol::{Pane, PaneKind, Tab as LayoutTab, WindowView};
+use sikemux_view::layout::{Pane, PaneKind, Tab as LayoutTab};
+use sikemux_view::prefs::WindowView;
 use sikemux_wire::pty::shell_protocol::SshLink;
 
 use crate::agents::menu::AgentMenu;

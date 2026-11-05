@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_fold::{ChatEvent, ChatEventKind, Place, UpdateKind};
-use sikemux_wire::chat::ToolDetail;
+use sikemux_view::chat::ToolDetail;
 
 use super::super::history::History;
 use super::work::{subagent_ended, task_ended, Work};
@@ -709,7 +709,7 @@ pub(super) mod tests {
     use super::*;
     use crate::protocol::PermissionMode;
     use sikemux_fold::Fold;
-    use sikemux_wire::chat::ChatChange;
+    use sikemux_view::chat::ChatChange;
 
     pub(in super::super) fn text(kind: &str, message: Option<&str>, text: &str) -> Value {
         let mut update = json!({

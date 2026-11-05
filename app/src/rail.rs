@@ -10,10 +10,10 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_core::server::{HostFound, HostReach};
-use sikemux_wire::protocol::{
-    AccountInfo, AgentGroup, AgentStatus, PaneKind, Preferences, ProjectInfo, TabRailPage,
-    TabRailScope, WindowView,
-};
+use sikemux_view::device::AccountInfo;
+use sikemux_view::layout::PaneKind;
+use sikemux_view::prefs::{Preferences, TabRailPage, TabRailScope, WindowView};
+use sikemux_wire::protocol::{AgentGroup, AgentStatus, ProjectInfo};
 
 use crate::hosts::HostChoice;
 use crate::icons::Icon;

@@ -5,7 +5,7 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::component::Disableable;
 use gpui_kit::{div, AnyElement, App, Context, Div, Entity, ParentElement, SharedString, Window};
 use serde_json::Value;
-use sikemux_wire::notch::{NotchDisplays, NotchFullScreen, NotchOpenWith, NotchPeeks};
+use sikemux_view::notch::{NotchDisplays, NotchFullScreen, NotchOpenWith, NotchPeeks};
 
 use crate::settings::rows::{self, Choice};
 use crate::settings::Page;

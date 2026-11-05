@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 use sikemux_process::clock::epoch_ms;
-use sikemux_wire::slice::{GoalSummary, SourceKind, SummaryLine, SummarySource};
+use sikemux_view::slice::{GoalSummary, SourceKind, SummaryLine, SummarySource};
 
 use super::moments::{Gathered, Moment};
 use crate::text::clipped;

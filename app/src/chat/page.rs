@@ -11,7 +11,7 @@ use gpui_kit::{
 };
 use gpui_native_view::{native_view, NativeSurface};
 use serde_json::json;
-use sikemux_wire::chat::PageRef;
+use sikemux_view::chat::PageRef;
 
 use super::Looks;
 use crate::page_view::{self, PageEvent, Room};

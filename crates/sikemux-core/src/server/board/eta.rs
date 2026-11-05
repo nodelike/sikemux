@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use sikemux_wire::slice::{Gate, GoalEta, Slip, Wait, WaitOn};
+use sikemux_view::slice::{Gate, GoalEta, Slip, Wait, WaitOn};
 
 use super::environments::Step;
 use super::slice;

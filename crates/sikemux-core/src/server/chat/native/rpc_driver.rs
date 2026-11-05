@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_fold::update::turn_answer;
 use sikemux_process::sync::Locked;
-use sikemux_wire::chat::StopReason;
+use sikemux_view::chat::StopReason;
 
 use crate::server::chat::failure::Failure;
 

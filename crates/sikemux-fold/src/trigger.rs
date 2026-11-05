@@ -1,7 +1,7 @@
 //! A trigger's prompt as its chat's agent reads it, and the same text read back into its
 //! title, prompt and webhook request for the apps to draw.
 
-use sikemux_wire::chat::{FiredRequest, RequestHeader, TriggerFired};
+use sikemux_view::chat::{FiredRequest, RequestHeader, TriggerFired};
 
 use super::prompt::attributes;
 

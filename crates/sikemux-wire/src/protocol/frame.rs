@@ -86,6 +86,31 @@ pub fn encode_control<T: Serialize>(message: &T) -> serde_json::Result<Vec<u8>> 
     ))
 }
 
+/// How [`encode_device_view`] opens and closes a device view's control frame. Clients and the
+/// core build on this one layout, so a view costs neither side a decoded tree.
+const DEVICE_VIEW_OPENS: &[u8] = br#"{"type":"event","event":{"kind":"deviceView","view":"#;
+const DEVICE_VIEW_CLOSES: &[u8] = b"}}";
+
+/// A control frame holding [`super::Event::DeviceView`], from the view's own type.
+pub fn encode_device_view<T: Serialize>(view: &T) -> serde_json::Result<Vec<u8>> {
+    Ok(encode_frame(
+        FrameKind::Control,
+        &[
+            DEVICE_VIEW_OPENS,
+            &serde_json::to_vec(view)?,
+            DEVICE_VIEW_CLOSES,
+        ],
+    ))
+}
+
+/// The view a control frame from [`encode_device_view`] holds, as the core's JSON.
+pub fn device_view_json(payload: &[u8]) -> Option<&str> {
+    let view = payload
+        .strip_prefix(DEVICE_VIEW_OPENS)?
+        .strip_suffix(DEVICE_VIEW_CLOSES)?;
+    std::str::from_utf8(view).ok()
+}
+
 pub fn encode_grid(stream: StreamId, frame: &[u8]) -> Vec<u8> {
     encode_frame(FrameKind::Grid, &[&stream.to_be_bytes(), frame])
 }

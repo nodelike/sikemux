@@ -16,13 +16,13 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use sikemux_wire::protocol::{
-    ask, ask::Ask, decode_grid, decode_lines, decode_snapshot, encode_control, encode_input,
-    read_frame, AllowedDevice, Attention, BackdropImage, BuildIdentity, CallId, ChatAccount,
-    ChatAttachment, ChatContext, ChatInfo, ChatLaunch, ChatMark, ChatStart, ClientMessage,
-    DeviceAccess, Event, FrameKind, HostRegistration, LaunchIdentity, PermissionMode, RemoteStatus,
-    Request, RequestId, Response, ServerMessage, SessionId, SessionInfo, SpawnTarget, StreamId,
-    WindowAnswer, WindowCall, Workspace, MAX_FRAME_BYTES, OLDEST_PROTOCOL_VERSION, PROTOCOL,
-    PROTOCOL_VERSION,
+    ask, ask::Ask, decode_grid, decode_lines, decode_snapshot, device_view_json, encode_control,
+    encode_input, read_frame, AllowedDevice, Attention, BackdropImage, BuildIdentity, CallId,
+    ChatAccount, ChatAttachment, ChatContext, ChatInfo, ChatLaunch, ChatMark, ChatStart,
+    ClientMessage, DeviceAccess, Event, FrameKind, HostRegistration, LaunchIdentity,
+    PermissionMode, RemoteStatus, Request, RequestId, Response, ServerMessage, SessionId,
+    SessionInfo, SpawnTarget, StreamId, WindowAnswer, WindowCall, Workspace, MAX_FRAME_BYTES,
+    OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -67,9 +67,17 @@ pub struct CoreHello {
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ClientEvent {
-    Grid { stream: StreamId, frame: Vec<u8> },
+    Grid {
+        stream: StreamId,
+        frame: Vec<u8>,
+    },
     Event(Event),
-    WindowCall { call_id: CallId, call: WindowCall },
+    /// What this client shows of the host, as the core's JSON.
+    DeviceView(String),
+    WindowCall {
+        call_id: CallId,
+        call: WindowCall,
+    },
 }
 
 /// Receives what the core sends unasked, on the connection's reader task and
@@ -80,12 +88,8 @@ pub trait EventSink: Send + Sync + 'static {
     /// lays it out.
     fn grid(&self, stream: StreamId, frame: &[u8]);
     fn event(&self, event: Event);
-    /// Whether this sink takes the device view as the core's JSON in [`EventSink::device_view`]
-    /// rather than read into an [`Event::DeviceView`], so fields and values newer than this
-    /// client still reach whoever reads that JSON.
-    fn takes_view_json(&self) -> bool {
-        false
-    }
+    /// What this client shows of the host, as the core's JSON, so fields and values newer than
+    /// this client still reach whoever reads it.
     fn device_view(&self, _view_json: &str) {}
     /// The core asks the registered window to do something. Answer with
     /// [`CoreClient::answer_window`].
@@ -193,6 +197,10 @@ impl EventSink for ChannelSink {
 
     fn event(&self, event: Event) {
         let _ = self.0.send(ClientEvent::Event(event));
+    }
+
+    fn device_view(&self, view_json: &str) {
+        let _ = self.0.send(ClientEvent::DeviceView(view_json.to_owned()));
     }
 
     fn window_call(&self, call_id: CallId, call: WindowCall) {
@@ -589,7 +597,7 @@ impl CoreClient {
     }
 
     /// The chat's rows before event `before` of its run `feed`, a
-    /// [`sikemux_wire::chat::ChatPage`] as JSON, for a client shown only the
+    /// `ChatPage` as JSON, for a client shown only the
     /// chat's end.
     pub async fn acp_history(
         &self,
@@ -874,28 +882,6 @@ impl CoreClient {
     }
 }
 
-/// The device view a control frame carries, as the core's JSON, read without the rest of it.
-fn view_json(payload: &[u8]) -> Option<&str> {
-    #[derive(serde::Deserialize)]
-    struct Message<'a> {
-        #[serde(rename = "type", borrow)]
-        kind: &'a str,
-        #[serde(borrow)]
-        event: Option<&'a serde_json::value::RawValue>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Shown<'a> {
-        #[serde(borrow)]
-        kind: &'a str,
-        #[serde(borrow)]
-        view: Option<&'a serde_json::value::RawValue>,
-    }
-    let message: Message = serde_json::from_slice(payload).ok()?;
-    let event: Shown =
-        serde_json::from_str(message.event.filter(|_| message.kind == "event")?.get()).ok()?;
-    (event.kind == "deviceView").then_some(event.view?.get())
-}
-
 fn unreadable_reply(payload: &[u8]) -> Option<RequestId> {
     serde_json::from_slice::<serde_json::Value>(payload)
         .ok()?
@@ -937,12 +923,7 @@ fn dispatch(frame: sikemux_wire::protocol::Frame, pending: &Pending, sink: &dyn 
                 resolve(request_id, Ok(Reply::Lines(lines.to_vec())));
             }
         }
-        FrameKind::Control
-            if let Some(view) = sink
-                .takes_view_json()
-                .then(|| view_json(&frame.payload))
-                .flatten() =>
-        {
+        FrameKind::Control if let Some(view) = device_view_json(&frame.payload) => {
             sink.device_view(view)
         }
         FrameKind::Control => match serde_json::from_slice::<ServerMessage>(&frame.payload) {

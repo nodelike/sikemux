@@ -13,7 +13,7 @@ use serde_json::Value;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use sikemux_wire::chat::ChatDraft;
+use sikemux_view::chat::ChatDraft;
 
 use super::changed::Topic;
 use super::kept::Kept;

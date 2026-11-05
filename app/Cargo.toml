@@ -61,6 +61,7 @@ sikemux-client = { path = "../crates/sikemux-client" }
 sikemux-keychain = { path = "../crates/sikemux-keychain" }
 sikemux-linked = { path = "../crates/sikemux-linked" }
 sikemux-wire = { path = "../crates/sikemux-wire" }
+sikemux-view = { path = "../crates/sikemux-view" }
 sikemux-voice = { path = "../crates/sikemux-voice" }
 textmate-highlight = { path = "crates/textmate-highlight" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }

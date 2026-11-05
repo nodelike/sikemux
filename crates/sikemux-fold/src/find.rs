@@ -2,7 +2,7 @@
 //! sees it, the words taken as written rather than as a pattern.
 
 use serde_json::Value;
-use sikemux_wire::chat::{ChatMessage, ChatPart};
+use sikemux_view::chat::{ChatMessage, ChatPart};
 
 /// What the reader looks for, and how.
 #[derive(Clone, Debug)]

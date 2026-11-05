@@ -110,7 +110,7 @@ fn update_now() -> Result<(), String> {
 
 #[cfg(target_os = "linux")]
 fn install_as_root() -> Result<(), String> {
-    use sikemux_core::protocol::UpdateChannel;
+    use sikemux_view::prefs::UpdateChannel;
     let channel = match BuildChannel::of_release(env!("CARGO_PKG_VERSION")) {
         BuildChannel::Nightly => UpdateChannel::Nightly,
         BuildChannel::Stable | BuildChannel::Dev => UpdateChannel::Stable,

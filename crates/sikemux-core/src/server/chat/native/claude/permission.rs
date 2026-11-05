@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use serde_json::{json, Value};
-use sikemux_wire::chat::PermissionKind;
+use sikemux_view::chat::PermissionKind;
 
 use super::tools;
 use crate::server::chat::permission::{kind_of, option};

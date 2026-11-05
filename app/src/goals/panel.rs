@@ -9,9 +9,9 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::BoardPassParams;
-use sikemux_wire::goals::{AgentDesk, GoalAgent, GoalRow, GoalSlice};
-use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
-use sikemux_wire::slice::SliceState;
+use sikemux_view::goals::{AgentDesk, GoalAgent, GoalRow, GoalSlice};
+use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed};
+use sikemux_view::slice::SliceState;
 
 use super::room::{
     agent_face, agent_state, clock_words, need_title, need_word, next_ink, next_words, Chosen,

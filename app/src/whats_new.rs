@@ -15,7 +15,7 @@ use gpui_transcript::{Markdown, Pen, Style};
 use serde::Deserialize;
 use serde_json::json;
 use sikemux_core::server::{UpdateRelease, UpdateState, UpdateStatus};
-use sikemux_wire::protocol::UpdateChannel;
+use sikemux_view::prefs::UpdateChannel;
 
 use crate::core::{self, Ask};
 use crate::experience::{self, Experience};

@@ -8,7 +8,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use sikemux_process::clock::epoch_ms;
-use sikemux_wire::slice::{CheckRun, Verdict, Wait, WaitOn};
+use sikemux_view::slice::{CheckRun, Verdict, Wait, WaitOn};
 
 use super::auto::mid_turn;
 use super::{eta, Board, Card, State, Status};

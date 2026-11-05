@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::chat::ToolDetail;
-use crate::protocol::ChatAttachment;
+use sikemux_wire::protocol::ChatAttachment;
 
 /// What a share sends its viewers, a frame at a time: the chat as it stands, then each
 /// change to it.

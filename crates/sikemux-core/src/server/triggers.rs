@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use sikemux_fold::trigger as fired;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::chat::{ChatTrigger, FiredRequest, RequestHeader, TriggerFired, TriggerWhen};
+use sikemux_view::chat::{ChatTrigger, FiredRequest, RequestHeader, TriggerFired, TriggerWhen};
 use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 

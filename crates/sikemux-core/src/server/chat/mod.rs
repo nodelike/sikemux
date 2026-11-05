@@ -23,7 +23,7 @@ mod usage;
 
 use sikemux_fold::update::{notice, turn_answer};
 use sikemux_fold::UpdateKind;
-use sikemux_wire::chat::StopReason;
+use sikemux_view::chat::StopReason;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -2260,7 +2260,7 @@ pub(crate) fn history(
 pub(crate) fn page(
     core: &Core,
     params: calls::ChatPageParams,
-) -> CoreResult<sikemux_wire::chat::ChatPage> {
+) -> CoreResult<sikemux_view::chat::ChatPage> {
     use feed::Anchor;
     let anchor = match (params.before, params.after, params.around) {
         (Some(before), None, None) => Anchor::Before(before),
@@ -2297,7 +2297,7 @@ pub(crate) fn tool_detail(
     core: &Core,
     agent_id: &str,
     tool_call_id: &str,
-) -> CoreResult<sikemux_wire::chat::ToolDetail> {
+) -> CoreResult<sikemux_view::chat::ToolDetail> {
     core.chats
         .running(agent_id)?
         .feed

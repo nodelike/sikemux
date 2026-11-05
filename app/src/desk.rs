@@ -27,8 +27,9 @@ use sikemux_browser::{
 use sikemux_core::cli::protocol::{is_browser_method, is_sim_method, HarnessRequest};
 use sikemux_core::harness::runs::RunStatus;
 use sikemux_process::sync::Locked;
-use sikemux_wire::goals::{AgentDesk, DeskTerminal};
-use sikemux_wire::protocol::{AgentStatus, CallId, Pane, PaneKind, WindowAnswer, WindowCall};
+use sikemux_view::goals::{AgentDesk, DeskTerminal};
+use sikemux_view::layout::{Pane, PaneKind};
+use sikemux_wire::protocol::{AgentStatus, CallId, WindowAnswer, WindowCall};
 use tokio::sync::mpsc;
 
 use crate::core::Ask;
@@ -444,7 +445,7 @@ impl Desks {
         for (agent, strip) in &self.strips {
             let pages = (strip.tabs.iter())
                 .filter(|tab| !idle_blank(tab))
-                .map(|tab| sikemux_wire::goals::DeskPage {
+                .map(|tab| sikemux_view::goals::DeskPage {
                     id: tab.id.clone(),
                     title: tab.title.clone(),
                     url: tab.url.clone(),
@@ -684,7 +685,7 @@ impl Workbench {
     }
 
     fn tell_desks(&mut self, cx: &App) {
-        let params = sikemux_wire::goals::DesksParams {
+        let params = sikemux_view::goals::DesksParams {
             desks: self.desks.read(cx).held(self.sims.read(cx)),
         };
         if self.desks_sent.as_ref() == Some(&params) {

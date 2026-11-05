@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::inbox::{ShipHold, ShipKind};
-use sikemux_wire::slice::Verdict;
+use sikemux_view::inbox::{ShipHold, ShipKind};
+use sikemux_view::slice::Verdict;
 
 use super::board::{self, auto::Landing, environments::Goes, DeployRan};
 use super::plugins::Provided;

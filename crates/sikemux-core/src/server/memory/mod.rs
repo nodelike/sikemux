@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
-use sikemux_wire::memory::{
+use sikemux_view::memory::{
     FolderMemory, Knowledge, Learned, ListedRule, MemoryCheck, MemoryView, Rule, Seeding, Stale,
 };
 
@@ -545,7 +545,7 @@ fn view(core: &Core, project: &str, peer: &Peer) -> MemoryView {
         .map(|held| {
             // A folder that came since its file was read is not offered to move yet.
             let file = (files.get(&held.folder).cloned())
-                .unwrap_or(Err(sikemux_wire::memory::Stays::NoCheckout));
+                .unwrap_or(Err(sikemux_view::memory::Stays::NoCheckout));
             let rules: Vec<ListedRule> = (held.rules.iter())
                 .filter(|rule| shows_sensitive || !rule.sensitive)
                 .map(|rule| ListedRule {

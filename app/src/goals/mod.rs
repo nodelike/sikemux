@@ -21,15 +21,15 @@ use sikemux_core::server::{
     BoardDecideParams, BoardNoteParams, BoardPassParams, BoardView, CardView, Column,
     KeepSeededParams, MemoryEntryParams, MemoryParams, NoParams,
 };
-use sikemux_wire::inbox::{
+use sikemux_view::inbox::{
     InboxCard, InboxDigest, InboxItem, InboxKind, PROPOSED_ENVIRONMENTS_ITEM,
 };
-use sikemux_wire::memory::{MemoryView, Seeding};
-use sikemux_wire::protocol::NoticeGoal;
-use sikemux_wire::slice::{
+use sikemux_view::memory::{MemoryView, Seeding};
+use sikemux_view::slice::{
     CheckRun, Gate, GateState, GateView, GoalEta, GoalSummaryParams, GoalSummaryView, Need, Passer,
     SavedChat, SliceState, SliceView, Wait, WaitOn,
 };
+use sikemux_wire::protocol::NoticeGoal;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::agents::menu::AgentMenu;

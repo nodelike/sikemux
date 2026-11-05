@@ -24,8 +24,8 @@ use super::kept;
 use super::messages;
 use super::wake::{sooner, Wake};
 use super::Core;
-use sikemux_wire::inbox::InboxRecording;
-use sikemux_wire::slice::{
+use sikemux_view::inbox::InboxRecording;
+use sikemux_view::slice::{
     Assertion, Collect, Decision, GoalEta, GoalRule, NextGate, SliceState, SliceView, Wait,
 };
 
@@ -1346,7 +1346,7 @@ pub struct BoardView {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub problems: Vec<String>,
     /// The triggers that add cards to it when their time comes, soonest first.
-    pub triggers: Vec<sikemux_wire::chat::ChatTrigger>,
+    pub triggers: Vec<sikemux_view::chat::ChatTrigger>,
 }
 
 fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
@@ -2377,7 +2377,7 @@ pub(crate) enum Waits {
         gate: Step,
         promise: String,
         url: Option<String>,
-        evidence: Option<Box<sikemux_wire::slice::Evidence>>,
+        evidence: Option<Box<sikemux_view::slice::Evidence>>,
     },
     /// Its ticket `key` was closed in its tracker with nothing of its slice
     /// landed, where the person lands slices, while the slice waits at `gate`.

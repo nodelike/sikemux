@@ -170,7 +170,7 @@ impl Workbench {
 impl Chat {
     fn ready_in_worktree(&self) -> bool {
         self.state.as_ref().is_some_and(|head| {
-            head.connection == sikemux_wire::chat::ChatConnection::Ready && !head.running
+            head.connection == sikemux_view::chat::ChatConnection::Ready && !head.running
         })
     }
 }

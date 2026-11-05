@@ -3290,7 +3290,7 @@ export interface SharedChat {
 
 export type ChatAttachment =
     /**
-     * The chat as it stands, a [`crate::chat::ChatView`] as JSON. Changes
+     * The chat as it stands, a `ChatView` as JSON. Changes
      * follow, numbered from `mark.seq + 1`.
      */
     | {
@@ -3300,7 +3300,7 @@ export type ChatAttachment =
       }
     /**
      * What changed since the mark the client attached with, as a list of
-     * [`crate::chat::ChatChange`] JSON. Changes follow `mark`.
+     * `ChatChange` JSON. Changes follow `mark`.
      */
     | {
           status: "resumed";

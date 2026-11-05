@@ -7,7 +7,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_fold::update;
-use sikemux_wire::chat::StopReason;
+use sikemux_view::chat::StopReason;
 
 use crate::server::chat::failure::Failure;
 

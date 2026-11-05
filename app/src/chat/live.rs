@@ -10,7 +10,7 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_core::server::{call, QueuedParams};
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, TaskState, TriggerWhen, WorkflowAgent,
     WorkflowAgentState,
 };

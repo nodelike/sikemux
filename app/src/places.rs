@@ -5,7 +5,8 @@
 
 use gpui_kit::{App, Context, Window};
 use serde_json::json;
-use sikemux_wire::protocol::{Pane, PaneKind, ProjectInfo};
+use sikemux_view::layout::{Pane, PaneKind};
+use sikemux_wire::protocol::ProjectInfo;
 
 use crate::tabs;
 use crate::workbench::{RailPage, Strip, Workbench};
@@ -215,7 +216,7 @@ impl Workbench {
     /// It asks first when that would stop an agent mid-turn or lose a file's unsaved changes.
     /// The goals show no tab to close, so there a chat only goes back, and nothing else happens.
     pub fn close_front(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if self.window_view == sikemux_wire::protocol::WindowView::Goals {
+        if self.window_view == sikemux_view::prefs::WindowView::Goals {
             if let Some(goals) = self.goals.clone() {
                 goals.update(cx, |goals, cx| goals.leave_chat(window, cx));
             }

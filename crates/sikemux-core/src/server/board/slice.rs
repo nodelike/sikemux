@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::inbox::InboxRecording;
-use sikemux_wire::slice::{
+use sikemux_view::inbox::InboxRecording;
+use sikemux_view::slice::{
     Asserted, Collect, Evidence, Gate, GateState, GateView, Need, NextGate, Note, Passer, Proof,
     SliceState, SliceView, Verdict, Wait,
 };

@@ -218,7 +218,7 @@ pub struct ChatHead {
     pub running: bool,
     /// A turn has run in this session, so the provider keeps it.
     pub turned: bool,
-    pub permission_mode: crate::protocol::PermissionMode,
+    pub permission_mode: sikemux_wire::protocol::PermissionMode,
     /// A change of the permission mode is on its way to the agent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub changing_mode: bool,
@@ -249,11 +249,11 @@ pub struct ChatHead {
     pub setup: Value,
     /// The model the session runs on, and the ones it can switch to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<crate::protocol::ConfigPicker>,
+    pub model: Option<sikemux_wire::protocol::ConfigPicker>,
     /// How hard the model thinks. An agent that always offers it has one
     /// with no choices until its session says them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<crate::protocol::ConfigPicker>,
+    pub effort: Option<sikemux_wire::protocol::ConfigPicker>,
     pub permissions: Vec<PermissionAsk>,
     pub tasks: Vec<AsyncTask>,
     /// The chat's own subagents still at work.

@@ -8,9 +8,9 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use sikemux_core::server::{call, ChatGoalParams};
-use sikemux_wire::chat::{ChatGoal, ChatHead};
+use sikemux_view::chat::{ChatGoal, ChatHead};
+use sikemux_view::slice::SliceState;
 use sikemux_wire::protocol::NoticeGoal;
-use sikemux_wire::slice::SliceState;
 
 use super::composer::{Act, Notice};
 use crate::theme::{Tokens, SPACE_1, SPACE_1H, TEXT_XS};

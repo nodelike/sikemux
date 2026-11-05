@@ -73,27 +73,6 @@ pub struct ChatAccount {
     pub env: BTreeMap<String, String>,
 }
 
-/// What a device learns of a recent chat: never the launcher behind it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RecentInfo {
-    /// Names it in `ResumeChat`.
-    pub id: String,
-    pub provider: String,
-    pub title: String,
-    /// The app's project it ran in.
-    pub project: String,
-    pub cwd: PathBuf,
-    /// Unix milliseconds.
-    pub active_at: u64,
-    /// The agent in the workspace that holds the chat, open or asleep.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_id: Option<String>,
-    /// The person pinned it, so it shows above the rest however long ago it ran.
-    #[serde(default)]
-    pub pinned: bool,
-}
-
 /// Something read elsewhere and handed to the agent whole, such as an issue.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatContext {
@@ -136,14 +115,14 @@ pub struct ChatMark {
     rename_all_fields = "camelCase"
 )]
 pub enum ChatAttachment {
-    /// The chat as it stands, a [`crate::chat::ChatView`] as JSON. Changes
+    /// The chat as it stands, a `ChatView` as JSON. Changes
     /// follow, numbered from `mark.seq + 1`.
     Live {
         view: Value,
         mark: ChatMark,
     },
     /// What changed since the mark the client attached with, as a list of
-    /// [`crate::chat::ChatChange`] JSON. Changes follow `mark`.
+    /// `ChatChange` JSON. Changes follow `mark`.
     Resumed {
         changes: Value,
         mark: ChatMark,

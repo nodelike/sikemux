@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::memory::{CheckOutcome, LastCheck, MemoryCheck, Stale};
+use sikemux_view::memory::{CheckOutcome, LastCheck, MemoryCheck, Stale};
 
 use super::{tell_clients, Core};
 use crate::server::wake::sooner;

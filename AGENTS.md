@@ -75,7 +75,8 @@
   workspace: never add it to the root install, scripts or checks.
 - The phone and the core share `sikemux-wire`'s protocol. A protocol change must keep
   `sikemux-mobile` building, and bumps `PROTOCOL_VERSION` once anything already released
-  speaks the old shape.
+  speaks the old shape. A type the phone's Rust does not act on goes in `sikemux-view`, which
+  it does not link.
 - The phone links only `sikemux-wire` and `sikemux-client`, so their code, not the
   core's, decides when a phone needs a store build rather than an over-the-air update.
   Keep them to data and transport: never make either depend on `sikemux-core`,

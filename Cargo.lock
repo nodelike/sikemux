@@ -4195,8 +4195,6 @@ version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 dependencies = [
- "allocator-api2",
- "equivalent",
  "foldhash",
 ]
 
@@ -9263,6 +9261,7 @@ dependencies = [
  "sikemux-plugin-api",
  "sikemux-process",
  "sikemux-pty",
+ "sikemux-view",
  "sikemux-wire",
  "tempfile",
  "thiserror 1.0.69",
@@ -9286,6 +9285,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sikemux-markdown",
+ "sikemux-view",
  "sikemux-wire",
  "workspace-hack",
 ]
@@ -9337,6 +9337,7 @@ dependencies = [
  "sikemux-plugin-api",
  "sikemux-process",
  "sikemux-simulator",
+ "sikemux-view",
  "sikemux-voice",
  "sikemux-wire",
  "smallvec",
@@ -9452,6 +9453,7 @@ dependencies = [
  "serde_json",
  "sikemux-client",
  "sikemux-core",
+ "sikemux-view",
  "sikemux-wire",
  "tempfile",
  "thiserror 1.0.69",
@@ -9684,6 +9686,16 @@ dependencies = [
  "sikemux-process",
  "tempfile",
  "tokio",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-view"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sikemux-wire",
  "workspace-hack",
 ]
 
@@ -12727,7 +12739,6 @@ dependencies = [
  "rustls-webpki",
  "security-framework",
  "security-framework-sys",
- "semver",
  "serde",
  "serde_core",
  "serde_json",
@@ -12746,7 +12757,6 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "vte",
  "winnow 1.0.4",
  "zeroize",
 ]

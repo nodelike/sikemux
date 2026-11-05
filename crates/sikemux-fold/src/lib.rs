@@ -1,6 +1,6 @@
 //! A chat folded from what its agent says into the rows clients draw. The
 //! events go in as the core's feed keeps them; what changed goes out at each
-//! flush as [`sikemux_wire::chat::ChatChange`]s, so a client never reads an
+//! flush as [`sikemux_view::chat::ChatChange`]s, so a client never reads an
 //! agent's own messages and a streamed token costs only itself.
 
 mod event;
@@ -26,7 +26,7 @@ use serde_json::{Map, Value};
 use sikemux_markdown::Doc;
 use sikemux_wire::protocol::PermissionMode;
 
-use sikemux_wire::chat::{
+use sikemux_view::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
     Compactions, ContentBlock, ContextUsage, FailureKind, MoveReason, NoticeSeverity, NoticeState,

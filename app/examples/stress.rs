@@ -38,7 +38,8 @@ use serde_json::{json, Value};
 use sikemux_client::client::CoreClient;
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{core, icons, memory, theme, WINDOW_SIZE};
-use sikemux_wire::protocol::{ChatAttachment, LaunchIdentity, Pane, SpawnTarget, TerminalSpawn};
+use sikemux_view::layout::Pane;
+use sikemux_wire::protocol::{ChatAttachment, LaunchIdentity, SpawnTarget, TerminalSpawn};
 
 const FRAME: Duration = Duration::from_micros(8_333);
 const PROJECT: &str = "stress";

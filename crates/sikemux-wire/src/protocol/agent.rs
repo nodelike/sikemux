@@ -205,31 +205,6 @@ pub struct AgentFace {
     pub view_box: String,
 }
 
-/// How agents' faces look, as the person picked.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FaceStyle {
-    /// Every agent wears a face; otherwise only one with a name does.
-    pub on: bool,
-    /// A pack's id, or `all` for a pack per agent.
-    pub pack: String,
-    /// A shape's id, or `mixed` for a shape per agent.
-    pub shape: String,
-    /// Faces move with what their agents are doing.
-    pub motion: bool,
-}
-
-impl Default for FaceStyle {
-    fn default() -> Self {
-        Self {
-            on: false,
-            pack: "all".into(),
-            shape: "mixed".into(),
-            motion: true,
-        }
-    }
-}
-
 /// The app's `agent_state_changed` payload.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

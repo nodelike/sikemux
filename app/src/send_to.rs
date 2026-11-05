@@ -5,7 +5,8 @@ use std::future::Future;
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::{AppContext, Context, SharedString, Task, WeakEntity, Window};
-use sikemux_wire::protocol::{LauncherInfo, PaneKind};
+use sikemux_view::layout::PaneKind;
+use sikemux_wire::protocol::LauncherInfo;
 use tokio::sync::oneshot;
 
 use crate::icons::Icon;

@@ -2,7 +2,7 @@
 //! letters from other agents, the context sent with it, and the notes an
 //! agent's harness writes to itself, which the person never sees.
 
-use sikemux_wire::chat::{AgentLetter, LetterKind, SentContext};
+use sikemux_view::chat::{AgentLetter, LetterKind, SentContext};
 
 /// Where an `@` mention of another agent points; the message's own text
 /// already shows the mention.

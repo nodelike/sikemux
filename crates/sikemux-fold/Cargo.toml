@@ -9,6 +9,7 @@ description = "A chat folded from what its agent says into the rows clients draw
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sikemux-markdown = { path = "../sikemux-markdown" }
+sikemux-view = { path = "../sikemux-view" }
 sikemux-wire = { path = "../sikemux-wire" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -7,7 +7,7 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use sikemux_wire::protocol::{CustomCommand, CustomCommandPlacement};
+use sikemux_view::prefs::{CustomCommand, CustomCommandPlacement};
 
 use crate::icons::Icon;
 use crate::settings::rows;

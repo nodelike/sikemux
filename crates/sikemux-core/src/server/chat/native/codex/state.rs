@@ -531,7 +531,7 @@ impl RpcSession for Session {
 mod tests {
     use super::super::super::session::TurnEnd;
     use super::*;
-    use sikemux_wire::chat::StopReason;
+    use sikemux_view::chat::StopReason;
 
     fn session() -> Session {
         Session::new("thread".into())

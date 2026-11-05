@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::chat::{ChatGoal, GoalMarker};
-use sikemux_wire::slice::{SliceState, Wait, WaitOn};
+use sikemux_view::chat::{ChatGoal, GoalMarker};
+use sikemux_view::slice::{SliceState, Wait, WaitOn};
 
 use super::{
     add_card, auto, holder, lease, slice, title_of, waits, Adding, Board, By, Card, Status,

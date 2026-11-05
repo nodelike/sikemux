@@ -24,7 +24,7 @@ use crate::theme::{
     TEXT_3XS, TEXT_XL, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Toggle, Variant};
-use sikemux_wire::protocol::WindowView;
+use sikemux_view::prefs::WindowView;
 
 use crate::workbench::{AgentRow, Workbench};
 use crate::{chat, terminal};

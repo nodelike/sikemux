@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sikemux_wire::chat::ChatChange;
+use sikemux_view::chat::ChatChange;
 
 use super::super::super::connection::{ClientConn, ClientId};
 use super::super::history::History;

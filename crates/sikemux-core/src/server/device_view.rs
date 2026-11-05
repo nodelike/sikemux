@@ -10,7 +10,8 @@ use tokio::sync::Notify;
 
 use super::connection::ClientConn;
 use super::{access, display, goals, inbox, layout, load, updates, workspace, Core};
-use crate::protocol::{encode_control, AgentGroup, DeviceView, Event, ServerMessage};
+use crate::protocol::{encode_device_view, AgentGroup, Event};
+use sikemux_view::device::DeviceView;
 
 /// How often what a paired device shows of this host is looked at again
 /// while something in it moves by itself, such as an agent mid-turn.
@@ -235,12 +236,7 @@ impl Core {
             }),
             updates: updates::host_view(self),
         };
-        let frame = encode_control(&ServerMessage::Event {
-            event: Event::DeviceView {
-                view: Box::new(view),
-            },
-        })
-        .ok()?;
+        let frame = encode_device_view(&view).ok()?;
         Some((frame, moving))
     }
 
@@ -268,7 +264,7 @@ impl Core {
     }
 
     /// Whether what the rows show of `load` moved since the view last went out.
-    pub(crate) fn load_moved(&self, load: &crate::protocol::HostLoad) -> bool {
+    pub(crate) fn load_moved(&self, load: &sikemux_view::device::HostLoad) -> bool {
         *self.device_view.shown_load.locked() != Some(load::shown(load))
     }
 

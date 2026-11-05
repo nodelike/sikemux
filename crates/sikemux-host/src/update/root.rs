@@ -15,8 +15,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use sikemux_core::host_update::{self, HostRequest, UpdateStep};
-use sikemux_core::protocol::UpdateChannel;
 use sikemux_core::release_feed;
+use sikemux_view::prefs::UpdateChannel;
 
 const CORE: &str = "sikemux-host";
 const GROUP: &CStr = c"sikemux";

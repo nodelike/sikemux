@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 use super::connection::blocking;
 use super::layout::At;
 use super::{Core, CoreError, CoreResult};
-use crate::protocol::{CustomCommand, CustomCommandPlacement, SessionId};
+use crate::protocol::SessionId;
 use crate::tasks::config::{self, ActionPlacement, ConfigLoad};
+use sikemux_view::prefs::{CustomCommand, CustomCommandPlacement};
 
 const TIMEOUT: Duration = Duration::from_secs(120);
 const OUTPUT_LIMIT: usize = 16_000;

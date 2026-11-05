@@ -17,11 +17,12 @@ use super::{
     messages, model_providers, names, plugins, questions, remote, saved, saved_sessions, share,
     ship, skill_library, who_wrote, Core, CoreError, CoreResult,
 };
-use crate::protocol::{Preferences, RemoteStatus};
-use sikemux_wire::catalog::CatalogAgent;
-use sikemux_wire::chat::ToolDetail;
-use sikemux_wire::memory::MemoryView;
-use sikemux_wire::questions::AgentQuestion;
+use crate::protocol::RemoteStatus;
+use sikemux_view::catalog::CatalogAgent;
+use sikemux_view::chat::ToolDetail;
+use sikemux_view::memory::MemoryView;
+use sikemux_view::prefs::Preferences;
+use sikemux_view::questions::AgentQuestion;
 
 /// What one row of the table says about its method: what a paired device needs, which
 /// programs on this host may call it, and whether its use goes in the usage report.
@@ -451,18 +452,18 @@ calls! { core, client, method, params;
     "boardAnswerProposal" BoardAnswerProposal (board::ProposalParams) -> board::BoardView: Full => {
         board::person_answer_proposal(&core, params).await?
     },
-    "goalSummary" GoalSummary (sikemux_wire::slice::GoalSummaryParams) -> sikemux_wire::slice::GoalSummaryView: Full => {
+    "goalSummary" GoalSummary (sikemux_view::slice::GoalSummaryParams) -> sikemux_view::slice::GoalSummaryView: Full => {
         goal_summary::read(&core, params).await?
     },
-    "goals" Goals (NoParams) -> sikemux_wire::goals::GoalsView: Watch, any_program => goals::view(&core),
-    "setDesks" SetDesks (sikemux_wire::goals::DesksParams) -> (): Owner => goals::set_desks(&core, client.id, params),
+    "goals" Goals (NoParams) -> sikemux_view::goals::GoalsView: Watch, any_program => goals::view(&core),
+    "setDesks" SetDesks (sikemux_view::goals::DesksParams) -> (): Owner => goals::set_desks(&core, client.id, params),
     "boardAssert" BoardAssert (board::goal::AssertParams) -> board::BoardView: Full => {
         board::goal::person_assert(&core, params).await?
     },
     "boardDecide" BoardDecide (board::goal::DecideParams) -> board::BoardView: Full => {
         board::goal::person_decide(&core, params).await?
     },
-    "triage" Triage (super::triage::TriageParams) -> sikemux_wire::start::Triage: Full => {
+    "triage" Triage (super::triage::TriageParams) -> sikemux_view::start::Triage: Full => {
         super::triage::triage(&core, params).await?
     },
     "memory" Memory (memory::MemoryParams) -> MemoryView: Watch, any_program => memory::person_view(&core, client.peer.clone(), params).await?,

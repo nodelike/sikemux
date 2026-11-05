@@ -173,7 +173,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             .as_ref()
             .map_or(dir.as_path(), |landed| landed.repo.as_path());
         let ship = crate::ship::Ship {
-            kind: sikemux_wire::inbox::ShipKind::Push,
+            kind: sikemux_view::inbox::ShipKind::Push,
             what: "git_commit push".to_owned(),
             target: None,
         };

@@ -12,8 +12,8 @@ use gpui_kit::{div, AnyElement, App, Context, Focusable, IntoElement, SharedStri
 use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::{BoardAddParams, BoardHandOffParams, TriageParams};
+use sikemux_view::start::{Because, HardFact, StartMode};
 use sikemux_wire::protocol::{ChatContext, LauncherInfo, ProjectInfo, FOR_AGENT_URI};
-use sikemux_wire::start::{Because, HardFact, StartMode};
 use tokio::sync::oneshot;
 
 use super::GoalsPane;

@@ -7,8 +7,8 @@
 
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
-use sikemux_wire::inbox::ShipKind;
-use sikemux_wire::slice::Gate;
+use sikemux_view::inbox::ShipKind;
+use sikemux_view::slice::Gate;
 
 use super::slice::{Later, Seen};
 use super::{Board, By, Changes, Notice, State, Status};

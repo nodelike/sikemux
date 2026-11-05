@@ -5,7 +5,7 @@
 use semver::Version;
 use serde::{Deserialize, Serialize};
 
-use crate::protocol::UpdateChannel;
+use sikemux_view::prefs::UpdateChannel;
 
 /// Where the installer puts the core, setgid to the group that guards its secrets.
 pub const INSTALLED_CORE: &str = "/usr/local/lib/sikemux/sikemux-host";

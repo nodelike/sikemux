@@ -3,9 +3,6 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-use super::{Attention, ChatInfo, FaceStyle, Layout, RecentInfo, SessionInfo, Workspace};
 
 /// What a paired device was approved to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -15,16 +12,6 @@ pub enum DeviceAccess {
     Full,
     /// Read sessions and answer agents' permission requests.
     Watch,
-}
-
-/// How busy a host is, for the rows clients show it in.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HostLoad {
-    /// The last minute's load as a share of the host's cores, in percent.
-    pub cpu: u32,
-    /// Memory in use, in bytes, where the host says.
-    pub memory_used: Option<u64>,
 }
 
 /// The computer a core runs on, as a person would recognise it.
@@ -288,40 +275,4 @@ pub enum NetworkChange {
     Changed,
     /// The Mac woke from sleep.
     Woke,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeviceView {
-    pub workspace: Workspace,
-    pub sessions: Vec<SessionInfo>,
-    pub chats: Vec<ChatInfo>,
-    pub attentions: Vec<Attention>,
-    /// The newest saved chats in this host's projects, none of them open.
-    pub recent: Vec<RecentInfo>,
-    /// What waits on the person, ranked.
-    pub inbox: crate::inbox::Inbox,
-    /// Which project is in front, and each project's tabs.
-    pub layout: Box<Layout>,
-    /// Who this host is signed in to Sikemux as; none while nobody is.
-    pub account: Option<Box<AccountInfo>>,
-    pub face_style: Box<FaceStyle>,
-    /// How busy this host is, while a client that shows it is attached.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub load: Option<HostLoad>,
-    /// How this host keeps its core current, as the core's update status, on
-    /// a host that updates itself. Kept as JSON so a change to its shape
-    /// reaches phones over the air.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updates: Option<Value>,
-}
-
-/// The Sikemux account this host is signed in to, as clients show it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AccountInfo {
-    pub name: Option<String>,
-    pub email: Option<String>,
-    /// Names the picture `accountPicture` answers, which changes with it.
-    pub picture_hash: Option<String>,
 }

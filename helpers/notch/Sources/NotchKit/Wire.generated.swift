@@ -148,7 +148,10 @@ enum Event: Decodable {
     /// Sent only to clients on this host.
     case remote(status: RemoteStatus)
     /// Sent only to paired devices: what they show of this host, whole, when
-    /// they connect and whenever any of it changes.
+    /// they connect and whenever any of it changes. The core's `DeviceView` as
+    /// JSON, so fields newer than a client still reach whoever reads that JSON.
+    /// Written by `encode_device_view` and read by `device_view_json`, so it never
+    /// comes through this enum in Rust.
     case deviceView(view: DeviceView)
     /// One the notch does not read.
     case other

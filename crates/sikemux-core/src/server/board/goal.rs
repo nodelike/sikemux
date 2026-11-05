@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::memory::Learned;
-use sikemux_wire::slice::{Assertion, Collect, Decision, GoalRule};
+use sikemux_view::memory::Learned;
+use sikemux_view::slice::{Assertion, Collect, Decision, GoalRule};
 
 use super::{caller, caller_project, goal_of, project_at, project_view, Board, BoardView, GoalRef};
 use crate::cli::protocol::HarnessRequest;

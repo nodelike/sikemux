@@ -23,6 +23,7 @@ uniffi = "0.31"
 [dev-dependencies]
 # Only the loopback tests run a real core; the phone never links it.
 sikemux-core = { path = "../sikemux-core" }
+sikemux-view = { path = "../sikemux-view" }
 tempfile = "3"
 
 [lints.clippy]

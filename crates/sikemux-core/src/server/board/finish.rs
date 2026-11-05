@@ -19,7 +19,7 @@ use crate::server::connection::blocking;
 use crate::server::wake::sooner;
 use crate::server::worktree;
 use crate::server::{messages, Core};
-use sikemux_wire::slice::Verdict;
+use sikemux_view::slice::Verdict;
 
 /// How long a run whose checks could not be read waits before it reads them again.
 const CHECKS_RETRY_MS: u64 = 60_000;
