@@ -5,7 +5,8 @@ use gpui_kit::Context;
 use serde_json::json;
 use sikemux_view::layout::PaneKind;
 
-use crate::workbench::{Choice, Strip, Workbench};
+use crate::asking::Choice;
+use crate::workbench::{Strip, Workbench};
 
 impl Workbench {
     /// Closes these agents, asking first.

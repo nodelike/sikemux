@@ -6,6 +6,7 @@ mod add_provider;
 mod add_task;
 mod agents;
 mod approvals;
+mod asking;
 mod battery;
 mod board;
 mod boot;

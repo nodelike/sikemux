@@ -4,7 +4,8 @@
 
 use gpui_kit::Entity;
 
-use crate::workbench::{Asking, Retitling};
+use crate::asking::Asking;
+use crate::workbench::Retitling;
 
 /// Where an overlay draws.
 #[derive(Clone, Copy, PartialEq, Eq)]
