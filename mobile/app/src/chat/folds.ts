@@ -1,6 +1,6 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 
-import { outlivesFold } from '@shared/chat/transcript';
+import { shownParts } from '@shared/chat/transcript';
 import type { ChatMessage } from '@shared/chat/types';
 
 /**
@@ -53,20 +53,19 @@ export type RowFold = {
   /** The fold whose summary goes above this row, its first. */
   summary: WorkFold | null;
   hidden: boolean;
-  /** Where the shown parts start. */
-  from: number;
+  /** Where the shown reply starts, or null when the row shows whole. */
+  from: number | null;
 };
 
-const UNFOLDED: RowFold = { summary: null, hidden: false, from: 0 };
+const UNFOLDED: RowFold = { summary: null, hidden: false, from: null };
 
 /** `open` says whether the person opened the fold's work, by the fold's id. */
 export function rowFold(row: ChatMessage, open: (id: string) => boolean): RowFold {
   const fold = row.fold;
   if (!fold) return UNFOLDED;
   const summary = row.id === fold.id ? fold : null;
-  if (open(fold.id)) return summary ? { summary, hidden: false, from: 0 } : UNFOLDED;
-  if (row.id === fold.last) return { summary, hidden: false, from: fold.from };
-  return { summary, hidden: !row.parts.some(outlivesFold), from: row.parts.length };
+  if (open(fold.id)) return summary ? { summary, hidden: false, from: null } : UNFOLDED;
+  return { summary, hidden: shownParts(row.parts, fold.from).length === 0, from: fold.from };
 }
 
 /**

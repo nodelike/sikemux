@@ -21,41 +21,62 @@ fn is_reply(part: &ChatPart) -> bool {
     ) || matches!(part, ChatPart::AgentNotice { notice, .. } if notice.goal.is_some())
 }
 
-fn reply_start(parts: &[ChatPart], end: usize) -> usize {
+/// The turn's parts in order, each with the row it is in and where in that row.
+fn turn_parts(rows: &[Row], start: usize, end: usize) -> Vec<(usize, usize, &ChatPart)> {
+    rows.iter()
+        .enumerate()
+        .take(end + 1)
+        .skip(start)
+        .flat_map(|(row, it)| {
+            it.msg
+                .parts
+                .iter()
+                .enumerate()
+                .map(move |(at, part)| (row, at, part))
+        })
+        .collect()
+}
+
+/// Where the run of reply parts ending at `end` starts.
+fn run_start(parts: &[(usize, usize, &ChatPart)], end: usize) -> usize {
     let mut start = end;
-    while start > 0 && is_reply(&parts[start - 1]) {
+    while start > 0 && is_reply(parts[start - 1].2) {
         start -= 1;
     }
     start
 }
 
-fn written_length(parts: &[ChatPart], start: usize, end: usize) -> u64 {
-    parts[start..end]
-        .iter()
-        .map(|part| match part {
-            ChatPart::Text { text, .. } => text.encode_utf16().count() as u64,
-            _ => 0,
-        })
-        .sum()
+fn written(part: &ChatPart) -> u64 {
+    match part {
+        ChatPart::Text { text, .. } => text.encode_utf16().count() as u64,
+        _ => 0,
+    }
 }
 
-/// An agent often answers, makes one more call, such as stopping a server,
-/// and closes with a line about it. The answer before that call is still the
-/// reply.
-fn answer_before_aside(parts: &[ChatPart], from: usize) -> usize {
-    let mut aside = from;
-    while aside > 0 && !is_reply(&parts[aside - 1]) {
-        aside -= 1;
+/// An agent often answers, makes more calls, such as waiting on a check or
+/// stopping a server, and closes with a line about them, often in a message
+/// of its own. A stretch of writing longer than everything written after it
+/// is still the reply, so the reply starts at the earliest such stretch.
+fn reply_from(parts: &[(usize, usize, &ChatPart)]) -> usize {
+    let mut from = run_start(parts, parts.len());
+    let mut after: u64 = parts[from..].iter().map(|(_, _, part)| written(part)).sum();
+    let mut end = from;
+    while end > 0 {
+        while end > 0 && !is_reply(parts[end - 1].2) {
+            end -= 1;
+        }
+        let start = run_start(parts, end);
+        let run: u64 = parts[start..end]
+            .iter()
+            .map(|(_, _, part)| written(part))
+            .sum();
+        if run > after {
+            from = start;
+        }
+        after += run;
+        end = start;
     }
-    if aside == from || aside == 0 {
-        return from;
-    }
-    let answer = reply_start(parts, aside);
-    if written_length(parts, answer, aside) > written_length(parts, from, parts.len()) {
-        answer
-    } else {
-        from
-    }
+    from
 }
 
 /// How long the run `start..=end` took. A prompted turn starts with its
@@ -76,36 +97,59 @@ fn turn_span(rows: &[Row], start: usize, end: usize) -> Option<u64> {
     (ended > began).then(|| ended - began)
 }
 
-fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<WorkFold> {
-    let parts = &rows[end].msg.parts;
-    let closing = reply_start(parts, parts.len());
+/// A finished turn's fold, and the row and part its reply starts at.
+struct TurnFold {
+    fold: WorkFold,
+    reply: (usize, usize),
+}
+
+impl TurnFold {
+    /// The fold as the row at `index` carries it, saying where the reply starts among its parts.
+    fn for_row(&self, index: usize, parts: usize) -> WorkFold {
+        let (row, at) = self.reply;
+        let from = match index.cmp(&row) {
+            std::cmp::Ordering::Less => parts,
+            std::cmp::Ordering::Equal => at,
+            std::cmp::Ordering::Greater => 0,
+        };
+        WorkFold {
+            from: from as u64,
+            ..self.fold.clone()
+        }
+    }
+}
+
+fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
+    let parts = turn_parts(rows, start, end);
+    let closing = run_start(&parts, parts.len());
     if !parts[closing..]
         .iter()
-        .any(|part| matches!(part, ChatPart::Text { .. }))
+        .any(|(_, _, part)| matches!(part, ChatPart::Text { .. }))
     {
         return None;
     }
-    let from = answer_before_aside(parts, closing);
+    let from = reply_from(&parts);
     let (mut calls, mut worked, mut acted) = (0, false, false);
-    for (index, row) in rows.iter().enumerate().take(end + 1).skip(start) {
-        for (at, part) in row.msg.parts.iter().enumerate() {
-            if index == end && at >= from && is_reply(part) {
-                continue;
-            }
-            if matches!(part, ChatPart::Tool { gif: None, .. }) {
-                calls += 1;
-            }
-            worked |= !is_reply(part);
-            acted |= !is_reply(part) && !matches!(part, ChatPart::Thought { .. });
+    for (index, (_, _, part)) in parts.iter().enumerate() {
+        if index >= from && is_reply(part) {
+            continue;
         }
+        if matches!(part, ChatPart::Tool { gif: None, .. }) {
+            calls += 1;
+        }
+        worked |= !is_reply(part);
+        acted |= !is_reply(part) && !matches!(part, ChatPart::Thought { .. });
     }
-    worked.then(|| WorkFold {
-        id: rows[start].msg.id.clone(),
-        last: rows[end].msg.id.clone(),
-        from: from as u64,
-        calls,
-        took: turn_span(rows, start, end),
-        thought: !acted,
+    worked.then(|| TurnFold {
+        fold: WorkFold {
+            id: rows[start].msg.id.clone(),
+            last: rows[end].msg.id.clone(),
+            from: 0,
+            calls,
+            took: turn_span(rows, start, end),
+            thought: !acted,
+        },
+        reply: (parts[from].0, parts[from].1),
     })
 }
 
@@ -193,7 +237,7 @@ impl Fold {
             // The run still being written has no fold or line until its turn ends.
             let last = end == rows.len() - 1;
             let live = running && last;
-            let fold = (!live).then(|| work_fold(rows, at, end)).flatten();
+            let turn = (!live).then(|| work_fold(rows, at, end)).flatten();
             let meta = (!live).then(|| answer_meta(rows, at, end));
             let read_from = rows[at.saturating_sub(1)..=end]
                 .iter()
@@ -202,7 +246,10 @@ impl Fold {
                 .max()
                 .unwrap_or_default();
             for (index, row) in rows.iter_mut().enumerate().take(end + 1).skip(at) {
-                let mut changed = set_fold(row, fold.clone());
+                let fold = turn
+                    .as_ref()
+                    .map(|turn| turn.for_row(index, row.msg.parts.len()));
+                let mut changed = set_fold(row, fold);
                 changed |= set_meta(row, meta.clone().filter(|_| index == end));
                 if changed {
                     row.v = row.v.max(read_from);
@@ -232,10 +279,12 @@ pub(super) fn settle_all(rows: &mut [Row]) {
         {
             end += 1;
         }
-        let fold = work_fold(rows, at, end);
+        let turn = work_fold(rows, at, end);
         let meta = answer_meta(rows, at, end);
         for (index, row) in rows.iter_mut().enumerate().take(end + 1).skip(at) {
-            row.msg.fold = fold.clone();
+            row.msg.fold = turn
+                .as_ref()
+                .map(|turn| turn.for_row(index, row.msg.parts.len()));
             row.msg.meta = (index == end).then(|| meta.clone());
         }
         at = end + 1;

@@ -11,6 +11,7 @@ import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 import { activityText, composerPlaceholder } from '@shared/chat/chatStatus';
 import { sentPrompts } from '@shared/chat/promptHistory';
 import { activeToolLabel } from '@shared/chat/toolLabels';
+import { shownParts } from '@shared/chat/transcript';
 import type { ChatMessage } from '@shared/chat/types';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { ChatFind } from '@/chat/chatFind';
@@ -258,9 +259,9 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const showHit = (hit: FindHit) => {
     const row = session.snapshot().view.messages.find((message) => message.id === hit.row);
     if (!row) return;
-    const { hidden, from } = rowFold(row, workOpen);
-    const part = row.parts.findIndex((held) => held.id === hit.part);
-    if (row.fold && (hidden || part < from)) session.folds.set(`work/${row.fold.id}`, true);
+    const { from } = rowFold(row, workOpen);
+    const tucked = !shownParts(row.parts, from).some((held) => held.id === hit.part);
+    if (row.fold && tucked) session.folds.set(`work/${row.fold.id}`, true);
     setShown({ row: hit.row });
   };
   const showing = useRef(showHit);

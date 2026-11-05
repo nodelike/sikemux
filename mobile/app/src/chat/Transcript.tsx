@@ -504,7 +504,7 @@ export function Message({
   onTap,
   strip,
   sentFiles,
-  from = 0,
+  from = null,
   onEdit,
   editing,
 }: {
@@ -518,7 +518,7 @@ export function Message({
   strip?: StripMeta | null;
   sentFiles: ReadonlyMap<string, Attachment>;
   /** Where the shown parts start, when the work before them is folded away. */
-  from?: number;
+  from?: number | null;
   /** Writes this message again; absent when the chat cannot take it back. */
   onEdit?: (message: ChatMessage) => void;
   /** This message is being written again. */

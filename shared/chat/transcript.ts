@@ -56,9 +56,9 @@ export const isReply = (part: ChatPart) => part.kind === "text" || part.kind ===
 export const outlivesFold = (part: ChatPart) =>
     (part.kind === "tool" && part.page !== undefined) || (part.kind === "subagent" && part.subagent.state === "running");
 
-/** The parts a message shows: all of them, or once the work before `from` is folded away, the reply and what outlives the fold. */
-export function shownParts(parts: ChatPart[], from: number): ChatPart[] {
-    return from > 0 ? parts.filter((part, index) => (index >= from && isReply(part)) || outlivesFold(part)) : parts;
+/** The parts a message shows: all of them, or once its turn's work is folded away, the reply from `from` on and what outlives the fold. */
+export function shownParts(parts: ChatPart[], from: number | null): ChatPart[] {
+    return from === null ? parts : parts.filter((part, index) => (index >= from && isReply(part)) || outlivesFold(part));
 }
 
 export const SUBAGENT_WORDS: Readonly<Record<SubagentCard["state"], string>> = {

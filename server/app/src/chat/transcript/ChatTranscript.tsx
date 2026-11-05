@@ -12,7 +12,7 @@ import { ChatMessageRow } from "./ChatMessageRow";
 import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
 import { copyText } from "@shared/chat/messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
-import { formatDetail, outlivesFold } from "@shared/chat/transcript";
+import { formatDetail, shownParts } from "@shared/chat/transcript";
 import type { PermissionAsk, ChatMessage, ChatRows } from "@shared/chat/types";
 import { WorkSummary } from "./WorkSummary";
 
@@ -155,9 +155,9 @@ export function ChatTranscript({
               );
             if (
               span &&
+              fold &&
               folded &&
-              index < span.end &&
-              !message.parts.some(outlivesFold)
+              shownParts(message.parts, fold.from).length === 0
             )
               return (
                 <div key={message.id} data-index={index} className="chat-row">
@@ -168,13 +168,7 @@ export function ChatTranscript({
               <div key={message.id} data-index={index} className="chat-row">
                 {summary}
                 <ChatMessageRow
-                  from={
-                    span && fold && folded
-                      ? index < span.end
-                        ? message.parts.length
-                        : fold.from
-                      : 0
-                  }
+                  from={span && fold && folded ? fold.from : null}
                   message={message}
                   live={state.running && index === state.messages.length - 1}
                   copyable={copyText(state.messages, index)}

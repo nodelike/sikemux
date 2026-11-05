@@ -513,7 +513,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   at,
   took,
   onEdit,
-  from = 0,
+  from = null,
 }: {
   message: ChatMessage;
   live: boolean;
@@ -524,7 +524,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   /** Given when the person may write this message again. */
   onEdit?: (message: ChatMessage, text: string) => void;
   /** Where the shown parts start, when the work before them is folded away. */
-  from?: number;
+  from?: number | null;
 }) {
   const { parts, letters } = message;
   const context = message.context ?? [];

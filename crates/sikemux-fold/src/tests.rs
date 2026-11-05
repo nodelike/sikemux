@@ -2732,6 +2732,39 @@ fn a_row_opens_the_file_the_call_reported_or_the_one_its_title_names() {
     assert_eq!(titled("Read").path, None);
 }
 
+#[test]
+fn an_answer_followed_by_a_wait_and_a_short_message_stays_out_of_the_fold() {
+    let answer = "That's a shortcut for the chat's scope. It duplicates two other controls, so I'd remove it.";
+    let mut chat = Chat::new();
+    chat.prompt(json!({ "text": "what does it do?", "paths": [] }))
+        .turn_started()
+        .update(say("agent_thought_chunk", "Looking at the control."))
+        .update(chunk(answer, "m1"))
+        .update(json!({ "sessionUpdate": "tool_call", "toolCallId": "wait-1", "title": "Wait for checks", "status": "in_progress" }))
+        .update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "wait-1", "status": "completed" }))
+        .update(chunk("Checks still running.", "m2"))
+        .turn_completed(Some("end_turn"));
+    let shown: Vec<String> = chat
+        .rows()
+        .iter()
+        .filter_map(|row| row.fold.as_ref().map(|fold| (row, fold.from as usize)))
+        .flat_map(|(row, from)| {
+            row.parts
+                .iter()
+                .skip(from)
+                .filter_map(|part| match part {
+                    ChatPart::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        vec![answer.to_owned(), "Checks still running.".to_owned()]
+    );
+}
+
 mod window {
     use super::*;
 

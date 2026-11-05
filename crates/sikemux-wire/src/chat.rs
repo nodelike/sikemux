@@ -626,7 +626,8 @@ pub struct WorkFold {
     pub id: String,
     /// The turn's last message.
     pub last: String,
-    /// Where the reply starts among the last message's parts.
+    /// Where the reply starts among this message's parts: past its end when the
+    /// reply starts in a later message, and 0 when it started in an earlier one.
     pub from: u64,
     pub calls: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]

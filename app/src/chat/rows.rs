@@ -48,11 +48,7 @@ pub(super) fn row(
                 .as_ref()
                 .is_none_or(|before| before.id != fold.id)
     });
-    let from = match fold {
-        Some(fold) if fold.last != message.id => usize::MAX,
-        Some(fold) => usize::try_from(fold.from).unwrap_or(0),
-        None => 0,
-    };
+    let from = fold.map(|fold| usize::try_from(fold.from).unwrap_or(usize::MAX));
     let work_shown = if user {
         1.
     } else {
@@ -74,7 +70,7 @@ pub(super) fn row(
             part,
             ChatPart::Text { .. } | ChatPart::Content { .. } | ChatPart::Tool { gif: Some(_), .. }
         );
-        let tucked = !(from == 0 || outlives(part) || index >= from && reply);
+        let tucked = from.is_some_and(|from| !(outlives(part) || index >= from && reply));
         if tucked && work_shown <= 0. {
             continue;
         }
