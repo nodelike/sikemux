@@ -3,7 +3,6 @@
 //! sending, steering, stopping and handing over its turns. Each agent says only
 //! what differs, through [`RpcSession`] and [`RpcAgent`].
 
-use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use serde::de::DeserializeOwned;
@@ -304,24 +303,20 @@ impl<S: RpcAgent> Driver<S> {
     }
 
     /// What became of a steer.
-    pub fn steered(
-        sent: Result<Option<Sent>, String>,
-    ) -> impl Future<Output = Result<Steered, String>> + Send + 'static {
-        async move {
-            let Some(sent) = sent? else {
-                return Ok(Steered::PromptRequired);
-            };
-            match sent
-                .answer(Some(ANSWER_WAIT))
-                .await
-                .map_err(|error| error_text(&error))
-            {
-                Ok(_) => Ok(Steered::Injected),
-                Err(error) if S::TURN_ENDED.iter().any(|said| error.contains(said)) => {
-                    Ok(Steered::PromptRequired)
-                }
-                Err(error) => Err(error),
+    pub async fn steered(sent: Result<Option<Sent>, String>) -> Result<Steered, String> {
+        let Some(sent) = sent? else {
+            return Ok(Steered::PromptRequired);
+        };
+        match sent
+            .answer(Some(ANSWER_WAIT))
+            .await
+            .map_err(|error| error_text(&error))
+        {
+            Ok(_) => Ok(Steered::Injected),
+            Err(error) if S::TURN_ENDED.iter().any(|said| error.contains(said)) => {
+                Ok(Steered::PromptRequired)
             }
+            Err(error) => Err(error),
         }
     }
 

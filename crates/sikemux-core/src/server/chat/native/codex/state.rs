@@ -229,10 +229,8 @@ impl Session {
                 let stale = place.turn_id.is_some_and(|turn| self.turns.is_stale(turn));
                 match notifications::read(method, params) {
                     Some(Notification::Unreadable { method, error }) => {
-                        if root {
-                            if method == "turn/completed" {
-                                effects.extend(self.ended_unreadably(error));
-                            }
+                        if root && method == "turn/completed" {
+                            effects.extend(self.ended_unreadably(error));
                         }
                     }
                     Some(notification) => {
