@@ -10,7 +10,6 @@ struct Options {
     var appPid: pid_t?
     /// The app bundle, or the app's executable in a dev build, to open when its window is not.
     var app: String?
-    var fonts: String?
     var stateDir = ""
 
     static let version = "sikemux-notch 1"
@@ -33,7 +32,6 @@ struct Options {
             case "--core-binary": options.coreBinary = value
             case "--app": options.app = value
             case "--app-pid": options.appPid = pid_t(value)
-            case "--fonts": options.fonts = value
             case "--state-dir": options.stateDir = value
             default: return nil
             }

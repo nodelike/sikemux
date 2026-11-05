@@ -11,6 +11,7 @@ import {
   mkdirSync,
   rmSync,
   writeFileSync,
+  readdirSync,
   readFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -91,12 +92,7 @@ writeFileSync(
 `,
 );
 const fonts = join(packageDir, "Fonts");
-for (const font of [
-  "Figtree_400Regular.ttf",
-  "Figtree_500Medium.ttf",
-  "Figtree_600SemiBold.ttf",
-  "OFL.txt",
-])
+for (const font of readdirSync(fonts))
   copyFileSync(
     join(fonts, font),
     join(bundle, "Contents", "Resources", "Fonts", font),

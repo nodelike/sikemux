@@ -19,8 +19,8 @@ enum Theme {
               let directory = directory ?? Bundle.main.resourceURL?.appendingPathComponent("Fonts").path
         else { return }
         registered = true
-        let names = ["Figtree_400Regular.ttf", "Figtree_500Medium.ttf", "Figtree_600SemiBold.ttf"]
-        for name in names {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory)) ?? []
+        for name in names where name.hasSuffix(".ttf") {
             let url = URL(fileURLWithPath: directory).appendingPathComponent(name)
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
         }

@@ -8,7 +8,7 @@ public func runNotch(_ arguments: [String]) -> Never {
     guard let options = Options.parse(arguments) else {
         FileHandle.standardError.write(Data("""
         usage: sikemux-notch --socket PATH --state-dir DIR
-               [--core-binary PATH] [--app PATH] [--fonts DIR]
+               [--core-binary PATH] [--app PATH]
                [--dev [--app-pid PID]]
 
         """.utf8))
@@ -54,7 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panels: Panels?
 
     init(options: Options) {
-        Theme.registerFonts(in: options.fonts)
+        Theme.registerFonts(in: nil)
         store = NotchStore(options: options)
     }
 
