@@ -16,8 +16,9 @@ use gpui_kit::{
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
-use crate::core::{Ask, Watch};
+use crate::core::{Ask, Target};
 use crate::icons::Icon;
+use crate::reads::Read;
 use crate::theme;
 use crate::theme::{SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_SM, TEXT_XS};
 use crate::ui::{self, Button, Variant};
@@ -248,10 +249,7 @@ impl AccountPicture {
         }
         self.image = None;
         if let Some(hash) = &hash {
-            let _ = asks.send(Ask::Watch(
-                "picture",
-                Watch::new("accountPicture", json!({ "hash": hash }), &[]),
-            ));
+            Target::here(asks).watch(Read::Picture, json!({ "hash": hash }));
         }
         self.hash = hash;
     }

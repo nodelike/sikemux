@@ -32,6 +32,7 @@ use sikemux_wire::pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnap
 use tokio::sync::{mpsc, oneshot};
 
 use crate::hosts::Place;
+use crate::reads::Read;
 use crate::retry::Backoff;
 
 pub enum Update {
@@ -40,10 +41,10 @@ pub enum Update {
     /// What another host's core sent about one of its terminals or chats, by the host's key.
     From(String, Box<Update>),
     View(Box<DeviceView>),
-    /// A watched call's latest answer, under the key it was watched as.
-    Read(&'static str, Value),
-    /// The core turned down what was asked under the key.
-    Refused(&'static str, String),
+    /// A read's latest answer.
+    Read(Read, Value),
+    /// The core turned down a read.
+    Refused(Read, String),
     /// Show this agent and come to the front, as the notch or a request held while no window
     /// was open asks.
     FocusAgent(String),
@@ -188,52 +189,37 @@ pub enum TerminalAsk {
     Kill,
 }
 
-/// One of the core's `Watch` calls, read again whenever the core says one of
-/// its topics changed.
+/// What a read is asked, and which folder's changes move it.
 #[derive(Clone)]
 pub struct Watch {
-    pub method: &'static str,
-    pub params: Value,
-    pub topics: &'static [Topic],
-    /// The project folder whose git and code host changes move what it reads, when its
-    /// params do not name it.
+    params: Value,
+    /// The folder whose git and code host changes move what it reads; without one, those
+    /// topics changing for any folder do.
     folder: Option<String>,
-    /// Counts the watches made under one key, so an answer to one it replaced is dropped.
+    /// Counts the watches made of one read, so an answer to one it replaced is dropped.
     generation: u64,
 }
 
 impl Watch {
-    pub fn new(method: &'static str, params: Value, topics: &'static [Topic]) -> Self {
+    fn new(params: Value, folder: Option<String>) -> Self {
         Self {
-            method,
             params,
-            topics,
-            folder: None,
+            folder,
             generation: 0,
         }
     }
 
-    /// Reads again only on git and code host changes to the project folder `folder`.
-    pub fn in_folder(mut self, folder: String) -> Self {
-        self.folder = Some(folder);
-        self
-    }
-
     /// Whether `topic` changing for the project folder `project`, or for every project when
-    /// none, could move what this watch reads. Git and code host changes name the folder
-    /// that moved, so a watch on another project's folder lets them pass.
-    fn moved_by(&self, topic: Topic, project: Option<&str>) -> bool {
-        if !self.topics.contains(&topic) {
+    /// none, could move what `read` reads. Git and code host changes name the folder that
+    /// moved, so a watch on another project's folder lets them pass.
+    fn moved_by(&self, read: Read, topic: Topic, project: Option<&str>) -> bool {
+        if !read.topics().contains(&topic) {
             return false;
         }
-        let folder = match topic {
-            Topic::Git | Topic::CodeHost if self.folder.is_some() => self.folder.as_deref(),
-            Topic::Git => self.params["project"]
-                .as_str()
-                .or(self.params["repo"].as_str()),
-            Topic::CodeHost => self.params["project"].as_str(),
-            _ => None,
-        };
+        let folder = self
+            .folder
+            .as_deref()
+            .filter(|_| matches!(topic, Topic::Git | Topic::CodeHost));
         match (folder, project) {
             (Some(folder), Some(project)) => {
                 Path::new(folder).starts_with(project) || Path::new(project).starts_with(folder)
@@ -252,20 +238,19 @@ pub enum Detection {
 
 /// What the client asks of the core beyond the view it is sent.
 pub enum Ask {
-    /// Keeps `key` answered by `watch`, in place of whatever it watched before.
-    Watch(&'static str, Watch),
-    /// Stops answering `key`, wherever it was watched, dropping an answer still on its way.
-    Unwatch(&'static str),
+    /// Keeps `read` answered as `watch` asks, in place of whatever it watched before.
+    Watch(Read, Watch),
+    /// Stops answering `read`, wherever it was watched, dropping an answer still on its way.
+    Unwatch(Read),
     /// One of the core's methods, for something the person did. What it changes
     /// comes back with the next view.
     Call {
         method: &'static str,
         params: Value,
     },
-    /// A call whose answer the window waits for, sent back under `key`.
+    /// Asks `read` once, its answer arriving as any other read's.
     Answer {
-        key: &'static str,
-        method: &'static str,
+        read: Read,
         params: Value,
     },
     /// A call whose answer goes back to the one asking, for answers that belong to
@@ -276,7 +261,7 @@ pub enum Ask {
         reply: oneshot::Sender<Result<Value, String>>,
     },
     /// A watch, stream, call or answer for another host's core, by the host's key, as this
-    /// host's would be. A key is watched in one place at a time.
+    /// host's would be. A read is watched in one place at a time.
     On(String, Box<Ask>),
     /// A call to another host's core, by the host's key, whose answer goes back to the one asking.
     HostRequest {
@@ -751,9 +736,9 @@ fn from_host(host: &Option<String>, update: Update) -> Update {
 }
 
 /// The generation the next watch of `key` is made under, wherever it is watched.
-fn next_generation(current: &Arc<Mutex<HashMap<&'static str, u64>>>, key: &'static str) -> u64 {
+fn next_generation(current: &WatchGenerations, key: Read) -> u64 {
     let mut current = current.lock().expect("watch generations");
-    let next = current.get(key).map_or(0, |generation| generation + 1);
+    let next = current.get(&key).map_or(0, |generation| generation + 1);
     current.insert(key, next);
     next
 }
@@ -782,7 +767,7 @@ async fn call_on(
 fn read_on(
     linked: &Option<Arc<Linked>>,
     host: &str,
-    key: &'static str,
+    key: Read,
     watch: &Watch,
     current: &WatchGenerations,
     updates: &mpsc::UnboundedSender<Update>,
@@ -795,7 +780,7 @@ fn read_on(
         updates.clone(),
     );
     tokio::spawn(async move {
-        let answer = call_on(&linked, &host, watch.method, watch.params).await;
+        let answer = call_on(&linked, &host, key.method(), watch.params).await;
         send_read(key, watch.generation, answer, &current, &updates);
     });
 }
@@ -953,15 +938,20 @@ impl Target {
         }
     }
 
-    /// Keeps the core answering `watch` under `key`, here or on the place's host, wherever
-    /// it was watched before.
-    pub fn watch(&self, key: &'static str, watch: Watch) {
-        self.ask(Ask::Watch(key, watch));
+    /// Keeps the core answering `read`, here or on the place's host, wherever it was watched
+    /// before.
+    pub fn watch(&self, read: Read, params: Value) {
+        self.ask(Ask::Watch(read, Watch::new(params, None)));
     }
 
-    /// Stops the core answering `key`, here or on any host.
-    pub fn unwatch(&self, key: &'static str) {
-        let _ = self.asks.send(Ask::Unwatch(key));
+    /// Keeps the core answering `read`, whose git and code host changes are `folder`'s.
+    pub fn watch_folder(&self, read: Read, params: Value, folder: String) {
+        self.ask(Ask::Watch(read, Watch::new(params, Some(folder))));
+    }
+
+    /// Stops the core answering `read`, here or on any host.
+    pub fn unwatch(&self, read: Read) {
+        let _ = self.asks.send(Ask::Unwatch(read));
     }
 
     /// Tells the core something, with no answer waited for.
@@ -994,13 +984,9 @@ impl Target {
         });
     }
 
-    /// Asks once, the answer arriving as a read under `key`.
-    pub fn answer(&self, key: &'static str, method: &'static str, params: Value) {
-        self.ask(Ask::Answer {
-            key,
-            method,
-            params,
-        });
+    /// Asks `read` once, the answer arriving as any other read's.
+    pub fn answer(&self, read: Read, params: Value) {
+        self.ask(Ask::Answer { read, params });
     }
 
     /// Asks a method whose answer streams, adding the stream's number to `params`.
@@ -1097,13 +1083,13 @@ async fn run(
     updates: mpsc::UnboundedSender<Update>,
     mut asks: mpsc::UnboundedReceiver<Ask>,
 ) {
-    let mut watches: HashMap<&'static str, Watch> = HashMap::new();
-    let mut host_watches: HashMap<String, HashMap<&'static str, Watch>> = HashMap::new();
+    let mut watches: HashMap<Read, Watch> = HashMap::new();
+    let mut host_watches: HashMap<String, HashMap<Read, Watch>> = HashMap::new();
     let mut followed: Vec<Topic> = Vec::new();
     let mut linked: Option<Arc<Linked>> = None;
     let mut heard: Option<mpsc::UnboundedReceiver<Happened>> = None;
-    let current = Arc::new(Mutex::new(HashMap::<&'static str, u64>::new()));
-    let failed = Arc::new(Mutex::new(HashSet::<&'static str>::new()));
+    let current = WatchGenerations::default();
+    let failed = FailedWatches::default();
     let mut reconnect = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
     loop {
         if let Some(launch) = &home.launch {
@@ -1142,7 +1128,7 @@ async fn run(
                     .ok()
                     .map(|status| status.enabled);
                 start_at_login(&home, remote_on);
-                for (key, watch) in &watches {
+                for (&key, watch) in &watches {
                     read(&client, key, watch, (&current, &failed), &updates);
                 }
                 if linked.is_none() {
@@ -1196,8 +1182,8 @@ async fn run(
                             }
                             Some(ClientEvent::Event(Event::Network { change })) => {
                                 if change != NetworkChange::Offline {
-                                    let again: Vec<&'static str> = failed.lock().expect("failed watches").drain().collect();
-                                    for (key, watch) in watches.iter().filter(|(key, _)| again.contains(key)) {
+                                    let again: Vec<Read> = failed.lock().expect("failed watches").drain().collect();
+                                    for (&key, watch) in watches.iter().filter(|(key, _)| again.contains(key)) {
                                         read(&client, key, watch, (&current, &failed), &updates);
                                     }
                                 }
@@ -1234,7 +1220,7 @@ async fn run(
                             }
                             Some(ClientEvent::Event(Event::Changed { topic, project, paths })) => {
                                 stopping |= topic == Topic::Stopping;
-                                for (key, watch) in watches.iter().filter(|(_, watch)| watch.moved_by(topic, project.as_deref())) {
+                                for (&key, watch) in watches.iter().filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref())) {
                                     read(&client, key, watch, (&current, &failed), &updates);
                                 }
                                 if followed.contains(&topic) {
@@ -1252,7 +1238,7 @@ async fn run(
                         },
                         happened = heard_from(&mut heard) => match happened {
                             Some(Happened::Connected(host)) => {
-                                for (key, watch) in host_watches.get(&host).into_iter().flatten() {
+                                for (&key, watch) in host_watches.get(&host).into_iter().flatten() {
                                     read_on(&linked, &host, key, watch, &current, &updates);
                                 }
                                 if let Some(linked) = linked.clone() {
@@ -1270,7 +1256,7 @@ async fn run(
                                 let _ = updates.send(Update::HostReach(host, true));
                             }
                             Some(Happened::Lost(host)) => {
-                                for key in host_watches.get(&host).into_iter().flat_map(HashMap::keys) {
+                                for &key in host_watches.get(&host).into_iter().flat_map(HashMap::keys) {
                                     let _ = updates.send(Update::Refused(key, format!("{host} is out of reach")));
                                 }
                                 host_streams.remove(&host);
@@ -1302,8 +1288,8 @@ async fn run(
                                         .get(&host)
                                         .into_iter()
                                         .flatten()
-                                        .filter(|(_, watch)| watch.moved_by(topic, project.as_deref()));
-                                    for (key, watch) in changed {
+                                        .filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref()));
+                                    for (&key, watch) in changed {
                                         read_on(&linked, &host, key, watch, &current, &updates);
                                     }
                                     if followed.contains(&topic) {
@@ -1326,16 +1312,16 @@ async fn run(
                             Some(Ask::Watch(key, mut watch)) => {
                                 watch.generation = next_generation(&current, key);
                                 for table in host_watches.values_mut() {
-                                    table.remove(key);
+                                    table.remove(&key);
                                 }
                                 read(&client, key, &watch, (&current, &failed), &updates);
                                 watches.insert(key, watch);
                             }
                             Some(Ask::Unwatch(key)) => {
                                 next_generation(&current, key);
-                                watches.remove(key);
+                                watches.remove(&key);
                                 for table in host_watches.values_mut() {
-                                    table.remove(key);
+                                    table.remove(&key);
                                 }
                             }
                             Some(Ask::RegisterWindow) => {
@@ -1359,21 +1345,21 @@ async fn run(
                                     followed.push(topic);
                                 }
                             }
-                            Some(Ask::Answer { key, method, params }) => {
+                            Some(Ask::Answer { read, params }) => {
                                 let (client, updates) = (client.clone(), updates.clone());
                                 tokio::spawn(async move {
-                                    let _ = updates.send(match client.call(method, params).await {
-                                        Ok(value) => Update::Read(key, value),
-                                        Err(error) => Update::Refused(key, error.to_string()),
+                                    let _ = updates.send(match client.call(read.method(), params).await {
+                                        Ok(value) => Update::Read(read, value),
+                                        Err(error) => Update::Refused(read, error.to_string()),
                                     });
                                 });
                             }
                             Some(Ask::On(host, ask)) => match *ask {
                                 Ask::Watch(key, mut watch) => {
                                     watch.generation = next_generation(&current, key);
-                                    watches.remove(key);
+                                    watches.remove(&key);
                                     for table in host_watches.values_mut() {
-                                        table.remove(key);
+                                        table.remove(&key);
                                     }
                                     read_on(&linked, &host, key, &watch, &current, &updates);
                                     host_watches.entry(host).or_default().insert(key, watch);
@@ -1396,12 +1382,12 @@ async fn run(
                                         }
                                     });
                                 }
-                                Ask::Answer { key, method, params } => {
+                                Ask::Answer { read, params } => {
                                     let (linked, updates) = (linked.clone(), updates.clone());
                                     tokio::spawn(async move {
-                                        let _ = updates.send(match call_on(&linked, &host, method, params).await {
-                                            Ok(value) => Update::Read(key, value),
-                                            Err(error) => Update::Refused(key, error),
+                                        let _ = updates.send(match call_on(&linked, &host, read.method(), params).await {
+                                            Ok(value) => Update::Read(read, value),
+                                            Err(error) => Update::Refused(read, error),
                                         });
                                     });
                                 }
@@ -1575,10 +1561,12 @@ async fn run(
                                         RemoteAsk::Answer { id, allow, access } => client.answer_pairing(id, allow, access).await,
                                         RemoteAsk::Allow(devices) => client.allow_devices(devices).await,
                                     };
-                                    let _ = updates.send(match status {
-                                        Ok(status) => Update::Remote(Box::new(status)),
-                                        Err(error) => Update::Refused("remote", error.to_string()),
-                                    });
+                                    match status {
+                                        Ok(status) => {
+                                            let _ = updates.send(Update::Remote(Box::new(status)));
+                                        }
+                                        Err(error) => eprintln!("sikemux: the core refused a remote access change: {error}"),
+                                    }
                                 });
                             }
                             None => return,
@@ -1640,9 +1628,9 @@ const STOPPED_LOOK: Duration = Duration::from_secs(2);
 async fn wait_to_start(
     home: &Home,
     asks: &mut mpsc::UnboundedReceiver<Ask>,
-    watches: &mut HashMap<&'static str, Watch>,
+    watches: &mut HashMap<Read, Watch>,
     followed: &mut Vec<Topic>,
-    current: &Arc<Mutex<HashMap<&'static str, u64>>>,
+    current: &WatchGenerations,
 ) -> bool {
     let mut look = tokio::time::interval(STOPPED_LOOK);
     look.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -1656,7 +1644,7 @@ async fn wait_to_start(
                 }
                 Some(Ask::Unwatch(key)) => {
                     next_generation(current, key);
-                    watches.remove(key);
+                    watches.remove(&key);
                 }
                 Some(Ask::Follow(topic)) => {
                     if !followed.contains(&topic) {
@@ -2120,14 +2108,14 @@ impl Streams {
     }
 }
 
-type WatchGenerations = Arc<Mutex<HashMap<&'static str, u64>>>;
-type FailedWatches = Arc<Mutex<HashSet<&'static str>>>;
+type WatchGenerations = Arc<Mutex<HashMap<Read, u64>>>;
+type FailedWatches = Arc<Mutex<HashSet<Read>>>;
 
-/// Reads `key`'s watch, noting in `failed` when it was refused, so it is read again once the
+/// Reads `read`'s watch, noting in `failed` when it was refused, so it is read again once the
 /// network is back.
 fn read(
     client: &Arc<CoreClient>,
-    key: &'static str,
+    key: Read,
     watch: &Watch,
     (current, failed): (&WatchGenerations, &FailedWatches),
     updates: &mpsc::UnboundedSender<Update>,
@@ -2140,11 +2128,11 @@ fn read(
         failed.clone(),
     );
     tokio::spawn(async move {
-        let answer = client.call(watch.method, watch.params).await;
+        let answer = client.call(key.method(), watch.params).await;
         let answer = answer.map_err(|error| error.to_string());
         let mut failed = failed.lock().expect("failed watches");
         match answer.is_ok() {
-            true => failed.remove(key),
+            true => failed.remove(&key),
             false => failed.insert(key),
         };
         drop(failed);
@@ -2154,17 +2142,17 @@ fn read(
 
 /// Sends what `key`'s watch was answered, unless another watch has replaced it.
 fn send_read(
-    key: &'static str,
+    key: Read,
     generation: u64,
     answer: Result<Value, String>,
     current: &WatchGenerations,
     updates: &mpsc::UnboundedSender<Update>,
 ) {
-    if current.lock().expect("watch generations").get(key) != Some(&generation) {
+    if current.lock().expect("watch generations").get(&key) != Some(&generation) {
         return;
     }
     #[cfg(feature = "drive")]
-    crate::drive::trace(format_args!("link read {key}"));
+    crate::drive::trace(format_args!("link read {key:?}"));
     let _ = updates.send(match answer {
         Ok(value) => Update::Read(key, value),
         Err(error) => Update::Refused(key, error),

@@ -30,7 +30,7 @@ use tokio::sync::mpsc;
 
 use crate::battery::Battery;
 use crate::chat::{Answering, Chat, ComposeStage, Composing, Question, Sent, START};
-use crate::core::{utc_offset_minutes, Ask, ChatAsk, ChatNews, Link, Target, Update, Watch};
+use crate::core::{utc_offset_minutes, Ask, ChatAsk, ChatNews, Link, Target, Update};
 use crate::desk::{
     FocusAddress, NewPage, NewSimulator, PageBack, PageForward, ReloadPage, ReopenPage, ToggleDesk,
 };
@@ -41,7 +41,7 @@ use crate::git::{FocusGit, GitPane};
 use crate::hosts::Place;
 use crate::motion;
 use crate::overlays::{Layer, Overlays};
-use crate::reads::Reads;
+use crate::reads::{Read, Reads};
 use crate::search::{FocusSearch, FocusSearchWindow, SearchPane};
 use crate::terminal::NewTerminal;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
@@ -49,8 +49,7 @@ use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
 use sikemux_core::git::status::DiscoveredRepo;
 use sikemux_core::server::{
-    AccountUsage, PortOwner, ProjectPort, RunView, TaskView, TrustQuestion, UpdateState,
-    UpdateStatus,
+    AccountUsage, PortOwner, ProjectPort, RunView, TaskView, TrustQuestion,
 };
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
@@ -90,7 +89,7 @@ pub struct Workbench {
     pub view: Option<DeviceView>,
     pub reads: Reads,
     /// The person's preferences, once the core has said them.
-    preferences: Option<Preferences>,
+    pub(crate) preferences: Option<Preferences>,
     /// Dictation, heard into the chat or terminal holding the keyboard.
     pub voice: Entity<crate::voice::Dictation>,
     _voice_heard: [Subscription; 4],
@@ -114,7 +113,7 @@ pub struct Workbench {
     /// Each open project settings tab's state, by the project's folder.
     pub project_settings: HashMap<String, crate::project_settings::ProjectSettings>,
     pub shown: crate::experience::Shown,
-    picture: crate::picture::AccountPicture,
+    pub(crate) picture: crate::picture::AccountPicture,
     /// From asking the core to sign in until the browser is done or gives up.
     pub signing_in: bool,
     /// Where remote access stands, once the core has said.
@@ -152,7 +151,7 @@ pub struct Workbench {
     /// The command deck's keys, the last used first.
     pub recent_commands: Vec<SharedString>,
     /// When a refused file listing is asked again.
-    files_retry: crate::retry::Retry,
+    pub(crate) files_retry: crate::retry::Retry,
     /// The Git pane takes the keyboard once it shows, as when ⌘⌥3 opens it.
     pub project_files: ProjectFiles,
     /// The kind of agent the rail was switched to, such as "claude"; its account is the one the
@@ -191,7 +190,7 @@ pub struct Workbench {
     pub runs_to_show: HashSet<String>,
     /// The agent in front whose worktree its header reads, by id and folder, and where it is.
     pub watched_worktree: Option<(String, String, crate::hosts::Place)>,
-    trust: Trust,
+    pub(crate) trust: Trust,
     /// The skills agents saved in their own folders that the person was told of, by path.
     pub(crate) skills_offered: HashSet<String>,
     /// The window the store draws, for what is said in it from outside a draw.
@@ -424,58 +423,10 @@ impl Workbench {
             }
         })
         .detach();
-        let _ = asks.send(Ask::Watch(
-            "theme",
-            Watch::new("theme", json!({}), &[Topic::Preferences]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "plugins",
-            Watch::new("plugins", json!({}), &[Topic::Plugins]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "hosts",
-            Watch::new("hosts", json!({}), &[Topic::Hosts]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "update",
-            Watch::new("updateStatus", json!({}), &[Topic::Update]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "trust",
-            Watch::new("trustAsks", json!({}), &[Topic::Trust]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "questions",
-            Watch::new("questions", json!({}), &[Topic::Questions]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "shares",
-            Watch::new("shares", json!({}), &[Topic::Shares]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "stash",
-            Watch::new("stash", json!({}), &[Topic::Stash, Topic::Account]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "catalog",
-            Watch::new("agentCatalog", json!({}), &[]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "usage",
-            Watch::new("agentUsages", json!({}), &[Topic::Usage]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "skills-added",
-            Watch::new("skillsAdded", json!({}), &[Topic::Skills]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "preferences",
-            Watch::new("preferences", json!({}), &[Topic::Preferences]),
-        ));
-        let _ = asks.send(Ask::Watch(
-            "whatsNew",
-            Watch::new("whatsNew", json!({}), &[Topic::Preferences]),
-        ));
+        let here = Target::here(&asks);
+        for read in Read::FROM_THE_START {
+            here.watch(read, json!({}));
+        }
         let _ = asks.send(Ask::Follow(Topic::Git));
         let _ = asks.send(Ask::Follow(Topic::Files));
         let _ = asks.send(Ask::Follow(Topic::Lsp));
@@ -704,7 +655,7 @@ impl Workbench {
     fn apply(&mut self, update: Update, cx: &mut Context<Self>) {
         #[cfg(feature = "drive")]
         if let Update::Read(key, _) = &update {
-            crate::drive::trace(format_args!("main read {key}"));
+            crate::drive::trace(format_args!("main read {key:?}"));
         }
         if self.holds(&update) {
             return;
@@ -764,16 +715,6 @@ impl Workbench {
             Update::HostsUnavailable(reason) => self.hosts.unavailable = Some(reason),
             Update::HostHome(host, home) => {
                 self.hosts.homes.insert(host, home);
-            }
-            Update::Read("hosts", value) => {
-                let changed = self.reads.keep_hosts(value);
-                if !self.hosts.approvals.contains_key(&None) {
-                    self.read_approval(None, cx);
-                }
-                if !changed {
-                    return;
-                }
-                self.hosts.keep_linked(&self.reads.hosts);
             }
             Update::View(view) => {
                 self.mods_follow(&Place::This, crate::mod_pane::Moved::View, cx);
@@ -842,264 +783,11 @@ impl Workbench {
                 }
                 return;
             }
-            Update::Read("skills-added", value) => return self.offer_skills(&value, cx),
-            Update::Read("plugins", value) => {
-                if !self.reads.keep_plugins(value) {
-                    return;
-                }
-                crate::settings::plugins_changed(self, cx);
-            }
-            Update::Read("update", value) => {
-                let ready = |status: &UpdateStatus| {
-                    status.state == UpdateState::Ready
-                        && status
-                            .available
-                            .as_ref()
-                            .map(|release| release.version.as_str())
-                            != Some(env!("CARGO_PKG_VERSION"))
-                };
-                let already = self.reads.update.as_ref().is_some_and(ready);
-                if !self.reads.keep_update(value) {
-                    return;
-                }
-                let now = self.reads.update.as_ref().is_some_and(ready);
-                if self.over_shown() {
-                    self.parts.redraw(&self.parts.over, cx);
-                }
-                if now && !already {
-                    // The core put the update in place of this app; opening the app again starts it.
-                    // An AppImage runs from a mount that goes with this process, so it starts again
-                    // from its file.
-                    if let Some(appimage) = std::env::var_os("APPIMAGE") {
-                        cx.set_restart_path(appimage.into());
-                    }
-                    if self
-                        .reads
-                        .update
-                        .as_ref()
-                        .is_some_and(|update| update.forced)
-                    {
-                        crate::core::force_next_core_update();
-                    }
-                    // Restarting runs the restart hooks, which update this workbench.
-                    cx.defer(|cx| cx.restart());
-                }
-            }
-            Update::Read(key @ ("questions" | "host-questions"), value) => {
-                let host_read = key == "host-questions";
-                let host = host_read.then(|| self.trust.host.clone()).flatten();
-                self.chats.questions_read(value, host_read, host);
-            }
-            Update::Read("theme", value) => {
-                if let Ok(palette) = serde_json::from_value(value) {
-                    theme::apply(&palette, cx);
-                    crate::syntax::restyle(cx);
-                    for pane in self.mod_panes.values() {
-                        pane.update(cx, |pane, cx| pane.retheme(cx));
-                    }
-                    cx.refresh_windows();
-                }
-            }
-            Update::Read("picture", value) => self.picture.read(&value),
-            Update::Read("sign-in", value) => match value["url"].as_str() {
-                Some(url) => {
-                    cx.open_url(url);
-                    let _ = self.asks.send(Ask::Answer {
-                        key: "sign-in-finished",
-                        method: "accountSignInFinish",
-                        params: json!({}),
-                    });
-                }
-                None => self.signing_in = false,
-            },
-            Update::Read("sign-in-finished", _) => {
-                self.signing_in = false;
-                crate::pairing::offer_account_phones(self, cx);
-            }
             Update::Failed(error) => {
                 return self.notify(toast::error(error).autohide(false), cx);
             }
-            Update::Refused(key, error) => {
-                eprintln!("sikemux: the core refused {key}: {error}");
-                if key.starts_with("sign-in") {
-                    self.signing_in = false;
-                }
-                if key == "files.list" {
-                    self.files_retry.refused(
-                        cx,
-                        |bench| &mut bench.files_retry,
-                        |bench, _| {
-                            if bench.out_of_reach().is_none() {
-                                bench.files.relist_shown(&bench.target());
-                            }
-                        },
-                    );
-                }
-                if key == crate::settings::ACTIVITY {
-                    self.reads.keep_activity(key, Value::Null);
-                    self.parts.redraw_stage(cx);
-                    self.parts.activity.update(cx, |_, cx| cx.notify());
-                }
-            }
-            Update::Read("files.list", value) => {
-                self.files_retry.answered();
-                self.files.listed(&value, &self.target());
-                return self.parts.redraw(&self.parts.tabs, cx);
-            }
-            Update::Read("git-project-repo", value) => {
-                let was = self.git_repo();
-                self.reads.keep_project_repo(value);
-                return self.follow_git_repo(was, cx);
-            }
-            Update::Read("git-overview", value) => {
-                self.reads.keep_overview(value);
-                let overview = self.reads.git_overview.as_ref();
-                if let Some(Ok(overview)) = overview {
-                    self.files.mark(overview);
-                }
-                let in_front = self.git_in_front();
-                if let Some(overview) = overview {
-                    self.git.overview(overview, in_front, cx);
-                }
-                self.parts.redraw(&self.parts.top, cx);
-                return self.parts.redraw(&self.parts.tabs, cx);
-            }
-            Update::Read("projectFiles", value) => {
-                if self.project_files.answered(&value) {
-                    self.rank(cx);
-                    self.files_listed(cx);
-                }
-                return;
-            }
-            Update::Read("preferences", value) => {
-                if let Ok(preferences) = serde_json::from_value::<Preferences>(value) {
-                    if self.preferences.as_ref() == Some(&preferences) {
-                        return;
-                    }
-                    crate::keymap::bind(&preferences.keybinding_overrides, cx);
-                    if self.rails.keeping.is_none() {
-                        self.follow_rails(&preferences);
-                    }
-                    self.sims
-                        .read(cx)
-                        .offer_to_agents(preferences.ios_simulator);
-                    let on = preferences.voice_dictation;
-                    self.voice.update(cx, |voice, cx| voice.follow(on, cx));
-                    let scale = preferences.chat_text_scale as f32;
-                    for chat in self.chats.open.values_mut() {
-                        chat.rescale(scale, cx);
-                    }
-                    crate::ui::grain::set(&preferences, cx);
-                    crate::theme::set_text_scale(preferences.ui_text_scale as f32, cx);
-                    crate::see_through::set(&preferences, cx);
-                    crate::experience::preferences_read(self, &preferences, cx);
-                    self.preferences = Some(preferences);
-                }
-                self.terminals.redraw_all(cx);
-                crate::notifications::introduce(self, cx);
-                crate::notifications::kept_running(self, cx);
-            }
-            Update::Read("git-draft", value) => {
-                if !self.reads.keep_drafts("git-draft", value) {
-                    return;
-                }
-                if let Some(drafts) = &self.reads.git_draft {
-                    self.git.drafts(drafts, cx);
-                }
-            }
-            Update::Read("stash", value) => {
-                if !self.reads.keep_stash(value) {
-                    return;
-                }
-                let unseen = !crate::stash::Stash::of(self).new_items().is_empty();
-                if unseen && self.stash_in_front() {
-                    self.see_stash();
-                }
-            }
-            Update::Read(key @ ("drafts" | "host-drafts"), value) => {
-                let elsewhere = key == "host-drafts";
-                if !self.reads.keep_drafts(key, value) && !elsewhere {
-                    return;
-                }
-                let drafts = match elsewhere {
-                    true => &self.reads.host_drafts,
-                    false => &self.reads.drafts,
-                };
-                if let Some(drafts) = drafts {
-                    crate::chat::draft::take(&mut self.chats, drafts, elsewhere, cx);
-                }
-            }
-            Update::Read("usage", value) => {
-                if !self.reads.keep_usage(value) {
-                    return;
-                }
-            }
-            Update::Read("shares", value) => {
-                if !self.reads.keep_shares(value) {
-                    return;
-                }
-            }
-            Update::Read("mods", value) => {
-                if !self.reads.keep_mods(value) {
-                    return;
-                }
-                self.parts.redraw(&self.parts.rail, cx);
-            }
-            Update::Read("themes", value) => {
-                if !self.reads.keep_themes(value) {
-                    return;
-                }
-            }
-            Update::Read("catalog", value) => {
-                if !self.reads.keep_catalog(value) {
-                    return;
-                }
-                self.git.catalog(&self.reads.catalog, cx);
-            }
-            Update::Read(key @ ("trust" | "host-trust"), value) => {
-                if !self.reads.keep_tasks(key, value) && key == "trust" {
-                    return;
-                }
-                self.ask_trust(cx);
-            }
-            Update::Read("tasks", value) => {
-                if !self.reads.keep_tasks("tasks", value) {
-                    return;
-                }
-            }
-            Update::Read("project-config", value) => {
-                crate::keymap::bind_project_actions(&crate::commands::action_keys(&value), cx);
-            }
-            Update::Read("runs", value) => {
-                if !self.reads.keep_tasks("runs", value) {
-                    return;
-                }
-                self.place_agent_runs(cx);
-                self.show_started_runs();
-                self.time_run(cx);
-            }
-            Update::Read(key @ ("activity" | crate::settings::ACTIVITY), value) => {
-                if !self.reads.keep_activity(key, value) {
-                    return;
-                }
-            }
-            Update::Read("ports", value) => {
-                if !self.reads.keep_ports(value) {
-                    return;
-                }
-                self.time_run(cx);
-            }
-            Update::Read("ci-shown", _) => return,
-            Update::Read("whatsNew", value) => crate::experience::whats_new_read(self, &value, cx),
-            Update::Read(key @ ("pickerFolders" | "sshHosts"), value) => {
-                self.reads.keep_picked(key, value);
-                self.picker_answered(cx);
-            }
-            Update::Read(
-                key @ (crate::worktree_head::PULLS | crate::worktree_head::MERGED),
-                value,
-            ) => self.reads.keep_worktree(key, value),
-            Update::Read(key, _) => eprintln!("sikemux: nothing keeps the core's answer to {key}"),
+            Update::Read(read, value) => return self.read_answered(read, value, cx),
+            Update::Refused(read, error) => self.read_refused(read, error, cx),
             Update::Terminal(session, screenful) => {
                 let key = self.terminals.key(&Place::This, session);
                 self.terminals.apply(key, screenful, cx);
@@ -1941,7 +1629,7 @@ impl Workbench {
     }
 
     /// The name of the account host the panes ask while it is out of reach, else none.
-    fn out_of_reach(&self) -> Option<SharedString> {
+    pub(crate) fn out_of_reach(&self) -> Option<SharedString> {
         let crate::hosts::Place::Account(key) = self.place() else {
             return None;
         };
@@ -2031,21 +1719,15 @@ impl Workbench {
     }
 
     /// Points the git overview at the repository shown, when it moved from `was`.
-    fn follow_git_repo(&mut self, was: Option<String>, cx: &mut Context<Self>) {
+    pub(crate) fn follow_git_repo(&mut self, was: Option<String>, cx: &mut Context<Self>) {
         let repo = self.git_repo();
         if let Some(repo) = repo.as_ref().filter(|repo| {
             Some(*repo) != was.as_ref() || self.reads.git_overview.as_ref().is_none()
         }) {
             let target = self.target();
-            target.watch(
-                "git-overview",
-                Watch::new("git.overview", json!({ "repo": repo }), &[Topic::Git]),
-            );
+            target.watch_folder(Read::GitOverview, json!({ "repo": repo }), repo.clone());
             let draft = format!("git:{repo}");
-            target.watch(
-                "git-draft",
-                Watch::new("drafts", json!({ "keys": [draft] }), &[Topic::Drafts]),
-            );
+            target.watch(Read::GitDraft, json!({ "keys": [draft] }));
         }
         self.parts.redraw_stage(cx);
     }
@@ -2060,36 +1742,32 @@ impl Workbench {
             return;
         }
         if place != self.watched_place {
-            for key in ["activity", "tasks", "runs", "ports", "mods"] {
-                self.reads.forget(key);
+            for read in [
+                Read::Activity,
+                Read::Tasks,
+                Read::Runs,
+                Read::Ports,
+                Read::Mods,
+            ] {
+                self.reads.forget(read);
             }
         }
         let target = Target::new(&self.asks, place.clone());
         let activity = json!({ "utcOffsetMinutes": utc_offset_minutes(), "project": path });
-        target.watch(
-            "activity",
-            Watch::new("activitySummary", activity, &[Topic::Activity]),
-        );
-        target.watch("mods", Watch::new("mods", json!({}), &[Topic::Mods]));
+        target.watch(Read::Activity, activity);
+        target.watch(Read::Mods, json!({}));
         match &place {
             crate::hosts::Place::Account(host) if self.trust.host.as_ref() != Some(host) => {
-                self.reads.forget("host-trust");
+                self.reads.forget(Read::HostTrust);
                 self.trust.host = Some(host.clone());
-                target.watch(
-                    "host-trust",
-                    Watch::new("trustAsks", json!({}), &[Topic::Trust]),
-                );
+                target.watch(Read::HostTrust, json!({}));
                 self.chats.host_questions.clear();
-                target.watch(
-                    "host-questions",
-                    Watch::new("questions", json!({}), &[Topic::Questions]),
-                );
+                target.watch(Read::HostQuestions, json!({}));
             }
             crate::hosts::Place::This if self.trust.host.is_some() => {
-                for key in ["host-trust", "host-questions"] {
-                    target.unwatch(key);
-                    self.reads.forget(key);
-                }
+                target.unwatch(Read::HostTrust);
+                target.unwatch(Read::HostQuestions);
+                self.reads.forget(Read::HostTrust);
                 self.trust.host = None;
                 self.chats.host_questions.clear();
                 self.chats
@@ -2098,50 +1776,34 @@ impl Workbench {
             }
             _ => {}
         }
-        self.reads.forget("git-project-repo");
+        self.reads.forget(Read::GitProjectRepo);
         self.git.listing = false;
         match &path {
             Some(path) => {
-                target.watch(
-                    "tasks",
-                    Watch::new(
-                        "tasks",
-                        json!({ "project": path }),
-                        &[Topic::Tasks, Topic::Runs],
-                    ),
-                );
-                target.watch("runs", Watch::new("taskRuns", json!({}), &[Topic::Runs]));
-                target.watch(
-                    "project-config",
-                    Watch::new("projectConfig", json!({ "project": path }), &[Topic::Tasks]),
-                );
-                target.watch(
-                    "ports",
-                    Watch::new("ports", json!({ "project": path }), &[Topic::Ports]),
-                );
-                target.watch(
-                    "git-project-repo",
-                    Watch::new(
-                        "git.projectRepo",
-                        json!({ "project": path }),
-                        &[Topic::Git, Topic::Preferences],
-                    ),
+                target.watch(Read::Tasks, json!({ "project": path }));
+                target.watch(Read::Runs, json!({}));
+                target.watch(Read::ProjectConfig, json!({ "project": path }));
+                target.watch(Read::Ports, json!({ "project": path }));
+                target.watch_folder(
+                    Read::GitProjectRepo,
+                    json!({ "project": path }),
+                    path.clone(),
                 );
             }
             None => {
-                for key in [
-                    "tasks",
-                    "runs",
-                    "project-config",
-                    "ports",
-                    "git-project-repo",
+                for read in [
+                    Read::Tasks,
+                    Read::Runs,
+                    Read::ProjectConfig,
+                    Read::Ports,
+                    Read::GitProjectRepo,
                 ] {
-                    target.unwatch(key);
-                    self.reads.forget(key);
+                    target.unwatch(read);
+                    self.reads.forget(read);
                 }
             }
         }
-        self.reads.forget("git-draft");
+        self.reads.forget(Read::GitDraft);
         self.files.show(path.clone().map(PathBuf::from), &target);
         self.watched_project = path;
         self.watched_place = place;
@@ -2165,15 +1827,13 @@ impl Workbench {
                 .map(|_| START);
             chats.chain(start).map(crate::chat::draft_key).collect()
         };
-        let watch =
-            |keys: Vec<String>| Watch::new("drafts", json!({ "keys": keys }), &[Topic::Drafts]);
-        let _ = self.asks.send(Ask::Watch("drafts", watch(keys(false))));
+        Target::here(&self.asks).watch(Read::Drafts, json!({ "keys": keys(false) }));
         let there = keys(true);
         let place = self.place();
         if there.is_empty() || place == crate::hosts::Place::This {
-            Target::here(&self.asks).unwatch("host-drafts");
+            Target::here(&self.asks).unwatch(Read::HostDrafts);
         } else {
-            Target::new(&self.asks, place).watch("host-drafts", watch(there));
+            Target::new(&self.asks, place).watch(Read::HostDrafts, json!({ "keys": there }));
         }
     }
 
@@ -2206,7 +1866,7 @@ impl Workbench {
 
     /// Whether anything is over the whole window: a phone waiting to pair, a command's terminal,
     /// or the welcome, the release notes or runtime diagnostics.
-    fn over_shown(&self) -> bool {
+    pub(crate) fn over_shown(&self) -> bool {
         self.overlays.in_layer(Layer::Over) || self.someone_waits()
     }
 
@@ -2253,7 +1913,7 @@ impl Workbench {
     }
 
     /// Counts the seconds on the Run chip while the person's task runs with no port to show.
-    fn time_run(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn time_run(&mut self, cx: &mut Context<Self>) {
         let run = self.person_runs().0;
         let counting = run.is_some_and(|run| self.port_of_run(&run.run.execution_id).is_none());
         let started_at = run.and_then(|run| run.run.started_at).map(|at| at as i64);
@@ -2808,7 +2468,7 @@ impl Workbench {
     }
 
     /// Puts the core's next trust question to the person, each once, while nothing else is asked.
-    fn ask_trust(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn ask_trust(&mut self, cx: &mut Context<Self>) {
         let free = self.overlays.asking.is_none();
         let Some((host, ask)) = self
             .trust
@@ -3081,7 +2741,7 @@ impl Workbench {
     }
 
     /// Takes the rails as the person last left them, from the core's preferences.
-    fn follow_rails(&mut self, preferences: &Preferences) {
+    pub(crate) fn follow_rails(&mut self, preferences: &Preferences) {
         self.rails.follow(preferences);
         self.window_view = preferences.window_view;
         self.recent_commands = preferences
@@ -3575,7 +3235,7 @@ impl Workbench {
         }
     }
 
-    fn git_in_front(&self) -> bool {
+    pub(crate) fn git_in_front(&self) -> bool {
         self.tab()
             .and_then(|tab| tabs::first_view(&tab.pane))
             .is_some_and(|(kind, _)| kind == PaneKind::Git)
@@ -4302,8 +3962,7 @@ impl Workbench {
     pub fn sign_in(&mut self) {
         self.signing_in = true;
         let _ = self.asks.send(Ask::Answer {
-            key: "sign-in",
-            method: "accountSignIn",
+            read: Read::SignIn,
             params: json!({}),
         });
     }
@@ -4351,10 +4010,10 @@ impl Workbench {
 /// The trust questions already put to the person, and the account host in front whose trust
 /// and agents' questions are read beside this host's.
 #[derive(Default)]
-struct Trust {
+pub(crate) struct Trust {
     /// By the host that asks and the question's id.
     asked: HashSet<String>,
-    host: Option<String>,
+    pub(crate) host: Option<String>,
 }
 
 impl Trust {

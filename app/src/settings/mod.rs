@@ -39,9 +39,6 @@ actions!(
     [CloseSettings, FocusSearch, ResultUp, ResultDown, OpenResult]
 );
 
-/// What every project's agents did, as the Activity page watches it.
-pub const ACTIVITY: &str = "activity-everywhere";
-
 const CONTEXT: &str = "Settings";
 const SEARCH: &str = "SettingsSearch";
 /// How long a place found by searching stays lit.

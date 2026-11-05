@@ -1,7 +1,6 @@
 //! How the app looks: its theme, the size of its text, the panes' grain or
 //! picture, the agents' buddies, and the window's opacity and blur.
 
-use sikemux_wire::changed::Topic;
 use std::rc::Rc;
 
 use gpui_kit::component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
@@ -17,8 +16,9 @@ use serde_json::{json, Value};
 use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern};
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
-use crate::core::{Ask, Watch};
+use crate::core::{Ask, Target};
 use crate::icons::Icon;
+use crate::reads::Read;
 use crate::settings::rows;
 use crate::settings::Page;
 use crate::settings::Settings;
@@ -127,10 +127,7 @@ fn slider(
 }
 
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let _ = bench.asks.send(Ask::Watch(
-        "themes",
-        Watch::new("themes", json!({}), &[Topic::Preferences]),
-    ));
+    Target::here(&bench.asks).watch(Read::Themes, json!({}));
     let preferences = bench.preferences();
     let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search themes"));
     let typing = cx.subscribe(&search, |bench, search, event: &InputEvent, cx| {

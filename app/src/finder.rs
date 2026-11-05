@@ -64,7 +64,7 @@ impl ProjectFiles {
         }
         self.asked = Some(project.to_owned());
         let params = json!({ "project": project, "since": self.scan });
-        core.answer("projectFiles", "projectFiles", params);
+        core.answer(crate::reads::Read::ProjectFiles, params);
     }
 
     /// Whether the core has listed the project's files, even as none.

@@ -463,7 +463,7 @@ fn list(core: &Target, dirs: &[PathBuf], from: Option<usize>) {
             Some(from) => json!({ "dirs": batch, "from": from }),
             None => json!({ "dirs": batch }),
         };
-        core.answer("files.list", "files.list", params);
+        core.answer(crate::reads::Read::FilesList, params);
     }
 }
 

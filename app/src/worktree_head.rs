@@ -8,16 +8,12 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_plugin_api::codehost::Pull;
-use sikemux_wire::changed::Topic;
 
-use crate::core::Watch;
 use crate::icons::Icon;
+use crate::reads::Read;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
-
-pub(crate) const PULLS: &str = "worktree-pulls";
-pub(crate) const MERGED: &str = "worktree-merged";
 
 impl Workbench {
     /// Points what the header of the agent in front reads at that agent's worktree, while it
@@ -37,34 +33,29 @@ impl Workbench {
             return;
         }
         let target = self.target();
-        for key in [PULLS, MERGED] {
-            self.reads.forget(key);
+        for read in [Read::WorktreePulls, Read::WorktreeMerged] {
+            self.reads.forget(read);
         }
         match &watched {
             Some((agent, folder, _)) => {
-                target.watch(
-                    PULLS,
-                    Watch::new(
-                        "codeHostPulls",
-                        json!({ "project": folder, "state": "all" }),
-                        &[Topic::CodeHost],
+                target.watch_folder(
+                    Read::WorktreePulls,
+                    json!({ "project": folder, "state": "all" }),
+                    folder.clone(),
+                );
+                let merged = json!({ "agentId": agent });
+                match self.project() {
+                    Some(project) => target.watch_folder(
+                        Read::WorktreeMerged,
+                        merged,
+                        project.path.to_string_lossy().into_owned(),
                     ),
-                );
-                let merged =
-                    Watch::new("worktreeMerged", json!({ "agentId": agent }), &[Topic::Git]);
-                let project =
-                    (self.project()).map(|project| project.path.to_string_lossy().into_owned());
-                target.watch(
-                    MERGED,
-                    match project {
-                        Some(project) => merged.in_folder(project),
-                        None => merged,
-                    },
-                );
+                    None => target.watch(Read::WorktreeMerged, merged),
+                }
             }
             None => {
-                for key in [PULLS, MERGED] {
-                    target.unwatch(key);
+                for read in [Read::WorktreePulls, Read::WorktreeMerged] {
+                    target.unwatch(read);
                 }
             }
         }

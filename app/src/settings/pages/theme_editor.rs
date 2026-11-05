@@ -9,10 +9,10 @@ use gpui_kit::{
     SharedString, Styled, Subscription, Window,
 };
 use serde_json::{json, Value};
-use sikemux_wire::changed::Topic;
 
-use crate::core::{self, Ask, Watch};
+use crate::core::{self, Target};
 use crate::icons::Icon;
+use crate::reads::Read;
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{
@@ -213,10 +213,7 @@ fn preview(bench: &Workbench, cx: &mut Context<Workbench>) {
 
 /// Wears the picked theme again, ending a preview.
 pub fn wear_picked(bench: &Workbench) {
-    let _ = bench.asks.send(Ask::Watch(
-        "theme",
-        Watch::new("theme", json!({}), &[Topic::Preferences]),
-    ));
+    Target::here(&bench.asks).watch(Read::Theme, json!({}));
 }
 
 /// Makes the fields of group `group` for the draft as it is now.

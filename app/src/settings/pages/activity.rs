@@ -10,13 +10,13 @@ use gpui_kit::{
 };
 use serde_json::{json, Map, Value};
 use sikemux_core::server::{ActivityShare, ActivitySummary, PriceOverride};
-use sikemux_wire::changed::Topic;
 
-use crate::core::{utc_offset_minutes, Ask, Watch};
+use crate::core::{utc_offset_minutes, Ask, Target};
 use crate::home::{self, compact, money, plural, whole, Metric};
 use crate::icons::Icon;
+use crate::reads::Read;
+use crate::settings::rows;
 use crate::settings::Settings;
-use crate::settings::{rows, ACTIVITY};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS, TEXT_2XS_H,
     TEXT_SM,
@@ -40,14 +40,10 @@ const PRICES: [(&str, &str, bool); 4] = [
 ];
 
 pub(super) fn make(bench: &mut Workbench, _: &mut Window, cx: &mut Context<Workbench>) {
-    let _ = bench.asks.send(Ask::Watch(
-        ACTIVITY,
-        Watch::new(
-            "activitySummary",
-            json!({ "utcOffsetMinutes": utc_offset_minutes(), "project": null }),
-            &[Topic::Activity],
-        ),
-    ));
+    Target::here(&bench.asks).watch(
+        Read::ActivityEverywhere,
+        json!({ "utcOffsetMinutes": utc_offset_minutes(), "project": null }),
+    );
     let fields = Fields {
         model: None,
         prices: Vec::new(),

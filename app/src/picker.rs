@@ -10,6 +10,7 @@ use sikemux_core::server::SshHost;
 use crate::core::Ask;
 use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
+use crate::reads::Read;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::{Strip, Workbench};
 
@@ -123,16 +124,14 @@ impl Workbench {
             let roots = self.preferences().project_roots.clone();
             if !roots.is_empty() {
                 let _ = self.asks.send(Ask::Answer {
-                    key: "pickerFolders",
-                    method: "projectRoots",
+                    read: Read::PickerFolders,
                     params: json!({ "roots": roots }),
                 });
             }
         }
         if picking.hosts() {
             let _ = self.asks.send(Ask::Answer {
-                key: "sshHosts",
-                method: "sshHosts",
+                read: Read::SshHosts,
                 params: json!({}),
             });
         }
