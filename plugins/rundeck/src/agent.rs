@@ -9,8 +9,6 @@ use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
 
-use sikemux_plugin_api::process;
-
 use crate::client::{get_json, seg, Session};
 use crate::error::{RundeckError, RundeckResult};
 use crate::executions::{self, branch_from_options, Execution, ExecutionList, RunRequest};
@@ -339,7 +337,7 @@ fn duration_secs(execution: &Execution) -> Option<i64> {
     let started = execution.date_started.as_ref()?.unixtime? / 1000;
     let ended = match execution.date_ended.as_ref().and_then(|date| date.unixtime) {
         Some(ended) => ended / 1000,
-        None => process::clock::epoch_secs() as i64,
+        None => sikemux_process::clock::epoch_secs() as i64,
     };
     Some((ended - started).max(0))
 }

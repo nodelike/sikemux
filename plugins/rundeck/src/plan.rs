@@ -10,8 +10,7 @@ use std::time::{Duration, Instant};
 
 use git2::{BranchType, ErrorCode, Repository};
 use serde::Serialize;
-use sikemux_plugin_api::process;
-use sikemux_plugin_api::process::sync::Locked;
+use sikemux_process::sync::Locked;
 
 use crate::error::{RundeckError, RundeckResult};
 
@@ -142,7 +141,7 @@ fn claim_fetch(root: PathBuf) -> bool {
 }
 
 fn fetch_origin(root: &std::path::Path) {
-    let mut fetch = process::user_environment::command("git");
+    let mut fetch = sikemux_process::user_environment::command("git");
     fetch
         .arg("-C")
         .arg(root)
@@ -153,7 +152,7 @@ fn fetch_origin(root: &std::path::Path) {
         .env("SSH_ASKPASS", "true")
         .env("SSH_ASKPASS_REQUIRE", "never")
         .stdin(std::process::Stdio::null());
-    let _ = process::run(&mut fetch, None, FETCH_TIMEOUT, 4 * 1024 * 1024, None);
+    let _ = sikemux_process::run(&mut fetch, None, FETCH_TIMEOUT, 4 * 1024 * 1024, None);
 }
 
 /// Sets the branch and commit HEAD is on. A detached HEAD has no branch; a

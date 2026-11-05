@@ -8,7 +8,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sikemux_plugin_api::process::sync::Locked;
+use sikemux_process::sync::Locked;
 
 use crate::client::Session;
 use crate::config;

@@ -8,7 +8,6 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use sikemux_plugin_api::http::{self, AddressProblem, PlainHttp};
 use sikemux_plugin_api::keychain_service;
-use sikemux_plugin_api::process;
 use sikemux_plugin_api::store::{self, Secrets};
 
 use crate::error::{SignozError, SignozResult};
@@ -44,7 +43,7 @@ pub struct SignozConfig {
 
 pub fn load(data_dir: &Path) -> SignozResult<SignozConfig> {
     let config: SignozConfig = store::load(data_dir)?;
-    Ok(match process::user_environment::var("SIGNOZ_URL") {
+    Ok(match sikemux_process::user_environment::var("SIGNOZ_URL") {
         Some(url) if !url.trim().is_empty() => with_url_override(config, &url),
         _ => config,
     })
@@ -91,7 +90,7 @@ pub fn account_for(url: &str) -> String {
 }
 
 pub fn env_api_key() -> Option<String> {
-    process::user_environment::var("SIGNOZ_API_KEY")
+    sikemux_process::user_environment::var("SIGNOZ_API_KEY")
         .map(|key| key.trim().to_string())
         .filter(|key| !key.is_empty())
 }

@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use sikemux_plugin_api::http::{self, Answer, Deadline, Http, Read, Redirects};
-use sikemux_plugin_api::process::sync::Locked;
+use sikemux_process::sync::Locked;
 
 use crate::error::{Rundeck, RundeckError, RundeckResult};
 

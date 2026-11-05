@@ -23,7 +23,7 @@ pub struct Session {
 
 fn expand(path: &str) -> PathBuf {
     let home = std::env::var("HOME").ok();
-    sikemux_plugin_api::process::files::expand_home(path, home.as_deref())
+    sikemux_process::files::expand_home(path, home.as_deref())
 }
 
 impl Session {

@@ -6,8 +6,8 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 use sikemux_plugin_api::keychain_service;
-use sikemux_plugin_api::process::sync::Locked;
 use sikemux_plugin_api::store::{self, Secrets};
+use sikemux_process::sync::Locked;
 
 use crate::error::{DatabaseError, DatabaseResult};
 

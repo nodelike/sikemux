@@ -11,7 +11,6 @@ pub mod json;
 mod manifest;
 pub mod network;
 pub mod oauth;
-pub mod process;
 pub mod ratelimit;
 pub mod service;
 pub mod signin;
@@ -28,9 +27,9 @@ use serde_json::Value;
 
 pub use error::{Category, PluginError, PluginResult};
 pub use manifest::{AgentTool, CodeHostSpec, Compare, FormField, Listed, Manifest, TokenForm};
-pub use network::{unreachable, Unreachable};
 pub use service::{Service, ServiceError, ServiceResult};
 pub use signin::{SignInStatus, SignedInAs};
+pub use sikemux_base::http::Unreachable;
 
 pub type PluginFuture<'a, T> = Pin<Box<dyn Future<Output = PluginResult<T>> + Send + 'a>>;
 

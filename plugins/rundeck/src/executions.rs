@@ -7,8 +7,6 @@ use futures::future::join_all;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-use sikemux_plugin_api::process;
-
 use crate::error::{RundeckError, RundeckResult};
 
 use crate::client::{get_json, post_empty_json, post_json, seg, Session};
@@ -294,7 +292,7 @@ pub async fn run(
     request: RunRequest,
 ) -> RundeckResult<RunResult> {
     let path = format!("/job/{}/run", seg(&job_id)?);
-    let requested_at_ms = process::clock::epoch_ms() as i64;
+    let requested_at_ms = sikemux_process::clock::epoch_ms() as i64;
     let error = match post_json::<_, Execution>(session, &path, &request).await {
         Ok(execution) => {
             return Ok(RunResult {

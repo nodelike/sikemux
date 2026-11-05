@@ -7,7 +7,9 @@ use std::marker::PhantomData;
 
 use reqwest::StatusCode;
 
-use crate::network::{self, Unreachable};
+use sikemux_base::http::{unreachable, Unreachable};
+
+use crate::network;
 use crate::{http, Category, PluginError};
 
 /// The service a plugin talks to, named once for every message it gives.
@@ -110,7 +112,7 @@ impl<S: Service> std::error::Error for ServiceError<S> {}
 /// be sent, such as a DNS or certificate failure, is further down the chain.
 impl<S: Service> From<reqwest::Error> for ServiceError<S> {
     fn from(error: reqwest::Error) -> Self {
-        if let Some(kind) = network::unreachable(&error) {
+        if let Some(kind) = unreachable(&error) {
             eprintln!("{}: {error}", S::ID);
             return Self::Unreachable {
                 kind,

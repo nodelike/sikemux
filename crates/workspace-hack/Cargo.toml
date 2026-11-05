@@ -64,7 +64,6 @@ data-encoding = { version = "2" }
 digest = { version = "0.11", default-features = false, features = ["rand_core"] }
 dispatch2 = { version = "0.3" }
 errno = { version = "0.3" }
-flate2 = { version = "1" }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hyper = { version = "1", features = ["client", "http1", "server"] }
 idna = { version = "1" }
@@ -82,7 +81,6 @@ subtle = { version = "2", default-features = false, features = ["const-generics"
 tokio-util = { version = "0.7", features = ["codec", "io-util", "rt"] }
 toml_datetime = { version = "1", default-features = false, features = ["serde", "std"] }
 toml_parser = { version = "1", default-features = false, features = ["std"] }
-tower-http = { version = "0.6", default-features = false, features = ["decompression-gzip", "follow-redirect"] }
 tracing = { version = "0.1", features = ["log"] }
 url = { version = "2", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }

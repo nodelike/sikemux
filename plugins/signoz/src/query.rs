@@ -1,5 +1,5 @@
 use serde_json::{json, Value};
-use sikemux_plugin_api::process::clock::epoch_ms;
+use sikemux_process::clock::epoch_ms;
 
 pub const DEFAULT_MINUTES: u32 = 30;
 const MAX_MINUTES: u32 = 7 * 24 * 60;

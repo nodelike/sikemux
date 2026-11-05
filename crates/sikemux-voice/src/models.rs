@@ -73,7 +73,7 @@ impl From<DownloadError> for Missing {
     fn from(error: DownloadError) -> Self {
         match &error {
             DownloadError::Request(request)
-                if sikemux_plugin_api::unreachable(request).is_some() =>
+                if sikemux_base::http::unreachable(request).is_some() =>
             {
                 Missing::Offline
             }

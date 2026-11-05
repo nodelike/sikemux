@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sikemux_plugin_api::process::sync::Locked;
+use sikemux_process::sync::Locked;
 
 use crate::adf;
 use crate::auth;

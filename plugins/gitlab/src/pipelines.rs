@@ -20,8 +20,8 @@ use sikemux_plugin_api::codehost::{
     WorkflowFile,
 };
 use sikemux_plugin_api::http::Read;
-use sikemux_plugin_api::process::sync::Locked;
 use sikemux_plugin_api::terminal::plain;
+use sikemux_process::sync::Locked;
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};

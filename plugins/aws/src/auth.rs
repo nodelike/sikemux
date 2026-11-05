@@ -14,9 +14,8 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use sikemux_plugin_api::process;
-use sikemux_plugin_api::process::sync::Locked;
 use sikemux_plugin_api::{PluginContext, SignInStatus};
+use sikemux_process::sync::Locked;
 
 use crate::common::{classify_cli_err, run_aws_cli_async, Target};
 use crate::error::{AwsError, AwsResult};
@@ -48,8 +47,8 @@ pub struct AwsProfile {
 /// Where the AWS CLI looks, so the profiles listed are the ones it can use.
 fn aws_file(variable: &str, default: &str) -> Option<PathBuf> {
     let home = std::env::var("HOME").ok();
-    match process::user_environment::var(variable).filter(|path| !path.is_empty()) {
-        Some(path) => Some(process::files::expand_home(&path, home.as_deref())),
+    match sikemux_process::user_environment::var(variable).filter(|path| !path.is_empty()) {
+        Some(path) => Some(sikemux_process::files::expand_home(&path, home.as_deref())),
         None => Some(PathBuf::from(home?).join(".aws").join(default)),
     }
 }
@@ -121,7 +120,7 @@ fn classify(p: &HashMap<String, String>) -> AwsKind {
 
 /// Whether this computer looks set up for AWS at all, so agents elsewhere are not offered the tools.
 pub(crate) fn aws_in_use() -> bool {
-    use sikemux_plugin_api::process::user_environment::{find_executable, var};
+    use sikemux_process::user_environment::{find_executable, var};
     [config_path(), credentials_path()]
         .into_iter()
         .flatten()
@@ -137,7 +136,7 @@ pub(crate) fn aws_in_use() -> bool {
 pub(crate) async fn resolve(ctx: &PluginContext, asked: Target) -> AwsResult<Target> {
     let known = profiles().await;
     let names = || known.iter().map(|p| p.name.clone()).collect::<Vec<_>>();
-    let env = |name| process::user_environment::var(name).filter(|v| !v.is_empty());
+    let env = |name| sikemux_process::user_environment::var(name).filter(|v| !v.is_empty());
     let profile = match asked.profile {
         Some(profile) if known.iter().any(|p| p.name == profile) => Some(profile),
         Some(profile) => return Err(AwsError::UnknownProfile(profile, names())),
@@ -406,7 +405,7 @@ mod tests {
 
     #[test]
     fn a_path_from_the_shell_may_start_at_home() {
-        use sikemux_plugin_api::process::files::expand_home;
+        use sikemux_process::files::expand_home;
         assert_eq!(
             expand_home("~/work/aws-config", Some("/Users/me")),
             PathBuf::from("/Users/me/work/aws-config")

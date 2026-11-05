@@ -11,7 +11,6 @@ use reqwest::{Client, Method, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_plugin_api::http::{self, Deadline, Redirects};
-use sikemux_plugin_api::process;
 use sikemux_plugin_api::{SignInStatus, SignedInAs};
 
 use crate::error::{Rundeck, RundeckError, RundeckResult};
@@ -58,7 +57,7 @@ pub struct LoginResult {
 }
 
 fn short_hostname() -> String {
-    process::user_environment::command("hostname")
+    sikemux_process::user_environment::command("hostname")
         .arg("-s")
         .output()
         .ok()

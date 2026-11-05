@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use sikemux_plugin_api::http;
-use sikemux_plugin_api::process;
 use sikemux_plugin_api::store::{self, Accounts, Held, Secrets};
 use sikemux_plugin_api::{accounts, keychain_service};
 
@@ -84,7 +83,7 @@ impl GithubConfig {
     pub fn host_hint(&self) -> String {
         host_for(
             self.account(None).map(|account| account.host.as_str()),
-            process::user_environment::var("GH_HOST").as_deref(),
+            sikemux_process::user_environment::var("GH_HOST").as_deref(),
         )
     }
 
@@ -136,7 +135,7 @@ fn run(
     input: Option<&[u8]>,
     timeout: Duration,
 ) -> GithubResult<std::process::Output> {
-    process::run(command, input, timeout, OUTPUT_LIMIT, None)
+    sikemux_process::run(command, input, timeout, OUTPUT_LIMIT, None)
         .map_err(|error| GithubError::Transport(error.to_string()))
 }
 
@@ -152,7 +151,9 @@ fn token_vars(host: &str) -> [&'static str; 2] {
 
 fn env_entry(host: &str) -> Option<(&'static str, String)> {
     token_vars(host).into_iter().find_map(|name| {
-        let token = process::user_environment::var(name)?.trim().to_string();
+        let token = sikemux_process::user_environment::var(name)?
+            .trim()
+            .to_string();
         (!token.is_empty()).then_some((name, token))
     })
 }
@@ -169,7 +170,7 @@ pub fn env_variable(host: &str) -> Option<&'static str> {
 /// The token the `gh` CLI is already signed in with, so somebody who has run
 /// `gh auth login` never types one here.
 pub fn gh_cli_token(host: &str, login: Option<&str>) -> Option<String> {
-    let mut command = process::user_environment::command("gh");
+    let mut command = sikemux_process::user_environment::command("gh");
     command.args(["auth", "token", "--hostname", host]);
     if let Some(login) = login.filter(|login| !login.is_empty()) {
         command.args(["--user", login]);
