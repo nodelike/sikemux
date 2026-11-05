@@ -32,6 +32,16 @@ use super::kept::Kept;
 use super::ports::{self, PortOwner};
 use super::{session, Core, CoreResult};
 
+mod test_results;
+mod trust;
+mod writing;
+
+pub(crate) use test_results::module_tests;
+use test_results::*;
+use trust::*;
+pub(crate) use trust::{answer_trust, asks, config_needs, config_trusted};
+pub(crate) use writing::*;
+
 const TRUST_FILE: &str = "task-trust.json";
 const MAX_TRUSTED: usize = 256;
 const COLS: u16 = 120;
@@ -430,57 +440,6 @@ fn view(project: &Path, task: &Definition, run: Option<&Run>) -> TaskView {
     }
 }
 
-fn config_ask(path: &str, fingerprint: &str, config: &config::ProjectConfig) -> TrustAsk {
-    TrustAsk {
-        title: "Trust this sikemux.json?".into(),
-        body: "It lets Sikemux run these commands in this project. Trust lasts until the file changes.".into(),
-        commands: config::trust_commands(config),
-        confirm_label: "Trust project".into(),
-        grant: Grant::Config(TrustedConfig {
-            path: path.to_owned(),
-            fingerprint: fingerprint.to_owned(),
-        }),
-    }
-}
-
-/// What the person must trust before `config` runs, or none.
-pub(crate) fn config_needs(core: &Core, config: &ConfigLoad) -> Option<TrustAsk> {
-    let ConfigLoad::Valid {
-        path,
-        config,
-        fingerprint,
-        trust,
-    } = config
-    else {
-        return None;
-    };
-    let ask = config_ask(path, fingerprint, config);
-    (trust.requires_approval && !core.tasks.trusts(&ask.grant)).then_some(ask)
-}
-
-fn personal_ask(project: &Path, task: &Definition) -> TrustAsk {
-    let cwd = task.cwd.to_string_lossy().into_owned();
-    let command = if task.cwd == project {
-        task.command.clone()
-    } else {
-        format!("cd {cwd} && {}", task.command)
-    };
-    TrustAsk {
-        title: format!("Run {}?", task.label),
-        body: "This process comes from the project's .sikemux/tasks.json. Trust lasts until the process changes.".into(),
-        commands: vec![TrustCommand {
-            label: task.label.clone(),
-            command,
-        }],
-        confirm_label: "Run process".into(),
-        grant: Grant::Personal(TrustedTask {
-            project: project.to_string_lossy().into_owned(),
-            cwd,
-            command: task.command.clone(),
-        }),
-    }
-}
-
 /// `sikemux.json` as read now, and whether the person trusts it on this host.
 pub(crate) async fn project_config(core: &Arc<Core>, project: String) -> CoreResult<Value> {
     let core = core.clone();
@@ -675,59 +634,6 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
     value
 }
 
-/// The latest results each module's test task left in `project`, worded as
-/// `workspace_inspect` gives them.
-pub(crate) async fn module_tests(core: &Arc<Core>, project: String) -> CoreResult<Value> {
-    let core = core.clone();
-    blocking(move || {
-        let project = PathBuf::from(project);
-        let Offered { tasks, .. } = offered(&core, &project);
-        Ok(Value::Array(test_results(&project, &tasks)))
-    })
-    .await
-}
-
-fn test_modules(tasks: &[Definition]) -> Vec<&Path> {
-    let mut modules: Vec<&Path> = tasks
-        .iter()
-        .filter(|task| detect::is_test_task(&task.id))
-        .map(|task| task.cwd.as_path())
-        .collect();
-    modules.dedup();
-    modules
-}
-
-/// The latest test results each module's test task left, failures first.
-fn test_results(project: &Path, tasks: &[Definition]) -> Vec<Value> {
-    test_modules(tasks)
-        .into_iter()
-        .filter_map(|cwd| {
-            let found = results::read(cwd)?;
-            Some(json!({
-                "cwd": relative(project, cwd),
-                "passed": found.passed,
-                "failed": found.failed,
-                "skipped": found.skipped,
-                "failures": found.failures.iter().map(|failure| {
-                    let mut entry = json!({
-                        "test": if results::is_file_path(&failure.class_name) {
-                            format!("{} › {}", failure.class_name, failure.name)
-                        } else {
-                            format!("{}.{}", failure.class_name, failure.name)
-                        },
-                        "message": crate::text::clipped(&failure.message, 1000),
-                    });
-                    if let (Some(file), Some(object)) = (&failure.file, entry.as_object_mut()) {
-                        object.insert("file".into(), relative(project, Path::new(file)).into());
-                        object.insert("line".into(), failure.line.into());
-                    }
-                    entry
-                }).collect::<Vec<_>>(),
-            }))
-        })
-        .collect()
-}
-
 /// The terminal a task's runs share, so a rerun shows in the same one.
 pub(crate) fn terminal_key(project: &str, task_id: &str) -> String {
     json!(["task", project, task_id]).to_string()
@@ -813,141 +719,6 @@ fn resolve(
         ),
         ConfigLoad::Valid { .. } => "Process is not defined in sikemux.json".into(),
     })
-}
-
-/// The person let this agent run anything, so its tasks skip the trust question.
-fn bypasses(core: &Core, agent_id: Option<&str>) -> bool {
-    agent_id
-        .and_then(|agent_id| core.workspaces.run_of(agent_id))
-        .is_some_and(|run| run.permission_mode == PermissionMode::Bypass)
-}
-
-fn trust_for(
-    core: &Core,
-    project: &Path,
-    task: &Definition,
-    config: &ConfigLoad,
-) -> Option<TrustAsk> {
-    match task.source {
-        Source::Project => config_needs(core, config),
-        Source::Personal => {
-            let ask = personal_ask(project, task);
-            (!core.tasks.trusts(&ask.grant)).then_some(ask)
-        }
-        Source::Detected | Source::Rerun | Source::Command => None,
-    }
-}
-
-/// Puts `ask` to the person and waits for the answer. False when they
-/// refused, the run waiting on it was stopped, or nobody answered in time.
-async fn ask_person(
-    core: &Arc<Core>,
-    project: &str,
-    ask: TrustAsk,
-    execution_id: Option<&str>,
-) -> bool {
-    let id = uuid::Uuid::new_v4().to_string();
-    let grant = ask.grant.clone();
-    core.tasks.state.locked().asking.insert(
-        id.clone(),
-        Asked {
-            id: id.clone(),
-            project: project.to_owned(),
-            execution_id: execution_id.map(str::to_owned),
-            ask,
-        },
-    );
-    if let Some(execution_id) = execution_id {
-        core.harness.awaiting_trust(execution_id);
-    }
-    core.changed(What::Read(Topic::Trust));
-    let until = Instant::now() + TRUST_WAIT;
-    let answer = loop {
-        let mut changed = core.harness.subscribe();
-        if core.tasks.trusts(&grant) {
-            break true;
-        }
-        let waiting = core.tasks.state.locked().asking.contains_key(&id)
-            && execution_id.is_none_or(|execution_id| {
-                core.harness
-                    .run_of(execution_id)
-                    .is_some_and(|run| run.status.is_active())
-            });
-        if !waiting || Instant::now() >= until {
-            break false;
-        }
-        tokio::select! {
-            _ = changed.changed() => {}
-            _ = tokio::time::sleep_until(until) => {}
-        }
-    };
-    core.tasks.state.locked().asking.remove(&id);
-    core.changed(What::Read(Topic::Trust));
-    answer
-}
-
-/// Whether `agent_id`, or the person when there is none, may run the
-/// commands in `project`'s `sikemux.json`, asking the person when they have
-/// not trusted it on this host yet.
-pub(crate) async fn config_trusted(
-    core: &Arc<Core>,
-    project: &Path,
-    agent_id: Option<&str>,
-) -> bool {
-    if bypasses(core, agent_id) {
-        return true;
-    }
-    let config = {
-        let project = project.to_path_buf();
-        blocking(move || Ok(config::load(&project))).await
-    };
-    let Ok(config) = config else {
-        return false;
-    };
-    match config_needs(core, &config) {
-        Some(ask) => ask_person(core, &project.to_string_lossy(), ask, None).await,
-        None => true,
-    }
-}
-
-/// The trust questions waiting on the person.
-pub(crate) fn asks(core: &Core) -> Vec<TrustQuestion> {
-    (core.tasks.state.locked().asking.values())
-        .map(|asked| TrustQuestion {
-            id: asked.id.clone(),
-            project: asked.project.clone(),
-            execution_id: asked.execution_id.clone(),
-            title: asked.ask.title.clone(),
-            body: asked.ask.body.clone(),
-            commands: asked.ask.commands.clone(),
-            confirm_label: asked.ask.confirm_label.clone(),
-        })
-        .collect()
-}
-
-/// The person answers a trust question, from `answered_by` when it is another device.
-pub(crate) fn answer_trust(
-    core: &Core,
-    id: &str,
-    trust: bool,
-    answered_by: Option<String>,
-) -> CoreResult<()> {
-    let asked = core
-        .tasks
-        .state
-        .locked()
-        .asking
-        .remove(id)
-        .ok_or("Nothing waits on that answer any more")?;
-    if trust {
-        core.tasks.grant(asked.ask.grant, answered_by);
-        core.changed(What::ReadIn(Topic::Tasks, Some(&asked.project), None));
-    } else if let Some(execution_id) = &asked.execution_id {
-        core.harness
-            .launch_failed(execution_id, "Project configuration was not approved");
-    }
-    core.harness.changed();
-    Ok(())
 }
 
 async fn spawn(core: &Arc<Core>, request: TaskSpawnRequest) -> Result<SessionId, String> {
@@ -1183,121 +954,6 @@ pub(crate) async fn start(core: &Arc<Core>, params: StartParams) -> CoreResult<V
     }
     let execution_id = super::harness::start_for_person(core, &params.project, &params.task_id)?;
     Ok(json!({ "executionId": execution_id }))
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AddParams {
-    project: String,
-    label: String,
-    command: String,
-    cwd: Option<String>,
-    /// For the team in `sikemux.json`, or for this person only.
-    team: bool,
-    /// The task this one is an edit of, which goes when its id or place changes.
-    replaces: Option<String>,
-}
-
-/// Saves a task the person wrote; answers its id.
-pub(crate) async fn add(
-    core: &Arc<Core>,
-    params: AddParams,
-    answered_by: Option<String>,
-) -> CoreResult<Value> {
-    let core = core.clone();
-    blocking(move || {
-        let project = PathBuf::from(&params.project);
-        let cwd = params
-            .cwd
-            .as_deref()
-            .map(|cwd| cwd.trim().trim_start_matches("./").trim_matches('/'))
-            .filter(|cwd| !cwd.is_empty())
-            .unwrap_or(".")
-            .to_owned();
-        let task = AddedTask {
-            label: params.label.trim().to_owned(),
-            command: params.command.trim().to_owned(),
-            cwd: cwd.clone(),
-        };
-        let task_id = if params.team {
-            detect::save_team(&project, &task)?
-        } else {
-            let task_id = detect::save_personal(&project, &task)?;
-            core.tasks.grant(
-                Grant::Personal(TrustedTask {
-                    project: params.project.clone(),
-                    cwd: if cwd == "." {
-                        params.project.clone()
-                    } else {
-                        project.join(&cwd).to_string_lossy().into_owned()
-                    },
-                    command: task.command.clone(),
-                }),
-                answered_by,
-            );
-            task_id
-        };
-        if let Some(old) = params.replaces.filter(|old| *old != task_id) {
-            detect::remove_saved(&project, &old)?;
-        }
-        core.changed(What::ReadIn(Topic::Tasks, Some(&params.project), None));
-        Ok(json!({ "taskId": task_id }))
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct CheckParams {
-    project: String,
-    command: String,
-}
-
-/// Names the project's check command in its `sikemux.json`. A file the person
-/// trusted stays trusted, since they wrote this change themselves.
-pub(crate) async fn set_check(core: &Arc<Core>, params: CheckParams) -> CoreResult<Value> {
-    let core = core.clone();
-    blocking(move || {
-        let project = PathBuf::from(&params.project);
-        let trusted = match config::load(&project) {
-            ConfigLoad::Absent { .. } => true,
-            load @ ConfigLoad::Valid { .. } => config_needs(&core, &load).is_none(),
-            ConfigLoad::Invalid { .. } => false,
-        };
-        detect::save_check(&project, &params.command)?;
-        if let (
-            true,
-            ConfigLoad::Valid {
-                path, fingerprint, ..
-            },
-        ) = (trusted, config::load(&project))
-        {
-            core.tasks
-                .grant(Grant::Config(TrustedConfig { path, fingerprint }), None);
-        }
-        core.harness.changed();
-        core.changed(What::ReadIn(Topic::Tasks, Some(&params.project), None));
-        Ok(Value::Null)
-    })
-    .await
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RemoveParams {
-    project: String,
-    task_id: String,
-}
-
-/// Takes a task the person added off the project.
-pub(crate) async fn remove(core: &Arc<Core>, params: RemoveParams) -> CoreResult<Value> {
-    let core = core.clone();
-    blocking(move || {
-        detect::remove_saved(Path::new(&params.project), &params.task_id)?;
-        core.changed(What::ReadIn(Topic::Tasks, Some(&params.project), None));
-        Ok(Value::Null)
-    })
-    .await
 }
 
 #[derive(Deserialize)]
