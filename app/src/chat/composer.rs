@@ -33,8 +33,10 @@ pub type Act = Rc<dyn Fn(&mut Window, &mut App)>;
 pub enum Notice {
     Refused(SharedString, Option<(SharedString, Act)>),
     Waiting(SharedString),
-    /// Something just done to the draft, and how to take it back.
+    /// Something just done, and how to take it back.
     Done(SharedString, (SharedString, Act)),
+    /// What the core suggests and why: the one link that acts on it, and the one that declines.
+    Suggest(SharedString, (SharedString, Act), (SharedString, Act)),
 }
 type Pick = Rc<dyn Fn(&str, &str, &mut Window, &mut App)>;
 type Paste = Rc<dyn Fn(&ClipboardItem, &mut Window, &mut App) -> bool>;
@@ -55,6 +57,8 @@ pub struct Strip {
     pub worktree: Option<AnyElement>,
     /// A worktree agent's pull request and its Remove worktree, beside the worktree.
     pub pull: Option<AnyElement>,
+    /// The goal the chat works on, at the right end.
+    pub goal: Option<AnyElement>,
     pub account: Option<AnyElement>,
 }
 
@@ -215,6 +219,12 @@ impl Composer {
 
     pub fn notice(mut self, notice: Option<Notice>) -> Self {
         self.notice = notice;
+        self
+    }
+
+    /// Says `notice` when the composer has nothing more pressing to say.
+    pub fn notice_unless_any(mut self, notice: Option<Notice>) -> Self {
+        self.notice = self.notice.or(notice);
         self
     }
 
@@ -473,6 +483,21 @@ impl RenderOnce for Composer {
                             ui::sign_in::link("composer-notice-undo", label, cx)
                                 .on_click(move |_, window, cx| act(window, cx)),
                         ),
+                    Notice::Suggest(words, (label, act), (decline, not_now)) => line
+                        .text_color(t.text_secondary)
+                        .child(div().min_w_0().truncate().child(words))
+                        .child(div().flex_none().text_color(t.text_disabled).child("·"))
+                        .child(
+                            ui::sign_in::link("composer-notice-suggest", label, cx)
+                                .text_color(t.accent)
+                                .on_click(move |_, window, cx| act(window, cx)),
+                        )
+                        .child(div().flex_none().text_color(t.text_disabled).child("·"))
+                        .child(
+                            ui::sign_in::link("composer-notice-decline", decline, cx)
+                                .text_color(t.text_tertiary)
+                                .on_click(move |_, window, cx| not_now(window, cx)),
+                        ),
                 }
             }))
     }
@@ -607,6 +632,7 @@ fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl Into
         .children(strip.worktree)
         .children(strip.pull)
         .child(div().flex_1())
+        .children(strip.goal)
         .children(
             strip
                 .account

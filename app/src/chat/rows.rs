@@ -620,8 +620,37 @@ pub(super) fn outlives(part: &ChatPart) -> bool {
     match part {
         ChatPart::Tool { page, gif, .. } => page.is_some() || gif.is_some(),
         ChatPart::Subagent { subagent, .. } => subagent.state == SubagentState::Running,
+        ChatPart::AgentNotice { notice, .. } => notice.goal.is_some(),
         _ => false,
     }
+}
+
+/// Where a goal began or ended: a quiet line across the column with its state's mark.
+fn goal_marker(notice: &AgentNotice, looks: &Drawn, cx: &App) -> AnyElement {
+    let rule = || {
+        div()
+            .flex_1()
+            .min_w(SPACE_3)
+            .h(px(1.))
+            .bg(looks.tints.line_soft)
+    };
+    div()
+        .my(SPACE_1)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .min_w_0()
+        .text_size(crate::theme::ui_text(TEXT_3XS_H))
+        .text_color(looks.quiet)
+        .child(rule())
+        .children(
+            notice
+                .goal
+                .map(|goal| crate::goals::state_mark(goal.state, cx)),
+        )
+        .child(div().min_w_0().truncate().child(notice.title.clone()))
+        .child(rule())
+        .into_any_element()
 }
 
 /// The line a finished turn folds behind: who worked, for how long, with how many tool calls.
@@ -1018,6 +1047,9 @@ pub(super) fn part(
                 .child(div().flex_none().text_color(tint).child(state))
                 .children(notice.summary.clone().map(notice_summary))
                 .into_any_element()
+        }
+        ChatPart::AgentNotice { notice, .. } if notice.goal.is_some() => {
+            goal_marker(notice, looks, cx)
         }
         ChatPart::AgentNotice { notice, .. } => {
             let t = Tokens::get(cx);

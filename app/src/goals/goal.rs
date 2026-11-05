@@ -333,26 +333,7 @@ pub(super) fn strip(
     width: impl Into<gpui_kit::Length>,
     cx: &Context<GoalsPane>,
 ) -> AnyElement {
-    let t = Tokens::get(cx);
-    div()
-        .w(width.into())
-        .flex_none()
-        .flex()
-        .gap(px(3.))
-        .children(slices.iter().map(|(_, slice)| {
-            let segment = div().flex_1().h(px(4.)).rounded(px(2.));
-            match slice.state {
-                SliceState::Done => segment.bg(t.live),
-                SliceState::Moving => segment.bg(t.live.opacity(0.45)),
-                SliceState::NeedsYou => segment.bg(t.warn),
-                SliceState::Failed => segment.bg(t.danger),
-                SliceState::Waiting => segment
-                    .border_1()
-                    .border_dashed()
-                    .border_color(t.text_disabled),
-            }
-        }))
-        .into_any_element()
+    super::state_strip(slices.iter().map(|(_, slice)| slice.state), width, cx)
 }
 
 /// A gate a slice waits at, as a short sentence: who does what to which slice.

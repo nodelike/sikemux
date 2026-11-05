@@ -1211,7 +1211,7 @@ fn eta_words(eta: &GoalEta) -> Option<String> {
 
 /// A slice's mark, the same everywhere: solid green done, a green ring moving, a dashed grey
 /// ring waiting, amber when it needs the person and red when it failed.
-fn state_mark(state: SliceState, cx: &gpui_kit::App) -> AnyElement {
+pub(crate) fn state_mark(state: SliceState, cx: &gpui_kit::App) -> AnyElement {
     let t = Tokens::get(cx);
     let dot = div().size(px(8.)).rounded_full();
     let mark = match state {
@@ -1222,6 +1222,34 @@ fn state_mark(state: SliceState, cx: &gpui_kit::App) -> AnyElement {
         SliceState::Failed => dot.bg(t.danger),
     };
     ui::mark_box(14., mark).into_any_element()
+}
+
+/// A row of segments, one per state, the same wherever progress shows.
+pub(crate) fn state_strip(
+    states: impl IntoIterator<Item = SliceState>,
+    width: impl Into<gpui_kit::Length>,
+    cx: &gpui_kit::App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    div()
+        .w(width.into())
+        .flex_none()
+        .flex()
+        .gap(px(3.))
+        .children(states.into_iter().map(|state| {
+            let segment = div().flex_1().h(px(4.)).rounded(px(2.));
+            match state {
+                SliceState::Done => segment.bg(t.live),
+                SliceState::Moving => segment.bg(t.live.opacity(0.45)),
+                SliceState::NeedsYou => segment.bg(t.warn),
+                SliceState::Failed => segment.bg(t.danger),
+                SliceState::Waiting => segment
+                    .border_1()
+                    .border_dashed()
+                    .border_color(t.text_disabled),
+            }
+        }))
+        .into_any_element()
 }
 
 /// How a goal counts `count` of its slices in `state`.

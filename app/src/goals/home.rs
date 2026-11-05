@@ -11,7 +11,7 @@ use gpui_kit::{
 use sikemux_core::server::call;
 use sikemux_core::server::{AnswerParams, BoardCardParams, BoardHandOnParams, BoardView, CardView};
 use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
-use sikemux_wire::slice::SliceState;
+use sikemux_wire::slice::{SliceState, SliceView};
 
 use super::evidence::minute;
 use super::goal::{count, crumb, row, section, strip};
@@ -556,7 +556,8 @@ fn question_row(
 }
 
 /// A goal on one line: its title, how many slices are done, what comes next and
-/// what that waits on, and its strip. It opens the goal, or a lone slice's worker's chat.
+/// what that waits on, and its strip. It opens the goal, or the chat of the agent working it
+/// alone, unless that agent closed and the goal page is where to resume or hand it on.
 fn goal_row(
     pane: &GoalsPane,
     board: &BoardView,
@@ -567,7 +568,8 @@ fn goal_row(
     let id = goal.id;
     let slices = slices_of(&board.cards, id);
     let done = count(&slices, SliceState::Done);
-    let worker = goal.slice.as_ref().and(goal.owner.clone());
+    let worker = (goal.owner.clone())
+        .filter(|_| !goal.goal_stalled && (goal.slice.is_some() || goal.goal_slices.is_empty()));
     let says = row_says()
         .child(
             ui::text(goal_name(goal), TEXT_SM, FontWeight::MEDIUM)
@@ -579,6 +581,7 @@ fn goal_row(
         .when(!slices.is_empty(), |says| {
             says.child(ui::meta(format!("{done} of {} done", slices.len()), cx))
         })
+        .children(plain_owner(goal, &slices).map(|words| ui::meta(words, cx).flex_none()))
         .children(
             (goal.next.first())
                 .and_then(|next| super::goal::step(&board.cards, next))
@@ -593,7 +596,10 @@ fn goal_row(
                 None => shown,
             })
         }))
-        .child(strip(&slices, px(120.), cx));
+        .child(match slices.is_empty() {
+            true => super::state_strip([super::goal_mark(goal)], px(120.), cx),
+            false => strip(&slices, px(120.), cx),
+        });
     let line = wrapping(row(
         SharedString::from(format!("goal-{}-{id}", board.project)),
         cx,
@@ -605,6 +611,16 @@ fn goal_row(
     .child(says)
     .child(does);
     super::with_agent_menu(line, goal.owner.clone(), &pane.bench)
+}
+
+/// What a goal with no slices says of the agent on it, whose state is the goal's.
+fn plain_owner(goal: &CardView, slices: &[(&CardView, &SliceView)]) -> Option<String> {
+    let owner = goal.owner_name.as_deref().filter(|_| slices.is_empty())?;
+    match super::goal_mark(goal) {
+        SliceState::Moving => Some(format!("@{owner} at work")),
+        SliceState::Waiting => Some(format!("@{owner} idle")),
+        _ => None,
+    }
 }
 
 pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {

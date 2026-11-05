@@ -477,6 +477,7 @@ pub(super) fn composer(
         composer = composer.notice(Some(installing));
     }
     composer = composer
+        .notice_unless_any(goal_line::notice(head, &agent.id, &this))
         .text_scale(chat.scale)
         .stash(crate::stash::Stash::of(bench).fresh_count(), tray_open, {
             let (this, agent) = (this.clone(), agent.id.clone());
@@ -633,6 +634,9 @@ pub(super) fn strip(
         }),
         worktree,
         pull: crate::worktree_head::badges(bench, &agent.id, cx),
+        goal: head
+            .and_then(|head| head.goal.as_ref())
+            .map(|goal| goal_line::on_strip(goal, cx.entity(), cx)),
         account,
     }
 }

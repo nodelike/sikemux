@@ -188,6 +188,8 @@ named_fields!(head_field, ChatHead {
     "ended" => ended,
     "activeTool" => active_tool,
     "draft" => draft,
+    "goal" => goal,
+    "goalOffer" => goal_offer,
 });
 
 named_fields!(row_field, ChatMessage {

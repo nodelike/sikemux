@@ -545,6 +545,7 @@ pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> Any
             moves: None,
             worktree: None,
             pull: None,
+            goal: None,
             account: None,
         }
     });

@@ -24,9 +24,9 @@ use gpui_transcript::{
 use serde_json::{json, Value};
 use sikemux_wire::catalog::Driver;
 use sikemux_wire::chat::{
-    ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView, FiredRequest,
-    LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk, SubagentCard,
-    SubagentState, ToolDetail, WorkFold,
+    AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView,
+    FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk,
+    SubagentCard, SubagentState, ToolDetail, WorkFold,
 };
 use sikemux_wire::protocol::{
     AgentStatus, ChatAttachment, ChatContext, ChatMark, ConfigPicker, MidTurnSend, PermissionMode,
@@ -66,6 +66,7 @@ mod edit;
 mod files;
 mod find;
 mod gestures;
+mod goal_line;
 mod installing;
 mod link;
 pub(crate) mod live;
