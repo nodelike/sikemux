@@ -9,6 +9,7 @@ import { appleConsent } from '@/account/apple';
 import { ConfirmItsYou, ReverifyCancelled, useRecentSignIn } from '@/account/ConfirmItsYou';
 import { confirmed, deletion, START } from '@/account/deletion';
 import { signOutHere } from '@/account/leave';
+import { RETENTION } from '@/account/config';
 import { Button, Field } from '@/ui/controls';
 import { Prompt } from '@/ui/prompt';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
@@ -17,7 +18,7 @@ import { type Palette, typeFor, useStyles } from '@/ui/theme';
 const GONE = [
   'Hosts are signed out.',
   'Phones, this one too, are signed out and removed from every host.',
-  'After 30 days your sign-in, device keys and history are erased, and backups 30 days later.',
+  `After ${RETENTION.restorableDays} days your sign-in, device keys and history are erased, and backups ${RETENTION.backupDays} days later.`,
 ];
 
 /** Deletes the account, after the person types the word and, when the server asks, proves it is them again. */

@@ -1,11 +1,12 @@
 import { memo, useMemo, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { collapseDiff } from '@shared/chat/diff';
 import type { DiffLine, ToolDiff } from '@shared/chat/types';
 import { counted } from '@/devices/words';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
+import { Sideways } from '@/ui/Sideways';
 import { useFold } from './folds';
 
 /** Unchanged lines kept around each change, as on the Mac. */
@@ -13,19 +14,13 @@ const CONTEXT = 3;
 /** Rows drawn before the rest waits for a tap, so opening a whole new file costs one screenful. */
 const FIRST_ROWS = 120;
 
-/* While a view around a scroller holds the touch, iOS won't let the scroller pan, so the
-   scroller's own content takes it before the message's press handler can. */
-const keepTouch = () => true;
-
 /** Scrolls sideways, so long lines keep to the width of the screen and every row's tint spans the longest. */
 export function SidewaysRows({ children }: { children: ReactNode }) {
   const styles = useStyles(makeStyles);
   return (
-    <ScrollView horizontal contentContainerStyle={styles.sideways} showsHorizontalScrollIndicator={false}>
-      <View onStartShouldSetResponder={keepTouch} style={styles.rows}>
-        {children}
-      </View>
-    </ScrollView>
+    <Sideways contentStyle={styles.sideways} style={styles.rows}>
+      {children}
+    </Sideways>
   );
 }
 

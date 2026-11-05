@@ -12,6 +12,7 @@ import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';
 import { openLink } from '@/ui/prompt';
 import { fonts, italic, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
+import { keepTouch } from '@/ui/Sideways';
 import { DiffRow, SidewaysRows } from './Diff';
 import type { FoundCode, FoundNode } from './found';
 import { FileRef, hostImagePath, LinkedImage, namesFile } from './FileRef';
@@ -197,10 +198,6 @@ const CELL_MIN = 56;
 const CELL_MAX = 240;
 
 const COPY_ROOM = 28;
-
-/* While a view around a scroller holds the touch, iOS won't let the scroller pan, so the
-   scroller's own content takes it before the message's press handler can. */
-const keepTouch = () => true;
 
 function columnWidths(table: Table): number[] {
   return table.align.map((_, column) => {

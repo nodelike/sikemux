@@ -40,7 +40,7 @@ import { AgentIcon, Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { Working } from '@/devices/AgentMarks';
 import { fonts, italic, keyboardFor, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
-import { useAnimating, useStill } from '@/ui/motion';
+import { useAnimating, useSecond, useStill } from '@/ui/motion';
 import { Shimmer } from '@/ui/Shimmer';
 import { FoldsContext, useFold } from './folds';
 import { FindingContext, markBlocks, markTyped, type Finding } from './found';
@@ -761,8 +761,10 @@ export function EarlierLost() {
 export function Activity({ provider, label, since }: { provider: string; label: string; since: number }) {
   const styles = useStyles(makeStyles);
   const [breath] = useState(() => new Animated.Value(1));
-  const [seconds, setSeconds] = useState(() => Math.round((Date.now() - since) / 1000));
   const animating = useAnimating();
+  const [first] = useState(() => Math.round((Date.now() - since) / 1000));
+  const now = useSecond(animating);
+  const seconds = now ? Math.round(now - since / 1000) : first;
   useEffect(() => {
     if (!animating) return;
     const loop = Animated.loop(
@@ -772,12 +774,8 @@ export function Activity({ provider, label, since }: { provider: string; label: 
       ]),
     );
     loop.start();
-    const tick = setInterval(() => setSeconds(Math.round((Date.now() - since) / 1000)), 1000);
-    return () => {
-      loop.stop();
-      clearInterval(tick);
-    };
-  }, [breath, since, animating]);
+    return () => loop.stop();
+  }, [breath, animating]);
   return (
     <View style={styles.activity} accessible accessibilityLabel={label}>
       <Animated.View style={{ opacity: breath }}>

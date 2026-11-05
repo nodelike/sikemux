@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, AppState, Easing, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 
 import { problem as problemOf } from '@/core/problem';
 import { APPROVAL_SECONDS, expired, JoinFailed, joinHost, useJoinScreen, type JoinFailure, type JoinStep } from '@/devices/joining';
-import { useStill } from '@/ui/motion';
+import { useSecond, useStill } from '@/ui/motion';
 import { DeviceIcon, Icon } from '@/ui/Icon';
 import { haptics } from '@/ui/haptics';
 import { goBack } from '@/ui/navigate';
@@ -77,8 +77,8 @@ export default function Join() {
   const [step, setStep] = useState<JoinStep>('asking');
   const [failed, setFailed] = useState<JoinFailure>();
   const [deadline, setDeadline] = useState<number>();
-  const [now, setNow] = useState(() => Date.now());
-  const left = deadline === undefined ? APPROVAL_SECONDS : Math.max(0, Math.ceil((deadline - now) / 1000));
+  const now = useSecond(step === 'waiting');
+  const left = deadline === undefined || !now ? APPROVAL_SECONDS : Math.max(0, Math.ceil(deadline / 1000 - now));
   const joining = useRef<AbortController>(undefined);
   const tokenRef = useRef(getToken);
   useEffect(() => {
@@ -94,7 +94,6 @@ export default function Join() {
       setStep(next);
       if (next !== 'waiting') return;
       const at = Date.now();
-      setNow(at);
       setDeadline(at + APPROVAL_SECONDS * 1000);
     };
     joinHost({ core, name }, () => tokenRef.current(), stepTo, controller.signal)
@@ -113,18 +112,6 @@ export default function Join() {
   }, [core, name, attempt]);
 
   const waiting = step === 'waiting' && !problem;
-  // Counted from the deadline, so time spent in another app still counts.
-  useEffect(() => {
-    if (!waiting) return;
-    const tick = setInterval(() => setNow(Date.now()), 1000);
-    const back = AppState.addEventListener('change', (state) => {
-      if (state === 'active') setNow(Date.now());
-    });
-    return () => {
-      clearInterval(tick);
-      back.remove();
-    };
-  }, [waiting]);
 
   useEffect(() => {
     if (left === 0) joining.current?.abort();

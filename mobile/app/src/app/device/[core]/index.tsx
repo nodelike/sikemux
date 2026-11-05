@@ -87,9 +87,7 @@ function Recent({
   const [all, setAll] = useState(false);
   const [resuming, setResuming] = useState<string>();
   const [note, setNote] = useState<{ text: string; failed: boolean }>();
-  const chats = snapshot.recent.filter(
-    (chat) => !chat.agentId && (!scope || chat.project === scope.id) && (provider === 'all' || chat.provider === provider),
-  );
+  const chats = snapshot.recent.filter((chat) => !chat.agentId && listed(scope, provider, chat.project, chat.provider));
   const shown = all ? chats : chats.slice(0, RECENT_SHOWN);
 
   const resume = async (chat: RecentInfo) => {
@@ -158,6 +156,16 @@ function Recent({
   );
 }
 
+/** Whether something on the host is in the project and for the agent the screen shows. */
+function listed(
+  scope: ProjectInfo | undefined,
+  provider: string,
+  project: string | null | undefined,
+  type: string | null | undefined,
+): boolean {
+  return (!scope || project === scope.id) && (provider === 'all' || type === provider);
+}
+
 type OpenAgent = { shown: AgentShown } & ({ kind: 'chat'; chat: ChatInfo } | { kind: 'terminal'; session: SessionInfo });
 
 /** The open agents in the order the host lists them on every device, what wants the person first. */
@@ -165,12 +173,10 @@ function openAgents(snapshot: Snapshot, scope: ProjectInfo | undefined, provider
   return snapshot.inbox.agents.flatMap((shown): OpenAgent[] => {
     const chat = snapshot.chats.find((candidate) => candidate.agentId === shown.agentId);
     if (chat) {
-      const listed = (!scope || shown.project === scope.id) && (provider === 'all' || chat.provider === provider);
-      return listed ? [{ kind: 'chat', chat, shown }] : [];
+      return listed(scope, provider, shown.project, chat.provider) ? [{ kind: 'chat', chat, shown }] : [];
     }
     const session = snapshot.sessions.find((candidate) => candidate.agentId === shown.agentId);
-    const listed = session && (!scope || shown.project === scope.id) && (provider === 'all' || session.agentType === provider);
-    return session && listed ? [{ kind: 'terminal', session, shown }] : [];
+    return session && listed(scope, provider, shown.project, session.agentType) ? [{ kind: 'terminal', session, shown }] : [];
   });
 }
 
@@ -199,7 +205,7 @@ function Agents({
   const leads = new Set(open.map((agent) => (agent.kind === 'chat' ? agent.chat.agentId : agent.session.agentId)));
   const strays = scope
     ? []
-    : workers.filter((worker) => !(worker.lead && leads.has(worker.lead)) && (provider === 'all' || worker.cli === provider));
+    : workers.filter((worker) => !(worker.lead && leads.has(worker.lead)) && listed(undefined, provider, undefined, worker.cli));
   const placeOf = (project: string | null | undefined) => (scope || !project ? undefined : projectName(snapshot, project));
 
   return (

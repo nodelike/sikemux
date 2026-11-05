@@ -1,10 +1,4 @@
-import {
-  type ComponentType,
-  memo,
-  useContext,
-  useRef,
-  useState,
-} from "react";
+import { type ComponentType, memo, useContext, useRef, useState } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import {
   IconActivity,
@@ -92,11 +86,7 @@ import {
   type ToolIconName,
 } from "@shared/chat/toolView";
 import { attachmentName } from "@shared/chat/transcript";
-import type {
-  ChatPart,
-  ToolCall,
-  ToolOutput,
-} from "@shared/chat/types";
+import type { ChatPart, ToolCall, ToolOutput } from "@shared/chat/types";
 
 const TOOL_ICONS: Record<ToolIconName, ComponentType<{ size?: number }>> = {
   activity: IconActivity,
@@ -256,7 +246,6 @@ function ToolTerminal({
     </div>
   );
 }
-
 
 export const ToolRow = memo(function ToolRow({
   part,

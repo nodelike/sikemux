@@ -1,8 +1,9 @@
+import { RETENTION } from '@/account/config';
 import { sayFarewell, type Farewell as Reason } from '@/account/farewell';
 import { Button } from '@/ui/controls';
 import { type Glyph, PromptScreen } from '@/ui/prompt';
 
-const RESTORE = 'Sign in again within 30 days to restore it.';
+const RESTORE = `Sign in again within ${RETENTION.restorableDays} days to restore it.`;
 
 const WORDS: Record<Reason, { icon: Glyph; title: string; body?: string }> = {
   removed: { icon: 'IconPhone', title: 'This phone was removed from your account' },

@@ -13,5 +13,9 @@
       "clerkPublishableKey": "pk_test_aW1tZW5zZS1sbGFtYS02NjY4LmNsZXJrLmFjY291bnRzLmRldiQ",
       "apiPort": 4000
     }
+  },
+  "account": {
+    "restorableDays": 30,
+    "backupDays": 30
   }
 }

@@ -8,7 +8,11 @@ type ToolPart = Extract<ChatPart, { kind: "tool" }>;
 export type FetchedDetail = { detail: ToolDetail | null; error: unknown };
 
 /** Fetches what a call did once its row is `wanted`, and again as a running call goes on. */
-export function useToolDetail(read: ((toolCallId: string, done: boolean) => Promise<ToolDetail | null>) | null, part: ToolPart, wanted = true): FetchedDetail {
+export function useToolDetail(
+    read: ((toolCallId: string, done: boolean) => Promise<ToolDetail | null>) | null,
+    part: ToolPart,
+    wanted = true,
+): FetchedDetail {
     const [fetched, setFetched] = useState<FetchedDetail>({ detail: null, error: null });
     const done = !toolRunning(part.tool);
     const id = part.tool.toolCallId;

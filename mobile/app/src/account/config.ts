@@ -1,6 +1,9 @@
 import release from '../../../../server/protocol/release.json';
 import Constants from 'expo-constants';
 
+/** How long a deleted account can be restored, and how long backups outlive it after that. */
+export const RETENTION = release.account;
+
 const extra = Constants.expoConfig?.extra ?? {};
 
 /**

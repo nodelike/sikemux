@@ -1,3 +1,4 @@
+import release from "@sikemux/protocol/release.json";
 import { useAuth } from "@clerk/react";
 import {
   CONFIRM_WORD,
@@ -99,7 +100,7 @@ export function DeleteAccount({
             ? `After ${count(restorableDays, "day", "days")},`
             : "Once it can no longer be restored,"}{" "}
           your sign-in, device keys and the account&rsquo;s history are erased,
-          and backups within 30 days after that.
+          and backups within {release.account.backupDays} days after that.
         </li>
       </ul>
       {devices && devices.length > 0 ? (

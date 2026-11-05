@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, memo, useContext, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { durationLabel } from '@shared/chat/durationLabel';
@@ -24,6 +24,8 @@ import type { IconName } from '@/ui/icons.generated';
 import { openLink } from '@/ui/prompt';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { Shimmer } from '@/ui/Shimmer';
+import { useSecond } from '@/ui/motion';
+import { Sideways } from '@/ui/Sideways';
 import { DiffBody } from './Diff';
 import { FileRef } from './FileRef';
 import { useFold } from './folds';
@@ -134,29 +136,10 @@ function look(tool: ToolCall, colors: Palette): { icon: IconName; color: string 
   return { icon, color: colors[(kind && KIND_COLORS[kind]) || 'inkDim'] };
 }
 
-/** Counts up in whole seconds on a clock of its own, so the tick redraws this label and nothing around it. */
+/** Counts up in whole seconds, so the tick redraws this label and nothing around it. */
 export function LiveSeconds({ since, spent = 0, style }: { since?: number; spent?: number; style: object }) {
   const [started] = useState(() => since ?? Date.now());
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, []);
-  return <Text style={style}>{secondsSince(started, now, spent)}</Text>;
-}
-
-/* While a view around a scroller holds the touch, iOS won't let the scroller pan, so the
-   scroller's own content takes it before the message's press handler can. */
-const keepTouch = () => true;
-
-/** Scrolls sideways inside the transcript, so long lines keep to the width of the screen. */
-function Sideways({ children }: { children: ReactNode }) {
-  const styles = useStyles(makeStyles);
-  return (
-    <ScrollView horizontal contentContainerStyle={styles.pad} showsHorizontalScrollIndicator={false}>
-      <View onStartShouldSetResponder={keepTouch}>{children}</View>
-    </ScrollView>
-  );
+  return <Text style={style}>{secondsSince(started, useSecond() * 1000, spent)}</Text>;
 }
 
 /** A command and what it printed, the way a terminal would have shown them. */
@@ -205,12 +188,12 @@ function Terminal({
       {output?.text ? (
         <View style={[styles.output, command !== null && styles.ruled]}>
           {folded ? (
-            <Sideways>
+            <Sideways contentStyle={styles.pad}>
               <Text style={[styles.mono, styles.outputText]}>{lines.slice(0, OUTPUT_FOLD_LINES).join('\n')}</Text>
             </Sideways>
           ) : (
             <ScrollView style={styles.whole} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-              <Sideways>
+              <Sideways contentStyle={styles.pad}>
                 <Text style={[styles.mono, styles.outputText]} selectable>
                   {output.text}
                 </Text>

@@ -36,6 +36,19 @@ export function useMinute(): number {
   return useExternalValue(minute);
 }
 
+const thisSecond = () => Math.floor(Date.now() / 1000);
+
+const second: ExternalValue<number> = externalValue(thisSecond(), () => {
+  second.set(thisSecond());
+  const ticking = setInterval(() => second.set(thisSecond()), 1000);
+  return () => clearInterval(ticking);
+});
+
+/** The current second, from one clock every running row shares; it stands still while `on` is false. */
+export function useSecond(on = true): number {
+  return useExternalValue(second, (now) => (on ? now : 0));
+}
+
 /** Whether the app is in front. */
 export function useAppActive(): boolean {
   return useExternalValue(appActive);

@@ -1,3 +1,4 @@
+import release from "@sikemux/protocol/release.json" with { type: "json" };
 import { sql, type Kysely } from "kysely";
 
 import { audit, type Actor } from "../audit.ts";
@@ -11,7 +12,7 @@ import type { ClerkBackend } from "./clerk.ts";
  * How long a deleted account can still be restored. Then the sign-in is deleted in Clerk and
  * the account's records erased; until then its tombstones tell offline hosts it is gone.
  */
-export const PURGE_AFTER_DAYS = 30;
+export const PURGE_AFTER_DAYS = release.account.restorableDays;
 /** Failed calls to Clerk are retried after a minute, doubling up to an hour. */
 const RETRY_BASE_MS = 60_000;
 const RETRY_MAX_MS = 60 * 60_000;

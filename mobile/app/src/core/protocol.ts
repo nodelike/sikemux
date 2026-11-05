@@ -36,15 +36,12 @@ function keepItems<T>(previous: T[], next: T[], key: (item: T) => string | numbe
  */
 export function keepUnchanged(previous: Snapshot | undefined, next: Snapshot): Snapshot {
   if (!previous) return next;
-  const keep = <K extends keyof Snapshot>(key: K): Snapshot[K] => (same(previous[key], next[key]) ? previous[key] : next[key]);
+  const before = previous as unknown as Record<string, unknown>;
+  const kept = Object.fromEntries(
+    Object.entries(next).map(([key, value]) => [key, same(before[key], value) ? before[key] : value]),
+  ) as unknown as Snapshot;
   return {
-    ...next,
-    workspace: keep('workspace'),
-    layout: keep('layout'),
-    account: keep('account'),
-    faceStyle: keep('faceStyle'),
-    load: keep('load'),
-    updates: keep('updates'),
+    ...kept,
     sessions: keepItems(previous.sessions, next.sessions, (session) => session.id),
     chats: keepItems(previous.chats, next.chats, (chat) => chat.agentId),
     attentions: keepItems(previous.attentions, next.attentions, (attention) => attention.id),
