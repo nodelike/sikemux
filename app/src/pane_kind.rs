@@ -5,9 +5,9 @@
 use gpui_kit::{
     div, AnyElement, App, Context, Focusable, Hsla, IntoElement, ParentElement, Styled, Window,
 };
-use sikemux_wire::protocol::SessionId;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::prefs::TabRailPage;
+use sikemux_wire::protocol::SessionId;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, TEXT_XS};
