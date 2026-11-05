@@ -96,7 +96,7 @@ pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> Result<
         },
         title,
         promise: Some(promise),
-        ..Adding::default()
+        ..super::Adding::default()
     };
     let worker = Worker {
         project: params.project,

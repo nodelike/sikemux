@@ -921,9 +921,7 @@ impl Adding {
                 None | Some(Value::Null) => Vec::new(),
                 Some(value) => card_ids(value, "dependsOn")?,
             },
-            ticket: None,
-            trigger: None,
-            ci: None,
+            ..Self::default()
         })
     }
 }
@@ -944,14 +942,9 @@ fn assertion_ids(params: &Value) -> Result<Option<Vec<u64>>, String> {
     }
 }
 
-/// Each of `ids` once, in their order, at most as many as a card waits on.
+/// Each of `ids` once, in their order, at most as many as a slice fulfils.
 fn distinct_ids(ids: Vec<u64>) -> Result<Vec<u64>, String> {
-    let mut kept = Vec::new();
-    for id in ids {
-        if !kept.contains(&id) {
-            kept.push(id);
-        }
-    }
+    let kept = distinct_cards(ids, "asserts")?;
     if kept.len() > MAX_DEPENDS {
         return Err(format!("A slice fulfils at most {MAX_DEPENDS} assertions"));
     }
@@ -1010,16 +1003,28 @@ impl Changes {
     }
 
     fn is_empty(&self) -> bool {
-        self.title.is_none()
-            && self.details.is_none()
-            && self.acceptance.is_none()
-            && self.promise.is_none()
-            && self.asserts.is_none()
-            && self.status.is_none()
-            && self.result.is_none()
-            && self.depends_on.is_none()
-            && self.parent.is_none()
-            && self.pass.is_none()
+        let Self {
+            title,
+            details,
+            acceptance,
+            promise,
+            asserts,
+            status,
+            result,
+            depends_on,
+            parent,
+            pass,
+        } = self;
+        title.is_none()
+            && details.is_none()
+            && acceptance.is_none()
+            && promise.is_none()
+            && asserts.is_none()
+            && status.is_none()
+            && result.is_none()
+            && depends_on.is_none()
+            && parent.is_none()
+            && pass.is_none()
     }
 }
 
@@ -1064,10 +1069,6 @@ impl TicketParams {
 }
 
 /// The project a board call names, as agents' names place it.
-fn board_project(core: &Core, path: &str) -> String {
-    core.workspaces.project_of(Path::new(path))
-}
-
 /// The provider paying for the agent's turns, by name, when not its own account.
 fn paid_by(core: &Core, agent_id: &str) -> Option<String> {
     let chat = core.chats.get(agent_id)?;
@@ -1649,14 +1650,8 @@ pub(crate) fn add_for_trigger(
     let adding = Adding {
         title: title.to_owned(),
         details: details.to_owned(),
-        acceptance: String::new(),
-        promise: None,
-        asserts: Vec::new(),
-        parent: None,
-        depends_on: Vec::new(),
-        ticket: None,
         trigger: Some(trigger),
-        ci: None,
+        ..Adding::default()
     };
     add_card(core, project, &By::Auto("Trigger"), adding, None)?;
     tell_clients(core);
@@ -2614,7 +2609,7 @@ pub(crate) fn project_view(core: &Core, project: &str) -> BoardView {
 
 pub(crate) fn project_at(core: &Core, path: &str) -> Result<String, String> {
     if Path::new(path).is_absolute() && path.len() <= 4096 {
-        Ok(board_project(core, path))
+        Ok(core.workspaces.project_of(Path::new(path)))
     } else {
         Err("project must be the project's absolute path".into())
     }
@@ -2667,8 +2662,7 @@ impl AddParams {
             parent: self.parent.filter(|id| *id > 0),
             depends_on: distinct_cards(self.depends_on, "dependsOn")?,
             ticket: self.ticket.map(TicketParams::ticket).transpose()?,
-            trigger: None,
-            ci: None,
+            ..Adding::default()
         })
     }
 }
@@ -2826,14 +2820,8 @@ fn ticket_card(title: &str, details: &str, ticket: Option<TicketParams>) -> Resu
     Ok(Adding {
         title: title_of(&clipped(&title, MAX_TITLE_CHARS))?,
         details: long_text("details", &details)?,
-        acceptance: String::new(),
-        promise: None,
-        asserts: Vec::new(),
-        parent: None,
-        depends_on: Vec::new(),
         ticket: ticket.map(TicketParams::ticket).transpose()?,
-        trigger: None,
-        ci: None,
+        ..Adding::default()
     })
 }
 

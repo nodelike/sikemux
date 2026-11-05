@@ -2086,14 +2086,8 @@ pub(super) fn file_fix(core: &Core, board: &mut Board, id: u64, sha: &str) -> Op
         super::Adding {
             title: format!("Fix: the project's check failed on {}", short(sha)),
             details: format!("{failed} Mend it here; {label} waits on this card, and once it is done, mark {label} done again."),
-            acceptance: String::new(),
-            promise: None,
-            asserts: Vec::new(),
             parent: Some(id),
-            depends_on: Vec::new(),
-            ticket: None,
-            trigger: None,
-            ci: None,
+            ..super::Adding::default()
         },
         None,
         &settings,

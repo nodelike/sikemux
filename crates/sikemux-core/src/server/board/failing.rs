@@ -201,14 +201,9 @@ pub(crate) fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[Faile
             short(sha),
             labels(&broke.failures)
         ),
-        acceptance: String::new(),
         promise: Some(PROMISE.to_owned()),
-        asserts: Vec::new(),
-        parent: None,
-        depends_on: Vec::new(),
-        ticket: None,
-        trigger: None,
         ci: Some(broke),
+        ..super::Adding::default()
     };
     match add_card(core, project, &By::Auto("CI"), adding, None) {
         Ok(_) => tell_clients(core),

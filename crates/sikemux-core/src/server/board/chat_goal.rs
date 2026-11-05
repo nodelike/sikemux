@@ -385,14 +385,8 @@ fn track_now(core: &Arc<Core>, agent: &str) -> Result<(String, u64, String), Str
     let adding = Adding {
         title: title_of(&title)?,
         details: super::long_text("details", &asked)?,
-        acceptance: String::new(),
         promise: Some(slice::promise_of(&promise)?),
-        asserts: Vec::new(),
-        parent: None,
-        depends_on: Vec::new(),
-        ticket: None,
-        trigger: None,
-        ci: None,
+        ..super::Adding::default()
     };
     let commits = record.tally.since(record.covered).commits as usize;
     let (card, _) = add_card(core, &project, &By::Person, adding, Some(agent))?;
