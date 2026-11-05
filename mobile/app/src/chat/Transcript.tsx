@@ -1,14 +1,10 @@
-import { createContext, Fragment, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Animated, Easing, Image, Pressable, StyleSheet, Text, TextInput, View, type LayoutChangeEvent } from 'react-native';
+import { Fragment, useContext, useMemo, useState, type ReactNode } from 'react';
+import { Animated, Easing, Image, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
 
 import { durationLabel } from '@shared/chat/durationLabel';
 import { basename } from '@shared/lib/paths';
-import { EARLIER_LOST, rateLabel, sentLabel } from '@shared/chat/messageMeta';
-import type { Subagents } from '@shared/chat/subagents';
-import { cutLongBlocks, showRestLabel } from '@shared/chat/longText';
+import { rateLabel, sentLabel } from '@shared/chat/messageMeta';
 import type { MdElement } from '@shared/markdown/types';
-import { revealBlocks, visibleText } from '@shared/markdown/visible';
-import { contextChip, type ContextChip } from '@shared/chat/promptContext';
 import { sentChips } from '@shared/chat/sentChips';
 import {
   attachmentName,
@@ -21,79 +17,33 @@ import {
   type SubagentMark,
 } from '@shared/chat/transcript';
 import { callsLabel, workedLabel } from '@shared/chat/toolView';
-import type {
-  AccountMove,
-  AgentNotice,
-  ChatMessage,
-  ChatPart,
-  ContentBlock,
-  PartTree,
-  SentContext,
-  SubagentCard,
-  TaskNotice as Notice,
-} from '@shared/chat/types';
-import { useAgentNames } from '@/devices/hub';
+import type { ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice as Notice } from '@shared/chat/types';
 import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
 import { AgentFace } from '@/devices/Buddy';
 import { AgentIcon, Icon } from '@/ui/Icon';
-import type { IconName } from '@/ui/icons.generated';
 import { Working } from '@/devices/AgentMarks';
-import { fonts, italic, keyboardFor, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
-import { useAnimating, useSecond, useStill } from '@/ui/motion';
+import { fonts, italic, mixed, type Palette, translucent, useColors, useStyles } from '@/ui/theme';
+import { useStill } from '@/ui/motion';
 import { Shimmer } from '@/ui/Shimmer';
-import { FoldsContext, useFold } from './folds';
-import { FindingContext, markBlocks, markTyped, type Finding } from './found';
+import { useFold } from './folds';
+import { FindingContext, markTyped, type Finding } from './found';
 import { Markdown, plainBlocks } from './Markdown';
-import { useStreamedText } from './reveal';
 import { SentAttachments } from './Attachments';
 import { hostImagePath } from './FileRef';
 import { HostContext, useHostFile } from './hostFiles';
 import { ImageViewer } from './ImageViewer';
 import type { Strip as StripMeta } from './messageMeta';
-import type { Held, Unsent } from './outbox';
+import type { Unsent } from './outbox';
 import type { Attachment } from './uploads';
 import { ToolGroup } from './Tools';
 import { AnsweredQuestion } from './Question';
-
-/** The chat's agent, whose mark its subagents carry. */
-export const ProviderContext = createContext('agent');
-/** The chat's own agent, which an answer to its own question needs no name for. */
-export const AgentContext = createContext('');
-
-export const SubagentsContext = createContext<Subagents>({ card: () => undefined, rows: {} });
-
-type PageRef = NonNullable<Extract<ChatPart, { kind: 'tool' }>['page']>;
-
-/**
- * A message too long to draw at once shows its start and the rest on a tap, unless the person
- * watched it stream in.
- */
-function LongText({ id, text, md, live, style }: { id: string; text: string; md?: PartTree; live: boolean; style: object }) {
-  const styles = useStyles(makeStyles);
-  const folds = useContext(FoldsContext);
-  const finding = useContext(FindingContext);
-  const [whole, setWhole] = useFold(`whole/${id}`, false);
-  const tree = useMemo(() => (md?.blocks as MdElement[] | undefined) ?? plainBlocks(text), [md, text]);
-  const found = finding?.byPart.get(id);
-  const current = finding?.current?.part === id ? finding.current.range : null;
-  const blocks = useMemo(() => markBlocks(tree, found, current), [tree, found, current]);
-  const plain = useMemo(() => visibleText(blocks), [blocks]);
-  const streamed = useStreamedText(id, plain, live);
-  if (live) folds.streamed.add(id);
-  const cut = whole || found || folds.streamed.has(id) ? null : cutLongBlocks(blocks);
-  const shown = streamed.text.length < plain.length ? revealBlocks(blocks, streamed.text.length) : blocks;
-  return (
-    <>
-      {cut ? <Markdown blocks={cut.blocks} style={style} /> : <Markdown blocks={shown} fading={streamed.fading} style={style} />}
-      {cut ? (
-        <Pressable onPress={() => setWhole(true)} hitSlop={6} style={styles.showRest} accessibilityRole="button">
-          <Text style={styles.showRestText}>{showRestLabel(cut.hidden)}</Text>
-        </Pressable>
-      ) : null}
-    </>
-  );
-}
+import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
+import { AccountLine, AgentNoticeLine, PageCard, TaskNotice } from '@/chat/Notices';
+import { ContextChips } from '@/chat/ContextChips';
+import { Editing, MessageEditor, useNamesIn } from '@/chat/MessageEditor';
+import { FiredTrigger } from '@/chat/FiredTrigger';
+import { LongText } from '@/chat/LongText';
 
 function SubagentMarkView({ state }: { state: SubagentCard['state'] }) {
   const colors = useColors();
@@ -166,124 +116,6 @@ function TaskNoticeOrCard({ id, notice }: { id: string; notice: Notice }) {
   const subagent = useContext(SubagentsContext).card(notice.subagent ?? '');
   if (subagent) return <Subagent subagent={subagent} />;
   return <TaskNotice id={id} notice={notice} />;
-}
-
-function TaskNotice({ id, notice }: { id: string; notice: Notice }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const [open, setOpen] = useFold(`notice/${id}`, false);
-  const summary = notice.summary?.trim();
-  return (
-    <Pressable
-      onPress={summary ? () => setOpen(!open) : undefined}
-      disabled={!summary}
-      style={styles.notice}
-      accessibilityRole={summary ? 'button' : undefined}
-      accessibilityLabel={`${notice.name} ${notice.state}${summary ? `. ${summary}` : ''}`}
-      accessibilityState={summary ? { expanded: open } : undefined}>
-      <View style={styles.noticeHead}>
-        <Icon
-          name={notice.taskType === 'workflow' ? 'IconWorkflow' : 'IconTimer'}
-          size={12}
-          color={notice.state === 'failed' ? colors.danger : colors.inkFaint}
-        />
-        <Text style={styles.noticeName} numberOfLines={1}>
-          {notice.name}
-        </Text>
-        <Text style={[styles.noticeState, notice.state === 'failed' && { color: colors.danger }]}>{notice.state}</Text>
-      </View>
-      {summary ? (
-        <Text style={styles.noticeSummary} numberOfLines={open ? undefined : 1} selectable={open}>
-          {summary}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
-
-function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const tint = notice.severity === 'error' ? colors.danger : notice.severity === 'warning' ? colors.warn : colors.inkFaint;
-  return (
-    <View style={styles.notice} accessible accessibilityLabel={`${notice.title}${notice.description ? `. ${notice.description}` : ''}`}>
-      <View style={styles.noticeHead}>
-        <Icon name={notice.severity === 'info' ? 'IconInfo' : 'IconWarning'} size={12} color={tint} />
-        <Text style={[styles.noticeState, notice.severity !== 'info' && { color: tint }]}>{notice.title}</Text>
-      </View>
-      {notice.description ? (
-        <Text style={styles.noticeSummary} selectable>
-          {notice.description}
-        </Text>
-      ) : null}
-    </View>
-  );
-}
-
-function AccountLine({ move }: { move: AccountMove }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const why = move.reason === 'limit' && move.from ? `${move.from} reached its usage limit` : null;
-  return (
-    <View style={styles.notice} accessible accessibilityLabel={`Moved to ${move.label}${why ? `. ${why}` : ''}`}>
-      <View style={styles.noticeHead}>
-        <Icon name="IconUser" size={12} color={colors.inkFaint} />
-        <Text style={styles.noticeState}>Moved to</Text>
-        <Text style={styles.noticeName} numberOfLines={1}>
-          {move.label}
-        </Text>
-      </View>
-      {why ? <Text style={styles.noticeSummary}>{why}</Text> : null}
-    </View>
-  );
-}
-
-/** A page the agent showed. The phone has no web view to draw it in, so it names the page and where it is. */
-function PageCard({ page }: { page: PageRef }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={styles.resource} accessible accessibilityLabel={`Page ${page.title}, open on the computer`}>
-      <Icon name="IconWindow" size={14} color={colors.inkDim} />
-      <Text style={styles.pageTitle} numberOfLines={1}>
-        {page.title}
-      </Text>
-      <Text style={styles.pageWhere}>on the computer</Text>
-    </View>
-  );
-}
-
-const CHIP_LOOKS: Record<NonNullable<ContextChip['kind']> | 'other', { label: string; icon: IconName }> = {
-  issue: { label: 'Issue', icon: 'IconIssue' },
-  pull: { label: 'Pull request', icon: 'IconPullRequest' },
-  other: { label: 'Context', icon: 'IconFile' },
-};
-
-/** An issue, pull request or other item handed over with a message, by its number and title rather than its whole text. */
-function ContextChips({ items }: { items: SentContext[] }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={styles.contextChips}>
-      {items.map((item) => {
-        const chip = contextChip(item);
-        const { label, icon } = CHIP_LOOKS[chip.kind ?? 'other'];
-        return (
-          <View
-            key={item.uri}
-            style={styles.contextChip}
-            accessible
-            accessibilityLabel={`${label} ${chip.number ? `#${chip.number} ` : ''}${chip.title}`}>
-            <Icon name={icon} size={14} color={chip.kind ? colors.live : colors.inkFaint} />
-            {chip.number ? <Text style={styles.contextNumber}>#{chip.number}</Text> : null}
-            <Text style={styles.contextTitle} numberOfLines={1}>
-              {chip.title}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
 }
 
 /** A message's parts in order, with each run of tool calls drawn as one group. */
@@ -430,54 +262,6 @@ function TypedFound({ parts, finding }: { parts: Extract<ChatPart, { kind: 'text
 
 /** A long press is the text's own, for selecting it, so it must not also count as a tap. */
 const keepLongPress = () => {};
-
-/** The host's agent names, for the `@` chips a sent message wrote. */
-function useNamesIn(core: string): string[] {
-  const names = useAgentNames(core);
-  return useMemo(() => (names ? names.split('\n') : []), [names]);
-}
-
-/** Writing a sent message again where its bubble was. */
-export type Editing = { onCancel: () => void; onSend: (text: string) => void };
-
-function MessageEditor({ text, editing }: { text: string; editing: Editing }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const [draft, setDraft] = useState(text);
-  const words = draft.trim();
-  return (
-    <View style={styles.editor}>
-      <TextInput
-        value={draft}
-        onChangeText={setDraft}
-        multiline
-        autoFocus
-        style={styles.editorText}
-        selectionColor={colors.accent}
-        keyboardAppearance={keyboardFor(colors)}
-        accessibilityLabel="Edit message"
-      />
-      <View style={styles.editorActs}>
-        <Pressable
-          onPress={editing.onCancel}
-          hitSlop={6}
-          style={({ pressed }) => [styles.editorButton, pressed && { backgroundColor: colors.active }]}
-          accessibilityRole="button">
-          <Text style={styles.editorButtonText}>Cancel</Text>
-        </Pressable>
-        <Pressable
-          onPress={() => editing.onSend(words)}
-          disabled={!words}
-          hitSlop={6}
-          style={({ pressed }) => [styles.editorButton, styles.editorSend, (pressed || !words) && { opacity: 0.6 }]}
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !words }}>
-          <Text style={[styles.editorButtonText, styles.editorSendText]}>Send</Text>
-        </Pressable>
-      </View>
-    </View>
-  );
-}
 
 export function Message({
   message,
@@ -699,96 +483,6 @@ export function WorkSummary({
   );
 }
 
-/** Messages waiting behind the running turn, faded where they will go. */
-export function Queued({ held, sentFiles }: { held: readonly Held[]; sentFiles: ReadonlyMap<string, Attachment> }) {
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={styles.userRow}>
-      {held.map((message) => {
-        const { paths } = message;
-        return (
-          <View key={message.id} style={styles.queued}>
-            {paths.length ? <SentAttachments paths={paths} sentFiles={sentFiles} /> : null}
-            {message.text ? (
-              <View style={styles.bubble}>
-                <Text style={styles.userText}>{message.text}</Text>
-              </View>
-            ) : null}
-          </View>
-        );
-      })}
-      <Text style={styles.queuedLabel}>Sends when this turn ends</Text>
-    </View>
-  );
-}
-
-/** Above the first message while the host has turns from before it, which arrive as it comes into view. */
-export function Earlier({ failed, loading, onRetry }: { failed: boolean; loading: boolean; onRetry: () => void }) {
-  const styles = useStyles(makeStyles);
-  if (failed) {
-    return (
-      <Pressable
-        onPress={onRetry}
-        style={styles.earlier}
-        hitSlop={8}
-        accessibilityRole="button"
-        accessibilityLabel="Couldn't load earlier messages. Retry">
-        <Text style={styles.earlierText}>{"Couldn't load earlier messages ·"}</Text>
-        <Text style={[styles.earlierText, styles.retry]}>Retry</Text>
-      </Pressable>
-    );
-  }
-  // The row waits above a long chat's first message; an idle spinner there would redraw the screen every frame.
-  return (
-    <View style={styles.earlier}>
-      {loading ? <Working /> : <View style={styles.earlierIdle} />}
-      <Text style={styles.earlierText}>Loading earlier messages…</Text>
-    </View>
-  );
-}
-
-/** Stands above a chat whose host no longer keeps its first turns. */
-export function EarlierLost() {
-  const styles = useStyles(makeStyles);
-  return (
-    <View style={styles.earlier}>
-      <Text style={styles.earlierText}>{EARLIER_LOST}</Text>
-    </View>
-  );
-}
-
-/** The working line: the agent's logo breathing beside what it is doing, and for how long. */
-export function Activity({ provider, label, since }: { provider: string; label: string; since: number }) {
-  const styles = useStyles(makeStyles);
-  const [breath] = useState(() => new Animated.Value(1));
-  const animating = useAnimating();
-  const [first] = useState(() => Math.round((Date.now() - since) / 1000));
-  const now = useSecond(animating);
-  const seconds = now ? Math.round(now - since / 1000) : first;
-  useEffect(() => {
-    if (!animating) return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(breath, { toValue: 0.5, duration: 750, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(breath, { toValue: 1, duration: 750, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [breath, animating]);
-  return (
-    <View style={styles.activity} accessible accessibilityLabel={label}>
-      <Animated.View style={{ opacity: breath }}>
-        <AgentIcon provider={provider} size={20} />
-      </Animated.View>
-      <Shimmer style={styles.activityText} layout={styles.activityLabel}>
-        {label}
-      </Shimmer>
-      {seconds > 0 ? <Text style={styles.activityTime}>{durationLabel(seconds * 1000)}</Text> : null}
-    </View>
-  );
-}
-
 const makeStyles = (colors: Palette) => {
   return StyleSheet.create({
     userRow: { alignItems: 'flex-end', marginTop: 14, marginBottom: 6 },
@@ -823,26 +517,7 @@ const makeStyles = (colors: Palette) => {
       borderColor: colors.border,
       backgroundColor: colors.raised,
     },
-    contextChips: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, maxWidth: '84%', marginBottom: 6 },
-    contextChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 6,
-      maxWidth: 240,
-      paddingVertical: 7,
-      paddingHorizontal: 10,
-      borderRadius: 9,
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.raised,
-    },
-    contextNumber: { fontFamily: fonts.uiMedium, fontSize: 12, color: colors.ink },
-    contextTitle: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
     resourceText: { flexShrink: 1, fontFamily: fonts.mono, fontSize: 12, color: colors.ink },
-    pageTitle: { flexShrink: 1, fontFamily: fonts.uiMedium, fontSize: 13, color: colors.ink },
-    pageWhere: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
-    retry: { color: colors.ink, fontFamily: fonts.uiMedium },
-    queued: { alignItems: 'flex-end', alignSelf: 'stretch', opacity: 0.55, marginBottom: 6 },
     queuedLabel: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkFaint, marginTop: 4 },
     work: { marginTop: 8, marginBottom: 4 },
     workSum: {
@@ -864,58 +539,15 @@ const makeStyles = (colors: Palette) => {
     stripMine: { justifyContent: 'flex-end' },
     stripCopy: { width: 24, height: 24 },
     stripButton: { borderRadius: 7, alignItems: 'center', justifyContent: 'center' },
-    editor: {
-      width: '84%',
-      gap: 8,
-      paddingTop: 9,
-      paddingBottom: 8,
-      paddingHorizontal: 13,
-      borderRadius: 12,
-      borderWidth: 1,
-      borderColor: colors.borderSelected,
-      backgroundColor: colors.raised,
-    },
-    editorText: { fontFamily: fonts.ui, fontSize: 14, lineHeight: 22, color: colors.ink, maxHeight: 264, padding: 0 },
-    editorActs: { flexDirection: 'row', justifyContent: 'flex-end', gap: 6 },
-    editorButton: {
-      height: 30,
-      paddingHorizontal: 12,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: colors.borderStrong,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    editorButtonText: { fontFamily: fonts.uiSemibold, fontSize: 13, color: colors.ink },
-    editorSend: { backgroundColor: colors.ink, borderColor: colors.ink },
-    editorSendText: { color: colors.sunken },
     stripTime: { fontFamily: fonts.ui, fontSize: 11, fontVariant: ['tabular-nums'], color: colors.inkDim },
     stripRate: { marginLeft: 'auto', fontFamily: fonts.mono, fontSize: 11, fontStyle: 'italic', color: colors.inkDim },
     prose: { fontFamily: fonts.ui, fontSize: 14.5, lineHeight: 23, color: colors.ink },
     letterFrom: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginBottom: 2 },
     letterRule: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
     letterLabel: { fontFamily: fonts.ui, fontSize: 11.5, lineHeight: 16, color: colors.inkDim },
-    triggerFrom: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 6, maxWidth: '85%' },
-    triggerTitle: { fontFamily: fonts.uiMedium, color: colors.ink, flexShrink: 1 },
-    requestLine: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, paddingVertical: 4, paddingHorizontal: 8 },
-    requestSummary: { fontFamily: fonts.mono, fontSize: 11, color: colors.inkFaint, flexShrink: 1 },
-    requestCard: {
-      alignSelf: 'stretch',
-      marginTop: 4,
-      padding: 10,
-      gap: 8,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      borderRadius: 8,
-      backgroundColor: colors.raised,
-    },
-    requestHeader: { fontFamily: fonts.mono, fontSize: 11, lineHeight: 17, color: colors.ink },
-    requestName: { color: colors.inkFaint },
     letterName: { fontFamily: fonts.uiSemibold, color: colors.ink },
     thought: { marginVertical: 8 },
     thoughtText: { ...italic, fontSize: 12.5, lineHeight: 19.5, color: colors.inkFaint },
-    showRest: { alignSelf: 'flex-start', marginTop: 6, marginBottom: 4 },
-    showRestText: { fontFamily: fonts.uiMedium, fontSize: 12.5, color: colors.tertiary },
     subagent: { marginVertical: 6 },
     subagentHead: {
       flexDirection: 'row',
@@ -937,90 +569,5 @@ const makeStyles = (colors: Palette) => {
     subagentMark: { width: 14, alignItems: 'center' },
     subagentBody: { paddingLeft: 14, paddingTop: 4 },
     empty: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint, paddingVertical: 6 },
-    notice: {
-      alignSelf: 'flex-start',
-      maxWidth: '100%',
-      gap: 3,
-      marginVertical: 5,
-      paddingVertical: 6,
-      paddingHorizontal: 10,
-      borderRadius: 9,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    noticeHead: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-    noticeName: { flexShrink: 1, fontFamily: fonts.mono, fontSize: 11.5, color: colors.ink },
-    noticeState: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkFaint },
-    noticeSummary: { fontFamily: fonts.ui, fontSize: 12, lineHeight: 17, color: colors.inkFaint },
-    earlier: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingTop: 10, paddingBottom: 6 },
-    earlierIdle: { width: 13, height: 13 },
-    earlierText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.tertiary },
-    activity: { flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 14, marginBottom: 6 },
-    activityText: { fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkFaint },
-    activityLabel: { flexShrink: 1 },
-    activityTime: { fontFamily: fonts.mono, fontSize: 10, color: colors.inkFaint },
   });
 };
-
-type Fired = NonNullable<NonNullable<ChatMessage['letters']>[number]['trigger']>;
-
-/** A trigger's prompt where the person's own messages sit, under a line naming the trigger, with the
- *  webhook request that fired it folded beneath. */
-function FiredTrigger({ id, fired }: { id: string; fired: Fired }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const [open, setOpen] = useFold(`${id}/request`, false);
-  const request = fired.request;
-  const kind = request?.headers
-    .find((header) => header.name === 'content-type')
-    ?.value.split(';')[0]
-    ?.trim();
-  const size = request ? (request.body.length < 1024 ? `${request.body.length} B` : `${(request.body.length / 1024).toFixed(1)} KB`) : '';
-  const summary = request ? [request.method, kind, size, request.query ? `?${request.query}` : undefined].filter(Boolean).join(' · ') : '';
-  return (
-    <View style={styles.userRow}>
-      <View style={styles.triggerFrom}>
-        <Icon name="IconTimer" size={12} color={colors.cmd} />
-        <Text style={styles.letterLabel} numberOfLines={1}>
-          Trigger · <Text style={styles.triggerTitle}>{fired.title}</Text>
-        </Text>
-      </View>
-      <View style={styles.bubble}>
-        <Text style={styles.userText} selectable>
-          {fired.prompt}
-        </Text>
-      </View>
-      {request ? (
-        <>
-          <Pressable
-            onPress={() => setOpen(!open)}
-            style={styles.requestLine}
-            accessibilityRole="button"
-            accessibilityState={{ expanded: open }}
-            accessibilityLabel={`The request that fired it: ${summary}`}>
-            <View style={open ? { transform: [{ rotate: '90deg' }] } : undefined}>
-              <Icon name="IconChevron" size={10} color={colors.inkFaint} />
-            </View>
-            <Text style={styles.requestSummary} numberOfLines={1}>
-              {summary}
-            </Text>
-          </Pressable>
-          {open ? (
-            <View style={styles.requestCard}>
-              <View>
-                {request.headers.map((header) => (
-                  <Text key={header.name} style={styles.requestHeader} selectable>
-                    <Text style={styles.requestName}>{header.name}</Text> {header.value}
-                  </Text>
-                ))}
-              </View>
-              {request.bodyTree ? (
-                <LongText id={`${id}/request/body`} text={request.body} md={request.bodyTree} live={false} style={styles.prose} />
-              ) : null}
-            </View>
-          ) : null}
-        </>
-      ) : null}
-    </View>
-  );
-}

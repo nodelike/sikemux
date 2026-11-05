@@ -19,7 +19,9 @@ import type { FindHit } from '@shared/wire.generated';
 import { FindBar } from '@/chat/FindBar';
 import { FindingContext } from '@/chat/found';
 import { ChatTitle } from '@/chat/ChatTitle';
-import { askTitle, Composer, RecentSheet } from '@/chat/Composer';
+import { Composer } from '@/chat/Composer';
+import { askTitle } from '@/chat/PermissionDock';
+import { RecentSheet } from '@/chat/RecentSheet';
 import { FoldsContext, rowFold, shownRows } from '@/chat/folds';
 import { useTranscriptScroll } from '@/chat/transcriptScroll';
 import { HostContext } from '@/chat/hostFiles';
@@ -31,17 +33,10 @@ import { hasLiveWork, liveKey, liveWork } from '@/chat/liveWork';
 import { stripOf, stripOwner } from '@/chat/messageMeta';
 import { ToolDetailContext } from '@/chat/Tools';
 import { Trouble } from '@/chat/Trouble';
-import {
-  Activity,
-  Earlier,
-  EarlierLost,
-  Message,
-  AgentContext,
-  ProviderContext,
-  Queued,
-  SubagentsContext,
-  WorkSummary,
-} from '@/chat/Transcript';
+import { Message, WorkSummary } from '@/chat/Transcript';
+import { Activity } from '@/chat/Activity';
+import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
+import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { useChat } from '@/chat/useChat';
 import { useHostCall } from '@/core/hostCalls';
 import { retry as reconnect, useDevices, useLive, type Live } from '@/devices/hub';

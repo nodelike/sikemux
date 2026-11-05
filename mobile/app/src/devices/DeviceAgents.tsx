@@ -1,0 +1,184 @@
+import { Fragment, memo } from 'react';
+import { StyleSheet } from 'react-native';
+import { router } from 'expo-router';
+
+import type { AgentShown, ChatInfo, ProjectInfo, SessionInfo } from '@shared/wire.generated';
+import type { Snapshot } from '@/core/protocol';
+import { WorkerRow, workersOf } from '@/devices/RemoteWorker';
+import { projectName } from '@/devices/words';
+import { useMinute } from '@/ui/motion';
+import { AgentFace } from '@/devices/Buddy';
+import { Row, Rows } from '@/ui/list';
+import { EmptyState } from '@/ui/prompt';
+import { AgentState, ShellCount, SubagentCount, TriggerTime } from '@/devices/AgentMarks';
+import { type Palette, useStyles } from '@/ui/theme';
+import { listed, Recent } from '@/devices/DeviceRecent';
+
+export type Tab = 'agents' | 'terminals' | 'board';
+
+type OpenAgent = { shown: AgentShown } & ({ kind: 'chat'; chat: ChatInfo } | { kind: 'terminal'; session: SessionInfo });
+
+/** The open agents in the order the host lists them on every device, what wants the person first. */
+function openAgents(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: string): OpenAgent[] {
+  return snapshot.inbox.agents.flatMap((shown): OpenAgent[] => {
+    const chat = snapshot.chats.find((candidate) => candidate.agentId === shown.agentId);
+    if (chat) {
+      return listed(scope, provider, shown.project, chat.provider) ? [{ kind: 'chat', chat, shown }] : [];
+    }
+    const session = snapshot.sessions.find((candidate) => candidate.agentId === shown.agentId);
+    return session && listed(scope, provider, shown.project, session.agentType) ? [{ kind: 'terminal', session, shown }] : [];
+  });
+}
+
+/** The host's agents: its open agents in one list, each with its own state, then its recent chats. */
+export function Agents({
+  core,
+  snapshot,
+  scope,
+  provider,
+  full,
+  hostName,
+  onTab,
+}: {
+  core: string;
+  snapshot: Snapshot;
+  scope?: ProjectInfo;
+  provider: string;
+  full: boolean;
+  hostName: string;
+  onTab: (tab: Tab) => void;
+}) {
+  const styles = useStyles(makeStyles);
+  const minute = useMinute();
+  const open = openAgents(snapshot, scope, provider);
+  const workers = snapshot.inbox.remoteAgents;
+  const leads = new Set(open.map((agent) => (agent.kind === 'chat' ? agent.chat.agentId : agent.session.agentId)));
+  const strays = scope
+    ? []
+    : workers.filter((worker) => !(worker.lead && leads.has(worker.lead)) && listed(undefined, provider, undefined, worker.cli));
+  const placeOf = (project: string | null | undefined) => (scope || !project ? undefined : projectName(snapshot, project));
+
+  return (
+    <>
+      {open.length || strays.length ? (
+        <Rows style={styles.open}>
+          {open.map((agent) =>
+            agent.kind === 'chat' ? (
+              <Fragment key={agent.chat.agentId}>
+                <ChatRow
+                  core={core}
+                  chat={agent.chat}
+                  shown={agent.shown}
+                  place={placeOf(agent.shown.project ?? agent.chat.cwd)}
+                  minute={agent.shown.nextTrigger == null ? 0 : minute}
+                />
+                {workersOf(workers, agent.chat.agentId).map((worker) => (
+                  <WorkerRow key={worker.agentId} worker={worker} nested />
+                ))}
+              </Fragment>
+            ) : (
+              <Fragment key={agent.session.id}>
+                <TerminalAgentRow
+                  session={agent.session}
+                  shown={agent.shown}
+                  place={placeOf(agent.session.project)}
+                  minute={agent.shown.nextTrigger == null ? 0 : minute}
+                  onOpen={() => onTab('terminals')}
+                />
+                {agent.session.agentId
+                  ? workersOf(workers, agent.session.agentId).map((worker) => <WorkerRow key={worker.agentId} worker={worker} nested />)
+                  : null}
+              </Fragment>
+            ),
+          )}
+          {strays.map((worker) => (
+            <WorkerRow key={worker.agentId} worker={worker} />
+          ))}
+        </Rows>
+      ) : null}
+      <Recent core={core} snapshot={snapshot} scope={scope} provider={provider} full={full} hostName={hostName} />
+      {!open.length && !strays.length && !snapshot.recent.some((chat) => !scope || chat.project === scope.id) ? (
+        <EmptyState icon="IconAgent" text={scope ? `No agents in ${scope.name}.` : 'No agents running.'} />
+      ) : null}
+    </>
+  );
+}
+
+/* A host sends its whole view several times a second while an agent works; each row redraws only when its own
+   item changed, which the hub keeps as the same object otherwise. */
+const ChatRow = memo(function ChatRow({
+  core,
+  chat,
+  shown,
+  place,
+  minute,
+}: {
+  core: string;
+  chat: ChatInfo;
+  shown: AgentShown;
+  place?: string;
+  /** Counts down a trigger's time once a minute; 0 for a row without one, so the others keep still. */
+  minute: number;
+}) {
+  return (
+    <Row
+      mark={<AgentFace agentId={chat.agentId} provider={chat.provider} group={shown.group} size={20} />}
+      name={chat.name}
+      title={shown.title}
+      place={place}
+      end={
+        <>
+          {shown.subagents ? <SubagentCount count={shown.subagents} /> : null}
+          {shown.tasks ? <ShellCount count={shown.tasks} /> : null}
+          <Trigger shown={shown} minute={minute} />
+          <AgentState group={shown.group} />
+        </>
+      }
+      onPress={() => router.push(`/device/${core}/chat/${chat.agentId}`)}
+    />
+  );
+});
+
+/** An agent running in a terminal, listed with the chats as the host's rail lists it. */
+const TerminalAgentRow = memo(function TerminalAgentRow({
+  session,
+  shown,
+  place,
+  minute,
+  onOpen,
+}: {
+  session: SessionInfo;
+  shown: AgentShown;
+  place?: string;
+  minute: number;
+  onOpen: () => void;
+}) {
+  const { group } = shown;
+  return (
+    <Row
+      mark={<AgentFace agentId={session.agentId} provider={session.agentType ?? 'agent'} group={group} size={20} />}
+      name={session.agentName}
+      title={shown.title}
+      place={place}
+      end={
+        <>
+          <Trigger shown={shown} minute={minute} />
+          <AgentState group={group} />
+        </>
+      }
+      onPress={onOpen}
+    />
+  );
+});
+
+/** How long until a trigger wakes the agent, while it waits rather than works. */
+function Trigger({ shown, minute }: { shown: AgentShown; minute: number }) {
+  if (shown.nextTrigger == null || shown.group === 'working' || shown.group === 'blocked') return null;
+  return <TriggerTime at={Number(shown.nextTrigger)} now={minute * 60_000} />;
+}
+
+const makeStyles = (colors: Palette) => {
+  return StyleSheet.create({
+    open: { marginTop: 10 },
+  });
+};

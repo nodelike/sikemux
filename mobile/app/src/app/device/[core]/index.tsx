@@ -1,39 +1,32 @@
-import { Fragment, memo, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import MaskedView from '@react-native-masked-view/masked-view';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
-import { agentLabel } from '@shared/agents/catalog';
-import { formatAge } from '@shared/lib/format';
-import type { AgentShown, ChatInfo, ProjectInfo, RecentInfo, SessionInfo } from '@shared/wire.generated';
+import type { ProjectInfo } from '@shared/wire.generated';
 import type { Snapshot } from '@/core/protocol';
-import { problem as problemOf } from '@/core/problem';
 import { connectionOf, reloadDevices, retry, useDevices, useHostStatus, useLive } from '@/devices/hub';
 import { deviceKind, deviceName, type PairedDevice, updateDevice } from '@/devices/paired';
 import { Board } from '@/devices/Board';
 import { ForgetSheet, useForget } from '@/devices/ForgetSheet';
 import { ProjectSheet } from '@/devices/ProjectSheet';
-import { WorkerRow, workersOf } from '@/devices/RemoteWorker';
 import { summary } from '@/devices/status';
-import { needsIn, projectName, projectOf } from '@/devices/words';
+import { needsIn, projectOf } from '@/devices/words';
 import { haptics } from '@/ui/haptics';
-import { useMinute, useScrollPause } from '@/ui/motion';
+import { useScrollPause } from '@/ui/motion';
 import { AgentFace } from '@/devices/Buddy';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import { Button, IconButton } from '@/ui/controls';
-import { Row, Rows, SectionLabel } from '@/ui/list';
-import { EmptyState, Prompt } from '@/ui/prompt';
+import { Prompt } from '@/ui/prompt';
 import { Nav, Screen, useBottomGap } from '@/ui/screen';
-import { AgentState, NeedsYou, ShellCount, SubagentCount, TriggerTime, Working } from '@/devices/AgentMarks';
+import { NeedsYou, Working } from '@/devices/AgentMarks';
 import { fonts, isLight, type Palette, typeFor, useColors, useStyles, useType, translucent } from '@/ui/theme';
-
-type Tab = 'agents' | 'terminals' | 'board';
+import { Agents, type Tab } from '@/devices/DeviceAgents';
+import { Terminals } from '@/devices/DeviceTerminals';
 
 /** The New chat pill's height, which the list leaves room for below its last row. */
 const NEW_CHAT_HEIGHT = 52;
-/** Recent chats shown before Show more. */
-const RECENT_SHOWN = 10;
 
 /** What runs in a project, as its row in the project sheet shows it. */
 function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: ProjectInfo }) {
@@ -62,354 +55,6 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
         </View>
       )}
     </View>
-  );
-}
-
-/** Saved chats the host's rail lists as recent; a phone with full access takes one up again. */
-function Recent({
-  core,
-  snapshot,
-  scope,
-  provider,
-  full,
-  hostName,
-}: {
-  core: string;
-  snapshot: Snapshot;
-  scope?: ProjectInfo;
-  provider: string;
-  full: boolean;
-  hostName: string;
-}) {
-  const styles = useStyles(makeStyles);
-  const live = useLive(core);
-  const minute = useMinute();
-  const [all, setAll] = useState(false);
-  const [resuming, setResuming] = useState<string>();
-  const [note, setNote] = useState<{ text: string; failed: boolean }>();
-  const chats = snapshot.recent.filter((chat) => !chat.agentId && listed(scope, provider, chat.project, chat.provider));
-  const shown = all ? chats : chats.slice(0, RECENT_SHOWN);
-
-  const resume = async (chat: RecentInfo) => {
-    if (resuming) return;
-    if (!full) {
-      haptics.warning();
-      setNote({ text: `This phone can only watch ${hostName}.`, failed: false });
-      return;
-    }
-    if (live.status !== 'open') {
-      haptics.failure();
-      setNote({ text: 'Not connected to the host.', failed: true });
-      return;
-    }
-    haptics.tap();
-    setNote(undefined);
-    setResuming(chat.id);
-    try {
-      const agentId = await live.connection.resumeChat(chat.id);
-      router.push(`/device/${core}/chat/${agentId}`);
-    } catch (error) {
-      haptics.failure();
-      setNote({ text: problemOf(error), failed: true });
-    } finally {
-      setResuming(undefined);
-    }
-  };
-
-  // The rows only redraw when their own chat does, so they call the latest resume through a ref.
-  const latestResume = useRef(resume);
-  useEffect(() => {
-    latestResume.current = resume;
-  });
-  const onResume = (chat: RecentInfo) => void latestResume.current(chat);
-
-  if (!chats.length) return null;
-  return (
-    <>
-      <SectionLabel>Recent</SectionLabel>
-      <Rows>
-        {shown.map((chat) => (
-          <RecentRow
-            key={chat.id}
-            chat={chat}
-            place={scope ? undefined : projectName(snapshot, chat.project, chat.cwd)}
-            resuming={resuming === chat.id}
-            minute={minute}
-            onResume={onResume}
-          />
-        ))}
-        {shown.length < chats.length ? (
-          <Pressable
-            onPress={() => setAll(true)}
-            style={({ pressed }) => [styles.more, pressed && styles.morePressed]}
-            accessibilityRole="button">
-            <Text style={styles.moreText}>Show {chats.length - shown.length} more</Text>
-          </Pressable>
-        ) : null}
-      </Rows>
-      {note ? (
-        <Text style={[styles.note, note.failed && styles.noteFailed]} accessibilityLiveRegion="polite">
-          {note.text}
-        </Text>
-      ) : null}
-    </>
-  );
-}
-
-/** Whether something on the host is in the project and for the agent the screen shows. */
-function listed(
-  scope: ProjectInfo | undefined,
-  provider: string,
-  project: string | null | undefined,
-  type: string | null | undefined,
-): boolean {
-  return (!scope || project === scope.id) && (provider === 'all' || type === provider);
-}
-
-type OpenAgent = { shown: AgentShown } & ({ kind: 'chat'; chat: ChatInfo } | { kind: 'terminal'; session: SessionInfo });
-
-/** The open agents in the order the host lists them on every device, what wants the person first. */
-function openAgents(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: string): OpenAgent[] {
-  return snapshot.inbox.agents.flatMap((shown): OpenAgent[] => {
-    const chat = snapshot.chats.find((candidate) => candidate.agentId === shown.agentId);
-    if (chat) {
-      return listed(scope, provider, shown.project, chat.provider) ? [{ kind: 'chat', chat, shown }] : [];
-    }
-    const session = snapshot.sessions.find((candidate) => candidate.agentId === shown.agentId);
-    return session && listed(scope, provider, shown.project, session.agentType) ? [{ kind: 'terminal', session, shown }] : [];
-  });
-}
-
-/** The host's agents: its open agents in one list, each with its own state, then its recent chats. */
-function Agents({
-  core,
-  snapshot,
-  scope,
-  provider,
-  full,
-  hostName,
-  onTab,
-}: {
-  core: string;
-  snapshot: Snapshot;
-  scope?: ProjectInfo;
-  provider: string;
-  full: boolean;
-  hostName: string;
-  onTab: (tab: Tab) => void;
-}) {
-  const styles = useStyles(makeStyles);
-  const minute = useMinute();
-  const open = openAgents(snapshot, scope, provider);
-  const workers = snapshot.inbox.remoteAgents;
-  const leads = new Set(open.map((agent) => (agent.kind === 'chat' ? agent.chat.agentId : agent.session.agentId)));
-  const strays = scope
-    ? []
-    : workers.filter((worker) => !(worker.lead && leads.has(worker.lead)) && listed(undefined, provider, undefined, worker.cli));
-  const placeOf = (project: string | null | undefined) => (scope || !project ? undefined : projectName(snapshot, project));
-
-  return (
-    <>
-      {open.length || strays.length ? (
-        <Rows style={styles.open}>
-          {open.map((agent) =>
-            agent.kind === 'chat' ? (
-              <Fragment key={agent.chat.agentId}>
-                <ChatRow
-                  core={core}
-                  chat={agent.chat}
-                  shown={agent.shown}
-                  place={placeOf(agent.shown.project ?? agent.chat.cwd)}
-                  minute={agent.shown.nextTrigger == null ? 0 : minute}
-                />
-                {workersOf(workers, agent.chat.agentId).map((worker) => (
-                  <WorkerRow key={worker.agentId} worker={worker} nested />
-                ))}
-              </Fragment>
-            ) : (
-              <Fragment key={agent.session.id}>
-                <TerminalAgentRow
-                  session={agent.session}
-                  shown={agent.shown}
-                  place={placeOf(agent.session.project)}
-                  minute={agent.shown.nextTrigger == null ? 0 : minute}
-                  onOpen={() => onTab('terminals')}
-                />
-                {agent.session.agentId
-                  ? workersOf(workers, agent.session.agentId).map((worker) => <WorkerRow key={worker.agentId} worker={worker} nested />)
-                  : null}
-              </Fragment>
-            ),
-          )}
-          {strays.map((worker) => (
-            <WorkerRow key={worker.agentId} worker={worker} />
-          ))}
-        </Rows>
-      ) : null}
-      <Recent core={core} snapshot={snapshot} scope={scope} provider={provider} full={full} hostName={hostName} />
-      {!open.length && !strays.length && !snapshot.recent.some((chat) => !scope || chat.project === scope.id) ? (
-        <EmptyState icon="IconAgent" text={scope ? `No agents in ${scope.name}.` : 'No agents running.'} />
-      ) : null}
-    </>
-  );
-}
-
-function terminalTitle(session: SessionInfo): string {
-  if (session.task) return session.task.label;
-  if (session.agentName) return session.title ?? agentLabel(session.agentType ?? 'agent');
-  return session.agentType ?? 'Terminal';
-}
-
-function terminalDetail(session: SessionInfo): string {
-  if (session.task) return session.task.command;
-  if (session.running) return 'Running';
-  if (session.exit?.signal) return `stopped by ${session.exit.signal}`;
-  return session.exit?.code != null ? `exited ${session.exit.code}` : 'exited';
-}
-
-/* A host sends its whole view several times a second while an agent works; each row redraws only when its own
-   item changed, which the hub keeps as the same object otherwise. */
-const ChatRow = memo(function ChatRow({
-  core,
-  chat,
-  shown,
-  place,
-  minute,
-}: {
-  core: string;
-  chat: ChatInfo;
-  shown: AgentShown;
-  place?: string;
-  /** Counts down a trigger's time once a minute; 0 for a row without one, so the others keep still. */
-  minute: number;
-}) {
-  return (
-    <Row
-      mark={<AgentFace agentId={chat.agentId} provider={chat.provider} group={shown.group} size={20} />}
-      name={chat.name}
-      title={shown.title}
-      place={place}
-      end={
-        <>
-          {shown.subagents ? <SubagentCount count={shown.subagents} /> : null}
-          {shown.tasks ? <ShellCount count={shown.tasks} /> : null}
-          <Trigger shown={shown} minute={minute} />
-          <AgentState group={shown.group} />
-        </>
-      }
-      onPress={() => router.push(`/device/${core}/chat/${chat.agentId}`)}
-    />
-  );
-});
-
-/** An agent running in a terminal, listed with the chats as the host's rail lists it. */
-const TerminalAgentRow = memo(function TerminalAgentRow({
-  session,
-  shown,
-  place,
-  minute,
-  onOpen,
-}: {
-  session: SessionInfo;
-  shown: AgentShown;
-  place?: string;
-  minute: number;
-  onOpen: () => void;
-}) {
-  const { group } = shown;
-  return (
-    <Row
-      mark={<AgentFace agentId={session.agentId} provider={session.agentType ?? 'agent'} group={group} size={20} />}
-      name={session.agentName}
-      title={shown.title}
-      place={place}
-      end={
-        <>
-          <Trigger shown={shown} minute={minute} />
-          <AgentState group={group} />
-        </>
-      }
-      onPress={onOpen}
-    />
-  );
-});
-
-/** How long until a trigger wakes the agent, while it waits rather than works. */
-function Trigger({ shown, minute }: { shown: AgentShown; minute: number }) {
-  if (shown.nextTrigger == null || shown.group === 'working' || shown.group === 'blocked') return null;
-  return <TriggerTime at={Number(shown.nextTrigger)} now={minute * 60_000} />;
-}
-
-const RecentRow = memo(function RecentRow({
-  chat,
-  place,
-  resuming,
-  minute,
-  onResume,
-}: {
-  chat: RecentInfo;
-  place?: string;
-  resuming: boolean;
-  /** Ages the "5m" label once a minute. */
-  minute: number;
-  onResume: (chat: RecentInfo) => void;
-}) {
-  const styles = useStyles(makeStyles);
-  const type = useType();
-  return (
-    <Row
-      mark={<AgentIcon provider={chat.provider} size={20} />}
-      title={chat.title}
-      place={place}
-      end={resuming ? <Working /> : <Text style={[type.meta, styles.age]}>{formatAge(Number(chat.activeAt), minute * 60_000)}</Text>}
-      onPress={() => onResume(chat)}
-    />
-  );
-});
-
-const TerminalRow = memo(function TerminalRow({ session }: { session: SessionInfo }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
-  const type = useType();
-  return (
-    <Row
-      dim={!session.running}
-      mark={
-        <Icon
-          name={session.task ? 'IconRun' : 'IconCommand'}
-          size={session.task ? 15 : 18}
-          color={session.running ? colors.secondary : colors.tertiary}
-        />
-      }
-      name={session.task ? undefined : session.agentName}
-      title={terminalTitle(session)}
-      detail={<Text style={type.mono}>{terminalDetail(session)}</Text>}
-      end={session.running ? session.task ? <Working /> : <View style={styles.liveDot} /> : null}
-    />
-  );
-});
-
-function Terminals({ snapshot, scope }: { snapshot: Snapshot; scope?: ProjectInfo }) {
-  const groups = new Map<string, SessionInfo[]>();
-  for (const session of snapshot.sessions) {
-    if (scope && session.project !== scope.id) continue;
-    const project = snapshot.workspace.projects.find((known) => known.id === session.project)?.name ?? 'Other';
-    groups.set(project, [...(groups.get(project) ?? []), session]);
-  }
-  if (!groups.size) return <EmptyState icon="IconCommand" text={scope ? `No terminals in ${scope.name}.` : 'No terminals open.'} />;
-  return (
-    <>
-      {[...groups].map(([project, sessions]) => (
-        <View key={project}>
-          {scope ? <View style={{ height: 8 }} /> : <SectionLabel>{project}</SectionLabel>}
-          <Rows>
-            {sessions.map((session) => (
-              <TerminalRow key={session.id} session={session} />
-            ))}
-          </Rows>
-        </View>
-      ))}
-    </>
   );
 }
 
@@ -766,7 +411,6 @@ const makeStyles = (colors: Palette) => {
     picker: { flexShrink: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
     pickerText: { flexShrink: 1, fontFamily: fonts.ui, fontSize: 13, color: colors.secondary },
     body: { paddingHorizontal: 16 },
-    open: { marginTop: 10 },
     newChat: {
       position: 'absolute',
       right: 16,
@@ -789,13 +433,6 @@ const makeStyles = (colors: Palette) => {
     faces: { flexDirection: 'row' },
     face: { width: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
     termCount: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-    age: { fontSize: 12, fontVariant: ['tabular-nums'] },
-    more: { minHeight: 40, justifyContent: 'center', paddingLeft: 38, paddingRight: 8, borderRadius: 9 },
-    morePressed: { backgroundColor: colors.active },
-    moreText: { ...type.meta, fontSize: 13 },
-    note: { ...type.meta, fontSize: 12.5, paddingHorizontal: 8, paddingTop: 8 },
-    noteFailed: { color: colors.danger },
-    liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: colors.live },
     away: { flex: 1, justifyContent: 'center', paddingHorizontal: 32, paddingBottom: 120 },
     trying: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginTop: 16 },
     retry: { marginTop: 24, alignSelf: 'stretch' },
