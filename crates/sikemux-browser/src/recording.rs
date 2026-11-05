@@ -222,7 +222,7 @@ fn default_path(folder: &Path, title: &str) -> PathBuf {
         .collect();
     let name = cleaned.trim();
     let name = if name.is_empty() { "Recording" } else { name };
-    crate::manager::unique_download_path(folder, &format!("{name}.{}", platform::extension()))
+    crate::downloads::unique_download_path(folder, &format!("{name}.{}", platform::extension()))
 }
 
 #[cfg(test)]

@@ -2,7 +2,6 @@
 //! where to keep things, and someone to tell when tabs change.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::{BrowserDownload, BrowserShortcut, ParentView};
 
@@ -24,40 +23,6 @@ pub trait Host: Send + Sync + 'static {
     fn acting(&self, agent_id: &str);
     /// An app chord was pressed while a page had the keyboard.
     fn shortcut(&self, shortcut: BrowserShortcut);
-}
-
-/// The host, or nowhere at all for a manager made without one.
-#[derive(Clone)]
-pub(crate) struct HostRef(pub(crate) Arc<dyn Host>);
-
-impl Default for HostRef {
-    fn default() -> Self {
-        HostRef(Arc::new(NoHost))
-    }
-}
-
-struct NoHost;
-
-impl Host for NoHost {
-    fn window(&self) -> Result<ParentView, String> {
-        Err("no window can take a browser tab".into())
-    }
-    fn state_dir(&self) -> Option<PathBuf> {
-        None
-    }
-    fn cache_dir(&self) -> Option<PathBuf> {
-        None
-    }
-    fn videos_dir(&self) -> Option<PathBuf> {
-        None
-    }
-    fn page_url(&self, _agent_id: &str, _html: &str) -> Result<String, String> {
-        Err("pages cannot be shown here".into())
-    }
-    fn tabs_changed(&self) {}
-    fn downloaded(&self, _download: &BrowserDownload) {}
-    fn acting(&self, _agent_id: &str) {}
-    fn shortcut(&self, _shortcut: BrowserShortcut) {}
 }
 
 /// Why a browser call failed, in the same kinds the app reports.

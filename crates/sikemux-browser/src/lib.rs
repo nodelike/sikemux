@@ -20,12 +20,15 @@ pub mod local_files;
 #[cfg(target_os = "macos")]
 pub mod macos;
 mod manager;
+mod native;
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub mod page_view;
 mod person;
 mod preview;
 mod recording;
+mod strip;
 mod tab;
+mod tab_events;
 pub mod tools;
 pub mod viewport;
 
@@ -40,7 +43,8 @@ pub use host::{BrowserResult, Error, Host};
 pub use linux::choose_page_rendering;
 #[cfg(target_os = "linux")]
 pub use linux::page::give_keyboard_back;
-pub use manager::{BrowserManager, TabPage};
+pub use manager::BrowserManager;
+pub use strip::TabPage;
 pub use tab::{Opener, ParentView, Tab, TabSpec};
 
 pub(crate) use sikemux_base::runtime::spawn;

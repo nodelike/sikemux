@@ -89,7 +89,7 @@ impl BrowserManager {
         let now = Instant::now();
         for (agent_id, tab_id, view) in self.unload_candidates(now, pressure) {
             let busy =
-                tokio::time::timeout(PROBE_TIMEOUT, crate::tools::run_helper(&view, BUSY_SCRIPT))
+                tokio::time::timeout(PROBE_TIMEOUT, crate::native::run_helper(&view, BUSY_SCRIPT))
                     .await;
             let keep = match busy {
                 Ok(Ok(answer)) => answer != "false",
@@ -130,8 +130,10 @@ impl BrowserManager {
     /// A page with a dialog open, files waiting for its chooser, or a download
     /// under way would lose them along with the page.
     fn held(&self, tab_id: &str) -> bool {
-        self.dialogs.locked().contains_key(tab_id)
-            || self.uploads.locked().contains_key(tab_id)
+        self.tabs
+            .locked()
+            .get(tab_id)
+            .is_some_and(|facts| facts.dialog.is_some() || facts.upload.is_some())
             || self.downloads.locked().keys().any(|(tab, _)| tab == tab_id)
     }
 
@@ -159,7 +161,9 @@ impl BrowserManager {
             }
             view
         };
-        self.stalls.locked().remove(tab_id);
+        if let Some(facts) = self.tabs.locked().get_mut(tab_id) {
+            facts.stall = None;
+        }
         view.close();
         self.announce();
     }

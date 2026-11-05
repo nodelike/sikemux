@@ -3,7 +3,7 @@
 //! pages get real input, real pixels, and the system cookie jar. Whoever hosts
 //! the engine draws the chrome around it and says where the page area is.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -12,7 +12,10 @@ use std::time::{Duration, Instant};
 use sikemux_process::sync::Locked;
 use url::Url;
 
-use crate::host::{BrowserResult, Error, Host, HostRef};
+#[cfg(target_os = "macos")]
+use crate::downloads::quarantine;
+use crate::downloads::{download_file_name, unique_download_path};
+use crate::host::{BrowserResult, Error, Host};
 #[cfg(target_os = "linux")]
 use crate::linux::page;
 #[cfg(target_os = "macos")]
@@ -20,19 +23,21 @@ use crate::macos;
 #[cfg(target_os = "macos")]
 use crate::macos as page;
 use crate::recording;
+pub(crate) use crate::strip::{TabPage, TabStrip};
+use crate::tab_events::{OpenedBy, TabListener};
 use crate::{
     address, burst, documents, downloads, favicon, history, local_files, viewport, BrowserBounds,
-    BrowserDownload, BrowserSnapshot, BrowserTab, DocumentEvent, DownloadState, Opener, PageDialog,
-    PageLoad, Tab, TabEvents, TabSpec, TabStall, BLANK_URL, PARKED_ORIGIN, USER_AGENT,
+    BrowserDownload, BrowserSnapshot, DownloadState, PageDialog, Tab, TabSpec, TabStall, BLANK_URL,
+    PARKED_ORIGIN, USER_AGENT,
 };
 
 const MAX_URL_LEN: usize = 8192;
 /// A page opening more tabs than this in `POPUP_WINDOW` is in a loop.
-const POPUP_LIMIT: usize = 4;
-const POPUP_WINDOW: Duration = Duration::from_secs(10);
+pub(crate) const POPUP_LIMIT: usize = 4;
+pub(crate) const POPUP_WINDOW: Duration = Duration::from_secs(10);
 /// A page saving more files than this in `DOWNLOAD_WINDOW` is filling the disk.
-const DOWNLOAD_LIMIT: usize = 8;
-const DOWNLOAD_WINDOW: Duration = Duration::from_secs(30);
+pub(crate) const DOWNLOAD_LIMIT: usize = 8;
+pub(crate) const DOWNLOAD_WINDOW: Duration = Duration::from_secs(30);
 /// Files the person never kept are cleared from the holding folder after this long.
 const HELD_DOWNLOAD_LIFETIME: Duration = Duration::from_secs(7 * 24 * 3600);
 /// What a parked page lays out at before its pane has ever shown one.
@@ -52,189 +57,6 @@ const LOAD_SETTLE: Duration = Duration::from_secs(2);
 /// The longest a reloaded tab waits off screen for its page before showing
 /// whatever it has so far.
 const REVEAL_LIMIT: Duration = Duration::from_secs(3);
-
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct TabPage {
-    pub title: String,
-    pub url: String,
-    pub loading: bool,
-    pub can_go_back: bool,
-    pub can_go_forward: bool,
-    pub favicon: Option<String>,
-}
-
-/// Which tab is shown and in what order the strip lists them. Kept apart from
-/// the webviews so the bookkeeping can be tested without a window.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct TabStrip {
-    pub order: Vec<String>,
-    pub active: Option<String>,
-    pub pages: HashMap<String, TabPage>,
-    /// Tabs the agent is working in, each with the mark that put it there, so
-    /// only the latest mark may take it away again.
-    pub acting: HashMap<String, u64>,
-    /// Tabs that finished loading a moment ago, keyed by mark like `acting`.
-    pub settling: HashMap<String, u64>,
-    /// Tabs whose page was let go to free memory. Their view is built again
-    /// at the same address once they are needed.
-    pub unloaded: HashSet<String>,
-    /// Tabs built again that stay off screen until their page has loaded, so
-    /// the pane keeps its last picture rather than flashing a blank page.
-    pub revealing: HashMap<String, u64>,
-    /// Since when each tab has been out of sight and idle.
-    pub hidden_since: HashMap<String, Instant>,
-    /// The person's tabs besides those they clicked or typed in: ones they opened, and the
-    /// one in front when the agent's turn ended. Tidying up leaves these open.
-    pub kept: HashSet<String>,
-}
-
-impl TabStrip {
-    pub fn insert(&mut self, id: String, page: TabPage) {
-        self.order.push(id.clone());
-        self.pages.insert(id.clone(), page);
-        self.active = Some(id);
-    }
-
-    /// Closing the shown tab hands the spot to its right neighbour, or the
-    /// left one at the end of the strip.
-    pub fn remove(&mut self, id: &str) -> bool {
-        let Some(index) = self.order.iter().position(|entry| entry == id) else {
-            return false;
-        };
-        self.order.remove(index);
-        self.pages.remove(id);
-        self.acting.remove(id);
-        self.settling.remove(id);
-        self.unloaded.remove(id);
-        self.revealing.remove(id);
-        self.hidden_since.remove(id);
-        self.kept.remove(id);
-        if self.active.as_deref() == Some(id) {
-            self.active = self
-                .order
-                .get(index)
-                .or_else(|| self.order.get(index.wrapping_sub(1)))
-                .cloned();
-        }
-        true
-    }
-
-    pub fn activate(&mut self, id: &str) -> bool {
-        if !self.pages.contains_key(id) {
-            return false;
-        }
-        self.active = Some(id.to_owned());
-        true
-    }
-
-    pub fn mark_acting(&mut self, mark: u64) -> Option<String> {
-        let tab = self.active.clone()?;
-        self.acting.insert(tab.clone(), mark);
-        Some(tab)
-    }
-
-    pub fn release_acting(&mut self, tab: &str, mark: u64) -> bool {
-        if self.acting.get(tab) != Some(&mark) {
-            return false;
-        }
-        self.acting.remove(tab);
-        true
-    }
-
-    pub fn settle(&mut self, tab: &str, mark: u64) {
-        self.settling.insert(tab.to_owned(), mark);
-    }
-
-    pub fn release_settled(&mut self, tab: &str, mark: u64) -> bool {
-        if self.settling.get(tab) != Some(&mark) {
-            return false;
-        }
-        self.settling.remove(tab);
-        true
-    }
-
-    pub fn release_revealing(&mut self, tab: &str, mark: u64) -> bool {
-        if self.revealing.get(tab) != Some(&mark) {
-            return false;
-        }
-        self.revealing.remove(tab);
-        true
-    }
-
-    pub fn yours(&self, id: &str) -> bool {
-        self.kept.contains(id) || crate::person::has_touched(id)
-    }
-
-    /// The tabs tidying up may close: the agent's own, other than the one in front.
-    fn agents_spare(&self) -> impl Iterator<Item = &String> {
-        self.order
-            .iter()
-            .filter(|id| !self.yours(id) && self.active.as_ref() != Some(*id))
-    }
-
-    /// The agent's own tab on the same site as `url`, which it goes to rather than opening
-    /// another.
-    pub fn same_site(&self, url: &Url) -> Option<String> {
-        let site = url.origin();
-        let open_on_it = |id: &&String| {
-            self.pages
-                .get(*id)
-                .and_then(|page| Url::parse(&page.url).ok())
-                .is_some_and(|open| open.origin() == site)
-        };
-        let theirs = |id: &&String| !crate::person::has_touched(id);
-        self.active
-            .iter()
-            .chain(self.order.iter().rev())
-            .find(|id| open_on_it(id) && theirs(id))
-            .cloned()
-    }
-
-    /// The agent's tab that has gone unused longest, once it holds `AGENT_TAB_LIMIT`.
-    pub fn over_limit(&self) -> Option<String> {
-        if self.order.iter().filter(|id| !self.yours(id)).count() < AGENT_TAB_LIMIT {
-            return None;
-        }
-        self.agents_spare()
-            .filter_map(|id| Some((self.hidden_since.get(id)?, id)))
-            .min()
-            .map(|(_, id)| id)
-            .or_else(|| self.agents_spare().next())
-            .cloned()
-    }
-
-    /// Whether the tab must keep drawing frames while it is out of sight.
-    pub fn awake(&self, id: &str) -> bool {
-        self.pages.get(id).is_some_and(|page| page.loading)
-            || self.acting.contains_key(id)
-            || self.settling.contains_key(id)
-    }
-
-    pub fn snapshot(&self) -> BrowserSnapshot {
-        BrowserSnapshot {
-            tabs: self
-                .order
-                .iter()
-                .filter_map(|id| {
-                    let page = self.pages.get(id)?;
-                    Some(BrowserTab {
-                        id: id.clone(),
-                        title: page.title.clone(),
-                        url: page.url.clone(),
-                        active: self.active.as_deref() == Some(id),
-                        loading: page.loading,
-                        can_go_back: page.can_go_back,
-                        can_go_forward: page.can_go_forward,
-                        favicon: page.favicon.clone(),
-                        acting: self.acting.contains_key(id),
-                        local_file: None,
-                    })
-                })
-                .collect(),
-            active_tab_id: self.active.clone(),
-        }
-    }
-}
 
 #[derive(Default)]
 pub(crate) struct AgentBrowser {
@@ -279,7 +101,16 @@ impl AgentBrowser {
     }
 }
 
+/// What the engine has told about one tab, which goes when the tab closes.
 #[derive(Default)]
+pub(crate) struct TabFacts {
+    pub(crate) dialog: Option<PageDialog>,
+    /// Files offered to the tab's file choosers, and whether one took them yet.
+    pub(crate) upload: Option<(Vec<PathBuf>, bool)>,
+    pub(crate) documents: documents::DocumentLog,
+    pub(crate) stall: Option<TabStall>,
+}
+
 pub struct BrowserManager {
     pub(crate) agents: Mutex<HashMap<String, AgentBrowser>>,
     /// Rung, under `agents`, whenever an agent's download starts, finishes or fails.
@@ -290,11 +121,7 @@ pub struct BrowserManager {
     pub(crate) downloads: Mutex<HashMap<(String, String), PathBuf>>,
     pub(crate) icons: Mutex<favicon::IconCache>,
     pub(crate) history: history::History,
-    pub(crate) dialogs: Mutex<HashMap<String, PageDialog>>,
-    /// Files offered to a tab's file choosers, and whether one took them yet.
-    pub(crate) uploads: Mutex<HashMap<String, (Vec<PathBuf>, bool)>>,
-    pub(crate) documents: Mutex<HashMap<String, documents::DocumentLog>>,
-    pub(crate) stalls: Mutex<HashMap<String, TabStall>>,
+    pub(crate) tabs: Mutex<HashMap<String, TabFacts>>,
     pub(crate) local_files: local_files::LocalFiles,
     pub(crate) recordings: Mutex<HashMap<String, recording::Session>>,
     /// The addresses of each agent's closed tabs, latest last.
@@ -302,7 +129,7 @@ pub struct BrowserManager {
     pub(crate) relieving: AtomicBool,
     /// Rung whenever the app says where an agent's desk shows, or that it does not.
     pub(crate) desk_answers: tokio::sync::Notify,
-    pub(crate) host: HostRef,
+    pub(crate) host: Arc<dyn Host>,
     pub(crate) me: Weak<BrowserManager>,
 }
 
@@ -310,16 +137,29 @@ impl BrowserManager {
     /// The engine for `host`'s window. It starts watching for memory running short.
     pub fn new(host: Arc<dyn Host>) -> Arc<Self> {
         let manager = Arc::new_cyclic(|me| BrowserManager {
-            host: HostRef(host),
+            agents: Mutex::default(),
+            downloads_moved: Condvar::new(),
+            next_tab: AtomicU64::default(),
+            next_mark: AtomicU64::default(),
+            shortcuts_installed: AtomicBool::default(),
+            downloads: Mutex::default(),
+            icons: Mutex::default(),
+            history: history::History::default(),
+            tabs: Mutex::default(),
+            local_files: local_files::LocalFiles::default(),
+            recordings: Mutex::default(),
+            closed: Mutex::default(),
+            relieving: AtomicBool::default(),
+            desk_answers: tokio::sync::Notify::new(),
+            host,
             me: me.clone(),
-            ..BrowserManager::default()
         });
         crate::discard::watch_pressure(Arc::downgrade(&manager));
         manager
     }
 
     pub(crate) fn host(&self) -> &dyn Host {
-        self.host.0.as_ref()
+        self.host.as_ref()
     }
 
     /// The manager itself, for work that outlives the call that starts it.
@@ -380,7 +220,7 @@ impl BrowserManager {
     }
 
     /// Adds a tab at `url` to the end of the agent's strip and shows it.
-    fn add_tab(
+    pub(crate) fn add_tab(
         &self,
         agent_id: &str,
         url: &str,
@@ -668,7 +508,7 @@ impl BrowserManager {
     }
 
     pub fn dialog(&self, tab_id: &str) -> Option<PageDialog> {
-        self.dialogs.locked().get(tab_id).cloned()
+        self.tabs.locked().get(tab_id)?.dialog.clone()
     }
 
     /// Files for the tab's file choosers, answered in place of the person
@@ -676,38 +516,43 @@ impl BrowserManager {
     /// them, since a page that opens its own on top of the input's would
     /// otherwise have the input's files dropped for an empty answer.
     pub fn offer_upload(&self, tab_id: &str, paths: Vec<PathBuf>) {
-        self.uploads
+        self.tabs
             .locked()
-            .insert(tab_id.to_owned(), (paths, false));
+            .entry(tab_id.to_owned())
+            .or_default()
+            .upload = Some((paths, false));
     }
 
     /// Whether no chooser has taken the offered files yet.
     pub fn upload_pending(&self, tab_id: &str) -> bool {
-        self.uploads
+        self.tabs
             .locked()
             .get(tab_id)
+            .and_then(|facts| facts.upload.as_ref())
             .is_some_and(|(_, taken)| !taken)
     }
 
     /// `None` when nothing is offered.
     pub fn take_upload(&self, tab_id: &str) -> Option<Vec<PathBuf>> {
-        let mut uploads = self.uploads.locked();
-        let (paths, taken) = uploads.get_mut(tab_id)?;
+        let mut tabs = self.tabs.locked();
+        let (paths, taken) = tabs.get_mut(tab_id)?.upload.as_mut()?;
         *taken = true;
         Some(paths.clone())
     }
 
     pub fn withdraw_upload(&self, tab_id: &str) {
-        self.uploads.locked().remove(tab_id);
+        if let Some(facts) = self.tabs.locked().get_mut(tab_id) {
+            facts.upload = None;
+        }
     }
 
     /// The tab's top-level loads, oldest first; with `since_current`, only
     /// the one that produced the page on screen and any tried after it.
     pub fn documents(&self, tab_id: &str, since_current: bool) -> Vec<documents::DocumentLoad> {
-        self.documents
+        self.tabs
             .locked()
             .get(tab_id)
-            .map(|log| log.loads(since_current))
+            .map(|facts| facts.documents.loads(since_current))
             .unwrap_or_default()
     }
 
@@ -716,7 +561,7 @@ impl BrowserManager {
     /// noticed a few seconds after input reaches it; `input::probe_responsiveness`
     /// sends some.
     pub fn stalled(&self, tab_id: &str) -> Option<TabStall> {
-        self.stalls.locked().get(tab_id).copied()
+        self.tabs.locked().get(tab_id)?.stall
     }
 
     pub fn note_page(&self, agent_id: &str, tab_id: &str, update: impl FnOnce(&mut TabPage)) {
@@ -785,7 +630,7 @@ impl BrowserManager {
 
     /// A page closed the window it was opened as. The tab that opened it comes back
     /// in its place if it was the one shown.
-    fn close_window(&self, agent_id: &str, tab_id: &str, opened_from: &str) {
+    pub(crate) fn close_window(&self, agent_id: &str, tab_id: &str, opened_from: &str) {
         if let Some(agent) = self.agents.locked().get_mut(agent_id) {
             if agent.strip.active.as_deref() == Some(tab_id) {
                 agent.strip.activate(opened_from);
@@ -816,8 +661,7 @@ impl BrowserManager {
             }
             let view = agent.views.remove(tab_id);
             agent.viewports.remove(tab_id);
-            self.documents.locked().remove(tab_id);
-            self.stalls.locked().remove(tab_id);
+            self.tabs.locked().remove(tab_id);
             if agent.strip.order.is_empty() {
                 agents.remove(agent_id);
             }
@@ -843,13 +687,12 @@ impl BrowserManager {
             .map(|agent| agent.views.into_iter().collect::<Vec<_>>())
             .unwrap_or_default();
         let views: Vec<Tab> = {
-            let mut documents = self.documents.locked();
+            let mut tabs = self.tabs.locked();
             views
                 .into_iter()
                 .map(|(tab_id, view)| {
                     crate::person::untouched(&tab_id);
-                    documents.remove(&tab_id);
-                    self.stalls.locked().remove(&tab_id);
+                    tabs.remove(&tab_id);
                     view
                 })
                 .collect()
@@ -1253,7 +1096,7 @@ impl BrowserManager {
         if self.shortcuts_installed.swap(true, Ordering::AcqRel) {
             return;
         }
-        let host = self.host.0.clone();
+        let host = self.host.clone();
         #[cfg(target_os = "macos")]
         dispatch2::DispatchQueue::main()
             .exec_async(move || page::install_shortcuts(move |shortcut| host.shortcut(shortcut)));
@@ -1298,203 +1141,11 @@ impl BrowserManager {
     }
 }
 
-/// The tab whose page opened another as its window, and what the engine makes that one from.
-pub(crate) struct OpenedBy {
-    tab_id: String,
-    opener: Option<Opener>,
-}
-
-/// What one tab's page tells the manager.
-struct TabListener {
-    manager: Weak<BrowserManager>,
-    agent_id: String,
-    tab_id: String,
-    /// The tab whose page opened this one as its window, which alone may close it.
-    opened_from: Option<String>,
-    popups: Mutex<burst::Burst>,
-    downloads: Mutex<burst::Burst>,
-}
-
-impl TabListener {
-    pub(crate) fn note(&self, update: impl FnOnce(&mut TabPage)) {
-        if let Some(manager) = self.manager.upgrade() {
-            manager.note_page(&self.agent_id, &self.tab_id, update);
-        }
-    }
-}
-
-impl TabEvents for TabListener {
-    fn may_load(&self, url: &str) -> bool {
-        Url::parse(url).is_ok_and(|url| tab_may_load(&url))
-    }
-
-    fn loaded(&self, load: PageLoad) {
-        let PageLoad {
-            started,
-            url,
-            can_go_back,
-            can_go_forward,
-        } = load;
-        self.note(|page| {
-            if !favicon::same_site(&page.url, &url) {
-                page.favicon = None;
-            }
-            page.loading = started;
-            page.url = url;
-            page.can_go_back = can_go_back;
-            page.can_go_forward = can_go_forward;
-        });
-        let Some(manager) = self.manager.upgrade() else {
-            return;
-        };
-        if !started {
-            let view = manager
-                .agents
-                .locked()
-                .get(&self.agent_id)
-                .and_then(|agent| agent.views.get(&self.tab_id).cloned());
-            if let Some(view) = view {
-                let (agent, tab) = (self.agent_id.clone(), self.tab_id.clone());
-                crate::spawn(async move { favicon::refresh(&manager, agent, tab, view).await });
-            }
-        }
-    }
-
-    fn titled(&self, title: String) {
-        self.note(|page| page.title = title);
-    }
-
-    fn moved(&self, url: String, can_go_back: bool, can_go_forward: bool) {
-        self.note(|page| {
-            page.url = url;
-            page.can_go_back = can_go_back;
-            page.can_go_forward = can_go_forward;
-        });
-    }
-
-    fn new_window(&self, url: String, opener: Option<Opener>) -> Option<Tab> {
-        if !self.popups.locked().admit(Instant::now()) {
-            return None;
-        }
-        let url = if url.is_empty() {
-            BLANK_URL.to_owned()
-        } else {
-            url
-        };
-        let opened_by = OpenedBy {
-            tab_id: self.tab_id.clone(),
-            opener,
-        };
-        let (_, tab) = self
-            .manager
-            .upgrade()?
-            .add_tab(&self.agent_id, &url, Some(opened_by))
-            .ok()?;
-        Some(tab)
-    }
-
-    fn closed(&self) {
-        let (Some(manager), Some(opened_from)) = (self.manager.upgrade(), self.opened_from.clone())
-        else {
-            return;
-        };
-        let (agent, tab) = (self.agent_id.clone(), self.tab_id.clone());
-        crate::spawn(async move { manager.close_window(&agent, &tab, &opened_from) });
-    }
-
-    fn download_started(&self, url: String, suggested: &Path) -> Option<PathBuf> {
-        if !self.downloads.locked().admit(Instant::now()) {
-            return None;
-        }
-        self.manager
-            .upgrade()?
-            .download_started(&self.agent_id, &self.tab_id, &url, suggested)
-    }
-
-    fn download_finished(&self, url: String, saved: bool) {
-        if let Some(manager) = self.manager.upgrade() {
-            manager.download_finished(&self.agent_id, &self.tab_id, &url, saved);
-        }
-    }
-
-    fn dialog(&self, dialog: Option<PageDialog>) {
-        let Some(manager) = self.manager.upgrade() else {
-            return;
-        };
-        let mut dialogs = manager.dialogs.locked();
-        match dialog {
-            Some(dialog) => dialogs.insert(self.tab_id.clone(), dialog),
-            None => dialogs.remove(&self.tab_id),
-        };
-    }
-
-    fn upload(&self) -> Option<Vec<PathBuf>> {
-        self.manager.upgrade()?.take_upload(&self.tab_id)
-    }
-
-    fn document(&self, event: DocumentEvent) {
-        let Some(manager) = self.manager.upgrade() else {
-            return;
-        };
-        let failed = manager
-            .documents
-            .locked()
-            .entry(self.tab_id.clone())
-            .or_default()
-            .note(event);
-        if failed {
-            self.note(|page| page.loading = false);
-        }
-    }
-
-    fn health(&self, stall: Option<TabStall>) {
-        let Some(manager) = self.manager.upgrade() else {
-            return;
-        };
-        let mut stalls = manager.stalls.locked();
-        match stall {
-            Some(stall) => stalls.insert(self.tab_id.clone(), stall),
-            None => stalls.remove(&self.tab_id),
-        };
-    }
-}
-
 pub(crate) fn validate_agent_id(agent_id: &str) -> BrowserResult<()> {
     if !sikemux_base::cli::protocol::is_tool_agent_id(agent_id) {
         return Err(Error::BadArg("invalid browser agent id"));
     }
     Ok(())
-}
-
-/// Marks a download as from the internet, as Safari does, so Gatekeeper
-/// checks it before it first opens.
-#[cfg(target_os = "macos")]
-pub(crate) fn quarantine(path: &Path) {
-    use std::os::unix::ffi::OsStrExt;
-
-    let seconds = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_secs())
-        .unwrap_or_default();
-    let value = format!("0083;{seconds:08x};Sikemux;");
-    let (Ok(target), Ok(name)) = (
-        std::ffi::CString::new(path.as_os_str().as_bytes()),
-        std::ffi::CString::new("com.apple.quarantine"),
-    ) else {
-        return;
-    };
-    // SAFETY: `target` and `name` are nul-terminated and live through the call, and
-    // `value.len()` is exactly the bytes `value` points at.
-    unsafe {
-        libc::setxattr(
-            target.as_ptr(),
-            name.as_ptr(),
-            value.as_ptr().cast(),
-            value.len(),
-            0,
-            0,
-        );
-    }
 }
 
 pub(crate) fn validate_url(url: &str) -> BrowserResult<()> {
@@ -1636,54 +1287,6 @@ pub(crate) fn validate_bounds(bounds: &BrowserBounds) -> BrowserResult<()> {
     Ok(())
 }
 
-/// The name the page suggested, else the last path segment of the URL, with
-/// anything that could leave the download folder stripped out.
-pub(crate) fn download_file_name(url: &Url, suggested: &Path) -> String {
-    let candidate = suggested
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .filter(|name| !name.is_empty())
-        .or_else(|| {
-            url.path_segments()
-                .and_then(|mut segments| segments.next_back().map(str::to_owned))
-                .filter(|name| !name.is_empty())
-        })
-        .unwrap_or_default();
-    let cleaned: String = candidate
-        .chars()
-        .map(|char| {
-            if matches!(char, '/' | '\\' | ':') {
-                '_'
-            } else {
-                char
-            }
-        })
-        .collect();
-    let cleaned = cleaned.trim().trim_start_matches('.').to_owned();
-    if cleaned.is_empty() {
-        "download".into()
-    } else {
-        cleaned.chars().take(200).collect()
-    }
-}
-
-/// `name`, `name (2)`, `name (3)`... whichever does not exist yet, keeping
-/// the extension at the end.
-pub(crate) fn unique_download_path(folder: &Path, name: &str) -> PathBuf {
-    let first = folder.join(name);
-    if !first.exists() {
-        return first;
-    }
-    let (stem, extension) = match name.rsplit_once('.') {
-        Some((stem, extension)) if !stem.is_empty() => (stem, format!(".{extension}")),
-        _ => (name, String::new()),
-    };
-    (2..)
-        .map(|n| folder.join(format!("{stem} ({n}){extension}")))
-        .find(|path| !path.exists())
-        .expect("some numbered name is free")
-}
-
 pub(crate) fn label_safe(agent_id: &str) -> String {
     agent_id
         .chars()
@@ -1778,43 +1381,6 @@ mod tests {
     }
 
     #[test]
-    fn download_names_come_from_the_page_then_the_url_and_stay_in_the_folder() {
-        let url = Url::parse("https://a.test/files/report.pdf?x=1").unwrap();
-        assert_eq!(
-            download_file_name(&url, Path::new("Quarterly.pdf")),
-            "Quarterly.pdf"
-        );
-        assert_eq!(download_file_name(&url, Path::new("")), "report.pdf");
-        assert_eq!(
-            download_file_name(&url, Path::new("../../etc/passwd")),
-            "passwd"
-        );
-        assert_eq!(download_file_name(&url, Path::new(".hidden")), "hidden");
-        let bare = Url::parse("https://a.test/").unwrap();
-        assert_eq!(download_file_name(&bare, Path::new("")), "download");
-    }
-
-    #[test]
-    fn a_taken_download_name_gets_a_number_before_its_extension() {
-        let folder = tempfile::tempdir().unwrap();
-        assert_eq!(
-            unique_download_path(folder.path(), "a.pdf"),
-            folder.path().join("a.pdf")
-        );
-        std::fs::write(folder.path().join("a.pdf"), b"x").unwrap();
-        std::fs::write(folder.path().join("a (2).pdf"), b"x").unwrap();
-        assert_eq!(
-            unique_download_path(folder.path(), "a.pdf"),
-            folder.path().join("a (3).pdf")
-        );
-        std::fs::write(folder.path().join("notes"), b"x").unwrap();
-        assert_eq!(
-            unique_download_path(folder.path(), "notes"),
-            folder.path().join("notes (2)")
-        );
-    }
-
-    #[test]
     fn a_page_cannot_move_itself_or_a_frame_onto_an_app_origin() {
         let loads = |url: &str| tab_may_load(&Url::parse(url).unwrap());
         for allowed in [
@@ -1836,35 +1402,6 @@ mod tests {
         ] {
             assert!(!loads(refused), "{refused} should be refused");
         }
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn a_finished_download_is_quarantined() {
-        use std::os::unix::ffi::OsStrExt;
-
-        let folder = tempfile::tempdir().unwrap();
-        let path = folder.path().join("setup.dmg");
-        std::fs::write(&path, b"x").unwrap();
-        quarantine(&path);
-        let target = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
-        let name = std::ffi::CString::new("com.apple.quarantine").unwrap();
-        let mut value = [0u8; 64];
-        // SAFETY: `value` is a writable buffer of `value.len()` bytes, and both names are
-        // nul-terminated and live through the call.
-        let read = unsafe {
-            libc::getxattr(
-                target.as_ptr(),
-                name.as_ptr(),
-                value.as_mut_ptr().cast(),
-                value.len(),
-                0,
-                0,
-            )
-        };
-        let value = String::from_utf8_lossy(&value[..usize::try_from(read).unwrap()]);
-        assert!(value.starts_with("0083;"), "{value}");
-        assert!(value.ends_with(";Sikemux;"), "{value}");
     }
 
     #[test]
