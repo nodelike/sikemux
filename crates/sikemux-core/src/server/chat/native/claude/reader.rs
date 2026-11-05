@@ -1,5 +1,5 @@
 //! Reads what Claude Code writes on its output and tells the chat, as the
-//! ACP session updates the app reads from every agent.
+//! session updates the fold reads from every agent.
 
 use crate::launch::claude_model;
 use sikemux_fold::update::{agent_text, compaction, notice, text_content, thought, turn_answer};

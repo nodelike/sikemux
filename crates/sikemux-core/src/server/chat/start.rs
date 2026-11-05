@@ -166,9 +166,8 @@ fn wait_for_person(chat: &Chat) {
 /// Starts a chat agent, with `subscriber` hearing it from its first event.
 /// The chat is known to the core when this returns, so a stop asked for
 /// next finds it. With `waits_for_person`, its agent starts only once the
-/// person writes in the chat or something is sent to it.
-/// Starts a chat agent. `briefed` when its first task carries what Sikemux
-/// keeps for the project already, as Auto's does.
+/// person writes in the chat or something is sent to it. `briefed` when its
+/// first task carries what Sikemux keeps for the project already, as Auto's does.
 pub(crate) fn begin(
     core: &Arc<Core>,
     launch_spec: ChatLaunch,

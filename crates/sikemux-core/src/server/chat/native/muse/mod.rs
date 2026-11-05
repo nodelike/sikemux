@@ -1,6 +1,6 @@
 //! Muse Code, spoken to over its session protocol: JSON-RPC, one message per
 //! line, on `muse serve`'s standard input and output. Every view item comes
-//! out as the ACP session updates the other agents send for the same work.
+//! out as the session updates the other agents send for the same work.
 
 mod approvals;
 mod commands;

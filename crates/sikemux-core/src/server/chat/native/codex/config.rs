@@ -133,7 +133,6 @@ pub(super) fn session_config(cwd: &str, tools: &[McpServer], configured: &[Strin
     config
 }
 
-/// The tool server names Codex's own config already has, in any layer.
 /// The developer instructions a new thread is sent: the person's own from
 /// Codex's config, which sending any replaces, then `brief`.
 pub(super) fn developer_instructions(config: &Value, brief: &str) -> String {
@@ -147,6 +146,7 @@ pub(super) fn developer_instructions(config: &Value, brief: &str) -> String {
     }
 }
 
+/// The tool server names Codex's own config already has, in any layer.
 pub(super) fn configured_servers(config: &Value) -> Vec<String> {
     let layers = config["layers"].as_array().into_iter().flatten();
     std::iter::once(&config["config"])

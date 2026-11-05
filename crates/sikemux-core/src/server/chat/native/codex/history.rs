@@ -1,5 +1,5 @@
 //! A resumed thread's history told to the chat as the updates it would have
-//! seen live, the way Codex's adapter replays it on `session/load`.
+//! seen live.
 
 use sikemux_fold::UpdateKind;
 use std::collections::HashMap;

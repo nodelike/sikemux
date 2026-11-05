@@ -1,5 +1,5 @@
-//! The slash commands Codex's adapter answers itself rather than sending to
-//! the model, and the list of them the chat offers.
+//! The slash commands answered here rather than sent to the model, and the
+//! list of them the chat offers.
 
 use serde_json::{json, Value};
 

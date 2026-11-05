@@ -744,7 +744,7 @@ mod tests {
     }
 
     #[test]
-    fn plans_usage_and_user_inputs_take_the_adapters_shapes() {
+    fn plans_usage_and_user_inputs_keep_their_shapes() {
         let updated: super::super::notifications::PlanUpdated = serde_json::from_value(json!({
             "explanation": "x",
             "plan": [{ "step": "Read", "status": "completed" }, { "step": "Fix", "status": "inProgress" }],

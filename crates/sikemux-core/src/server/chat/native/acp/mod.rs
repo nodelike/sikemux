@@ -33,16 +33,15 @@ use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
 use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling, TurnEnd};
 
-/// The error code an agent turns a prompt down with when it needs a sign-in.
 /// What answers one of the agent's permission requests.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Asked {
     id: Value,
 }
 
+/// The error code an agent turns a prompt down with when it needs a sign-in.
 const AUTH_REQUIRED: i64 = -32000;
 
-/// An agent's error in words, its details included.
 /// Shows a saved session of an agent that keeps one Sikemux can read, as the agent would
 /// replay it on loading it.
 pub(super) fn replay_saved(
@@ -69,6 +68,7 @@ fn server_names(launch: &ChatLaunch) -> Arc<[String]> {
         .collect()
 }
 
+/// An agent's error in words, its details included.
 fn describe(error: &Value) -> String {
     serde_json::from_value::<AcpError>(error.clone())
         .map_or_else(|_| error_text(error), |error| error.to_string())
@@ -580,8 +580,6 @@ impl Backend for Acp {
         Ok(self.kept.setup["configOptions"].clone())
     }
 
-    /// A background task outlives the turn that started it, so stopping one
-    /// does not wait on the agent's answer.
     async fn authenticate(&mut self, method_id: &str) -> Result<(), String> {
         self.driver
             .call(
@@ -593,6 +591,8 @@ impl Backend for Acp {
             .map(|_| ())
     }
 
+    /// A background task outlives the turn that started it, so stopping one
+    /// does not wait on the agent's answer.
     async fn stop_task(&mut self, task_id: &str) -> Result<(), String> {
         let stop = air::StopAsyncTask {
             session_id: self.kept.session_id.clone(),

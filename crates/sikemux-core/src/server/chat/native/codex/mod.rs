@@ -1,6 +1,6 @@
 //! Codex, spoken to over its app server: JSON-RPC, one message per line, on
 //! `codex app-server`'s standard input and output. Every thread item comes out
-//! as the ACP session updates Codex's ACP adapter would send for it.
+//! as the session updates the other agents send for the same work.
 
 mod approvals;
 mod commands;
@@ -243,8 +243,8 @@ async fn subagent_histories(rpc: &Rpc, turns: &[Value]) -> HashMap<String, Vec<V
     .await
 }
 
-/// Codex's input for the prompt, the way Codex's adapter writes it, with
-/// attached pictures handed over as pictures when the model reads them.
+/// Codex's input for the prompt, with attached pictures handed over as
+/// pictures when the model reads them.
 fn input(parts: Vec<Part>, images: bool) -> Vec<Value> {
     let text = |text: String| json!({ "type": "text", "text": text, "text_elements": [] });
     parts

@@ -1,4 +1,4 @@
-//! What Muse's view items look like in the chat: the ACP session updates the
+//! What Muse's view items look like in the chat: the session updates the
 //! other agents send for the same kind of work, so the app reads them alike.
 
 use sikemux_fold::update::{

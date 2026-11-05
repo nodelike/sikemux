@@ -377,8 +377,6 @@ impl Chat {
         }
     }
 
-    /// Keeps on the agent's record what the session says of it: the title the
-    /// agent gave it, and the account it moved to.
     /// Keeps on the agent's record the session a turn just ran in, which the
     /// provider saved, so the agent can be resumed on it.
     fn note_resumable(&self) {
@@ -394,6 +392,8 @@ impl Chat {
         });
     }
 
+    /// Keeps on the agent's record what the session says of it: the title the
+    /// agent gave it, and the account it moved to.
     fn note_session(&self, payload: &Value) {
         let Some(core) = self.core.upgrade() else {
             return;
@@ -550,8 +550,6 @@ impl Chat {
         core.note_ending(self.agent_id(), Ending::Gone { reason, mid_turn });
     }
 
-    /// The agent began work nobody here asked for, such as answering a
-    /// background task that finished.
     pub(crate) fn note_cli_version(&self, version: &str) {
         let mut known = self.cli_version.locked();
         *known = Some(version.to_owned()).filter(|version| !version.is_empty());
@@ -615,6 +613,8 @@ impl Chat {
         self.cli_version.locked().clone()
     }
 
+    /// The agent began work nobody here asked for, such as answering a
+    /// background task that finished.
     pub(crate) fn work_started(&self) {
         let starts = {
             let mut state = self.turn.locked();
