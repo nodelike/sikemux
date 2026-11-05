@@ -48,7 +48,6 @@ pub fn of(kind: PaneKind) -> Kind {
         PaneKind::Git => kind_of(Icon::Git, "Git", Always, true),
         PaneKind::Search => kind_of(Icon::Search, "Search", Always, true),
         PaneKind::Board => kind_of(Icon::Board, "Agent board", Never, true),
-        PaneKind::Browser => kind_of(Icon::Globe, "Browser", Never, false),
         PaneKind::Desk => kind_of(Icon::PanelRight, "Desk", Never, false),
         PaneKind::ProjectSettings => kind_of(Icon::Settings, "Project settings", Never, true),
         PaneKind::InstallSikemux => kind_of(Icon::Download, "Install Sikemux", Never, true),
@@ -141,7 +140,6 @@ pub fn make(
         PaneKind::Agent
         | PaneKind::Terminal
         | PaneKind::Files
-        | PaneKind::Browser
         | PaneKind::Desk
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
@@ -201,7 +199,6 @@ pub fn draw(
                     .child("This tab needs a newer Sikemux."),
             )
             .into_any_element(),
-        PaneKind::Browser => crate::home::agent_view(bench, tab, id, "", cx),
     }
 }
 
@@ -228,7 +225,6 @@ pub fn focus(kind: PaneKind, bench: &Workbench, target: &str, window: &mut Windo
         | PaneKind::Git
         | PaneKind::Search
         | PaneKind::Board
-        | PaneKind::Browser
         | PaneKind::Desk
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
