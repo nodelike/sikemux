@@ -319,13 +319,18 @@ impl Sink {
     /// question so a core that takes the chat over can answer it too.
     /// `respond` is told the chosen option's id, or none when it was
     /// cancelled.
-    pub fn ask(&self, mut request: Value, reply: Value, respond: Respond) {
+    pub fn ask(&self, request: Value, reply: Value, respond: Respond) {
         if self.chat.approves() {
             if let Some(option_id) = permission::approval(&request) {
                 respond(Some(option_id));
                 return;
             }
         }
+        self.ask_person(request, reply, respond);
+    }
+
+    /// Like `ask`, for what only the person may answer, even under YOLO.
+    pub fn ask_person(&self, mut request: Value, reply: Value, respond: Respond) {
         let option_ids = request
             .get("options")
             .and_then(Value::as_array)

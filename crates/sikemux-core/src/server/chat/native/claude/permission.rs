@@ -14,6 +14,7 @@ const ALLOW_ALWAYS: &str = "allow-always";
 const REJECT: &str = "reject";
 const EXIT_PLAN: &str = "exit-plan";
 const KEEP_PLANNING: &str = "keep-planning";
+const CHOICE: &str = "choice:";
 
 fn suggestions(request: &Value) -> Option<&Value> {
     let suppressed = request
@@ -144,11 +145,56 @@ pub(crate) fn request(
     json!({ "sessionId": session, "toolCall": tool_call, "options": options })
 }
 
+/// Whether Claude Code itself asks, rather than the model: it waits for the
+/// person's answer in this call, so a later message can't answer it.
+pub(crate) fn is_claude_code_question(tool_id: &str) -> bool {
+    tool_id.starts_with("confirm_")
+}
+
+/// The permission request for a question Claude Code itself asks. Its last
+/// choice is the way out, as in "Not now".
+pub(crate) fn claude_code_question(session: &str, tool_id: &str, input: &Value) -> Value {
+    let asked = &input["questions"][0];
+    let choices = asked["options"].as_array().map_or(&[][..], Vec::as_slice);
+    let options: Vec<Value> = choices
+        .iter()
+        .enumerate()
+        .filter_map(|(index, choice)| {
+            let label = choice["label"].as_str()?;
+            let kind = if index + 1 == choices.len() {
+                PermissionKind::RejectOnce
+            } else {
+                PermissionKind::AllowOnce
+            };
+            Some(option(&format!("{CHOICE}{label}"), label, kind))
+        })
+        .collect();
+    json!({
+        "sessionId": session,
+        "toolCall": {
+            "toolCallId": tool_id,
+            "title": asked["question"],
+            "kind": "other",
+            "status": "pending",
+            "rawInput": input,
+        },
+        "options": options,
+    })
+}
+
 /// Claude Code's answer for the option the person chose, or for no answer.
 pub(crate) fn answer(tool_id: &str, input: &Value, cli: &Value, chosen: Option<&str>) -> Value {
     let allow = || json!({ "behavior": "allow", "updatedInput": input, "toolUseID": tool_id });
     match chosen {
         Some(ALLOW) => allow(),
+        Some(chosen) if chosen.starts_with(CHOICE) => {
+            let mut answer = allow();
+            if let Some(question) = input["questions"][0]["question"].as_str() {
+                answer["updatedInput"]["answers"] =
+                    json!({ question: chosen.trim_start_matches(CHOICE) });
+            }
+            answer
+        }
         Some(ALLOW_ALWAYS) => {
             let mut answer = allow();
             if let Some(suggestions) = suggestions(cli) {
@@ -195,6 +241,31 @@ mod tests {
             "tool_use_id": "t1",
             "permission_suggestions": suggestions,
         })
+    }
+
+    // Answered with a deny at once, "Turn them on" reached Claude Code as a refusal.
+    #[test]
+    fn claude_codes_own_question_is_answered_with_the_persons_choice() {
+        let question = "Turn on the mods Claude writes in this session?";
+        let input = json!({ "questions": [{ "question": question, "options": [
+            { "label": "How does this work?" },
+            { "label": "Turn them on" },
+            { "label": "Not now" },
+        ] }] });
+        assert!(is_claude_code_question("confirm_1"));
+        assert!(!is_claude_code_question("toolu_1"));
+
+        let asked = claude_code_question("s", "confirm_1", &input);
+        assert_eq!(asked["toolCall"]["title"], question);
+        assert_eq!(asked["options"][2]["kind"], "reject_once");
+
+        let id = asked["options"][1]["optionId"].as_str().unwrap();
+        let answered = answer("confirm_1", &input, &json!({}), Some(id));
+        assert_eq!(answered["behavior"], "allow");
+        assert_eq!(
+            answered["updatedInput"]["answers"][question],
+            "Turn them on"
+        );
     }
 
     #[test]

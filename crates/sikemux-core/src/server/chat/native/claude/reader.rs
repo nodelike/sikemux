@@ -575,6 +575,18 @@ impl Reader {
             .map(|tool| tool.session.clone())
             .filter(|session| *session != self.data.session_id);
         let session = parent.unwrap_or_else(|| self.data.session_id.clone());
+        if name == "AskUserQuestion" && permission::is_claude_code_question(&tool_id) {
+            let asked = permission::claude_code_question(&session, &tool_id, &input);
+            let reply = json!({
+                "requestId": request_id,
+                "toolId": tool_id,
+                "input": input,
+                "request": request,
+            });
+            self.sink
+                .ask_person(asked, reply.clone(), self.asking.responder(reply));
+            return;
+        }
         if name == "AskUserQuestion" {
             let told = self.sink.question(&input);
             self.control.respond(
