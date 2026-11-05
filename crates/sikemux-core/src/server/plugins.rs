@@ -16,8 +16,12 @@ use std::time::Duration;
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+pub use sikemux_plugin_api::Category;
 use sikemux_plugin_api::SignInStatus;
-pub use sikemux_plugin_api::{Category, CodeHostSpec, Listed, Manifest};
+use sikemux_view::plugins::Listed;
+
+mod manifest;
+pub use manifest::{AgentTool, CodeHostSpec, Compare, Manifest};
 
 use crate::cli::protocol::HarnessRequest;
 

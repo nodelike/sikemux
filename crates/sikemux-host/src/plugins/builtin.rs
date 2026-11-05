@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use sikemux_plugin_api::{Plugin, PluginError};
+use sikemux_plugin_api::Plugin;
 
 pub fn plugins() -> Vec<Arc<dyn Plugin>> {
-    let compiled_in: Vec<Result<Arc<dyn Plugin>, PluginError>> = vec![
+    vec![
         #[cfg(feature = "aws")]
         sikemux_plugin_aws::plugin(),
         #[cfg(feature = "bitbucket")]
@@ -26,13 +26,5 @@ pub fn plugins() -> Vec<Arc<dyn Plugin>> {
         sikemux_plugin_slack::plugin(),
         #[cfg(feature = "vercel")]
         sikemux_plugin_vercel::plugin(),
-    ];
-    compiled_in
-        .into_iter()
-        .filter_map(|plugin| {
-            plugin
-                .inspect_err(|error| eprintln!("a built-in plugin failed to load: {error}"))
-                .ok()
-        })
-        .collect()
+    ]
 }

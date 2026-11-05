@@ -238,17 +238,9 @@ mod tests {
     use serde_json::json;
     use sikemux_plugin_api::store::Accounts;
 
-    #[test]
-    fn its_manifest_parses() {
-        assert_eq!(
-            plugin().expect("manifest parses").manifest().id,
-            "sikemux.bitbucket"
-        );
-    }
-
     #[tokio::test]
     async fn reading_a_remote_never_needs_the_network() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let ctx = PluginContext::new(std::env::temp_dir().join("sikemux-bb-remote"));
         let resolved = plugin
             .call(
@@ -293,7 +285,7 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_signed_in_reads_as_signed_out() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let dir = std::env::temp_dir().join(format!("sikemux-bb-status-{}", std::process::id()));
         let ctx = PluginContext::new(dir.clone());
         let status = plugin

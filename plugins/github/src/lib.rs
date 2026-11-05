@@ -176,17 +176,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[test]
-    fn its_manifest_parses() {
-        assert_eq!(
-            plugin().expect("manifest parses").manifest().id,
-            "sikemux.github"
-        );
-    }
-
     #[tokio::test]
     async fn reading_a_remote_never_needs_the_network() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let ctx = PluginContext::new(std::env::temp_dir().join("sikemux-gha-remote"));
         let resolved = plugin
             .call(
@@ -240,7 +232,7 @@ mod live {
         };
         let dir = std::env::temp_dir().join(format!("sikemux-gha-live-{}", std::process::id()));
         let ctx = PluginContext::new(dir.clone());
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let (owner, name) = slug.split_once('/').expect("GHA_LIVE_REPO is owner/repo");
 
         let status = plugin

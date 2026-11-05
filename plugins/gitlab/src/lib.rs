@@ -205,17 +205,9 @@ mod tests {
         sikemux_plugin_api::store::save(dir, &config).expect("saves");
     }
 
-    #[test]
-    fn its_manifest_parses() {
-        assert_eq!(
-            plugin().expect("manifest parses").manifest().id,
-            "sikemux.gitlab"
-        );
-    }
-
     #[tokio::test]
     async fn gitlab_com_is_claimed_and_a_company_server_once_signed_in_to() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let dir = temp("remote");
         let ctx = PluginContext::new(dir.clone());
         let claimed = |url: &'static str| {
@@ -308,7 +300,7 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_signed_in_reads_as_signed_out() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let dir = temp("status");
         let ctx = PluginContext::new(dir.clone());
         let status = plugin

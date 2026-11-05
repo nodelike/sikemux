@@ -11,6 +11,7 @@ pub mod inbox;
 pub mod layout;
 pub mod memory;
 pub mod notch;
+pub mod plugins;
 pub mod prefs;
 pub mod push;
 pub mod questions;

@@ -68,7 +68,7 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_signed_in_reads_as_signed_out_and_offers_no_tools() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let ctx = scratch("status");
         let status = plugin
             .call(&ctx, "status", Value::Null)
@@ -88,7 +88,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_token_that_is_not_slacks_is_refused_before_asking_slack() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let error = plugin
             .call(&scratch("token"), "signIn", json!({ "token": "glpat-abc" }))
             .await
@@ -98,7 +98,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_unknown_method_is_refused() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let error = plugin
             .call(&scratch("unknown"), "nonsense", Value::Null)
             .await

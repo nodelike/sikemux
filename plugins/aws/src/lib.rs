@@ -102,14 +102,3 @@ impl Plugin for Aws {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn its_manifest_parses() {
-        let plugin = plugin().expect("manifest parses");
-        assert_eq!(plugin.manifest().id, "sikemux.aws");
-    }
-}

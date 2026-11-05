@@ -7,8 +7,10 @@ use std::path::Path;
 use std::sync::OnceLock;
 
 use serde_json::{json, Value};
-use sikemux_core::server::plugins::{Answer, Gated, Listing, Plugins, Provided, Sink};
-use sikemux_plugin_api::{AgentTool, Manifest, StreamSink};
+use sikemux_core::server::plugins::{
+    AgentTool, Answer, Gated, Listing, Manifest, Plugins, Provided, Sink,
+};
+use sikemux_plugin_api::StreamSink;
 use sikemux_process::user_environment::UserEnvironment;
 
 use super::host::PluginHost;

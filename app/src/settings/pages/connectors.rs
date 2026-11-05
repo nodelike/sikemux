@@ -13,7 +13,7 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use sikemux_plugin_api::Listed;
+use sikemux_view::plugins::Listed;
 
 use crate::core::{outcome, Ask, Target};
 use crate::icons::Icon;

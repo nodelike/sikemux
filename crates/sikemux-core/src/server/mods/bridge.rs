@@ -5,10 +5,10 @@
 
 use std::sync::Arc;
 
+use crate::server::plugins::{AgentTool, Manifest};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_plugin_api::codehost as host_method;
-use sikemux_plugin_api::{AgentTool, Manifest};
 
 use super::super::connection::{blocking, ClientConn};
 use super::super::plugins::{self, Provided};

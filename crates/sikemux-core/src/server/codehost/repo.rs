@@ -829,7 +829,7 @@ mod tests {
     use super::*;
 
     fn host(manifest: &str) -> Host {
-        let manifest = sikemux_plugin_api::Manifest::from_json(manifest).expect("a manifest");
+        let manifest = plugins::Manifest::from_json(manifest).expect("a manifest");
         let spec = manifest.code_host.expect("a code host");
         Host {
             plugin: "sikemux.test",

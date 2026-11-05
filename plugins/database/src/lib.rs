@@ -113,7 +113,7 @@ mod tests {
     #[tokio::test]
     async fn a_database_is_added_listed_and_removed_through_its_methods() {
         let ctx = scratch("methods");
-        let database = plugin().unwrap();
+        let database = plugin();
         assert_eq!(
             database.offers_agent_tools(&ctx, &[]).await.ok(),
             Some(false)
@@ -143,7 +143,7 @@ mod tests {
     #[tokio::test]
     async fn an_agent_finds_a_database_by_name_reads_it_and_cannot_change_it() {
         let ctx = scratch("agent");
-        let database = plugin().unwrap();
+        let database = plugin();
         saved_fixture(&database, &ctx, "Shop").await;
         let listed = database
             .call(&ctx, "agentDatabases", json!({}))
@@ -202,7 +202,7 @@ mod tests {
             return;
         };
         let ctx = scratch("agent-guard");
-        let database = plugin().unwrap();
+        let database = plugin();
         let url = format!("postgres://{user}@{host}:{port}/{database_name}");
         database
             .call(&ctx, "agentAdd", json!({ "url": url, "name": "Live" }))

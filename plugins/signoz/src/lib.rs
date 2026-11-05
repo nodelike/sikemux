@@ -155,14 +155,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn its_manifest_parses() {
-        assert_eq!(
-            plugin().expect("manifest parses").manifest().id,
-            "sikemux.signoz"
-        );
-    }
-
-    #[test]
     fn only_a_saved_address_with_a_credential_can_answer_an_agent() {
         let config = |url: &str, account: &str| config::SignozConfig {
             url: url.into(),
@@ -337,7 +329,7 @@ mod live {
             return;
         };
         let (ctx, dir) = scratch("key");
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let inspection = auth::inspect(
             ctx.data_dir(),
             serde_json::from_value(json!({ "url": url })).expect("reads"),
@@ -373,7 +365,7 @@ mod live {
             return;
         };
         let (ctx, dir) = scratch("session");
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let inspection = auth::inspect(
             ctx.data_dir(),
             serde_json::from_value(json!({ "url": url, "email": email })).expect("reads"),

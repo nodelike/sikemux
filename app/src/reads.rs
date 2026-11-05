@@ -14,8 +14,8 @@ use sikemux_core::server::{
     ShareView, ShownStash, SshHost, TaskList, UpdateState, UpdateStatus,
 };
 use sikemux_plugin_api::codehost::PullList;
-use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_view::catalog::CatalogAgent;
+use sikemux_view::plugins::{Listed, TokenForm};
 use sikemux_view::prefs::Preferences;
 use sikemux_view::questions::AgentQuestion;
 use sikemux_view::theme::ThemeSummary;

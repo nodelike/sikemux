@@ -121,7 +121,7 @@ mod tests {
     #[tokio::test]
     async fn with_no_site_signed_in_it_offers_no_tools_and_says_so() {
         let ctx = scratch("signed-out");
-        let Ok(jira) = plugin() else { return };
+        let jira = plugin();
         assert_eq!(jira.offers_agent_tools(&ctx, &[]).await.ok(), Some(false));
         let status = jira
             .call(&ctx, "status", Value::Null)

@@ -4,18 +4,17 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use serde_json::Value;
-use sikemux_plugin_api::{
-    AgentTool, Category, Manifest, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
-};
+use sikemux_plugin_api::{Category, Plugin, PluginContext, PluginError, PluginResult, StreamSink};
 use sikemux_process::sync::{Locked, Shared};
 use tokio::runtime::{Handle, Runtime};
 use tokio::task::JoinHandle;
 
 use super::builtin;
-use sikemux_core::server::plugins::Failure;
+use sikemux_core::server::plugins::{AgentTool, Failure, Manifest};
 
 struct Loaded {
     plugin: Arc<dyn Plugin>,
+    manifest: Manifest,
     context: Arc<PluginContext>,
     call_timeout: Duration,
 }
@@ -63,7 +62,13 @@ impl PluginHost {
             .build()?;
         let mut loaded = BTreeMap::new();
         for plugin in plugins {
-            let manifest = plugin.manifest();
+            let manifest = match Manifest::from_json(plugin.manifest()) {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    eprintln!("a built-in plugin failed to load: {error}");
+                    continue;
+                }
+            };
             if loaded.contains_key(&manifest.id) {
                 eprintln!(
                     "plugin {} is registered twice; keeping the first",
@@ -79,6 +84,7 @@ impl PluginHost {
                 manifest.id.clone(),
                 Loaded {
                     plugin,
+                    manifest,
                     context,
                     call_timeout,
                 },
@@ -157,14 +163,14 @@ impl PluginHost {
     pub fn offers_agent_tools(&self, id: &str) -> bool {
         self.plugins
             .get(id)
-            .is_some_and(|loaded| !loaded.plugin.manifest().tools.is_empty())
+            .is_some_and(|loaded| !loaded.manifest.tools.is_empty())
     }
 
     /// Every shell variable a loaded plugin reads.
     pub fn shell_variables(&self) -> Vec<String> {
         self.plugins
             .values()
-            .flat_map(|loaded| loaded.plugin.manifest().environment.clone())
+            .flat_map(|loaded| loaded.manifest.environment.clone())
             .collect()
     }
 
@@ -178,7 +184,7 @@ impl PluginHost {
     }
 
     pub fn manifests(&self) -> impl Iterator<Item = &Manifest> {
-        self.plugins.values().map(|loaded| loaded.plugin.manifest())
+        self.plugins.values().map(|loaded| &loaded.manifest)
     }
 
     /// Every tool the loaded plugins offer agents, beside the plugin that answers
@@ -194,9 +200,7 @@ impl PluginHost {
         let checks: Vec<(&str, JoinHandle<PluginResult<bool>>)> = self
             .plugins
             .iter()
-            .filter(|(id, loaded)| {
-                self.is_enabled(id) && !loaded.plugin.manifest().tools.is_empty()
-            })
+            .filter(|(id, loaded)| self.is_enabled(id) && !loaded.manifest.tools.is_empty())
             .map(|(id, loaded)| {
                 let plugin = Arc::clone(&loaded.plugin);
                 let context = Arc::clone(&loaded.context);
@@ -236,7 +240,7 @@ impl PluginHost {
     fn tools_of(&self, include: impl Fn(&str, &AgentTool) -> bool) -> Vec<(&str, &AgentTool)> {
         let mut offered: Vec<(&str, &AgentTool)> = Vec::new();
         for (id, loaded) in &self.plugins {
-            for tool in &loaded.plugin.manifest().tools {
+            for tool in &loaded.manifest.tools {
                 if include(id, tool) && offered.iter().all(|(_, kept)| kept.name != tool.name) {
                     offered.push((id.as_str(), tool));
                 }
@@ -356,18 +360,24 @@ mod tests {
     use serde_json::json;
     use sikemux_plugin_api::{Manifested, PluginFuture};
 
-    struct Echo(Manifest);
+    #[test]
+    fn every_built_in_manifest_parses() {
+        for plugin in builtin::plugins() {
+            Manifest::from_json(plugin.manifest()).expect("its manifest parses");
+        }
+    }
+
+    struct Echo(String);
 
     impl Echo {
         fn plugin(id: &str) -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(&json!({ "id": id, "name": "Echo" }).to_string())
-                .expect("test manifest parses");
+            let manifest = json!({ "id": id, "name": "Echo" }).to_string();
             Arc::new(Self(manifest))
         }
     }
 
     impl Manifested for Echo {
-        fn manifest(&self) -> &Manifest {
+        fn manifest(&self) -> &str {
             &self.0
         }
     }
@@ -459,14 +469,11 @@ mod tests {
 
     #[tokio::test]
     async fn agents_reach_only_the_methods_a_plugin_names_as_tools() {
-        let manifest = Manifest::from_json(
-            &json!({
-                "id": "test.echo", "name": "Echo",
-                "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
-            })
-            .to_string(),
-        )
-        .expect("test manifest parses");
+        let manifest = json!({
+            "id": "test.echo", "name": "Echo",
+            "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
+        })
+        .to_string();
         let host = host(vec![Arc::new(Echo(manifest))]);
 
         let offered: Vec<(&str, &str)> = host
@@ -486,14 +493,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_switched_off_plugin_answers_nothing_and_offers_no_tools() {
-        let manifest = Manifest::from_json(
-            &json!({
-                "id": "test.echo", "name": "Echo",
-                "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
-            })
-            .to_string(),
-        )
-        .expect("test manifest parses");
+        let manifest = json!({
+            "id": "test.echo", "name": "Echo",
+            "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
+        })
+        .to_string();
         let host = host(vec![Arc::new(Echo(manifest))]);
 
         host.set_disabled(vec!["test.echo".into()]);
@@ -514,26 +518,23 @@ mod tests {
 
     /// Offers its tools only to agents whose repository has a remote on `host`.
     struct Picky {
-        manifest: Manifest,
+        manifest: String,
         host: &'static str,
     }
 
     impl Picky {
         fn plugin(id: &str, host: &'static str) -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(
-                &json!({
-                    "id": id, "name": "Picky",
-                    "tools": [{ "name": "picky_look", "method": "look", "description": "Look." }],
-                })
-                .to_string(),
-            )
-            .expect("test manifest parses");
+            let manifest = json!({
+                "id": id, "name": "Picky",
+                "tools": [{ "name": "picky_look", "method": "look", "description": "Look." }],
+            })
+            .to_string();
             Arc::new(Self { manifest, host })
         }
     }
 
     impl Manifested for Picky {
-        fn manifest(&self) -> &Manifest {
+        fn manifest(&self) -> &str {
             &self.manifest
         }
     }
@@ -599,14 +600,11 @@ mod tests {
     #[test]
     fn the_first_plugin_keeps_a_tool_name_two_plugins_claim() {
         let claiming = |id: &str| -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(
-                &json!({
-                    "id": id, "name": "Echo",
-                    "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
-                })
-                .to_string(),
-            )
-            .expect("test manifest parses");
+            let manifest = json!({
+                "id": id, "name": "Echo",
+                "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
+            })
+            .to_string();
             Arc::new(Echo(manifest))
         };
         let host = host(vec![claiming("test.b"), claiming("test.a")]);
@@ -633,14 +631,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_plugin_gets_the_call_timeout_it_declares() {
-        let manifest = Manifest::from_json(
-            &json!({
-                "id": "test.slow", "name": "Slow",
-                "callTimeoutSecs": 1,
-            })
-            .to_string(),
-        )
-        .expect("test manifest parses");
+        let manifest = json!({
+            "id": "test.slow", "name": "Slow",
+            "callTimeoutSecs": 1,
+        })
+        .to_string();
         let host = host(vec![Arc::new(Echo(manifest)), Echo::plugin("test.echo")]);
         assert_eq!(
             host.call("test.slow", "block", Value::Null).await.ok(),

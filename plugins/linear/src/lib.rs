@@ -90,7 +90,7 @@ mod tests {
 
     #[tokio::test]
     async fn nothing_signed_in_reads_as_signed_out_and_offers_no_tools() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let ctx = scratch("status");
         let status = plugin
             .call(&ctx, "status", Value::Null)
@@ -110,7 +110,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_key_that_is_not_linears_is_turned_away_before_any_request() {
-        let plugin = plugin().expect("plugin loads");
+        let plugin = plugin();
         let error = plugin
             .call(&scratch("bad-key"), "signIn", json!({ "key": "xoxp-123" }))
             .await

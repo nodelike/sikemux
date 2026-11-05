@@ -167,12 +167,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn its_manifest_parses() {
-        let plugin = plugin().expect("manifest parses");
-        assert_eq!(plugin.manifest().id, "sikemux.rundeck");
-    }
-
-    #[test]
     fn execution_ids_may_be_strings() {
         let p: ExecutionParams = params(serde_json::json!({"executionId": "42"})).unwrap();
         assert_eq!(p.execution_id, 42);

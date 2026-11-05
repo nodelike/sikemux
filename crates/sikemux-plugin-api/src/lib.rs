@@ -8,7 +8,6 @@ mod error;
 pub mod http;
 pub mod images;
 pub mod json;
-mod manifest;
 pub mod network;
 pub mod oauth;
 pub mod ratelimit;
@@ -26,7 +25,6 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 pub use error::{Category, PluginError, PluginResult};
-pub use manifest::{AgentTool, CodeHostSpec, Compare, FormField, Listed, Manifest, TokenForm};
 pub use service::{Service, ServiceError, ServiceResult};
 pub use signin::{SignInStatus, SignedInAs};
 pub use sikemux_base::http::Unreachable;
@@ -35,7 +33,8 @@ pub type PluginFuture<'a, T> = Pin<Box<dyn Future<Output = PluginResult<T>> + Se
 
 /// What `plugin!` writes for a plugin.
 pub trait Manifested {
-    fn manifest(&self) -> &Manifest;
+    /// The plugin's `manifest.json`, which the core reads.
+    fn manifest(&self) -> &str;
 }
 
 /// A plugin's entry point and its struct, from the `manifest.json` beside its
@@ -43,21 +42,19 @@ pub trait Manifested {
 #[macro_export]
 macro_rules! plugin {
     ($name:ident $(, $field:ident: $kind:ty = $value:expr)* $(,)?) => {
-        pub fn plugin() -> Result<std::sync::Arc<dyn $crate::Plugin>, $crate::PluginError> {
-            Ok(std::sync::Arc::new($name {
-                manifest: $crate::Manifest::from_json(include_str!("../manifest.json"))?,
+        pub fn plugin() -> std::sync::Arc<dyn $crate::Plugin> {
+            std::sync::Arc::new($name {
                 $($field: $value,)*
-            }))
+            })
         }
 
         struct $name {
-            manifest: $crate::Manifest,
             $($field: $kind,)*
         }
 
         impl $crate::Manifested for $name {
-            fn manifest(&self) -> &$crate::Manifest {
-                &self.manifest
+            fn manifest(&self) -> &str {
+                include_str!("../manifest.json")
             }
         }
     };
