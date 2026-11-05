@@ -1,9 +1,7 @@
 import type { Delivery } from "./provider.ts";
 
 /** A Retry-After header's seconds, as milliseconds. */
-function retryAfterMs(
-  header: string | null | undefined,
-): number | undefined {
+function retryAfterMs(header: string | null | undefined): number | undefined {
   const seconds = header == null ? NaN : Number(header);
   return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : undefined;
 }
