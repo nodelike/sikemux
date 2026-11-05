@@ -42,7 +42,7 @@ pub fn permission_mode_id(
                 .find(|id| *id == expected)
         })
         .map(|_| Some(expected))
-        .ok_or_else(|| format!("The {provider} adapter does not offer permission mode {expected}"))
+        .ok_or_else(|| format!("{provider} does not offer the permission mode {expected}"))
 }
 
 #[cfg(test)]

@@ -84,32 +84,6 @@ pub fn with_model_config(mut setup: Value) -> Value {
     setup
 }
 
-/// The id of the option that sets how hard the model thinks. Agents name it
-/// differently (`effort`, `thinking`, `reasoning_effort`) but tag it alike.
-pub fn effort_config_id(setup: &Value) -> Option<&str> {
-    config_option(setup, |option| option["category"] == "thought_level")?
-        .get("id")?
-        .as_str()
-}
-
-/// Whether a select option offers the value. Options can arrive flat or in
-/// named groups.
-pub fn offers(setup: &Value, config_id: &str, value: &str) -> bool {
-    fn contains(options: &Value, value: &str) -> bool {
-        options.as_array().is_some_and(|options| {
-            options.iter().any(|option| {
-                option.get("value").and_then(Value::as_str) == Some(value)
-                    || option
-                        .get("options")
-                        .is_some_and(|group| contains(group, value))
-            })
-        })
-    }
-    config_option(setup, |option| option["id"] == config_id)
-        .and_then(|option| option.get("options"))
-        .is_some_and(|options| contains(options, value))
-}
-
 /// Moves the model option's current value after a `session/set_model`, which
 /// answers with nothing to read it from.
 pub fn select_model(setup: &mut Value, model_id: &str) {
@@ -151,8 +125,16 @@ mod tests {
         assert_eq!(option["type"], "select");
         assert_eq!(option["currentValue"], "gemini:flash");
         assert_eq!(option["options"][1]["description"], "Codex");
-        assert!(offers(&setup, "model", "openai-codex:gpt-5.5"));
-        assert!(!offers(&setup, "model", "anthropic:opus"));
+        assert!(crate::server::chat::pickers::offers(
+            &setup,
+            "model",
+            "openai-codex:gpt-5.5"
+        ));
+        assert!(!crate::server::chat::pickers::offers(
+            &setup,
+            "model",
+            "anthropic:opus"
+        ));
     }
 
     #[test]
@@ -173,26 +155,5 @@ mod tests {
             "openai-codex:gpt-5.5"
         );
         assert_eq!(setup["models"]["currentModelId"], "openai-codex:gpt-5.5");
-    }
-
-    #[test]
-    fn effort_is_found_by_category_whatever_its_id() {
-        for id in ["effort", "thinking", "reasoning_effort"] {
-            let setup = json!({ "configOptions": [
-                { "id": "model", "category": "model" },
-                { "id": id, "category": "thought_level", "options": [{ "value": "high" }] },
-            ] });
-            assert_eq!(effort_config_id(&setup), Some(id));
-            assert!(offers(&setup, id, "high"));
-        }
-        assert_eq!(effort_config_id(&json!({})), None);
-    }
-
-    #[test]
-    fn grouped_options_are_searched() {
-        let setup = json!({ "configOptions": [{ "id": "model", "options": [
-            { "name": "OpenAI", "options": [{ "value": "openai/gpt" }] },
-        ] }] });
-        assert!(offers(&setup, "model", "openai/gpt"));
     }
 }

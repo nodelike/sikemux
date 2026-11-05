@@ -711,7 +711,6 @@ pub(crate) async fn run<B: Backend>(
             }
             chat.note_agent(backend.pid());
             let start = state.start();
-            crate::server::chat::offered::remember(&provider, &start.setup);
             chat.mark_ready(start.clone());
             chat.emit(ChatEventKind::Ready, json!(start));
             for update in carried.into_iter().chain(notice) {

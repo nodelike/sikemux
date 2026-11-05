@@ -1,5 +1,7 @@
 //! What a chat offers to pick before its agent starts.
 
+use sikemux_wire::protocol::ConfigPicker;
+
 use super::*;
 
 /// The options a chat that waits for the person offers: those its launcher's last session
@@ -21,7 +23,7 @@ pub(super) fn waiting_options(core: &Core, chat: &Chat) -> Option<Value> {
     for row in options.as_array_mut().into_iter().flatten() {
         let chosen = if row["id"] == "model" {
             launch.model.clone()
-        } else if row["category"] == "thought_level" {
+        } else if sikemux_fold::pickers::is_effort(row) {
             launch.effort.clone()
         } else {
             None
@@ -58,17 +60,7 @@ pub(super) fn offer_model(core: &Core, launch: &ChatLaunch, options: &mut Value,
         }));
         return;
     };
-    let offered = |choices: &Value| -> bool {
-        choices.as_array().into_iter().flatten().any(|choice| {
-            choice["value"] == model
-                || choice["options"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .any(|choice| choice["value"] == model)
-        })
-    };
-    if !offered(&row["options"]) {
+    if !pickers::choices_offer(&row["options"], model) {
         match row["options"].as_array_mut() {
             Some(choices) => choices.insert(0, choice),
             None => row["options"] = Value::Array(vec![choice]),
@@ -139,7 +131,7 @@ pub(super) fn choose_before_start(
     let mut launch = chat.current_launch();
     match row {
         Some(row) if row["id"] == "model" => launch.model = Some(value),
-        Some(row) if row["category"] == "thought_level" => launch.effort = Some(value),
+        Some(row) if sikemux_fold::pickers::is_effort(row) => launch.effort = Some(value),
         _ => return Err(format!("{config_id} is chosen once the chat starts").into()),
     }
     chat.set_current(launch);
@@ -180,4 +172,15 @@ pub(super) fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
     if let Err(error) = kept {
         eprintln!("sikemux core: the agent's model choice was not kept: {error}");
     }
+}
+
+#[derive(serde::Deserialize)]
+pub(crate) struct AgentModelsParams {
+    pub(crate) agent: String,
+}
+
+/// The model choice `agent` last offered, from any launcher of it.
+pub(crate) fn models_of(core: &Core, agent: &str) -> Option<ConfigPicker> {
+    let options = core.workspaces.agent_options(agent)?;
+    pickers::pickers(&options).0
 }

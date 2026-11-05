@@ -1,6 +1,6 @@
-//! Chat agents: processes the core starts and speaks the Agent Client
-//! Protocol with, so a turn keeps going while the window is closed and a
-//! permission request waits for the person to come back.
+//! Chat agents: processes the core starts and speaks each one's own protocol
+//! with, so a turn keeps going while the window is closed and a permission
+//! request waits for the person to come back.
 
 mod actions;
 pub(crate) mod calls;
@@ -11,7 +11,6 @@ mod history;
 mod kept;
 pub(crate) mod mentions;
 mod native;
-pub(crate) mod offered;
 mod offers;
 pub(crate) mod permission;
 pub(crate) mod pickers;
@@ -41,7 +40,6 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ErrorKind;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::acp::native as acp_native;
 use crate::launch::PermissionMode;
 pub(crate) use native::Steered;
 use native::{ended_status, SessionEnd};
@@ -66,14 +64,15 @@ use sikemux_process::clock::epoch_ms;
 use turn::{Turn, TurnState};
 
 pub(crate) use actions::*;
+pub(crate) use offers::{models_of, AgentModelsParams};
 pub(crate) use registry::Chats;
 pub(crate) use start::*;
 
 const MAX_AGENT_ID: usize = 200;
 const START_TIMEOUT: Duration = Duration::from_secs(150);
 const REPLY_TIMEOUT: Duration = Duration::from_secs(15);
-const NOT_RUNNING: &str = "ACP session is not running";
-const STOPPED: &str = "ACP session stopped";
+const NOT_RUNNING: &str = "This chat is not running";
+const STOPPED: &str = "This chat has stopped";
 
 /// How long a stop waits for an agent's process to be gone.
 const STOP_SETTLE: Duration = Duration::from_secs(2);
@@ -831,7 +830,7 @@ impl Chat {
         match settled {
             Ok(Readiness::Ready(start)) => Ok(start),
             Ok(Readiness::Ended(Some(error))) => Err(error),
-            _ => Err("ACP session stopped before initialization completed".into()),
+            _ => Err("This chat stopped before it was ready".into()),
         }
     }
 
@@ -960,7 +959,7 @@ impl Chat {
             };
             if let Some(option_id) = &option_id {
                 if !request.option_ids.contains(option_id) {
-                    return Err("ACP permission option is invalid".into());
+                    return Err("That permission request does not offer this answer".into());
                 }
             }
             permissions.remove(request_id).ok_or_else(permission_gone)?
@@ -1091,7 +1090,7 @@ impl Chat {
     fn relaunch(&self, launch: &ChatLaunch) -> Option<ChatLaunch> {
         let start = self.feed.start()?;
         let setup = &start.setup;
-        let effort_id = acp_native::effort_config_id(setup).map(str::to_owned);
+        let effort_id = pickers::effort_config_id(setup).map(str::to_owned);
         let mut launch = launch.clone();
         launch.resume_id = self.kept_by_provider().then(|| start.session_id.clone());
         launch.permission_mode = self.feed.permission_mode();
@@ -1266,6 +1265,6 @@ pub(crate) struct ChatRecord {
 pub(super) fn permission_gone() -> CoreError {
     CoreError::of(
         ErrorKind::NotPending,
-        "ACP permission request is no longer pending",
+        "That permission request is no longer waiting",
     )
 }

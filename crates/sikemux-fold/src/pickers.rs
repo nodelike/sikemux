@@ -28,10 +28,13 @@ pub fn pickers(options: &Value) -> (Option<ConfigPicker>, Option<ConfigPicker>) 
             .find(|(row, _)| matches(row))
             .map(|(_, picker)| picker.clone())
     };
-    (
-        find(&|row| row["id"] == "model"),
-        find(&|row| row["category"] == "thought_level"),
-    )
+    (find(&|row| row["id"] == "model"), find(&is_effort))
+}
+
+/// Whether a session's option row sets how hard the model thinks. Agents name
+/// it differently (`effort`, `thinking`, `reasoning_effort`) but tag it alike.
+pub fn is_effort(row: &Value) -> bool {
+    row["category"] == "thought_level"
 }
 
 fn choices(options: &Value, group: Option<&str>) -> Vec<ConfigChoice> {

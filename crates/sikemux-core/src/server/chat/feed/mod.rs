@@ -23,7 +23,7 @@ use super::super::connection::{ClientConn, ClientId};
 use super::history::{History, HistoryState, Page, MAX_HISTORY_BYTES};
 use super::queue::{batch_len, Queued, MAX_QUEUED};
 use super::states::Subagent;
-use sikemux_fold::{ChatEventKind, Place};
+use sikemux_fold::{ChatEventKind, Place, UpdateKind};
 use sikemux_fold::{Fold, PageOf, PAGE_BYTES as ROW_BYTES};
 
 mod replay;
@@ -643,6 +643,14 @@ impl Feed {
             fold.work_in(cwd.clone(), place.clone());
         }
         inner.work = Some((cwd, place));
+    }
+
+    /// Whether the chat holds anything said, as one read back from disk may.
+    pub(crate) fn holds_said(&self) -> bool {
+        self.inner.locked().replay.entries.iter().any(|entry| {
+            entry.event.kind == ChatEventKind::SessionUpdate
+                && UpdateKind::within(&entry.event.payload).is_some_and(|kind| !kind.standing())
+        })
     }
 
     pub(crate) fn offer_effort(&self) {

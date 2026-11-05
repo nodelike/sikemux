@@ -58,7 +58,7 @@ pub(super) fn validate(launch: &ChatLaunch) -> CoreResult<()> {
     bounded_text("provider", &launch.provider, 64)?;
     bounded_text("working directory", &launch.cwd.to_string_lossy(), 4_096)?;
     if !launch.cwd.is_absolute() {
-        return Err("ACP working directory must be absolute".into());
+        return Err("A chat's working directory must be absolute".into());
     }
     if let Some(resume_id) = launch.resume_id.as_deref() {
         let agent = crate::agent_catalog::AgentKind::from_name(&launch.provider);
@@ -67,7 +67,7 @@ pub(super) fn validate(launch: &ChatLaunch) -> CoreResult<()> {
         }
     }
     if launch.program.as_os_str().is_empty() {
-        return Err("ACP agent program is missing".into());
+        return Err("This agent's program is missing".into());
     }
     for account in launch.account.iter().chain(&launch.fallbacks) {
         validate_account(account)?;
@@ -140,6 +140,27 @@ pub(super) fn launch(
     });
     let mut slot = chat.task.locked();
     *slot = Some(task);
+}
+
+/// Starts the chat's connection, and shows a chat that waits for the person what it can
+/// before its agent starts: its saved history and what it offers to pick.
+fn bring_up(
+    core: &Arc<Core>,
+    chat: &Arc<Chat>,
+    queue: mpsc::UnboundedReceiver<ChatCommand>,
+    begin: Begin,
+) {
+    launch(core, chat, queue, begin);
+    if chat.unstarted() {
+        native::show_saved(chat);
+        offer_options(core, chat);
+    }
+}
+
+/// Holds the chat's agent back until the person writes in the chat or something is sent to it.
+fn wait_for_person(chat: &Chat) {
+    chat.feed.wait_for_person();
+    chat.unstarted.store(true, Ordering::Release);
 }
 
 /// Starts a chat agent, with `subscriber` hearing it from its first event.
@@ -222,15 +243,14 @@ pub(super) fn start(
     if !waits_for_person {
         crate::server::activity_log::chat_launched(core, &chat.launch);
     }
-    chat.unstarted.store(waits_for_person, Ordering::Release);
+    if waits_for_person {
+        wait_for_person(&chat);
+    }
     chat.keep(kept::Progress::STARTING);
     if let Some(client) = subscriber {
         chat.feed.subscribe(client);
     }
-    if waits_for_person {
-        chat.feed.wait_for_person();
-    }
-    launch(
+    bring_up(
         core,
         &chat,
         queue,
@@ -239,10 +259,6 @@ pub(super) fn start(
             notice: None,
         },
     );
-    if waits_for_person {
-        native::show_saved(&chat);
-        offer_options(core, &chat);
-    }
     Ok(chat)
 }
 
@@ -255,7 +271,11 @@ pub(crate) async fn until_started(core: &Arc<Core>, chat: Arc<Chat>) -> CoreResu
                 core.note_agent_gone(chat.agent_id());
             }
             Chats::halt(&chat);
-            Err("ACP adapter did not become ready within 150 seconds".into())
+            Err(format!(
+                "The agent did not become ready within {} seconds",
+                START_TIMEOUT.as_secs()
+            )
+            .into())
         }
     }
 }
@@ -272,11 +292,10 @@ pub(crate) fn resume(core: &Arc<Core>, record: ChatRecord) {
     match core.chats.insert(core, record.launch, record.origin, None) {
         Ok((chat, queue)) => {
             if record.unstarted {
-                chat.feed.wait_for_person();
-                chat.unstarted.store(true, Ordering::Release);
+                wait_for_person(&chat);
             }
             chat.keep(kept::Progress::STARTING);
-            launch(
+            bring_up(
                 core,
                 &chat,
                 queue,
@@ -285,10 +304,6 @@ pub(crate) fn resume(core: &Arc<Core>, record: ChatRecord) {
                     notice,
                 },
             );
-            if chat.unstarted() {
-                native::show_saved(&chat);
-                offer_options(core, &chat);
-            }
         }
         Err(error) => {
             eprintln!("sikemux core: chat {agent_id} was not resumed after the update: {error}")
@@ -368,8 +383,7 @@ pub(super) fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -
         Some((feed, flags)),
     )?;
     if kept.unstarted {
-        chat.feed.wait_for_person();
-        chat.unstarted.store(true, Ordering::Release);
+        wait_for_person(&chat);
     }
     let core = core.clone();
     tokio::spawn(async move {
@@ -387,7 +401,10 @@ pub(super) fn take_up(core: &Arc<Core>, dir: &std::path::Path, kept: KeptChat) -
         match read {
             Ok((launch_spec, _)) if chat.unstarted() => {
                 chat.set_current(launch_spec);
-                launch(
+                // What it had shown came back with its feed, and must not be told twice.
+                chat.saved_shown
+                    .store(chat.feed.holds_said(), Ordering::Release);
+                bring_up(
                     &core,
                     &chat,
                     queue,
@@ -448,7 +465,7 @@ pub(super) fn carry_on(
         launch_spec.resume_id = None;
     }
     chat.set_current(launch_spec.clone());
-    launch(
+    bring_up(
         core,
         chat,
         queue,
@@ -492,7 +509,7 @@ pub(crate) fn adopt(
     if !live.asked.is_empty() {
         core.seen.wants_a_look(chat.agent_id());
     }
-    launch(
+    bring_up(
         core,
         &chat,
         queue,

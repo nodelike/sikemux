@@ -90,6 +90,28 @@ pub fn config_option(setup: &Value, matches: impl Fn(&Value) -> bool) -> Option<
         .find(|option| matches(option))
 }
 
+/// The id of the option that sets how hard the model thinks.
+pub fn effort_config_id(setup: &Value) -> Option<&str> {
+    config_option(setup, |option| sikemux_fold::pickers::is_effort(option))?
+        .get("id")?
+        .as_str()
+}
+
+/// Whether choices, which can arrive flat or in named groups, offer the value.
+pub fn choices_offer(choices: &Value, value: &str) -> bool {
+    choices.as_array().is_some_and(|choices| {
+        choices
+            .iter()
+            .any(|choice| choice["value"] == value || choices_offer(&choice["options"], value))
+    })
+}
+
+/// Whether a select option offers the value.
+pub fn offers(setup: &Value, config_id: &str, value: &str) -> bool {
+    config_option(setup, |option| option["id"] == config_id)
+        .is_some_and(|option| choices_offer(&option["options"], value))
+}
+
 /// The value a select option currently holds.
 pub fn current_choice(setup: &Value, config_id: &str) -> Option<String> {
     config_option(setup, |option| option["id"] == config_id)?
@@ -101,6 +123,27 @@ pub fn current_choice(setup: &Value, config_id: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn effort_is_found_by_category_whatever_its_id() {
+        for id in ["effort", "thinking", "reasoning_effort"] {
+            let setup = json!({ "configOptions": [
+                { "id": "model", "category": "model" },
+                { "id": id, "category": "thought_level", "options": [{ "value": "high" }] },
+            ] });
+            assert_eq!(effort_config_id(&setup), Some(id));
+            assert!(offers(&setup, id, "high"));
+        }
+        assert_eq!(effort_config_id(&json!({})), None);
+    }
+
+    #[test]
+    fn grouped_options_are_searched() {
+        let setup = json!({ "configOptions": [{ "id": "model", "options": [
+            { "name": "OpenAI", "options": [{ "value": "openai/gpt" }] },
+        ] }] });
+        assert!(offers(&setup, "model", "openai/gpt"));
+    }
 
     #[test]
     fn the_current_choice_is_read_from_the_config_options() {

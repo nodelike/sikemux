@@ -427,6 +427,21 @@ impl Workspaces {
             .cloned()
     }
 
+    /// What `agent`'s launchers offered last: its own default launcher's, else another's.
+    pub(crate) fn agent_options(&self, agent: &str) -> Option<Value> {
+        let published = self.published.locked();
+        let options = &published.saved.launcher_options;
+        let of_a_profile = format!("{agent}:");
+        options
+            .get(agent)
+            .or_else(|| {
+                options
+                    .iter()
+                    .find_map(|(id, kept)| id.starts_with(&of_a_profile).then_some(kept))
+            })
+            .cloned()
+    }
+
     pub(crate) fn accounts(&self) -> Option<Book> {
         self.published.locked().saved.accounts.clone()
     }

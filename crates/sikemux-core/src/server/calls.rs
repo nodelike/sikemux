@@ -514,7 +514,7 @@ calls! { core, client, method, params;
     "addTask": Owner => answer(super::tasks::add(&core, parse(params)?, super::tasks::answered_by(&core, &client.peer)).await?),
     "removeTask": Owner => answer(super::tasks::remove(&core, parse(params)?).await?),
     "setCheck": Owner => answer(super::tasks::set_check(&core, parse(params)?).await?),
-    "agentModels": NoDevice => answer(super::chat::offered::models(&parse::<super::chat::offered::AgentModelsParams>(params)?.agent)),
+    "agentModels": NoDevice => answer(super::chat::models_of(&core, &parse::<super::chat::AgentModelsParams>(params)?.agent)),
     "plugin": Owner, counted_by("plugin") => answer(plugins::window_call(&core, parse(params)?).await),
     "pluginManifests": Owner => answer(plugins::manifests(&core)),
     "releaseNotes": Watch => answer(super::about::release_notes(parse(params)?).await?),

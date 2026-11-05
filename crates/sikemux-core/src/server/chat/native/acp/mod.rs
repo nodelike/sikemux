@@ -22,6 +22,7 @@ use sikemux_process::sync::Locked;
 use crate::acp::{air, native, permission_mode_id};
 use crate::launch::PermissionMode;
 use crate::server::chat::failure::Failure;
+use crate::server::chat::pickers;
 use crate::server::chat::prompt::prompt_blocks;
 use sikemux_wire::protocol::ChatLaunch;
 
@@ -372,7 +373,7 @@ impl Acp {
     /// the agent no longer offers is skipped, since model lists change between
     /// launches and a stale one should not stop the chat from starting.
     async fn apply_saved_choices(&mut self, model: Option<&str>, effort: Option<&str>) {
-        if let Some(model) = model.filter(|model| native::offers(&self.kept.setup, "model", model))
+        if let Some(model) = model.filter(|model| pickers::offers(&self.kept.setup, "model", model))
         {
             let applied = if self.kept.model_outside_config {
                 self.set_model(model).await
@@ -386,8 +387,8 @@ impl Acp {
         let Some(effort) = effort else {
             return;
         };
-        let Some(config_id) = native::effort_config_id(&self.kept.setup)
-            .filter(|id| native::offers(&self.kept.setup, id, effort))
+        let Some(config_id) = pickers::effort_config_id(&self.kept.setup)
+            .filter(|id| pickers::offers(&self.kept.setup, id, effort))
             .map(str::to_owned)
         else {
             return;

@@ -318,7 +318,7 @@ impl Chats {
     ) -> CoreResult<(Arc<Chat>, mpsc::UnboundedReceiver<ChatCommand>)> {
         let mut chats = self.chats.locked();
         if chats.contains_key(&launch.agent_id) {
-            return Err("ACP session is already running".into());
+            return Err("This chat is already running".into());
         }
         let (commands, queue) = mpsc::unbounded_channel();
         // A chat waking from sleep goes on in the feed it slept with, so a client reading
@@ -375,9 +375,12 @@ impl Chats {
             origin,
             core: Arc::downgrade(core),
         });
-        let held = chat.turn.locked().turn == Turn::Held;
-        if held {
-            chat.end_held_after(SUBAGENT_WAIT, 0, true);
+        let held = {
+            let state = chat.turn.locked();
+            (state.turn == Turn::Held).then_some(state.holds)
+        };
+        if let Some(hold) = held {
+            chat.end_held_after(SUBAGENT_WAIT, hold, true);
         }
         self.resting
             .locked()
