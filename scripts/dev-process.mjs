@@ -2,31 +2,16 @@ import { spawnSync } from "node:child_process";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 
+/** Where a core listens, as `sikemux-core` names it. */
+export function coreSocket(name) {
+  return join(userInfo().homedir, ".config", "sikemux", name);
+}
+
 // A Sikemux terminal names its own app, project and agent in these variables.
 // Sikemux Dev started from one must not take them as its own.
 const KEPT_OVERRIDES = new Set(["SIKEMUX_CORE_SOCKET", "SIKEMUX_SIDECAR_PATH"]);
 // The installed app's core, which a Sikemux terminal may name as its socket.
-const INSTALLED_CORE = join(
-  userInfo().homedir,
-  ".config",
-  "sikemux",
-  "core.sock",
-);
-// What a Claude Code session sets for the programs it runs, as LAUNCHING_SESSION in
-// sikemux-process's vars.rs names them: Sikemux Dev started from one would hand
-// them to every agent, turning transcript saving off and pointing at its Claude home.
-const CLAUDE_SESSION = [
-  "CLAUDECODE",
-  "CLAUDE_CODE_CHILD_SESSION",
-  "CLAUDE_CODE_ENTRYPOINT",
-  "CLAUDE_CODE_EXECPATH",
-  "CLAUDE_CODE_MESSAGING_SOCKET",
-  "CLAUDE_CODE_MESSAGING_TOKEN",
-  "CLAUDE_CODE_SESSION_ID",
-  "CLAUDE_EFFORT",
-  "CLAUDE_PID",
-  "CLAUDE_CONFIG_DIR",
-];
+const INSTALLED_CORE = coreSocket("core.sock");
 
 export function withoutTerminalSession(env) {
   const clean = { ...env };
@@ -39,7 +24,6 @@ export function withoutTerminalSession(env) {
   }
   if (clean.SIKEMUX_CORE_SOCKET === INSTALLED_CORE)
     delete clean.SIKEMUX_CORE_SOCKET;
-  for (const key of CLAUDE_SESSION) delete clean[key];
   if (clean.TERM_PROGRAM === "Sikemux") {
     delete clean.TERM_PROGRAM;
     delete clean.TERM_PROGRAM_VERSION;

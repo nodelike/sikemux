@@ -12,7 +12,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,6 +21,7 @@ import {
   signalProcessTree,
   stopProcessTree,
   withoutTerminalSession,
+  coreSocket,
 } from "./dev-process.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -31,15 +32,10 @@ const contents = join(bundle, "Contents");
 const macos = join(contents, "MacOS");
 const coreApp = join(contents, "Helpers", "Sikemux Core.app");
 const ownCore = join(coreApp, "Contents", "MacOS", "sikemux-host");
-// Where a release links its core beside the app, and where an older make dev ran it from.
+// Where a release links its core beside the app.
 const coreLink = join(macos, "sikemux-host");
 const notchApp = join(contents, "Helpers", "Sikemux Notch.app");
-const socket = join(
-  process.env.HOME ?? homedir(),
-  ".config",
-  "sikemux",
-  "core.dev.sock",
-);
+const socket = coreSocket("core.dev.sock");
 const appHelpers = ["sikemux-voice", "sikemux-sim"];
 
 function fail(message) {
@@ -137,10 +133,6 @@ function assemble() {
   );
   rmSync(coreLink, { force: true });
   symlinkSync(appMetadata()["core-link"], coreLink);
-  rmSync(join(macos, "Sikemux Notch Dev.app"), {
-    recursive: true,
-    force: true,
-  });
   rmSync(notchApp, { recursive: true, force: true });
   run("cp", ["-cR", built("Sikemux Notch Dev.app"), notchApp]);
   icon(resources);
