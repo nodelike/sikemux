@@ -44,7 +44,7 @@ pub(super) fn settled(seeding: Option<Seeding>) -> Option<Seeding> {
 }
 
 /// Starts the search of `project`'s past sessions, unless it ran before.
-/// Called when the person starts the project's first goal.
+/// The board calls it for each goal the person starts.
 pub(crate) fn seed_once(core: &Arc<Core>, project: &str) {
     let ran =
         (core.memory.state.locked().held.get(project)).is_some_and(|held| held.seeding.is_some());

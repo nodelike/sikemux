@@ -22,7 +22,7 @@ use crate::server::chat::Chat;
 use crate::server::connection::blocking;
 use crate::server::goal_summary;
 use crate::server::kept::Kept;
-use crate::server::{memory, Core};
+use crate::server::Core;
 use crate::sessions::asked::may_hold_secret;
 use crate::text::clipped;
 use sikemux_fold::update::goal_notice;
@@ -418,7 +418,6 @@ fn track_now(core: &Arc<Core>, agent: &str) -> Result<(String, u64, String), Str
             core.boards.save(&mut state, &project);
         }
     }
-    memory::seed_once(core, &project);
     Ok((project, card, title))
 }
 
