@@ -1,5 +1,5 @@
 import { useAuth } from "@clerk/react";
-import { shareUrl } from "@sikemux/protocol/live";
+import { shareUrl } from "@shared/account/live";
 import { lazy, Suspense, useEffect, useMemo } from "react";
 import { webCipher } from "@shared/share/cipher";
 import { parseShareLink, type ShareLink } from "@shared/share/link";

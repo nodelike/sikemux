@@ -1,6 +1,14 @@
 import { Platform } from 'react-native';
-import type { ApnsEnvironment, Device, DeviceRegistration, JoinTicket, PushApp, PushTokenRegistration, PushTokenState } from '@protocol';
-import { ApiProblem, connectApi } from '@protocol/api';
+import type {
+  ApnsEnvironment,
+  Device,
+  DeviceRegistration,
+  JoinTicket,
+  PushApp,
+  PushTokenRegistration,
+  PushTokenState,
+} from '@sikemux/protocol';
+import { ApiProblem, connectApi } from '@shared/account/api';
 
 import { deviceIdentity } from '@/phone/identity';
 import { phoneName } from '@/phone/name';

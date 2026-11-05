@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Device } from '@protocol';
+import type { Device } from '@sikemux/protocol';
 
 import { File, clear as clearDisk } from '../../test/mocks/expo-file-system';
 

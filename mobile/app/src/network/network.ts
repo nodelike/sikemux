@@ -1,6 +1,6 @@
 import { File, Paths } from 'expo-file-system';
-import type { MinimumVersions, Network, Relay } from '@protocol';
-import { connectApi } from '@protocol/api';
+import type { MinimumVersions, Network, Relay } from '@sikemux/protocol';
+import { connectApi } from '@shared/account/api';
 import type { RelaySetting } from '@sikemux/native';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';

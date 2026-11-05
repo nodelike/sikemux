@@ -1,5 +1,5 @@
 import { requireOptionalNativeModule } from 'expo';
-import type { ApnsEnvironment } from '@protocol';
+import type { ApnsEnvironment } from '@sikemux/protocol';
 
 export type ShownCard = { tag: string; host: string; agent?: string; kind?: string; request?: string };
 

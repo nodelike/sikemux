@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
-import type { AccountEvent, LiveApp, RevokeReason } from '@protocol';
-import { LiveClient, type SocketHandlers, type SocketLike } from '@protocol/live';
+import type { AccountEvent, LiveApp, RevokeReason } from '@sikemux/protocol';
+import { LiveClient, type SocketHandlers, type SocketLike } from '@shared/account/live';
 
 export type Cursor = { load(): Promise<number>; save(id: number): Promise<void> };
 

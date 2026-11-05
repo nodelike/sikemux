@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSignIn, useSignUp } from '@clerk/expo';
-import { explain, signInFlow, type CodePurpose, type SignInStep } from '@protocol/account';
+import { explain, signInFlow, type CodePurpose, type SignInStep } from '@shared/account/account';
 
 import { CodeEntry } from '@/ui/CodeEntry';
 import { goBack, goHome } from '@/ui/navigate';

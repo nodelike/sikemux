@@ -2,7 +2,7 @@ import * as Application from 'expo-application';
 import * as Crypto from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
-import type { ApnsEnvironment, PushApp } from '@protocol';
+import type { ApnsEnvironment, PushApp } from '@sikemux/protocol';
 
 import { notifier } from '../../modules/notify';
 import { clearPushToken, setPushToken, type TokenSource } from '@/account/api';

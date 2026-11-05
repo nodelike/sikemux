@@ -3,7 +3,7 @@ import { Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Tex
 import { router, useIsFocused } from 'expo-router';
 import { useUser } from '@clerk/expo';
 import * as Clipboard from 'expo-clipboard';
-import type { Device } from '@protocol';
+import type { Device } from '@sikemux/protocol';
 import { agentLabel } from '@shared/agents/catalog';
 
 import { AccountSheet } from '@/account/AccountSheet';

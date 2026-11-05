@@ -1,4 +1,4 @@
-import type { ChannelVersions } from '@protocol';
+import type { ChannelVersions } from '@sikemux/protocol';
 
 /**
  * The installed app's version from its build number, which release builds set to the Play version code:

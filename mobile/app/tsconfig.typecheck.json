@@ -6,8 +6,8 @@
       "@shared/*": ["../../shared/*"],
       "react": ["./node_modules/@types/react"],
       "react/*": ["./node_modules/@types/react/*"],
-      "@protocol": ["../../server/protocol/generated/types.ts"],
-      "@protocol/*": ["../../server/protocol/src/*"]
+      "@sikemux/protocol": ["../../server/protocol/generated/types.ts"],
+      "@sikemux/protocol/*": ["../../server/protocol/src/*"]
     }
   }
 }

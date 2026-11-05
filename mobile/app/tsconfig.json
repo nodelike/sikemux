@@ -8,8 +8,8 @@
     "paths": {
       "@/*": ["./src/*"],
       "@shared/*": ["../../shared/*"],
-      "@protocol": ["../../server/protocol/generated/types.ts"],
-      "@protocol/*": ["../../server/protocol/src/*"]
+      "@sikemux/protocol": ["../../server/protocol/generated/types.ts"],
+      "@sikemux/protocol/*": ["../../server/protocol/src/*"]
     }
   },
   "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]

@@ -1,4 +1,4 @@
-import { confirmsDeletion } from '@protocol/account';
+import { confirmsDeletion } from '@shared/account/account';
 
 export type DeletionPhase = { name: 'confirm' } | { name: 'deleting' } | { name: 'done' };
 

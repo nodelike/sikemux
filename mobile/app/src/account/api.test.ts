@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { errorCode, explain } from '@protocol/account';
+import { errorCode, explain } from '@shared/account/account';
 
 import { accountHosts, ApiProblem, clearPushToken, deleteAccount, joinTicket, registerPhone, removePhone, setPushToken } from './api';
 

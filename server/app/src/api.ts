@@ -1,6 +1,6 @@
 import type { useAuth } from "@clerk/react";
-import { TRY_AGAIN } from "@sikemux/protocol/account";
-import { ApiProblem, connectApi } from "@sikemux/protocol/api";
+import { TRY_AGAIN } from "@shared/account/account";
+import { ApiProblem, connectApi } from "@shared/account/api";
 
 import { config } from "./config.ts";
 

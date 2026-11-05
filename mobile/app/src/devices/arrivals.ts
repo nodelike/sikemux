@@ -1,5 +1,5 @@
 import { File, Paths } from 'expo-file-system';
-import type { Device } from '@protocol';
+import type { Device } from '@sikemux/protocol';
 
 import { readWhole, writeWhole } from './disk';
 

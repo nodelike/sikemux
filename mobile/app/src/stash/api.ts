@@ -1,7 +1,7 @@
 import { isDrawnType } from '@shared/lib/imagePaths';
 import { Directory, File, Paths, UploadTask, UploadType } from 'expo-file-system';
-import type { StashItem, StashTarget } from '@protocol';
-import { answerProblem, ApiProblem, bearer } from '@protocol/api';
+import type { StashItem, StashTarget } from '@sikemux/protocol';
+import { answerProblem, ApiProblem, bearer } from '@shared/account/api';
 
 import { api, OFFLINE, type TokenSource } from '@/account/api';
 import { apiUrl } from '@/account/config';

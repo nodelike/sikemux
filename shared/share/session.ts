@@ -1,5 +1,6 @@
 import type { ShareClientMessage, ShareServerMessage } from "../../server/protocol/generated/types";
 import { ShareCloseCode } from "../../server/protocol/generated/types";
+import { OVER_LIMIT_WAIT_MS, reconnectDelay, SignInRenewal } from "../account/renewal";
 import { setAgentCatalog } from "../agents/catalog";
 import { imageType } from "../lib/imagePaths";
 import { applyChanges, emptyChat, fromView, withPage } from "../chat/rows";
@@ -59,23 +60,8 @@ export interface ShareSessionOptions {
 
 /** Whose catalog a share's agents are named from: the host that shared it, not one this client is on. */
 const SHARING_CORE = "share";
-const BACKOFF_BASE_MS = 1_000;
-const BACKOFF_CAP_MS = 60_000;
 /** A question the host has not answered in this long gets no answer. */
 const ANSWER_WAIT_MS = 30_000;
-/** A fresh token goes out this long before the last one expires. */
-const AUTH_AHEAD_MS = 15_000;
-
-/** When a sign-in token expires, in milliseconds since the epoch, or 0 when it cannot be read. */
-function expiresAt(token: string): number {
-    try {
-        const payload = (token.split(".")[1] ?? "").replace(/-/g, "+").replace(/_/g, "/");
-        const exp = (JSON.parse(atob(payload)) as { exp?: unknown }).exp;
-        return typeof exp === "number" ? exp * 1000 : 0;
-    } catch {
-        return 0;
-    }
-}
 
 /**
  * One shared chat, watched read-only through the accounts server. It holds the rows the host's
@@ -101,7 +87,7 @@ export class ShareSession {
     private stopped = true;
     private failures = 0;
     private retryTimer: ReturnType<typeof setTimeout> | null = null;
-    private authTimer: ReturnType<typeof setTimeout> | null = null;
+    private readonly renewal: SignInRenewal;
     /** The last frame taken, so a reconnect asks only for what came after it. */
     private seq: number | undefined;
     /** Frames are unsealed one after another, so they apply in the order they came. */
@@ -116,6 +102,7 @@ export class ShareSession {
 
     constructor(options: ShareSessionOptions) {
         this.options = options;
+        this.renewal = new SignInRenewal(options.token);
         this.snap = this.build();
     }
 
@@ -138,9 +125,8 @@ export class ShareSession {
     stop = () => {
         this.stopped = true;
         if (this.retryTimer) clearTimeout(this.retryTimer);
-        if (this.authTimer) clearTimeout(this.authTimer);
+        this.renewal.stop();
         this.retryTimer = null;
-        this.authTimer = null;
         const socket = this.socket;
         this.socket = null;
         socket?.close();
@@ -232,8 +218,7 @@ export class ShareSession {
     }
 
     private closed(code: number) {
-        if (this.authTimer) clearTimeout(this.authTimer);
-        this.authTimer = null;
+        this.renewal.stop();
         for (const settle of this.answers.values()) settle(null);
         this.answers.clear();
         if (this.stopped) return;
@@ -242,8 +227,8 @@ export class ShareSession {
         this.hostOnline = false;
         this.emit();
         this.failures += 1;
-        const ceiling = Math.min(BACKOFF_CAP_MS, BACKOFF_BASE_MS * 2 ** Math.min(this.failures - 1, 16));
-        const wait = code === ShareCloseCode.overLimit ? Math.max(30_000, ceiling) : Math.random() * ceiling;
+        const delay = reconnectDelay(this.failures - 1, Math.random());
+        const wait = code === ShareCloseCode.overLimit ? Math.max(OVER_LIMIT_WAIT_MS, delay) : delay;
         this.retryTimer = setTimeout(() => {
             this.retryTimer = null;
             if (!this.stopped) this.open();
@@ -306,23 +291,11 @@ export class ShareSession {
     }
 
     private refreshAuth(socket: WebSocket, expiry: number) {
-        if (this.authTimer) clearTimeout(this.authTimer);
-        this.authTimer = setTimeout(
-            () => {
-                this.authTimer = null;
-                void this.refresh(socket, expiry);
-            },
-            Math.max(1_000, expiry - Date.now() - AUTH_AHEAD_MS),
-        );
-    }
-
-    /** The sign-in may still hand out the token the server already has; it is asked past its cache then. */
-    private async refresh(socket: WebSocket, expiry: number) {
-        let token = await this.options.token(false);
-        if (token && expiresAt(token) <= expiry) token = await this.options.token(true);
-        if (!token || this.socket !== socket) return;
-        this.send(socket, { type: "auth", token });
-        this.refreshAuth(socket, expiresAt(token));
+        this.renewal.before(expiry, (token) => {
+            if (this.socket !== socket) return false;
+            this.send(socket, { type: "auth", token });
+            return true;
+        });
     }
 
     /** One unsealed frame: a snapshot starts the chat over, the rest change it. */

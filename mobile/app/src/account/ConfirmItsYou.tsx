@@ -2,7 +2,7 @@ import { useReducer, useRef } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useReverification, useSession } from '@clerk/expo';
 
-import { chooseFactor, errorCode, explain, orReverify } from '@protocol/account';
+import { chooseFactor, errorCode, explain, orReverify } from '@shared/account/account';
 
 import { type Verify, verifying } from '@/account/reverify';
 import { CodeEntry } from '@/ui/CodeEntry';

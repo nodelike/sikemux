@@ -6,7 +6,7 @@ const config = getDefaultConfig(__dirname);
 
 // The chat transcript, the agent catalog and the share format come from shared/, which the share page uses too.
 config.watchFolders = [...config.watchFolders, path.resolve(__dirname, '../../shared')];
-// The accounts API's types, client and close codes come from the server's protocol (@protocol).
+// The accounts API's types, client and close codes come from the server's protocol (@sikemux/protocol).
 config.watchFolders.push(path.resolve(__dirname, '../../server/protocol/generated'), path.resolve(__dirname, '../../server/protocol/src'));
 
 // The pretend Mac's answers are read by the core's Rust parser, as a real host reads them.

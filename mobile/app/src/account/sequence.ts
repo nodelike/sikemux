@@ -1,4 +1,4 @@
-import { reconnectDelay } from '@protocol/live';
+import { reconnectDelay } from '@shared/account/renewal';
 
 import { problem } from '@/core/problem';
 import { AccountDeleting, ApiProblem } from './api';

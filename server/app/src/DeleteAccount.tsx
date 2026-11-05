@@ -4,7 +4,7 @@ import {
   confirmsDeletion,
   errorCode,
   orReverify,
-} from "@sikemux/protocol/account";
+} from "@shared/account/account";
 import { useId, useState, type SubmitEvent } from "react";
 
 import { formatDay } from "@shared/lib/format";

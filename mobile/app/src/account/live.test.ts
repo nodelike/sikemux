@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import type { AccountEvent, LiveServerMessage, RevokeReason } from '@protocol';
+import type { AccountEvent, LiveServerMessage, RevokeReason } from '@sikemux/protocol';
 
-import { afterByeDelay, liveUrl, reconnectDelay, type SocketHandlers } from '@protocol/live';
+import { afterByeDelay, liveUrl, type SocketHandlers } from '@shared/account/live';
+import { reconnectDelay } from '@shared/account/renewal';
 
 import { LiveAccount, readEvents, type LiveDeps } from './live';
 

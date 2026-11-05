@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
-import type { PendingHost } from '@protocol';
+import type { PendingHost } from '@sikemux/protocol';
 
 import { formatAgo, formatDay } from '@shared/lib/format';
 import { platformName } from '@shared/remote/access';

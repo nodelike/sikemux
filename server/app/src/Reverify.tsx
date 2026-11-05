@@ -1,5 +1,5 @@
 import { useReverification, useSession } from "@clerk/react";
-import { chooseFactor } from "@sikemux/protocol/account";
+import { chooseFactor } from "@shared/account/account";
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
 import { problemText } from "./api.ts";

@@ -2,7 +2,7 @@ import { useReducer } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth, useUser } from '@clerk/expo';
-import { CONFIRM_WORD, explain } from '@protocol/account';
+import { CONFIRM_WORD, explain } from '@shared/account/account';
 
 import { deleteAccount } from '@/account/api';
 import { appleConsent } from '@/account/apple';

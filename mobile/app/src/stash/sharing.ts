@@ -1,6 +1,6 @@
 import { File, Paths } from 'expo-file-system';
-import type { StashAdd } from '@protocol';
-import { MAX_STASH_FILE_BYTES, MAX_STASH_TEXT } from '@protocol/stash';
+import type { StashAdd } from '@sikemux/protocol';
+import { MAX_STASH_FILE_BYTES, MAX_STASH_TEXT } from '@sikemux/protocol/stash';
 
 import type { Shared, SharedFile } from '../../modules/stash';
 import { api, type TokenSource } from '@/account/api';

@@ -11,7 +11,7 @@ import { activityText } from '@shared/chat/chatStatus';
 import { subagentsOf } from '@shared/chat/subagents';
 import { activeToolLabel } from '@shared/chat/toolLabels';
 import type { ChatMessage } from '@shared/chat/types';
-import { shareUrl } from '@protocol/live';
+import { shareUrl } from '@shared/account/live';
 import { parseShareLink, type ShareLink } from '@shared/share/link';
 import { sharedChatTitle, ShareSession, type ShareSnapshot } from '@shared/share/session';
 import { apiUrl } from '@/account/config';

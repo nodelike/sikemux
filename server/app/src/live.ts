@@ -1,6 +1,6 @@
 import { useAuth } from "@clerk/react";
 import type { AccountEvent } from "@sikemux/protocol";
-import { LiveClient, liveUrl } from "@sikemux/protocol/live";
+import { LiveClient, liveUrl } from "@shared/account/live";
 import { useEffect, useEffectEvent } from "react";
 
 import { config } from "./config.ts";

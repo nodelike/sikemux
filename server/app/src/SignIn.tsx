@@ -4,7 +4,7 @@ import {
   signInFlow,
   type CodePurpose,
   type SignInStep,
-} from "@sikemux/protocol/account";
+} from "@shared/account/account";
 import { useEffect, useRef, useState, type SubmitEvent } from "react";
 
 import {

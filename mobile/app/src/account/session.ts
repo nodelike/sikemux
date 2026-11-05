@@ -4,8 +4,8 @@ import { router } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 import { nativeApplicationVersion } from 'expo-application';
 import * as Notifications from 'expo-notifications';
-import type { Device } from '@protocol';
-import { liveUrl } from '@protocol/live';
+import type { Device } from '@sikemux/protocol';
+import { liveUrl } from '@shared/account/live';
 
 import { externalValue, useExternalValue } from '@shared/lib/externalValue';
 
