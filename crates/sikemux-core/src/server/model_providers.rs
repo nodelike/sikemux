@@ -23,7 +23,8 @@ pub(crate) mod checks;
 
 pub(crate) use adding::{add, read, remove};
 
-use checks::{api_model, Check};
+use crate::launch::claude_model::api_name as api_model;
+use checks::Check;
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
 const RUNNER_TIMEOUT: Duration = Duration::from_secs(2);

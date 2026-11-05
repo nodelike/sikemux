@@ -1,6 +1,11 @@
 //! The sessions each agent CLI saves on disk: listing them, their titles,
 //! paging them for the Recent list, searching them, renaming, moving and deleting them.
 
+/// How Sikemux names itself to an agent's server.
+pub(crate) fn client_info() -> serde_json::Value {
+    serde_json::json!({ "name": "sikemux", "title": "Sikemux", "version": env!("CARGO_PKG_VERSION") })
+}
+
 pub(crate) mod asked;
 pub mod carry;
 pub(crate) mod claude;

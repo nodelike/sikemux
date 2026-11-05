@@ -333,7 +333,7 @@ impl Provider {
                 .and_then(|listed| listed.get(model))
                 .is_some_and(|facts| facts.limit.context >= 1_000_000);
         Some(if long {
-            format!("{model}[1m]")
+            super::claude_model::long(model)
         } else {
             model.clone()
         })

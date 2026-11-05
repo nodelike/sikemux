@@ -418,13 +418,7 @@ fn run_codex_app_server_candidate(
             &serde_json::json!({
                 "id": 0,
                 "method": "initialize",
-                "params": {
-                    "clientInfo": {
-                        "name": "sikemux",
-                        "title": "Sikemux",
-                        "version": env!("CARGO_PKG_VERSION")
-                    }
-                }
+                "params": crate::sessions::codex::initialize_params(),
             }),
         )?;
 

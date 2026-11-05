@@ -33,6 +33,7 @@ use sikemux_wire::protocol::ChatLaunch;
 use super::rebind::Outcome;
 use super::{Chat, ChatCommand};
 
+pub(crate) use claude::saved_window;
 pub(crate) use process::{kill_and_reap, kill_group, AgentRecord, Released};
 pub(crate) use session::{Adopted, Begin, Handed, SessionState, Steered};
 

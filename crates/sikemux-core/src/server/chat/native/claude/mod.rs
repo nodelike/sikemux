@@ -36,6 +36,7 @@ use super::pending::Purpose;
 use super::process::{self, Lines, Process, Reading, Released, Writer};
 use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered};
+pub(crate) use config::saved_window;
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
 

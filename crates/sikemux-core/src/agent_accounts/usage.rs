@@ -431,13 +431,7 @@ pub(crate) async fn codex_ask(
         let initialize = serde_json::json!({
             "id": CODEX_USAGE_INITIALIZE_ID,
             "method": "initialize",
-            "params": {
-                "clientInfo": {
-                    "name": "sikemux",
-                    "version": env!("CARGO_PKG_VERSION"),
-                },
-                "capabilities": { "experimentalApi": true },
-            },
+            "params": crate::sessions::codex::initialize_params(),
         });
         stdin
             .write_all(format!("{initialize}\n").as_bytes())

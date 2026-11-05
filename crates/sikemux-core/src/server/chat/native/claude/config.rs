@@ -1,6 +1,7 @@
 //! The session options a Claude chat offers: its model and how hard that
 //! model thinks, read from the models the CLI lists when it starts.
 
+use crate::launch::claude_model;
 use serde_json::{json, Value};
 
 use super::super::json::text;
@@ -25,6 +26,8 @@ const OWN_EFFORTS: &[(&str, &str)] = &[
     ("claude-sonnet-4-6", "high"),
     ("claude-haiku-5-5", "medium"),
 ];
+
+const DEFAULT_WINDOW: u64 = 200_000;
 
 /// The permission mode Claude Code runs in for each of the app's modes.
 pub(crate) fn permission_mode(mode: PermissionMode) -> &'static str {
@@ -58,6 +61,32 @@ pub(crate) fn row_for_resolved(models: &[Value], resolved: &str) -> Option<Strin
         .map(str::to_owned)
 }
 
+/// How big a resumed session's window is, which Claude's transcript does not
+/// say. A model named for a 1M window has one, and so does a session already
+/// past 200K.
+pub(crate) fn saved_window(setup: &Value, launched_with: Option<&str>, used: u64) -> u64 {
+    let current = pickers::current_choice(setup, "model");
+    let label = current.as_deref().and_then(|value| {
+        setup["configOptions"]
+            .as_array()?
+            .iter()
+            .find(|option| option["id"] == "model")?["options"]
+            .as_array()?
+            .iter()
+            .find(|option| option["value"] == value)?["name"]
+            .as_str()
+    });
+    let names_long = [current.as_deref(), label, launched_with]
+        .into_iter()
+        .flatten()
+        .any(claude_model::names_long_window);
+    if names_long || used > DEFAULT_WINDOW {
+        claude_model::LONG_WINDOW
+    } else {
+        DEFAULT_WINDOW
+    }
+}
+
 /// Makes room in the list for the model the person's settings name, such as
 /// `opus[1m]`, which Claude Code runs but does not list: a row like the one it
 /// extends, named for its larger context. Answers with the row's value.
@@ -68,7 +97,7 @@ pub(crate) fn settings_model(models: &mut Vec<Value>, named: &str) -> Option<Str
     if let Some(row) = row_for_resolved(models, named) {
         return Some(row);
     }
-    let base = named.strip_suffix("[1m]")?;
+    let base = claude_model::long_of(named)?;
     let mut row = find(models, base).cloned().or_else(|| {
         row_for_resolved(models, base).and_then(|value| find(models, &value).cloned())
     })?;
@@ -76,7 +105,7 @@ pub(crate) fn settings_model(models: &mut Vec<Value>, named: &str) -> Option<Str
     row["value"] = json!(named);
     row["displayName"] = json!(format!("{name} (1M context)"));
     if let Some(resolved) = text(&row, "resolvedModel").map(str::to_owned) {
-        row["resolvedModel"] = json!(format!("{resolved}[1m]"));
+        row["resolvedModel"] = json!(claude_model::long(&resolved));
     }
     models.push(row);
     Some(named.to_owned())
@@ -159,7 +188,7 @@ fn own_effort(models: &[Value], model: &str) -> Option<&'static str> {
     let named = find(models, model)
         .and_then(|row| text(row, "resolvedModel"))
         .unwrap_or(model);
-    let named = named.strip_suffix("[1m]").unwrap_or(named);
+    let named = claude_model::api_name(named);
     let named = match named.rsplit_once('-') {
         Some((name, date)) if date.len() == 8 && date.bytes().all(|b| b.is_ascii_digit()) => name,
         _ => named,
@@ -218,6 +247,41 @@ pub(crate) fn options(models: &[Value], model: &str, effort: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn models_named(current: &str, options: &[(&str, &str)]) -> Value {
+        let options: Vec<Value> = options
+            .iter()
+            .map(|(value, name)| json!({ "value": value, "name": name }))
+            .collect();
+        json!({ "configOptions": [{ "id": "model", "type": "select", "currentValue": current, "options": options }] })
+    }
+
+    #[test]
+    fn a_saved_session_past_the_standard_window_or_named_for_the_long_one_has_it() {
+        let long = claude_model::LONG_WINDOW;
+        assert_eq!(saved_window(&models_named("opus[1m]", &[]), None, 0), long);
+        assert_eq!(
+            saved_window(
+                &models_named("default", &[("default", "Opus (1M context)")]),
+                None,
+                0
+            ),
+            long
+        );
+        assert_eq!(saved_window(&json!({}), Some("sonnet[1m]"), 0), long);
+        assert_eq!(
+            saved_window(&json!({}), Some("claude-opus-5-5"), 515_222),
+            long
+        );
+        assert_eq!(
+            saved_window(&json!({}), Some("claude-opus-5-5"), 150_000),
+            DEFAULT_WINDOW
+        );
+        assert_eq!(
+            saved_window(&models_named("claude-1mini", &[]), None, 0),
+            DEFAULT_WINDOW
+        );
+    }
 
     fn models() -> Vec<Value> {
         vec![

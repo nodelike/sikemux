@@ -472,13 +472,7 @@ impl Backend for Codex {
         let failed = |error: String| process.start_error(error);
 
         let initialized = rpc
-            .request(
-                "initialize",
-                json!({
-                    "clientInfo": { "name": "sikemux", "title": "Sikemux", "version": env!("CARGO_PKG_VERSION") },
-                    "capabilities": { "experimentalApi": true, "requestAttestation": false },
-                }),
-            )
+            .request("initialize", crate::sessions::codex::initialize_params())
             .await
             .map_err(failed)?;
         // Codex names itself as `<client>/<its version> (<system>) …`.

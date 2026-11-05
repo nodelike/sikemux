@@ -2,6 +2,7 @@
 //! request offering a single tool, to each API the provider serves it on,
 //! kept with its date so it is asked once.
 
+use crate::launch::claude_model;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -40,11 +41,6 @@ pub(crate) struct Checks {
     path: Option<PathBuf>,
     kept: Mutex<Kept>,
     running: Mutex<HashSet<(String, String)>>,
-}
-
-/// Claude Code's own suffix for a long context, which the APIs do not take.
-pub(super) fn api_model(model: &str) -> &str {
-    model.strip_suffix("[1m]").unwrap_or(model)
 }
 
 impl Checks {
@@ -125,7 +121,7 @@ impl Checks {
         key: Option<&str>,
         model: &str,
     ) -> Result<Check, String> {
-        let model = api_model(model);
+        let model = claude_model::api_name(model);
         let (openai, anthropic) = tokio::join!(
             openai(provider, key, model),
             anthropic(provider, key, model)
@@ -148,7 +144,7 @@ impl Checks {
 
 /// Checks a model the first time a chat runs on it, in the background.
 pub(crate) fn first_use(core: &Arc<Core>, provider: Arc<Provider>, model: &str) {
-    let model = api_model(model).to_owned();
+    let model = claude_model::api_name(model).to_owned();
     let checks = &core.workspaces.model_checks;
     if checks.of(&provider.id).contains_key(&model)
         || !checks

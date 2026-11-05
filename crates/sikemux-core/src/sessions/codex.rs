@@ -39,6 +39,14 @@ use notify::RecursiveMode;
 use std::collections::BTreeMap;
 use std::future::ready;
 
+/// What `codex app-server` is told first, by anything that starts one.
+pub(crate) fn initialize_params() -> serde_json::Value {
+    serde_json::json!({
+        "clientInfo": super::client_info(),
+        "capabilities": { "experimentalApi": true, "requestAttestation": false },
+    })
+}
+
 // ---- codex — ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl[.zst] ----------
 
 pub(super) fn is_rollout(path: &Path) -> bool {
@@ -286,7 +294,7 @@ async fn codex_thread_request(
         let initialize = serde_json::json!({
             "id": 1,
             "method": "initialize",
-            "params": { "clientInfo": { "name": "sikemux", "version": env!("CARGO_PKG_VERSION") } },
+            "params": initialize_params(),
         });
         let request = serde_json::json!({ "id": 2, "method": method, "params": params });
         send_line(&mut stdin, &initialize.to_string()).await?;

@@ -289,7 +289,7 @@ impl Host {
             .request(
                 "initialize",
                 json!({
-                    "clientInfo": { "name": "sikemux", "title": "Sikemux", "version": env!("CARGO_PKG_VERSION") },
+                    "clientInfo": crate::sessions::client_info(),
                     "capabilities": {
                         "requestedCapabilities": ["sessionMcp"],
                         "userInputDialogs": true,

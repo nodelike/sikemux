@@ -155,7 +155,7 @@ pub(super) async fn rename_muse_session(
     let mut lines = BufReader::new(stdout).lines();
     let steps = [
         json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize",
-                "params": { "clientInfo": { "name": "sikemux", "version": env!("CARGO_PKG_VERSION") } } }),
+                "params": { "clientInfo": super::client_info() } }),
         json!({ "jsonrpc": "2.0", "id": 2, "method": "session/resume",
                 "params": { "commandId": command_id(), "sessionId": session_id, "excludeItems": true } }),
         json!({ "jsonrpc": "2.0", "id": 3, "method": "session/rename",
