@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { apiUrl } from '@/account/config';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { Chip } from '@/ui/controls';
 import { alertFailure, PromptGlyph } from '@/ui/prompt';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
-import type { StashItem } from './api';
+import { stashFileUrl, type StashItem } from './api';
 import { newInStash, refreshStash, removeStash, seeStash, stashNow, stashToken, useStash } from './store';
 import { itemPlace, itemTitle } from './words';
 
@@ -191,7 +190,7 @@ export function Face({ item, bearer, size = 46 }: { item: StashItem; bearer: str
     item.kind === 'link' && item.preview?.imageUrl
       ? { uri: item.preview.imageUrl }
       : item.kind === 'image' && bearer
-        ? { uri: `${apiUrl()}/v1/stash/${encodeURIComponent(item.id)}/file`, headers: { authorization: `Bearer ${bearer}` } }
+        ? { uri: stashFileUrl(item.id), headers: { authorization: `Bearer ${bearer}` } }
         : undefined;
   return (
     <View style={[styles.face, { width: size, height: size, borderRadius: size / 5 }, picture && styles.pictureFace]}>

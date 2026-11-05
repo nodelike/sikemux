@@ -775,3 +775,20 @@ async fn new_chat(core: &Arc<Core>, folder: &str) -> CoreResult<Option<String>> 
     }
     Ok(Some(agent_id))
 }
+
+#[cfg(test)]
+mod contract {
+    use super::{MAX_ITEM_BYTES, MAX_PROMPT_CHARS};
+
+    /// What every sender of a stash upload agrees on, read by each language's tests.
+    const VECTOR: &str = include_str!("../../../../server/protocol/vectors/stash.json");
+
+    #[test]
+    fn the_limits_are_the_servers() {
+        let vector: serde_json::Value = serde_json::from_str(VECTOR).expect("the vector parses");
+        assert_eq!(vector["maxFileBytes"], MAX_ITEM_BYTES);
+        assert_eq!(vector["maxText"], MAX_PROMPT_CHARS);
+        assert_eq!(vector["headers"]["name"], "x-stash-name");
+        assert_eq!(vector["headers"]["prompt"], "x-stash-prompt");
+    }
+}

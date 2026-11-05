@@ -1,3 +1,4 @@
+import { STASH_HEADERS } from "@sikemux/protocol/stash";
 import type { Services } from "../app.ts";
 import type { StashTarget } from "@sikemux/protocol";
 import { validator, stashTakenValues } from "@sikemux/protocol";
@@ -52,7 +53,7 @@ function header(c: Context, name: string): string | undefined {
 }
 
 function readTarget(c: Context): StashTarget | undefined {
-  const text = header(c, "x-stash-target");
+  const text = header(c, STASH_HEADERS.target);
   if (text === undefined) return undefined;
   let value: unknown;
   try {
@@ -76,12 +77,12 @@ function readUpload(c: Context): Upload {
     .toLowerCase();
   if (!mime || mime.length > NAME_MAX || !MIME.test(mime))
     throw badRequest("A file is sent with its media type in Content-Type.");
-  const name = header(c, "x-stash-name")?.trim();
+  const name = header(c, STASH_HEADERS.name)?.trim();
   if (!name || name.length > NAME_MAX || CONTROL.test(name))
     throw badRequest(
       `A file is sent with its name in X-Stash-Name, at most ${NAME_MAX} characters.`,
     );
-  const note = header(c, "x-stash-note");
+  const note = header(c, STASH_HEADERS.note);
   if (note !== undefined && note.length > NOTE_MAX)
     throw badRequest(`X-Stash-Note is limited to ${NOTE_MAX} characters.`);
   const kind = mime.startsWith("image/")
@@ -89,7 +90,7 @@ function readUpload(c: Context): Upload {
     : mime.startsWith("video/")
       ? ("video" as const)
       : ("file" as const);
-  const prompt = c.req.header("x-stash-prompt");
+  const prompt = c.req.header(STASH_HEADERS.prompt);
   if (prompt !== undefined && !ITEM_ID.test(prompt))
     throw badRequest("X-Stash-Prompt is not a stashed item's id.");
   const target = readTarget(c);

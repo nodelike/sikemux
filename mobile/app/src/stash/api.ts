@@ -1,3 +1,4 @@
+import { stashUploadHeaders } from '@sikemux/protocol/stash';
 import { isDrawnType } from '@shared/lib/imagePaths';
 import { Directory, File, Paths, UploadTask, UploadType } from 'expo-file-system';
 import type { StashItem, StashTarget } from '@sikemux/protocol';
@@ -19,11 +20,8 @@ export async function stashFile(
   const headers: Record<string, string> = {
     authorization: `Bearer ${await bearer(token)}`,
     'content-type': file.mime,
-    'x-stash-name': encodeURIComponent(file.name),
+    ...stashUploadHeaders({ name: file.name, ...extra }),
   };
-  if (extra.note) headers['x-stash-note'] = encodeURIComponent(extra.note);
-  if (extra.target) headers['x-stash-target'] = encodeURIComponent(JSON.stringify(extra.target));
-  if (extra.prompt) headers['x-stash-prompt'] = extra.prompt;
   const task = new UploadTask(new File(file.uri), `${apiUrl()}/v1/stash`, {
     httpMethod: 'POST',
     uploadType: UploadType.BINARY_CONTENT,
@@ -54,6 +52,8 @@ function readJson(text: string): unknown {
   }
 }
 
+export const stashFileUrl = (id: string) => `${apiUrl()}/v1/stash/${encodeURIComponent(id)}/file`;
+
 /** Brings a stashed file down to this phone, ready to go with a message like one picked here. */
 export async function fetchStashFile(token: TokenSource, item: StashItem): Promise<Attachment> {
   const folder = new Directory(Paths.cache, 'stash', item.id);
@@ -62,7 +62,7 @@ export async function fetchStashFile(token: TokenSource, item: StashItem): Promi
   const destination = new File(folder, name);
   if (!destination.exists) {
     try {
-      await File.downloadFileAsync(`${apiUrl()}/v1/stash/${encodeURIComponent(item.id)}/file`, destination, {
+      await File.downloadFileAsync(stashFileUrl(item.id), destination, {
         headers: { authorization: `Bearer ${await bearer(token)}` },
       });
     } catch (error) {
