@@ -1,3 +1,4 @@
+import facts from "@sikemux/protocol/release.json" with { type: "json" };
 import { isAbsolute } from "node:path";
 import type { Network } from "@sikemux/protocol";
 import type { Level } from "pino";
@@ -125,7 +126,7 @@ export function loadConfig(
 
   const databaseUrl = readDatabaseUrl();
 
-  const port = readPort("PORT", "4000");
+  const port = readPort("PORT", String(facts.accounts.dev.apiPort));
 
   const appOrigin = text("APP_ORIGIN", "https://app.sikemux.com");
   if (appOrigin && URL.parse(appOrigin)?.origin !== appOrigin)

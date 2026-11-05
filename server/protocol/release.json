@@ -1,0 +1,17 @@
+{
+  "$comment": "What the release scripts, the app builds and the API must agree on. Clerk's publishable keys are public.",
+  "platforms": ["android", "ios"],
+  "channels": ["nightly", "stable"],
+  "updateId": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+  "assetUrl": "https://updates.sikemux.com/assets/",
+  "accounts": {
+    "production": {
+      "clerkPublishableKey": "pk_live_Y2xlcmsuc2lrZW11eC5jb20k",
+      "apiUrl": "https://api.sikemux.com"
+    },
+    "dev": {
+      "clerkPublishableKey": "pk_test_aW1tZW5zZS1sbGFtYS02NjY4LmNsZXJrLmFjY291bnRzLmRldiQ",
+      "apiPort": 4000
+    }
+  }
+}

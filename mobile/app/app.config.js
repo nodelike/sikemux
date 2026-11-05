@@ -2,6 +2,8 @@
  * Builds are "Sikemux Dev" unless APP_VARIANT=production. The two install side by side,
  * each with its own key and paired hosts.
  */
+const release = require('../../server/protocol/release.json');
+
 /** Google's OAuth clients: production's in the `sikemux` Google Cloud project, dev's in `sikemux-dev`. */
 const GOOGLE = {
   production: {
@@ -16,8 +18,8 @@ const GOOGLE = {
 
 /** Where accounts live: production's Clerk instance and api.sikemux.com, or Clerk's development instance and the Mac's own server. */
 const ACCOUNTS = {
-  production: { clerkPublishableKey: 'pk_live_Y2xlcmsuc2lrZW11eC5jb20k', apiUrl: 'https://api.sikemux.com' },
-  dev: { clerkPublishableKey: 'pk_test_aW1tZW5zZS1sbGFtYS02NjY4LmNsZXJrLmFjY291bnRzLmRldiQ' },
+  production: release.accounts.production,
+  dev: { clerkPublishableKey: release.accounts.dev.clerkPublishableKey },
 };
 
 function googleSignIn({ web, ios }) {
@@ -42,7 +44,7 @@ function versionCode(version, base) {
   return major * 1_000_000 + minor * 10_000 + patch * 100 + (nightly ?? 99);
 }
 
-const CHANNELS = ['nightly', 'stable'];
+const CHANNELS = release.channels;
 
 /** Production builds fetch over-the-air updates for their channel; the server only sends one signed with our key. */
 function updates(channel) {

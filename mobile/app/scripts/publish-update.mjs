@@ -22,10 +22,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const certificate = join(app, 'certs/updates-certificate.pem');
-const ASSET_URL = 'https://updates.sikemux.com/assets/';
-const PLATFORMS = ['android', 'ios'];
-const CHANNELS = ['nightly', 'stable'];
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const release = JSON.parse(readFileSync(join(app, '../../server/protocol/release.json'), 'utf8'));
+const ASSET_URL = release.assetUrl;
+const PLATFORMS = release.platforms;
+const CHANNELS = release.channels;
+const UUID = new RegExp(release.updateId);
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 const CONTENT_TYPES = {
   png: 'image/png',

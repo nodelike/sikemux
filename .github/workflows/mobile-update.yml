@@ -28,6 +28,7 @@ on:
       - "shared/**"
       - "server/protocol/generated/client.ts"
       - "server/protocol/generated/types.ts"
+      - "server/protocol/release.json"
       - "server/protocol/src/stash.ts"
       - .github/workflows/mobile-update.yml
   workflow_dispatch:

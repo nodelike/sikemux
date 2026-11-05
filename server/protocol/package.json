@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./stash": "./src/stash.ts",
-    "./openapi.json": "./generated/openapi.json"
+    "./openapi.json": "./generated/openapi.json",
+    "./release.json": "./release.json"
   },
   "scripts": {
     "generate": "node scripts/generate.mjs",
