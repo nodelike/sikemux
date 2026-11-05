@@ -5,6 +5,8 @@ import type { RawData, WebSocket } from "ws";
 
 import { checkStanding, type Identity, type Verifier } from "../auth.ts";
 import type { Tables } from "../db.ts";
+import { signedBy } from "../devices/signature.ts";
+import { hostAccounts } from "../devices/standing.ts";
 import { ApiFailure } from "../http.ts";
 import type { RateLimiter } from "../limits.ts";
 import type { Logger } from "../log.ts";
@@ -24,7 +26,33 @@ export interface SocketOptions {
   failedHellosPerMinute: number;
 }
 
-/** The close codes the live and share protocols both define. */
+/** What every connection kind starts from; each overrides what it needs. */
+export const SOCKET_DEFAULTS = {
+  challengeMs: 30_000,
+  helloTimeoutMs: 10_000,
+  heartbeatMs: 25_000,
+  silenceMs: 60_000,
+  authGraceMs: 30_000,
+  maxSockets: 20_000,
+  upgradesPerMinute: 60,
+  failedHellosPerMinute: 10,
+  reconnectSpreadMs: 15_000,
+} as const;
+
+/** Says bye to every connection, each told to wait a different time so they come back spread out. */
+export async function byeAll(
+  connections: Iterable<{ bye(reconnectAfterMs: number): unknown }>,
+  spreadMs: number,
+): Promise<void> {
+  const least = Math.min(1_000, spreadMs);
+  await Promise.all(
+    [...connections].map((connection) =>
+      connection.bye(Math.round(least + Math.random() * (spreadMs - least))),
+    ),
+  );
+}
+
+/** The close codes every socket protocol defines. */
 export interface CloseCodes {
   badMessage: number;
   unauthenticated: number;
@@ -36,7 +64,7 @@ export interface CloseCodes {
 
 export interface SocketKind {
   /** Starts every rate-limit key of this kind of connection. */
-  name: "live" | "share" | "hooks";
+  name: string;
   incoming: keyof Definitions & string;
   codes: CloseCodes;
 }
@@ -98,6 +126,7 @@ export abstract class ChallengedSocket<
   private authTimer: NodeJS.Timeout | undefined;
 
   protected readonly ws: WebSocket;
+  private wakeQueued = false;
   private readonly ip: string;
   private readonly base: SocketContext;
   private readonly kind: SocketKind;
@@ -167,6 +196,29 @@ export abstract class ChallengedSocket<
     if (this.phase === "closing") return;
     this.phase = "closing";
     this.ws.close(code, reason);
+  }
+
+  /** Runs `work` once the turn comes, however many wakes arrive before then. */
+  protected wakeOnce(work: () => Promise<void>) {
+    if (this.phase !== "open" || this.wakeQueued) return;
+    this.wakeQueued = true;
+    this.serially(async () => {
+      this.wakeQueued = false;
+      await work();
+    });
+  }
+
+  /** The account of the host whose key signed `message`, once the signature and the account both hold. */
+  protected async provenHost(
+    key: string,
+    message: string,
+    signature: string,
+  ): Promise<string> {
+    if (!signedBy(key, message, signature))
+      throw new HelloRefused("the signature does not match");
+    const account = (await hostAccounts(this.base.db, [key])).get(key);
+    if (!account) throw new HelloRefused("the key is not a host on an account");
+    return account;
   }
 
   protected serially(task: () => Promise<void>) {

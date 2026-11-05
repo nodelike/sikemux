@@ -5,14 +5,13 @@ import type {
   HookServerMessage,
 } from "@sikemux/protocol";
 import { HookCloseCode } from "@sikemux/protocol";
-import { sql, type Kysely } from "kysely";
+import { sql } from "kysely";
 import type { WebSocket } from "ws";
 
-import type { Tables } from "../db.ts";
-import { hooksMessage, signedBy } from "../devices/signature.ts";
+import { hooksMessage } from "../devices/signature.ts";
+import { hostAccounts } from "../devices/standing.ts";
 import {
   ChallengedSocket,
-  HelloRefused,
   type SocketContext,
   type SocketKind,
 } from "../sockets/socket.ts";
@@ -33,23 +32,6 @@ export const HOOK_SOCKET: SocketKind = {
 interface Host {
   userId: string;
   key: string;
-}
-
-/** The hosts among `keys` still on an account, with the account each is on. */
-export async function hostAccounts(
-  db: Kysely<Tables>,
-  keys: string[],
-): Promise<Map<string, string>> {
-  if (!keys.length) return new Map();
-  const rows = await db
-    .selectFrom("devices")
-    .innerJoin("users", "users.id", "devices.user_id")
-    .select(["devices.key", "devices.user_id"])
-    .where("devices.key", "in", keys)
-    .where("devices.role", "=", "host")
-    .where("users.deleted_at", "is", null)
-    .execute();
-  return new Map(rows.map((row) => [row.key, row.user_id]));
 }
 
 /** Closes the connections of hosts no longer on their account, `userId`'s or everyone's. */
@@ -76,7 +58,6 @@ export class HookSocket extends ChallengedSocket<
   Host
 > {
   private readonly ahead = new Set<string>();
-  private wakeQueued = false;
   private retryTimer: NodeJS.Timeout | undefined;
   private member: HookHost | undefined;
 
@@ -103,14 +84,11 @@ export class HookSocket extends ChallengedSocket<
   }
 
   protected async prove(hello: HookHello): Promise<Host | undefined> {
-    if (
-      !signedBy(hello.key, hooksMessage(this.nonce, hello.key), hello.signature)
-    )
-      throw new HelloRefused("the signature does not match");
-    const userId = (await hostAccounts(this.context.db, [hello.key])).get(
+    const userId = await this.provenHost(
       hello.key,
+      hooksMessage(this.nonce, hello.key),
+      hello.signature,
     );
-    if (!userId) throw new HelloRefused("the key is not a host on an account");
     const host = { userId, key: hello.key };
     this.member = {
       ...host,
@@ -145,12 +123,7 @@ export class HookSocket extends ChallengedSocket<
   }
 
   private wake(host: Host) {
-    if (this.phase !== "open" || this.wakeQueued) return;
-    this.wakeQueued = true;
-    this.serially(async () => {
-      this.wakeQueued = false;
-      await this.deliver(host);
-    });
+    this.wakeOnce(() => this.deliver(host));
   }
 
   /** Closes as idle when the host has no webhooks and no requests waiting. */

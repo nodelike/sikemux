@@ -140,5 +140,6 @@ export class Room {
 export class Relay {
   readonly rooms = new Map<string, Room>();
   readonly hosts = new Map<string, HostLink>();
-  sockets = 0;
+  /** Every open connection, hosts and viewers alike. */
+  readonly sockets = new Set<{ bye(reconnectAfterMs: number): void }>();
 }

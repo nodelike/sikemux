@@ -9,6 +9,7 @@ import { routeSockets } from "../sockets/upgrades.ts";
 import type { HookHosts } from "./hosts.ts";
 import { HOOK_OPTIONS, HOOKS_PATH, type HookOptions } from "./options.ts";
 import { HOOK_SOCKET, HookSocket, recheckHookHosts } from "./socket.ts";
+import { byeAll } from "../sockets/socket.ts";
 
 export interface HookServices {
   database: Database;
@@ -20,7 +21,7 @@ export interface HookServices {
 }
 
 export interface Hooks extends AccountWatcher {
-  stop(): void;
+  stop(): Promise<void>;
 }
 
 /** Serves /v1/hooks/live on the API's own HTTP server: hosts take their webhooks' requests. */
@@ -59,15 +60,9 @@ export function attachHooks(server: Server, services: HookServices): Hooks {
   return {
     changed: (userId) => recheck(userId),
     missed: () => recheck(),
-    stop() {
+    async stop() {
       routed.stop();
-      const least = Math.min(1_000, options.reconnectSpreadMs);
-      for (const host of hosts.of())
-        host.bye(
-          Math.round(
-            least + Math.random() * (options.reconnectSpreadMs - least),
-          ),
-        );
+      await byeAll(hosts.of(), options.reconnectSpreadMs);
     },
   };
 }

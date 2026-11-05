@@ -186,12 +186,14 @@ export function startServer(config: Config, log: Logger) {
     stopping = true;
     log.info({ signal }, "stopping");
     clearInterval(clerkSweep);
-    hooks.stop();
     const force = setTimeout(() => server.closeAllConnections(), DRAIN_MS);
     force.unref();
-    const liveStopped = Promise.all([live.stop(), shares.stop()]).catch(
-      (error: unknown) =>
-        log.error({ err: error }, "closing live connections failed"),
+    const liveStopped = Promise.all([
+      live.stop(),
+      shares.stop(),
+      hooks.stop(),
+    ]).catch((error: unknown) =>
+      log.error({ err: error }, "closing live connections failed"),
     );
     server.close(() => {
       clearTimeout(force);

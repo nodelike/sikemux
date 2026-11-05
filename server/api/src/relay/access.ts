@@ -5,6 +5,7 @@ import type { Kysely } from "kysely";
 import type { Tables } from "../db.ts";
 import type { Env } from "../http.ts";
 import type { AccountWatcher } from "../live/listener.ts";
+import { standingDevices } from "../devices/standing.ts";
 
 /** The header iroh-relay names the connecting device in. */
 const ENDPOINT_HEADER = "x-iroh-nodeid";
@@ -37,12 +38,9 @@ export class RelayAccess implements AccountWatcher {
     const now = this.now();
     const remembered = this.allowed.get(key);
     if (remembered && remembered.until > now) return true;
-    const device = await this.db
-      .selectFrom("devices")
-      .innerJoin("users", "users.id", "devices.user_id")
+    const device = await standingDevices(this.db)
       .select("devices.user_id")
       .where("devices.key", "=", key)
-      .where("users.deleted_at", "is", null)
       .executeTakeFirst();
     if (!device) {
       this.allowed.delete(key);

@@ -1,4 +1,4 @@
-import type { SocketOptions } from "../sockets/socket.ts";
+import { SOCKET_DEFAULTS, type SocketOptions } from "../sockets/socket.ts";
 
 export const HOOKS_PATH = "/v1/hooks/live";
 
@@ -26,14 +26,7 @@ export interface HookOptions extends SocketOptions {
 }
 
 export const HOOK_OPTIONS: HookOptions = {
-  challengeMs: 30_000,
-  helloTimeoutMs: 10_000,
-  heartbeatMs: 25_000,
-  silenceMs: 60_000,
-  authGraceMs: 30_000,
-  maxSockets: 20_000,
-  upgradesPerMinute: 60,
-  failedHellosPerMinute: 10,
+  ...SOCKET_DEFAULTS,
   messagesPerSecond: 50,
   maxMessageBytes: 4 * 1024,
   hooksPerHost: 100,
@@ -46,5 +39,4 @@ export const HOOK_OPTIONS: HookOptions = {
   dropBytes: 16 * 1024 * 1024,
   firstRetryMs: 15_000,
   lastRetryMs: 30 * 60_000,
-  reconnectSpreadMs: 15_000,
 };

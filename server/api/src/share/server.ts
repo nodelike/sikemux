@@ -9,6 +9,7 @@ import { routeSockets } from "../sockets/upgrades.ts";
 import { SHARE_OPTIONS, SHARE_PATH, type ShareOptions } from "./options.ts";
 import { Relay } from "./relay.ts";
 import { recheckShares, SHARE_SOCKET, ShareSocket } from "./socket.ts";
+import { byeAll } from "../sockets/socket.ts";
 
 /** The Mac app's window, which watches a shared chat from its own page. */
 const MAC_ORIGIN = "tauri://localhost";
@@ -32,7 +33,6 @@ export function attachShares(server: Server, services: ShareServices): Shares {
   const options = { ...SHARE_OPTIONS, ...services.options };
   const { database, limiter, log, appOrigin } = services;
   const relay = new Relay();
-  const sockets = new Set<ShareSocket>();
   const context = {
     db: database.db,
     verifier: services.verifier,
@@ -49,13 +49,8 @@ export function attachShares(server: Server, services: ShareServices): Shares {
     maxPayloadBytes: options.maxHostMessageBytes,
     limiter,
     log,
-    open: () => relay.sockets,
-    accept: (ws, ip) => {
-      const share = new ShareSocket(ws, ip, context);
-      sockets.add(share);
-      ws.once("close", () => sockets.delete(share));
-      share.start();
-    },
+    open: () => relay.sockets.size,
+    accept: (ws, ip) => new ShareSocket(ws, ip, context).start(),
   });
 
   const recheck = (userId?: string) => {
@@ -73,13 +68,7 @@ export function attachShares(server: Server, services: ShareServices): Shares {
     missed: () => recheck(),
     async stop() {
       routed.stop();
-      const least = Math.min(1_000, options.reconnectSpreadMs);
-      for (const socket of sockets)
-        socket.bye(
-          Math.round(
-            least + Math.random() * (options.reconnectSpreadMs - least),
-          ),
-        );
+      await byeAll(relay.sockets, options.reconnectSpreadMs);
     },
   };
 }

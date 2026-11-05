@@ -67,7 +67,6 @@ export class LiveSocket extends ChallengedSocket<
   private storedThrough = 0;
   private inFlight: number[] = [];
   private pushesInFlight = 0;
-  private wakeQueued = false;
   private member: Member | undefined;
   private cursorTimer: NodeJS.Timeout | undefined;
   private lastCursorWrite = 0;
@@ -110,12 +109,7 @@ export class LiveSocket extends ChallengedSocket<
   }
 
   wake(who: Who) {
-    if (this.phase !== "open" || this.wakeQueued) return;
-    this.wakeQueued = true;
-    this.serially(async () => {
-      this.wakeQueued = false;
-      await this.deliver(who);
-    });
+    this.wakeOnce(() => this.deliver(who));
   }
 
   protected handle(message: Exclude<LiveDeviceMessage, LiveHello>, who: Who) {

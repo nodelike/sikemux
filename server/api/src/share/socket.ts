@@ -7,16 +7,12 @@ import type {
   ShareServerMessage,
 } from "@sikemux/protocol";
 import { ShareCloseCode } from "@sikemux/protocol";
-import { sql, type Kysely } from "kysely";
+import { sql } from "kysely";
 import type { WebSocket } from "ws";
 
 import { checkStanding, type Identity } from "../auth.ts";
-import type { Tables } from "../db.ts";
-import {
-  shareMessage,
-  shareViewerMessage,
-  signedBy,
-} from "../devices/signature.ts";
+import { shareMessage, shareViewerMessage } from "../devices/signature.ts";
+import { hostAccounts } from "../devices/standing.ts";
 import {
   ChallengedSocket,
   HelloRefused,
@@ -63,23 +59,6 @@ export async function endShare(
   context.relay.rooms.delete(id);
   room?.end(reason);
   context.log.info({ share: id, reason }, "a share ended");
-}
-
-/** The account each of `keys` is a host on, for those still on an account that stands. */
-async function hostAccounts(
-  db: Kysely<Tables>,
-  keys: string[],
-): Promise<Map<string, string>> {
-  if (!keys.length) return new Map();
-  const rows = await db
-    .selectFrom("devices")
-    .innerJoin("users", "users.id", "devices.user_id")
-    .select(["devices.key", "devices.user_id"])
-    .where("devices.key", "in", keys)
-    .where("devices.role", "=", "host")
-    .where("users.deleted_at", "is", null)
-    .execute();
-  return new Map(rows.map((row) => [row.key, row.user_id]));
 }
 
 /**
@@ -185,7 +164,7 @@ export class ShareSocket
   }
 
   override start() {
-    this.context.relay.sockets += 1;
+    this.context.relay.sockets.add(this);
     super.start();
   }
 
@@ -326,16 +305,14 @@ export class ShareSocket
   }
 
   private async proveHost(hello: ShareHello): Promise<Who | undefined> {
-    const { db, relay } = this.context;
+    const { relay } = this.context;
     if (!hello.key || !hello.signature)
       throw new HelloRefused("a host proves its key");
-    if (
-      !signedBy(hello.key, shareMessage(this.nonce, hello.key), hello.signature)
-    )
-      throw new HelloRefused("the signature does not match");
-    const account = (await hostAccounts(db, [hello.key])).get(hello.key);
-    if (!account)
-      throw new HelloRefused("the key is not a host on any account");
+    const account = await this.provenHost(
+      hello.key,
+      shareMessage(this.nonce, hello.key),
+      hello.signature,
+    );
     if (this.phase === "closing") return undefined;
 
     this.key = hello.key;
@@ -360,17 +337,11 @@ export class ShareSocket
     }
     if (!hello.key || !hello.signature)
       throw new HelloRefused("a viewer sends its token or its host's key");
-    if (
-      !signedBy(
-        hello.key,
-        shareViewerMessage(this.nonce, hello.key),
-        hello.signature,
-      )
-    )
-      throw new HelloRefused("the signature does not match");
-    const account = (await hostAccounts(db, [hello.key])).get(hello.key);
-    if (!account)
-      throw new HelloRefused("the key is not a host on any account");
+    const account = await this.provenHost(
+      hello.key,
+      shareViewerMessage(this.nonce, hello.key),
+      hello.signature,
+    );
     return { userId: account, key: hello.key, identity: null };
   }
 
@@ -497,7 +468,7 @@ export class ShareSocket
 
   protected closed() {
     const { relay } = this.context;
-    relay.sockets -= 1;
+    relay.sockets.delete(this);
     if (this.role === "host") {
       if (relay.hosts.get(this.key) === this) relay.hosts.delete(this.key);
       for (const room of relay.rooms.values()) room.detachHost(this);
