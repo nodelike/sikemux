@@ -15,21 +15,152 @@ use crate::toast;
 use crate::workbench::{Strip, Workbench};
 
 const REMEMBERED: usize = 20;
-const BUILTIN: &str = "builtin:";
-const CUSTOM: &str = "custom:";
-const STANDALONE: &str = "standalone:";
-const OPEN_WORKTREE: &str = "worktree.open:";
-const REMOVE_WORKTREE: &str = "worktree.remove:";
-const RUN_TASK: &str = "task.run:";
-const RESTART_TASK: &str = "task.restart:";
-const STOP_TASK: &str = "task.stop:";
-const START_PREVIEW: &str = "project.preview.start:";
-const OPEN_PREVIEW: &str = "project.preview.open:";
-const CONFIG_INVALID: &str = "project.config.invalid";
-const ACTION: &str = "project.action:";
 
-/// A command no shortcut does: its id, name, what it does and its category.
-type Standalone = (&'static str, &'static str, &'static str, &'static str);
+macro_rules! picks {
+    ($($kind:ident = $prefix:literal,)*) => {
+        /// What a row of the deck does; its string form is how the last used are remembered.
+        #[derive(Clone, Copy)]
+        enum Pick<'a> {
+            $($kind(&'a str),)*
+        }
+
+        impl<'a> Pick<'a> {
+            fn key(self) -> SharedString {
+                match self {
+                    $(Pick::$kind(id) => format!("{}{id}", $prefix).into(),)*
+                }
+            }
+
+            fn read(key: &'a str) -> Option<Self> {
+                $(if let Some(id) = key.strip_prefix($prefix) {
+                    return Some(Pick::$kind(id));
+                })*
+                None
+            }
+        }
+    };
+}
+
+picks! {
+    Builtin = "builtin:",
+    Custom = "custom:",
+    Standalone = "standalone:",
+    OpenWorktree = "worktree.open:",
+    RemoveWorktree = "worktree.remove:",
+    RunTask = "task.run:",
+    RestartTask = "task.restart:",
+    StopTask = "task.stop:",
+    StartPreview = "project.preview.start:",
+    OpenPreview = "project.preview.open:",
+    ConfigInvalid = "project.config.invalid",
+    Action = "project.action:",
+}
+
+/// A command no shortcut does: what it is called, when it is offered and what it does.
+struct Standalone {
+    id: &'static str,
+    title: &'static str,
+    detail: &'static str,
+    category: &'static str,
+    offered: fn(&Workbench) -> bool,
+    run: fn(&mut Workbench, &mut Window, &mut Context<Workbench>),
+}
+
+fn language_servers_allowed(bench: &Workbench) -> Option<bool> {
+    let project = bench.project()?;
+    let path = project.path.to_string_lossy();
+    Some(crate::editor::language_servers_allowed(bench, &path))
+}
+
+fn allow_language_servers(bench: &mut Workbench, allow: bool) {
+    if let Some(project) = bench.project() {
+        let path = project.path.to_string_lossy().into_owned();
+        crate::editor::allow_language_servers(bench, path, allow);
+    }
+}
+
+const STANDALONE: [Standalone; 9] = [
+    Standalone {
+        id: "project.settings",
+        title: "Project settings",
+        detail: "Processes, the default git repository, worktrees and language servers",
+        category: "Project",
+        offered: |bench| bench.project().is_some(),
+        run: |bench, _, _| {
+            if let Some(project) = bench.project().map(|project| project.id.clone()) {
+                bench.open_project_settings(&project);
+            }
+        },
+    },
+    Standalone {
+        id: "project.language-servers.stop",
+        title: "Stop language servers for this project",
+        detail: "Stop them now and do not start them again",
+        category: "Project · Language servers",
+        offered: |bench| language_servers_allowed(bench) == Some(true),
+        run: |bench, _, _| allow_language_servers(bench, false),
+    },
+    Standalone {
+        id: "project.language-servers.allow",
+        title: "Allow language servers for this project",
+        detail: "Start them when you open a file here",
+        category: "Project · Language servers",
+        offered: |bench| language_servers_allowed(bench) == Some(false),
+        run: |bench, _, _| allow_language_servers(bench, true),
+    },
+    Standalone {
+        id: "support.diagnostics",
+        title: "Open runtime diagnostics",
+        detail: "Inspect redacted runtime and agent-detection health",
+        category: "Support",
+        offered: |_| true,
+        run: |bench, _, cx| crate::experience::open_diagnostics(bench, cx),
+    },
+    Standalone {
+        id: "support.whats-new",
+        title: "Open What’s New",
+        detail: "Review the latest Sikemux release notes",
+        category: "Support",
+        offered: |_| true,
+        run: |bench, _, cx| crate::experience::open_whats_new(bench, cx),
+    },
+    Standalone {
+        id: "support.onboarding",
+        title: "Show welcome",
+        detail: "Open the first-run screen",
+        category: "Support",
+        offered: |_| true,
+        run: |bench, _, cx| crate::experience::open_welcome(bench, cx),
+    },
+    Standalone {
+        id: "window.duplicate",
+        title: "Duplicate active terminal",
+        detail: "Clone the active window into a new terminal tab",
+        category: "Window",
+        offered: |bench| bench.terminal_in_front().is_some(),
+        run: |bench, _, _| {
+            if let Some((strip, tab)) = bench.terminal_in_front() {
+                bench.duplicate_tab(&strip, &tab);
+            }
+        },
+    },
+    Standalone {
+        id: "app.quit-and-stop-everything",
+        title: "Quit and Stop Everything",
+        detail: "Stop every terminal, terminal agent and process, then quit. Plain Quit leaves them running.",
+        category: "Application",
+        offered: |_| true,
+        run: |_, window, cx| keymap::dispatch("app.quitAndStopEverything", window, cx),
+    },
+    Standalone {
+        id: "agents.reload-manifests",
+        title: "Reload agent manifests",
+        detail: "Reload agent-state detection rules from disk",
+        category: "Agents",
+        offered: |_| true,
+        run: |bench, _, cx| bench.reload_manifests(cx),
+    },
+];
 
 /// The deck's rows for the preview the project's `sikemux.json` checks in: start its command,
 /// and open its address.
@@ -49,7 +180,7 @@ fn preview_rows(config: &Value, project: &str) -> Vec<Row> {
             |url| format!("Serve {url}"),
         );
         rows.push(
-            Row::new(format!("{START_PREVIEW}{project}"), "Start project preview")
+            Row::new(Pick::StartPreview(project).key(), "Start project preview")
                 .meta("Project · Preview")
                 .also(&detail)
                 .also("Project · Preview"),
@@ -57,7 +188,7 @@ fn preview_rows(config: &Value, project: &str) -> Vec<Row> {
     }
     if let Some(url) = url {
         rows.push(
-            Row::new(format!("{OPEN_PREVIEW}{url}"), "Open project preview")
+            Row::new(Pick::OpenPreview(url).key(), "Open project preview")
                 .meta("Project · Preview")
                 .also(url)
                 .also("Project · Preview"),
@@ -104,7 +235,7 @@ fn action_rows(config: &Value, cx: &App) -> Vec<Row> {
                 .filter(|detail| !detail.is_empty())
                 .map_or_else(|| format!("Run from {path}"), str::to_owned);
             Some(
-                Row::new(format!("{ACTION}{id}"), label)
+                Row::new(Pick::Action(id).key(), label)
                     .keys(keymap::action_hint(id, cx))
                     .meta("Project · sikemux.json")
                     .also(&detail)
@@ -133,14 +264,14 @@ fn worktree_rows(worktrees: &Value) -> Vec<Row> {
             format!("Open worktree: {branch}")
         };
         rows.push(
-            Row::new(format!("{OPEN_WORKTREE}{path}"), title)
+            Row::new(Pick::OpenWorktree(path).key(), title)
                 .meta("worktrees")
                 .also(path),
         );
         if !current && worktree["is_main"].as_bool() != Some(true) {
             rows.push(
                 Row::new(
-                    format!("{REMOVE_WORKTREE}{path}"),
+                    Pick::RemoveWorktree(path).key(),
                     format!("Remove worktree: {branch}"),
                 )
                 .meta("worktrees")
@@ -174,15 +305,18 @@ impl Workbench {
                 .and_then(|errors| errors.first())
                 .map_or("sikemux.json is invalid", |error| error.message.as_str());
             rows.push(
-                Row::new(CONFIG_INVALID, "Project config needs attention")
-                    .meta("Project · sikemux.json")
-                    .also(first)
-                    .also("Project · sikemux.json"),
+                Row::new(
+                    Pick::ConfigInvalid("").key(),
+                    "Project config needs attention",
+                )
+                .meta("Project · sikemux.json")
+                .also(first)
+                .also("Project · sikemux.json"),
             );
         }
         let tasks = &read.tasks;
         rows.extend(tasks.iter().map(|task| {
-            Row::new(format!("{RUN_TASK}{}", task.id), task.label.clone())
+            Row::new(Pick::RunTask(&task.id).key(), task.label.clone())
                 .meta("Processes")
                 .also(&format!("Run process from {}", task.cwd))
                 .also("Processes")
@@ -193,7 +327,7 @@ impl Workbench {
         let task = &running.run.task_id;
         if tasks.iter().any(|listed| listed.id == *task) {
             rows.push(
-                Row::new(format!("{RESTART_TASK}{task}"), "Restart active process")
+                Row::new(Pick::RestartTask(task).key(), "Restart active process")
                     .meta("Processes")
                     .also(
                         "Stop the current project process and start its current trusted definition",
@@ -202,7 +336,7 @@ impl Workbench {
         }
         rows.push(
             Row::new(
-                format!("{STOP_TASK}{}", running.run.execution_id),
+                Pick::StopTask(&running.run.execution_id).key(),
                 "Stop active process",
             )
             .meta("Processes")
@@ -216,7 +350,7 @@ impl Workbench {
             .iter()
             .filter(|shortcut| cx.build_action(shortcut.id, None).is_ok())
             .map(|shortcut| {
-                Row::new(format!("{BUILTIN}{}", shortcut.id), shortcut.label)
+                Row::new(Pick::Builtin(shortcut.id).key(), shortcut.label)
                     .meta(shortcut.category)
                     .keys(keymap::hint(shortcut.id, cx))
                     .also(shortcut.detail)
@@ -225,13 +359,14 @@ impl Workbench {
             })
             .collect();
         rows.extend(
-            self.standalone()
-                .into_iter()
-                .map(|(id, title, detail, category)| {
-                    Row::new(format!("{STANDALONE}{id}"), title)
-                        .meta(category)
-                        .also(detail)
-                        .also(category)
+            STANDALONE
+                .iter()
+                .filter(|command| (command.offered)(self))
+                .map(|command| {
+                    Row::new(Pick::Standalone(command.id).key(), command.title)
+                        .meta(command.category)
+                        .also(command.detail)
+                        .also(command.category)
                 }),
         );
         rows.extend(self.task_rows());
@@ -250,7 +385,7 @@ impl Workbench {
                     command.contexts.is_empty() || command.contexts.iter().any(|at| at == kind)
                 });
             rows.extend(custom.map(|command| {
-                Row::new(format!("{CUSTOM}{}", command.id), command.title)
+                Row::new(Pick::Custom(&command.id).key(), command.title)
                     .meta("custom")
                     .also(&command.detail)
                     .also(&command.command)
@@ -270,41 +405,40 @@ impl Workbench {
             rows,
             |row, bench, window, cx| {
                 bench.remember_command(row.key.clone(), cx);
-                if let Some(id) = row.key.strip_prefix(BUILTIN) {
-                    keymap::dispatch(id, window, cx);
-                } else if let Some(id) = row.key.strip_prefix(CUSTOM) {
-                    bench.run_custom_command(id, cx);
-                } else if let Some(id) = row.key.strip_prefix(ACTION) {
-                    bench.run_command(json!({ "action": id }), row.title.to_string(), cx);
-                } else if let Some(id) = row.key.strip_prefix(STANDALONE) {
-                    bench.run_standalone(id, window, cx);
-                } else if let Some(path) = row.key.strip_prefix(OPEN_WORKTREE) {
-                    bench.open_place(
+                match Pick::read(&row.key) {
+                    Some(Pick::Builtin(id)) => keymap::dispatch(id, window, cx),
+                    Some(Pick::Custom(id)) => bench.run_custom_command(id, cx),
+                    Some(Pick::Action(id)) => {
+                        bench.run_command(json!({ "action": id }), row.title.to_string(), cx)
+                    }
+                    Some(Pick::Standalone(id)) => {
+                        if let Some(command) = STANDALONE.iter().find(|command| command.id == id) {
+                            (command.run)(bench, window, cx);
+                        }
+                    }
+                    Some(Pick::OpenWorktree(path)) => bench.open_place(
                         &format!("folder:{path}"),
                         crate::picker::ThenPicked::Open,
                         window,
                         cx,
-                    );
-                } else if let Some(task) = row
-                    .key
-                    .strip_prefix(RUN_TASK)
-                    .or_else(|| row.key.strip_prefix(RESTART_TASK))
-                {
-                    bench.start_task(task, cx);
-                } else if let Some(execution) = row.key.strip_prefix(STOP_TASK) {
-                    bench.stop_run(execution);
-                } else if let Some(project) = row.key.strip_prefix(START_PREVIEW) {
-                    bench.start_preview(project, cx);
-                } else if let Some(url) = row.key.strip_prefix(OPEN_PREVIEW) {
-                    cx.open_url(url);
-                } else if row.key.as_ref() == CONFIG_INVALID {
-                    let errors = bench.config_errors().join(" · ");
-                    bench.notify(
-                        toast::error(format!("sikemux.json: {errors}")).autohide(false),
-                        cx,
-                    );
-                } else if let Some(path) = row.key.strip_prefix(REMOVE_WORKTREE) {
-                    bench.remove_worktree_at(path.to_owned(), row.title.to_string(), cx);
+                    ),
+                    Some(Pick::RunTask(task) | Pick::RestartTask(task)) => {
+                        bench.start_task(task, cx)
+                    }
+                    Some(Pick::StopTask(execution)) => bench.stop_run(execution),
+                    Some(Pick::StartPreview(project)) => bench.start_preview(project, cx),
+                    Some(Pick::OpenPreview(url)) => cx.open_url(url),
+                    Some(Pick::ConfigInvalid(_)) => {
+                        let errors = bench.config_errors().join(" · ");
+                        bench.notify(
+                            toast::error(format!("sikemux.json: {errors}")).autohide(false),
+                            cx,
+                        );
+                    }
+                    Some(Pick::RemoveWorktree(path)) => {
+                        bench.remove_worktree_at(path.to_owned(), row.title.to_string(), cx)
+                    }
+                    None => {}
                 }
             },
         )
@@ -390,105 +524,6 @@ impl Workbench {
             },
             cx,
         );
-    }
-
-    fn standalone(&self) -> Vec<Standalone> {
-        let mut commands = Vec::new();
-        if let Some(project) = self.project() {
-            let path = project.path.to_string_lossy();
-            commands.push((
-                "project.settings",
-                "Project settings",
-                "Processes, the default git repository, worktrees and language servers",
-                "Project",
-            ));
-            commands.push(match crate::editor::language_servers_allowed(self, &path) {
-                true => (
-                    "project.language-servers.stop",
-                    "Stop language servers for this project",
-                    "Stop them now and do not start them again",
-                    "Project · Language servers",
-                ),
-                false => (
-                    "project.language-servers.allow",
-                    "Allow language servers for this project",
-                    "Start them when you open a file here",
-                    "Project · Language servers",
-                ),
-            });
-        }
-        commands.extend([
-            (
-                "support.diagnostics",
-                "Open runtime diagnostics",
-                "Inspect redacted runtime and agent-detection health",
-                "Support",
-            ),
-            (
-                "support.whats-new",
-                "Open What’s New",
-                "Review the latest Sikemux release notes",
-                "Support",
-            ),
-            (
-                "support.onboarding",
-                "Show welcome",
-                "Open the first-run screen",
-                "Support",
-            ),
-        ]);
-        if self.terminal_in_front().is_some() {
-            commands.push((
-                "window.duplicate",
-                "Duplicate active terminal",
-                "Clone the active window into a new terminal tab",
-                "Window",
-            ));
-        }
-        commands.extend([
-            (
-                "app.quit-and-stop-everything",
-                "Quit and Stop Everything",
-                "Stop every terminal, terminal agent and process, then quit. Plain Quit leaves them running.",
-                "Application",
-            ),
-            (
-                "agents.reload-manifests",
-                "Reload agent manifests",
-                "Reload agent-state detection rules from disk",
-                "Agents",
-            ),
-        ]);
-        commands
-    }
-
-    fn run_standalone(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        match id {
-            "project.language-servers.allow" | "project.language-servers.stop" => {
-                if let Some(project) = self.project() {
-                    let path = project.path.to_string_lossy().into_owned();
-                    crate::editor::allow_language_servers(self, path, id.ends_with("allow"));
-                }
-            }
-            "project.settings" => {
-                if let Some(project) = self.project().map(|project| project.id.clone()) {
-                    self.open_project_settings(&project);
-                }
-            }
-            "support.diagnostics" => crate::experience::open_diagnostics(self, cx),
-            "support.whats-new" => crate::experience::open_whats_new(self, cx),
-            "support.onboarding" => crate::experience::open_welcome(self, cx),
-            "window.duplicate" => {
-                if let Some((strip, tab)) = self.terminal_in_front() {
-                    self.duplicate_tab(&strip, &tab);
-                }
-            }
-            "app.quit-and-stop-everything" => {
-                keymap::dispatch("app.quitAndStopEverything", window, cx)
-            }
-            "agents.reload-manifests" => self.reload_manifests(cx),
-            _ => {}
-        }
     }
 
     /// The tab in front, when it is a project's terminal.
