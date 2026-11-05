@@ -34,7 +34,7 @@ use super::rebind::Outcome;
 use super::{Chat, ChatCommand};
 
 pub(crate) use process::{kill_and_reap, kill_group, AgentRecord, Released};
-pub(crate) use session::{Adopted, Begin, Handed, SessionState};
+pub(crate) use session::{Adopted, Begin, Handed, SessionState, Steered};
 
 /// Why a session ended, so the chat can tell a stop it asked for from an agent
 /// that died under it.

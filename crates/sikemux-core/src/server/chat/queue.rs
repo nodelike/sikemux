@@ -166,7 +166,7 @@ pub(crate) async fn steer(
         return Ok(());
     }
     let (text, paths, context) = combine(taken.clone());
-    if super::steer(core, agent_id, text, paths, context).await? == "promptRequired" {
+    if super::steer(core, agent_id, text, paths, context).await? == super::Steered::PromptRequired {
         send(&chat, taken);
     }
     Ok(())

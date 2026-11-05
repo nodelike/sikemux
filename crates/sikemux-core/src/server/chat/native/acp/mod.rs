@@ -30,7 +30,7 @@ use super::pending::{Answered, Purpose};
 use super::process::{self, Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
 use super::servers;
-use super::session::{Backend, Opened, Prompt, Sink, TurnEnd};
+use super::session::{Backend, Opened, Prompt, Sink, Steered, TurnEnd};
 
 /// The error code an agent turns a prompt down with when it needs a sign-in.
 const AUTH_REQUIRED: i64 = -32000;
@@ -159,7 +159,7 @@ impl Driver {
         match purpose {
             Purpose::Prompt(turn) => self.answered(turn, result),
             Purpose::Steer { text, paths } => {
-                if result.is_ok_and(|answer| answer["outcome"] == "injected") {
+                if result.is_ok_and(|answer| answer["outcome"] == Steered::Injected.word()) {
                     self.sink.prompted(&text, &paths);
                 }
             }
@@ -529,11 +529,15 @@ impl Backend for Acp {
     fn steer(
         &mut self,
         prompt: Prompt,
-    ) -> impl std::future::Future<Output = Result<String, String>> + Send + 'static {
+    ) -> impl std::future::Future<Output = Result<Steered, String>> + Send + 'static {
         let sent = self.send_steer(prompt);
         async move {
             let answer = sent?.answer(None).await.map_err(|error| describe(&error))?;
-            Ok(answer["outcome"].as_str().unwrap_or_default().to_owned())
+            match &answer["outcome"] {
+                outcome if outcome == Steered::Injected.word() => Ok(Steered::Injected),
+                outcome if outcome == Steered::PromptRequired.word() => Ok(Steered::PromptRequired),
+                outcome => Err(format!("The agent answered a steer with {outcome}")),
+            }
         }
     }
 

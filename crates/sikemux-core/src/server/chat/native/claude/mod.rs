@@ -35,7 +35,7 @@ use super::parts::{context_text, parts, Part};
 use super::pending::Purpose;
 use super::process::{self, Lines, Process, Reading, Released, Writer};
 use super::servers;
-use super::session::{Backend, Opened, Prompt, Sink};
+use super::session::{Backend, Opened, Prompt, Sink, Steered};
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
 
@@ -455,14 +455,14 @@ impl Claude {
         uuid
     }
 
-    fn inject(&self, prompt: Prompt) -> Result<String, String> {
+    fn inject(&self, prompt: Prompt) -> Result<Steered, String> {
         let content = content(&prompt)?;
 
         let uuid = Uuid::new_v4().to_string();
         {
             let mut shared = self.shared.locked();
             if shared.turn.is_none() {
-                return Ok("promptRequired".into());
+                return Ok(Steered::PromptRequired);
             }
             shared.sent.insert(uuid.clone());
             if let Some(turn) = shared.turn.as_mut() {
@@ -476,7 +476,7 @@ impl Claude {
         // Claude Code takes it in after the turn's next tool call, or once the turn ends.
         self.writer()
             .send(&user_message(&uuid, content, Some("next")))?;
-        Ok("injected".into())
+        Ok(Steered::Injected)
     }
 }
 
@@ -644,7 +644,7 @@ impl Backend for Claude {
     fn steer(
         &mut self,
         prompt: Prompt,
-    ) -> impl std::future::Future<Output = Result<String, String>> + Send + 'static {
+    ) -> impl std::future::Future<Output = Result<Steered, String>> + Send + 'static {
         std::future::ready(self.inject(prompt))
     }
 

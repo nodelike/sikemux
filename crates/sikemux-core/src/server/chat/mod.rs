@@ -38,6 +38,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::acp::native as acp_native;
 use crate::launch::PermissionMode;
+pub(crate) use native::Steered;
 use native::{ended_status, SessionEnd};
 use pickers::current_choice;
 use prompt::bounded_text;
@@ -107,7 +108,7 @@ pub(crate) enum ChatCommand {
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
-        reply: oneshot::Sender<Result<String, String>>,
+        reply: oneshot::Sender<Result<native::Steered, String>>,
     },
     /// A message from another agent: steered into the running turn, or the
     /// start of a new one when none runs.
@@ -2424,7 +2425,7 @@ pub(crate) async fn steer(
     text: String,
     paths: Vec<String>,
     mut context: Vec<ChatContext>,
-) -> CoreResult<String> {
+) -> CoreResult<native::Steered> {
     mentions::fill(core, agent_id, &mut context);
     let (reply, answer) = oneshot::channel();
     core.chats.running(agent_id)?.send(ChatCommand::Steer {

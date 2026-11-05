@@ -20,7 +20,7 @@ use super::super::Respond;
 use super::pending::{Answered, Purpose};
 use super::process::{self, Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
-use super::session::{Prompt, Sink, TurnEnd};
+use super::session::{Prompt, Sink, Steered, TurnEnd};
 use super::turns::{self, Ended, Prompted, Turns};
 
 /// What one message from the agent does to the chat. `Own` is what only this
@@ -300,23 +300,22 @@ impl<S: RpcAgent> Driver<S> {
             .map_err(|error| error_text(&error))
     }
 
-    /// What became of a steer: `injected` once it is in, `promptRequired` when
-    /// the turn ended first.
+    /// What became of a steer.
     pub fn steered(
         sent: Result<Option<Sent>, String>,
-    ) -> impl Future<Output = Result<String, String>> + Send + 'static {
+    ) -> impl Future<Output = Result<Steered, String>> + Send + 'static {
         async move {
             let Some(sent) = sent? else {
-                return Ok("promptRequired".to_owned());
+                return Ok(Steered::PromptRequired);
             };
             match sent
                 .answer(Some(ANSWER_WAIT))
                 .await
                 .map_err(|error| error_text(&error))
             {
-                Ok(_) => Ok("injected".to_owned()),
+                Ok(_) => Ok(Steered::Injected),
                 Err(error) if S::TURN_ENDED.iter().any(|said| error.contains(said)) => {
-                    Ok("promptRequired".to_owned())
+                    Ok(Steered::PromptRequired)
                 }
                 Err(error) => Err(error),
             }

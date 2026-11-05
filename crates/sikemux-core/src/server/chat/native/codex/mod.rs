@@ -31,7 +31,7 @@ use super::process::{Lines, Process, Reading, Released, Writer};
 use super::rpc::Rpc;
 use super::rpc_driver::{self, RpcAgent};
 use super::servers;
-use super::session::{self, Backend, Opened, Prompt, Sink};
+use super::session::{self, Backend, Opened, Prompt, Sink, Steered};
 use approvals::Question;
 use commands::Command;
 use state::{user_input_told, Reply, Session};
@@ -644,7 +644,7 @@ impl Backend for Codex {
     fn steer(
         &mut self,
         prompt: Prompt,
-    ) -> impl std::future::Future<Output = Result<String, String>> + Send + 'static {
+    ) -> impl std::future::Future<Output = Result<Steered, String>> + Send + 'static {
         Driver::steered(
             self.driver
                 .send_steer(&prompt, || self.prompt_input(&prompt)),

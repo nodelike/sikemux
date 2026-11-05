@@ -116,6 +116,24 @@ pub(crate) enum TurnEnd {
     Broken(String),
 }
 
+/// What became of a message put into the running turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Steered {
+    Injected,
+    /// The turn ended first, so it goes as a prompt instead.
+    PromptRequired,
+}
+
+impl Steered {
+    /// As ACP agents say it and as the phone's call answers it.
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            Self::Injected => "injected",
+            Self::PromptRequired => "promptRequired",
+        }
+    }
+}
+
 /// What woke the chat's loop.
 enum Woke {
     Command(Option<ChatCommand>),
@@ -442,14 +460,13 @@ pub(crate) trait Backend: Sized + Send {
         prompt: Prompt,
     ) -> impl std::future::Future<Output = Result<(), String>> + Send;
 
-    /// Puts a message into the running turn. `injected` once it is in,
-    /// `promptRequired` when the turn ended first. The answer is waited on
-    /// apart from the chat's other commands, so a stop sent right after a
-    /// steer is never held up behind it.
+    /// Puts a message into the running turn. The answer is waited on apart
+    /// from the chat's other commands, so a stop sent right after a steer is
+    /// never held up behind it.
     fn steer(
         &mut self,
         prompt: Prompt,
-    ) -> impl std::future::Future<Output = Result<String, String>> + Send + 'static;
+    ) -> impl std::future::Future<Output = Result<Steered, String>> + Send + 'static;
 
     /// Asks the running turn to stop.
     fn cancel(&mut self) -> impl std::future::Future<Output = Result<(), String>> + Send;
@@ -1021,13 +1038,13 @@ impl<B: Backend> Running<'_, B> {
         let steering = self.backend.steer(prompt.clone());
         let chat = self.chat.clone();
         tokio::spawn(async move {
-            let delivery = match steering.await.as_deref() {
-                Ok("injected") => {
+            let delivery = match steering.await {
+                Ok(Steered::Injected) => {
                     chat.feed.prompted(None, &prompt.text, &[], &[]);
                     Delivery::Steered
                 }
-                Ok("promptRequired") => Delivery::TurnEnded,
-                _ => Delivery::Refused,
+                Ok(Steered::PromptRequired) => Delivery::TurnEnded,
+                Err(_) => Delivery::Refused,
             };
             let _ = reply.send(delivery);
         });
@@ -1221,10 +1238,10 @@ impl<B: Backend> Running<'_, B> {
         text: String,
         paths: Vec<String>,
         context: Vec<ChatContext>,
-        reply: tokio::sync::oneshot::Sender<Result<String, String>>,
+        reply: tokio::sync::oneshot::Sender<Result<Steered, String>>,
     ) {
         if !self.chat.prompted() {
-            let _ = reply.send(Ok("promptRequired".to_owned()));
+            let _ = reply.send(Ok(Steered::PromptRequired));
             return;
         }
         let prompt = Prompt {
@@ -1239,7 +1256,7 @@ impl<B: Backend> Running<'_, B> {
         let chat = self.chat.clone();
         tokio::spawn(async move {
             let result = steering.await;
-            if result.as_deref() == Ok("injected") {
+            if result == Ok(Steered::Injected) {
                 chat.feed
                     .prompted(None, &prompt.text, &prompt.paths, &prompt.context);
             }
