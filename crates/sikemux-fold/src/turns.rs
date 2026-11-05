@@ -2,7 +2,7 @@
 //! turn took and how fast it was written, and which finished turns fold their
 //! work away behind the reply they closed with.
 
-use sikemux_view::chat::{ChatPart, ChatRole, RowMeta, WorkFold};
+use sikemux_view::chat::{ChatPart, ChatRole, RowMeta, SubagentState, WorkFold};
 
 use super::{Fold, Row};
 
@@ -19,6 +19,17 @@ fn is_reply(part: &ChatPart) -> bool {
         part,
         ChatPart::Text { .. } | ChatPart::Content { .. } | ChatPart::Tool { gif: Some(_), .. }
     ) || matches!(part, ChatPart::AgentNotice { notice, .. } if notice.goal.is_some())
+}
+
+/// A page the agent showed, a GIF it sent, where a goal began or ended and a subagent still at
+/// work stay in view when the turn around them folds.
+fn outlives(part: &ChatPart) -> bool {
+    match part {
+        ChatPart::Tool { page, gif, .. } => page.is_some() || gif.is_some(),
+        ChatPart::Subagent { subagent, .. } => subagent.state == SubagentState::Running,
+        ChatPart::AgentNotice { notice, .. } => notice.goal.is_some(),
+        _ => false,
+    }
 }
 
 /// The turn's parts in order, each with the row it is in and where in that row.
@@ -105,15 +116,22 @@ struct TurnFold {
 
 impl TurnFold {
     /// The fold as the row at `index` carries it, saying where the reply starts among its parts.
-    fn for_row(&self, index: usize, parts: usize) -> WorkFold {
+    fn for_row(&self, index: usize, parts: &[ChatPart]) -> WorkFold {
         let (row, at) = self.reply;
         let from = match index.cmp(&row) {
-            std::cmp::Ordering::Less => parts,
+            std::cmp::Ordering::Less => parts.len(),
             std::cmp::Ordering::Equal => at,
             std::cmp::Ordering::Greater => 0,
         };
+        let shown = parts
+            .iter()
+            .enumerate()
+            .filter(|(at, part)| outlives(part) || (*at >= from && is_reply(part)))
+            .map(|(at, _)| at as u64)
+            .collect();
         WorkFold {
             from: from as u64,
+            shown,
             ..self.fold.clone()
         }
     }
@@ -145,6 +163,7 @@ fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
             id: rows[start].msg.id.clone(),
             last: rows[end].msg.id.clone(),
             from: 0,
+            shown: Vec::new(),
             calls,
             took: turn_span(rows, start, end),
             thought: !acted,
@@ -248,7 +267,7 @@ impl Fold {
             for (index, row) in rows.iter_mut().enumerate().take(end + 1).skip(at) {
                 let fold = turn
                     .as_ref()
-                    .map(|turn| turn.for_row(index, row.msg.parts.len()));
+                    .map(|turn| turn.for_row(index, &row.msg.parts));
                 let mut changed = set_fold(row, fold);
                 changed |= set_meta(row, meta.clone().filter(|_| index == end));
                 if changed {
@@ -284,7 +303,7 @@ pub(super) fn settle_all(rows: &mut [Row]) {
         for (index, row) in rows.iter_mut().enumerate().take(end + 1).skip(at) {
             row.msg.fold = turn
                 .as_ref()
-                .map(|turn| turn.for_row(index, row.msg.parts.len()));
+                .map(|turn| turn.for_row(index, &row.msg.parts));
             row.msg.meta = (index == end).then(|| meta.clone());
         }
         at = end + 1;

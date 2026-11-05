@@ -271,7 +271,7 @@ export function Message({
   onTap,
   strip,
   sentFiles,
-  from = null,
+  kept = null,
   onEdit,
   editing,
 }: {
@@ -285,7 +285,7 @@ export function Message({
   strip?: StripMeta | null;
   sentFiles: ReadonlyMap<string, Attachment>;
   /** Where the shown parts start, when the work before them is folded away. */
-  from?: number | null;
+  kept?: readonly number[] | null;
   /** Writes this message again; absent when the chat cannot take it back. */
   onEdit?: (message: ChatMessage) => void;
   /** This message is being written again. */
@@ -396,7 +396,7 @@ export function Message({
   return (
     <Pressable onPress={tap} onLongPress={keepLongPress} accessibilityHint={tap ? 'Tap for copy and how long it took' : undefined}>
       <Grow id={message.id} live={live}>
-        <Parts id={message.id} parts={shownParts(message.parts, from)} live={live} />
+        <Parts id={message.id} parts={shownParts(message.parts, kept)} live={live} />
         {strip ? <Strip meta={strip} mine={false} /> : null}
       </Grow>
     </Pressable>

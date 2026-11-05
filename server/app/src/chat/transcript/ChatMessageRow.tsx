@@ -495,7 +495,7 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   rate,
   at,
   took,
-  from = null,
+  kept = null,
 }: {
   message: ChatMessage;
   live: boolean;
@@ -504,11 +504,11 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   at: number | null;
   took: number | null;
   /** Where the shown parts start, when the work before them is folded away. */
-  from?: number | null;
+  kept?: readonly number[] | null;
 }) {
   const { parts, letters } = message;
   const context = message.context ?? [];
-  const shown = useMemo(() => shownParts(parts, from), [parts, from]);
+  const shown = useMemo(() => shownParts(parts, kept), [parts, kept]);
   const attachments = message.attachments ?? [];
   const written = parts
     .flatMap((part) => (part.kind === "text" ? [part.text] : []))

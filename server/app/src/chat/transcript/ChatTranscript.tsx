@@ -11,7 +11,7 @@ import { ChatMessageRow } from "./ChatMessageRow";
 import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
 import { copyText, EARLIER_LOST, rowTime } from "@shared/chat/messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
-import { formatDetail, shownParts } from "@shared/chat/transcript";
+import { formatDetail } from "@shared/chat/transcript";
 import type { ChatMessage, ChatRows } from "@shared/chat/types";
 import { WorkSummary } from "./WorkSummary";
 
@@ -129,12 +129,7 @@ export function ChatTranscript({
                   onToggle={() => toggleWork(workId)}
                 />
               );
-            if (
-              span &&
-              fold &&
-              folded &&
-              shownParts(message.parts, fold.from).length === 0
-            )
+            if (span && fold && folded && fold.shown.length === 0)
               return (
                 <div key={message.id} data-index={index} className="chat-row">
                   {summary}
@@ -144,7 +139,7 @@ export function ChatTranscript({
               <div key={message.id} data-index={index} className="chat-row">
                 {summary}
                 <ChatMessageRow
-                  from={span && fold && folded ? fold.from : null}
+                  kept={span && fold && folded ? fold.shown : null}
                   message={message}
                   live={state.running && index === state.messages.length - 1}
                   copyable={copyText(state.messages, index)}

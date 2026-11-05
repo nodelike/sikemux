@@ -187,7 +187,7 @@ function SharedChat({ session }: { session: ShareSession }) {
                       getItemType={(message) => (rowFold(message, workOpen).hidden ? 'folded' : message.role)}
                       extraData={marks}
                       renderItem={({ item }) => {
-                        const { summary: fold, hidden, from } = rowFold(item, workOpen);
+                        const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen);
                         const summary = fold ? (
                           <WorkSummary
                             took={fold.took}
@@ -208,7 +208,7 @@ function SharedChat({ session }: { session: ShareSession }) {
                               onRetry={noRetry}
                               onTap={noTap}
                               sentFiles={emptyFiles}
-                              from={from}
+                              kept={kept}
                             />
                           </>
                         );

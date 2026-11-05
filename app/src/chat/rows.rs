@@ -48,7 +48,6 @@ pub(super) fn row(
                 .as_ref()
                 .is_none_or(|before| before.id != fold.id)
     });
-    let from = fold.map(|fold| usize::try_from(fold.from).unwrap_or(usize::MAX));
     let work_shown = if user {
         1.
     } else {
@@ -66,11 +65,7 @@ pub(super) fn row(
     };
     let mut segments: Vec<(bool, Vec<&ChatPart>)> = Vec::new();
     for (index, part) in message.parts.iter().enumerate() {
-        let reply = matches!(
-            part,
-            ChatPart::Text { .. } | ChatPart::Content { .. } | ChatPart::Tool { gif: Some(_), .. }
-        );
-        let tucked = from.is_some_and(|from| !(outlives(part) || index >= from && reply));
+        let tucked = fold.is_some_and(|fold| !fold.shown.contains(&(index as u64)));
         if tucked && work_shown <= 0. {
             continue;
         }
@@ -608,17 +603,6 @@ pub(super) fn runs<'a>(parts: impl Iterator<Item = &'a ChatPart>) -> Vec<Shown<'
         }
     }
     shown
-}
-
-/// A page the agent showed, a GIF it sent and a subagent still at work stay in view when the
-/// turn around them folds.
-pub(super) fn outlives(part: &ChatPart) -> bool {
-    match part {
-        ChatPart::Tool { page, gif, .. } => page.is_some() || gif.is_some(),
-        ChatPart::Subagent { subagent, .. } => subagent.state == SubagentState::Running,
-        ChatPart::AgentNotice { notice, .. } => notice.goal.is_some(),
-        _ => false,
-    }
 }
 
 /// Where a goal began or ended: a quiet line across the column with its state's mark.

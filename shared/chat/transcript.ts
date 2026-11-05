@@ -37,28 +37,22 @@ export function decodedFenceName(info: string): string {
 
 export type PartGroup = { id: string; tools: Extract<ChatPart, { kind: "tool" }>[] } | { id: string; part: ChatPart };
 
-/* Consecutive calls share one group, except a page an agent showed, which is
-   part of its reply rather than a step towards it. */
+/* Consecutive calls share one group, except a page or GIF the agent showed, which draws in
+   the call's place and is part of its reply rather than a step towards it. */
 export function groupParts(parts: ChatPart[]): PartGroup[] {
     const groups: PartGroup[] = [];
     for (const part of parts) {
         const last = groups.at(-1);
-        if (part.kind !== "tool" || part.page) groups.push({ id: part.id, part });
+        if (part.kind !== "tool" || part.page || part.gif) groups.push({ id: part.id, part });
         else if (last && "tools" in last) last.tools.push(part);
         else groups.push({ id: part.id, tools: [part] });
     }
     return groups;
 }
 
-export const isReply = (part: ChatPart) => part.kind === "text" || part.kind === "content";
-
-/* A page the agent showed and a subagent still at work stay in view when the turn around them folds. */
-export const outlivesFold = (part: ChatPart) =>
-    (part.kind === "tool" && part.page !== undefined) || (part.kind === "subagent" && part.subagent.state === "running");
-
-/** The parts a message shows: all of them, or once its turn's work is folded away, the reply from `from` on and what outlives the fold. */
-export function shownParts(parts: ChatPart[], from: number | null): ChatPart[] {
-    return from === null ? parts : parts.filter((part, index) => (index >= from && isReply(part)) || outlivesFold(part));
+/** The parts a message shows: all of them, or once its turn's work is folded away, those the core keeps in view. */
+export function shownParts(parts: ChatPart[], shown: readonly number[] | null): ChatPart[] {
+    return shown === null ? parts : parts.filter((_, index) => shown.includes(index));
 }
 
 export const SUBAGENT_WORDS: Readonly<Record<SubagentCard["state"], string>> = {

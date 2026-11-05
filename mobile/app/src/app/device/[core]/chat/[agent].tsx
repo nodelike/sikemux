@@ -224,7 +224,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                             getItemType={(message) => (rowFold(message, workOpen).hidden ? 'folded' : message.role)}
                             extraData={marks}
                             renderItem={({ item, index }) => {
-                              const { summary: fold, hidden, from } = rowFold(item, workOpen);
+                              const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen);
                               const note =
                                 index === 0 && worktree && !chat.hasEarlier ? (
                                   <WorktreeNote branch={worktree.branch} path={worktree.path} />
@@ -259,7 +259,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                                     onTap={onTap}
                                     strip={item.id === open ? openStrip : undefined}
                                     sentFiles={chat.sentFiles}
-                                    from={from}
+                                    kept={kept}
                                     onEdit={editable(item) ? startEdit : undefined}
                                     editing={item.id === editing ? editingRow : undefined}
                                   />

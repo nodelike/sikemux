@@ -1,6 +1,5 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 
-import { shownParts } from '@shared/chat/transcript';
 import type { ChatMessage } from '@shared/chat/types';
 
 /**
@@ -53,19 +52,19 @@ type RowFold = {
   /** The fold whose summary goes above this row, its first. */
   summary: WorkFold | null;
   hidden: boolean;
-  /** Where the shown reply starts, or null when the row shows whole. */
-  from: number | null;
+  /** Which parts stay in view, or null when the row shows whole. */
+  shown: readonly number[] | null;
 };
 
-const UNFOLDED: RowFold = { summary: null, hidden: false, from: null };
+const UNFOLDED: RowFold = { summary: null, hidden: false, shown: null };
 
 /** `open` says whether the person opened the fold's work, by the fold's id. */
 export function rowFold(row: ChatMessage, open: (id: string) => boolean): RowFold {
   const fold = row.fold;
   if (!fold) return UNFOLDED;
   const summary = row.id === fold.id ? fold : null;
-  if (open(fold.id)) return summary ? { summary, hidden: false, from: null } : UNFOLDED;
-  return { summary, hidden: shownParts(row.parts, fold.from).length === 0, from: fold.from };
+  if (open(fold.id)) return summary ? { summary, hidden: false, shown: null } : UNFOLDED;
+  return { summary, hidden: fold.shown.length === 0, shown: fold.shown };
 }
 
 /**

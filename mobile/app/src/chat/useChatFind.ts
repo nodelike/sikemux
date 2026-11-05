@@ -19,8 +19,8 @@ export function useChatFind(session: ChatSession, rows: ChatMessage[], workOpen:
   const showHit = (hit: FindHit) => {
     const row = session.snapshot().view.messages.find((message) => message.id === hit.row);
     if (!row) return;
-    const { from } = rowFold(row, workOpen);
-    const tucked = !shownParts(row.parts, from).some((held) => held.id === hit.part);
+    const { shown: kept } = rowFold(row, workOpen);
+    const tucked = !shownParts(row.parts, kept).some((held) => held.id === hit.part);
     if (row.fold && tucked) session.folds.set(`work/${row.fold.id}`, true);
     setShown({ row: hit.row });
   };

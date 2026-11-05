@@ -1893,6 +1893,8 @@ export interface WorkFold {
      * reply starts in a later message, and 0 when it started in an earlier one.
      */
     from: number;
+    /** Which of this message's parts stay in view while the fold is closed. */
+    shown: number[];
     calls: number;
     took?: number;
     /** Everything folded is thinking. */
