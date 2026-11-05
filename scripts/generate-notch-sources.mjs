@@ -26,7 +26,6 @@ const buddiesSwiftPath = resolve(
   root,
   "helpers/notch/Sources/NotchKit/Buddies.generated.swift",
 );
-const check = process.argv.includes("--check");
 
 /** The helper's colour names and the palette variable each one is. */
 const COLOURS = {
@@ -42,19 +41,6 @@ const COLOURS = {
   command: "--cmd",
   danger: "--danger",
 };
-
-async function emit(path, contents) {
-  let actual = null;
-  try {
-    actual = await readFile(path, "utf8");
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  if (actual === contents) return;
-  if (check) throw new Error(`Generated notch source is stale: ${path}`);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, contents);
-}
 
 const { settings } = JSON.parse(await readFile(settingsSource, "utf8"));
 const entries = Object.entries(settings);
@@ -211,6 +197,7 @@ ${Object.entries(COLOURS)
 }
 `,
 );
+import { check, emit } from "./lib/generated.mjs";
 
 const [bundle] = await build({
   root,

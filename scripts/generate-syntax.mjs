@@ -7,7 +7,11 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { createServer } from "vite";
+import {
+  localLanguages,
+  shikiGrammars,
+  typescriptLoader,
+} from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const langsDir = resolve(root, "node_modules/@shikijs/langs");
@@ -16,43 +20,17 @@ const indexPath = resolve(assetsDir, "syntax.json");
 const grammarsPath = resolve(assetsDir, "grammars.bin");
 const check = process.argv.includes("--check");
 
-const GRAMMAR =
-  /^const lang = Object\.freeze\(JSON\.parse\(("(?:[^"\\]|\\.)*")\)\)$/m;
-const IMPORT = /^import \w+ from '\.\/([\w.+-]+)\.mjs'$/gm;
-const ALIAS = /^export \{ default \} from '\.\/([\w.+-]+)\.mjs'$/m;
-
 const { version } = JSON.parse(
   await readFile(resolve(langsDir, "package.json"), "utf8"),
 );
 
-const sources = {};
-const embeds = {};
-const aliases = {};
-for (const file of (await readdir(resolve(langsDir, "dist"))).sort()) {
-  if (!file.endsWith(".mjs") || file === "index.mjs") continue;
-  const id = file.slice(0, -".mjs".length);
-  const module = await readFile(resolve(langsDir, "dist", file), "utf8");
-  const alias = ALIAS.exec(module);
-  if (alias) {
-    aliases[id] = alias[1];
-    continue;
-  }
-  const literal = GRAMMAR.exec(module);
-  if (!literal) throw new Error(`Unrecognised grammar module: ${file}`);
-  sources[id] = JSON.parse(literal[1]);
-  embeds[id] = [...module.matchAll(IMPORT)].map((match) => match[1]);
-}
+const { sources, embeds, aliases } = await shikiGrammars(langsDir);
 
-// Languages Shiki has no grammar for, kept beside the app's other shared sources.
-const localDir = resolve(root, "shared/languages");
-for (const file of (await readdir(localDir)).sort()) {
-  if (!file.endsWith(".tmLanguage.json")) continue;
-  const id = file.slice(0, -".tmLanguage.json".length);
+// Languages Shiki has no grammar for, kept beside the app's other shared source.
+for (const [id, { grammar }] of Object.entries(await localLanguages())) {
   if (sources[id] || aliases[id])
-    throw new Error(`${file} is already a Shiki grammar: ${id}`);
-  sources[id] = JSON.stringify(
-    JSON.parse(await readFile(resolve(localDir, file), "utf8")),
-  );
+    throw new Error(`${id} is already a Shiki grammar`);
+  sources[id] = JSON.stringify(JSON.parse(grammar));
   embeds[id] = [];
 }
 
@@ -106,13 +84,7 @@ function requires(id) {
   return [...seen].sort();
 }
 
-const server = await createServer({
-  root,
-  logLevel: "error",
-  server: { middlewareMode: true, hmr: false },
-  appType: "custom",
-  optimizeDeps: { noDiscovery: true, include: [] },
-});
+const server = await typescriptLoader();
 let roles;
 try {
   const { createCodeTheme, HIGHLIGHT_KEYS } = await server.ssrLoadModule(

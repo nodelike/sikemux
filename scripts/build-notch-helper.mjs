@@ -18,35 +18,14 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { appMetadata } from "./app-metadata.mjs";
+import { building, root } from "./lib/build.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const { fail, run, hostTriple, dropToolchainPaths, checkStarts } =
+  building("Notch helper");
+
 const packageDir = join(root, "helpers", "notch");
 const args = process.argv.slice(2);
 const name = "sikemux-notch";
-
-function fail(message) {
-  console.error(`Notch helper build failed: ${message}`);
-  process.exit(1);
-}
-
-function run(command, commandArgs, options = {}) {
-  const result = spawnSync(command, commandArgs, {
-    cwd: root,
-    encoding: "utf8",
-    stdio: options.capture ? ["ignore", "pipe", "inherit"] : "inherit",
-  });
-  if (result.error) fail(`${command}: ${result.error.message}`);
-  if (result.status !== 0)
-    fail(`${command} exited with status ${result.status}`);
-  return result.stdout?.trim() ?? "";
-}
-
-function hostTriple() {
-  const details = run("rustc", ["-vV"], { capture: true });
-  const host = details.match(/^host:\s*(\S+)$/m)?.[1];
-  if (!host) fail("could not determine the Rust host target");
-  return host;
-}
 
 const target = hostTriple();
 if (!target.includes("apple-darwin")) {
@@ -128,15 +107,9 @@ copyFileSync(built, destination);
 chmodSync(destination, 0o755);
 run("strip", ["-x", destination]);
 
-const loadCommands = run("otool", ["-l", destination], { capture: true });
-const toolchainPaths = [
-  ...loadCommands.matchAll(/^\s+path (\/Applications\/\S+) \(offset \d+\)$/gm),
-].map((match) => match[1]);
-for (const path of new Set(toolchainPaths))
-  run("install_name_tool", ["-delete_rpath", path, destination]);
+dropToolchainPaths(destination);
 
-// The app's signature covers what it carries, so the helper app is signed
-// first, the way the bundler signs the app itself.
+// The app's signature covers what it carries, so the helper app is signed first.
 const identity = process.env.APPLE_SIGNING_IDENTITY || "-";
 run("codesign", [
   "--force",
@@ -148,8 +121,6 @@ run("codesign", [
   bundle,
 ]);
 
-const reported = run(destination, ["--version"], { capture: true });
-if (!reported.startsWith(name))
-  fail(`unexpected --version output: ${reported}`);
+checkStarts(destination, name);
 
 console.log(`✓ ${appName} ready: ${bundle.slice(root.length + 1)}`);

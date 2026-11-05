@@ -9,7 +9,7 @@ export function coreSocket(name) {
 
 // A Sikemux terminal names its own app, project and agent in these variables.
 // Sikemux Dev started from one must not take them as its own.
-const KEPT_OVERRIDES = new Set(["SIKEMUX_CORE_SOCKET", "SIKEMUX_SIDECAR_PATH"]);
+const KEPT_OVERRIDES = new Set(["SIKEMUX_CORE_SOCKET", "SIKEMUX_CORE_PATH"]);
 // The installed app's core, which a Sikemux terminal may name as its socket.
 const INSTALLED_CORE = coreSocket("core.sock");
 

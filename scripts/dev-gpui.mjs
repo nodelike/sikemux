@@ -90,7 +90,7 @@ function icon(resources) {
 
 function built(name) {
   const path = join(debug, name);
-  if (!existsSync(path)) fail(`${path} is missing; run pnpm sidecar:dev`);
+  if (!existsSync(path)) fail(`${path} is missing; run pnpm core:dev`);
   return path;
 }
 
@@ -216,7 +216,7 @@ async function runDevGpui() {
     console.error(before);
     return 1;
   }
-  run("pnpm", ["sidecar:dev"]);
+  run("pnpm", ["core:dev"]);
   buildApp();
   const refused = refusal();
   if (refused) {

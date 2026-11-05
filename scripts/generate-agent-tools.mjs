@@ -5,6 +5,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { check, emit } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const manifestPath = resolve(root, "tools/tools.json");
@@ -30,7 +31,6 @@ const cliProtocolPath = resolve(
   root,
   "crates/sikemux-base/src/cli/protocol.rs",
 );
-const check = process.argv.includes("--check");
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 const methods = manifest.tools.map((tool) => tool.method);
@@ -216,19 +216,6 @@ pub const HARNESS_METHODS: &[&str] = &[
 ${list(harnessMethods)}
 ];
 `;
-
-async function emit(path, contents) {
-  let actual = null;
-  try {
-    actual = await readFile(path, "utf8");
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  if (actual === contents) return;
-  if (check) throw new Error(`Generated agent tool contract is stale: ${path}`);
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, contents);
-}
 
 await emit(rustOutputPath, rustOutput);
 

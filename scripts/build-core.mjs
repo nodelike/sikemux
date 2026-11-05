@@ -13,49 +13,34 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { appMetadata } from "./app-metadata.mjs";
-import { smokeBrowserSidecar } from "./smoke-browser-sidecar.mjs";
+import { smokeCore } from "./smoke-core.mjs";
+import { building, root } from "./lib/build.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const { fail, run, hostTriple } = building("Core");
+
 const packaging = join(root, "packaging");
 const binariesDir = join(packaging, "binaries");
-const sidecars = ["sikemux-host"];
-
-function fail(message) {
-  console.error(`Sidecar build failed: ${message}`);
-  process.exit(1);
-}
-
-function run(command, commandArgs, options = {}) {
-  const result = spawnSync(command, commandArgs, {
-    cwd: root,
-    encoding: "utf8",
-    stdio: options.capture ? "pipe" : "inherit",
-  });
-  if (result.error) fail(`${command}: ${result.error.message}`);
-  if (result.status !== 0) {
-    if (options.capture && result.stderr) process.stderr.write(result.stderr);
-    fail(`${command} exited with status ${result.status}`);
-  }
-  return result.stdout?.trim() ?? "";
-}
-
-function hostTriple() {
-  const details = run("rustc", ["-vV"], { capture: true });
-  const host = details.match(/^host:\s*(\S+)$/m)?.[1];
-  if (!host) fail("could not determine the Rust host target");
-  return host;
-}
 
 function executableName(name, target) {
   return target.includes("windows") ? `${name}.exe` : name;
 }
 
 function buildFor(target) {
-  const cargoArgs = ["build", "--locked", "--release", "-p", "sikemux-host"];
-  for (const name of sidecars) cargoArgs.push("--bin", name);
-  run("cargo", cargoArgs);
-  return (name) =>
-    join(root, "target", "release", executableName(name, target));
+  run("cargo", [
+    "build",
+    "--locked",
+    "--release",
+    "-p",
+    "sikemux-host",
+    "--bin",
+    "sikemux-host",
+  ]);
+  return join(
+    root,
+    "target",
+    "release",
+    executableName("sikemux-host", target),
+  );
 }
 
 // A macOS release runs the core as an app of its own, since only an app can
@@ -125,46 +110,20 @@ const requestedTarget = hostTriple();
 mkdirSync(binariesDir, { recursive: true });
 
 const suffix = requestedTarget.includes("windows") ? ".exe" : "";
-const shipped = new Map();
+const core = join(binariesDir, `sikemux-host-${requestedTarget}${suffix}`);
 // The Release workflow builds the core on a machine of its own, alongside the helpers.
-const prebuiltCore = process.env.PREBUILT_CORE;
-if (prebuiltCore) {
-  const destination = join(
-    binariesDir,
-    `sikemux-host-${requestedTarget}${suffix}`,
-  );
-  copyFileSync(prebuiltCore, destination);
-  chmodSync(destination, 0o755);
-  shipped.set("sikemux-host", destination);
-} else {
-  const built = buildFor(requestedTarget);
-  for (const name of sidecars) {
-    const destination = join(
-      binariesDir,
-      `${name}-${requestedTarget}${suffix}`,
-    );
-    copyFileSync(built(name), destination);
-    shipped.set(name, destination);
-  }
-}
+copyFileSync(process.env.PREBUILT_CORE || buildFor(requestedTarget), core);
+if (!requestedTarget.includes("windows")) chmodSync(core, 0o755);
 
-for (const destination of shipped.values()) {
-  if (!requestedTarget.includes("windows")) chmodSync(destination, 0o755);
-}
-
-const browser = shipped.get("sikemux-host");
 try {
-  await smokeBrowserSidecar(browser);
+  await smokeCore(core);
 } catch (error) {
-  rmSync(browser, { force: true });
-  fail(`browser sidecar smoke: ${error.message}`);
+  rmSync(core, { force: true });
+  fail(`core smoke: ${error.message}`);
 }
-
-for (const [name, destination] of shipped) {
-  console.log(`✓ ${name} ready: ${destination.slice(root.length + 1)}`);
-}
+console.log(`✓ sikemux-host ready: ${core.slice(root.length + 1)}`);
 
 if (requestedTarget.includes("apple-darwin")) {
-  const app = bundleCore(shipped.get("sikemux-host"));
+  const app = bundleCore(core);
   console.log(`✓ Sikemux Core.app ready: ${app.slice(root.length + 1)}`);
 }

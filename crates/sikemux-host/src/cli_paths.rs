@@ -14,9 +14,9 @@ pub fn endpoint_to_read() -> Result<PathBuf, String> {
 /// The core this app ships: inside a macOS release bundle, or beside the app's
 /// executable. `SIKEMUX_BIN_PATH` is not read here: every Sikemux terminal sets
 /// it, so an app started from one would run another build's sidecar. Tests
-/// point the app elsewhere with `SIKEMUX_SIDECAR_PATH`.
+/// point the app elsewhere with `SIKEMUX_CORE_PATH`.
 pub fn cli_executable_path() -> Option<PathBuf> {
-    if let Some(path) = sikemux_process::paths::env_path("SIKEMUX_SIDECAR_PATH") {
+    if let Some(path) = sikemux_process::paths::env_path("SIKEMUX_CORE_PATH") {
         if path.is_file() {
             return Some(path);
         }

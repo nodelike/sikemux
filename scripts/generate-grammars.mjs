@@ -1,11 +1,11 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import prettier from "prettier";
+import { check, emit, shikiGrammars } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const langsDir = resolve(root, "node_modules/@shikijs/langs");
 const tsOutputPath = resolve(root, "shared/languages/grammars.generated.ts");
-const check = process.argv.includes("--check");
 
 const { version } = JSON.parse(
   await readFile(resolve(langsDir, "package.json"), "utf8"),
@@ -19,33 +19,13 @@ if (version !== shikiVersion) {
   );
 }
 
-const GRAMMAR =
-  /^const lang = Object\.freeze\(JSON\.parse\(("(?:[^"\\]|\\.)*")\)\)$/m;
-const IMPORT = /^import \w+ from '\.\/([\w.+-]+)\.mjs'$/gm;
-const ALIAS = /^export \{ default \} from '\.\/([\w.+-]+)\.mjs'$/m;
-
-const files = (await readdir(resolve(langsDir, "dist")))
-  .filter((name) => name.endsWith(".mjs") && name !== "index.mjs")
-  .sort();
-
+const { sources, embeds, aliases } = await shikiGrammars(langsDir);
 const grammars = new Set();
-const embeds = {};
-const aliases = {};
-for (const file of files) {
-  const id = file.slice(0, -".mjs".length);
-  const source = await readFile(resolve(langsDir, "dist", file), "utf8");
-  const alias = ALIAS.exec(source);
-  if (alias) {
-    aliases[id] = alias[1];
-    continue;
-  }
-  const literal = GRAMMAR.exec(source);
-  if (!literal) throw new Error(`Unrecognised grammar module: ${file}`);
-  const grammar = JSON.parse(JSON.parse(literal[1]));
+for (const [id, source] of Object.entries(sources)) {
+  const grammar = JSON.parse(source);
   if (grammar.name !== id)
-    throw new Error(`${file} declares the grammar ${grammar.name}`);
+    throw new Error(`${id}.mjs declares the grammar ${grammar.name}`);
   grammars.add(id);
-  embeds[id] = [...source.matchAll(IMPORT)].map((match) => match[1]);
 }
 
 for (const [alias, target] of Object.entries(aliases)) {
@@ -72,17 +52,5 @@ const tsOutput = await prettier.format(tsSource, {
   ...(await prettier.resolveConfig(tsOutputPath)),
   filepath: tsOutputPath,
 });
-
-async function emit(path, expected) {
-  let actual = null;
-  try {
-    actual = await readFile(path, "utf8");
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-  if (actual === expected) return;
-  if (check) throw new Error(`Generated grammar manifest is stale: ${path}`);
-  await writeFile(path, expected);
-}
 
 await emit(tsOutputPath, tsOutput);

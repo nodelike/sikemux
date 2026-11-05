@@ -8,6 +8,7 @@ data/
 /target/
 packaging/icons/build/
 packaging/binaries/
+helpers/notch/.build/
 helpers/voice/.build/
 helpers/sim/.build/
 helpers/sim/Frameworks/
@@ -28,7 +29,6 @@ marketing/
 graphify-out/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
-helpers/notch/.build/
 
 # Research notes, kept local only.
 docs/research/

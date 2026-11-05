@@ -67,7 +67,7 @@ fetch() {
 }
 
 echo "→ Building the core"
-node scripts/build-cli-sidecar.mjs
+node scripts/build-core.mjs
 CORE="$ROOT/packaging/binaries/sikemux-host-$TRIPLE"
 echo "→ Building the app"
 (cd app && cargo build --release --locked --bin sikemux)

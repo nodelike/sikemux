@@ -4,7 +4,7 @@
 //! LatencyProbe measures on screen.
 //!
 //!   HOME=/tmp/sx-stress/home SIKEMUX_CORE_SOCKET=/tmp/sx-stress/core.sock \
-//!   SIKEMUX_SIDECAR_PATH=<release sikemux-host> STRESS_AGENT=<sikemux-fake-acp-agent> \
+//!   SIKEMUX_CORE_PATH=<release sikemux-host> STRESS_AGENT=<sikemux-fake-acp-agent> \
 //!     <core's folder>/sikemux <scenario> [minutes]
 //!
 //! Copied beside the core as `sikemux`, as a core trusts its app by where it lives.

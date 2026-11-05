@@ -149,7 +149,7 @@ async function exercise(sidecar, environment, received) {
   }
 }
 
-export async function smokeBrowserSidecar(sidecar) {
+export async function smokeCore(sidecar) {
   const received = [];
   const server = await fakeSikemux(received);
   const directory = mkdtempSync(join(tmpdir(), "sikemux-smoke-"));
@@ -181,17 +181,17 @@ export async function smokeBrowserSidecar(sidecar) {
   }
 }
 
-if (process.argv[1]?.endsWith("smoke-browser-sidecar.mjs")) {
+if (process.argv[1]?.endsWith("smoke-core.mjs")) {
   const sidecar = process.argv[2];
   if (!sidecar) {
-    console.error("usage: smoke-browser-sidecar.mjs <sidecar>");
+    console.error("usage: smoke-core.mjs <sidecar>");
     process.exit(2);
   }
   try {
-    await smokeBrowserSidecar(sidecar);
-    console.log("✓ browser sidecar smoke passed");
+    await smokeCore(sidecar);
+    console.log("✓ core smoke passed");
   } catch (error) {
-    console.error(`browser sidecar smoke failed: ${error.message}`);
+    console.error(`core smoke failed: ${error.message}`);
     process.exit(1);
   }
 }

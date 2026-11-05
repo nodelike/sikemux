@@ -15,8 +15,11 @@ import {
 import { dirname, join, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { building, root } from "./lib/build.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const { fail, run, hostTriple, dropToolchainPaths, checkStarts } =
+  building("Simulator helper");
+
 const simDir = join(root, "helpers", "sim");
 const idbDir = join(simDir, "idb");
 const buildDir = join(simDir, ".build");
@@ -31,37 +34,11 @@ const deploymentTarget = `${
 
 const frameworks = join(simDir, "Frameworks");
 
-function fail(message) {
-  console.error(`Simulator helper build failed: ${message}`);
-  process.exit(1);
-}
-
 // `make dev` builds the app without the simulator helper on a Mac that cannot build it.
 function missing(message) {
   if (!dev) fail(message);
   console.warn(`- skipping the simulator helper: ${message}`);
   process.exit(0);
-}
-
-function run(command, commandArgs, options = {}) {
-  const result = spawnSync(command, commandArgs, {
-    cwd: options.cwd ?? root,
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-    env: { ...process.env, ...options.env },
-    stdio: options.capture ? ["ignore", "pipe", "inherit"] : "inherit",
-  });
-  if (result.error) fail(`${command}: ${result.error.message}`);
-  if (result.status !== 0)
-    fail(`${command} exited with status ${result.status}`);
-  return result.stdout?.trim() ?? "";
-}
-
-function hostTriple() {
-  const details = run("rustc", ["-vV"], { capture: true });
-  const host = details.match(/^host:\s*(\S+)$/m)?.[1];
-  if (!host) fail("could not determine the Rust host target");
-  return host;
 }
 
 function filesIn(dir) {
@@ -219,12 +196,7 @@ copyFileSync(built, destination);
 chmodSync(destination, 0o755);
 run("strip", ["-x", destination]);
 
-const loadCommands = run("otool", ["-l", destination], { capture: true });
-const toolchainPaths = [
-  ...loadCommands.matchAll(/^\s+path (\/Applications\/\S+) \(offset \d+\)$/gm),
-].map((match) => match[1]);
-for (const path of new Set(toolchainPaths))
-  run("install_name_tool", ["-delete_rpath", path, destination]);
+dropToolchainPaths(destination);
 
 // Like the voice helper, signed ad hoc to run here and signed again by the release.
 if (!args.includes("--dev")) {
@@ -233,8 +205,7 @@ if (!args.includes("--dev")) {
   });
 }
 
-const version = run(destination, ["--version"], { capture: true });
-if (!version.startsWith(name)) fail(`unexpected --version output: ${version}`);
+checkStarts(destination, name);
 
 const size = (statSync(destination).size / 1024 / 1024).toFixed(1);
 console.log(

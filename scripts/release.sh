@@ -245,7 +245,7 @@ if count != 1:
     raise SystemExit("could not update the workspace version")
 path.write_text(updated)
 PY
-# Cargo.lock records the workspace version and the sidecar builds with --locked,
+# Cargo.lock records the workspace version and the core builds with --locked,
 # so the bump has to reach the lock file or the build fails partway through.
 if [[ "$VERSION" != "$PKG_VER" ]]; then
   cargo metadata --offline --format-version 1 >/dev/null \

@@ -35,7 +35,7 @@ const served = [
     required: [],
   },
 ];
-// The sidecar checks length limits itself and leaves them out of what it sends.
+// The core checks length limits itself and leaves them out of what it sends.
 const advertised = (schema) =>
   Array.isArray(schema)
     ? schema.map(advertised)

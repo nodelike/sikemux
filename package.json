@@ -9,7 +9,7 @@
   },
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
-    "sidecar:dev": "cargo build -p sikemux-host --bin sikemux-host && node scripts/build-voice-helper.mjs --dev && node scripts/build-notch-helper.mjs --dev && node scripts/build-sim-helper.mjs --dev",
+    "core:dev": "cargo build -p sikemux-host --bin sikemux-host && node scripts/build-voice-helper.mjs --dev && node scripts/build-notch-helper.mjs --dev && node scripts/build-sim-helper.mjs --dev",
     "brand": "node scripts/brand.mjs",
     "dmg:background": "node scripts/dmg-background.mjs",
     "typecheck": "tsc6 --noEmit",

@@ -2,7 +2,7 @@
 //! typing beside one and then four terminals flooding, and scrolling back
 //! through a long history.
 //!
-//!   SIKEMUX_CORE_SOCKET=/tmp/x/core.sock SIKEMUX_SIDECAR_PATH=path/to/sikemux-host HOME=/tmp/x/home \
+//!   SIKEMUX_CORE_SOCKET=/tmp/x/core.sock SIKEMUX_CORE_PATH=path/to/sikemux-host HOME=/tmp/x/home \
 //!     cargo run --release --example terminals -- [log to flood with] [shots folder]
 //!
 //! It starts its own core at that socket, so run it with a HOME of its own. A

@@ -100,7 +100,7 @@ jobs:
           }
           area rust '^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$)'
           area simulator '^(helpers/sim/|crates/sikemux-simulator/|Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|rust-toolchain\.toml$)'
-          area packaging '^(scripts/build-linux\.sh$|scripts/build-cli-sidecar\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-core/resources/sikemux_pi_tools\.ts$)'
+          area packaging '^(scripts/build-linux\.sh$|scripts/build-core\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-core/resources/sikemux_pi_tools\.ts$)'
 
   # The same check as `pnpm deps:audit`: any vulnerability fails it, and so does any unsound or
   # unmaintained warning dependency-audit.json does not explain. Advisories arrive without a change

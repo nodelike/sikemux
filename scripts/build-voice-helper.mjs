@@ -4,36 +4,14 @@ import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { building, root } from "./lib/build.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const { fail, run, hostTriple, dropToolchainPaths, checkStarts } =
+  building("Voice helper");
+
 const packageDir = join(root, "helpers", "voice");
 const args = process.argv.slice(2);
 const name = "sikemux-voice";
-
-function fail(message) {
-  console.error(`Voice helper build failed: ${message}`);
-  process.exit(1);
-}
-
-function run(command, commandArgs, options = {}) {
-  const result = spawnSync(command, commandArgs, {
-    cwd: root,
-    encoding: "utf8",
-    env: { ...process.env, ...options.env },
-    stdio: options.capture ? ["ignore", "pipe", "inherit"] : "inherit",
-  });
-  if (result.error) fail(`${command}: ${result.error.message}`);
-  if (result.status !== 0)
-    fail(`${command} exited with status ${result.status}`);
-  return result.stdout?.trim() ?? "";
-}
-
-function hostTriple() {
-  const details = run("rustc", ["-vV"], { capture: true });
-  const host = details.match(/^host:\s*(\S+)$/m)?.[1];
-  if (!host) fail("could not determine the Rust host target");
-  return host;
-}
 
 const target = hostTriple();
 if (!target.includes("apple-darwin")) {
@@ -71,12 +49,7 @@ copyFileSync(built, destination);
 chmodSync(destination, 0o755);
 run("strip", ["-x", destination]);
 
-const loadCommands = run("otool", ["-l", destination], { capture: true });
-const toolchainPaths = [
-  ...loadCommands.matchAll(/^\s+path (\/Applications\/\S+) \(offset \d+\)$/gm),
-].map((match) => match[1]);
-for (const path of new Set(toolchainPaths))
-  run("install_name_tool", ["-delete_rpath", path, destination]);
+dropToolchainPaths(destination);
 
 // A release publishes the helper beside the app instead of bundling it. This
 // ad hoc signature lets it run here; the release signs it again before the app
@@ -87,7 +60,6 @@ if (!args.includes("--dev")) {
   });
 }
 
-const version = run(destination, ["--version"], { capture: true });
-if (!version.startsWith(name)) fail(`unexpected --version output: ${version}`);
+checkStarts(destination, name);
 
 console.log(`✓ ${name} ready: ${destination.slice(root.length + 1)}`);

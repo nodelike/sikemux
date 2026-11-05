@@ -39,12 +39,12 @@ test("Sikemux Dev started from a Sikemux terminal drops that terminal's identity
     SIKEMUX_CLI_ENDPOINT: "/Users/me/.config/sikemux/cli.json",
     SIKEMUX_AGENT_ID: "agent-1",
     SIKEMUX_CORE_SOCKET: "/tmp/core.sock",
-    SIKEMUX_SIDECAR_PATH: "/tmp/sidecar",
+    SIKEMUX_CORE_PATH: "/tmp/core",
   });
   assert.deepEqual(env, {
     PATH: "/usr/bin",
     SIKEMUX_CORE_SOCKET: "/tmp/core.sock",
-    SIKEMUX_SIDECAR_PATH: "/tmp/sidecar",
+    SIKEMUX_CORE_PATH: "/tmp/core",
   });
 });
 

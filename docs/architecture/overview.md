@@ -217,10 +217,8 @@ Database, GitHub, GitLab, Jira, Linear, Rundeck, SigNoz, Slack and Vercel.
   by default, and `crates/sikemux-host/src/plugins/builtin.rs` lists them. Plugin crates opt
   in to the workspace Clippy lints that forbid `unwrap`, `expect`, `panic` and unchecked
   indexing, because a panicking plugin takes the core down.
-- **In the app:** the core reads the views a plugin's manifest names and says when one
-  changed (`server/plugin_views.rs`); `plugin_pane/` keeps what it was last sent and hands it
-  to the plugin's own panel, `plugin_pane/<name>.rs`, to draw. What a panel changes goes back
-  through the plugin's calls.
+- **In the app:** plugins are connectors. Settings signs a person in to each, and agents use
+  their tools; mods reach their methods through the bridge.
 
 A plugin can also offer agent tools, which the MCP server lists next to the built-in ones.
 Settings can switch a plugin off without removing it from the build.

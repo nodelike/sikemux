@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sign the voice or simulator helper the way the bundler signs what it ships:
+# Sign the voice or simulator helper as a release is signed:
 # hardened runtime and the app's microphone entitlement. APPLE_SIGNING_IDENTITY
 # picks the identity; without it the signature is ad hoc.
 set -euo pipefail

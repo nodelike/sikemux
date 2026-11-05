@@ -42,7 +42,7 @@ if [[ "$STEP" != "package" ]]; then
 fi
 [[ "$STEP" == "compile" ]] && exit 0
 node "$ROOT/scripts/build-notch-helper.mjs"
-node "$ROOT/scripts/build-cli-sidecar.mjs"
+node "$ROOT/scripts/build-core.mjs"
 
 BUNDLE="$ROOT/target/release/bundle"
 APP_PATH="$BUNDLE/macos/${APP_NAME}.app"

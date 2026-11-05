@@ -11,7 +11,7 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { chromium } from "playwright-core";
-import { createServer } from "vite";
+import { typescriptLoader } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const manifestPath = resolve(root, "crates/sikemux-core/src/assets/faces.json");
@@ -33,13 +33,7 @@ const firstOfEachAttribute = (markup) =>
     },
   );
 
-const server = await createServer({
-  root,
-  logLevel: "error",
-  server: { middlewareMode: true, hmr: false },
-  appType: "custom",
-  optimizeDeps: { noDiscovery: true, include: [] },
-});
+const server = await typescriptLoader();
 const wanted = new Map();
 try {
   const { BUDDY_PACKS } = await server.ssrLoadModule(

@@ -10,8 +10,8 @@ bash -n scripts/build-mac.sh scripts/release.sh scripts/sign-helper.sh scripts/s
 node --check scripts/verify-updater-signature.mjs
 node --check scripts/app-metadata.mjs
 node --check scripts/release-credits.mjs
-node --check scripts/build-cli-sidecar.mjs
-node --check scripts/smoke-browser-sidecar.mjs
+node --check scripts/build-core.mjs
+node --check scripts/smoke-core.mjs
 node --check scripts/build-voice-helper.mjs
 node --check scripts/build-notch-helper.mjs
 node scripts/generate-notch-icons.mjs --check
@@ -35,7 +35,7 @@ const macBuild = fs.readFileSync("scripts/build-mac.sh", "utf8");
 const linuxBuild = fs.readFileSync("scripts/build-linux.sh", "utf8");
 const installer = fs.readFileSync("scripts/install.sh", "utf8");
 const signHost = fs.readFileSync("scripts/sign-host.sh", "utf8");
-const sidecarBuild = fs.readFileSync("scripts/build-cli-sidecar.mjs", "utf8");
+const coreBuild = fs.readFileSync("scripts/build-core.mjs", "utf8");
 const publish = fs.readFileSync("scripts/publish-release.sh", "utf8");
 const releaseWorkflow = fs.readFileSync(".github/workflows/release.yml", "utf8");
 const fail = (message) => { throw new Error(message); };
@@ -51,7 +51,7 @@ if (app["minimum-macos"] !== "11.0") fail("unexpected minimum macOS version");
 if (!app.description) fail("the app has no description for its Linux packages");
 if (!macBuild.includes('--entitlements "$ROOT/packaging/Entitlements.plist"')) fail("microphone entitlement is not configured");
 if (pkg.scripts?.["build:linux"] !== "scripts/build-linux.sh") fail("pnpm build:linux does not run scripts/build-linux.sh");
-if (!linuxBuild.includes("node scripts/build-cli-sidecar.mjs")) fail("Linux build does not build the core");
+if (!linuxBuild.includes("node scripts/build-core.mjs")) fail("Linux build does not build the core");
 if (!linuxBuild.includes("cargo build --release --locked --bin sikemux")) fail("Linux build does not build the GPUI app");
 for (const name of ["Sikemux_${VERSION}_amd64.deb", "Sikemux-${VERSION}-1.x86_64.rpm", "Sikemux_${VERSION}_amd64.AppImage"]) {
   if (!linuxBuild.includes(name)) fail(`Linux build does not make ${name}`);
@@ -78,14 +78,14 @@ if (!publish.includes('"$SIG" "$VOICE"')) fail("releases do not publish the voic
 if (!macBuild.includes("build-sim-helper.mjs")) fail("macOS build does not build the simulator helper");
 if (!publish.includes('"$VOICE" "$SIM"')) fail("releases do not publish the simulator helper the app downloads");
 if (!linuxBuild.includes('"$PI_TOOLS" "$PACKAGE/usr/lib/sikemux/sikemux_pi_tools.ts"')) fail("Linux packages do not carry the Pi browser extension");
-if (!macBuild.includes("build-cli-sidecar.mjs")) fail("macOS build does not build the CLI sidecar");
+if (!macBuild.includes("build-core.mjs")) fail("macOS build does not build the core");
 if (!macBuild.includes('"$ROOT/packaging/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"')) fail("the macOS bundle must carry the core app");
 if (app["core-link"] !== "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" || !macBuild.includes('ln -s "$CORE_LINK_TARGET" "$APP_PATH/Contents/MacOS/sikemux-host"')) fail("the macOS bundle must link Contents/MacOS/sikemux-host to the core");
 for (const profile of ["sikemux-developer-id", "sikemux-core-developer-id"]) {
   if (!fs.existsSync(`packaging/macos/${profile}.provisionprofile`)) fail(`packaging/macos/${profile}.provisionprofile is missing`);
 }
-if (!sidecarBuild.includes("smokeBrowserSidecar")) fail("sidecar build does not run the browser smoke test");
-for (const [name, text] of [["scripts/build-mac.sh", macBuild], ["scripts/build-cli-sidecar.mjs", sidecarBuild], [".github/workflows/release.yml", releaseWorkflow]]) {
+if (!coreBuild.includes("smokeCore")) fail("the core build does not run its smoke test");
+for (const [name, text] of [["scripts/build-mac.sh", macBuild], ["scripts/build-core.mjs", coreBuild], [".github/workflows/release.yml", releaseWorkflow]]) {
     if (/--all-features|--features[ =][^\n]*\b(drive|fake-plugins)\b/.test(text)) fail(`${name} turns on a test kit's feature`);
 }
 if (!macBuild.includes("this test kit has no answer for that") || !macBuild.includes("window driver could not listen")) {
