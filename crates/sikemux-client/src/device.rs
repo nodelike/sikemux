@@ -215,6 +215,7 @@ impl Device {
                 Ok(Ok(opened)) => opened,
                 Ok(Err(
                     error @ (ClientError::Core(_)
+                    | ClientError::Refused { .. }
                     | ClientError::VersionMismatch { .. }
                     | ClientError::NotPaired),
                 )) => return Err(Dial::Final(error)),

@@ -380,7 +380,7 @@ pub(crate) fn reply_permission(
 ) -> CoreResult<()> {
     core.chats
         .get(agent_id)
-        .ok_or("ACP permission request is no longer pending")?
+        .ok_or_else(super::permission_gone)?
         .reply_permission(request_id, option_id)
 }
 

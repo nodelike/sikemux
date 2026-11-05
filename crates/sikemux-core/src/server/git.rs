@@ -45,7 +45,7 @@ macro_rules! methods {
                     confine(core, peer, &$repo).await?;
                     Ok(serde_json::to_value(methods!(@call $run, core, ($($with)?), $repo $(, $arg)*).await?)?)
                 })*
-                _ => Err(format!("this host does not know {method}").into()),
+                _ => Err(crate::server::CoreError::unknown_method(method)),
             }
         }
     };

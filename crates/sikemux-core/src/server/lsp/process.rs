@@ -218,9 +218,9 @@ fn with_stderr_tail(error: LspError, tail: &[String]) -> LspError {
 }
 
 fn lsp_error_message(error: LspError) -> String {
-    match error.0.strip_prefix("lsp: ") {
+    match error.message.strip_prefix("lsp: ") {
         Some(message) => message.to_owned(),
-        None => error.0,
+        None => error.message,
     }
 }
 

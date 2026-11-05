@@ -83,7 +83,11 @@ async fn on_runtime<T: Send + 'static>(
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum MobileError {
     #[error("{message}")]
-    Refused { message: String },
+    Refused {
+        message: String,
+        /// What the app branches on, as `ErrorKind` names it. Absent for a failure it only shows.
+        kind: Option<String>,
+    },
     #[error("{message}")]
     Connection { message: String },
     #[error("{message}")]
@@ -105,7 +109,16 @@ fn invalid(message: impl ToString) -> MobileError {
 impl From<ClientError> for MobileError {
     fn from(error: ClientError) -> Self {
         match error {
-            ClientError::Core(message) => MobileError::Refused { message },
+            ClientError::Core(message) => MobileError::Refused {
+                message,
+                kind: None,
+            },
+            ClientError::Refused { kind, message, .. } => MobileError::Refused {
+                message,
+                kind: serde_json::to_value(kind)
+                    .ok()
+                    .and_then(|kind| kind.as_str().map(str::to_owned)),
+            },
             ClientError::VersionMismatch { version, .. } => MobileError::Outdated {
                 mac_is_older: version < OLDEST_PROTOCOL_VERSION,
             },

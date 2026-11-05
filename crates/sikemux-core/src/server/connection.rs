@@ -155,6 +155,8 @@ impl ClientConn {
             self.send_message(&ServerMessage::Error {
                 request_id: Some(*request_id),
                 message: "the answer is larger than a connection to the core carries".into(),
+                kind: None,
+                detail: None,
             });
         } else {
             eprintln!(
@@ -172,7 +174,9 @@ impl ClientConn {
             },
             Err(error) => ServerMessage::Error {
                 request_id: Some(request_id),
-                message: error.to_string(),
+                message: error.message,
+                kind: error.kind,
+                detail: error.detail,
             },
         });
     }
@@ -277,6 +281,8 @@ async fn handshake(
                 &ServerMessage::Error {
                     request_id: None,
                     message: "expected a hello".into(),
+                    kind: None,
+                    detail: None,
                 },
             )
             .await;
@@ -372,10 +378,14 @@ async fn read_requests(
                 Ok(ClientMessage::Hello { .. }) => client.send_message(&ServerMessage::Error {
                     request_id: None,
                     message: "the handshake is already done".into(),
+                    kind: None,
+                    detail: None,
                 }),
                 Err(error) => client.send_message(&ServerMessage::Error {
                     request_id: unreadable_request_id(&frame.payload),
                     message: format!("unreadable message: {error}"),
+                    kind: None,
+                    detail: None,
                 }),
             },
             FrameKind::Input => {

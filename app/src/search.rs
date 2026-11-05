@@ -1009,11 +1009,6 @@ fn results(pane: &SearchPane, cx: &mut Context<SearchPane>) -> AnyElement {
     };
     if pane.status == Status::Failed {
         let error = pane.error.clone().unwrap_or_else(|| "search failed".into());
-        let error = if error.contains("invalid") {
-            format!("invalid regex: {error}")
-        } else {
-            error
-        };
         return notice(error, None, t.danger);
     }
     if pane.query.trim().is_empty() {

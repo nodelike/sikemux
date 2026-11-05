@@ -17,9 +17,9 @@ use tokio::task::JoinHandle;
 use sikemux_wire::protocol::{
     ask, ask::Ask, decode_grid, decode_lines, decode_snapshot, device_view_json, encode_control,
     encode_input, read_frame, AllowedDevice, BuildIdentity, CallId, ChatAttachment, ChatLaunch,
-    ChatStart, ClientMessage, DeviceAccess, Event, FrameKind, LaunchIdentity, RemoteStatus,
-    Request, RequestId, Response, ServerMessage, SessionId, SpawnTarget, StreamId, WindowAnswer,
-    WindowCall, MAX_FRAME_BYTES, OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
+    ChatStart, ClientMessage, DeviceAccess, ErrorKind, Event, FrameKind, LaunchIdentity,
+    RemoteStatus, Request, RequestId, Response, ServerMessage, SessionId, SpawnTarget, StreamId,
+    WindowAnswer, WindowCall, MAX_FRAME_BYTES, OLDEST_PROTOCOL_VERSION, PROTOCOL, PROTOCOL_VERSION,
 };
 
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -36,6 +36,13 @@ pub enum ClientError {
     },
     #[error("the Sikemux core did not finish the handshake: {0}")]
     Handshake(String),
+    /// A failure of a kind a client branches on.
+    #[error("{message}")]
+    Refused {
+        kind: ErrorKind,
+        message: String,
+        detail: Option<serde_json::Value>,
+    },
     #[error("{0}")]
     Core(String),
     #[error("the connection to the Sikemux core closed")]
@@ -660,7 +667,19 @@ fn dispatch(frame: sikemux_wire::protocol::Frame, pending: &Pending, sink: &dyn 
             Ok(ServerMessage::Error {
                 request_id: Some(request_id),
                 message,
-            }) => resolve(request_id, Err(ClientError::Core(message))),
+                kind,
+                detail,
+            }) => {
+                let failure = match kind {
+                    Some(kind) => ClientError::Refused {
+                        kind,
+                        message,
+                        detail,
+                    },
+                    None => ClientError::Core(message),
+                };
+                resolve(request_id, Err(failure))
+            }
             Ok(ServerMessage::Event { event }) => sink.event(event),
             Ok(ServerMessage::WindowCall { call_id, call }) => sink.window_call(call_id, call),
             Ok(_) => {}

@@ -24,8 +24,8 @@ use sikemux_wire::grid::{
     decode_frame, decode_lines, FindOptions, FindResult, Frame, GridPoint, Lines, TerminalInput,
 };
 use sikemux_wire::protocol::{
-    ask, CallId, ChatAccount, ChatAttachment, ChatContext, ChatMark, DeviceAccess, Event,
-    LaunchIdentity, NetworkChange, NoticeGoal, PermissionMode, RemoteStatus, SessionId,
+    ask, CallId, ChatAccount, ChatAttachment, ChatContext, ChatMark, DeviceAccess, ErrorKind,
+    Event, LaunchIdentity, NetworkChange, NoticeGoal, PermissionMode, RemoteStatus, SessionId,
     SpawnTarget, StreamId, TerminalSpawn, WindowAnswer, WindowCall,
 };
 use sikemux_wire::pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnapshot};
@@ -257,7 +257,7 @@ pub enum Ask {
     Request {
         method: &'static str,
         params: Value,
-        reply: oneshot::Sender<Result<Value, String>>,
+        reply: oneshot::Sender<Result<Value, CallError>>,
     },
     /// A watch, stream, call or answer for another host's core, by the host's key, as this
     /// host's would be. A read is watched in one place at a time.
@@ -267,7 +267,7 @@ pub enum Ask {
         host: String,
         method: &'static str,
         params: Value,
-        reply: oneshot::Sender<Result<Value, String>>,
+        reply: oneshot::Sender<Result<Value, CallError>>,
     },
     /// A call whose answer arrives in parts, as `Stream` events under `stream`.
     Stream {
@@ -617,12 +617,12 @@ async fn open_tab(client: &CoreClient, project: &str, agent: &str) {
 }
 
 /// Asks another host's core one of its methods, by the host's key, and waits for the answer.
-pub fn request_on(
+pub fn try_request_on(
     asks: &mpsc::UnboundedSender<Ask>,
     host: &str,
     method: &'static str,
     params: Value,
-) -> impl std::future::Future<Output = Result<Value, String>> {
+) -> impl std::future::Future<Output = Result<Value, CallError>> {
     let (reply, answer) = oneshot::channel();
     let sent = asks.send(Ask::HostRequest {
         host: host.to_owned(),
@@ -631,10 +631,98 @@ pub fn request_on(
         reply,
     });
     async move {
-        let gone = "the core is not connected";
-        sent.map_err(|_| gone.to_owned())?;
-        answer.await.map_err(|_| gone.to_owned())?
+        sent.map_err(|_| CallError::gone())?;
+        answer.await.map_err(|_| CallError::gone())?
     }
+}
+
+/// A call's failure, with what a client branches on. Words for it are the caller's.
+#[derive(Clone, Debug)]
+pub struct CallError {
+    pub kind: Option<ErrorKind>,
+    pub message: String,
+    pub detail: Option<Value>,
+    /// The core could not be asked at all.
+    pub gone: bool,
+}
+
+impl CallError {
+    fn gone() -> Self {
+        Self {
+            kind: None,
+            message: "the core is not connected".into(),
+            detail: None,
+            gone: true,
+        }
+    }
+}
+
+impl std::fmt::Display for CallError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl From<CallError> for String {
+    fn from(error: CallError) -> Self {
+        error.message
+    }
+}
+
+impl From<String> for CallError {
+    fn from(message: String) -> Self {
+        Self {
+            kind: None,
+            message,
+            detail: None,
+            gone: false,
+        }
+    }
+}
+
+impl From<&str> for CallError {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+
+impl From<ClientError> for CallError {
+    fn from(error: ClientError) -> Self {
+        match error {
+            ClientError::Refused {
+                kind,
+                message,
+                detail,
+            } => Self {
+                kind: Some(kind),
+                message,
+                detail,
+                gone: false,
+            },
+            other => other.to_string().into(),
+        }
+    }
+}
+
+/// Asks another host's core one of its methods, for a caller that only shows a failure.
+pub fn request_on(
+    asks: &mpsc::UnboundedSender<Ask>,
+    host: &str,
+    method: &'static str,
+    params: Value,
+) -> impl std::future::Future<Output = Result<Value, String>> {
+    let called = try_request_on(asks, host, method, params);
+    async move { Ok(called.await?) }
+}
+
+/// Asks this host's core one of its methods, for a caller that only shows a failure.
+pub fn request(
+    asks: &mpsc::UnboundedSender<Ask>,
+    method: &'static str,
+    params: Value,
+) -> impl std::future::Future<Output = Result<Value, String>> {
+    let called = try_request(asks, method, params);
+    async move { Ok(called.await?) }
 }
 
 /// Where this app's key on the network is kept.
@@ -765,23 +853,16 @@ impl Watches {
 }
 
 /// One of another host's core methods, waiting a while for a host that is reconnecting.
-async fn call_on(
+async fn call_linked(
     linked: &Option<Arc<Linked>>,
     host: &str,
     method: &str,
     params: Value,
-) -> Result<Value, String> {
+) -> Result<Value, CallError> {
     let linked = linked
         .as_ref()
         .ok_or("this app does not reach other hosts")?;
-    let client = linked
-        .client(host)
-        .await
-        .map_err(|error| error.to_string())?;
-    client
-        .call(method, params)
-        .await
-        .map_err(|error| error.to_string())
+    Ok(linked.client(host).await?.call(method, params).await?)
 }
 
 /// Answers `key` from another host's core, as `read` does from this host's.
@@ -801,8 +882,14 @@ fn read_on(
         updates.clone(),
     );
     tokio::spawn(async move {
-        let answer = call_on(&linked, &host, key.method(), watch.params).await;
-        send_read(key, watch.generation, answer, &current, &updates);
+        let answer = call_linked(&linked, &host, key.method(), watch.params).await;
+        send_read(
+            key,
+            watch.generation,
+            answer.map_err(String::from),
+            &current,
+            &updates,
+        );
     });
 }
 
@@ -844,11 +931,11 @@ pub fn outcome<T: serde::de::DeserializeOwned>(value: &Value) -> Result<T, gpui_
     serde_json::from_value(value["value"].clone()).map_err(|error| error.to_string().into())
 }
 
-pub fn request(
+pub fn try_request(
     asks: &mpsc::UnboundedSender<Ask>,
     method: &'static str,
     params: Value,
-) -> impl std::future::Future<Output = Result<Value, String>> {
+) -> impl std::future::Future<Output = Result<Value, CallError>> {
     let (reply, answer) = oneshot::channel();
     let sent = asks.send(Ask::Request {
         method,
@@ -856,9 +943,8 @@ pub fn request(
         reply,
     });
     async move {
-        let gone = "the core is not connected";
-        sent.map_err(|_| gone.to_owned())?;
-        answer.await.map_err(|_| gone.to_owned())?
+        sent.map_err(|_| CallError::gone())?;
+        answer.await.map_err(|_| CallError::gone())?
     }
 }
 
@@ -927,16 +1013,26 @@ impl Target {
         });
     }
 
+    /// Asks one of the core's methods, for a caller that branches on how it fails.
+    pub fn try_request(
+        &self,
+        method: &'static str,
+        params: Value,
+    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>> {
+        match &self.place {
+            Place::This => Box::pin(try_request(&self.asks, method, params)),
+            Place::Account(host) => Box::pin(try_request_on(&self.asks, host, method, params)),
+        }
+    }
+
     /// Asks one of the core's methods and waits for the answer.
     pub fn request(
         &self,
         method: &'static str,
         params: Value,
     ) -> Pin<Box<dyn Future<Output = Result<Value, String>> + Send>> {
-        match &self.place {
-            Place::This => Box::pin(request(&self.asks, method, params)),
-            Place::Account(host) => Box::pin(request_on(&self.asks, host, method, params)),
-        }
+        let called = self.try_request(method, params);
+        Box::pin(async move { Ok(called.await?) })
     }
 
     /// Asks the place's core for the call `C`, and reads its answer as `C`'s answer.
@@ -1376,8 +1472,8 @@ async fn run(
                                     streamed.insert(stream, parts.clone());
                                     let linked = linked.clone();
                                     tokio::spawn(async move {
-                                        if let Err(error) = call_on(&linked, &host, method, params).await {
-                                            let error = json!({ "category": "call", "message": error });
+                                        if let Err(error) = call_linked(&linked, &host, method, params).await {
+                                            let error = json!({ "category": "call", "message": error.message });
                                             let _ = parts.send(Part { items: Vec::new(), done: true, error: Some(error) });
                                         }
                                     });
@@ -1385,24 +1481,24 @@ async fn run(
                                 Ask::Call { method, params } => {
                                     let (linked, updates) = (linked.clone(), updates.clone());
                                     tokio::spawn(async move {
-                                        if let Err(error) = call_on(&linked, &host, method, params).await {
-                                            let _ = updates.send(Update::Failed(error));
+                                        if let Err(error) = call_linked(&linked, &host, method, params).await {
+                                            let _ = updates.send(Update::Failed(error.into()));
                                         }
                                     });
                                 }
                                 Ask::Answer { read, params } => {
                                     let (linked, updates) = (linked.clone(), updates.clone());
                                     tokio::spawn(async move {
-                                        let _ = updates.send(match call_on(&linked, &host, read.method(), params).await {
+                                        let _ = updates.send(match call_linked(&linked, &host, read.method(), params).await {
                                             Ok(value) => Update::Read(read, value),
-                                            Err(error) => Update::Refused(read, error),
+                                            Err(error) => Update::Refused(read, error.into()),
                                         });
                                     });
                                 }
                                 Ask::Request { method, params, reply } => {
                                     let linked = linked.clone();
                                     tokio::spawn(async move {
-                                        let _ = reply.send(call_on(&linked, &host, method, params).await);
+                                        let _ = reply.send(call_linked(&linked, &host, method, params).await);
                                     });
                                 }
                                 Ask::Terminal(session, ask) => match host_streams.get_mut(&host) {
@@ -1461,10 +1557,10 @@ async fn run(
                                 tokio::spawn(async move {
                                     let answer = match linked {
                                         Some(linked) => match linked.client(&host).await {
-                                            Ok(client) => client.call(method, params).await.map_err(|error| error.to_string()),
-                                            Err(error) => Err(error.to_string()),
+                                            Ok(client) => client.call(method, params).await.map_err(CallError::from),
+                                            Err(error) => Err(CallError::from(error)),
                                         },
-                                        None => Err("this app does not reach other hosts".to_owned()),
+                                        None => Err(CallError::from("this app does not reach other hosts")),
                                     };
                                     let _ = reply.send(answer);
                                 });
@@ -1483,7 +1579,7 @@ async fn run(
                                 let client = client.clone();
                                 tokio::spawn(async move {
                                     let answer = client.call(method, params).await;
-                                    let _ = reply.send(answer.map_err(|error| error.to_string()));
+                                    let _ = reply.send(answer.map_err(CallError::from));
                                 });
                             }
                             Some(Ask::Detection { detection, reply }) => {
@@ -1839,7 +1935,11 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
                     option_id: option,
                 })
                 .await;
-            let error = replied.err().map(|error| error.to_string());
+            let error = replied
+                .err()
+                .map(CallError::from)
+                .filter(|error| error.kind != Some(ErrorKind::NotPending))
+                .map(String::from);
             (agent, ChatNews::Replied { request, error })
         }
         ChatAsk::Config {

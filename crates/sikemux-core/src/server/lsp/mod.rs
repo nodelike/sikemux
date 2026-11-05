@@ -20,8 +20,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
+use sikemux_wire::protocol::ErrorKind;
 
 use commands::*;
 pub(crate) use held::Carried;
@@ -35,28 +36,34 @@ use super::{Core, CoreError, CoreResult};
 /// Takes each file's diagnostics as a server publishes them.
 pub(crate) type Publish = Arc<dyn Fn(LspDiagnosticsPayload) + Send + Sync>;
 
-/// What went wrong, under the category clients branch on: `lsp`, or
-/// `lsp-server-missing` when the server's program is not installed.
+/// What went wrong, and which language and program when a server is not installed.
 #[derive(Debug)]
-pub(crate) struct LspError(String);
+pub(crate) struct LspError {
+    message: String,
+    missing: Option<Value>,
+}
 
 pub(crate) type LspResult<T> = Result<T, LspError>;
 
 impl LspError {
     pub(crate) fn new(message: String) -> Self {
-        Self(format!("lsp: {message}"))
+        Self {
+            message: format!("lsp: {message}"),
+            missing: None,
+        }
     }
 
     pub(crate) fn missing(language: &str, bin: &str) -> Self {
-        Self(format!(
-            "lsp-server-missing: lsp server `{bin}` for {language} not found"
-        ))
+        Self {
+            message: format!("lsp server `{bin}` for {language} not found"),
+            missing: Some(json!({ "language": language, "bin": bin })),
+        }
     }
 }
 
 impl std::fmt::Display for LspError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
@@ -74,7 +81,11 @@ impl From<serde_json::Error> for LspError {
 
 impl From<LspError> for super::CoreError {
     fn from(error: LspError) -> Self {
-        super::CoreError::from(error.0)
+        match error.missing {
+            Some(detail) => super::CoreError::of(ErrorKind::LanguageServerMissing, error.message)
+                .with_detail(detail),
+            None => error.message.into(),
+        }
     }
 }
 
@@ -424,6 +435,6 @@ pub(crate) async fn call(
                     .unwrap_or_default(),
             )
         }
-        _ => Err(format!("this host does not know {method}").into()),
+        _ => Err(super::CoreError::unknown_method(method)),
     }
 }

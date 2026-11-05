@@ -628,7 +628,7 @@ pub(crate) async fn on_disk(core: &Core, method: &str, params: Value) -> CoreRes
     let method = method.to_owned();
     let ran = blocking(move || {
         crate::files::run(&method, params, crate::files::PIECE_BYTES)
-            .map_err(|error| super::CoreError::from(error.to_string()))
+            .map_err(super::CoreError::from)
     })
     .await?;
     if let Some(path) = ran.saved {

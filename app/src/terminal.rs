@@ -105,7 +105,7 @@ fn requested(
     key: TermKey,
     method: &'static str,
     params: serde_json::Value,
-    reply: oneshot::Sender<Result<serde_json::Value, String>>,
+    reply: oneshot::Sender<Result<serde_json::Value, crate::core::CallError>>,
 ) -> Ask {
     match places.borrow().get(usize::from(key.place)) {
         Some(Place::Account(host)) => Ask::HostRequest {

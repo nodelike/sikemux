@@ -943,7 +943,7 @@ impl Chat {
         if self.replying.as_deref() == Some(request) {
             self.replying = None;
         }
-        self.failed(error.filter(|error| !error.contains("no longer pending")));
+        self.failed(error);
     }
 
     /// Whether nothing the person did waits on the core's answer, so the chat can stop

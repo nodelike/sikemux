@@ -57,7 +57,7 @@ const quiet: CoreListener = {
 };
 
 function isGone(error: unknown): boolean {
-  return MobileError.Refused.instanceOf(error) && /no longer pending/.test(error.inner.message);
+  return MobileError.Refused.instanceOf(error) && error.inner.kind === 'notPending';
 }
 
 /**

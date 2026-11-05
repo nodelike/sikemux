@@ -18,10 +18,11 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use super::FileKey;
 use super::{Document, Notice, OpenAt};
-use crate::core::{self, Ask};
+use crate::core::{self, Ask, CallError};
 use crate::hosts::Place as Host;
 use crate::toast;
 use crate::workbench::Workbench;
+use sikemux_wire::protocol::ErrorKind;
 
 /// How long typing pauses before the server is sent the text.
 const CHANGE_DEBOUNCE: Duration = Duration::from_millis(120);
@@ -137,7 +138,7 @@ fn attach_trusted(
             Some(true) => {}
         }
         let started = json!({ "project": project, "language": language });
-        if let Err(error) = core::request(&asks, "lsp.start", started).await {
+        if let Err(error) = core::try_request(&asks, "lsp.start", started).await {
             let _ = bench.update(cx, |bench, cx| report(bench, &language, error, path, cx));
             return;
         }
@@ -156,7 +157,7 @@ fn attach_trusted(
             "content": content,
             "languageId": language_id,
         });
-        let handle = match core::request(&asks, "lsp.open", opened).await {
+        let handle = match core::try_request(&asks, "lsp.open", opened).await {
             Ok(opened) => opened["handle"].as_str().unwrap_or_default().to_owned(),
             Err(error) => {
                 let _ = bench.update(cx, |bench, cx| report(bench, &language, error, path, cx));
@@ -220,7 +221,7 @@ fn attach_trusted(
 fn report(
     bench: &mut Workbench,
     language: &str,
-    error: String,
+    error: CallError,
     path: PathBuf,
     cx: &mut Context<Workbench>,
 ) {
@@ -231,11 +232,14 @@ fn report(
     {
         return;
     }
-    let missing = INSTALLABLE.into_iter().find(|(name, bin, _, _)| {
-        *name == language
-            && error.starts_with("lsp-server-missing:")
-            && error.contains(&format!("`{bin}`"))
-    });
+    let missing_bin = error
+        .detail
+        .as_ref()
+        .filter(|_| error.kind == Some(ErrorKind::LanguageServerMissing))
+        .and_then(|detail| detail["bin"].as_str());
+    let missing = INSTALLABLE
+        .into_iter()
+        .find(|(name, bin, _, _)| *name == language && missing_bin == Some(*bin));
     let Some((_, bin, label, by_brew)) = missing else {
         bench.notify(toast::error(format!("LSP {language} open: {error}")), cx);
         return;

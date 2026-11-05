@@ -221,6 +221,25 @@ pub struct Continuation {
     pub note: String,
 }
 
+/// What kind of failure a request met, which a client branches on and words itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ErrorKind {
+    /// The file holds something other than text.
+    NotText,
+    /// The file changed since the client read it.
+    FileConflict,
+    /// A language's server is not installed. The detail says which.
+    LanguageServerMissing,
+    /// This core has no such method, being older than the client.
+    UnknownMethod,
+    /// What was answered has been answered or withdrawn already.
+    NotPending,
+    /// A kind this build does not know.
+    #[serde(other)]
+    Other,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(
     tag = "type",
@@ -251,6 +270,12 @@ pub enum ServerMessage {
     Error {
         request_id: Option<RequestId>,
         message: String,
+        /// What a client branches on. Absent for a failure it only shows.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        kind: Option<ErrorKind>,
+        /// What the kind says about this failure, as JSON.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<Value>,
     },
     Event {
         event: Event,

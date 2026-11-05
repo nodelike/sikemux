@@ -179,7 +179,8 @@ use sikemux_pty::task::{
 use tokio::sync::{watch, Notify};
 
 use crate::client::{probe, ProbeError};
-use sikemux_wire::protocol::{BuildIdentity, Event, SessionId};
+use serde_json::Value;
+use sikemux_wire::protocol::{BuildIdentity, ErrorKind, Event, SessionId};
 
 use changed::What;
 use connection::{ClientConn, ClientId};
@@ -280,47 +281,88 @@ pub enum ServerError {
 }
 
 #[derive(Debug)]
-pub(crate) struct CoreError(String);
+pub(crate) struct CoreError {
+    message: String,
+    kind: Option<ErrorKind>,
+    detail: Option<Value>,
+}
 
 impl std::fmt::Display for CoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
 impl CoreError {
     fn pty(error: impl std::fmt::Display) -> Self {
-        Self(format!("pty: {error}"))
+        format!("pty: {error}").into()
+    }
+
+    /// A failure a client branches on.
+    pub(crate) fn of(kind: ErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            kind: Some(kind),
+            detail: None,
+        }
+    }
+
+    fn with_detail(self, detail: Value) -> Self {
+        Self {
+            detail: Some(detail),
+            ..self
+        }
+    }
+
+    pub(crate) fn unknown_method(method: &str) -> Self {
+        Self::of(
+            ErrorKind::UnknownMethod,
+            format!("this host does not know {method}"),
+        )
     }
 }
 
 impl From<&str> for CoreError {
     fn from(message: &str) -> Self {
-        Self(message.into())
+        message.to_owned().into()
     }
 }
 
 impl From<String> for CoreError {
     fn from(message: String) -> Self {
-        Self(message)
+        Self {
+            message,
+            kind: None,
+            detail: None,
+        }
+    }
+}
+
+impl From<crate::files::Error> for CoreError {
+    fn from(error: crate::files::Error) -> Self {
+        Self {
+            message: error.message,
+            kind: error.kind,
+            detail: None,
+        }
     }
 }
 
 impl From<PtyError> for CoreError {
     fn from(error: PtyError) -> Self {
-        Self(error.to_string())
+        error.to_string().into()
     }
 }
 
 impl From<std::io::Error> for CoreError {
     fn from(error: std::io::Error) -> Self {
-        Self(format!("io: {error}"))
+        format!("io: {error}").into()
     }
 }
 
 impl From<serde_json::Error> for CoreError {
     fn from(error: serde_json::Error) -> Self {
-        Self(format!("json: {error}"))
+        format!("json: {error}").into()
     }
 }
 

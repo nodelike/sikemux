@@ -38,6 +38,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::sync::Locked;
+use sikemux_wire::protocol::ErrorKind;
 use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::acp::native as acp_native;
@@ -955,7 +956,7 @@ impl Chat {
         }
         let request = {
             let Some(request) = permissions.get(request_id) else {
-                return Err("ACP permission request is no longer pending".into());
+                return Err(permission_gone());
             };
             if let Some(option_id) = &option_id {
                 if !request.option_ids.contains(option_id) {
@@ -964,7 +965,7 @@ impl Chat {
             }
             permissions
                 .remove(request_id)
-                .ok_or("ACP permission request is no longer pending")?
+                .ok_or_else(permission_gone)?
         };
         (request.answer)(option_id);
         drop(permissions);
@@ -1262,4 +1263,11 @@ pub(crate) struct ChatRecord {
     /// Its agent never started, so it waits for the person again.
     #[serde(default)]
     pub unstarted: bool,
+}
+
+pub(super) fn permission_gone() -> CoreError {
+    CoreError::of(
+        ErrorKind::NotPending,
+        "ACP permission request is no longer pending",
+    )
 }

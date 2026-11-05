@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
+use sikemux_wire::protocol::ErrorKind;
 
 /// Folders one `files.list` may name: every folder the person has open in a tree.
 const MAX_DIRS: usize = 512;
@@ -30,32 +31,37 @@ pub const PIECE_BYTES: u64 = 1024 * 1024;
 const MAX_UPLOADS: usize = 16;
 const UPLOAD_IDLE: Duration = Duration::from_secs(60);
 
-/// What went wrong, starting `fs: `, `file-conflict: `, `not-text: ` or
-/// `invalid argument: ` so a client can tell which.
+/// What went wrong, and its kind when a client branches on it.
 #[derive(Debug)]
-pub struct Error(String);
+pub struct Error {
+    pub message: String,
+    pub kind: Option<ErrorKind>,
+}
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
 impl From<std::io::Error> for Error {
     fn from(error: std::io::Error) -> Self {
-        Self(format!("fs: {error}"))
+        format!("fs: {error}").into()
     }
 }
 
 impl From<String> for Error {
     fn from(message: String) -> Self {
-        Self(message)
+        Self {
+            message,
+            kind: None,
+        }
     }
 }
 
 impl From<&str> for Error {
     fn from(message: &str) -> Self {
-        Self(message.to_owned())
+        message.to_owned().into()
     }
 }
 
@@ -95,7 +101,10 @@ pub fn run(method: &str, params: Value, piece: u64) -> Result<Ran> {
         "files.writeBytes" => answer(write_bytes(parse(params)?)?),
         "files.preview" => answer(preview(parse(params)?)?),
         "files.bytes" => answer(bytes(parse(params)?)?),
-        _ => Err(format!("this host does not know {method}").into()),
+        _ => Err(Error {
+            message: format!("this host does not know {method}"),
+            kind: Some(ErrorKind::UnknownMethod),
+        }),
     }?;
     Ok(Ran {
         answer,
@@ -525,11 +534,17 @@ pub fn write_new_in_dir(
 }
 
 fn not_text(path: &Path) -> Error {
-    format!("not-text: {}", path.display()).into()
+    Error {
+        message: path.display().to_string(),
+        kind: Some(ErrorKind::NotText),
+    }
 }
 
 fn conflict(message: String) -> Error {
-    format!("file-conflict: {message}").into()
+    Error {
+        message,
+        kind: Some(ErrorKind::FileConflict),
+    }
 }
 
 fn stamp(meta: &fs::Metadata) -> String {
@@ -978,7 +993,7 @@ mod tests {
             json!({ "path": path, "text": "later", "version": original }),
         );
         assert!(
-            stale.is_err_and(|error| error.0.starts_with("file-conflict: ")),
+            stale.is_err_and(|error| error.kind == Some(ErrorKind::FileConflict)),
             "a stale version must be refused"
         );
         assert_eq!(fs::read(&path).expect("read back"), b"after");

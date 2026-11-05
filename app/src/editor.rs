@@ -19,13 +19,14 @@ use serde_json::{json, Value};
 use sikemux_view::layout::{Pane, PaneKind};
 use sikemux_view::prefs::{DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
 
-use crate::core::{Ask, Target};
+use crate::core::{Ask, CallError, Target};
 use crate::hosts::Place as Host;
 use crate::keyboard::TakesKeys;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
 use crate::ui;
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::workbench::{Strip, Workbench};
+use sikemux_wire::protocol::ErrorKind;
 
 mod blame;
 mod copies;
@@ -1220,14 +1221,14 @@ pub fn host_reached(bench: &Workbench, place: &Host, cx: &App) {
 
 /// Reads the whole file in the pieces the core gives, starting again when it
 /// changes under the read.
-async fn read_file(target: &Target, path: String) -> Result<(String, String), String> {
+async fn read_file(target: &Target, path: String) -> Result<(String, String), CallError> {
     for _ in 0..READ_TRIES {
         let mut text = String::new();
         let mut at = 0u64;
         let mut stamp: Option<String> = None;
         let moved = loop {
             let piece = target
-                .request("files.read", json!({ "path": path, "at": at }))
+                .try_request("files.read", json!({ "path": path, "at": at }))
                 .await?;
             let piece_stamp = piece["stamp"].as_str().map(str::to_owned);
             if stamp.is_some() && piece_stamp != stamp {
@@ -1247,7 +1248,7 @@ async fn read_file(target: &Target, path: String) -> Result<(String, String), St
             break;
         }
     }
-    Err(format!("{path} kept changing while it was read"))
+    Err(format!("{path} kept changing while it was read").into())
 }
 
 /// Reads the file into its editor, replacing what it shows.
@@ -1289,11 +1290,11 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
                         }
                         lsp::changed(document, &asks, cx);
                     }
-                    Err(error) if error.starts_with("not-text:") => {
+                    Err(error) if error.kind == Some(ErrorKind::NotText) => {
                         editors.open.remove(&key);
                         return Some(None);
                     }
-                    Err(error) => document.notice = Some(Notice::Failed(error)),
+                    Err(error) => document.notice = Some(Notice::Failed(error.into())),
                 }
                 cx.notify();
                 Some(Some((first, document.loaded, document.dirty != was_dirty)))
@@ -1353,11 +1354,10 @@ fn save(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Cont
                         document.version = Some(version);
                         document.notice = None;
                     }
-                    Err(error) if error.starts_with("file-conflict:") => {
-                        let error = error.trim_start_matches("file-conflict:").trim().to_owned();
-                        document.notice = Some(Notice::Conflict(error));
+                    Err(error) if error.kind == Some(ErrorKind::FileConflict) => {
+                        document.notice = Some(Notice::Conflict(error.into()));
                     }
-                    Err(error) => document.notice = Some(Notice::Failed(error)),
+                    Err(error) => document.notice = Some(Notice::Failed(error.into())),
                 }
                 document.dirty != was_dirty
             }) else {
@@ -1381,7 +1381,7 @@ async fn write_file(
     path: &str,
     text: &str,
     version: Option<String>,
-) -> Result<String, String> {
+) -> Result<String, CallError> {
     let mut upload: Option<String> = None;
     let mut rest = text;
     loop {
@@ -1392,7 +1392,7 @@ async fn write_file(
         let (piece, after) = rest.split_at(end);
         let more = !after.is_empty();
         let written = target
-            .request(
+            .try_request(
                 "files.write",
                 json!({ "path": path, "text": piece, "version": version, "upload": upload, "more": more }),
             )
@@ -1401,7 +1401,7 @@ async fn write_file(
             return written["version"]
                 .as_str()
                 .map(str::to_owned)
-                .ok_or_else(|| format!("{path} was saved without a version"));
+                .ok_or_else(|| format!("{path} was saved without a version").into());
         }
         upload = written["upload"].as_str().map(str::to_owned);
         rest = after;

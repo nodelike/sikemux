@@ -209,7 +209,7 @@ fn a_phone_hears_the_mac_s_view_and_asks_it_typed_questions() {
         ));
         assert!(matches!(
             connection.chat_history("nobody".into(), "a run".into(), 5, 10).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(connection.host().await.is_ok());
         assert!(matches!(
@@ -218,19 +218,19 @@ fn a_phone_hears_the_mac_s_view_and_asks_it_typed_questions() {
         ));
         assert!(matches!(
             connection.attach_file("nobody".into(), "a.txt".into(), "text/plain".into(), b"a".to_vec()).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(matches!(
             connection.steer("nobody".into(), "and the tests".into(), Vec::new()).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(matches!(
             connection.stop_task("nobody".into(), "shell".into()).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(matches!(
             connection.set_permission_mode("nobody".into(), "bypass".into()).await,
-            Err(MobileError::Refused { message }) if message.contains("not running")
+            Err(MobileError::Refused { message, .. }) if message.contains("not running")
         ));
         assert!(connection.stop_chat("nobody".into()).await.is_ok());
         assert!(matches!(

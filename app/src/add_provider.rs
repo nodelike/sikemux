@@ -17,13 +17,14 @@ use serde_json::{json, Value};
 
 use crate::agents::setup::{self, Installing};
 use crate::chat::model_picker::{Move, Moving};
-use crate::core::Target;
+use crate::core::{CallError, Target};
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, dialog};
 use crate::workbench::Workbench;
+use sikemux_wire::protocol::ErrorKind;
 
 /// How long typing rests before the URL and key are checked.
 const SETTLE: Duration = Duration::from_millis(350);
@@ -187,7 +188,7 @@ fn settle(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
         }
         let (url, key) = asked.clone();
         let read = target
-            .request("modelProviderRead", json!({ "baseUrl": url, "key": key }))
+            .try_request("modelProviderRead", json!({ "baseUrl": url, "key": key }))
             .await
             .unwrap_or_else(|failure| json!({ "failure": readable(failure) }));
         let _ = bench.update_in(cx, |bench, window, cx| {
@@ -239,7 +240,7 @@ fn add(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) 
     }
     let (url, key) = adding.asked(cx);
     adding.adding = true;
-    let added = adding.target.request(
+    let added = adding.target.try_request(
         "modelProviderAdd",
         json!({ "baseUrl": url, "key": key, "label": label }),
     );
@@ -304,13 +305,13 @@ fn onto(bench: &Workbench, provider: &Value) -> Option<Moving> {
 
 /// A failed request in the person's words: the core words its own refusals, but a host too old
 /// to know the call, or a core that went away, says only what it lacked.
-fn readable(failure: String) -> String {
-    if failure.starts_with("this host does not know") {
+fn readable(failure: CallError) -> String {
+    if failure.kind == Some(ErrorKind::UnknownMethod) {
         "This host's Sikemux is too old to add providers. Update it, then try again.".into()
-    } else if failure == "the core is not connected" {
+    } else if failure.gone {
         "Sikemux lost touch with this host. Try again in a moment.".into()
     } else {
-        failure
+        failure.message
     }
 }
 

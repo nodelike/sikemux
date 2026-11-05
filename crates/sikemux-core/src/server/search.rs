@@ -279,7 +279,7 @@ fn build_matcher(query: &str, opts: &SearchOptions) -> SearchResult<grep_regex::
     RegexMatcherBuilder::new()
         .case_insensitive(!opts.case_sensitive)
         .build(&pattern)
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("invalid regex: {e}"))
 }
 
 fn build_glob(pat: &str) -> SearchResult<Option<GlobMatcher>> {

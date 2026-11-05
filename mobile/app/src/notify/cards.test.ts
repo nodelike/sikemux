@@ -45,7 +45,7 @@ describe('answerFromCard', () => {
   });
 
   it('tells a request answered elsewhere from a host it could not reach', async () => {
-    connection.answerPermission.mockRejectedValueOnce(MobileError.Refused.new({ message: 'ACP permission request is no longer pending' }));
+    connection.answerPermission.mockRejectedValueOnce(MobileError.Refused.new({ message: 'ACP permission request is no longer pending', kind: 'notPending' }));
     expect(await answerFromCard(answer)).toBe('gone');
     device.connect.mockRejectedValueOnce(MobileError.Connection.new({ message: 'this host did not answer in time' }));
     expect(await answerFromCard(answer)).toBe('failed');
