@@ -44,6 +44,11 @@ const CLOCK_W: f32 = 46.;
 const MARK_SIZE: f32 = 16.;
 const MARKS_SHOWN: usize = 4;
 const FIND_W: f32 = 190.;
+/// The least each keeps on a narrow row: the find box shows all its placeholder, and how much
+/// happened still says more than its number.
+const FIND_MIN_W: f32 = 140.;
+const SCOPE_MIN_W: f32 = 56.;
+const HAPPENED_MIN_W: f32 = 76.;
 /// How long after one read the goals are read again, however often the core says they moved.
 const READ_SPACING: Duration = Duration::from_millis(500);
 /// How often the clocks on the rows are drawn again.
@@ -801,7 +806,14 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
         ))
 }
 
-/// The filter tabs, how much happened while the person was away and the find box.
+/// What on a row too narrow for everything shrinks before the rest does.
+fn gives_way_first<E: Styled>(mut element: E) -> E {
+    element.style().flex_shrink = Some(100.);
+    element.flex_basis(gpui_kit::Length::Auto)
+}
+
+/// The filter tabs, then how much happened while the person was away and the find box, which
+/// take a line of their own when the tabs leave them too little.
 fn tools(
     pane: &mut GoalsPane,
     happened: usize,
@@ -855,7 +867,8 @@ fn tools(
         div()
             .id("goals-scope")
             .flex()
-            .flex_none()
+            .flex_shrink_1()
+            .min_w(px(SCOPE_MIN_W))
             .items_center()
             .gap(SPACE_1)
             .h(px(26.))
@@ -864,13 +877,30 @@ fn tools(
             .cursor_pointer()
             .text_color(t.text_secondary)
             .bg(t.surface_hover)
-            .child(ui::text(name, TEXT_XS_H, FontWeight::NORMAL))
+            .child(
+                ui::text(name, TEXT_XS_H, FontWeight::NORMAL)
+                    .min_w_0()
+                    .truncate(),
+            )
             .child(ui::icon(Icon::Close, 10.).text_color(t.text_tertiary))
             .on_click(cx.listener(|pane, _, _, cx| pane.narrow_to(None, cx)))
     });
     let find = pane.find_field(window, cx);
+    let spacing = f32::from(SPACE_1);
+    let ends_min = FIND_MIN_W
+        + if happened > 0 {
+            HAPPENED_MIN_W + 2. * f32::from(SPACE_2) + spacing
+        } else {
+            0.
+        }
+        + if scope.is_some() {
+            SCOPE_MIN_W + spacing
+        } else {
+            0.
+        };
     div()
         .flex()
+        .flex_wrap()
         .flex_none()
         .items_center()
         .gap(SPACE_1)
@@ -907,33 +937,40 @@ fn tools(
                 )
                 .on_click(cx.listener(move |pane, _, _, cx| pane.set_filter(filter, cx)))
         }))
-        .child(div().flex_1())
-        .when(happened > 0, |tools| {
-            tools.child(
-                div()
-                    .id("goals-overnight")
-                    .flex_none()
-                    .mr(SPACE_2)
-                    .cursor_pointer()
-                    .text_color(t.text_tertiary)
-                    .hover(move |link| link.text_color(t.text_secondary))
-                    .child(ui::text(
-                        format!("{happened} happened while you were away"),
-                        TEXT_2XS_H,
-                        FontWeight::NORMAL,
-                    ))
-                    .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Overnight, cx))),
-            )
-        })
-        .children(scope)
         .child(
             div()
-                .w(px(FIND_W))
-                .flex_none()
-                .capture_key_down(
-                    cx.listener(|pane, event, window, cx| pane.find_key(event, window, cx)),
-                )
-                .child(ui::Field::new(&find).small()),
+                .flex()
+                .flex_1()
+                .flex_basis(px(0.))
+                .min_w(px(ends_min))
+                .items_center()
+                .justify_end()
+                .gap(SPACE_1)
+                .when(happened > 0, |ends| {
+                    let said = format!("{happened} happened while you were away");
+                    ends.child(
+                        gives_way_first(div().id("goals-overnight"))
+                            .min_w(px(HAPPENED_MIN_W))
+                            .mx(SPACE_2)
+                            .cursor_pointer()
+                            .text_color(t.text_tertiary)
+                            .hover(move |link| link.text_color(t.text_secondary))
+                            .tooltip(ui::tooltip(said.clone()))
+                            .child(ui::text(said, TEXT_2XS_H, FontWeight::NORMAL).truncate())
+                            .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Overnight, cx))),
+                    )
+                })
+                .children(scope)
+                .child(
+                    div()
+                        .w(px(FIND_W))
+                        .min_w(px(FIND_MIN_W))
+                        .flex_shrink_1()
+                        .capture_key_down(
+                            cx.listener(|pane, event, window, cx| pane.find_key(event, window, cx)),
+                        )
+                        .child(ui::Field::new(&find).small()),
+                ),
         )
 }
 
