@@ -62,7 +62,7 @@ async fn serve(core: Arc<Core>) {
             let shown: HashSet<Shown> = crate::server::board::waiting_on_ci(&core)
                 .into_iter()
                 .chain(crate::server::git::pending_pulls(&core))
-                .chain(core.collisions.waiting_on_ci())
+                .chain(core.checks.waiting_on_ci())
                 .collect();
             let mut state = core.ci.0.locked();
             if shown.is_empty() {
@@ -124,6 +124,6 @@ async fn check(core: &Arc<Core>, repo: Shown) {
     if moved {
         crate::server::board::ci_moved(core, &repo);
         crate::server::git::ci_moved(core, &repo);
-        core.collisions.ci_moved(&repo);
+        core.checks.ci_moved(&repo);
     }
 }

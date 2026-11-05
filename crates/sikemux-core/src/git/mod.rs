@@ -110,6 +110,11 @@ pub fn git_command(dir: impl AsRef<std::path::Path>) -> Command {
     command
 }
 
+/// A commit's name as a person reads it.
+pub(crate) fn short(sha: &str) -> &str {
+    sha.get(..7).unwrap_or(sha)
+}
+
 /// The commit `dir` is at, none before its first or outside a repository.
 pub(crate) fn head(dir: impl AsRef<std::path::Path>) -> Option<String> {
     Git::quick(dir)

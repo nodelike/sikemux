@@ -46,13 +46,14 @@ pub(crate) fn serving<F: Future<Output = ()> + Send + 'static>(
 }
 
 impl Core {
-    fn parts(&self) -> [&dyn Part; 24] {
+    fn parts(&self) -> [&dyn Part; 25] {
         [
             &self.harness,
             &self.boards,
             &self.memory,
             &self.triggers,
             &self.collisions,
+            &self.checks,
             &self.workspaces,
             &self.hosts,
             &self.ports,

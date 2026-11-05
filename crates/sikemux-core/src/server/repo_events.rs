@@ -65,20 +65,30 @@ pub(crate) struct CommitMade<'a> {
 /// of the project's events, and what else follows from it follows from here.
 pub(crate) fn commit_made(core: &Core, made: CommitMade<'_>) {
     let (project, on_branch) = core.workspaces.project_checkout(made.top);
+    if on_branch {
+        let mut agents: Vec<String> = crate::trailers::agents(made.message)
+            .into_iter()
+            .map(|agent| agent.chat)
+            .collect();
+        if agents.is_empty() {
+            agents.push(made.agent.to_owned());
+        }
+        let commit = super::checks::Commit {
+            sha: made.sha.to_owned(),
+            subject: made.message.lines().next().unwrap_or_default().to_owned(),
+            agents,
+            asked: false,
+        };
+        core.checks
+            .wait_for(project.clone(), std::path::PathBuf::from(&project), commit);
+    }
     core.repo_events.tell(RepoEvent::Committed {
         project,
         agent: made.agent.to_owned(),
         sha: made.sha.to_owned(),
         on_branch,
     });
-    core.collisions.committed(
-        core,
-        made.agent,
-        made.top,
-        made.paths,
-        made.sha,
-        made.message,
-    );
+    core.collisions.committed(made.agent, made.top, made.paths);
 }
 
 impl RepoEvent {

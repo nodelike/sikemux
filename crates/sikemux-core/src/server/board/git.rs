@@ -1,13 +1,9 @@
 //! The git work Auto does in a card's worktree. Each of these blocks.
 
 use std::path::Path;
-use std::time::Duration;
 
 use crate::git::{said, Git};
 use crate::server::{edits, Core};
-
-const CHECK: Duration = Duration::from_secs(30 * 60);
-const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
 
 /// Commits whatever is left uncommitted in the worktree, naming the agents
 /// that wrote it, else `agent`. False when there was nothing to commit.
@@ -68,16 +64,6 @@ pub(super) fn rebase(tree: &Path, base: &str) -> Result<bool, String> {
     }
     let _ = Git::quick(tree).trimmed(&["rebase", "--abort"]);
     Ok(false)
-}
-
-/// Runs the project's check command in the worktree. Whether it passed, and
-/// the end of what it wrote.
-pub(crate) fn check(cwd: &Path, command: &str) -> Result<(bool, String), String> {
-    let mut shell = sikemux_process::user_environment::agent_command("/bin/sh");
-    shell.args(["-c", command]).current_dir(cwd);
-    let output = sikemux_process::run(&mut shell, None, CHECK, OUTPUT_LIMIT, None)
-        .map_err(|error| format!("the check did not run: {error}"))?;
-    Ok((output.status.success(), said(&output)))
 }
 
 /// What changed from `from` to `to`: a summary of the files, then the

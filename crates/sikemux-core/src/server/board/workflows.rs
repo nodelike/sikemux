@@ -157,11 +157,10 @@ async fn read(core: &Arc<Core>, project: &str, slices: &[Waiting]) -> (Vec<Ruled
             .map(|(_, head, _)| head.clone())
             .collect::<Vec<_>>(),
     );
-    let looked = tokio::task::spawn_blocking(move || {
-        crate::server::collisions::look(Path::new(&dir), &heads)
-    })
-    .await
-    .unwrap_or_default();
+    let looked =
+        tokio::task::spawn_blocking(move || crate::server::checks::look(Path::new(&dir), &heads))
+            .await
+            .unwrap_or_default();
     let tip = looked.tip.as_ref().map(|(tip, _)| tip.clone());
     let since = {
         let mut state = core.boards.state.locked();

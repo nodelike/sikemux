@@ -129,8 +129,10 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
     if let Some(sha) = slice.awaits_check(&board.settings) {
         let running = (board.checking.running.as_ref())
             .filter(|running| running.covered.iter().any(|covered| covered == sha));
-        // None runs until the owner says it is done, so a commit alone waits on no check.
-        let queued = (slice.done_said).then(|| (CheckRun::Queued, slice.waiting_since()));
+        let queued = core
+            .checks
+            .queued(&board.project, sha)
+            .then(|| (CheckRun::Queued, slice.waiting_since()));
         let on_its_way = running
             .map(|running| (running.run.clone(), running.at))
             .or(queued);

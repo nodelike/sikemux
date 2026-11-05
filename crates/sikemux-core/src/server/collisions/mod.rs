@@ -7,7 +7,6 @@
 //! after each commit. Lines no agent wrote are the person's, and are kept like
 //! any agent's. All of it lives in memory, within a fixed budget.
 
-mod checks;
 mod fragile;
 mod merge;
 mod watch;
@@ -25,7 +24,6 @@ use sikemux_process::sync::Locked;
 use super::edits::{self, authors, before, changed, line_count, replaced, Change, Changes, Edit};
 use super::wake::{sooner, Wake};
 use super::Core;
-pub(crate) use checks::{look, Failing};
 
 /// Files bigger than this are not kept.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
@@ -200,7 +198,6 @@ pub(super) struct State {
     notes: Vec<(String, String)>,
     /// Whether each file is fragile, and why, once looked at.
     fragile: HashMap<PathBuf, Option<&'static str>>,
-    checks: checks::Checks,
     /// The commit each project's branch was at when last looked at.
     heads: HashMap<String, String>,
     /// The inbox changed, so devices are sent the view again.
@@ -751,20 +748,10 @@ impl Collisions {
         self.wake.now();
     }
 
-    /// `agent_id` committed `paths`, from the top of `top`, as `commit`: the
-    /// copies it saw of them and its claims on them go, and the project's
-    /// check runs when the commit is on the project's own branch.
-    pub(crate) fn committed(
-        &self,
-        core: &Core,
-        agent_id: &str,
-        top: &Path,
-        paths: &[String],
-        commit: &str,
-        message: &str,
-    ) {
+    /// `agent_id` committed `paths`, from the top of `top`: the copies it saw of them and its
+    /// claims on them go.
+    pub(crate) fn committed(&self, agent_id: &str, top: &Path, paths: &[String]) {
         let now = epoch_ms();
-        let (project, on_branch) = core.workspaces.project_checkout(top);
         let mut state = self.state.locked();
         for path in paths {
             let path = real(&top.join(path));
@@ -782,61 +769,9 @@ impl Collisions {
                 state.claims.remove(&path);
             }
         }
-        if on_branch {
-            let mut agents: Vec<String> = crate::trailers::agents(message)
-                .into_iter()
-                .map(|agent| agent.chat)
-                .collect();
-            if agents.is_empty() {
-                agents.push(agent_id.to_owned());
-            }
-            state.checks.wait(
-                project.clone(),
-                PathBuf::from(&project),
-                checks::Commit {
-                    sha: commit.to_owned(),
-                    subject: message.lines().next().unwrap_or_default().to_owned(),
-                    agents,
-                    asked: false,
-                },
-            );
-        }
         state.publish = true;
         drop(state);
         self.wake.now();
-    }
-
-    /// Has the project's check run on `sha` of `project` again, for `agent`,
-    /// unless a running check takes it in: for work whose earlier check did
-    /// not run or was not heard.
-    pub(crate) fn check_again(&self, project: &str, sha: &str, subject: String, agent: &str) {
-        self.state.locked().checks.wait_again(
-            project.to_owned(),
-            PathBuf::from(project),
-            vec![checks::Commit {
-                sha: sha.to_owned(),
-                subject,
-                agents: vec![agent.to_owned()],
-                asked: true,
-            }],
-        );
-        self.wake.now();
-    }
-
-    /// The code-host repositories whose CI a project's check waits on, which the
-    /// CI watch keeps checking.
-    pub(crate) fn waiting_on_ci(&self) -> Vec<crate::server::codehost::ci::Shown> {
-        self.state.locked().checks.ci_repos()
-    }
-
-    /// The runs on `repo` moved, so the checks waiting on its CI look again now.
-    pub(crate) fn ci_moved(&self, repo: &crate::server::codehost::ci::Shown) {
-        self.state.locked().checks.ci_moved(repo);
-    }
-
-    /// `project`'s refs moved, as a push moves them, so its CI check looks again.
-    pub(crate) fn refs_moved(&self, project: &str) {
-        self.state.locked().checks.refs_moved(project);
     }
 
     /// The pairs of agents that keep colliding.
@@ -866,11 +801,6 @@ impl Collisions {
         pairs
     }
 
-    /// The projects whose check has failed long enough for the person to hear.
-    pub(crate) fn failing(&self) -> Vec<Failing> {
-        self.state.locked().checks.failing().cloned().collect()
-    }
-
     /// `project`'s git state may have moved. When its branch is at another
     /// commit than when last looked at, by whatever commit, an agent's own
     /// `git commit` or the person's among them, agents waiting on its events
@@ -898,35 +828,7 @@ impl Collisions {
             if before.is_some_and(|before| before != at) {
                 core.harness.note_repository(&project, "git.moved");
             }
-            if !matches!(
-                crate::server::board::project_check(&core, &project),
-                Some(crate::server::board::Checker::Named(_))
-            ) {
-                return;
-            }
-            let Ok(head) = edits::git(&dir, &["log", "-1", "--format=%H%x00%s"]) else {
-                return;
-            };
-            let Some((sha, subject)) = head.trim_end().split_once('\0') else {
-                return;
-            };
-            let agents = edits::footer::verified(&core, &dir, sha)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|agent| agent.chat)
-                .collect();
-            let commit = checks::Commit {
-                sha: sha.to_owned(),
-                subject: subject.to_owned(),
-                agents,
-                asked: false,
-            };
-            core.collisions
-                .state
-                .locked()
-                .checks
-                .wait(project.clone(), dir, commit);
-            core.collisions.wake.now();
+            super::checks::head_moved(&core, &project, &dir);
         });
     }
 }
@@ -1174,7 +1076,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
             previous = Some(version.text.clone());
         }
     }
-    checks::start(core, &mut state);
     let notes = std::mem::take(&mut state.notes);
     let publish = std::mem::take(&mut state.publish) || flushed;
     drop(state);

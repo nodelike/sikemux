@@ -727,7 +727,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
             Ok(Some((label, command))) => {
                 step.note(core, Stage::Checking, &format!("Running {label}"));
                 let (cwd, running) = (step.tree(), command.clone());
-                let checked = blocking(move || git::check(&cwd, &running).map_err(Into::into)).await;
+                let checked = blocking(move || crate::server::checks::run_command(&cwd, &running).map_err(Into::into)).await;
                 match checked {
                     Ok((true, output)) => {
                         step.checked(core, &command, Verdict::Passed, &output);

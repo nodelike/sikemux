@@ -18,6 +18,7 @@ mod calls;
 mod catalog;
 mod changed;
 pub mod chat;
+mod checks;
 mod cli_install;
 pub(crate) mod codehost;
 mod collisions;
@@ -417,6 +418,7 @@ pub(crate) struct Core {
     pub(crate) ci: codehost::ci::Ci,
     pub(crate) edits: edits::Edits,
     pub(crate) collisions: collisions::Collisions,
+    pub(crate) checks: checks::ProjectChecks,
     pub(crate) notify: notify::Notifier,
     pub(crate) inbox: inbox::Turns,
     pub(crate) joins: join::Joins,
@@ -559,6 +561,7 @@ impl Core {
             ci: Default::default(),
             edits: edits::Edits::new(data_dir, me.clone()),
             collisions: collisions::Collisions::new(me.clone()),
+            checks: Default::default(),
             notify: notify::Notifier::default(),
             inbox: inbox::Turns::default(),
             joins: Default::default(),

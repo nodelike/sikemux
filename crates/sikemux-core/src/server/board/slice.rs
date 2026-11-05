@@ -1277,9 +1277,7 @@ impl Slice {
     }
 }
 
-pub(super) fn short(sha: &str) -> &str {
-    sha.get(..7).unwrap_or(sha)
-}
+pub(super) use crate::git::short;
 
 /// How the project checks a slice's work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1370,7 +1368,7 @@ impl Later {
             let subject = Git::quick(Path::new(&project))
                 .trimmed(&["log", "-1", "--format=%s", &sha])
                 .unwrap_or_default();
-            core.collisions.check_again(&project, &sha, subject, &agent);
+            core.checks.check_again(&project, &sha, subject, &agent);
         }
         for diff in self.diffs {
             collect_diff(core, diff);

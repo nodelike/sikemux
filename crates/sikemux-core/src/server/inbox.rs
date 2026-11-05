@@ -965,7 +965,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         );
         items.push(item);
     }
-    for failing in core.collisions.failing() {
+    for failing in core.checks.failing() {
         let names: Vec<String> = failing
             .agents
             .iter()
