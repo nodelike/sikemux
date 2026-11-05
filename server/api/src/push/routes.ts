@@ -1,29 +1,25 @@
+import type { Services } from "../app.ts";
 import type { PushTokenState } from "@sikemux/protocol";
 import { Hono } from "hono";
 import { sql } from "kysely";
 
 import { audit } from "../audit.ts";
 import { allow, type AuthEnv } from "../auth.ts";
-import type { Database } from "../db.ts";
 import { proveKey } from "../devices/challenge.ts";
 import { ownedDevice } from "../devices/owned.ts";
 import { pushTokenMessage } from "../devices/signature.ts";
 import { badRequest, readBody } from "../http.ts";
-import { limit, type RateLimiter } from "../limits.ts";
-import type { PushSettings } from "./settings.ts";
+import { perUser } from "../limits.ts";
 
 /** PUT and DELETE /v1/devices/{key}/push, mounted under the device routes, which sign the caller in. */
-export function pushTokenRoutes(
-  { db }: Database,
-  limiter: RateLimiter,
-  settings: Pick<PushSettings, "app" | "allowSandbox">,
-) {
-  const perUser = (name: string, perMinute: number) =>
-    limit<AuthEnv>(limiter, name, perMinute, (c) => c.get("identity").userId);
-
+export function pushTokenRoutes({
+  database: { db },
+  limiter,
+  push: settings,
+}: Pick<Services, "database" | "limiter" | "push">) {
   return new Hono<AuthEnv>()
     .use("/:key/push", allow("session"))
-    .put("/:key/push", perUser("push-token", 20), async (c) => {
+    .put("/:key/push", perUser(limiter, "push-token", 20), async (c) => {
       const { userId } = c.get("identity");
       const key = c.req.param("key");
       const registration = await readBody(c, "PushTokenRegistration");
@@ -91,7 +87,7 @@ export function pushTokenRoutes(
       };
       return c.json(body);
     })
-    .delete("/:key/push", perUser("push-token", 20), async (c) => {
+    .delete("/:key/push", perUser(limiter, "push-token", 20), async (c) => {
       const { userId } = c.get("identity");
       const key = c.req.param("key");
       const cleared = await db.transaction().execute(async (trx) => {

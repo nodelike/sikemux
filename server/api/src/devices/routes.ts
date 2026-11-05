@@ -1,40 +1,34 @@
-import { deviceRoleValues, type DeviceList } from "@sikemux/protocol";
+import type { Services } from "../app.ts";
+import type { DeviceList } from "@sikemux/protocol";
+import { deviceRoleValues } from "@sikemux/protocol";
 import { Hono } from "hono";
 import { sql } from "kysely";
 
-import type { ClerkBackend } from "../account/clerk.ts";
 import { revokeRemovedSession } from "../account/deletion.ts";
-import {
-  allow,
-  requireIdentity,
-  type AuthEnv,
-  type Verifier,
-} from "../auth.ts";
+import { allow, requireIdentity, type AuthEnv } from "../auth.ts";
 import { audit } from "../audit.ts";
-import type { Database } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
 import { badRequest, oneOf, readBody } from "../http.ts";
 import { joinRoutes } from "../join/routes.ts";
-import type { JoinSigner } from "../join/signer.ts";
-import { limit, type RateLimiter } from "../limits.ts";
+import { perUser } from "../limits.ts";
 import { pushTokenRoutes } from "../push/routes.ts";
-import type { PushSettings } from "../push/settings.ts";
 import { issueChallenge } from "./challenge.ts";
 import { ownedDevice } from "./owned.ts";
 import { registerDevice, toDevice } from "./register.ts";
 import { removeDevice } from "./removal.ts";
 
 export function deviceRoutes(
-  database: Database,
-  verifier: Verifier,
-  limiter: RateLimiter,
-  clerk: ClerkBackend | null,
-  push: Pick<PushSettings, "app" | "allowSandbox">,
-  join: JoinSigner,
+  services: Pick<
+    Services,
+    "database" | "verifier" | "limiter" | "clerk" | "push" | "join"
+  >,
 ) {
-  const { db } = database;
-  const perUser = (name: string, perMinute: number) =>
-    limit<AuthEnv>(limiter, name, perMinute, (c) => c.get("identity").userId);
+  const {
+    database: { db },
+    verifier,
+    limiter,
+    clerk,
+  } = services;
 
   return (
     new Hono<AuthEnv>()
@@ -43,18 +37,18 @@ export function deviceRoutes(
           accept: ["session", "host", "macRegistration"],
         }),
       )
-      .route("/", pushTokenRoutes(database, limiter, push))
-      .route("/", joinRoutes(database, limiter, join))
+      .route("/", pushTokenRoutes(services))
+      .route("/", joinRoutes(services))
       .post(
         "/challenge",
         allow("session", "macRegistration", "host"),
-        perUser("challenge", 30),
+        perUser(limiter, "challenge", 30),
         async (c) => c.json(await issueChallenge(db, c.get("identity").userId)),
       )
       .post(
         "/",
         allow("session", "macRegistration", "host"),
-        perUser("register", 20),
+        perUser(limiter, "register", 20),
         async (c) => {
           const registration = await readBody(c, "DeviceRegistration");
           const { row, added } = await registerDevice(
@@ -75,7 +69,7 @@ export function deviceRoutes(
       .delete(
         "/:key",
         allow("session", "host"),
-        perUser("remove", 30),
+        perUser(limiter, "remove", 30),
         async (c) => {
           const { userId, via, sessionId, deviceKey } = c.get("identity");
           const key = c.req.param("key");
@@ -118,7 +112,7 @@ export function deviceRoutes(
       .post(
         "/:key/name",
         allow("session", "host"),
-        perUser("rename", 30),
+        perUser(limiter, "rename", 30),
         async (c) => {
           const { userId, via } = c.get("identity");
           const key = c.req.param("key");
@@ -152,7 +146,7 @@ export function deviceRoutes(
       .get(
         "/",
         allow("session", "host", "mac"),
-        perUser("list", 120),
+        perUser(limiter, "list", 120),
         async (c) => {
           const { userId } = c.get("identity");
           const asked = c.req.query("role");

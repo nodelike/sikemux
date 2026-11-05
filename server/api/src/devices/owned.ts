@@ -4,7 +4,7 @@ import type { Kysely } from "kysely";
 import type { Tables } from "../db.ts";
 import { notFound } from "../http.ts";
 
-const MISSING: Record<DeviceRole | "any", string> = {
+export const MISSING: Record<DeviceRole | "any", string> = {
   host: "None of your hosts has that key.",
   client: "None of your phones has that key.",
   any: "None of your devices has that key.",

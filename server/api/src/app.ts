@@ -10,7 +10,7 @@ import type { Verifier } from "./auth.ts";
 import type { Database } from "./db.ts";
 import { deviceRoutes } from "./devices/routes.ts";
 import { healthRoutes } from "./health/routes.ts";
-import { HookHosts } from "./hooks/hosts.ts";
+import type { HookHosts } from "./hooks/hosts.ts";
 import { hookReceiveRoutes, hookRoutes } from "./hooks/routes.ts";
 import { hostSignInRoutes } from "./host/routes.ts";
 import {
@@ -21,12 +21,12 @@ import {
   type Env,
 } from "./http.ts";
 import type { JoinSigner } from "./join/signer.ts";
-import { clientAddress, limit, RateLimiter } from "./limits.ts";
+import { clientAddress, limit, type RateLimiter } from "./limits.ts";
 import type { Logger } from "./log.ts";
 import { networkRoutes } from "./network/routes.ts";
 import type { Places } from "./places.ts";
 import type { PushSettings } from "./push/settings.ts";
-import { RelayAccess, relayAccessRoutes } from "./relay/access.ts";
+import { relayAccessRoutes, type RelayAccess } from "./relay/access.ts";
 import type { StashFiles } from "./stash/files.ts";
 import { stashRoutes } from "./stash/routes.ts";
 import { updateRoutes } from "./updates/routes.ts";
@@ -39,8 +39,8 @@ export interface Services {
   /** The API's own public origin, which webhook addresses start with. */
   apiOrigin: string;
   verifier: Verifier;
-  limiter?: RateLimiter;
-  relayAccess?: RelayAccess;
+  limiter: RateLimiter;
+  relayAccess: RelayAccess;
   /** Clerk's Backend API, or null when CLERK_SECRET_KEY is not set. */
   clerk: ClerkBackend | null;
   /** Apple's token endpoints, or null when APPLE_SIGNIN_KEY_FILE is not set. */
@@ -55,37 +55,29 @@ export interface Services {
   /** What the relay sends to ask whether a device may use it, or null when it is not set up. */
   relayAccessToken: string | null;
   /** Where stashed files are kept, or null when the stash is not set up. */
-  stash?: StashFiles | null;
+  stash: StashFiles | null;
   /** The hosts connected for their webhooks, which hear at once of a request for them. */
-  hookHosts?: HookHosts;
+  hookHosts: HookHosts;
 }
 
-export function createApp({
-  database,
-  log,
-  appOrigin,
-  apiOrigin,
-  verifier,
-  limiter = new RateLimiter(),
-  relayAccess = new RelayAccess(database.db),
-  clerk,
-  appleSignIn,
-  webhookSecret,
-  network,
-  push,
-  join,
-  places,
-  relayAccessToken,
-  stash = null,
-  hookHosts = new HookHosts(),
-}: Services) {
+export function createApp(services: Services) {
+  const {
+    log,
+    appOrigin,
+    limiter,
+    relayAccess,
+    relayAccessToken,
+    network,
+    database,
+    webhookSecret,
+  } = services;
   const app = new Hono<Env>();
 
   app.use(requestContext(log));
   app.route("/internal", relayAccessRoutes(relayAccess, relayAccessToken));
   // Senders such as GitHub post every account's webhooks from a few addresses, so each webhook
   // has its own limit instead of the address's.
-  app.route("/v1/hooks", hookReceiveRoutes(database, limiter, hookHosts));
+  app.route("/v1/hooks", hookReceiveRoutes(services));
   app.use(limit<Env>(limiter, "address", 600, clientAddress));
   app.use(
     cors({
@@ -97,29 +89,17 @@ export function createApp({
     }),
   );
   // The stash takes files, so it limits its own bodies.
-  app.route("/v1/stash", stashRoutes(database, verifier, limiter, stash, log));
+  app.route("/v1/stash", stashRoutes(services));
   app.use(limitBody());
 
   app.route("/v1/health", healthRoutes(database));
   app.route("/v1/network", networkRoutes(network, limiter));
-  app.route(
-    "/v1/devices",
-    deviceRoutes(database, verifier, limiter, clerk, push, join),
-  );
-  app.route(
-    "/v1/host-sign-ins",
-    hostSignInRoutes(database, verifier, limiter, appOrigin, places),
-  );
-  app.route(
-    "/v1/account/profile",
-    profileRoutes(database, verifier, limiter, clerk),
-  );
-  app.route(
-    "/v1/account",
-    accountRoutes(database, verifier, limiter, clerk, appleSignIn, push.app),
-  );
+  app.route("/v1/devices", deviceRoutes(services));
+  app.route("/v1/host-sign-ins", hostSignInRoutes(services));
+  app.route("/v1/account/profile", profileRoutes(services));
+  app.route("/v1/account", accountRoutes(services));
   app.route("/v1/webhooks", clerkWebhookRoutes(database, webhookSecret));
-  app.route("/v1/hooks", hookRoutes(database, verifier, hookHosts, apiOrigin));
+  app.route("/v1/hooks", hookRoutes(services));
   app.route("/updates", updateRoutes(database, limiter));
 
   app.notFound((c) =>

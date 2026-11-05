@@ -1,29 +1,22 @@
+import type { Services } from "../app.ts";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import {
-  hookMethodValues,
-  type Hook,
-  type HookAccepted,
-  type HookHeader,
-} from "@sikemux/protocol";
+import type { Hook, HookAccepted, HookHeader } from "@sikemux/protocol";
+import { hookMethodValues } from "@sikemux/protocol";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { sql } from "kysely";
 
-import { requireIdentity, type AuthEnv, type Verifier } from "../auth.ts";
-import type { Database } from "../db.ts";
+import { requireIdentity, type AuthEnv } from "../auth.ts";
 import {
   ApiFailure,
   badRequest,
   errorResponse,
-  limitBody,
   notFound,
   oneOf,
   readBody,
   type Env,
 } from "../http.ts";
-import type { RateLimiter } from "../limits.ts";
-import type { HookHosts } from "./hosts.ts";
-import { HOOK_OPTIONS, type HookOptions } from "./options.ts";
+import { HOOK_OPTIONS } from "./options.ts";
 
 const HOOK_ID = /^[0-9a-f]{32}$/;
 const TOKEN = /^[0-9a-f]{64}$/;
@@ -64,17 +57,16 @@ function hostKey(c: Context<AuthEnv>): string {
 }
 
 /** Hosts adding and removing the webhook addresses that reach them wherever they are. */
-export function hookRoutes(
-  { db }: Database,
-  verifier: Verifier,
-  hosts: HookHosts,
-  apiOrigin: string,
-  options: HookOptions = HOOK_OPTIONS,
-) {
+export function hookRoutes({
+  database: { db },
+  verifier,
+  hookHosts: hosts,
+  apiOrigin,
+}: Pick<Services, "database" | "verifier" | "hookHosts" | "apiOrigin">) {
   const asHost = requireIdentity(verifier, db, { accept: ["host"] });
   const app = new Hono<AuthEnv>();
 
-  app.post("/", limitBody<AuthEnv>(), asHost, async (c) => {
+  app.post("/", asHost, async (c) => {
     const key = hostKey(c);
     const { token } = await readBody(c, "HookAdd");
     const hook = await db.transaction().execute(async (trx) => {
@@ -89,11 +81,11 @@ export function hookRoutes(
         .select((eb) => eb.fn.countAll<string>().as("count"))
         .where("host_key", "=", key)
         .executeTakeFirstOrThrow();
-      if (Number(held.count) >= options.hooksPerHost)
+      if (Number(held.count) >= HOOK_OPTIONS.hooksPerHost)
         throw new ApiFailure(
           409,
           "conflict",
-          `A host may have ${options.hooksPerHost} webhooks.`,
+          `A host may have ${HOOK_OPTIONS.hooksPerHost} webhooks.`,
         );
       return trx
         .insertInto("hooks")
@@ -133,24 +125,23 @@ export function hookRoutes(
  * connection takes it. Each webhook has its own limit, since one sender's addresses serve many
  * accounts.
  */
-export function hookReceiveRoutes(
-  { db }: Database,
-  limiter: RateLimiter,
-  hosts: HookHosts,
-  options: HookOptions = HOOK_OPTIONS,
-) {
+export function hookReceiveRoutes({
+  database: { db },
+  limiter,
+  hookHosts: hosts,
+}: Pick<Services, "database" | "limiter" | "hookHosts">) {
   const receive = new Hono<Env>();
   receive.on(
     hookMethodValues.map((method) => method.toUpperCase()),
     "/:hookId/:token",
     bodyLimit({
-      maxSize: options.maxBodyBytes,
+      maxSize: HOOK_OPTIONS.maxBodyBytes,
       onError: (c) =>
         errorResponse(
           c,
           413,
           "payload_too_large",
-          `A webhook takes bodies of at most ${options.maxBodyBytes} bytes.`,
+          `A webhook takes bodies of at most ${HOOK_OPTIONS.maxBodyBytes} bytes.`,
         ),
     }),
     async (c) => {
@@ -158,12 +149,12 @@ export function hookReceiveRoutes(
       const token = c.req.param("token");
       const unknown = () => notFound("No webhook has this address.");
       if (!HOOK_ID.test(id) || !TOKEN.test(token)) throw unknown();
-      if (!limiter.allow(`hook:${id}`, options.requestsPerMinute)) {
+      if (!limiter.allow(`hook:${id}`, HOOK_OPTIONS.requestsPerMinute)) {
         c.header("retry-after", "60");
         throw new ApiFailure(
           429,
           "rate_limited",
-          "This webhook takes at most 60 requests a minute.",
+          `This webhook takes at most ${HOOK_OPTIONS.requestsPerMinute} requests a minute.`,
         );
       }
       const hook = await db
@@ -203,8 +194,8 @@ export function hookReceiveRoutes(
           .where("host_key", "=", hook.host_key)
           .executeTakeFirstOrThrow();
         if (
-          Number(waiting.count) >= options.waitingPerHost ||
-          Number(waiting.bytes) + body.length > options.waitingBytesPerHost
+          Number(waiting.count) >= HOOK_OPTIONS.waitingPerHost ||
+          Number(waiting.bytes) + body.length > HOOK_OPTIONS.waitingBytesPerHost
         )
           throw new ApiFailure(
             429,

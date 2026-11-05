@@ -8,6 +8,8 @@ import { inject } from "vitest";
 
 import joinVector from "../../protocol/vectors/join.json" with { type: "json" };
 import { createApp, type Services } from "../src/app.ts";
+import { HookHosts } from "../src/hooks/hosts.ts";
+import { RelayAccess } from "../src/relay/access.ts";
 import { openDatabase, type Database } from "../src/db.ts";
 import type { JoinSigner } from "../src/join/signer.ts";
 import { RateLimiter } from "../src/limits.ts";
@@ -87,6 +89,7 @@ export function testApp(
     apiOrigin: "https://api.sikemux.com",
     verifier,
     limiter,
+    relayAccess: new RelayAccess(database.db),
     clerk: null,
     appleSignIn: null,
     webhookSecret: null,
@@ -95,6 +98,8 @@ export function testApp(
     join: joinSigner,
     places: NO_PLACES,
     relayAccessToken: null,
+    stash: null,
+    hookHosts: new HookHosts(),
     ...services,
   });
 }

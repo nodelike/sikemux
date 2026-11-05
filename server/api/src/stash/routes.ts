@@ -1,12 +1,10 @@
-import {
-  validator,
-  stashTakenValues,
-  type StashTarget,
-} from "@sikemux/protocol";
-import { Hono, type Context } from "hono";
+import type { Services } from "../app.ts";
+import type { StashTarget } from "@sikemux/protocol";
+import { validator, stashTakenValues } from "@sikemux/protocol";
+import type { Context } from "hono";
+import { Hono } from "hono";
 
-import { requireIdentity, type AuthEnv, type Verifier } from "../auth.ts";
-import type { Database } from "../db.ts";
+import { requireIdentity, type AuthEnv } from "../auth.ts";
 import {
   ApiFailure,
   badRequest,
@@ -15,8 +13,7 @@ import {
   oneOf,
   readBody,
 } from "../http.ts";
-import { limit, type RateLimiter } from "../limits.ts";
-import type { Logger } from "../log.ts";
+import { perUser } from "../limits.ts";
 import { addFile, addItem, type Upload } from "./add.ts";
 import { ownedItem, removeItem, shownItem, updateItem } from "./change.ts";
 import type { StashFiles } from "./files.ts";
@@ -110,15 +107,13 @@ function contentDisposition(name: string): string {
 }
 
 /** The account's stash: links, text and files people share into Sikemux from other apps. */
-export function stashRoutes(
-  { db }: Database,
-  verifier: Verifier,
-  limiter: RateLimiter,
-  files: StashFiles | null,
-  log: Logger,
-) {
-  const perUser = (name: string, perMinute: number) =>
-    limit<AuthEnv>(limiter, name, perMinute, (c) => c.get("identity").userId);
+export function stashRoutes({
+  database: { db },
+  verifier,
+  limiter,
+  stash: files,
+  log,
+}: Pick<Services, "database" | "verifier" | "limiter" | "stash" | "log">) {
   const jsonBodies = limitBody<AuthEnv>();
 
   const stored = (): StashFiles => {
@@ -151,12 +146,12 @@ export function stashRoutes(
         streamed: isUpload,
       }),
     )
-    .post("/", perUser("stash-add", 60), async (c) => {
+    .post("/", perUser(limiter, "stash-add", 60), async (c) => {
       const item = toItem(await add(c));
       c.get("log").info({ id: item.id, kind: item.kind }, "stashed an item");
       return c.json(item, 201);
     })
-    .get("/", perUser("stash-list", 120), async (c) => {
+    .get("/", perUser(limiter, "stash-list", 120), async (c) => {
       const taken = oneOf(
         "taken",
         c.req.query("taken") ?? "false",
@@ -171,14 +166,14 @@ export function stashRoutes(
         ),
       );
     })
-    .put("/seen", perUser("stash-seen", 120), async (c) => {
+    .put("/seen", perUser(limiter, "stash-seen", 120), async (c) => {
       const { at } = await readBody(c, "StashSeen");
       return c.json(await seeStash(db, c.get("identity").userId, at));
     })
-    .get("/:id", perUser("stash-get", 240), async (c) =>
+    .get("/:id", perUser(limiter, "stash-get", 240), async (c) =>
       c.json(await shownItem(db, c.get("identity").userId, itemId(c))),
     )
-    .get("/:id/file", perUser("stash-file", 120), async (c) => {
+    .get("/:id/file", perUser(limiter, "stash-file", 120), async (c) => {
       const row = await ownedItem(db, c.get("identity").userId, itemId(c));
       if (row.size === null || row.name === null || row.mime === null)
         throw notFound("That item has no file.");
@@ -195,13 +190,13 @@ export function stashRoutes(
         "cache-control": "private, no-store",
       });
     })
-    .patch("/:id", perUser("stash-update", 120), async (c) => {
+    .patch("/:id", perUser(limiter, "stash-update", 120), async (c) => {
       const update = await readBody(c, "StashUpdate");
       return c.json(
         await updateItem(db, c.get("identity").userId, itemId(c), update),
       );
     })
-    .delete("/:id", perUser("stash-delete", 120), async (c) => {
+    .delete("/:id", perUser(limiter, "stash-delete", 120), async (c) => {
       const id = itemId(c);
       const withFiles = await removeItem(db, c.get("identity").userId, id);
       if (withFiles.length && files)

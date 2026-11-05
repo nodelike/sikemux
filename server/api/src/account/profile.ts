@@ -1,22 +1,21 @@
+import type { Services } from "../app.ts";
 import { Hono } from "hono";
 
-import { requireIdentity, type AuthEnv, type Verifier } from "../auth.ts";
-import type { Database } from "../db.ts";
+import { requireIdentity, type AuthEnv } from "../auth.ts";
 import { ApiFailure } from "../http.ts";
-import { limit, type RateLimiter } from "../limits.ts";
-import type { ClerkBackend } from "./clerk.ts";
+import { perUser } from "../limits.ts";
 
 /** GET /v1/account/profile: who a host belongs to, for the host to show, read from Clerk. */
-export function profileRoutes(
-  { db }: Database,
-  verifier: Verifier,
-  limiter: RateLimiter,
-  clerk: ClerkBackend | null,
-) {
+export function profileRoutes({
+  database: { db },
+  verifier,
+  limiter,
+  clerk,
+}: Pick<Services, "database" | "verifier" | "limiter" | "clerk">) {
   return new Hono<AuthEnv>().get(
     "/",
     requireIdentity(verifier, db, { accept: ["host"] }),
-    limit<AuthEnv>(limiter, "profile", 10, (c) => c.get("identity").userId),
+    perUser(limiter, "profile", 10),
     async (c) => {
       if (!clerk)
         throw new ApiFailure(

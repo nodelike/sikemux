@@ -1,28 +1,25 @@
-import type { Account, AccountDeletion, PushApp } from "@sikemux/protocol";
+import type { Services } from "../app.ts";
+import type { Account, AccountDeletion } from "@sikemux/protocol";
 import { Hono } from "hono";
 
-import {
-  isWeb,
-  requireIdentity,
-  requireRecentSignIn,
-  type AuthEnv,
-  type Verifier,
-} from "../auth.ts";
-import type { Database } from "../db.ts";
+import type { AuthEnv } from "../auth.ts";
+import { isWeb, requireIdentity, requireRecentSignIn } from "../auth.ts";
 import { notFound, readOptionalBody } from "../http.ts";
-import { limit, type RateLimiter } from "../limits.ts";
-import { revokeAppleSignIn, type AppleSignIn } from "./apple.ts";
-import type { ClerkBackend } from "./clerk.ts";
+import { perUser } from "../limits.ts";
+import { revokeAppleSignIn } from "./apple.ts";
 import { markDeleted, PURGE_AFTER_DAYS, restoreAccount } from "./deletion.ts";
 
-export function accountRoutes(
-  { db }: Database,
-  verifier: Verifier,
-  limiter: RateLimiter,
-  clerk: ClerkBackend | null,
-  apple: AppleSignIn | null,
-  app: PushApp,
-) {
+export function accountRoutes({
+  database: { db },
+  verifier,
+  limiter,
+  clerk,
+  appleSignIn: apple,
+  push: { app },
+}: Pick<
+  Services,
+  "database" | "verifier" | "limiter" | "clerk" | "appleSignIn" | "push"
+>) {
   return new Hono<AuthEnv>()
     .use(requireIdentity(verifier, db, { allowDeleted: true }))
     .get("/", async (c) => {
@@ -42,36 +39,22 @@ export function accountRoutes(
           : { status: "active", restorableDays: PURGE_AFTER_DAYS };
       return c.json(body);
     })
-    .post(
-      "/restore",
-      limit<AuthEnv>(
-        limiter,
-        "restore-account",
-        10,
-        (c) => c.get("identity").userId,
-      ),
-      async (c) => {
-        const identity = c.get("identity");
-        if (!(await restoreAccount(db, identity.userId)))
-          throw notFound(
-            "The account is already deleted and can no longer be restored.",
-          );
-        c.get("log").info("restored an account");
-        const body: Account = {
-          status: "active",
-          restorableDays: PURGE_AFTER_DAYS,
-        };
-        return c.json(body);
-      },
-    )
+    .post("/restore", perUser(limiter, "restore-account", 10), async (c) => {
+      const identity = c.get("identity");
+      if (!(await restoreAccount(db, identity.userId)))
+        throw notFound(
+          "The account is already deleted and can no longer be restored.",
+        );
+      c.get("log").info("restored an account");
+      const body: Account = {
+        status: "active",
+        restorableDays: PURGE_AFTER_DAYS,
+      };
+      return c.json(body);
+    })
     .delete(
       "/",
-      limit<AuthEnv>(
-        limiter,
-        "delete-account",
-        10,
-        (c) => c.get("identity").userId,
-      ),
+      perUser(limiter, "delete-account", 10),
       requireRecentSignIn(),
       async (c) => {
         const identity = c.get("identity");
