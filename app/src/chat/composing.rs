@@ -1,13 +1,44 @@
 //! The chat's composer: what is being written and sent, its keys, the strip docked on it,
 //! and the prompts and steering it sends.
 
-use super::*;
-use crate::ui::list_picker::{Choose, Close, Next, Previous};
+use std::cell::Cell;
+use std::collections::HashMap;
+
+use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
+use gpui_kit::prelude::FluentBuilder;
+use gpui_kit::{
+    AppContext, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
+    Task, Window,
+};
+use serde_json::json;
 use sikemux_core::server::{call, QueuedMessage, QueuedParams};
+use sikemux_view::prefs::{MidTurnSend, WindowView};
+use sikemux_wire::protocol::PermissionMode;
+
+use super::*;
+use crate::chat::{Answering, Chat, Question};
+use crate::core::ChatAsk;
+use crate::ui::list_picker::{Choose, Close, Next, Previous};
 
 /// The composer at the bottom of the goals' Home, which starts work rather than writing to a
 /// chat; every other composer goes by the agent whose chat it writes to.
 pub const START: &str = "goals-start";
+
+/// Puts `text` at the end of the draft after a blank line, keeping what it holds, chips
+/// and all, with the caret after it.
+fn append(draft: &Entity<TextareaState>, text: &str, window: &mut Window, cx: &mut App) {
+    draft.update(cx, |draft, cx| {
+        let held = draft.value();
+        let kept = held.trim_end().len();
+        let joined = if kept == 0 {
+            text.to_owned()
+        } else {
+            format!("\n\n{text}")
+        };
+        draft.set_selected_range(kept..held.len(), cx);
+        draft.replace(joined, window, cx);
+    });
+}
 
 impl Workbench {
     /// The composer `owner` names: Home's, else the chat's of that agent.
@@ -854,5 +885,479 @@ impl Chat {
             ids,
             message,
         })
+    }
+}
+
+impl Workbench {
+    /// Makes the composer of the chat in front, unless the goals cover it, and of the goals' Home
+    /// while they show, which needs the window.
+    pub(crate) fn compose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.window_view == WindowView::Goals {
+            if self.chats.start.is_none() {
+                let mut composing = self.new_composing(START, window, cx);
+                composing.draft.update(cx, |draft, cx| {
+                    draft.set_placeholder("What should get done?", window, cx)
+                });
+                if let Some(drafts) = self.feeds.this.drafts.as_ref() {
+                    composing.start_from(drafts, START, window, cx);
+                }
+                self.chats.start = Some(composing);
+                self.watch_drafts();
+            }
+            if let Some(start) = self.chats.start.as_mut() {
+                start.take_arrived(window, cx);
+            }
+        }
+        let Some(agent) = self.agent().map(|agent| agent.id) else {
+            return;
+        };
+        let covered = self.window_view == WindowView::Goals
+            && !(self.goals.as_ref()).is_some_and(|goals| goals.read(cx).wants_chat(&agent));
+        if covered {
+            return;
+        }
+        if !(self.chats.open.get(&agent)).is_some_and(|chat| chat.composer.is_none()) {
+            return;
+        }
+        let mut composing = self.new_composing(&agent, window, cx);
+        let Some(chat) = self.chats.open.get_mut(&agent) else {
+            return;
+        };
+        let drafts = match crate::chat::draft::is_elsewhere(chat) {
+            true => self.feeds.front_mut().and_then(|feed| feed.drafts.as_ref()),
+            false => self.feeds.this.drafts.as_ref(),
+        };
+        if let Some(drafts) = drafts {
+            composing.start_from(drafts, &agent, window, cx);
+        }
+        chat.composer = Some(composing);
+        self.watch_drafts();
+        if let Some(text) = self.chats.deliveries.remove(&agent) {
+            self.deliver(&agent, text, window, cx);
+        }
+    }
+
+    /// A composer for `owner`, an agent's chat or the goals' Home, sending what it holds on
+    /// Return and keeping it as the person types.
+    pub(crate) fn new_composing(
+        &mut self,
+        owner: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Composing {
+        let draft = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(if owner == crate::chat::START { 1 } else { 2 }, 12)
+                .submit_on_enter(true)
+        });
+        let secret = cx.new(|cx| {
+            InputState::new(window, cx)
+                .masked(true)
+                .placeholder("Type the answer")
+        });
+        let sending = {
+            let owner = owner.to_owned();
+            let was_empty = Cell::new(true);
+            cx.subscribe_in(
+                &draft,
+                window,
+                move |bench, draft, event: &InputEvent, window, cx| match event {
+                    InputEvent::PressEnter {
+                        shift: false,
+                        secondary,
+                    } => bench.send(&owner, *secondary, window, cx),
+                    InputEvent::Change => {
+                        let empty = draft.read(cx).value().is_empty();
+                        if was_empty.replace(empty) != empty {
+                            if !empty && owner != START {
+                                bench.began_writing(&owner);
+                            }
+                            cx.notify();
+                        }
+                        if let Some(composing) = bench.composing_mut(&owner) {
+                            composing.drop_untagged(window, cx);
+                        }
+                        bench.offer(&owner, cx);
+                        bench.typed_draft(&owner, cx);
+                        if owner == START {
+                            bench.start_typed(cx);
+                        }
+                    }
+                    _ => {}
+                },
+            )
+        };
+        let keeping = {
+            let owner = owner.to_owned();
+            cx.subscribe_in(
+                &secret,
+                window,
+                move |bench, _, event: &InputEvent, window, cx| {
+                    if let InputEvent::PressEnter { .. } = event {
+                        bench.keep_secret(&owner, window, cx);
+                    }
+                },
+            )
+        };
+        let mic = {
+            let (voice, toggle) = (
+                self.voice.clone(),
+                crate::chat::dictate(owner, cx.weak_entity()),
+            );
+            let owner = owner.to_owned();
+            cx.new(|cx| crate::voice::MicButton::new(voice, owner, toggle, cx))
+        };
+        let bench = cx.weak_entity();
+        let goals = self.goals.clone().filter(|_| owner == START);
+        let view = cx.new(|cx| crate::chat::ComposerView {
+            bench,
+            owner: owner.to_owned(),
+            agent: None,
+            covered: false,
+            _follows: goals.map(|goals| cx.observe(&goals, |_, _, cx| cx.notify())),
+        });
+        Composing {
+            draft,
+            view,
+            secret,
+            mic,
+            hint: SharedString::default(),
+            attachments: Vec::new(),
+            menu: None,
+            context: Vec::new(),
+            tracked: None,
+            tracked_context: HashMap::new(),
+            refusal: None,
+            stashed: None,
+            stage: ComposeStage::Writing,
+            synced: json!({ "text": "" }),
+            read_rev: 0,
+            arrived: None,
+            _keeping: Task::ready(()),
+            _heard: [sending, keeping],
+        }
+    }
+
+    /// Hands `agent` text from elsewhere in the app, such as a terminal's selection, and brings
+    /// its tab to the front: typed into its CLI when it runs in a terminal, else at the end of
+    /// its chat's draft after a blank line, with the draft focused.
+    pub fn deliver(
+        &mut self,
+        agent: &str,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let project = self.this_view().and_then(|view| {
+            let saved = view
+                .workspace
+                .agents
+                .iter()
+                .find(|saved| saved.id == agent)?;
+            Some(saved.project.clone())
+        });
+        if let Some(project) = project {
+            self.call(
+                "openTab",
+                json!({ "project": project, "kind": "agent", "target": agent }),
+            );
+        }
+        if let Some((place, session)) = self.agent_terminal(agent) {
+            let key = self.terminals.key(&place, session);
+            crate::terminal::hand_to(self, key, text, cx);
+            if let Some(focus) = self.terminals.focus(key) {
+                window.focus(focus, cx);
+            }
+            return;
+        }
+        let Some(draft) = self
+            .chats
+            .open
+            .get(agent)
+            .and_then(|chat| Some(chat.composer.as_ref()?.draft.clone()))
+        else {
+            self.chats
+                .deliveries
+                .entry(agent.to_owned())
+                .and_modify(|held| *held = format!("{held}\n\n{text}"))
+                .or_insert(text);
+            return;
+        };
+        append(&draft, &text, window, cx);
+        draft.read(cx).focus_handle(cx).focus(window, cx);
+        cx.notify();
+    }
+
+    /// Stops the turn running in `agent`'s chat. The messages waiting behind it come back
+    /// to the draft rather than going out after it.
+    pub fn stop(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(chat) = self.chats.open.get(agent) else {
+            return;
+        };
+        let waiting = chat.waiting().join("\n\n");
+        if let Some(composing) = chat.composer.as_ref().filter(|_| !waiting.is_empty()) {
+            append(&composing.draft, &waiting, window, cx);
+        }
+        self.ask_chat(ChatAsk::Cancel {
+            agent: agent.to_owned(),
+        });
+        cx.notify();
+    }
+
+    /// Keeps what the empty draft of the chat in front says in step with how the chat stands.
+    pub(crate) fn hint(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(agent) = self.agent().map(|agent| agent.id) else {
+            return;
+        };
+        self.send_after_worktree(&agent, window, cx);
+        let Some(chat) = self.chats.open.get_mut(&agent) else {
+            return;
+        };
+        let mut returned = false;
+        if let Some(composing) = chat.composer.as_mut() {
+            let empty = composing.draft.read(cx).value().trim().is_empty();
+            let returned_held = match std::mem::take(&mut composing.stage) {
+                ComposeStage::Returned(held) => Some(held),
+                stage => {
+                    composing.stage = stage;
+                    None
+                }
+            };
+            if let Some(held) = returned_held.filter(|_| empty) {
+                composing
+                    .draft
+                    .update(cx, |draft, cx| draft.set_value(held.content, window, cx));
+                composing.attachments = held.attachments;
+                composing.context = held.context;
+                composing.tracked_context = held.tracked_context;
+                returned = true;
+            }
+            composing.take_arrived(window, cx);
+        }
+        if returned {
+            self.keep_draft(&agent, cx);
+        }
+        self.focus_draft(&agent, window, cx);
+        let steer_first = self.preferences().mid_turn_send == MidTurnSend::Steer;
+        let Some(chat) = self.chats.open.get_mut(&agent) else {
+            return;
+        };
+        let hint = SharedString::from(chat.hint(&agent, self.feeds.questions(), steer_first));
+        let Some(composing) = chat
+            .composer
+            .as_mut()
+            .filter(|composing| composing.hint != hint)
+        else {
+            return;
+        };
+        composing.hint = hint.clone();
+        composing
+            .draft
+            .update(cx, |draft, cx| draft.set_placeholder(hint, window, cx));
+    }
+
+    /// Puts the keys in the draft of the chat in front when it comes to the front and again
+    /// once its session is ready, unless the person is typing somewhere other than a draft or
+    /// the window itself.
+    pub(crate) fn focus_draft(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(chat) = self.chats.open.get(agent) else {
+            return;
+        };
+        let shown = (agent.to_owned(), chat.ready());
+        if self.chats.focused.as_ref() == Some(&shown) {
+            return;
+        }
+        let Some(draft) = chat
+            .composer
+            .as_ref()
+            .map(|composing| composing.draft.clone())
+        else {
+            return;
+        };
+        self.chats.focused = Some(shown);
+        let held = window.focused(cx);
+        let free = held.as_ref().is_none_or(|held| {
+            *held == self.keys.focus
+                || self.chats.open.values().any(|chat| {
+                    chat.composer
+                        .as_ref()
+                        .is_some_and(|composing| composing.draft.read(cx).focus_handle(cx) == *held)
+                })
+        });
+        if free {
+            draft.read(cx).focus_handle(cx).focus(window, cx);
+        }
+    }
+
+    /// Sends what the person wrote: the answer to a question it answers, else words for
+    /// the agent, which join a running turn or wait behind it as the person prefers,
+    /// and ⌘ does the other. ⌘ with nothing written sends the questions' answers, else
+    /// steers in the messages waiting.
+    pub fn send(
+        &mut self,
+        agent: &str,
+        primary: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let waits = self
+            .voice
+            .update(cx, |voice, cx| voice.send_after_words(agent, primary, cx));
+        if waits {
+            return;
+        }
+        if agent == START {
+            return self.start_from_home(window, cx);
+        }
+        let preparing = self
+            .chats
+            .open
+            .get(agent)
+            .and_then(|chat| chat.composer.as_ref())
+            .is_some_and(|composing| matches!(composing.stage, ComposeStage::Worktree { .. }));
+        if preparing || self.hold_for_install(agent, cx) {
+            return;
+        }
+        if self.starts_in_worktree(agent, cx) {
+            let text = self
+                .chats
+                .open
+                .get(agent)
+                .and_then(|chat| Some(chat.composer.as_ref()?.draft.read(cx).value().to_string()))
+                .unwrap_or_default();
+            return self.begin_worktree(agent, text, cx);
+        }
+        let Some(composing) = self
+            .chats
+            .open
+            .get(agent)
+            .and_then(|chat| chat.composer.as_ref())
+        else {
+            return;
+        };
+        let draft = composing.draft.clone();
+        let outgoing = composing.outgoing(cx);
+        let text = draft.read(cx).value().trim().to_owned();
+        if text.is_empty() && outgoing.0.is_empty() {
+            if primary {
+                self.answer(
+                    agent,
+                    |chat, open| {
+                        chat.send_answers(open)
+                            .map(Into::into)
+                            .or_else(|| chat.steer_waiting(agent).map(Into::into))
+                    },
+                    cx,
+                );
+                cx.notify();
+            }
+            return;
+        }
+        let unknown = self
+            .chats
+            .open
+            .get(agent)
+            .and_then(|chat| chat.unknown_command(&text))
+            .map(|name| format!("/{name} is not available in this session"));
+        if let Some(refused) = unknown {
+            if let Some(composing) = self
+                .chats
+                .open
+                .get_mut(agent)
+                .and_then(|chat| chat.composer.as_mut())
+            {
+                composing.refusal = Some(refused.into());
+            }
+            return cx.notify();
+        }
+        let sent = Sent {
+            content: draft.read(cx).content(),
+            attachments: composing.attachments.clone(),
+            context: composing.context.clone(),
+            tracked_context: composing.tracked_context.clone(),
+        };
+        let steers = self.preferences().mid_turn_send == MidTurnSend::Steer;
+        self.answer(
+            agent,
+            |chat, open| {
+                if let Some(composing) = chat.composer.as_mut() {
+                    composing.stage = ComposeStage::Sent(sent);
+                }
+                chat.sent(agent, text, outgoing, primary == steers, open)
+            },
+            cx,
+        );
+        draft.update(cx, |draft, cx| draft.set_value("", window, cx));
+        self.keep_draft(agent, cx);
+        cx.notify();
+    }
+
+    pub fn keep_secret(&mut self, agent: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(field) = self
+            .chats
+            .open
+            .get(agent)
+            .and_then(|chat| Some(chat.composer.as_ref()?.secret.clone()))
+        else {
+            return;
+        };
+        let text = field.read(cx).value().to_string();
+        let sending = self
+            .chats
+            .open
+            .get(agent)
+            .is_some_and(Chat::sending_answers);
+        if text.is_empty() || sending {
+            return;
+        }
+        self.answer(
+            agent,
+            |chat, open| chat.keep_secret(text, open).map(Into::into),
+            cx,
+        );
+        field.update(cx, |field, cx| field.set_value("", window, cx));
+        cx.notify();
+    }
+
+    /// Changes the chat of `agent` with its open questions to hand, and asks the core what that asks.
+    pub fn answer(
+        &mut self,
+        agent: &str,
+        change: impl FnOnce(&mut Chat, &[&Question]) -> Option<Answering>,
+        cx: &mut Context<Self>,
+    ) {
+        let open: Vec<&Question> = self
+            .feeds
+            .questions()
+            .filter(|question| question.asks(agent))
+            .collect();
+        if let Some(ask) = self
+            .chats
+            .open
+            .get_mut(agent)
+            .and_then(|chat| change(chat, &open))
+        {
+            self.ask_answering(agent, ask, cx);
+        }
+    }
+
+    /// Lets go of the questions `keep` turns down, of this host and of the host in front.
+    pub fn keep_questions(&mut self, keep: impl Fn(&Question) -> bool) {
+        self.feeds.this.questions.retain(&keep);
+        if let Some(front) = self.feeds.front_mut() {
+            front.questions.retain(keep);
+        }
+    }
+
+    /// Whether the agent asks before it acts, kept for its next session and changed in the one running.
+    pub fn switch_mode(&self, agent: &str, mode: PermissionMode) {
+        self.chat_target(agent).call(
+            "updateAgent",
+            json!({ "agentId": agent, "patch": { "permissionMode": mode } }),
+        );
+        self.ask_chat(ChatAsk::Mode {
+            agent: agent.to_owned(),
+            mode,
+        });
     }
 }

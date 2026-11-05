@@ -8,14 +8,14 @@ use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::base::{Button as BaseButton, Scrollbar};
-use gpui_kit::component::input::{Input, InputState, TextareaState};
+use gpui_kit::component::input::Input;
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     actions, div, px, relative, AnyElement, App, AppContext, Context, Div, Entity, FontWeight,
     HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding, ParentElement, Radians,
     SharedString, StatefulInteractiveElement, StyleRefinement, Styled, StyledText, Subscription,
-    Task, Transformation, WeakEntity, Window,
+    Transformation, WeakEntity, Window,
 };
 use gpui_transcript::{
     AwayChanged, Change, CodeColours, EmptyChanged, FoundChanged, Markdown, Pen, Row, RowsChanged,
@@ -28,7 +28,7 @@ use sikemux_view::chat::{
     FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk,
     SubagentCard, SubagentState, ToolDetail, WorkFold,
 };
-use sikemux_view::prefs::{MidTurnSend, DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
+use sikemux_view::prefs::{DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
 use sikemux_view::questions::{AgentQuestion, QuestionState};
 use sikemux_wire::protocol::{
     AgentStatus, ChatAttachment, ChatContext, ChatMark, ConfigPicker, PermissionMode,
