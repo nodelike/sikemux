@@ -113,7 +113,7 @@ fn production_of(deployment: &Value) -> Production {
     }
 }
 
-/// A project as the pane and agents read it.
+/// A project as agents read it.
 pub fn project(value: &Value) -> Project {
     let production = at(value, "/targets/production");
     let link = at(value, "/link");

@@ -250,7 +250,7 @@ fn resolve(data_dir: &Path, input: &ThreadRef) -> SlackResult<(Option<String>, S
             .map(|workspace| workspace.id.clone())
             .ok_or_else(|| {
                 SlackError::NotFound(format!(
-                    "no workspace at {domain} is signed in here; sign in to it from the Slack pane"
+                    "no workspace at {domain} is signed in here; sign in to it under Settings, Connectors"
                 ))
             })?;
         return Ok((Some(workspace), channel, thread_ts.unwrap_or(ts)));

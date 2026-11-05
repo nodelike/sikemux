@@ -78,7 +78,7 @@ fn git(meta: &Value, fact: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// A deployment as the pane and agents read it, from the list's shape or the single one's.
+/// A deployment as agents read it, from the list's shape or the single one's.
 pub fn deployment(value: &Value) -> Deployment {
     let meta = at(value, "/meta");
     let either =
