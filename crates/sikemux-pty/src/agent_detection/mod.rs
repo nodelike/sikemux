@@ -6,6 +6,8 @@
 //! Keeping this boundary pure makes the matching policy deterministic and
 //! fixture-testable while the PTY remains free to choose its locking strategy.
 
+mod bundled;
+
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::fs;
@@ -27,17 +29,6 @@ const MAX_TOTAL_MATCHERS: usize = 512;
 const MAX_PATTERN_BYTES: usize = 512;
 const REGION_PREVIEW_CHARS: usize = 500;
 pub const DEFAULT_KNOWN_AGENT_IDLE_FALLBACK: &str = "default_known_agent_idle_fallback";
-
-const BUNDLED_MANIFESTS: &[(AgentKind, &str)] = &[
-    (AgentKind::Claude, include_str!("manifests/claude.json")),
-    (AgentKind::Codex, include_str!("manifests/codex.json")),
-    (AgentKind::Hermes, include_str!("manifests/hermes.json")),
-    (AgentKind::Pi, include_str!("manifests/pi.json")),
-    (AgentKind::OpenCode, include_str!("manifests/opencode.json")),
-    (AgentKind::Omp, include_str!("manifests/omp.json")),
-    (AgentKind::Grok, include_str!("manifests/grok.json")),
-    (AgentKind::Muse, include_str!("manifests/muse.json")),
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -260,7 +251,7 @@ impl ManifestRegistry {
 
     fn load(override_dir: Option<PathBuf>) -> Result<Self, ManifestError> {
         let mut manifests = HashMap::new();
-        for (agent, json) in BUNDLED_MANIFESTS {
+        for (agent, json) in bundled::BUNDLED_MANIFESTS {
             let loaded = compile_manifest(json, *agent, bundled_source())?;
             manifests.insert(*agent, loaded);
         }
@@ -931,7 +922,7 @@ mod tests {
         assert_eq!(
             registry
                 .detect(
-                    AgentKind::OpenCode,
+                    AgentKind::Opencode,
                     DetectionInput::screen("△ Permission required\n↑↓ select · enter confirm")
                 )
                 .state,

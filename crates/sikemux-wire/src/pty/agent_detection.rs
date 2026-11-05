@@ -2,43 +2,9 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum AgentKind {
-    Claude,
-    Codex,
-    Hermes,
-    Pi,
-    OpenCode,
-    Omp,
-    Grok,
-    Muse,
-}
+pub use super::agent_kind::AgentKind;
 
 impl AgentKind {
-    pub const ALL: [Self; 8] = [
-        Self::Claude,
-        Self::Codex,
-        Self::Hermes,
-        Self::Pi,
-        Self::OpenCode,
-        Self::Omp,
-        Self::Grok,
-        Self::Muse,
-    ];
-
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-            Self::Hermes => "hermes",
-            Self::Pi => "pi",
-            Self::OpenCode => "opencode",
-            Self::Omp => "omp",
-            Self::Grok => "grok",
-            Self::Muse => "muse",
-        }
-    }
-
     pub fn from_label(label: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|kind| kind.label() == label)
     }
