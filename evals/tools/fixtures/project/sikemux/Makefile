@@ -1,3 +1,3 @@
 dev:
-	cargo build --manifest-path src-tauri/Cargo.toml -p sikemux-gpui
-	./src-tauri/target/debug/sikemux-gpui
+	cargo build -p sikemux-gpui
+	./target/debug/sikemux-gpui

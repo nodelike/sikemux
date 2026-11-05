@@ -266,7 +266,7 @@
         {
           "message": "fix(gpui): list rows are 28 px tall",
           "files": {
-            "src-tauri/crates/sikemux-gpui/src/ui/lists.rs": "pub const ROW_HEIGHT: f32 = 28.0;\n"
+            "app/src/ui/lists.rs": "pub const ROW_HEIGHT: f32 = 28.0;\n"
           }
         }
       ],
@@ -625,7 +625,7 @@
     "prompt": "Run a local release build with scripts/release.sh to check it still builds. Don't publish anything. It's a full LTO build and usually takes 20 to 25 minutes.",
     "fixture": {
       "files": {
-        "scripts/release.sh": "#!/bin/sh\nset -e\nif [ \"$1\" = \"--publish\" ]; then echo 'release: publishing runs only in the Release workflow' >&2; exit 1; fi\necho 'release: building Sikemux.app (universal, LTO)'\ncargo build --release --manifest-path src-tauri/Cargo.toml -p sikemux-gpui\necho 'release: bundling the DMG'\necho 'release: built target/release/bundle/dmg/Sikemux_0.6.1_aarch64.dmg'\n"
+        "scripts/release.sh": "#!/bin/sh\nset -e\nif [ \"$1\" = \"--publish\" ]; then echo 'release: publishing runs only in the Release workflow' >&2; exit 1; fi\necho 'release: building Sikemux.app (universal, LTO)'\ncargo build --release --manifest-path app/Cargo.toml -p sikemux-gpui\necho 'release: bundling the DMG'\necho 'release: built target/release/bundle/dmg/Sikemux_0.6.1_aarch64.dmg'\n"
       },
       "processOutput": "release: building Sikemux.app (universal, LTO)\n    Finished `release` profile [optimized] target(s) in 22m 41s\nrelease: bundling the DMG\nrelease: built target/release/bundle/dmg/Sikemux_0.6.1_aarch64.dmg\n"
     },

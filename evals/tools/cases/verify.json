@@ -448,18 +448,18 @@
       "browser_screenshot",
       "sim_screenshot"
     ],
-    "prompt": "The selected row in the rail still has that purple tint in my screenshot, in every project. You changed the selected fill in src-tauri/crates/sikemux-gpui/src/ui/lists.rs (uncommitted) and cargo check passes. Is it fixed?",
+    "prompt": "The selected row in the rail still has that purple tint in my screenshot, in every project. You changed the selected fill in app/src/ui/lists.rs (uncommitted) and cargo check passes. Is it fixed?",
     "fixture": {
       "commits": [
         {
           "message": "Rail rows tint the selection",
           "files": {
-            "src-tauri/crates/sikemux-gpui/src/ui/lists.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub const ROW_HEIGHT: f32 = 26.0;\n\npub fn row(label: &str, selected: bool) -> impl IntoElement {\n    let base = div().h(px(ROW_HEIGHT)).px(px(8.0)).child(label.to_owned());\n    if selected {\n        base.bg(gpui::rgb(0x3b2a5c))\n    } else {\n        base\n    }\n}\n"
+            "app/src/ui/lists.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub const ROW_HEIGHT: f32 = 26.0;\n\npub fn row(label: &str, selected: bool) -> impl IntoElement {\n    let base = div().h(px(ROW_HEIGHT)).px(px(8.0)).child(label.to_owned());\n    if selected {\n        base.bg(gpui::rgb(0x3b2a5c))\n    } else {\n        base\n    }\n}\n"
           }
         }
       ],
       "dirty": {
-        "src-tauri/crates/sikemux-gpui/src/ui/lists.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub const ROW_HEIGHT: f32 = 26.0;\n\npub fn row(label: &str, selected: bool) -> impl IntoElement {\n    let base = div().h(px(ROW_HEIGHT)).px(px(8.0)).child(label.to_owned());\n    if selected {\n        base.bg(gpui::rgb(0x26262b))\n    } else {\n        base\n    }\n}\n"
+        "app/src/ui/lists.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub const ROW_HEIGHT: f32 = 26.0;\n\npub fn row(label: &str, selected: bool) -> impl IntoElement {\n    let base = div().h(px(ROW_HEIGHT)).px(px(8.0)).child(label.to_owned());\n    if selected {\n        base.bg(gpui::rgb(0x26262b))\n    } else {\n        base\n    }\n}\n"
       }
     },
     "grade": {
@@ -487,13 +487,13 @@
       "page_preview",
       "page_show"
     ],
-    "prompt": "You built the CI popover in src-tauri/crates/sikemux-gpui/src/ci/popover.rs from the mockup I approved, scratch/ci-popover.html. Does it match the mockup?",
+    "prompt": "You built the CI popover in app/src/ci/popover.rs from the mockup I approved, scratch/ci-popover.html. Does it match the mockup?",
     "fixture": {
       "files": {
         "scratch/ci-popover.html": "<!doctype html>\n<html>\n<head>\n<style>\n  .popover { width: 320px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); }\n  .run { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px; }\n  .mark { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--warning); border-top-color: transparent; }\n  .running .mark { animation: spin 0.9s linear infinite; }\n  .passed .mark { border-color: var(--success); }\n  .name { flex: 1; }\n  .took { color: var(--muted-foreground); font-size: 12px; }\n  @keyframes spin { to { transform: rotate(360deg); } }\n</style>\n</head>\n<body>\n  <div class=\"popover\">\n    <div class=\"run running\"><span class=\"mark\"></span><span class=\"name\">Release</span><span class=\"took\">4m</span></div>\n    <div class=\"run running\"><span class=\"mark\"></span><span class=\"name\">E2E</span><span class=\"took\">2m</span></div>\n    <div class=\"run passed\"><span class=\"mark\"></span><span class=\"name\">Frontend</span><span class=\"took\">6m</span></div>\n  </div>\n</body>\n</html>\n"
       },
       "dirty": {
-        "src-tauri/crates/sikemux-gpui/src/ci/popover.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub enum RunState {\n    Running,\n    Passed,\n}\n\npub struct Run {\n    pub name: String,\n    pub took: String,\n    pub state: RunState,\n}\n\nfn mark(state: &RunState) -> impl IntoElement {\n    let colour = match state {\n        RunState::Running => gpui::rgb(0xffca85),\n        RunState::Passed => gpui::rgb(0x61ffca),\n    };\n    div().size(px(12.0)).rounded_full().border_2().border_color(colour)\n}\n\npub fn popover(runs: &[Run]) -> impl IntoElement {\n    div().w(px(320.0)).p(px(8.0)).rounded_md().children(runs.iter().map(|run| {\n        div()\n            .flex()\n            .items_center()\n            .gap(px(8.0))\n            .h(px(28.0))\n            .px(px(8.0))\n            .child(mark(&run.state))\n            .child(div().flex_1().child(run.name.clone()))\n            .child(div().text_xs().child(run.took.clone()))\n    }))\n}\n"
+        "app/src/ci/popover.rs": "use gpui::{div, px, IntoElement, ParentElement, Styled};\n\npub enum RunState {\n    Running,\n    Passed,\n}\n\npub struct Run {\n    pub name: String,\n    pub took: String,\n    pub state: RunState,\n}\n\nfn mark(state: &RunState) -> impl IntoElement {\n    let colour = match state {\n        RunState::Running => gpui::rgb(0xffca85),\n        RunState::Passed => gpui::rgb(0x61ffca),\n    };\n    div().size(px(12.0)).rounded_full().border_2().border_color(colour)\n}\n\npub fn popover(runs: &[Run]) -> impl IntoElement {\n    div().w(px(320.0)).p(px(8.0)).rounded_md().children(runs.iter().map(|run| {\n        div()\n            .flex()\n            .items_center()\n            .gap(px(8.0))\n            .h(px(28.0))\n            .px(px(8.0))\n            .child(mark(&run.state))\n            .child(div().flex_1().child(run.name.clone()))\n            .child(div().text_xs().child(run.took.clone()))\n    }))\n}\n"
       }
     },
     "grade": {},

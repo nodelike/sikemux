@@ -29,8 +29,8 @@
     "prompt": "Give me a quick status in one go: the current branch, the last three commits and anything uncommitted.",
     "fixture": {
       "commits": [
-        { "message": "feat(gpui): desk tabs keep their order after a drag", "files": { "src-tauri/crates/sikemux-gpui/src/desk/tabs.rs": "pub fn keep_order() {}\n" } },
-        { "message": "fix(gpui): list rows are 28 px tall", "files": { "src-tauri/crates/sikemux-gpui/src/ui/lists.rs": "pub const ROW_HEIGHT: f32 = 28.0;\n" } }
+        { "message": "feat(gpui): desk tabs keep their order after a drag", "files": { "app/src/desk/tabs.rs": "pub fn keep_order() {}\n" } },
+        { "message": "fix(gpui): list rows are 28 px tall", "files": { "app/src/ui/lists.rs": "pub const ROW_HEIGHT: f32 = 28.0;\n" } }
       ],
       "dirty": { "README.md": "# Sikemux\n\nA workspace for agents.\n" }
     },
@@ -153,7 +153,7 @@
     "fixture": {},
     "grade": {
       "limit": [
-        { "tool": "Bash", "args": { "command": "/^\\s*cd\\s+[\"']?(\\.\\/)?src-tauri\\/crates\\/sikemux-gpui/" }, "max": 1 }
+        { "tool": "Bash", "args": { "command": "/^\\s*cd\\s+[\"']?(\\.\\/)?app/" }, "max": 1 }
       ]
     },
     "maxTurns": 8

@@ -361,6 +361,20 @@ for (const { where, plugin, tools } of described) {
     rows[tool.name] = plugin ? { ...row, plugin } : row;
   }
 }
+// The evals answer tools by name, so an answer for a renamed tool would never be asked for.
+const toolNames = new Set(
+  described.flatMap(({ tools }) => tools.map((tool) => tool.name)),
+);
+const answers = await readFile(
+  resolve(root, "evals/tools/lib/answers.mjs"),
+  "utf8",
+);
+for (const [, name] of answers.matchAll(/\bcase '([a-z]+_[a-z_]+)'/gu))
+  if (!toolNames.has(name))
+    throw new Error(
+      `evals/tools/lib/answers.mjs answers ${name}, which no tool is called`,
+    );
+
 const templates = (list) =>
   `&[${(list ?? []).map((template) => JSON.stringify(template)).join(", ")}]`;
 const specs = Object.entries(rows)
