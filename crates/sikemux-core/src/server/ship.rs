@@ -117,6 +117,11 @@ pub(crate) struct Waiting {
 }
 
 impl Ships {
+    /// Whether an action of the agent's waits on the person.
+    pub(crate) fn holds(&self, agent_id: &str) -> bool {
+        (self.state.locked().holds.iter()).any(|hold| hold.agent_id == agent_id)
+    }
+
     /// The actions waiting on the person, oldest first.
     pub(crate) fn waiting(&self) -> Vec<Waiting> {
         (self.state.locked().holds.iter())

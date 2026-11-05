@@ -110,10 +110,15 @@ impl Core {
             let asking = info
                 .agent_id
                 .as_deref()
-                .is_some_and(|agent_id| self.harness.questions.blocks_on_person(agent_id));
+                .is_some_and(|agent_id| self.needs_person(agent_id));
             display::show_session(info, asking);
         }
         sessions
+    }
+
+    /// Whether what the agent is doing waits on the person, as Needs you lists it.
+    fn needs_person(&self, agent_id: &str) -> bool {
+        self.harness.questions.asks_person(agent_id) || self.ship.holds(agent_id)
     }
 
     /// The chats under the app's names, most recently active first, with
@@ -127,7 +132,7 @@ impl Core {
             chat.active_at = self.seen.active_at(&chat.agent_id);
             chat.next_trigger = self.triggers.next_at(&chat.agent_id);
             chat.called_at = self.seen.called_at(&chat.agent_id);
-            let asking = self.harness.questions.blocks_on_person(&chat.agent_id);
+            let asking = self.needs_person(&chat.agent_id);
             display::show_chat(chat, asking);
         }
         chats.sort_by_key(|chat| std::cmp::Reverse(chat.active_at));

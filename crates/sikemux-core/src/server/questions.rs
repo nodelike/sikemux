@@ -416,6 +416,14 @@ impl Questions {
         })
     }
 
+    /// Whether a question the agent asked, with the question tool or in its last reply, waits
+    /// on the person.
+    pub(crate) fn asks_person(&self, agent_id: &str) -> bool {
+        self.blocks_on_person(agent_id)
+            || (self.state.locked().reply_questions.iter())
+                .any(|question| question.agent_id == agent_id && question.waits())
+    }
+
     /// Whether the agent stopped to wait for the answer to a question.
     pub(crate) fn waits_on_answer(&self, agent_id: &str) -> bool {
         self.state
