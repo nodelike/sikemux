@@ -28,7 +28,7 @@ them by hand in an existing clone with `make hooks`.
 | `packaging/`         | What only the app bundle and the Linux packages are built from: Info.plist, entitlements, icons, the DMG background, provisioning profiles |
 | `shared/`            | TypeScript the phone and the share page both use, imported as `@shared/*`                                                                  |
 | `server/`            | The accounts API, the web app at app.sikemux.com and their protocol; its own pnpm workspace                                                |
-| `browser/`           | Agent tool declarations (`tools.json`) and the guide agents read                                                                           |
+| `tools/`             | Agent tool declarations (`tools.json`) and the guide agents read                                                                           |
 | `scripts/`           | Code generators, CI checks, icon pipeline and release tooling                                                                              |
 | `docs/architecture/` | How the app fits together, and the decisions behind it                                                                                     |
 | `mobile/`            | The phone app (Expo) and `@sikemux/native`, the core's client compiled from Rust; its own pnpm workspace                                   |
