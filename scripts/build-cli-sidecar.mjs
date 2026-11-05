@@ -18,7 +18,6 @@ import { smokeBrowserSidecar } from "./smoke-browser-sidecar.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packaging = join(root, "packaging");
 const binariesDir = join(packaging, "binaries");
-const args = process.argv.slice(2);
 const sidecars = ["sikemux-host"];
 
 function fail(message) {
@@ -156,14 +155,12 @@ for (const destination of shipped.values()) {
   if (!requestedTarget.includes("windows")) chmodSync(destination, 0o755);
 }
 
-if (!args.includes("--skip-smoke")) {
-  const browser = shipped.get("sikemux-host");
-  try {
-    await smokeBrowserSidecar(browser);
-  } catch (error) {
-    rmSync(browser, { force: true });
-    fail(`browser sidecar smoke: ${error.message}`);
-  }
+const browser = shipped.get("sikemux-host");
+try {
+  await smokeBrowserSidecar(browser);
+} catch (error) {
+  rmSync(browser, { force: true });
+  fail(`browser sidecar smoke: ${error.message}`);
 }
 
 for (const [name, destination] of shipped) {

@@ -31,7 +31,7 @@ STEP="${BUILD_STEP:-all}"
 "$ROOT/scripts/icons.sh"
 # A release builds the voice and simulator helpers first and signs them; they
 # are published beside the app, never inside it.
-if [[ "${PREBUILT_HELPERS:-0}" != "1" && "$STEP" != "package" ]]; then
+if [[ "${FROM_RELEASE:-0}" != "1" && "$STEP" != "package" ]]; then
   node "$ROOT/scripts/build-voice-helper.mjs"
   node "$ROOT/scripts/build-sim-helper.mjs"
 fi
@@ -191,7 +191,7 @@ done
 # A release requires a structurally valid ad hoc signature before it signs the app again.
 if /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH" 2>/dev/null; then
   echo "  ✓ code signature is structurally valid"
-elif [[ "${REQUIRE_VALID_SIGNATURE:-0}" == "1" ]]; then
+elif [[ "${FROM_RELEASE:-0}" == "1" ]]; then
   /usr/bin/codesign --verify --deep --strict --verbose=2 "$APP_PATH" >&2 || true
   fail "codesign verification failed"
 else

@@ -10,9 +10,9 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
 VERSION="${1:-}"
 NOTES="${2:-}"
-PUBLISH="${RELEASE_PUBLISH:-0}"
+PUBLISH=0
 NOTARIZED="${RELEASE_NOTARIZED:-0}"
-CHANNEL="${RELEASE_CHANNEL:-stable}"
+CHANNEL=stable
 STAGE=all
 options=("${@:3}")
 for ((i = 0; i < ${#options[@]}; i++)); do
@@ -42,10 +42,6 @@ then
 fi
 if [[ "$NOTARIZED" != "0" && "$NOTARIZED" != "1" ]]; then
   echo "RELEASE_NOTARIZED must be 0 or 1" >&2
-  exit 2
-fi
-if [[ "$CHANNEL" != "stable" && "$CHANNEL" != "nightly" ]]; then
-  echo "RELEASE_CHANNEL must be stable or nightly" >&2
   exit 2
 fi
 VERSION_WITHOUT_BUILD="${VERSION%%+*}"
@@ -195,12 +191,6 @@ if [[ "$PUBLISH" == "1" ]]; then
   export SIKEMUX_USAGE_REPORTING=app
 fi
 
-if [[ "${RELEASE_PREFLIGHT_ONLY:-0}" == "1" ]]; then
-  if [[ "$NOTARIZED" == "1" ]]; then mode="notarized"; else mode="community"; fi
-  echo "✓ Release preflight passed ($mode mode)"
-  exit 0
-fi
-
 if [[ "$VERSION" == "$PKG_VER" ]]; then
   echo "✓ Preflight passed; using prepared version $VERSION"
 else
@@ -287,7 +277,7 @@ if [[ "$STAGE" != "helpers" ]]; then
   echo "→ Building v$VERSION"
   step=all
   [[ "$STAGE" == "compile" || "$STAGE" == "package" ]] && step="$STAGE"
-  BUILD_STEP="$step" REQUIRE_VALID_SIGNATURE=1 PREBUILT_HELPERS=1 "$ROOT/scripts/build-mac.sh"
+  BUILD_STEP="$step" FROM_RELEASE=1 "$ROOT/scripts/build-mac.sh"
   [[ "$STAGE" == "compile" || -d "$APP" ]] || fail "app bundle was not produced"
 fi
 if [[ "$STAGE" == "all" ]]; then

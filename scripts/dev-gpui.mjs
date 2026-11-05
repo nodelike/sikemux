@@ -218,16 +218,14 @@ function refusal() {
   return null;
 }
 
-export async function runDevGpui({ build }) {
-  if (build) {
-    const before = refusal();
-    if (before) {
-      console.error(before);
-      return 1;
-    }
-    run("pnpm", ["sidecar:dev"]);
-    buildApp();
+async function runDevGpui() {
+  const before = refusal();
+  if (before) {
+    console.error(before);
+    return 1;
   }
+  run("pnpm", ["sidecar:dev"]);
+  buildApp();
   const refused = refusal();
   if (refused) {
     console.error(refused);
@@ -267,11 +265,4 @@ export async function runDevGpui({ build }) {
   return outcome.signal ? 1 : 0;
 }
 
-const isMain = process.argv[1]
-  ? resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-  : false;
-
-if (isMain)
-  process.exitCode = await runDevGpui({
-    build: !process.argv.includes("--no-build"),
-  });
+process.exitCode = await runDevGpui();

@@ -18,10 +18,6 @@ node scripts/generate-notch-icons.mjs --check
 node --check scripts/build-sim-helper.mjs
 /usr/bin/plutil -lint packaging/Info.plist >/dev/null
 
-if RELEASE_CHANNEL=preview scripts/release.sh 0.2.0-beta.1 fixture >/dev/null 2>&1; then
-  echo "release tooling accepted an unsupported channel" >&2
-  exit 1
-fi
 if scripts/release.sh 0.2.0 fixture --nightly >/dev/null 2>&1; then
   echo "release tooling accepted a stable semver for the nightly channel" >&2
   exit 1
