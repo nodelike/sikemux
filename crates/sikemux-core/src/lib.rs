@@ -12,6 +12,7 @@ mod agent_shell;
 pub mod agent_catalog;
 mod agent_ops;
 mod backoff;
+pub mod build;
 pub mod cli;
 #[cfg(unix)]
 pub mod client;

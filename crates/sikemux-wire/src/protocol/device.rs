@@ -235,29 +235,7 @@ pub struct BuildIdentity {
     pub source: String,
 }
 
-/// Makes a build pass for another one, so tests can upgrade a core to the
-/// binary it already runs: the value replaces the commit and the source, and
-/// the build time is zero.
-pub const BUILD_ID_OVERRIDE_ENV: &str = "SIKEMUX_BUILD_ID_OVERRIDE";
-
 impl BuildIdentity {
-    pub fn new(version: &str, commit: &str, built_at: u64, source: &str) -> Self {
-        match std::env::var(BUILD_ID_OVERRIDE_ENV) {
-            Ok(id) if !id.is_empty() => Self {
-                version: version.into(),
-                commit: id.clone(),
-                built_at: 0,
-                source: id,
-            },
-            _ => Self {
-                version: version.into(),
-                commit: commit.into(),
-                built_at,
-                source: source.into(),
-            },
-        }
-    }
-
     /// Whether both run the same code, whenever and from whichever commit
     /// each was compiled.
     pub fn same_build(&self, other: &Self) -> bool {

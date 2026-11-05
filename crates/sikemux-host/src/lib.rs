@@ -23,7 +23,7 @@ pub use plugins::provide_to_core;
 /// The build of this binary and of the app built beside it, which share this
 /// crate's build script output.
 pub fn build_identity() -> sikemux_wire::protocol::BuildIdentity {
-    sikemux_wire::protocol::BuildIdentity::new(
+    sikemux_core::build::identity(
         env!("CARGO_PKG_VERSION"),
         env!("SIKEMUX_BUILD_COMMIT"),
         env!("SIKEMUX_BUILD_TIME").parse().unwrap_or(0),

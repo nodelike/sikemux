@@ -17,6 +17,7 @@ use std::time::{Duration, Instant};
 use folded::Folded;
 use serde_json::{json, Value};
 use sikemux_client::client::{ClientEvent, CoreClient};
+use sikemux_core::build::BUILD_ID_OVERRIDE_ENV;
 use sikemux_core::cli::auth::new_nonce;
 use sikemux_core::cli::protocol::{
     CliClientCommand, CliClientHello, CliEndpointDescriptor, CliServerResponse, HarnessRequest,
@@ -29,7 +30,7 @@ use sikemux_view::chat::{PermissionKind, StopReason};
 use sikemux_wire::grid::{decode_frame, Screen};
 use sikemux_wire::protocol::{
     BuildIdentity, ChatAttachment, ChatLaunch, ChatMark, Event, LaunchIdentity, PermissionMode,
-    SessionId, SpawnTarget, StreamId, TerminalSpawn, BUILD_ID_OVERRIDE_ENV,
+    SessionId, SpawnTarget, StreamId, TerminalSpawn,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
 

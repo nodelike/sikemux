@@ -7,12 +7,8 @@ fn main() {
         std::process::exit(code);
     }
     let _ = tokio_rustls::rustls::crypto::ring::default_provider().install_default();
-    let build = sikemux_wire::protocol::BuildIdentity::new(
-        env!("CARGO_PKG_VERSION"),
-        "standalone",
-        0,
-        "standalone",
-    );
+    let build =
+        sikemux_core::build::identity(env!("CARGO_PKG_VERSION"), "standalone", 0, "standalone");
     let args = std::env::args().skip(1).skip_while(|arg| arg == "core");
     std::process::exit(sikemux_core::server::main(args, build, None));
 }
