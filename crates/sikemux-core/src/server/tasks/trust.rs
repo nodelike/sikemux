@@ -61,7 +61,7 @@ pub(super) fn personal_ask(project: &Path, task: &Definition) -> TrustAsk {
 pub(super) fn bypasses(core: &Core, agent_id: Option<&str>) -> bool {
     agent_id
         .and_then(|agent_id| core.workspaces.run_of(agent_id))
-        .is_some_and(|run| run.permission_mode == PermissionMode::Bypass))
+        .is_some_and(|run| run.permission_mode == PermissionMode::Bypass)
 }
 
 pub(super) fn trust_for(
