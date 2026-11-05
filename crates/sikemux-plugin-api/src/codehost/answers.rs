@@ -222,6 +222,7 @@ pub fn ids_in_order<C: Accounts>(config: &C) -> Vec<String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
 mod tests {
     use super::*;
     use crate::codehost::asks::FilesQuery;

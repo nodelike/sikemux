@@ -26,6 +26,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[allow(clippy::expect_used)]
     async fn a_request_to_nowhere_reads_as_offline() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let client = reqwest::Client::builder()

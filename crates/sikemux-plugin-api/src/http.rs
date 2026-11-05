@@ -394,6 +394,12 @@ pub trait Api: Service {
 /// own parsing to the app rather than another copy of the request.
 pub struct Calls<A>(PhantomData<fn() -> A>);
 
+impl<A: Api> Default for Calls<A> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<A: Api> Calls<A> {
     pub const fn new() -> Self {
         Self(PhantomData)
