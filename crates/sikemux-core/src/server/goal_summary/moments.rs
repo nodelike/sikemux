@@ -147,15 +147,10 @@ pub(super) fn fact(
 }
 
 fn top_of<'a>(cards: &'a [CardView], card: &'a CardView) -> &'a CardView {
-    let mut top = card;
-    for _ in 0..cards.len() {
-        let Some(above) = (top.parent).and_then(|id| cards.iter().find(|card| card.id == id))
-        else {
-            break;
-        };
-        top = above;
-    }
-    top
+    let steps = std::iter::successors(Some(card), |card| {
+        (card.parent).and_then(|id| cards.iter().find(|above| above.id == id))
+    });
+    steps.take(cards.len() + 1).last().unwrap_or(card)
 }
 
 /// The cards of goal `id`: its own, and those under it at any depth.
@@ -781,11 +776,6 @@ fn bounded(moments: Vec<Moment>, gaps: Vec<(usize, String)>) -> (Vec<Moment>, Ve
     (kept, gaps)
 }
 
-/// Whether a card's title is only the start of its details, as one made from a prompt is.
-pub(crate) fn title_is_chopped(title: &str, details: &str) -> bool {
-    details.len() > title.len() && details.starts_with(title.trim_end_matches('…'))
-}
-
 /// The moments of goal `card` of `project`, or none when there is no such goal or no agent on it.
 pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> {
     let board = board::project_view(core, project);
@@ -866,7 +856,7 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
     Some(Gathered {
         card: goal.id,
         title: goal.title.clone(),
-        title_is_chopped: title_is_chopped(&goal.title, &goal.details),
+        title_is_chopped: board::title_is_chopped(&goal.title, &goal.details),
         moments,
         gaps,
         recorded: (goal.decisions.iter())

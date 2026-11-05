@@ -20,7 +20,6 @@ use crate::tasks::config::ProjectCheck;
 use crate::text::clipped;
 
 use super::connection::blocking;
-use super::goal_summary::title_is_chopped;
 use super::kept;
 use super::messages;
 use super::wake::{sooner, Wake};
@@ -283,13 +282,29 @@ impl Board {
     /// What is saved of it, copied, which is quicker than writing it out as
     /// JSON while its lock is held.
     fn saved(&self) -> Self {
+        let Self {
+            version,
+            project,
+            next,
+            cards,
+            settings,
+            environments_proposal,
+            auto_note: _,
+            writing: _,
+            checking: _,
+            told_waits: _,
+            took: _,
+            promises: _,
+            told_moved: _,
+            ci_failing: _,
+        } = self;
         Self {
-            version: self.version,
-            project: self.project.clone(),
-            next: self.next,
-            cards: self.cards.clone(),
-            settings: self.settings.clone(),
-            environments_proposal: self.environments_proposal.clone(),
+            version: *version,
+            project: project.clone(),
+            next: *next,
+            cards: cards.clone(),
+            settings: settings.clone(),
+            environments_proposal: environments_proposal.clone(),
             ..Self::default()
         }
     }
@@ -297,14 +312,15 @@ impl Board {
     /// The goal `card` belongs to: the card at the top above it, or itself
     /// when nothing is above it.
     fn goal_above<'a>(&'a self, card: &'a Card) -> &'a Card {
-        let mut goal = card;
-        for _ in 0..self.cards.len() {
-            let Some(parent) = goal.parent.and_then(|id| self.card(id).ok()) else {
-                break;
-            };
-            goal = parent;
-        }
-        goal
+        self.up_from(card).last().unwrap_or(card)
+    }
+
+    /// `card` and the cards above it, the nearest first.
+    fn up_from<'a>(&'a self, card: &'a Card) -> impl Iterator<Item = &'a Card> {
+        let steps = std::iter::successors(Some(card), |card| {
+            card.parent.and_then(|id| self.card(id).ok())
+        });
+        steps.take(self.cards.len() + 1)
     }
 
     /// What the goal `goal` holds: the cards right under it, and the goal
@@ -1123,6 +1139,12 @@ struct Maker {
     name: Option<String>,
 }
 
+/// Whether a card's title is only the start of what its details say, as one made from a long
+/// first message is.
+pub(crate) fn title_is_chopped(title: &str, details: &str) -> bool {
+    details.len() > title.len() && details.starts_with(title.trim_end_matches('…'))
+}
+
 impl Card {
     /// Which of an agent's cards it works now: the highest of these.
     fn work_rank(&self) -> (bool, u64) {
@@ -1181,38 +1203,30 @@ impl Card {
 /// leads, else its maker's, else its parent card's. None for a card only the
 /// person has touched.
 fn team_of(core: &Core, board: &Board, card: &Card) -> Option<Team> {
-    let mut current = Some(card);
-    let mut steps = 0;
-    while let Some(card) = current {
-        if let Some(agent) = card.owner_id().or(card.maker_id()) {
-            if core.names.name(agent).is_none() {
-                return card.team.clone().or_else(|| {
-                    Some(Team {
-                        lead: agent.to_owned(),
-                        name: name_of(core, agent),
-                    })
-                });
-            }
-            let lead = core.names.team_of(agent);
-            let name = core
-                .names
-                .name(&lead)
-                .or_else(|| {
-                    card.team
-                        .as_ref()
-                        .filter(|team| team.lead == lead)
-                        .map(|team| team.name.clone())
-                })
-                .unwrap_or_else(|| lead.clone());
-            return Some(Team { lead, name });
-        }
-        steps += 1;
-        if steps > board.cards.len() {
-            break;
-        }
-        current = card.parent.and_then(|parent| board.card(parent).ok());
+    let card = board
+        .up_from(card)
+        .find(|card| card.owner_id().or(card.maker_id()).is_some())?;
+    let agent = card.owner_id().or(card.maker_id())?;
+    if core.names.name(agent).is_none() {
+        return card.team.clone().or_else(|| {
+            Some(Team {
+                lead: agent.to_owned(),
+                name: name_of(core, agent),
+            })
+        });
     }
-    None
+    let lead = core.names.team_of(agent);
+    let name = core
+        .names
+        .name(&lead)
+        .or_else(|| {
+            card.team
+                .as_ref()
+                .filter(|team| team.lead == lead)
+                .map(|team| team.name.clone())
+        })
+        .unwrap_or_else(|| lead.clone());
+    Some(Team { lead, name })
 }
 
 fn remember_team(core: &Core, board: &mut Board, id: u64) {
@@ -1317,15 +1331,7 @@ fn column_of(core: &Core, settings: &Settings, card: &Card) -> Column {
 
 /// The ticket of the nearest card above `card` that has one.
 fn ticket_above(board: &Board, card: &Card) -> Option<String> {
-    let mut above = card.parent;
-    for _ in 0..board.cards.len() {
-        let parent = board.cards.iter().find(|known| Some(known.id) == above)?;
-        if let Some(ticket) = &parent.ticket {
-            return Some(ticket.key.clone());
-        }
-        above = parent.parent;
-    }
-    None
+    (board.up_from(card).skip(1)).find_map(|card| Some(card.ticket.as_ref()?.key.clone()))
 }
 
 /// A board as the app and devices read it.
@@ -2333,19 +2339,9 @@ pub(crate) fn ticket_of_agent(core: &Core, agent_id: &str) -> Option<String> {
     let state = core.boards.state.locked();
     state.boards.values().find_map(|board| {
         let card = board.open_working_card(agent_id)?;
-        let mut current = Some(card);
-        let mut steps = 0;
-        while let Some(card) = current {
-            if let Some(ticket) = &card.ticket {
-                return Some(ticket.key.clone());
-            }
-            steps += 1;
-            if steps > board.cards.len() {
-                break;
-            }
-            current = card.parent.and_then(|parent| board.card(parent).ok());
-        }
-        None
+        board
+            .up_from(card)
+            .find_map(|card| Some(card.ticket.as_ref()?.key.clone()))
     })
 }
 
