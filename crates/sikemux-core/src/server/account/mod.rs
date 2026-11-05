@@ -493,7 +493,7 @@ async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<S
         key: host.key,
         role: DeviceRole::Host,
         name: host.name.chars().take(64).collect(),
-        platform: super::HOST_PLATFORM,
+        platform: super::host::PLATFORM,
         channel: Some(host.channel.into()),
         nonce: challenge.nonce,
         signature: host.signature,

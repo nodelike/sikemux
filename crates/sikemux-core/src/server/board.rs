@@ -31,13 +31,13 @@ use sikemux_view::slice::{
 mod arrival;
 pub(crate) mod auto;
 mod blind;
-pub(crate) mod chat_goal;
+pub mod chat_goal;
 pub(crate) mod environments;
 mod eta;
 mod failing;
 mod finish;
 pub(crate) mod git;
-pub(crate) mod goal;
+pub mod goal;
 mod hand_off;
 mod lease;
 mod migrate;

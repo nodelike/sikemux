@@ -6,7 +6,9 @@ use super::*;
 use std::future::Future;
 use std::pin::Pin;
 
-use sikemux_core::server::{call, AnswerParams, AnswersParams};
+use sikemux_core::server::call;
+use sikemux_core::server::questions::AnswerParams;
+use sikemux_core::server::questions::AnswersParams;
 
 use crate::theme::{
     SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,

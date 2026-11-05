@@ -7,7 +7,9 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::{call, BoardSettingsParams, CardView};
+use sikemux_core::server::board::CardView;
+use sikemux_core::server::board::SettingsParams as BoardSettingsParams;
+use sikemux_core::server::call;
 use sikemux_view::slice::{Gate, NextGate, Passer, SliceState, SliceView};
 
 use super::{

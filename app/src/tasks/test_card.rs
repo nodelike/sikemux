@@ -10,7 +10,8 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_core::harness::runs::RunStatus;
-use sikemux_core::server::{RunView, TaskView};
+use sikemux_core::server::tasks::RunView;
+use sikemux_core::server::tasks::TaskView;
 use sikemux_core::tasks::results::{TestFailure, TestResults};
 
 use crate::editor::OpenAt;

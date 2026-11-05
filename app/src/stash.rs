@@ -14,9 +14,12 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_core::accounts::protocol::{StashItem, StashKind, StashPreview};
-use sikemux_core::server::{
-    call, AttachParams, ItemParams, PromptParams, ShownStashItem, ShownStashLink,
-};
+use sikemux_core::server::call;
+use sikemux_core::server::stash::AttachParams;
+use sikemux_core::server::stash::ItemParams;
+use sikemux_core::server::stash::PromptParams;
+use sikemux_core::server::stash::ShownStashItem;
+use sikemux_core::server::stash::ShownStashLink;
 
 use crate::core::Target;
 use crate::icons::Icon;

@@ -7,8 +7,8 @@ use gpui_kit::{
     FontWeight, InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
+use sikemux_core::server::board::PassParams as BoardPassParams;
 use sikemux_core::server::call;
-use sikemux_core::server::BoardPassParams;
 use sikemux_view::goals::{AgentDesk, GoalAgent, GoalRow, GoalSlice};
 use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed};
 use sikemux_view::slice::SliceState;

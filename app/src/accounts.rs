@@ -16,7 +16,7 @@ use gpui_kit::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_core::agent_accounts::{Book, Profile};
-use sikemux_core::server::AccountUsage;
+use sikemux_core::server::agent_accounts::AccountUsage;
 
 use crate::core;
 use crate::theme;

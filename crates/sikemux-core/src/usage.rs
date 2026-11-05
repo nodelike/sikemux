@@ -183,7 +183,7 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
     if std::env::var_os("DO_NOT_TRACK").is_some_and(|value| !value.is_empty() && value != "0") {
         return;
     }
-    let host = crate::server::host_info();
+    let host = crate::server::host::info();
     let mut every_hour = tokio::time::interval(HOST_CHECK_INTERVAL);
     loop {
         tokio::select! {

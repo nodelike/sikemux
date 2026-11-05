@@ -9,7 +9,9 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::{json, Map, Value};
-use sikemux_core::server::{ActivityShare, ActivitySummary, PriceOverride};
+use sikemux_core::server::activity_log::ActivityShare;
+use sikemux_core::server::activity_log::ActivitySummary;
+use sikemux_core::server::activity_log::PriceOverride;
 
 use crate::core::{utc_offset_minutes, Ask, Target};
 use crate::home::{self, compact, money, plural, whole, Metric};

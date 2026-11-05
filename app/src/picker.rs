@@ -5,7 +5,7 @@ use std::path::Path;
 
 use gpui_kit::{Context, PathPromptOptions, Window};
 use serde_json::json;
-use sikemux_core::server::SshHost;
+use sikemux_core::server::ssh::SshHost;
 
 use crate::core::Ask;
 use crate::icons::Icon;

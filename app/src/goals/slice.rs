@@ -6,7 +6,7 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::CardView;
+use sikemux_core::server::board::CardView;
 use sikemux_view::slice::{Evidence, GateState, GateView, Passer, Proof, SliceView, Verdict};
 
 use super::evidence;

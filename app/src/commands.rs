@@ -3,7 +3,7 @@
 
 use gpui_kit::{App, Context, SharedString, Window};
 use serde_json::{json, Value};
-use sikemux_core::server::ConfigStatus;
+use sikemux_core::server::tasks::ConfigStatus;
 use sikemux_view::layout::PaneKind;
 use sikemux_wire::protocol::SessionId;
 use tokio::sync::oneshot;

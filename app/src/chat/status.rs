@@ -11,8 +11,8 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use serde_json::json;
+use sikemux_core::server::agent_accounts::Resuming;
 use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::Resuming;
 use sikemux_view::chat::{ChatConnection, ChatPart, FailureKind, ToolAction};
 
 use super::Chat;

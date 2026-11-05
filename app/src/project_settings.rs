@@ -12,7 +12,8 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
 use serde_json::{json, Value};
-use sikemux_core::server::{Source, TaskView};
+use sikemux_core::server::tasks::Source;
+use sikemux_core::server::tasks::TaskView;
 use sikemux_view::layout::PaneKind;
 use sikemux_wire::protocol::ProjectInfo;
 

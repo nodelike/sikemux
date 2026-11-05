@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use gpui_kit::Context;
 use serde_json::json;
-use sikemux_core::server::TrustQuestion;
+use sikemux_core::server::tasks::TrustQuestion;
 
 use crate::core::Ask;
 use crate::workbench::Workbench;

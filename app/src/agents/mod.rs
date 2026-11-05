@@ -11,7 +11,7 @@ use gpui_kit::{
 };
 use sikemux_core::agent_accounts::usage::{Usage, UsageWindow};
 use sikemux_core::agent_accounts::Profile;
-use sikemux_core::server::AccountUsage;
+use sikemux_core::server::agent_accounts::AccountUsage;
 use sikemux_view::device::RecentInfo;
 use sikemux_view::layout::PaneKind;
 use sikemux_wire::protocol::LauncherInfo;

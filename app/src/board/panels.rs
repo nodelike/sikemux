@@ -8,11 +8,19 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
+use sikemux_core::server::board::CardParams as BoardCardParams;
+use sikemux_core::server::board::CardView;
+use sikemux_core::server::board::Landing;
+use sikemux_core::server::board::ReviewerParams as BoardReviewerParams;
+use sikemux_core::server::board::RunView as CardRun;
+use sikemux_core::server::board::Stage;
+use sikemux_core::server::board::Status as CardStatus;
+use sikemux_core::server::board::UpdateParams as BoardUpdateParams;
 use sikemux_core::server::call;
-use sikemux_core::server::{
-    BoardCardParams, BoardReviewerParams, BoardUpdateParams, CardRun, CardStatus, CardView,
-    Landing, MessageKind, MessageOutcome, MessageRow, MessageTone, Stage,
-};
+use sikemux_core::server::messages::log::Outcome as MessageOutcome;
+use sikemux_core::server::messages::log::Row as MessageRow;
+use sikemux_core::server::messages::log::Tone as MessageTone;
+use sikemux_core::server::messages::Kind as MessageKind;
 
 use crate::board::{owner, short_title, waits_on_person, BoardPane, Open};
 use crate::chat::model_picker;

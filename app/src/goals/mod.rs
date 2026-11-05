@@ -16,11 +16,17 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window,
 };
 use serde::Serialize;
+use sikemux_core::server::board::goal::DecideParams as BoardDecideParams;
+use sikemux_core::server::board::BoardView;
+use sikemux_core::server::board::CardView;
+use sikemux_core::server::board::Column;
+use sikemux_core::server::board::NoteParams as BoardNoteParams;
+use sikemux_core::server::board::PassParams as BoardPassParams;
 use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::{
-    BoardDecideParams, BoardNoteParams, BoardPassParams, BoardView, CardView, Column,
-    KeepSeededParams, MemoryEntryParams, MemoryParams, NoParams,
-};
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::memory::KeepSeededParams;
+use sikemux_core::server::memory::MemoryEntryParams;
+use sikemux_core::server::memory::MemoryParams;
 use sikemux_view::inbox::{
     InboxCard, InboxDigest, InboxItem, InboxKind, PROPOSED_ENVIRONMENTS_ITEM,
 };

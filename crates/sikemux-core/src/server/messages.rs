@@ -27,7 +27,7 @@ use super::session::{self, Session};
 use super::wake::{sooner, Wake};
 use super::{agent, launching, Core, CoreResult};
 
-pub(crate) mod log;
+pub mod log;
 
 const FILE: &str = "agent-mailbox.json";
 const MAX_TEXT_BYTES: usize = 64 * 1024;

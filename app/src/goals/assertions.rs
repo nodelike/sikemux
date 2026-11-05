@@ -9,7 +9,9 @@ use gpui_kit::{
     div, px, AnyElement, AppContext, Context, Entity, IntoElement, ParentElement, SharedString,
     Styled, Subscription, Window,
 };
-use sikemux_core::server::{call, BoardAssertParams, CardView};
+use sikemux_core::server::board::AssertParams as BoardAssertParams;
+use sikemux_core::server::board::CardView;
+use sikemux_core::server::call;
 use sikemux_view::slice::{Assertion, Collect, SliceView};
 
 use super::goal::quiet_section;

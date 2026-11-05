@@ -10,7 +10,7 @@ pub(crate) use sikemux_wire::protocol::AgentWorktree;
 use crate::git::{main_checkout, Git};
 use crate::tasks::detect::PERSONAL_TASKS;
 
-pub(crate) mod agent;
+pub mod agent;
 pub(crate) mod removal;
 mod warm;
 

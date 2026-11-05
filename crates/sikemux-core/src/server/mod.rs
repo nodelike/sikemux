@@ -2,25 +2,25 @@ mod about;
 mod access;
 mod account;
 mod activity;
-pub(crate) mod activity_log;
+pub mod activity_log;
 mod agent;
-mod agent_accounts;
+pub mod agent_accounts;
 mod agent_now;
 mod agent_sign_in;
 mod agent_view;
 mod approvals;
 mod attachments;
 mod backdrop;
-mod board;
+pub mod board;
 mod caller;
 mod callers;
-mod calls;
+pub mod calls;
 mod catalog;
 mod changed;
 pub mod chat;
 mod checks;
 mod cli_install;
-pub(crate) mod codehost;
+pub mod codehost;
 mod collisions;
 mod connection;
 mod custom_command;
@@ -28,7 +28,7 @@ mod data_format;
 mod device_view;
 mod diagrams;
 mod display;
-mod drafts;
+pub mod drafts;
 mod edits;
 mod entry;
 mod faces;
@@ -41,9 +41,9 @@ mod goals;
 mod handover;
 mod harness;
 mod hooks;
-mod host;
+pub mod host;
 mod host_key;
-mod hosts;
+pub mod hosts;
 mod inbox;
 mod join;
 mod kept;
@@ -53,52 +53,52 @@ mod lifecycle;
 mod load;
 mod local_peer;
 mod lsp;
-mod memory;
-mod messages;
+pub mod memory;
+pub mod messages;
 mod model_providers;
-mod mods;
+pub mod mods;
 mod move_agent;
-mod names;
+pub mod names;
 mod network_watch;
 mod notch;
 mod notify;
 mod open_files;
 mod part;
 pub mod plugins;
-mod ports;
-mod preferences;
+pub mod ports;
+pub mod preferences;
 mod prepare;
 mod project_files;
-mod project_roots;
+pub mod project_roots;
 mod prompt_draft;
-mod questions;
-mod remote;
+pub mod questions;
+pub mod remote;
 mod remote_image;
 mod repo_events;
 mod requests;
 mod roster;
-mod saved;
+pub mod saved;
 mod saved_sessions;
 pub mod search;
 mod seen;
 mod session;
 mod session_watch;
-mod share;
-mod ship;
+pub mod share;
+pub mod ship;
 mod shown_cache;
 mod skill_library;
 mod spare;
 mod spawn;
-mod ssh;
-mod stash;
+pub mod ssh;
+pub mod stash;
 mod streams;
-mod tasks;
+pub mod tasks;
 pub mod themes;
 mod tools;
 pub(crate) mod transcript;
-mod triage;
+pub mod triage;
 mod triggers;
-mod updates;
+pub mod updates;
 mod upgrade;
 mod wait_for;
 mod wake;
@@ -106,58 +106,10 @@ mod wallpaper;
 mod who_wrote;
 mod window;
 mod workspace;
-mod worktree;
+pub mod worktree;
 
-pub use activity_log::{
-    ActivityDay, ActivityLevels, ActivityModel, ActivityShare, ActivityStreaks, ActivitySummary,
-    ActivityTotals, PriceOverride, PricingInfo,
-};
-pub use agent_accounts::{AccountUsage, Resuming};
-pub use board::chat_goal::ChatGoalParams;
-pub use board::goal::DecideParams as BoardDecideParams;
-pub use board::{
-    AddParams as BoardAddParams, AddTicketParams as BoardAddTicketParams,
-    AssertParams as BoardAssertParams, BoardParams, BoardView, CardParams as BoardCardParams,
-    CardView, Column, Environment, EnvironmentsProposal, HandOffParams as BoardHandOffParams,
-    HandOnParams as BoardHandOnParams, HandedOff, Landing, NoteParams as BoardNoteParams,
-    PassParams as BoardPassParams, Passes as EnvironmentPasses,
-    ProposalParams as BoardProposalParams, PullView, Recognise as EnvironmentRecognise,
-    ReviewerChoice, ReviewerParams as BoardReviewerParams, RunView as CardRun,
-    Settings as BoardSettings, SettingsParams as BoardSettingsParams, Stage, Status as CardStatus,
-    Ticket, TicketCard, TicketParams as BoardTicketParams, Tracker,
-    UpdateParams as BoardUpdateParams,
-};
-pub use calls::{call, NoParams};
-pub use chat::calls::{QueuedParams, ToolDetailParams};
-pub use chat::find::{Direction as FindDirection, FindAnswer, FindAt, FindParams, Hit as FindHit};
-pub use chat::queue::Message as QueuedMessage;
-pub use codehost::{ReleasesParams, TrackedParams};
-pub use drafts::{Draft, SetDraftParams};
+pub use calls::call;
 pub use entry::main;
-pub use host::{info as host_info, PLATFORM as HOST_PLATFORM};
-pub use hosts::{HostFound, HostReach, HostRow, LinkView as HostLink, SetUpWork, SetupRow};
-pub use memory::{KeepSeededParams, MemoryEntryParams, MemoryParams};
-pub use messages::log::{Outcome as MessageOutcome, Row as MessageRow, Tone as MessageTone};
-pub use messages::{AgentMessageRows, AgentMessagesParams, Kind as MessageKind};
-pub use mods::{is_mod_id, ModExample, ModInfo, ModList};
-pub use names::{ClosedAgent, ClosedAgentsParams};
-pub use ports::{ListeningPort, PortOwner, ProjectPort};
-pub use preferences::WorktreeDefaultParams;
-pub use project_roots::ProjectEntry;
-pub use questions::{AnswerParams, AnswersParams};
-pub use remote::{trust_remote_file, ApprovalSetting, Pairing};
-pub use saved::SearchParams;
-pub use share::{ShareState, ShareView};
-pub use ship::HoldParams;
-pub use ssh::{Reach, SshHost};
-pub use stash::{
-    AttachParams, Attached, ItemParams, PromptParams, ShownStash, ShownStashItem, ShownStashLink,
-    Stashed,
-};
-pub use tasks::{ConfigStatus, JavaView, RunView, Source, TaskList, TaskView, TrustQuestion};
-pub use triage::TriageParams;
-pub use updates::{UpdateCheck, UpdateRelease, UpdateState, UpdateStatus};
-pub use worktree::agent::{ForAgent, ForAgentParams};
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{DirBuilder, File, OpenOptions};

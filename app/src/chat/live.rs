@@ -9,7 +9,8 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled,
 };
 use serde_json::json;
-use sikemux_core::server::{call, QueuedParams};
+use sikemux_core::server::call;
+use sikemux_core::server::chat::calls::QueuedParams;
 use sikemux_view::chat::{
     AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, TaskState, TriggerWhen, WorkflowAgent,
     WorkflowAgentState,

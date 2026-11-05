@@ -13,7 +13,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Subscription, Task, Window,
 };
 use sikemux_core::server::call;
-use sikemux_core::server::NoParams;
+use sikemux_core::server::calls::NoParams;
 use sikemux_view::goals::{
     DeskCounts, GoalAgent, GoalClock, GoalNext, GoalRow, GoalsView, LooseNeed,
 };

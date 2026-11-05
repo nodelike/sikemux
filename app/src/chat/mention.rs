@@ -15,10 +15,13 @@ use gpui_kit::{
     px, App, AppContext, Context, Focusable, IntoElement, ScrollHandle, SharedString, Styled, Task,
     Window,
 };
+use sikemux_core::server::call;
+use sikemux_core::server::codehost::ReleasesParams;
+use sikemux_core::server::codehost::TrackedParams;
+use sikemux_core::server::names::ClosedAgentsParams;
 use sikemux_core::server::plugins::{Category, Outcome};
-use sikemux_core::server::{
-    call, ClosedAgentsParams, ReleasesParams, SearchParams, ShownStashItem, TrackedParams,
-};
+use sikemux_core::server::saved::SearchParams;
+use sikemux_core::server::stash::ShownStashItem;
 use sikemux_plugin_api::codehost::{TrackedItem, TrackedKind};
 use sikemux_wire::protocol::{ChatContext, ProjectInfo};
 

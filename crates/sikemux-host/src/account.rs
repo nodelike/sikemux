@@ -49,11 +49,11 @@ pub async fn sign_in_by_code(
     if key.is_empty() {
         return Err("the core's key has not loaded".into());
     }
-    let host = sikemux_core::server::host_info();
+    let host = sikemux_core::server::host::info();
     let start = HostSignInStart {
         key,
         name: host.name.chars().take(64).collect(),
-        platform: sikemux_core::server::HOST_PLATFORM,
+        platform: sikemux_core::server::host::PLATFORM,
         channel: host.channel.into(),
     };
     let signing: HostSignIn = post("/v1/host-sign-ins", &start).await?;

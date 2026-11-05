@@ -3,10 +3,10 @@
 //! request waits for the person to come back.
 
 mod actions;
-pub(crate) mod calls;
+pub mod calls;
 pub(crate) mod failure;
 pub(crate) mod feed;
-pub(crate) mod find;
+pub mod find;
 mod history;
 mod kept;
 pub(crate) mod mentions;
@@ -15,7 +15,7 @@ mod offers;
 pub(crate) mod permission;
 pub(crate) mod pickers;
 pub mod prompt;
-pub(crate) mod queue;
+pub mod queue;
 mod rebind;
 mod registry;
 pub(crate) mod reset;

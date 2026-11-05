@@ -8,7 +8,7 @@ use gpui_kit::{
     div, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::CardView;
+use sikemux_core::server::board::CardView;
 use sikemux_view::slice::{
     Decision, GoalSummary, GoalSummaryView, LeftOut, LeftOutWhy, SourceKind, SourceLink,
     SummaryLine, SummarySource,

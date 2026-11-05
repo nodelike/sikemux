@@ -6,7 +6,7 @@
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{div, AnyElement, Context, IntoElement, ParentElement, SharedString, Styled};
-use sikemux_core::server::CardView;
+use sikemux_core::server::board::CardView;
 use sikemux_view::memory::Seeding;
 
 use super::goal::quiet_section;

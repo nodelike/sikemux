@@ -5,7 +5,7 @@ use gpui_kit::{
     div, px, AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
 use serde_json::json;
-use sikemux_core::server::UpdateState;
+use sikemux_core::server::updates::UpdateState;
 use sikemux_view::prefs::UpdateChannel;
 
 use crate::icons::Icon;

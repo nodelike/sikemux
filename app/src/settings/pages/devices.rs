@@ -14,7 +14,10 @@ use gpui_kit::{
     Window,
 };
 use serde_json::json;
-use sikemux_core::server::{call, ApprovalSetting, HostLink, NoParams};
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::hosts::LinkView as HostLink;
+use sikemux_core::server::remote::ApprovalSetting;
 use sikemux_wire::accounts::protocol::RevokeReason;
 use sikemux_wire::protocol::{
     AccountLink, AccountLinkState, DeviceAccess, DeviceInfo, NotificationState, RemoteStatus,

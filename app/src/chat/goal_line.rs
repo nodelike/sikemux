@@ -7,7 +7,8 @@ use gpui_kit::{
     div, px, AnyElement, App, Context, Entity, FontWeight, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
-use sikemux_core::server::{call, ChatGoalParams};
+use sikemux_core::server::board::chat_goal::ChatGoalParams;
+use sikemux_core::server::call;
 use sikemux_view::chat::{ChatGoal, ChatHead};
 use sikemux_view::slice::SliceState;
 use sikemux_wire::protocol::NoticeGoal;

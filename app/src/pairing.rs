@@ -15,7 +15,8 @@ use gpui_kit::{
 };
 use serde_json::json;
 use serde_json::Value;
-use sikemux_core::server::{call, NoParams};
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
 use sikemux_wire::protocol::{AllowedDevice, DeviceAccess, PendingDevice};
 
 use crate::core::{Ask, RemoteAsk, Target};

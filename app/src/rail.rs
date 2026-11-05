@@ -10,7 +10,8 @@ use gpui_kit::{
     StatefulInteractiveElement, StyleRefinement, Styled, WeakEntity, Window,
 };
 use serde_json::json;
-use sikemux_core::server::{HostFound, HostReach};
+use sikemux_core::server::hosts::HostFound;
+use sikemux_core::server::hosts::HostReach;
 use sikemux_view::device::AccountInfo;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::prefs::{Preferences, TabRailPage, TabRailScope, WindowView};

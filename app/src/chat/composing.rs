@@ -11,7 +11,9 @@ use gpui_kit::{
     Task, Window,
 };
 use serde_json::json;
-use sikemux_core::server::{call, QueuedMessage, QueuedParams};
+use sikemux_core::server::call;
+use sikemux_core::server::chat::calls::QueuedParams;
+use sikemux_core::server::chat::queue::Message as QueuedMessage;
 use sikemux_view::prefs::{MidTurnSend, WindowView};
 use sikemux_wire::protocol::PermissionMode;
 

@@ -14,7 +14,10 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, Transformation, WeakEntity, Window, WindowControlArea,
 };
-use sikemux_core::server::{PortOwner, RunView, Source, TaskView};
+use sikemux_core::server::ports::PortOwner;
+use sikemux_core::server::tasks::RunView;
+use sikemux_core::server::tasks::Source;
+use sikemux_core::server::tasks::TaskView;
 use sikemux_view::layout::{Pane, PaneKind, Tab as LayoutTab};
 use sikemux_view::prefs::WindowView;
 use sikemux_wire::pty::shell_protocol::SshLink;

@@ -8,7 +8,11 @@ use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::{App, Context, SharedString};
 use serde_json::{json, Value};
-use sikemux_core::server::{call, ApprovalSetting, HostRow, NoParams, TrustQuestion};
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::hosts::HostRow;
+use sikemux_core::server::remote::ApprovalSetting;
+use sikemux_core::server::tasks::TrustQuestion;
 use sikemux_view::device::DeviceView;
 
 use crate::chat::Question;

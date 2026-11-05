@@ -5,7 +5,10 @@
 use std::rc::Rc;
 
 use gpui_kit::{Context, Window};
-use sikemux_core::server::{call, ForAgent, ForAgentParams, WorktreeDefaultParams};
+use sikemux_core::server::call;
+use sikemux_core::server::preferences::WorktreeDefaultParams;
+use sikemux_core::server::worktree::agent::ForAgent;
+use sikemux_core::server::worktree::agent::ForAgentParams;
 
 use super::{Chat, ComposeStage};
 use crate::core::ChatAsk;

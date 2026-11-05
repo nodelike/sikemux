@@ -4,14 +4,14 @@
 use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, IntoElement, ParentElement, SharedString, Styled,
 };
-use sikemux_core::server::HostRow;
+use sikemux_core::server::hosts::HostRow;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_2H, TEXT_MD, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
-pub use sikemux_core::server::SetUpWork as SetUp;
+pub use sikemux_core::server::hosts::SetUpWork as SetUp;
 
 /// What the window says of setting an SSH host up.
 pub trait Words {

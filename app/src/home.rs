@@ -13,9 +13,12 @@ use gpui_kit::{
     ParentElement, Pixels, Point, Render, SharedString, StatefulInteractiveElement, Styled,
     Subscription, WeakEntity, Window,
 };
-use sikemux_core::server::{
-    ActivityDay, ActivityLevels, ActivityShare, ActivityStreaks, ActivitySummary, ActivityTotals,
-};
+use sikemux_core::server::activity_log::ActivityDay;
+use sikemux_core::server::activity_log::ActivityLevels;
+use sikemux_core::server::activity_log::ActivityShare;
+use sikemux_core::server::activity_log::ActivityStreaks;
+use sikemux_core::server::activity_log::ActivitySummary;
+use sikemux_core::server::activity_log::ActivityTotals;
 
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;

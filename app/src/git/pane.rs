@@ -23,7 +23,8 @@ use serde_json::{json, Value};
 use sikemux_core::git::log::{GitCommit, GitOverview};
 use sikemux_core::git::stash::GitStash;
 use sikemux_core::git::status::GitFile;
-use sikemux_core::server::{call, SetDraftParams};
+use sikemux_core::server::call;
+use sikemux_core::server::drafts::SetDraftParams;
 use sikemux_wire::protocol::ProjectCodeHost;
 
 use branches::{branch_card, branches_page, Branches};

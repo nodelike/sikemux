@@ -14,11 +14,20 @@ use gpui_kit::{
 };
 use serde::Serialize;
 use serde_json::json;
+use sikemux_core::server::board::AddParams as BoardAddParams;
+use sikemux_core::server::board::BoardParams;
+use sikemux_core::server::board::BoardView;
+use sikemux_core::server::board::CardView;
+use sikemux_core::server::board::Column;
+use sikemux_core::server::board::RunView as CardRun;
+use sikemux_core::server::board::SettingsParams as BoardSettingsParams;
+use sikemux_core::server::board::Stage;
+use sikemux_core::server::board::Status as CardStatus;
+use sikemux_core::server::board::Ticket;
+use sikemux_core::server::board::UpdateParams as BoardUpdateParams;
 use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::{
-    AgentMessagesParams, BoardAddParams, BoardParams, BoardSettingsParams, BoardUpdateParams,
-    BoardView, CardRun, CardStatus, CardView, Column, MessageRow, Stage, Ticket,
-};
+use sikemux_core::server::messages::log::Row as MessageRow;
+use sikemux_core::server::messages::AgentMessagesParams;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::core::{self, Ask};

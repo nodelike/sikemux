@@ -10,7 +10,8 @@ use gpui_kit::{
     SharedString, Styled, Window,
 };
 use serde_json::json;
-use sikemux_core::server::{Source, TaskView};
+use sikemux_core::server::tasks::Source;
+use sikemux_core::server::tasks::TaskView;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1H, SPACE_3, TEXT_2XS, TEXT_XS};

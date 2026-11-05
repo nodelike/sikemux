@@ -9,7 +9,8 @@ use std::time::Duration;
 use gpui_kit::base::input::{InlineToken, InputContent};
 use gpui_kit::{App, Context, Window};
 use serde_json::{json, Value};
-use sikemux_core::server::{call, SetDraftParams};
+use sikemux_core::server::call;
+use sikemux_core::server::drafts::SetDraftParams;
 
 use super::{Composing, Sent};
 use crate::reads::Drafts;

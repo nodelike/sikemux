@@ -1,4 +1,7 @@
-use sikemux_core::server::{call, FindAnswer, FindParams, ToolDetailParams};
+use sikemux_core::server::call;
+use sikemux_core::server::chat::calls::ToolDetailParams;
+use sikemux_core::server::chat::find::FindAnswer;
+use sikemux_core::server::chat::find::FindParams;
 use sikemux_view::chat::{ChatPage, ToolDetail};
 use sikemux_wire::changed::Topic;
 use std::collections::{HashMap, HashSet};

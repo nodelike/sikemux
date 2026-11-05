@@ -116,7 +116,7 @@ fn start_core(dir: &Path) -> TestCore {
         "devices": [],
     });
     std::fs::write(remote, stored.to_string()).expect("remote file");
-    server::trust_remote_file(&socket, &SecretKey::generate()).expect("host key");
+    server::remote::trust_remote_file(&socket, &SecretKey::generate()).expect("host key");
     let config = ServerConfig {
         idle_exit: Duration::from_secs(600),
         cli_endpoint: Some(dir.join("cli.json")),

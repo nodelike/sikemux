@@ -10,7 +10,8 @@ use gpui_kit::{
     ParentElement, StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::json;
-use sikemux_core::server::{ShareState, ShareView};
+use sikemux_core::server::share::ShareState;
+use sikemux_core::server::share::ShareView;
 
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_SM, TEXT_XS};

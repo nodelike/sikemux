@@ -6,7 +6,7 @@ use gpui_kit::{
     div, AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled, Window,
 };
 use serde_json::json;
-use sikemux_core::server::ModInfo;
+use sikemux_core::server::mods::ModInfo;
 
 use crate::icons::Icon;
 use crate::settings::rows;

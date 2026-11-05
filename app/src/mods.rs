@@ -3,7 +3,7 @@
 
 use gpui_kit::{Context, Window};
 use serde_json::json;
-use sikemux_core::server::ModInfo;
+use sikemux_core::server::mods::ModInfo;
 use sikemux_view::layout::PaneKind;
 use tokio::sync::oneshot;
 

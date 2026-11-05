@@ -113,7 +113,7 @@ async fn a_phone_reaches_a_core_through_the_relay_alone() {
         },
     });
     std::fs::write(remote_file(&socket), stored.to_string()).expect("remote file");
-    server::trust_remote_file(&socket, &core_key).expect("host key");
+    server::remote::trust_remote_file(&socket, &core_key).expect("host key");
     let config = ServerConfig {
         idle_exit: Duration::from_secs(600),
         build: BuildIdentity {
