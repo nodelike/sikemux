@@ -10,10 +10,6 @@
   text-align: center;
 }
 
-.chat-scroll-content:has(> .chat-welcome) {
-  margin-block: auto;
-}
-
 /* Lines up with the text in a message: the transcript is 800px wide with 22px
    of padding either side. */
 .chat-activity,
@@ -247,32 +243,6 @@
   font-size: var(--text-2xs);
 }
 
-.chat-permission-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 11px;
-}
-
-.chat-permission-actions button {
-  height: 28px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  background: var(--rail-2);
-  color: var(--ink-dim);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
-}
-
-.chat-permission-actions button.allow {
-  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
-  color: var(--ink);
-}
-
-.chat-permission-actions button:hover:not(:disabled) {
-  filter: brightness(1.12);
-}
-
 /* Anchored to the composer rather than to a guess at its height, so it sits
    the same distance above it whether the draft is one line or six. */
 .chat-jump-bottom {
@@ -290,7 +260,7 @@
   box-shadow: 0 6px 18px
     color-mix(
       in srgb,
-      var(--void) calc(var(--window-opacity, 1) * 52%),
+      var(--void) 52%,
       transparent
     );
   transform: translateX(-50%);

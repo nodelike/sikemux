@@ -240,20 +240,9 @@
   --git-added: #81b88b;
   --git-deleted: #d75f47;
   --git-renamed: #6c8cd5;
-  /* theme-locked rainbow — ends repeat (--acc) so it tiles seamlessly */
-  --yolo-rainbow: linear-gradient(
-    90deg,
-    var(--acc),
-    var(--cmd),
-    var(--danger),
-    var(--warn),
-    var(--live),
-    var(--acc)
-  );
   --mono:
     "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, "SF Mono", Menlo,
     monospace;
-  --kbd: -apple-system, "SF Pro Text", system-ui, "Segoe UI", sans-serif;
 }
 
 * {
@@ -277,11 +266,7 @@ body {
 }
 
 body {
-  background: color-mix(
-    in srgb,
-    var(--bg, var(--void)) calc(var(--window-opacity, 1) * 100%),
-    transparent
-  );
+  background: var(--bg, var(--void));
   color: var(--ink);
   font-family: var(--mono);
   font-size: 12.5px;
@@ -301,15 +286,6 @@ button {
 
 ::selection {
   background: color-mix(in srgb, var(--acc) 38%, transparent);
-}
-
-.kbd {
-  font-family: var(--kbd);
-  font-size: var(--text-2xs);
-  font-weight: 500;
-  color: var(--ink-dim);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
 }
 
 /* Inline "copy this string" affordance (branch names, ids, paths). */

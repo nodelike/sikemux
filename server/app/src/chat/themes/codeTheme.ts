@@ -1,5 +1,5 @@
 import type { ThemeRegistration } from "shiki/core";
-import type { Theme } from "./index";
+import type { Theme } from "@shared/wire.generated";
 
 /* The palette every surface Shiki colours reads from: the diff panes and the
    code fences in a chat. Both name the theme the same way, so the same

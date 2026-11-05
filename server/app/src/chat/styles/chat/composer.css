@@ -6,8 +6,6 @@
     var(--s-raised) 55%,
     var(--s-sunken)
   );
-  /* The gap the field keeps from the box. */
-  --chat-inset: 8px;
   /* How much narrower the stack is than the composer, each side. */
   --chat-step: 20px;
   position: relative;
@@ -40,11 +38,6 @@
   border-radius: 9px;
   background: color-mix(in srgb, var(--void) 48%, transparent);
   color: var(--ink-dim);
-}
-
-.chat-context-chip.answering {
-  width: auto;
-  max-width: min(100%, 360px);
 }
 
 .chat-context-chip > span:not(.chat-context-mark) {

@@ -421,25 +421,6 @@
   text-decoration: underline;
 }
 
-.chat-link-lead {
-  white-space: nowrap;
-}
-
-/* Sized to the text around it, and centred on it the way a file link's icon is. */
-.chat-link-mark {
-  display: inline-block;
-  margin-right: 4px;
-  line-height: 0;
-  vertical-align: middle;
-  user-select: none;
-}
-
-.chat-link-mark > * {
-  display: block;
-  width: 0.93em;
-  height: 0.93em;
-}
-
 /* A file the message names: the icon the rest of the app gives that file, the
    name as it was written, and somewhere to click. It takes the look of
    whatever it interrupts, so a row still reads as a row and a sentence as a

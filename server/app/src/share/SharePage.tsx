@@ -4,8 +4,7 @@ import { webCipher } from "@shared/share/cipher";
 import { parseShareLink, type ShareLink } from "@shared/share/link";
 import { ShareSession } from "@shared/share/session";
 import { SharedChat } from "./SharedChat.tsx";
-import { wearPicked } from "../chat/themes/bus.ts";
-import defaultPalette from "../chat/themes/defaultPalette.json";
+import { DEFAULT_PALETTE, wearPicked } from "../chat/themes/bus.ts";
 import "../chat/styles.css";
 
 import { config } from "../config.ts";
@@ -25,7 +24,7 @@ export default function SharePage() {
 
   useEffect(() => {
     document.title = "Shared chat · Sikemux";
-    wearPicked(defaultPalette);
+    wearPicked(DEFAULT_PALETTE);
   }, []);
 
   if (!link)

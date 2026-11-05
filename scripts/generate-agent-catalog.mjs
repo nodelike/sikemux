@@ -38,12 +38,9 @@ const DRIVERS = ["claude", "codex", "muse", "acp"];
 const PROVIDERS = ["routed", "reads"];
 const ROUTED_APIS = ["anthropic", "responses", "chat"];
 
-/** Everything the app paints in an agent's colour, as a selector with `%` for the agent and the property it sets. */
+/** Everything the share page paints in an agent's colour, as a selector with `%` for the agent and the property it sets. */
 const BRANDED = [
   [".agent-glyph.%", "color"],
-  [".agent-usage.%", "--usage-fill"],
-  [".desk.%", "--desk-agent"],
-  [".proj-pip-%", "color"],
 ];
 
 const { agents } = JSON.parse(await readFile(sourcePath, "utf8"));

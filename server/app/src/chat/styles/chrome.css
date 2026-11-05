@@ -1,55 +1,8 @@
 .shell {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-  background: transparent;
-}
-
-.body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}
-
-.stage {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-  background: transparent;
-}
-
-.pane {
-  position: absolute;
-  inset: 0;
-  background: color-mix(
-    in srgb,
-    var(--surface) calc(var(--window-opacity, 1) * 100%),
-    transparent
-  );
-  overflow: hidden;
-}
-.divider {
-  position: absolute;
-  z-index: 10;
-}
-/* The centre line is the divider's only highlight, focus included. A drag focuses
-   the handle so the arrow keys keep working, which would otherwise leave the app's
-   focus ring drawn round the whole grab area. */
-.divider[tabindex]:focus-visible {
-  box-shadow: none;
-}
-/* Nothing at rest: the panes carry their own edges and the gutter between them
-   is the separation, so a line drawn there as well says it twice. It shows up
-   under the pointer, which is the only time it is a control. */
-.divider::after {
-  content: "";
-  position: absolute;
-  background: var(--border);
-  opacity: 0;
-  transition:
-    background 0.12s,
-    opacity 0.12s,
-    width 0.12s,
-    height 0.12s;
 }

@@ -1,16 +1,9 @@
 @import "./styles/base.css";
 @import "./styles/tokens.css";
 @import "./styles/chrome.css";
-@import "./styles/picker.css";
-@import "./styles/editor.css";
-@import "./styles/editor-insights.css";
 @import "./styles/agents.css";
 @import "./styles/generated/agent-brands.css";
-@import "./styles/desk.css";
 @import "./styles/codemirror.css";
-@import "./styles/feedback.css";
 @import "./styles/modern-shell.css";
 @import "./styles/controls.css";
-@import "./styles/panel.css";
-@import "./styles/shaders.css";
 @import "./styles/motion.css";

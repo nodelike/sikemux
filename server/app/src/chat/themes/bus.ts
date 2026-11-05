@@ -1,15 +1,10 @@
-import curated from "../../../../../crates/sikemux-core/src/server/themes/curated.json";
-import {
-  DEFAULT_THEME_ID,
-  TERMINAL_KEYS,
-  type Palette,
-  type Theme,
-} from "./index";
+import type { Palette, Theme } from "@shared/wire.generated";
+import defaultPalette from "./defaultPalette.json";
 
-/* Until the page wears its palette, code that asks for the theme gets the default's colours. */
-let current: Theme = (curated as Theme[]).find(
-  (theme) => theme.id === DEFAULT_THEME_ID,
-) as Theme;
+/* The core keeps this file the same as its own default palette. */
+export const DEFAULT_PALETTE = defaultPalette as Palette;
+
+let current: Theme = DEFAULT_PALETTE.theme;
 
 const themeListeners = new Set<(theme: Theme) => void>();
 
@@ -29,16 +24,11 @@ function applyChrome({ theme, tokens }: Palette) {
 
   root.setProperty("--bg", c.bg);
   root.setProperty("--bg-dim", c.bgDim);
-  root.setProperty("--bg-raised", c.bgRaised);
   root.setProperty("--ink", c.ink);
   root.setProperty("--ink-dim", c.inkDim);
-  root.setProperty("--ink-muted", tokens.tertiary);
   root.setProperty("--text-tertiary", tokens.tertiary);
   root.setProperty("--acc", c.acc);
-  root.setProperty("--acc-line", c.accLine);
-  root.setProperty("--acc-dim", c.accDim);
   root.setProperty("--line", c.line);
-  root.setProperty("--hl", c.hl);
   root.setProperty("--danger", tokens.danger);
 
   root.setProperty("--void", c.bgDim);
@@ -51,19 +41,10 @@ function applyChrome({ theme, tokens }: Palette) {
   root.setProperty("--live", tokens.live);
   root.setProperty("--warn", tokens.warn);
   root.setProperty("--git-modified", tokens.gitModified);
-  root.setProperty("--git-untracked", tokens.gitUntracked);
   root.setProperty("--git-added", tokens.gitAdded);
   root.setProperty("--git-deleted", tokens.gitDeleted);
   root.setProperty("--git-renamed", tokens.gitRenamed);
-  for (const [key, color] of Object.entries(theme.editor))
-    root.setProperty(`--editor-${key}`, color);
-  for (const [key, color] of Object.entries(theme.highlight))
-    root.setProperty(`--syntax-${key}`, color);
   root.setProperty("--cmd", tokens.cmd);
-  root.setProperty("--terminal-background", theme.terminal.background);
-  TERMINAL_KEYS.slice(TERMINAL_KEYS.indexOf("black")).forEach((key, index) =>
-    root.setProperty(`--terminal-ansi-${index}`, theme.terminal[key]),
-  );
 }
 
 let settling = 0;
