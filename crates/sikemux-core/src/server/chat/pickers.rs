@@ -92,7 +92,7 @@ pub fn config_option(setup: &Value, matches: impl Fn(&Value) -> bool) -> Option<
 
 /// The id of the option that sets how hard the model thinks.
 pub fn effort_config_id(setup: &Value) -> Option<&str> {
-    config_option(setup, |option| sikemux_fold::pickers::is_effort(option))?
+    config_option(setup, sikemux_fold::pickers::is_effort)?
         .get("id")?
         .as_str()
 }
