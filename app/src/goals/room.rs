@@ -561,7 +561,7 @@ impl GoalsPane {
         }
     }
 
-    /// Opens a goal's page, or for one that is a single slice, the chat of whoever works it.
+    /// Opens a goal's page, or for one an agent works alone, that agent's chat.
     pub(super) fn open_row(&mut self, project: &str, card: u64, cx: &mut Context<Self>) {
         let worker = (self.room.goal(project, card)).and_then(|row| row.worker.clone());
         match worker {
@@ -1048,7 +1048,8 @@ pub(super) fn next_words(next: &GoalNext) -> String {
         GoalNext::Gate { gate, slice, owner } => {
             super::goal::step_words(gate, slice, owner.as_deref())
         }
-        GoalNext::Working { agent } => format!("@{agent} is working"),
+        GoalNext::Agent { agent, idle: false } => format!("@{agent} at work"),
+        GoalNext::Agent { agent, idle: true } => format!("@{agent} idle"),
         GoalNext::Done => "Done".to_owned(),
     }
 }
@@ -1328,15 +1329,20 @@ fn ends(
         )
 }
 
-/// A goal's slices as a slim line of segments, each in its state's colour.
+/// A goal's slices as a slim line of segments, each in its state's colour; one with no slices
+/// has one segment, for the goal.
 fn slice_bar(row: &GoalRow, cx: &App) -> Div {
     let t = Tokens::get(cx);
+    let states: Vec<SliceState> = match row.slices.as_slice() {
+        [] => vec![row.state],
+        slices => slices.iter().map(|slice| slice.state).collect(),
+    };
     div()
         .flex()
         .gap(px(2.))
         .h(px(3.))
-        .children(row.slices.iter().map(|slice| {
-            let tint = match slice.state {
+        .children(states.into_iter().map(|state| {
+            let tint = match state {
                 SliceState::Done => t.live.opacity(0.5),
                 SliceState::Moving => t.live,
                 SliceState::NeedsYou => t.warn,

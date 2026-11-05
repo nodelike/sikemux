@@ -3994,7 +3994,7 @@ export interface GoalRow {
     /** What waits on the person about it, as ids of the inbox's items, in its order. */
     needs: string[];
     desk: DeskCounts;
-    /** The agent to open for a goal that is one slice worked by one agent. */
+    /** The agent to open for a goal one agent works alone, unless that agent closed. */
     worker?: string;
 }
 
@@ -4018,10 +4018,11 @@ export type GoalNext =
           slice: string;
           owner: string | null;
       }
-    /** One agent works a goal with no gates, by name. */
+    /** The agent on a goal with no gates, by name, whose state is the goal's. */
     | {
-          kind: "working";
+          kind: "agent";
           agent: string;
+          idle: boolean;
       }
     | {
           kind: "done";

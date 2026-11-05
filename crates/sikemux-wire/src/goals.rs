@@ -60,7 +60,7 @@ pub struct GoalRow {
     /// What waits on the person about it, as ids of the inbox's items, in its order.
     pub needs: Vec<String>,
     pub desk: DeskCounts,
-    /// The agent to open for a goal that is one slice worked by one agent.
+    /// The agent to open for a goal one agent works alone, unless that agent closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worker: Option<String>,
 }
@@ -96,9 +96,10 @@ pub enum GoalNext {
         slice: String,
         owner: Option<String>,
     },
-    /// One agent works a goal with no gates, by name.
-    Working {
+    /// The agent on a goal with no gates, by name, whose state is the goal's.
+    Agent {
         agent: String,
+        idle: bool,
     },
     Done,
 }

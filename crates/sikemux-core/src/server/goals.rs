@@ -13,7 +13,7 @@ use sikemux_wire::goals::{
     GoalsView, LooseNeed,
 };
 use sikemux_wire::inbox::{Inbox, InboxItem, InboxKind, InboxNeed};
-use sikemux_wire::protocol::{AgentGroup, SessionId};
+use sikemux_wire::protocol::SessionId;
 use sikemux_wire::slice::SliceState;
 
 use super::board::{self, BoardView, CardView, Column};
@@ -116,7 +116,9 @@ pub(super) fn view(core: &Core) -> GoalsView {
                     agents,
                     needs: Vec::new(),
                     desk,
-                    worker: goal.slice.as_ref().and(goal.owner.clone()),
+                    worker: goal.owner.clone().filter(|_| {
+                        !goal.goal_stalled && (goal.slice.is_some() || goal.goal_slices.is_empty())
+                    }),
                 },
                 goal,
                 board,
@@ -128,13 +130,10 @@ pub(super) fn view(core: &Core) -> GoalsView {
         .filter(|item| item.need.is_some())
         .collect();
     let loose_needs = place_needs(&mut rows, &needing);
-    let groups: HashMap<&str, AgentGroup> = (inbox.agents.iter())
-        .map(|agent| (agent.agent_id.as_str(), agent.group))
-        .collect();
     for placed in &mut rows {
         let first = (placed.row.needs.first())
             .and_then(|id| needing.iter().find(|item| item.id == *id).copied());
-        placed.settle(first, &groups);
+        placed.settle(first);
     }
     let order = |placed: &Placed| {
         let first = (placed.row.needs.first())
@@ -199,7 +198,7 @@ struct Placed<'a> {
 
 impl Placed<'_> {
     /// Says how it stands once its needs are known, what comes next and by when.
-    fn settle(&mut self, first: Option<&InboxItem>, groups: &HashMap<&str, AgentGroup>) {
+    fn settle(&mut self, first: Option<&InboxItem>) {
         let (goal, row) = (self.goal, &mut self.row);
         let need = first.and_then(|item| Some((item, item.need?)));
         row.state = match need {
@@ -230,12 +229,11 @@ impl Placed<'_> {
                     })
                 })
                 .or_else(|| {
-                    let owner = goal.owner.as_deref()?;
-                    let working = groups.get(owner) == Some(&AgentGroup::Working);
-                    (working && goal.goal_slices.is_empty())
-                        .then(|| goal.owner_name.clone())
-                        .flatten()
-                        .map(|agent| GoalNext::Working { agent })
+                    let agent = goal.owner_name.clone()?;
+                    let idle = row.state == SliceState::Waiting;
+                    let shown = goal.goal_slices.is_empty()
+                        && matches!(row.state, SliceState::Moving | SliceState::Waiting);
+                    shown.then_some(GoalNext::Agent { agent, idle })
                 }),
         };
         let eta = goal.eta.as_ref();
