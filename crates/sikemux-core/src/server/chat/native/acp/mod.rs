@@ -30,7 +30,7 @@ use super::pending::{Answered, Purpose};
 use super::process::{self, Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
 use super::servers;
-use super::session::{Backend, Opened, Prompt, Sink, Steered, TurnEnd};
+use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling, TurnEnd};
 
 /// The error code an agent turns a prompt down with when it needs a sign-in.
 /// What answers one of the agent's permission requests.
@@ -44,7 +44,11 @@ const AUTH_REQUIRED: i64 = -32000;
 /// An agent's error in words, its details included.
 /// Shows a saved session of an agent that keeps one Sikemux can read, as the agent would
 /// replay it on loading it.
-pub(super) fn replay_saved(launch: &ChatLaunch, session: &str, sink: &Sink) -> Result<(), String> {
+pub(super) fn replay_saved(
+    launch: &ChatLaunch,
+    session: &str,
+    sink: &Telling,
+) -> Result<(), String> {
     let agent = crate::agent_catalog::AgentKind::from_name(&launch.provider)
         .ok_or_else(|| format!("{} keeps no sessions Sikemux reads", launch.provider))?;
     let servers = server_names(launch);

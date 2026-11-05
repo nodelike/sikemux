@@ -286,7 +286,7 @@ calls! { core, client, method, params;
         answer(blocking(move || Ok(super::ssh::hosts(&reading))).await?)
     },
     "removeTrigger": Full => answer(super::triggers::remove(&core, parse::<super::triggers::TriggerParams>(params)?.trigger)),
-    "cancelResume" CancelResume (agent_accounts::Resuming) -> (): Full => agent_accounts::cancel_resume(&core, params),
+    "cancelResume" CancelResume (agent_accounts::Resuming) -> (): Full => super::chat::reset::cancel_by_person(&core, &params.agent_id),
     "setAgentAccounts": Owner => {
         agent_accounts::set(&core, parse(params)?).await?;
         answer(())
@@ -311,9 +311,10 @@ calls! { core, client, method, params;
     "chatAccounts" ChatAccounts (agent_accounts::Resuming) -> agent_accounts::ChatAccounts: Full => {
         agent_accounts::chat_accounts(&core, params)?
     },
-    "moveChatAccount" MoveChatAccount (agent_accounts::Moving) -> (): Full => agent_accounts::move_chat(&core, params)?,
+    "moveChatAccount" MoveChatAccount (agent_accounts::Moving) -> (): Full => super::chat::move_to_account(&core, &params.agent_id, &params.account_id)?,
     "authenticateChat": NoDevice => {
-        agent_accounts::authenticate(&core, parse(params)?).await?;
+        let params: agent_accounts::Authenticate = parse(params)?;
+        super::chat::authenticate(&core, &params.agent_id, params.method_id).await?;
         answer(())
     },
     "shareChat": Owner, counted => answer(share::share_chat_for(&core, parse(params)?)?),

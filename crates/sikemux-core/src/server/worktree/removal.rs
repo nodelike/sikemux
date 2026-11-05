@@ -39,10 +39,7 @@ pub(crate) struct Removal {
 }
 
 fn worktree_of(core: &Core, agent_id: &str) -> CoreResult<(WorkspaceAgent, AgentWorktree)> {
-    let agent = core
-        .workspaces
-        .agent(agent_id)
-        .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
+    let agent = core.workspaces.agent_or_gone(agent_id)?;
     let worktree = agent
         .worktree
         .clone()

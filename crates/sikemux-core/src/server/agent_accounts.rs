@@ -40,8 +40,8 @@ pub struct Resuming {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Moving {
-    agent_id: String,
-    account_id: String,
+    pub(super) agent_id: String,
+    pub(super) account_id: String,
 }
 
 /// The account a chat runs on and those it may move to, as a client offers them.
@@ -61,8 +61,8 @@ pub(super) struct Named {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Authenticate {
-    agent_id: String,
-    method_id: String,
+    pub(super) agent_id: String,
+    pub(super) method_id: String,
 }
 
 #[derive(Deserialize)]
@@ -356,23 +356,12 @@ fn signed_out(core: &Core, provider: &str, config_path: Option<&str>) {
     core.changed(What::View);
 }
 
-pub(super) fn cancel_resume(core: &Arc<Core>, resuming: Resuming) {
-    super::chat::reset::cancel_by_person(core, &resuming.agent_id);
-}
-
-fn failed_chat(core: &Core, failed: &Resuming) -> CoreResult<Arc<super::chat::Chat>> {
-    Ok(core
-        .chats
-        .get(&failed.agent_id)
-        .ok_or_else(|| format!("no chat {} is running", failed.agent_id))?)
-}
-
 pub(super) fn retry_failed(core: &Core, failed: Resuming) -> CoreResult<()> {
-    failed_chat(core, &failed)?.retry_failed()
+    core.chats.running(&failed.agent_id)?.retry_failed()
 }
 
 pub(super) fn discard_failed(core: &Core, failed: Resuming) -> CoreResult<()> {
-    failed_chat(core, &failed)?.discard_failed()
+    core.chats.running(&failed.agent_id)?.discard_failed()
 }
 
 pub(super) fn chat_accounts(core: &Core, chat: Resuming) -> CoreResult<ChatAccounts> {
@@ -385,15 +374,6 @@ pub(super) fn chat_accounts(core: &Core, chat: Resuming) -> CoreResult<ChatAccou
         account: account.map(named),
         others: others.into_iter().map(named).collect(),
     })
-}
-
-pub(super) fn move_chat(core: &Core, moving: Moving) -> CoreResult<()> {
-    super::chat::move_to_account(core, &moving.agent_id, &moving.account_id)
-}
-
-pub(super) async fn authenticate(core: &Arc<Core>, params: Authenticate) -> CoreResult<()> {
-    super::chat::authenticate(core, &params.agent_id, params.method_id).await?;
-    Ok(())
 }
 
 /// How much of its plan an account has used, as the core last read it.

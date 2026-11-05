@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::agent::AgentActivity;
-use super::{launching, session, Core, CoreError, CoreResult};
+use super::{launching, session, Core, CoreResult};
 
 const AT_WORK: &str = "Wait for the agent to finish";
 
@@ -30,10 +30,7 @@ pub(crate) struct SwitchParams {
 /// Answers `{ptyId}` once the agent runs in a terminal, or null once it runs
 /// as a chat.
 pub(crate) async fn switch(core: &Arc<Core>, params: SwitchParams) -> CoreResult<Value> {
-    let agent = core
-        .workspaces
-        .agent(&params.agent_id)
-        .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
+    let agent = core.workspaces.agent_or_gone(&params.agent_id)?;
     let terminal = agent
         .pty_id
         .and_then(|pty| core.session(pty))

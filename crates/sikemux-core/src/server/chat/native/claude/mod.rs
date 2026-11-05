@@ -31,11 +31,12 @@ use sikemux_wire::protocol::ChatLaunch;
 use super::super::feed::Reach;
 use super::super::Respond;
 use super::file_link;
-use super::parts::{context_text, parts, Part};
+use super::parts::{parts, Part};
 use super::pending::Purpose;
 use super::process::{self, Lines, Process, Reading, Released, Writer};
 use super::servers;
-use super::session::{Backend, Opened, Prompt, Sink, Steered};
+use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling};
+use crate::server::chat::prompt::context_text;
 pub(crate) use config::saved_window;
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
@@ -121,7 +122,7 @@ pub(crate) async fn read_options(command: tokio::process::Command) -> Result<Val
 pub(crate) fn replay_saved(
     launch: &ChatLaunch,
     session_id: &str,
-    sink: &Sink,
+    sink: &Telling,
 ) -> Result<(), String> {
     let loaded = || sink.update(session_id, sikemux_fold::update::history_loaded());
     let Some(path) = transcript(launch, session_id) else {

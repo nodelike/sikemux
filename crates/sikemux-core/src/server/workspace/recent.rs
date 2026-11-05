@@ -18,17 +18,6 @@ pub(crate) struct SessionChoice {
     pub title: Option<String>,
 }
 
-/// A recent chat's saved session, as its agent's CLI names it.
-pub(crate) struct RecentSession {
-    pub agent: AgentKind,
-    pub cwd: String,
-    pub session_id: String,
-    /// The CLI the launcher that found it runs.
-    pub program: Option<String>,
-    /// The sign-in it was saved under; the agent's default when absent.
-    pub config_path: Option<String>,
-}
-
 /// What a device asked of a recent chat it takes up again.
 pub(crate) struct ResumeChoice {
     pub recent: String,
@@ -353,7 +342,7 @@ impl Workspaces {
         &self,
         recent: &str,
         cwd: Option<PathBuf>,
-    ) -> CoreResult<RecentSession> {
+    ) -> CoreResult<crate::sessions::SavedRef> {
         let published = self.published.locked();
         let chat = listed(&published, recent)
             .cloned()
@@ -362,11 +351,11 @@ impl Workspaces {
         let agent = AgentKind::from_name(&chat.provider)
             .ok_or_else(|| CoreError::from(format!("{} keeps no saved chats", chat.provider)))?;
         let launcher = chat_launcher(&published, &chat);
-        Ok(RecentSession {
+        Ok(crate::sessions::SavedRef {
             agent,
             cwd: chat.cwd.to_string_lossy().into_owned(),
             session_id: chat.session_id.clone(),
-            program: launcher
+            executable_path: launcher
                 .and_then(|launcher| launcher.program.as_ref())
                 .map(|program| program.to_string_lossy().into_owned()),
             config_path: launcher.and_then(|launcher| launcher.agent.config_path.clone()),

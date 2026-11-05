@@ -1,6 +1,17 @@
 //! The sessions each agent CLI saves on disk: listing them, their titles,
 //! paging them for the Recent list, searching them, renaming, moving and deleting them.
 
+/// One conversation a CLI saved, and the CLI and sign-in it was saved under.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedRef {
+    pub agent: AgentKind,
+    pub cwd: String,
+    pub session_id: String,
+    pub executable_path: Option<String>,
+    pub config_path: Option<String>,
+}
+
 /// How Sikemux names itself to an agent's server.
 pub(crate) fn client_info() -> serde_json::Value {
     serde_json::json!({ "name": "sikemux", "title": "Sikemux", "version": env!("CARGO_PKG_VERSION") })

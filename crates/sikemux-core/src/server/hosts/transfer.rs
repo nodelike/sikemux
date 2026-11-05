@@ -21,7 +21,7 @@ use super::code::Scratch;
 use super::link::{Answer, Received};
 use super::{ask, find, open};
 use crate::agent_catalog::{self, AgentKind};
-use crate::sessions::{carry, delete};
+use crate::sessions::{carry, delete, SavedRef};
 use sikemux_view::layout::Tab;
 use sikemux_wire::protocol::{AgentBuddy, WorkspaceAgent};
 
@@ -259,10 +259,14 @@ async fn close_here(core: &Arc<Core>, sent: &[Sent]) -> bool {
         let Some(kind) = AgentKind::from_name(&agent.provider) else {
             continue;
         };
-        if delete::delete(kind, chat.cwd.clone(), chat.resume.clone(), None, config)
-            .await
-            .is_err()
-        {
+        let saved = SavedRef {
+            agent: kind,
+            cwd: chat.cwd.clone(),
+            session_id: chat.resume.clone(),
+            executable_path: None,
+            config_path: config,
+        };
+        if delete::delete(saved).await.is_err() {
             all = false;
         }
     }

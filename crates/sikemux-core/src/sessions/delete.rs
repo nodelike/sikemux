@@ -7,18 +7,20 @@ use tokio::task::spawn_blocking;
 use super::context::session_transcript_path;
 use super::rename::agent_executable;
 use super::roots::account_root;
+use super::SavedRef;
 use crate::agent_catalog::AgentKind;
 
 // ---- delete a saved session ----------------------------------------------
 /// Removes a session from the provider's own storage for good,
 /// so it no longer lists anywhere and can no longer be resumed.
-pub async fn delete(
-    agent: AgentKind,
-    cwd: String,
-    session_id: String,
-    executable_path: Option<String>,
-    config_path: Option<String>,
-) -> Result<(), String> {
+pub async fn delete(saved: SavedRef) -> Result<(), String> {
+    let SavedRef {
+        agent,
+        cwd,
+        session_id,
+        executable_path,
+        config_path,
+    } = saved;
     let command = agent.ops().delete_command().and_then(|command| {
         let executable = agent_executable(agent, executable_path.as_deref()).ok()?;
         Some((command, executable))
@@ -79,6 +81,7 @@ fn delete_session_files(
 #[cfg(test)]
 mod tests {
     use super::{delete, delete_session_files, AgentKind};
+    use crate::sessions::SavedRef;
     use std::fs;
     use std::path::Path;
 
@@ -160,13 +163,13 @@ mod tests {
 
         tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(delete(
-                AgentKind::Codex,
-                "/repo".into(),
-                "abc-123".into(),
-                codex.to_str().map(String::from),
-                base.to_str().map(String::from),
-            ))
+            .block_on(delete(SavedRef {
+                agent: AgentKind::Codex,
+                cwd: "/repo".into(),
+                session_id: "abc-123".into(),
+                executable_path: codex.to_str().map(String::from),
+                config_path: base.to_str().map(String::from),
+            }))
             .unwrap();
 
         let asked: serde_json::Value =

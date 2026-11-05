@@ -174,30 +174,20 @@ pub(crate) struct Failed {
     response: Option<Value>,
 }
 
-/// What an agent's reader tells the chat. Cheap to clone, and safe to use
-/// from any task.
+/// What tells a chat a session's history, the one thing a chat's saved history
+/// needs shown before its agent starts.
 #[derive(Clone)]
-pub(crate) struct Sink {
+pub(crate) struct Telling {
     chat: Arc<Chat>,
-    failed: mpsc::UnboundedSender<Failed>,
-    broken: mpsc::UnboundedSender<String>,
-    settled: mpsc::UnboundedSender<u64>,
-    account: Option<String>,
     /// Quiet while a session loaded under a running chat replays history the
     /// chat already shows.
     quiet: Arc<std::sync::atomic::AtomicBool>,
 }
 
-impl Sink {
-    /// Tells only `chat` what it is given, for a resumed chat's saved history shown before
-    /// its agent starts.
-    pub(crate) fn showing(chat: Arc<Chat>) -> Self {
+impl Telling {
+    pub(crate) fn new(chat: Arc<Chat>) -> Self {
         Self {
             chat,
-            failed: mpsc::unbounded_channel().0,
-            broken: mpsc::unbounded_channel().0,
-            settled: mpsc::unbounded_channel().0,
-            account: None,
             quiet: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
@@ -217,17 +207,12 @@ impl Sink {
         );
     }
 
-    /// Says in the chat that something the person asked for went wrong.
-    pub fn error(&self, message: impl std::fmt::Display) {
-        self.chat.emit(ChatEventKind::Error, error_message(message));
-    }
-
     /// Whether this start loads the session again under a running chat.
     pub fn reloading(&self) -> bool {
         self.quiet.load(Ordering::Acquire)
     }
 
-    /// What the agent says until [`Sink::loaded`] is history the chat already shows.
+    /// What the agent says until [`Telling::loaded`] is history the chat already shows.
     pub fn hush(&self) {
         self.quiet.store(true, Ordering::Release);
     }
@@ -238,26 +223,46 @@ impl Sink {
         self.quiet.store(false, Ordering::Release);
     }
 
-    /// How far into the CLI's record of `session` the chat's history already reaches.
     pub fn reach(&self, session: &str) -> Option<Reach> {
         self.chat.feed.reach(session)
     }
 
-    /// Numbers what the chat takes in from high up, so what is read further back into the
-    /// session can go before it.
     pub fn leave_room(&self) {
         self.chat.feed.leave_room();
     }
 
-    /// The session holds more before what the chat was told, which `earlier` reads once a
-    /// client pages back that far.
     pub fn tell_earlier(&self, earlier: Earlier) {
         self.chat.feed.tell_earlier(earlier);
     }
 
-    /// The chat's history now reaches `reach` into the CLI's record of `session`.
     pub fn reached(&self, session: &str, reach: Reach) {
         self.chat.feed.reached(session, reach);
+    }
+}
+
+/// What an agent's reader tells the chat. Cheap to clone, and safe to use
+/// from any task.
+#[derive(Clone)]
+pub(crate) struct Sink {
+    telling: Telling,
+    failed: mpsc::UnboundedSender<Failed>,
+    broken: mpsc::UnboundedSender<String>,
+    settled: mpsc::UnboundedSender<u64>,
+    account: Option<String>,
+}
+
+impl std::ops::Deref for Sink {
+    type Target = Telling;
+
+    fn deref(&self) -> &Telling {
+        &self.telling
+    }
+}
+
+impl Sink {
+    /// Says in the chat that something the person asked for went wrong.
+    pub fn error(&self, message: impl std::fmt::Display) {
+        self.chat.emit(ChatEventKind::Error, error_message(message));
     }
 
     /// Whether the provider has a saved session to load.
@@ -652,12 +657,14 @@ pub(crate) async fn run<B: Backend>(
     let (broken_tx, mut broken_rx) = mpsc::unbounded_channel::<String>();
     let (settled_tx, mut settled_rx) = mpsc::unbounded_channel::<u64>();
     let sink = |quiet: bool| Sink {
-        chat: chat.clone(),
+        telling: Telling {
+            chat: chat.clone(),
+            quiet: Arc::new(std::sync::atomic::AtomicBool::new(quiet)),
+        },
         failed: failed_tx.clone(),
         broken: broken_tx.clone(),
         settled: settled_tx.clone(),
         account: launch.account.as_ref().map(|account| account.id.clone()),
-        quiet: Arc::new(std::sync::atomic::AtomicBool::new(quiet)),
     };
     let (backend, state, replay) = match opening {
         Begin::Start { rebind, notice } => {
@@ -1358,13 +1365,7 @@ impl<B: Backend> Running<'_, B> {
 
 impl Switching {
     fn carry_on_prompt() -> Replay {
-        Replay {
-            announce: false,
-            message_id: None,
-            text: "Your last turn was interrupted. Carry on where you left off.".into(),
-            paths: Vec::new(),
-            context: Vec::new(),
-        }
+        super::super::carry_on_prompt("Your chat moved to another account")
     }
 
     /// Moves the chat to the account, now that its turn has stopped.

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use tokio::task::spawn_blocking;
 
+use super::SavedRef;
 use super::{condense, MAX_TITLE_CHARS};
 use crate::agent_catalog::AgentKind;
 use sikemux_process::paths::expand_home;
@@ -11,14 +12,14 @@ use sikemux_process::paths::expand_home;
 // ---- rename a saved session ----------------------------------------------
 /// Names a session the way the provider's own rename does, so the new name
 /// shows wherever the session is listed, including the provider's resume picker.
-pub async fn rename(
-    agent: AgentKind,
-    cwd: String,
-    session_id: String,
-    title: String,
-    executable_path: Option<String>,
-    config_path: Option<String>,
-) -> Result<(), String> {
+pub async fn rename(saved: SavedRef, title: String) -> Result<(), String> {
+    let SavedRef {
+        agent,
+        cwd,
+        session_id,
+        executable_path,
+        config_path,
+    } = saved;
     let name = session_name(&title)?;
     if let Some(command) = agent.ops().rename_command() {
         let executable = agent_executable(agent, executable_path.as_deref())?;

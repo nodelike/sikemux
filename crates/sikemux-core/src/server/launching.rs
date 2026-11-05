@@ -138,10 +138,7 @@ async fn launch_terminal(
     (cols, rows): (u16, u16),
     continues: Option<Continuation>,
 ) -> CoreResult<SessionId> {
-    let agent = core
-        .workspaces
-        .agent(agent_id)
-        .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
+    let agent = core.workspaces.agent_or_gone(agent_id)?;
     if agent.resume_id.is_none() {
         super::session_watch::note_launch(core, &agent).await;
     }

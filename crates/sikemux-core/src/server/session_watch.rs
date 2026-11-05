@@ -506,15 +506,14 @@ async fn name_session(core: &Core, group: &Group, session_id: String, name: Stri
     if !first {
         return;
     }
-    let renamed = sessions::rename::rename(
-        group.kind,
-        group.cwd.clone(),
+    let saved = sessions::SavedRef {
+        agent: group.kind,
+        cwd: group.cwd.clone(),
         session_id,
-        name,
-        None,
-        group.config_path.clone(),
-    )
-    .await;
+        executable_path: None,
+        config_path: group.config_path.clone(),
+    };
+    let renamed = sessions::rename::rename(saved, name).await;
     if let Err(error) = renamed {
         eprintln!("sikemux core: an agent's name was not saved with its session: {error}");
     }

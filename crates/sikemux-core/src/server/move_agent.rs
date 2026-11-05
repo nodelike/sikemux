@@ -32,17 +32,19 @@ pub(crate) struct MoveToFolder {
 
 /// Moves an agent into the project at a folder, as `move_agent` does, making the folder a
 /// project first when it is not one.
+fn movable(core: &Core, agent_id: &str) -> CoreResult<WorkspaceAgent> {
+    let agent = core.workspaces.agent_or_gone(agent_id)?;
+    if agent.worktree.is_some() {
+        return Err("an agent working in its own worktree stays in its project".into());
+    }
+    Ok(agent)
+}
+
 pub(crate) async fn move_to_folder(
     core: &Arc<Core>,
     params: MoveToFolder,
 ) -> CoreResult<WorkspaceAgent> {
-    let agent = core
-        .workspaces
-        .agent(&params.agent_id)
-        .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
-    if agent.worktree.is_some() {
-        return Err("an agent working in its own worktree stays in its project".into());
-    }
+    movable(core, &params.agent_id)?;
     let project = super::workspace::add_project(core, AddProjectParams::at(params.path)).await?;
     move_agent(
         core,
@@ -55,13 +57,7 @@ pub(crate) async fn move_to_folder(
 }
 
 pub(crate) async fn move_agent(core: &Arc<Core>, params: MoveParams) -> CoreResult<WorkspaceAgent> {
-    let agent = core
-        .workspaces
-        .agent(&params.agent_id)
-        .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
-    if agent.worktree.is_some() {
-        return Err("an agent working in its own worktree stays in its project".into());
-    }
+    let agent = movable(core, &params.agent_id)?;
     let to = core
         .workspaces
         .project_info(&params.project)

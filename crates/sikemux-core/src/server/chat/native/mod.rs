@@ -120,7 +120,7 @@ pub(crate) fn show_saved(chat: &Arc<Chat>) {
     chat.saved_reading.send_replace(true);
     let chat = chat.clone();
     tokio::task::spawn_blocking(move || {
-        let sink = session::Sink::showing(chat.clone());
+        let sink = session::Telling::new(chat.clone());
         let shown = match driver(chat.provider()) {
             Some(ChatDriver::Claude) => claude::replay_saved(&chat.launch, &session, &sink),
             Some(ChatDriver::Acp { .. }) => acp::replay_saved(&chat.launch, &session, &sink),

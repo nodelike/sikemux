@@ -17,7 +17,7 @@ use tokio::sync::Notify;
 use sikemux_wire::protocol::{AgentState, Continuation, SessionId};
 
 use super::agent::AgentActivity;
-use super::{launching, session, Core, CoreError, CoreResult};
+use super::{launching, session, Core, CoreResult};
 
 /// How long a chat nobody looks at stays idle before it sleeps.
 const IDLE_SLEEP_MS: u64 = 10 * 60_000;
@@ -147,10 +147,7 @@ pub(crate) fn sleep_all(core: &Core) {
 /// a terminal agent by ending its terminal, to start again on its saved
 /// session when next shown.
 pub(crate) fn sleep_agent(core: &Core, agent_id: &str) -> CoreResult<()> {
-    let agent = core
-        .workspaces
-        .agent(agent_id)
-        .ok_or_else(|| CoreError::from("that agent is no longer on this host"))?;
+    let agent = core.workspaces.agent_or_gone(agent_id)?;
     if core.chats.get(agent_id).is_some() {
         return match sleep(core, agent_id) {
             true => Ok(()),

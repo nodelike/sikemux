@@ -136,6 +136,15 @@ pub(crate) fn take_for_agent(content: &mut Value) -> Vec<ChatContext> {
     taken
 }
 
+const CONTEXT_OPEN: &str = "<context ref=\"";
+const CONTEXT_BODY: &str = "\">\n";
+const CONTEXT_CLOSE: &str = "\n</context>";
+
+/// Handed-over text, the way the agents' own clients write it after a message.
+pub(crate) fn context_text(uri: &str, text: &str) -> String {
+    format!("{CONTEXT_OPEN}{uri}{CONTEXT_BODY}{text}{CONTEXT_CLOSE}")
+}
+
 /// What the person wrote of `text`, from an agent's own record of their message.
 pub(crate) fn person_wrote(text: &str) -> String {
     without_for_agent(text, &mut Vec::new())
@@ -143,14 +152,13 @@ pub(crate) fn person_wrote(text: &str) -> String {
 
 /// `text` without the context meant for the agent alone, which goes in `taken`, or the links to it.
 fn without_for_agent(text: &str, taken: &mut Vec<ChatContext>) -> String {
-    const OPEN: &str = "<context ref=\"";
-    let opening = format!("{OPEN}{FOR_AGENT_URI}");
+    let opening = format!("{CONTEXT_OPEN}{FOR_AGENT_URI}");
     let mut left = String::new();
     let mut rest = text;
     while let Some(at) = rest.find(&opening) {
-        let inner = &rest[at + OPEN.len()..];
-        let Some((uri, body, after)) = inner.split_once("\">\n").and_then(|(uri, body)| {
-            let (body, after) = body.split_once("\n</context>")?;
+        let inner = &rest[at + CONTEXT_OPEN.len()..];
+        let Some((uri, body, after)) = inner.split_once(CONTEXT_BODY).and_then(|(uri, body)| {
+            let (body, after) = body.split_once(CONTEXT_CLOSE)?;
             Some((uri, body, after))
         }) else {
             break;

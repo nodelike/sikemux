@@ -66,8 +66,3 @@ pub(super) fn picture(uri: &str) -> Option<(PathBuf, &'static str)> {
     let (_, media_type) = IMAGE_TYPES.iter().find(|(known, _)| *known == extension)?;
     Some((path, media_type))
 }
-
-/// Handed-over text, the way the agents' own clients write it after a message.
-pub(super) fn context_text(uri: &str, text: &str) -> String {
-    format!("<context ref=\"{uri}\">\n{text}\n</context>")
-}

@@ -610,6 +610,11 @@ impl Workspaces {
         })
     }
 
+    pub(crate) fn agent_or_gone(&self, agent_id: &str) -> CoreResult<WorkspaceAgent> {
+        self.agent(agent_id)
+            .ok_or_else(|| CoreError::from("that agent is no longer on this host"))
+    }
+
     pub(crate) fn agent(&self, agent_id: &str) -> Option<WorkspaceAgent> {
         self.published
             .locked()
