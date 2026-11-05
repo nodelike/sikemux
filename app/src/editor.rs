@@ -1429,13 +1429,12 @@ fn keep_preview(bench: &Workbench, path: &Path) {
 /// Every file a tab or desk shows, once for each view of it.
 fn shown(bench: &Workbench, cx: &App) -> Vec<FileKey> {
     let mut shown = Vec::new();
-    let views = bench.view.iter().map(|view| (Host::This, view)).chain(
-        bench
-            .hosts
-            .views
-            .iter()
-            .map(|(host, view)| (Host::Account(host.clone()), view)),
-    );
+    let views =
+        (bench.this_view().into_iter())
+            .map(|view| (Host::This, view))
+            .chain(bench.feeds.hosts().filter_map(|(host, feed)| {
+                Some((Host::Account(host.clone()), feed.view.as_ref()?))
+            }));
     for (place, view) in views {
         let strips = view
             .layout

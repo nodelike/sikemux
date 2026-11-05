@@ -782,8 +782,8 @@ fn draw(
 /// The terminal's session as its host's view lists it.
 fn session_info(bench: &Workbench, id: TermKey) -> Option<&SessionInfo> {
     let view = match bench.terminals.place(id) {
-        Place::This => bench.view.as_ref()?,
-        Place::Account(host) => bench.hosts.views.get(&host)?,
+        Place::This => bench.this_view()?,
+        Place::Account(host) => bench.feeds.host(&host)?.view.as_ref()?,
     };
     view.sessions
         .iter()

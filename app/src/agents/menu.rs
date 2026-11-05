@@ -45,7 +45,7 @@ pub struct AgentMenu {
 
 impl AgentMenu {
     pub fn new(bench: &Workbench, agent_id: &str, cx: &Context<Workbench>) -> Option<Self> {
-        let workspace = &bench.view.as_ref()?.workspace;
+        let workspace = &bench.this_view()?.workspace;
         let agent = workspace
             .agents
             .iter()

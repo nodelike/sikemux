@@ -34,8 +34,7 @@ impl Workbench {
         };
         let rows = self.agent_palette_rows(&project);
         let yolo = self
-            .view
-            .as_ref()
+            .this_view()
             .is_some_and(|view| view.workspace.permission_mode == YOLO);
         let mode = Rc::new(Cell::new(usize::from(yolo)));
         let choice = Choice {

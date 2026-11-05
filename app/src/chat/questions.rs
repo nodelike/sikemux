@@ -56,8 +56,6 @@ impl From<Ask> for Answering {
 #[derive(Clone)]
 pub struct Question {
     pub asked: AgentQuestion,
-    /// The account host whose agent asks, by its key; none for this host's own.
-    pub(crate) host: Option<String>,
 }
 
 impl std::ops::Deref for Question {
@@ -65,29 +63,6 @@ impl std::ops::Deref for Question {
 
     fn deref(&self) -> &AgentQuestion {
         &self.asked
-    }
-}
-
-impl Chats {
-    /// Keeps the questions the core listed: this host's, or with `host_read` those of the
-    /// account host `host` in front.
-    pub fn questions_read(&mut self, value: Value, host_read: bool, host: Option<String>) {
-        match serde_json::from_value::<Vec<AgentQuestion>>(value) {
-            Ok(asked) => {
-                let questions = asked.into_iter().map(|asked| Question {
-                    asked,
-                    host: host.clone(),
-                });
-                if host_read {
-                    self.host_questions = questions.collect();
-                } else {
-                    self.questions = questions.collect();
-                }
-            }
-            Err(error) => eprintln!("sikemux: the core's questions do not read: {error}"),
-        }
-        self.questions.retain(|question| question.host.is_none());
-        self.questions.extend(self.host_questions.iter().cloned());
     }
 }
 
@@ -1050,9 +1025,8 @@ impl Workbench {
         let agent = self.agent()?;
         let chat = self.chats.open.get(&agent.id)?;
         let open: Vec<&Question> = self
-            .chats
-            .questions
-            .iter()
+            .feeds
+            .questions()
             .filter(|question| question.asks(&agent.id))
             .collect();
         let asking = chat.current(&open).is_some() && !chat.is_folded(&open);

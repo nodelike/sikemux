@@ -100,7 +100,7 @@ impl Workbench {
     /// once the layout has shown it and then lost it, since the layout that shows a new tab
     /// arrives after the core says it opened.
     pub(crate) fn settle_open_waits(&mut self) {
-        let Some(view) = &self.view else {
+        let Some(view) = &self.feeds.this.view else {
             return;
         };
         let shown: HashSet<&str> = view
@@ -318,7 +318,7 @@ impl Workbench {
 
     /// The project at `path` on this host, where the core that asked keeps it, by id.
     fn project_here(&self, path: &str) -> Option<String> {
-        let workspace = &self.view.as_ref()?.workspace;
+        let workspace = &self.this_view()?.workspace;
         workspace
             .projects
             .iter()

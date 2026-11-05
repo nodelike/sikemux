@@ -78,7 +78,7 @@ impl Workbench {
             .projects()
             .iter()
             .map(|project| Strip::Project(project.id.clone()));
-        let layout = self.view.as_ref().map(|view| &view.layout);
+        let layout = self.this_view().map(|view| &view.layout);
         let hosts = layout
             .map(|layout| layout.hosts.keys().cloned().collect::<Vec<_>>())
             .unwrap_or_default();
@@ -161,8 +161,7 @@ impl Workbench {
             Strip::Project(project) => self.activate_project(project),
             Strip::Host(alias) => {
                 let open = self
-                    .view
-                    .as_ref()
+                    .this_view()
                     .and_then(|view| view.layout.hosts.get(alias))
                     .and_then(|layout| layout.active.clone());
                 match open {

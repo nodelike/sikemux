@@ -104,8 +104,7 @@ impl Workbench {
     fn moving_from(&self) -> Option<(&str, &Path)> {
         let agent = self.moving.as_deref()?;
         let held = self
-            .view
-            .as_ref()?
+            .this_view()?
             .workspace
             .agents
             .iter()
@@ -137,8 +136,7 @@ impl Workbench {
         }
         let moved = self.moving.as_deref().and_then(|agent| {
             let held = self
-                .view
-                .as_ref()?
+                .this_view()?
                 .workspace
                 .agents
                 .iter()

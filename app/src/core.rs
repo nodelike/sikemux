@@ -1578,8 +1578,7 @@ async fn run(
                 }
                 if stopping {
                     let _ = updates.send(Update::Stopped);
-                    if !wait_to_start(&home, &mut asks, &mut watches, &mut followed).await
-                    {
+                    if !wait_to_start(&home, &mut asks, &mut watches, &mut followed).await {
                         return;
                     }
                     reconnect.reset();
@@ -2048,7 +2047,8 @@ impl Streams {
                         .ok()
                         .and_then(|bytes| decode_lines(&bytes))
                     {
-                        let _ = updates.send(Update::Terminal(place, session, Screenful::Lines(lines)));
+                        let _ =
+                            updates.send(Update::Terminal(place, session, Screenful::Lines(lines)));
                     }
                 });
             }
@@ -2056,7 +2056,8 @@ impl Streams {
                 let (updates, place) = (self.updates.clone(), self.place.clone());
                 tokio::spawn(async move {
                     if let Ok(text) = client.text(session, range).await {
-                        let _ = updates.send(Update::Terminal(place, session, Screenful::Copied(text)));
+                        let _ =
+                            updates.send(Update::Terminal(place, session, Screenful::Copied(text)));
                     }
                 });
             }

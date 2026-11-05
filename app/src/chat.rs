@@ -494,11 +494,6 @@ pub struct Chats {
     pub(crate) focused: Option<(String, bool)>,
     /// Text handed to agents whose composer is not made yet, put in once it is.
     pub(crate) deliveries: HashMap<String, String>,
-    /// What agents asked the person, and the assumptions they went on: this host's, then the
-    /// chosen account host's.
-    pub questions: Vec<Question>,
-    /// The chosen account host's questions, apart, so this host's reading again keeps them.
-    pub(crate) host_questions: Vec<Question>,
     /// Lets go of the chats out of sight once they have been for a while, counted from when
     /// the chat now in front came there.
     pub(crate) resting: Option<(Option<String>, gpui_kit::Task<()>)>,
@@ -1464,9 +1459,8 @@ pub fn pane(
         })
         .children(welcome.map(|welcome| crate::home::centred(welcome).absolute().inset_0()));
     let open: Vec<&Question> = bench
-        .chats
-        .questions
-        .iter()
+        .feeds
+        .questions()
         .filter(|question| question.asks(&agent.id))
         .collect();
     let permissions = chat
@@ -1485,9 +1479,8 @@ pub fn pane(
         waiting.push(("questions".into(), Waiting::Questions(asked)));
     }
     let answered: Vec<&Question> = bench
-        .chats
-        .questions
-        .iter()
+        .feeds
+        .questions()
         .filter(|question| question.of(&agent.id, QuestionState::Answered))
         .collect();
     if !answered.is_empty() {
@@ -1681,9 +1674,8 @@ fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(
     move |action: &A, _: &mut Window, cx: &mut App| {
         let taken = this.update(cx, |bench, cx| {
             let open: Vec<&Question> = bench
-                .chats
-                .questions
-                .iter()
+                .feeds
+                .questions()
                 .filter(|question| question.asks(&agent))
                 .collect();
             let chat = bench.chats.open.get_mut(&agent)?;

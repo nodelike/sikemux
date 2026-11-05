@@ -35,7 +35,7 @@ enum Owner {
 impl PortRow {
     pub fn new(port: &ProjectPort, bench: &Workbench) -> Self {
         let agent_named =
-            |id: &str| (bench.view.as_ref()?.workspace.agents.iter()).find(|agent| agent.id == id);
+            |id: &str| (bench.this_view()?.workspace.agents.iter()).find(|agent| agent.id == id);
         let (kind, label, reveal) = match &port.listening.owner {
             PortOwner::Agent {
                 agent_id, label, ..

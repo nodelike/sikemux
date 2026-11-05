@@ -60,8 +60,7 @@ impl Workbench {
     }
 
     fn agent_title(&self, agent: &str) -> String {
-        self.view
-            .as_ref()
+        self.this_view()
             .and_then(|view| view.workspace.agents.iter().find(|saved| saved.id == agent))
             .map_or_else(|| "this chat".to_owned(), |saved| saved.title.clone())
     }

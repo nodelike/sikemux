@@ -276,8 +276,7 @@ impl Workbench {
     }
 
     fn saved_title(&self, agent: &str) -> Option<String> {
-        self.view
-            .as_ref()?
+        self.this_view()?
             .workspace
             .agents
             .iter()

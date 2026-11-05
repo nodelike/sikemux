@@ -195,8 +195,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
 fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let agents = bench
-        .view
-        .as_ref()
+        .this_view()
         .map_or(0, |view| view.workspace.agents.len());
     let row = Row::new("this-host", "This host")
         .mark(
@@ -220,7 +219,7 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
             ))
         })
         .status(Some(ui::dot(Tone::Ok, cx)));
-    let (bench_entity, approval) = (cx.weak_entity(), bench.hosts.approvals.get(&None).copied());
+    let (bench_entity, approval) = (cx.weak_entity(), bench.feeds.this.approval);
     with_menu(
         "this-host-menu".into(),
         move |popup, _, _| {
@@ -311,7 +310,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 HostReach::Failed => Tone::Failed,
                 HostReach::Away => Tone::Idle,
             };
-            let view = host.id.as_ref().and_then(|id| bench.hosts.views.get(id));
+            let view = (host.id.as_ref()).and_then(|id| bench.feeds.host(id)?.view.as_ref());
             let agents = view.map_or(0, |view| view.workspace.agents.len());
             let connected = reach == HostReach::Connected;
             let load = view
@@ -325,7 +324,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
             let detail = match reach {
                 HostReach::Away if linked => Some("out of reach".to_owned()),
                 HostReach::Connecting if linked => Some("connecting".to_owned()),
-                _ if linked && bench.hosts.unavailable.is_some() => {
+                _ if linked && bench.feeds.unavailable.is_some() => {
                     Some("needs the signed app".to_owned())
                 }
                 _ if agents > 0 => Some(match agents {
@@ -451,12 +450,10 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                     cx,
                 );
             };
-            let has_project = bench
-                .hosts
-                .views
-                .get(&key)
+            let has_project = (bench.feeds.host(&key))
+                .and_then(|feed| feed.view.as_ref())
                 .is_some_and(|view| !view.workspace.projects.is_empty());
-            let approval = bench.hosts.approvals.get(&Some(key.clone())).copied();
+            let approval = bench.feeds.host(&key).and_then(|feed| feed.approval);
             with_menu(
                 menu_id,
                 move |popup, _, cx| {
@@ -815,7 +812,7 @@ fn project_menu(
     let path = project.path.clone();
     let others = bench.other_hosts();
     let spaces: Vec<(String, String, Option<Icon>)> =
-        bench.view.as_ref().map_or(Vec::new(), |view| {
+        bench.this_view().map_or(Vec::new(), |view| {
             view.workspace
                 .spaces
                 .iter()
@@ -1050,8 +1047,7 @@ fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElemen
 fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let spaces = bench
-        .view
-        .as_ref()
+        .this_view()
         .map_or(&[][..], |view| view.workspace.spaces.as_slice());
     if spaces.is_empty() {
         return div()
@@ -1231,7 +1227,7 @@ fn space_menu(
 /// Who the host is signed in as, or the card that signs it in.
 fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let Some(view) = bench.view.as_ref() else {
+    let Some(view) = bench.this_view() else {
         return div()
             .flex_none()
             .flex()

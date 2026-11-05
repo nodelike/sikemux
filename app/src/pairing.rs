@@ -347,8 +347,7 @@ pub fn overlay(
         "Not now"
     };
     let account = bench
-        .view
-        .as_ref()
+        .this_view()
         .and_then(|view| view.account.as_deref())
         .and_then(|account| account.email.clone().or_else(|| account.name.clone()));
     let tile = |icon: Icon| {

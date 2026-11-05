@@ -1232,8 +1232,7 @@ pub fn label(bench: &Workbench, tab: &LayoutTab) -> SharedString {
 pub fn view_label(bench: &Workbench, pane: &Pane) -> SharedString {
     match first_view(pane) {
         Some((PaneKind::Agent, target)) => bench
-            .view
-            .as_ref()
+            .this_view()
             .and_then(|view| {
                 view.workspace
                     .agents

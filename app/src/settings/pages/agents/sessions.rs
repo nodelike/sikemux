@@ -111,8 +111,7 @@ pub fn boundary(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let current = bench
-        .view
-        .as_ref()
+        .this_view()
         .map(|view| view.workspace.permission_mode.as_str())
         .unwrap_or("workspace-write");
     let current = if current == "bypass" {

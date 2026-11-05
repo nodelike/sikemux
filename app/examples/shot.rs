@@ -143,7 +143,7 @@ fn main() -> anyhow::Result<()> {
         };
         cx.update(|cx| {
             bench.update(cx, |bench, cx| {
-                if let Some(view) = bench.view.as_mut() {
+                if let Some(view) = bench.feeds.this.view.as_mut() {
                     view.account = Some(Box::new(shown));
                 }
                 cx.notify();
@@ -595,7 +595,9 @@ fn state(bench: &workbench::Workbench, stack: &[gpui::KeyContext], cx: &gpui::Ap
     };
     let shown = |name: Option<String>| name.map_or_else(|| "none".to_owned(), |name| kebab(&name));
     let host = bench.chosen_host().key();
-    let asking = !bench.reads.trust.is_empty() || !bench.reads.host_trust.is_empty();
+    let front = bench.feeds.front().and_then(|host| bench.feeds.host(host));
+    let asking =
+        !bench.feeds.this.trust.is_empty() || front.is_some_and(|feed| !feed.trust.is_empty());
     let trust = if asking { "asking" } else { "none" };
     format!(
         "state settings={settings} modal={} tab={} focus={} tabs={tabs} host={host} trust={trust}",

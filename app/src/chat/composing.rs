@@ -725,11 +725,13 @@ impl Chat {
 
     /// What the empty draft says, as the chat stands: what typing answers, or where words go.
     /// `steer_first` is the person's choice that sending mid-turn steers rather than queues.
-    pub fn hint(&self, agent: &str, questions: &[Question], steer_first: bool) -> String {
-        let open: Vec<&Question> = questions
-            .iter()
-            .filter(|question| question.asks(agent))
-            .collect();
+    pub fn hint<'a>(
+        &self,
+        agent: &str,
+        questions: impl Iterator<Item = &'a Question>,
+        steer_first: bool,
+    ) -> String {
+        let open: Vec<&Question> = questions.filter(|question| question.asks(agent)).collect();
         if let Some(current) = self
             .current(&open)
             .filter(|question| !question.secret && !self.is_folded(&open))

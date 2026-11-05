@@ -1010,7 +1010,7 @@ impl Director {
         };
         self.cx.update(|cx| {
             bench.update(cx, |bench, cx| {
-                if let Some(view) = bench.view.as_mut() {
+                if let Some(view) = bench.feeds.this.view.as_mut() {
                     if view.account.as_deref() != Some(&account) {
                         view.account = Some(Box::new(account));
                         cx.notify();

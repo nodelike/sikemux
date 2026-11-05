@@ -154,8 +154,7 @@ impl Workbench {
 
 fn known<'a>(bench: &'a Workbench, id: &str) -> Option<&'a WorkspaceAgent> {
     bench
-        .view
-        .as_ref()?
+        .this_view()?
         .workspace
         .agents
         .iter()

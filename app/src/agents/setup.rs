@@ -334,8 +334,7 @@ fn start(bench: &mut Workbench, sheet: Sheet, cx: &mut Context<Workbench>) {
 pub fn settle(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let ended: Vec<(SessionId, Option<u32>)> =
         bench
-            .view
-            .as_ref()
+            .this_view()
             .map_or(&[][..], |view| view.sessions.as_slice())
             .iter()
             .filter_map(|session| Some((session.id, session.exit.as_ref()?.code)))

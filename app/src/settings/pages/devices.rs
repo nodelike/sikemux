@@ -477,9 +477,9 @@ fn host_row(link: &HostLink, fields: &Fields, this: &Entity<Workbench>, cx: &App
     };
     let updates = this
         .read(cx)
-        .hosts
-        .views
-        .get(&id)
+        .feeds
+        .host(&id)
+        .and_then(|feed| feed.view.as_ref())
         .and_then(crate::hosts::host_updates)
         .cloned();
     let line = [
@@ -611,8 +611,8 @@ pub fn render(
         return Vec::new();
     };
     let t = Tokens::get(cx).clone();
-    let known = bench.view.is_some();
-    let account = bench.view.as_ref().and_then(|view| view.account.as_deref());
+    let known = bench.this_view().is_some();
+    let account = bench.this_view().and_then(|view| view.account.as_deref());
     let signed_in = account.is_some();
     let status = bench.remote.as_ref();
     let link = status.and_then(|status| status.account.as_ref());

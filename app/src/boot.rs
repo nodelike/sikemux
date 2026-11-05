@@ -116,7 +116,7 @@ fn mark_with(
 
 /// Covers the window until the core's first view arrives.
 pub fn opening(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    if bench.view.is_some() {
+    if bench.this_view().is_some() {
         return None;
     }
     let t = Tokens::get(cx).clone();
@@ -187,7 +187,7 @@ pub fn reconnecting(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<An
         .connection
         .lost
         .clone()
-        .filter(|_| bench.view.is_some())?;
+        .filter(|_| bench.this_view().is_some())?;
     let t = Tokens::get(cx).clone();
     Some(
         div()
@@ -213,7 +213,7 @@ pub fn reconnecting(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<An
 
 /// Covers the workspace while the core is stopped on purpose, with the one way back: starting it.
 pub fn stopped(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    if !bench.connection.stopped || bench.view.is_none() {
+    if !bench.connection.stopped || bench.this_view().is_none() {
         return None;
     }
     let t = Tokens::get(cx).clone();

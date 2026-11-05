@@ -1,17 +1,21 @@
 //! The host the person is on (ADR 0018): this one, another host on the account, or an SSH host
 //! without Sikemux. The rail, the top bar and the tab list follow the one chosen.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::{App, Context, SharedString};
 use serde_json::{json, Value};
-use sikemux_core::server::{call, ApprovalSetting, HostRow, NoParams};
+use sikemux_core::server::{call, ApprovalSetting, HostRow, NoParams, TrustQuestion};
+use sikemux_view::device::DeviceView;
 
+use crate::chat::Question;
 use crate::core;
 use crate::icons::Icon;
 use crate::install_pane::Words;
+use crate::reads::Drafts;
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
 
@@ -45,30 +49,94 @@ pub enum Place {
     Account(String),
 }
 
-/// The account's other hosts as this app knows them.
+/// What one core has told this window. An account host's trust, drafts and questions are kept
+/// while it is in front, as only then are they watched.
 #[derive(Default)]
-pub struct Hosts {
-    /// The account's other hosts this app reaches, by key: each one's view, as its core sends it.
-    pub(crate) views: std::collections::HashMap<String, sikemux_view::device::DeviceView>,
-    /// The account's other hosts this app is connected to now, by key.
-    pub(crate) reached: std::collections::HashSet<String>,
-    /// The home folders of the account's other hosts, by the host's key.
-    pub(crate) homes: std::collections::HashMap<String, String>,
-    /// Whether each host asks the person before a new device joins, by key, none for this one.
-    pub(crate) approvals: std::collections::HashMap<Option<String>, bool>,
-    /// Why this app reaches none of the account's other hosts, when it cannot.
-    pub(crate) unavailable: Option<String>,
+pub struct Feed {
+    pub view: Option<DeviceView>,
+    pub trust: Vec<TrustQuestion>,
+    pub drafts: Option<Drafts>,
+    pub questions: Vec<Question>,
+    /// Whether it asks the person before a new device joins, once it has said.
+    pub approval: Option<bool>,
+    /// Whether this app is connected to it now, for an account host.
+    pub reached: bool,
+    /// Its home folder, once an account host has said.
+    pub home: Option<String>,
 }
 
-impl Hosts {
-    /// Forgets what it knew of the hosts no longer linked to the account, as `listed` says.
+/// What each core has told this window: this host's and those of the account's other hosts.
+#[derive(Default)]
+pub struct Feeds {
+    pub this: Feed,
+    hosts: HashMap<String, Feed>,
+    /// The account host in front, whose trust, drafts and questions are watched.
+    front: Option<String>,
+    /// Why this app reaches none of the account's other hosts, when it cannot.
+    pub unavailable: Option<String>,
+}
+
+impl Feeds {
+    pub fn host(&self, key: &str) -> Option<&Feed> {
+        self.hosts.get(key)
+    }
+
+    pub fn host_mut(&mut self, key: &str) -> &mut Feed {
+        self.hosts.entry(key.to_owned()).or_default()
+    }
+
+    pub fn at(&self, place: &Place) -> Option<&Feed> {
+        match place {
+            Place::This => Some(&self.this),
+            Place::Account(host) => self.host(host),
+        }
+    }
+
+    pub fn at_mut(&mut self, place: &Place) -> &mut Feed {
+        match place {
+            Place::This => &mut self.this,
+            Place::Account(host) => self.host_mut(host),
+        }
+    }
+
+    pub fn hosts(&self) -> impl Iterator<Item = (&String, &Feed)> {
+        self.hosts.iter()
+    }
+
+    pub fn front(&self) -> Option<&String> {
+        self.front.as_ref()
+    }
+
+    pub fn front_mut(&mut self) -> Option<&mut Feed> {
+        let front = self.front.as_ref()?;
+        self.hosts.get_mut(front)
+    }
+
+    /// Makes `host` the account host in front, letting go of what the last one's core answered.
+    pub fn set_front(&mut self, host: Option<String>) {
+        if let Some(gone) = self.front_mut() {
+            gone.trust.clear();
+            gone.drafts = None;
+            gone.questions.clear();
+        }
+        if let Some(host) = &host {
+            self.host_mut(host);
+        }
+        self.front = host;
+    }
+
+    /// What agents asked the person and the assumptions they went on: this host's, then those of
+    /// the account host in front.
+    pub fn questions(&self) -> impl Iterator<Item = &Question> {
+        let front = self.front.as_ref().and_then(|front| self.hosts.get(front));
+        (self.this.questions.iter()).chain(front.into_iter().flat_map(|feed| &feed.questions))
+    }
+
+    /// Forgets the hosts no longer linked to the account, as `listed` says.
     pub fn keep_linked(&mut self, listed: &[HostRow]) {
         let linked = |id: &String| listed.iter().any(|host| host.id.as_ref() == Some(id));
-        self.views.retain(|id, _| linked(id));
-        self.reached.retain(linked);
-        self.homes.retain(|id, _| linked(id));
-        self.approvals
-            .retain(|id, _| id.as_ref().is_none_or(linked));
+        self.hosts
+            .retain(|id, _| linked(id) || self.front.as_ref() == Some(id));
     }
 }
 
@@ -111,8 +179,7 @@ impl Workbench {
     /// The host in front, as the core's layout says.
     pub fn chosen_host(&self) -> HostChoice {
         if let Some(key) = self
-            .view
-            .as_ref()
+            .this_view()
             .and_then(|view| view.layout.chosen_host.clone())
         {
             return HostChoice::Account(key);
@@ -127,7 +194,7 @@ impl Workbench {
     pub fn home_at(&self, place: &Place) -> Option<String> {
         match place {
             Place::This => crate::ui::path::this_home(),
-            Place::Account(host) => self.hosts.homes.get(host).cloned(),
+            Place::Account(host) => self.feeds.host(host)?.home.clone(),
         }
     }
 
@@ -286,7 +353,8 @@ impl Workbench {
                 return;
             };
             let _ = bench.update(cx, |bench, cx| {
-                bench.hosts.approvals.insert(host, read.require_approval);
+                let place = host.map_or(Place::This, Place::Account);
+                bench.feeds.at_mut(&place).approval = Some(read.require_approval);
                 cx.notify();
             });
         })
@@ -295,7 +363,8 @@ impl Workbench {
 
     /// Asks the person before a new device joins `host`, this one when none, or stops asking.
     pub fn flip_approval(&self, host: Option<String>, cx: &mut Context<Self>) {
-        let Some(on) = self.hosts.approvals.get(&host).copied() else {
+        let place = host.clone().map_or(Place::This, Place::Account);
+        let Some(on) = self.feeds.at(&place).and_then(|feed| feed.approval) else {
             return;
         };
         let place = host.clone().map_or(Place::This, Place::Account);
@@ -335,7 +404,7 @@ impl Workbench {
     /// rail is set to, and the person moved there to see it.
     pub fn new_chat_on(&mut self, host: &str, cx: &mut Context<Self>) {
         self.show_workbench(cx);
-        let Some(view) = self.hosts.views.get(host) else {
+        let Some(view) = self.feeds.host(host).and_then(|feed| feed.view.as_ref()) else {
             return;
         };
         let projects = &view.workspace.projects;
@@ -497,7 +566,7 @@ impl Workbench {
                 HostChoice::Account(key) => Some((
                     key.clone(),
                     option.label,
-                    self.hosts.reached.contains(&key),
+                    self.feeds.host(&key).is_some_and(|feed| feed.reached),
                     HostChoice::Account(key),
                 )),
                 HostChoice::Ssh(_) => None,

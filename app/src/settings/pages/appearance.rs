@@ -983,8 +983,7 @@ pub fn render(
         });
 
     let style = bench
-        .view
-        .as_ref()
+        .this_view()
         .map(|view| (*view.face_style).clone())
         .unwrap_or_default();
     let face_switch = |id: &'static str, field: &'static str, on: bool| {

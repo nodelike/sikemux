@@ -397,7 +397,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                 )
         });
 
-    let account = bench.view.as_ref().and_then(|view| view.account.as_deref());
+    let account = bench.this_view().and_then(|view| view.account.as_deref());
     let me = {
         let this = this.clone();
         let chosen = settings.page == Page::Account && !searching;

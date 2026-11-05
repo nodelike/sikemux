@@ -80,8 +80,7 @@ fn ask(bench: &Workbench, detection: Detection, cx: &mut Context<Workbench>) {
 fn snapshot(bench: &Workbench) -> Value {
     let (limit_soft, limit_hard) = fd_limit();
     let sessions = bench
-        .view
-        .as_ref()
+        .this_view()
         .map_or(&[][..], |view| view.sessions.as_slice());
     let mut agents: BTreeMap<String, u32> = BTreeMap::new();
     for session in sessions.iter().filter(|session| session.agent_id.is_some()) {
@@ -182,7 +181,7 @@ pub fn render(
             )
             .child(detail)
     };
-    let agents = bench.view.as_ref().map_or(Vec::new(), |view| {
+    let agents = bench.this_view().map_or(Vec::new(), |view| {
         let mut projects: Vec<&str> = view
             .workspace
             .agents

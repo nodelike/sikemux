@@ -742,7 +742,7 @@ impl Workbench {
     /// Closes the pages and lets go of the device of each agent that left the view, and lets go
     /// of the device of each agent that went to sleep, so another agent can take it up.
     pub(crate) fn forget_departed(&mut self, cx: &mut Context<Self>) {
-        let Some(view) = &self.view else {
+        let Some(view) = self.this_view() else {
             return;
         };
         let agents = &view.workspace.agents;
@@ -793,8 +793,7 @@ impl Workbench {
             return;
         };
         let agents: Vec<String> = self
-            .view
-            .as_ref()
+            .this_view()
             .map(|view| {
                 view.workspace
                     .agents
@@ -849,7 +848,7 @@ impl Workbench {
 
     /// The project tab holding the agent's desk, its strip and the desk's view there.
     fn desk_place(&self, agent: &str) -> Option<(Strip, String, String)> {
-        let layout = &self.view.as_ref()?.layout;
+        let layout = &self.this_view()?.layout;
         layout.projects.iter().find_map(|(project, strip)| {
             strip.tabs.iter().find_map(|tab| {
                 view_of(&tab.pane, PaneKind::Desk, agent)
@@ -860,7 +859,7 @@ impl Workbench {
 
     /// The project tab holding the agent, its strip and its view there, wherever it is.
     fn agent_place(&self, agent: &str) -> Option<(Strip, String, String)> {
-        let layout = &self.view.as_ref()?.layout;
+        let layout = &self.this_view()?.layout;
         layout.projects.iter().find_map(|(project, strip)| {
             strip.tabs.iter().find_map(|tab| {
                 view_of(&tab.pane, PaneKind::Agent, agent)
@@ -880,7 +879,7 @@ impl Workbench {
     }
 
     fn desk_open_anywhere(&self, agent: &str) -> bool {
-        self.view.as_ref().is_some_and(|view| {
+        self.this_view().is_some_and(|view| {
             view.layout.projects.values().any(|strip| {
                 strip
                     .tabs

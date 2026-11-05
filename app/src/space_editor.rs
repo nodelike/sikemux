@@ -134,7 +134,7 @@ impl Render for SpaceEditor {
             .upgrade()
             .and_then(|bench| {
                 let bench = bench.read(cx);
-                Some(bench.view.as_ref()?.workspace.spaces.clone())
+                Some(bench.this_view()?.workspace.spaces.clone())
             })
             .unwrap_or_default();
         self.names

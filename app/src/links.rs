@@ -97,7 +97,7 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
     let Some(resume) = resume else {
         return bench.notify(toast::error(format!("Sikemux couldn't open {link}")), cx);
     };
-    let open = bench.view.as_ref().and_then(|view| {
+    let open = bench.this_view().and_then(|view| {
         view.chats
             .iter()
             .find(|chat| {
@@ -110,7 +110,7 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
         bench.open_agent(&agent, cx);
         return;
     }
-    let known = bench.view.as_ref().is_some_and(|view| {
+    let known = bench.this_view().is_some_and(|view| {
         view.workspace
             .projects
             .iter()

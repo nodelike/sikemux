@@ -86,7 +86,6 @@ pub(crate) const MAX_SPACE_NAME: usize = 40;
 
 pub struct Workbench {
     pub connection: crate::boot::Connection,
-    pub view: Option<DeviceView>,
     pub reads: Reads,
     /// The person's preferences, once the core has said them.
     pub(crate) preferences: Option<Preferences>,
@@ -183,7 +182,7 @@ pub struct Workbench {
     pub mod_panes: HashMap<String, Entity<crate::mod_pane::ModPane>>,
     /// Settings, while they take the stage's place.
     pub settings: Entity<crate::settings::Settings>,
-    pub hosts: crate::hosts::Hosts,
+    pub feeds: crate::hosts::Feeds,
     /// The stage's tabs while they move between one another.
     pub(crate) track: crate::track::Slide<String>,
     /// The runs the person started here, whose terminal opens once the run has one.
@@ -490,7 +489,6 @@ impl Workbench {
         let desks = cx.new(|cx| crate::desk::Desks::new(window, cx));
         let mut bench = Self {
             connection: crate::boot::Connection::default(),
-            view: None,
             reads: Reads::default(),
             preferences: None,
             voice,
@@ -572,7 +570,7 @@ impl Workbench {
             stage_frame: Rc::default(),
             run_cards: Default::default(),
             space: None,
-            hosts: crate::hosts::Hosts::default(),
+            feeds: Default::default(),
             track: crate::track::Slide::default(),
             runs_to_show: HashSet::new(),
             watched_worktree: None,
@@ -680,17 +678,17 @@ impl Workbench {
             Update::View(place, view) => return self.view_arrived(place, *view, cx),
             Update::HostReach(host, reached) => {
                 if reached {
-                    self.hosts.reached.insert(host.clone());
+                    self.feeds.host_mut(&host).reached = true;
                     crate::editor::host_reached(self, &Place::Account(host.clone()), cx);
                     self.read_approval(Some(host.clone()), cx);
                 } else {
-                    self.hosts.reached.remove(&host);
+                    self.feeds.host_mut(&host).reached = false;
                 }
                 self.parts.redraw_stage(cx);
             }
-            Update::HostsUnavailable(reason) => self.hosts.unavailable = Some(reason),
+            Update::HostsUnavailable(reason) => self.feeds.unavailable = Some(reason),
             Update::HostHome(host, home) => {
-                self.hosts.homes.insert(host, home);
+                self.feeds.host_mut(&host).home = Some(home);
             }
             Update::Chat(agent, news) => {
                 match news {
@@ -774,15 +772,15 @@ impl Workbench {
             Place::This => {
                 crate::ui::moving_face::set_on(view.face_style.motion, cx);
                 let account_moved =
-                    self.view.as_ref().map(|shown| &shown.account) != Some(&view.account);
-                self.view = Some(view);
+                    self.this_view().map(|shown| &shown.account) != Some(&view.account);
+                self.feeds.this.view = Some(view);
                 if account_moved {
                     self.parts.redraw(&self.parts.rail, cx);
                 }
                 self.forget_departed(cx);
             }
             Place::Account(host) => {
-                self.hosts.views.insert(host.clone(), view);
+                self.feeds.host_mut(host).view = Some(view);
             }
         }
         self.settle_closing();
@@ -820,13 +818,14 @@ impl Workbench {
 
     /// Ends the terminals their core no longer lists.
     fn keep_terminals(&mut self) {
-        let sessions = (self.view.as_ref()).map_or(&[][..], |view| view.sessions.as_slice());
-        let hosts = &self.hosts.views;
+        let feeds = &self.feeds;
+        let sessions = (feeds.this.view.as_ref()).map_or(&[][..], |view| view.sessions.as_slice());
         self.terminals.keep(
             |place, id| match place {
                 Place::This => sessions.iter().any(|session| session.id == id),
-                Place::Account(host) => hosts
-                    .get(host)
+                Place::Account(host) => feeds
+                    .host(host)
+                    .and_then(|feed| feed.view.as_ref())
                     .is_none_or(|view| view.sessions.iter().any(|session| session.id == id)),
             },
             &self.asks,
@@ -992,7 +991,7 @@ impl Workbench {
                 composing.draft.update(cx, |draft, cx| {
                     draft.set_placeholder("What should get done?", window, cx)
                 });
-                if let Some(drafts) = self.reads.drafts.as_ref() {
+                if let Some(drafts) = self.feeds.this.drafts.as_ref() {
                     composing.start_from(drafts, START, window, cx);
                 }
                 self.chats.start = Some(composing);
@@ -1018,8 +1017,8 @@ impl Workbench {
             return;
         };
         let drafts = match crate::chat::draft::is_elsewhere(chat) {
-            true => self.reads.host_drafts.as_ref(),
-            false => self.reads.drafts.as_ref(),
+            true => self.feeds.front_mut().and_then(|feed| feed.drafts.as_ref()),
+            false => self.feeds.this.drafts.as_ref(),
         };
         if let Some(drafts) = drafts {
             composing.start_from(drafts, &agent, window, cx);
@@ -1142,7 +1141,7 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let project = self.view.as_ref().and_then(|view| {
+        let project = self.this_view().and_then(|view| {
             let saved = view
                 .workspace
                 .agents
@@ -1236,7 +1235,7 @@ impl Workbench {
         let Some(chat) = self.chats.open.get_mut(&agent) else {
             return;
         };
-        let hint = SharedString::from(chat.hint(&agent, &self.chats.questions, steer_first));
+        let hint = SharedString::from(chat.hint(&agent, self.feeds.questions(), steer_first));
         let Some(composing) = chat
             .composer
             .as_mut()
@@ -1421,9 +1420,8 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         let open: Vec<&Question> = self
-            .chats
-            .questions
-            .iter()
+            .feeds
+            .questions()
             .filter(|question| question.asks(agent))
             .collect();
         if let Some(ask) = self
@@ -1438,8 +1436,10 @@ impl Workbench {
 
     /// Lets go of the questions `keep` turns down, of this host and of the host in front.
     pub fn keep_questions(&mut self, keep: impl Fn(&Question) -> bool) {
-        self.chats.questions.retain(&keep);
-        self.chats.host_questions.retain(keep);
+        self.feeds.this.questions.retain(&keep);
+        if let Some(front) = self.feeds.front_mut() {
+            front.questions.retain(keep);
+        }
     }
 
     /// Whether the agent asks before it acts, kept for its next session and changed in the one running.
@@ -1580,7 +1580,7 @@ impl Workbench {
         let crate::hosts::Place::Account(key) = self.place() else {
             return None;
         };
-        if self.hosts.reached.contains(&key) {
+        if self.feeds.host(&key).is_some_and(|feed| feed.reached) {
             return None;
         }
         let named = crate::hosts::HostChoice::Account(key.clone());
@@ -1704,22 +1704,15 @@ impl Workbench {
         target.watch(Read::Activity, activity);
         target.watch(Read::Mods, json!({}));
         match &place {
-            crate::hosts::Place::Account(host) if self.trust.host.as_ref() != Some(host) => {
-                self.reads.forget(Read::HostTrust);
-                self.trust.host = Some(host.clone());
+            Place::Account(host) if self.feeds.front() != Some(host) => {
+                self.feeds.set_front(Some(host.clone()));
                 target.watch(Read::HostTrust, json!({}));
-                self.chats.host_questions.clear();
                 target.watch(Read::HostQuestions, json!({}));
             }
-            crate::hosts::Place::This if self.trust.host.is_some() => {
+            Place::This if self.feeds.front().is_some() => {
                 target.unwatch(Read::HostTrust);
                 target.unwatch(Read::HostQuestions);
-                self.reads.forget(Read::HostTrust);
-                self.trust.host = None;
-                self.chats.host_questions.clear();
-                self.chats
-                    .questions
-                    .retain(|question| question.host.is_none());
+                self.feeds.set_front(None);
             }
             _ => {}
         }
@@ -1787,8 +1780,7 @@ impl Workbench {
     /// Asks for the account's picture when it is one this window has not got.
     fn watch_picture(&mut self) {
         let hash = self
-            .view
-            .as_ref()
+            .this_view()
             .and_then(|view| view.account.as_ref()?.picture_hash.clone());
         self.picture.follow(hash, &self.asks);
     }
@@ -1816,7 +1808,6 @@ impl Workbench {
     pub(crate) fn over_shown(&self) -> bool {
         self.overlays.in_layer(Layer::Over) || self.someone_waits()
     }
-
 
     /// The clock and every "ago" move each minute, which draws the whole window again. What
     /// counts seconds, such as a running tool call or the Run chip, counts them itself.
@@ -1973,18 +1964,20 @@ impl Workbench {
     /// The view of the host in front: another host's own, while one on the account is chosen,
     /// else this host's.
     pub fn shown(&self) -> Option<&DeviceView> {
-        match self.view.as_ref()?.layout.chosen_host.as_ref() {
-            Some(key) => self.hosts.views.get(key),
-            None => self.view.as_ref(),
+        match self.this_view()?.layout.chosen_host.as_ref() {
+            Some(key) => self.feeds.host(key)?.view.as_ref(),
+            None => self.this_view(),
         }
     }
 
     /// The view of the host at `place`, as its core sends it.
     pub fn view_at(&self, place: &Place) -> Option<&DeviceView> {
-        match place {
-            Place::This => self.view.as_ref(),
-            Place::Account(host) => self.hosts.views.get(host),
-        }
+        self.feeds.at(place)?.view.as_ref()
+    }
+
+    /// This host's view, as its core sends it, whichever host is in front.
+    pub fn this_view(&self) -> Option<&DeviceView> {
+        self.feeds.this.view.as_ref()
     }
 
     /// One of the core's methods on the host in front, for what the person did there.
@@ -2167,7 +2160,7 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(title) = self.view.as_ref().and_then(|view| {
+        let Some(title) = self.this_view().and_then(|view| {
             view.workspace
                 .agents
                 .iter()
@@ -2408,10 +2401,7 @@ impl Workbench {
     /// Puts the core's next trust question to the person, each once, while nothing else is asked.
     pub(crate) fn ask_trust(&mut self, cx: &mut Context<Self>) {
         let free = self.overlays.asking.is_none();
-        let Some((host, ask)) = self
-            .trust
-            .next(&self.reads.trust, &self.reads.host_trust, free)
-        else {
+        let Some((host, ask)) = self.trust.next(&self.feeds, free) else {
             return;
         };
         let id = ask.id.clone();
@@ -2856,8 +2846,7 @@ impl Workbench {
                     .map_or(0, |since| since.as_nanos());
                 let id = format!("space-{made:x}");
                 let mut spaces = bench
-                    .view
-                    .as_ref()
+                    .this_view()
                     .map_or_else(Vec::new, |view| view.workspace.spaces.clone());
                 spaces.push(SpaceInfo {
                     id: id.clone(),
@@ -2881,8 +2870,7 @@ impl Workbench {
     /// Sets this host's spaces to what `edit` makes of them.
     pub(crate) fn edit_spaces(&self, edit: impl FnOnce(&mut Vec<SpaceInfo>)) {
         let mut spaces = self
-            .view
-            .as_ref()
+            .this_view()
             .map_or_else(Vec::new, |view| view.workspace.spaces.clone());
         edit(&mut spaces);
         self.call("setSpaces", json!({ "spaces": spaces }));
@@ -2891,8 +2879,7 @@ impl Workbench {
     /// Asks for the space's new name, as the Mac does.
     pub fn rename_space(&mut self, id: String, cx: &mut Context<Self>) {
         let current = self
-            .view
-            .as_ref()
+            .this_view()
             .and_then(|view| view.workspace.spaces.iter().find(|space| space.id == id))
             .map(|space| space.name.clone())
             .unwrap_or_default();
@@ -2917,8 +2904,7 @@ impl Workbench {
     /// Deletes the space once the person agrees; its projects stay open and show under All.
     pub fn delete_space(&mut self, id: String, cx: &mut Context<Self>) {
         let name = self
-            .view
-            .as_ref()
+            .this_view()
             .and_then(|view| view.workspace.spaces.iter().find(|space| space.id == id))
             .map(|space| space.name.clone())
             .unwrap_or_default();
@@ -2933,8 +2919,7 @@ impl Workbench {
                 }
                 bench.edit_spaces(|spaces| spaces.retain(|space| space.id != id));
                 let held: Vec<String> = bench
-                    .view
-                    .as_ref()
+                    .this_view()
                     .map(|view| {
                         view.workspace
                             .projects
@@ -3611,14 +3596,13 @@ impl Workbench {
         let tab = |project: String| json!({ "project": project, "kind": "agent", "target": id });
         let Some(project) = self.shown().and_then(project_on) else {
             // Opening a tab on a host's layout brings that host forward there.
-            if let Some(project) = self.view.as_ref().and_then(project_on) {
+            if let Some(project) = self.this_view().and_then(project_on) {
                 return self.call("openTab", tab(project));
             }
             if let Some((host, project)) = self
-                .hosts
-                .views
-                .iter()
-                .find_map(|(host, view)| Some((host.clone(), project_on(view)?)))
+                .feeds
+                .hosts()
+                .find_map(|(host, feed)| Some((host.clone(), project_on(feed.view.as_ref()?)?)))
             {
                 self.call("chooseHost", json!({ "host": format!("host:{host}") }));
                 let open = Ask::Call {
@@ -3675,8 +3659,7 @@ impl Workbench {
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {
-        self.view
-            .as_ref()?
+        self.this_view()?
             .sessions
             .iter()
             .find(|session| session.id.to_string() == id)
@@ -3951,7 +3934,6 @@ impl Workbench {
 pub(crate) struct Trust {
     /// By the host that asks and the question's id.
     asked: HashSet<String>,
-    pub(crate) host: Option<String>,
 }
 
 impl Trust {
@@ -3959,14 +3941,19 @@ impl Trust {
     /// not put to the person yet, now marked as put, while `free`. Forgets those no longer asked.
     fn next(
         &mut self,
-        here: &[TrustQuestion],
-        there: &[TrustQuestion],
+        feeds: &crate::hosts::Feeds,
         free: bool,
     ) -> Option<(Option<String>, TrustQuestion)> {
-        let asks: Vec<(Option<String>, &TrustQuestion)> = (here.iter())
-            .map(|ask| (None, ask))
-            .chain(there.iter().map(|ask| (self.host.clone(), ask)))
-            .collect();
+        let front = feeds
+            .front()
+            .and_then(|host| Some((host, feeds.host(host)?)));
+        let asks: Vec<(Option<String>, &TrustQuestion)> =
+            (feeds.this.trust.iter())
+                .map(|ask| (None, ask))
+                .chain(front.into_iter().flat_map(|(host, feed)| {
+                    feed.trust.iter().map(|ask| (Some(host.clone()), ask))
+                }))
+                .collect();
         let asked_as = |host: &Option<String>, ask: &TrustQuestion| {
             format!("{}:{}", host.as_deref().unwrap_or_default(), ask.id)
         };

@@ -294,7 +294,7 @@ pub fn kept_running(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     if bench.kept_running_told {
         return;
     }
-    let (Some(view), Some(preferences)) = (&bench.view, bench.preferences_read()) else {
+    let (Some(view), Some(preferences)) = (bench.this_view(), bench.preferences_read()) else {
         return;
     };
     let unshown = !preferences.kept_running_notice_shown;
@@ -341,7 +341,7 @@ struct KeptRunning;
 
 /// Keeps the Dock or launcher icon's badge at the number of things waiting on the person.
 pub fn badge(bench: &mut Workbench) {
-    let count = bench.view.as_ref().map_or(0, |view| view.inbox.needed);
+    let count = bench.this_view().map_or(0, |view| view.inbox.needed);
     if count != std::mem::replace(&mut bench.badge, count) {
         show_badge(count);
     }

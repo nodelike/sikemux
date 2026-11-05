@@ -11,16 +11,19 @@ use sikemux_core::git::log::GitOverview;
 use sikemux_core::git::status::ProjectRepo;
 use sikemux_core::server::{
     AccountUsage, ActivitySummary, Draft, HostRow, ModList, ProjectEntry, ProjectPort, RunView,
-    ShareView, ShownStash, SshHost, TaskList, TrustQuestion, UpdateState, UpdateStatus,
+    ShareView, ShownStash, SshHost, TaskList, UpdateState, UpdateStatus,
 };
 use sikemux_plugin_api::codehost::PullList;
 use sikemux_plugin_api::{Listed, TokenForm};
 use sikemux_view::catalog::CatalogAgent;
 use sikemux_wire::changed::Topic;
 use sikemux_view::prefs::Preferences;
+use sikemux_view::questions::AgentQuestion;
 use sikemux_view::theme::ThemeSummary;
 
+use crate::chat::Question;
 use crate::core::Ask;
+use crate::hosts::{Feed, Feeds};
 use crate::theme;
 use crate::workbench::Workbench;
 
@@ -214,12 +217,6 @@ pub struct Reads {
     /// The account's Stash, as this host last listed it.
     pub stash: Option<ShownStash>,
     pub themes: Vec<ThemeSummary>,
-    /// This host's trust questions, and those of the account host in front.
-    pub trust: Vec<TrustQuestion>,
-    pub host_trust: Vec<TrustQuestion>,
-    /// The composer drafts kept on this host, and on the account host in front.
-    pub drafts: Option<Drafts>,
-    pub host_drafts: Option<Drafts>,
     /// What the project in front holds: its tasks, their runs, what listens on its ports,
     /// its activity, and the repository its git pane shows.
     pub tasks: Option<TaskList>,
@@ -269,7 +266,6 @@ impl Reads {
             Read::Activity => self.activity = None,
             Read::Mods => self.mods = None,
             Read::GitProjectRepo => self.git_project_repo = None,
-            Read::HostTrust => self.host_trust.clear(),
             Read::WorktreePulls => self.worktree_pulls = None,
             Read::WorktreeMerged => self.worktree_merged = None,
             Read::Theme
@@ -277,6 +273,7 @@ impl Reads {
             | Read::Hosts
             | Read::Update
             | Read::Trust
+            | Read::HostTrust
             | Read::Questions
             | Read::Shares
             | Read::Stash
@@ -303,19 +300,29 @@ impl Reads {
     }
 }
 
+impl Feeds {
+    /// Where the answer to a read kept per core goes.
+    fn feed_of(&mut self, read: Read) -> Option<&mut Feed> {
+        match read {
+            Read::Trust | Read::Questions | Read::Drafts => Some(&mut self.this),
+            _ => self.front_mut(),
+        }
+    }
+}
+
 impl Workbench {
     /// Takes in what the core answered `read`, then does what follows from it.
     pub(crate) fn read_answered(&mut self, read: Read, value: Value, cx: &mut Context<Self>) {
         match read {
             Read::Hosts => {
                 let changed = keep_decoded(&mut self.reads.hosts, value, "hosts");
-                if !self.hosts.approvals.contains_key(&None) {
+                if self.feeds.this.approval.is_none() {
                     self.read_approval(None, cx);
                 }
                 if !changed {
                     return;
                 }
-                self.hosts.keep_linked(&self.reads.hosts);
+                self.feeds.keep_linked(&self.reads.hosts);
             }
             Read::SkillsAdded => return self.offer_skills(&value, cx),
             Read::Plugins => {
@@ -361,9 +368,18 @@ impl Workbench {
                 }
             }
             Read::Questions | Read::HostQuestions => {
-                let host_read = read == Read::HostQuestions;
-                let host = host_read.then(|| self.trust.host.clone()).flatten();
-                self.chats.questions_read(value, host_read, host);
+                let Ok(asked) =
+                    serde_json::from_value::<Vec<AgentQuestion>>(value).inspect_err(|error| {
+                        eprintln!("sikemux: the core's questions do not read: {error}")
+                    })
+                else {
+                    return cx.notify();
+                };
+                if let Some(feed) = self.feeds.feed_of(read) {
+                    feed.questions = (asked.into_iter())
+                        .map(|asked| Question { asked })
+                        .collect();
+                }
             }
             Read::Theme => {
                 if let Ok(palette) = serde_json::from_value(value) {
@@ -471,18 +487,13 @@ impl Workbench {
             }
             Read::Drafts | Read::HostDrafts => {
                 let elsewhere = read == Read::HostDrafts;
-                let slot = match elsewhere {
-                    true => &mut self.reads.host_drafts,
-                    false => &mut self.reads.drafts,
+                let Some(feed) = self.feeds.feed_of(read) else {
+                    return;
                 };
-                if !keep_decoded(slot, value, "drafts") && !elsewhere {
+                if !keep_decoded(&mut feed.drafts, value, "drafts") && !elsewhere {
                     return;
                 }
-                let drafts = match elsewhere {
-                    true => &self.reads.host_drafts,
-                    false => &self.reads.drafts,
-                };
-                if let Some(drafts) = drafts {
+                if let Some(drafts) = &feed.drafts {
                     crate::chat::draft::take(&mut self.chats, drafts, elsewhere, cx);
                 }
             }
@@ -514,14 +525,13 @@ impl Workbench {
                 }
                 self.git.catalog(&self.reads.catalog, cx);
             }
-            Read::Trust => {
-                if !keep_decoded(&mut self.reads.trust, value, "trust questions") {
+            Read::Trust | Read::HostTrust => {
+                let Some(feed) = self.feeds.feed_of(read) else {
+                    return;
+                };
+                if !keep_decoded(&mut feed.trust, value, "trust questions") && read == Read::Trust {
                     return;
                 }
-                self.ask_trust(cx);
-            }
-            Read::HostTrust => {
-                keep_decoded(&mut self.reads.host_trust, value, "trust questions");
                 self.ask_trust(cx);
             }
             Read::Tasks => {

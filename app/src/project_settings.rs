@@ -249,7 +249,7 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
 }
 
 fn space_ids(bench: &Workbench) -> Vec<String> {
-    bench.view.as_ref().map_or(Vec::new(), |view| {
+    bench.this_view().map_or(Vec::new(), |view| {
         view.workspace
             .spaces
             .iter()
@@ -267,7 +267,7 @@ fn space_choice(
 ) -> (rows::Choice, Vec<String>) {
     let spaces = space_ids(bench);
     let mut labels = vec![SharedString::from("No Space")];
-    if let Some(view) = &bench.view {
+    if let Some(view) = bench.this_view() {
         labels.extend(
             view.workspace
                 .spaces
