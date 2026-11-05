@@ -67,13 +67,13 @@ overlays! {
     finder: crate::finder::Finder => Finder, Finder, true;
     switcher: crate::switcher::Switcher => Switcher, Finder, true;
     /// The process the person is writing in the Add a process dialog, while it is open.
-    adding_task: crate::add_task::AddTask => AddingTask, InPlace, true;
+    adding_task: crate::tasks::add_task::AddTask => AddingTask, InPlace, true;
     adding_provider: crate::add_provider::AddProvider => AddingProvider, InPlace, true;
     buddy_picker: crate::buddy_picker::BuddyPicker => BuddyPicker, InPlace, true;
     sharing: crate::share::Sharing => Sharing, InPlace, true;
     /// A task its checks held back, waiting on the person. Its card sits on the Run chip and asks
     /// nothing of the keys.
-    run_check: crate::run_check::RunCheck => RunCheck, InPlace, false;
+    run_check: crate::tasks::run_check::RunCheck => RunCheck, InPlace, false;
     /// Edit Spaces, while it is open under the space switch.
     space_editor: Entity<crate::space_editor::SpaceEditor> => SpaceEditor, InPlace, true;
     /// The welcome, the release notes or the diagnostics.

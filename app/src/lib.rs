@@ -3,7 +3,6 @@
 pub mod account_picker;
 mod accounts;
 mod add_provider;
-mod add_task;
 mod agents;
 mod approvals;
 mod asking;
@@ -67,14 +66,12 @@ mod picker;
 mod picture;
 mod pinch;
 mod places;
-mod ports;
 mod project_settings;
 pub mod project_switcher;
 mod rail;
 mod reads;
 mod recent;
 mod retry;
-mod run_check;
 pub mod search;
 mod see_through;
 mod send_to;
@@ -89,7 +86,6 @@ mod switcher;
 pub mod syntax;
 mod tabs;
 pub mod terminal;
-mod test_card;
 pub mod theme;
 mod theme_palette;
 mod thread_priority;
@@ -106,3 +102,4 @@ pub mod worktree_switch;
 
 /// The window's size when it first opens.
 pub const WINDOW_SIZE: (f32, f32) = (1340., 880.);
+pub mod tasks;

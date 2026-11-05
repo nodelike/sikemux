@@ -22,7 +22,7 @@ use sikemux_wire::pty::shell_protocol::SshLink;
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::motion;
-use crate::ports::PortRow;
+use crate::tasks::ports::PortRow;
 use crate::theme::{
     Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS, TEXT_3XS, TEXT_XS,
 };
@@ -365,11 +365,11 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let selected = running.and_then(task_of).or(picked).or(tasks.first())?;
     let (id, label) = (selected.id.clone(), selected.label.clone());
     let last = last.filter(|run| running.is_none() && run.run.task_id == id);
-    let finished = last.map(|run| crate::test_card::Finished {
+    let finished = last.map(|run| crate::tasks::test_card::Finished {
         run,
         task: selected,
     });
-    let outcome = finished.as_ref().and_then(crate::test_card::status);
+    let outcome = finished.as_ref().and_then(crate::tasks::test_card::status);
     let failed = outcome
         .as_ref()
         .filter(|(_, wrong)| *wrong)
@@ -407,14 +407,14 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         .or(last.filter(|_| failed.is_some()))
         .and_then(|run| run.run.pty_id)
         .map(|session| (session, label.clone()));
-    let card = crate::run_check::card(bench, project, cx).or_else(|| {
+    let card = crate::tasks::run_check::card(bench, project, cx).or_else(|| {
         finished
             .as_ref()
-            .and_then(|finished| crate::test_card::card(bench, finished, output.clone(), cx))
+            .and_then(|finished| crate::tasks::test_card::card(bench, finished, output.clone(), cx))
     });
     let why = finished
         .as_ref()
-        .filter(|finished| crate::test_card::offers_why(bench, finished))
+        .filter(|finished| crate::tasks::test_card::offers_why(bench, finished))
         .map(|_| {
             let tip = if passed.is_none() && last.is_some_and(|run| run.tests.is_some()) {
                 "Show the failed tests"
@@ -431,7 +431,7 @@ fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
                 .tooltip(tip)
                 .child("Why?")
                 .on_click(cx.listener(|bench, _, _, cx| {
-                    crate::test_card::why(bench);
+                    crate::tasks::test_card::why(bench);
                     cx.notify();
                 }))
         });

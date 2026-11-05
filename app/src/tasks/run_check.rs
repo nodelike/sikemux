@@ -273,9 +273,9 @@ pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Op
                     .on_click(run(How::Fixed)),
             )
         });
-    let body = crate::test_card::frame(cx)
+    let body = crate::tasks::test_card::frame(cx)
         .on_mouse_down_out(cx.listener(|bench, _, _, cx| bench.close_run_check(cx)))
-        .child(crate::test_card::head_closing(
+        .child(crate::tasks::test_card::head_closing(
             title,
             |bench| bench.overlays.run_check = None,
             cx,
@@ -283,5 +283,5 @@ pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Op
         .children(items)
         .child(actions)
         .into_any_element();
-    Some(crate::test_card::under_chip(body))
+    Some(crate::tasks::test_card::under_chip(body))
 }
