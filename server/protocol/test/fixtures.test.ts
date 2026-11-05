@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { schema, validator } from "../src/index.ts";
 
-/** Fixtures of the types sikemux-wire holds, and of those only the core holds. */
+/** Fixtures of the types sikemux-wire holds, and of those sikemux-core holds. */
 const folders = ["../fixtures", "../fixtures-core"].map((folder) =>
   join(import.meta.dirname, folder),
 );

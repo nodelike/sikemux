@@ -42,6 +42,7 @@ const SOURCES = [
   `${WIRE}/pty/shell_protocol.rs`,
   `${WIRE}/pty/task.rs`,
   `${WIRE}/accounts/protocol.rs`,
+  `${CORE}/accounts/protocol.rs`,
   `${VIEW}/catalog.rs`,
   `${VIEW}/questions.rs`,
   `${CORE}/server/drafts.rs`,

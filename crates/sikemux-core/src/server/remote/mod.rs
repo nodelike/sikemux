@@ -21,10 +21,7 @@ use tokio::task::JoinHandle;
 
 use crate::accounts::live::{self, Link, Push, Want};
 use crate::accounts::network;
-use crate::accounts::protocol::{
-    AccountEvent, AccountEventType, DeviceRole, JoinTicket, LiveApp, Network, PushResult, Relay,
-    RevokeReason,
-};
+use crate::accounts::protocol::{AccountEvent, AccountEventType, DeviceRole, LiveApp, PushResult};
 use crate::join::{self, Expected, Refusal, TrustedKeys, JOIN_ALPN};
 use crate::protocol::{
     AccountLink, AccountLinkState, AllowedDevice, DeviceAccess, DeviceInfo, Event,
@@ -33,6 +30,7 @@ use crate::protocol::{
 };
 use crate::push::NotificationKey;
 use crate::remote::CORE_ALPN;
+use sikemux_wire::accounts::protocol::{JoinTicket, Network, Relay, RevokeReason};
 
 use super::access::{Peer, Setup, Standing};
 use super::changed::Topic;

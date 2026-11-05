@@ -17,9 +17,10 @@ use tokio::sync::{watch, Notify};
 
 use super::protocol::{
     AccountEvent, LiveAck, LiveApp, LiveCloseCode, LiveDeviceMessage, LiveHello, LiveLeave,
-    LivePong, LivePush, LiveRole, LiveServerMessage, PushKind, PushResult, RevokeReason,
+    LivePong, LivePush, LiveRole, LiveServerMessage, PushKind, PushResult,
 };
 use super::socket::{self, send, Closed, Failures, Frame, Socket};
+use sikemux_wire::accounts::protocol::RevokeReason;
 
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
 

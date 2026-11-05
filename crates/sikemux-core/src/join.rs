@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 pub use sikemux_client::join::*;
 
-use crate::accounts::protocol::JoinTicket;
+use sikemux_wire::accounts::protocol::JoinTicket;
 
 /// How far the host's clock may disagree with the server's.
 pub const CLOCK_SKEW_SECS: i64 = 60;

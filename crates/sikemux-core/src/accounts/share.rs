@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::protocol::*;
+use sikemux_wire::accounts::protocol::*;
 
 /// What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it.
 pub type Sealed = String;

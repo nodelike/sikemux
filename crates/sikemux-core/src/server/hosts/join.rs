@@ -13,9 +13,9 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use tokio::sync::Semaphore;
 
-use crate::accounts::protocol::JoinTicket;
 use crate::join::APPROVAL_TIMEOUT;
 use crate::protocol::PendingDevice;
+use sikemux_wire::accounts::protocol::JoinTicket;
 
 use super::super::join::{clean, NAME_LIMIT, PLATFORM_LIMIT};
 use super::super::notify::Signal;

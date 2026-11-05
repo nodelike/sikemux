@@ -152,10 +152,10 @@ mod tests {
     use iroh::{Endpoint, EndpointAddr, SecretKey};
 
     use super::*;
-    use crate::accounts::protocol::JoinTicket;
     use crate::join::vector::{vector, Vector};
     use crate::join::JOIN_ALPN;
     use crate::protocol::{AllowedDevice, BuildIdentity, DeviceAccess, RemoteStatus};
+    use sikemux_wire::accounts::protocol::JoinTicket;
 
     const ACCOUNT: &str = "user_2vectorTest";
     const WAIT: Duration = Duration::from_secs(30);

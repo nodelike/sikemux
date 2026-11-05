@@ -29,14 +29,28 @@ async function format(text, path) {
 }
 
 /**
- * Schemas only the core speaks, generated into sikemux-core rather than sikemux-wire, so a
- * change to them leaves the phone's native code, and its over-the-air updates, alone. Their
- * fixtures go in fixtures-core, which the core's own contract test reads.
+ * The definitions the phone's Rust names, generated into sikemux-wire. Every other one goes in
+ * sikemux-core, so a change to it leaves the phone's native code, and its over-the-air updates,
+ * alone. Those fixtures go in fixtures-core, which the core's own contract test reads.
  */
+const PHONE_RUST = new Set([
+  "AppVersion",
+  "ChannelVersions",
+  "DeviceKey",
+  "JoinTicket",
+  "MinimumVersions",
+  "Network",
+  "Relay",
+  "RevokeReason",
+]);
+const FROM_THE_WIRE = "\nuse sikemux_wire::accounts::protocol::*;\n";
 const CORE_ONLY = new Map([
-  ["share.json", "share.rs"],
-  ["host.json", "host.rs"],
-  ["hooks.json", "hooks.rs"],
+  ["share.json", { module: "share.rs", imports: FROM_THE_WIRE }],
+  [
+    "host.json",
+    { module: "host.rs", imports: `\nuse super::protocol::*;${FROM_THE_WIRE}` },
+  ],
+  ["hooks.json", { module: "hooks.rs", imports: FROM_THE_WIRE }],
 ]);
 
 const schemaDir = join(protocol, "schema");
@@ -65,16 +79,24 @@ try {
     [join(repo, "crates/sikemux-wire/src/accounts/protocol.rs")]: rust(
       definitions,
       {
-        include: (definition) => !CORE_ONLY.has(definition.file),
+        include: (definition) => PHONE_RUST.has(definition.name),
+      },
+    ),
+    [join(repo, "crates/sikemux-core/src/accounts/protocol.rs")]: rust(
+      definitions,
+      {
+        include: (definition) =>
+          !PHONE_RUST.has(definition.name) && !CORE_ONLY.has(definition.file),
+        imports: FROM_THE_WIRE,
       },
     ),
   };
-  for (const [file, module] of CORE_ONLY)
+  for (const [file, { module, imports }] of CORE_ONLY)
     outputs[join(repo, "crates/sikemux-core/src/accounts", module)] = rust(
       definitions,
       {
         include: (definition) => definition.file === file,
-        imports: "\nuse super::protocol::*;\n",
+        imports,
       },
     );
 } catch (error) {

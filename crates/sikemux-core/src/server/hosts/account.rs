@@ -17,11 +17,12 @@ use sikemux_process::sync::Locked;
 
 use crate::accounts::host::ApprovedHost;
 use crate::accounts::protocol::{
-    Challenge, Device, DeviceKey, DeviceList, DeviceRegistration, DeviceRole, JoinTicket, Platform,
+    Challenge, Device, DeviceList, DeviceRegistration, DeviceRole, Platform,
 };
 use crate::accounts::HostRequest;
 use crate::protocol::DeviceInfo;
 use crate::protocol::Event;
+use sikemux_wire::accounts::protocol::{DeviceKey, JoinTicket};
 
 use super::super::{Core, CoreError, CoreResult};
 use super::join::{link_with, LinkParams};

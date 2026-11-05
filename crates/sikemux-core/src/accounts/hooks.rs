@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::protocol::*;
+use sikemux_wire::accounts::protocol::*;
 
 /// A webhook a host added.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,8 +2,9 @@
 
 use std::sync::OnceLock;
 
-use crate::accounts::protocol::{ChannelVersions, MinimumVersions, Platform};
+use crate::accounts::protocol::Platform;
 use crate::protocol::{BuildChannel, HostInfo};
+use sikemux_wire::accounts::protocol::{ChannelVersions, MinimumVersions};
 
 /// Read once: asking System Information for the model takes a moment.
 pub fn info() -> HostInfo {

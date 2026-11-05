@@ -15,7 +15,17 @@ pub use sikemux_client::accounts::{
     tls_config,
 };
 pub use sikemux_client::accounts::{hooks_message, share_message, share_viewer_message};
-pub use sikemux_wire::accounts::protocol;
+pub mod protocol;
+
+impl From<crate::protocol::BuildChannel> for protocol::Channel {
+    fn from(build: crate::protocol::BuildChannel) -> Self {
+        match build {
+            crate::protocol::BuildChannel::Dev => Self::Dev,
+            crate::protocol::BuildChannel::Nightly => Self::Nightly,
+            crate::protocol::BuildChannel::Stable => Self::Stable,
+        }
+    }
+}
 
 /// Where the web app is. A shared chat's link opens there, and it hands the
 /// link on to the Mac or phone app when one is installed.
@@ -134,7 +144,8 @@ mod tests {
             for example in std::fs::read_dir(kind.path())? {
                 let path = example?.path();
                 let json = std::fs::read_to_string(&path)?;
-                let written = super::share::round_trip(&name, &json)
+                let written = super::protocol::round_trip(&name, &json)
+                    .or_else(|| super::share::round_trip(&name, &json))
                     .or_else(|| super::host::round_trip(&name, &json))
                     .or_else(|| super::hooks::round_trip(&name, &json))
                     .ok_or_else(|| format!("{name} has fixtures but no Rust type"))?
@@ -150,6 +161,13 @@ mod tests {
             }
         }
         assert!(checked > 0, "no fixtures under {}", fixtures.display());
+        Ok(())
+    }
+
+    #[test]
+    fn unknown_enum_values_still_read() -> serde_json::Result<()> {
+        let code: super::protocol::ErrorCode = serde_json::from_str("\"added_later\"")?;
+        assert_eq!(code, super::protocol::ErrorCode::Unknown);
         Ok(())
     }
 }

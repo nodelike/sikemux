@@ -12,7 +12,6 @@ use iroh::endpoint::presets;
 use iroh::{Endpoint, EndpointAddr, RelayMode};
 use serde_json::json;
 use sikemux_core::accounts::network;
-use sikemux_core::accounts::protocol::Relay;
 use sikemux_core::client::{probe, ClientEvent, CoreClient};
 use sikemux_core::grid::{decode_frame, Screen};
 use sikemux_core::protocol::{
@@ -20,6 +19,7 @@ use sikemux_core::protocol::{
 };
 use sikemux_core::remote::{self, SecretKey};
 use sikemux_core::server::{self, ServerConfig};
+use sikemux_wire::accounts::protocol::Relay;
 
 const WAIT: Duration = Duration::from_secs(60);
 /// A phone that dials before the core has joined the relay waits out QUIC's

@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::protocol::*;
+use sikemux_wire::accounts::protocol::*;
 
 /// The host a sign-in code belonged to, once approved.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

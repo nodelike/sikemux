@@ -13,10 +13,10 @@ use gpui_kit::{
     Styled, StyledImage, WeakEntity, Window,
 };
 use serde_json::json;
+use sikemux_core::accounts::protocol::{StashItem, StashKind, StashPreview};
 use sikemux_core::server::{
     call, AttachParams, ItemParams, PromptParams, ShownStashItem, ShownStashLink,
 };
-use sikemux_wire::accounts::protocol::{StashItem, StashKind, StashPreview};
 
 use crate::core::Target;
 use crate::icons::Icon;
