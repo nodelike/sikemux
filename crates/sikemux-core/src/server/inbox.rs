@@ -949,7 +949,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         let names: Vec<String> = failing
             .agents
             .iter()
-            .map(|agent| core.names.name_or_id(&agent))
+            .map(|agent| core.names.name_or_id(agent))
             .collect();
         let mut item = item(
             format!("check:{}", failing.project),

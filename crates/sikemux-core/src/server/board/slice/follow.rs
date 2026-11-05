@@ -246,7 +246,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         let State { boards, runs, .. } = &mut *state;
         let mut moved = |project: &str, agent: &str, head: Head, new_work: bool| {
             let board = boards.get_mut(project)?;
-            move_work(board, runs.get(project), agent, &head, new_work, &behind)
+            move_work(board, runs.get(project), agent, &head, new_work, behind)
         };
         match event {
             RepoEvent::Committed {

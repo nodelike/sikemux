@@ -1246,6 +1246,12 @@ pub(crate) async fn summary_for(
     .await
 }
 
+pub(crate) fn set_price_for(core: &Core, params: ActivityPriceParams) -> CoreResult<()> {
+    core.activity_log.set_price(&params.model, params.price)?;
+    core.changed(What::Read(Topic::Activity));
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1440,10 +1446,4 @@ mod tests {
         assert_eq!((run.active_days, run.current, run.longest), (5, 2, 3));
         assert_eq!(streaks(&active(&[97, 98]), 100).current, 0);
     }
-}
-
-pub(crate) fn set_price_for(core: &Core, params: ActivityPriceParams) -> CoreResult<()> {
-    core.activity_log.set_price(&params.model, params.price)?;
-    core.changed(What::Read(Topic::Activity));
-    Ok(())
 }

@@ -902,7 +902,7 @@ fn changed_by(core: &Core, state: &State, agent_id: &str, path: &Path, since: u6
     {
         let name = match &version.by {
             Some(by) if by == agent_id => continue,
-            Some(by) => core.names.name_or_id(&by),
+            Some(by) => core.names.name_or_id(by),
             None => "someone outside the agents' edit tools".to_owned(),
         };
         if !names.contains(&name) {

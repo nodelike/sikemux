@@ -140,8 +140,14 @@ calls! { core, client, method, params;
     "sleepAgent": Owner, counted => answer(super::lifecycle::sleep_agent(&core, &parse::<AgentParams>(params)?.agent_id)?),
     "sleepIdleChats": NoDevice => answer(json!({ "slept": super::lifecycle::sleep_idle(&core) })),
     "startTerminalAgent": NoDevice, counted => super::launching::start_terminal_at(&core, parse(params)?).await,
-    "commandUsed": NoDevice => answer(core.activity_log.command_used(&parse::<super::activity_log::CommandUsed>(params)?.id)),
-    "composing": Owner => answer(super::chat::composing(&core, &parse::<AgentParams>(params)?.agent_id)),
+    "commandUsed": NoDevice => {
+        core.activity_log.command_used(&parse::<super::activity_log::CommandUsed>(params)?.id);
+        answer(())
+    },
+    "composing": Owner => {
+        super::chat::composing(&core, &parse::<AgentParams>(params)?.agent_id);
+        answer(())
+    },
     "startChat": NoDevice, counted => {
         let params: super::launching::StartParams = parse(params)?;
         answer(super::launching::start_saved(&core, &params.agent_id, params.waits_for_person).await?)

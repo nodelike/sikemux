@@ -516,6 +516,25 @@ pub(crate) struct AccountPictureParams {
     pub(crate) hash: String,
 }
 
+/// This host as `user_id`'s account is to register it, signed for the challenge `nonce`, when
+/// the account may have it.
+pub(crate) async fn host_registration(
+    core: &Core,
+    nonce: &str,
+    user_id: &str,
+    peer: &Peer,
+) -> CoreResult<HostRegistration> {
+    core.remote.may_join(user_id, peer)?;
+    let (key, signature) = core.remote.sign_registration(nonce, user_id)?;
+    let host = super::connection::blocking(|| Ok(super::host::info())).await?;
+    Ok(HostRegistration {
+        key,
+        name: host.name,
+        channel: host.channel,
+        signature,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -568,23 +587,4 @@ mod tests {
         assert!(subject(&format!("h.{machine}.s")).is_err());
         assert!(subject("not-a-token").is_err());
     }
-}
-
-/// This host as `user_id`'s account is to register it, signed for the challenge `nonce`, when
-/// the account may have it.
-pub(crate) async fn host_registration(
-    core: &Core,
-    nonce: &str,
-    user_id: &str,
-    peer: &Peer,
-) -> CoreResult<HostRegistration> {
-    core.remote.may_join(user_id, peer)?;
-    let (key, signature) = core.remote.sign_registration(nonce, user_id)?;
-    let host = super::connection::blocking(|| Ok(super::host::info())).await?;
-    Ok(HostRegistration {
-        key,
-        name: host.name,
-        channel: host.channel,
-        signature,
-    })
 }
