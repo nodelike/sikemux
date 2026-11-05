@@ -19,7 +19,6 @@ use crate::sessions::search::{self, Scope, SearchRequest, SearchResult, SessionM
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::connection::blocking;
-use super::messages;
 use super::workspace::project_of;
 use super::{Core, CoreResult};
 
@@ -62,7 +61,7 @@ fn providers(core: &Core) -> Vec<RecentProvider> {
 /// The agent open on each saved session, by CLI and session id, whether or
 /// not it runs now.
 fn open_sessions(core: &Core) -> HashMap<(String, String), (String, Option<String>)> {
-    messages::listed(core)
+    crate::server::roster::listed(core)
         .into_iter()
         .filter_map(|agent| {
             let session = core.names.session_of(&agent.agent_id)?;
@@ -176,7 +175,7 @@ fn scope(core: &Core, request: &HarnessRequest) -> Result<Option<Vec<String>>, S
         Some(_) => return Err("allProjects must be a boolean".into()),
     }
     let project = match request.params.get("project") {
-        None | Some(Value::Null) => messages::caller_project(core, request),
+        None | Some(Value::Null) => super::caller::project_of(core, request),
         Some(Value::String(path)) if !path.trim().is_empty() => {
             let path = Path::new(path.trim());
             std::fs::canonicalize(path)

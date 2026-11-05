@@ -596,17 +596,7 @@ pub(crate) fn turn_ended(core: &Core, agent_id: &str) {
 }
 
 fn text_param(params: &Value, key: &str, max: usize) -> Result<Option<String>, String> {
-    match params.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(text)) if !text.trim().is_empty() && text.len() <= max => {
-            Ok(Some(text.trim().to_owned()))
-        }
-        Some(Value::String(text)) if !text.trim().is_empty() => Err(format!(
-            "{key} is {} bytes, more than the {max} it may hold",
-            text.len()
-        )),
-        Some(_) => Err(format!("{key} must be nonempty text")),
-    }
+    Ok(super::caller::text_param(params, key, max)?.map(|text| text.trim().to_owned()))
 }
 
 fn choices(value: Option<&Value>) -> Result<Vec<QuestionChoice>, String> {
@@ -678,13 +668,8 @@ fn reachable(core: &Core, agent_id: &str) -> bool {
 }
 
 fn cli_of(core: &Core, agent_id: &str) -> String {
-    core.chats
-        .get(agent_id)
-        .map(|chat| chat.provider().to_owned())
-        .or_else(|| {
-            core.agent_session(agent_id)
-                .and_then(|session| session.info().agent_type)
-        })
+    core.agent_now(agent_id)
+        .cli()
         .unwrap_or_else(|| "agent".to_owned())
 }
 
@@ -704,7 +689,7 @@ fn open(
         .filter(|lead| reachable(core, lead));
     let stage = match lead {
         Some(lead_id) => Stage::Lead {
-            lead_name: core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone()),
+            lead_name: core.names.name_or_id(&lead_id),
             lead_id,
             ended_at: None,
         },

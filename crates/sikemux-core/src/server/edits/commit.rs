@@ -119,10 +119,7 @@ struct Change {
 /// when asked lands them from a checkout of its own onto the branch it was
 /// cut from, and pushes its unpushed commits.
 pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent_id = request
-        .agent_id
-        .clone()
-        .ok_or("git_commit needs the calling agent's id")?;
+    let agent_id = crate::server::caller::agent_of(request, "git_commit")?;
     let flag = |name: &str| request.params.get(name).and_then(Value::as_bool) == Some(true);
     let (land, push) = (flag("land"), flag("push"));
     let message = match request.params.get("message") {

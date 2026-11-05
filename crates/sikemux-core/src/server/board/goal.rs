@@ -16,7 +16,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::memory::Learned;
 use sikemux_view::slice::{Assertion, Collect, Decision, GoalRule};
 
-use super::{caller, caller_project, goal_of, project_at, project_view, Board, BoardView, GoalRef};
+use super::{goal_of, project_at, project_view, Board, BoardView, GoalRef};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::Core;
@@ -476,7 +476,7 @@ struct ToolDecide {
 /// `board_decide`: records, corrects or retires a decision of the goal the
 /// agent's live card sits under, or proposes the project's environments.
 pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = caller(request, "board_decide")?;
+    let agent = crate::server::caller::agent_of(request, "board_decide")?;
     let given: ToolDecide =
         serde_json::from_value(request.params.clone()).map_err(|error| error.to_string())?;
     let core = core.clone();
@@ -586,7 +586,7 @@ pub(crate) async fn tool_assert(
     core: &Arc<Core>,
     request: &HarnessRequest,
 ) -> Result<Value, String> {
-    let agent = caller(request, "board_assert")?;
+    let agent = crate::server::caller::agent_of(request, "board_assert")?;
     let given: ToolAssert =
         serde_json::from_value(request.params.clone()).map_err(|error| error.to_string())?;
     let (core, request) = (core.clone(), request.clone());
@@ -597,7 +597,7 @@ pub(crate) async fn tool_assert(
             evidence_of(given.evidence.as_deref(), given.workflow)?,
             given.retire,
         )?;
-        let project = caller_project(&core, &request);
+        let project = crate::server::caller::project_of(&core, &request);
         let goal = match given.goal {
             Some(goal) => goal,
             None => {

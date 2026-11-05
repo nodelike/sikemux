@@ -12,7 +12,7 @@ use sikemux_plugin_api::{AgentTool, Manifest};
 
 use super::super::connection::{blocking, ClientConn};
 use super::super::plugins::{self, Provided};
-use super::super::{board, codehost, git, messages, tasks, Core, CoreError, CoreResult};
+use super::super::{board, codehost, git, tasks, Core, CoreError, CoreResult};
 use super::{read_manifest, Manifest as ModManifest};
 
 /// Where a name the bridge is asked for goes.
@@ -243,7 +243,11 @@ async fn run(
             let core = core.clone();
             blocking(move || {
                 let project = project.filter(|_| !every);
-                Ok(Value::Array(messages::rows(&core, project.as_deref(), "")))
+                Ok(Value::Array(crate::server::roster::rows(
+                    &core,
+                    project.as_deref(),
+                    "",
+                )))
             })
             .await
         }
@@ -342,7 +346,7 @@ async fn run(
 async fn agent_named(core: &Arc<Core>, agent: &str) -> CoreResult<String> {
     let (core, agent) = (core.clone(), agent.to_owned());
     blocking(move || {
-        messages::listed(&core)
+        crate::server::roster::listed(&core)
             .into_iter()
             .find(|listed| {
                 listed.agent_id == agent

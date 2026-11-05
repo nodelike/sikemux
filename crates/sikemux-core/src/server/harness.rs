@@ -661,14 +661,14 @@ async fn dispatch(
             super::wait_for::call(&request).await
         }
         "events.wait" => events_wait(core, &request).await,
-        "agent.list" => messages::list(core, &request).await,
+        "agent.list" => super::roster::list(core, &request).await,
         "agent.send" => messages::send(core, &request).await,
         "agent.spawn" => spawn::spawn(core, &request).await,
         "agent.sessions" => saved::find(core, &request).await,
         "agent.ask" => questions::ask(core, &request).await,
         "agent.read" => follow::read(core, &request).await,
         "agent.wait" => follow::wait(core, &request).await,
-        "agent.close" => messages::close(core, &request).await,
+        "agent.close" => super::roster::close(core, &request).await,
         "agent.wrote" => super::who_wrote::tool(core, &request).await,
         "board.add" => board::add(core, &request).await,
         "board.list" => board::list(core, &request).await,

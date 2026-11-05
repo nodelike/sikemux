@@ -607,13 +607,6 @@ pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
     listed
 }
 
-fn caller(request: &HarnessRequest, tool: &str) -> Result<String, String> {
-    request
-        .agent_id
-        .clone()
-        .ok_or_else(|| format!("{tool} needs the calling agent's id"))
-}
-
 fn params<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, String> {
     serde_json::from_value(params).map_err(|error| error.to_string())
 }
@@ -673,9 +666,9 @@ fn goal_card(core: &Core, agent: &str) -> Result<u64, String> {
 /// `memory_add`: a rule or knowledge for the agent's project, or a rule for
 /// the goal its live card sits under.
 pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = caller(request, "memory_add")?;
+    let agent = crate::server::caller::agent_of(request, "memory_add")?;
     let adding: ToolAdd = params(request.params.clone())?;
-    let project = board::caller_project(core, request);
+    let project = crate::server::caller::project_of(core, request);
     let core = core.clone();
     run(move || {
         let new = match adding {
@@ -719,9 +712,9 @@ pub(crate) async fn tool_update(
     core: &Arc<Core>,
     request: &HarnessRequest,
 ) -> Result<Value, String> {
-    let agent = caller(request, "memory_update")?;
+    let agent = crate::server::caller::agent_of(request, "memory_update")?;
     let given: ToolUpdate = params(request.params.clone())?;
-    let project = board::caller_project(core, request);
+    let project = crate::server::caller::project_of(core, request);
     let id = given.id;
     let core = core.clone();
     run(move || {
@@ -749,8 +742,8 @@ fn said_by(learned: &Learned) -> &str {
 /// `memory_list`: every rule and piece of knowledge kept for the agent's
 /// project, with the decisions of the goal its live card sits under.
 pub(crate) async fn tool_list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = caller(request, "memory_list")?;
-    let project = board::caller_project(core, request);
+    let agent = crate::server::caller::agent_of(request, "memory_list")?;
+    let project = crate::server::caller::project_of(core, request);
     let goal = board::goal_of(core, &agent).map(|goal| (goal.card, goal::standing(core, &goal)));
     let state = core.memory.state.locked();
     let (mut rules, mut knowledge) = (Vec::new(), Vec::new());

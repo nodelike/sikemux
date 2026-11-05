@@ -30,6 +30,14 @@ impl AgentNow<'_> {
         session.agent.as_ref().map(read)
     }
 
+    /// The CLI it runs under, when it runs here.
+    pub(crate) fn cli(&self) -> Option<String> {
+        match self.chat() {
+            Some(chat) => Some(chat.provider().to_owned()),
+            None => self.core.agent_session(self.id)?.info().agent_type,
+        }
+    }
+
     /// It runs now, here or on a linked host.
     pub(crate) fn running(&self) -> bool {
         self.chat().is_some()

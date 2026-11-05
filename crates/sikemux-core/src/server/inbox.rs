@@ -26,6 +26,7 @@ use super::connection::blocking;
 use super::display;
 use super::notify::provider_name;
 use super::questions::ForPerson;
+use super::roster;
 use super::{Core, CoreResult};
 use sikemux_view::slice::Gate;
 
@@ -435,20 +436,16 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
             host: None,
         })
         .collect();
-    for session in sessions {
-        let (Some(agent_id), Some(group)) = (&session.agent_id, session.group) else {
+    for (session, agent_id) in roster::terminals(chats, sessions) {
+        let Some(group) = session.group.filter(|_| session.running) else {
             continue;
         };
-        if !session.running || chats.iter().any(|chat| &chat.agent_id == agent_id) {
-            continue;
-        }
         agents.push(Agent {
-            id: agent_id.clone(),
+            id: agent_id.to_owned(),
             name: session.agent_name.clone(),
             cli: session.agent_type.clone(),
             project: project(agent_id).or_else(|| {
-                let id = session.project.as_deref()?;
-                let folder = core.workspaces.project_info(id)?.path;
+                let folder = roster::terminal_folder(core, session)?;
                 Some(folder.to_string_lossy().into_owned())
             }),
             title: session.title.clone(),
@@ -899,7 +896,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     }
     for looped in core.harness.mailbox.loops() {
         let (agent, other) = &looped.agents;
-        let other_name = core.names.name(other).unwrap_or_else(|| other.clone());
+        let other_name = core.names.name_or_id(other);
         let mut item = item(
             format!("loop:{}", pair_id(agent, other)),
             Case::Looping,
@@ -914,7 +911,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     }
     for pair in core.collisions.pairs() {
         let (agent, other) = &pair.agents;
-        let other_name = core.names.name(other).unwrap_or_else(|| other.clone());
+        let other_name = core.names.name_or_id(other);
         let mut item = item(
             format!("collide:{}", pair_id(agent, other)),
             Case::Colliding,
@@ -972,7 +969,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         let names: Vec<String> = failing
             .agents
             .iter()
-            .map(|agent| core.names.name(agent).unwrap_or_else(|| agent.clone()))
+            .map(|agent| core.names.name_or_id(&agent))
             .collect();
         let mut item = item(
             format!("check:{}", failing.project),
@@ -1217,24 +1214,22 @@ fn shown(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agent
             (chat.attention_rank, shown)
         })
         .collect();
-    ranked.extend(sessions.iter().filter_map(|session| {
-        let agent_id = session.agent_id.as_ref()?;
-        if chats.iter().any(|chat| &chat.agent_id == agent_id) {
-            return None;
-        }
-        let cli = session.agent_type.clone().unwrap_or_else(|| "agent".into());
-        let title = session
-            .title
-            .clone()
-            .filter(|title| !title.is_empty())
-            .unwrap_or_else(|| provider_name(core, &cli));
-        let mut shown = agent_shown(agent_id.clone(), cli, title, session.status?);
-        shown.unread = session.unread;
-        shown.active_at = session.active_at;
-        shown.next_trigger = session.next_trigger;
-        shown.called_at = session.called_at;
-        Some((session.attention_rank.unwrap_or(u32::MAX), shown))
-    }));
+    ranked.extend(
+        roster::terminals(chats, sessions).filter_map(|(session, agent_id)| {
+            let cli = session.agent_type.clone().unwrap_or_else(|| "agent".into());
+            let title = session
+                .title
+                .clone()
+                .filter(|title| !title.is_empty())
+                .unwrap_or_else(|| provider_name(core, &cli));
+            let mut shown = agent_shown(agent_id.to_owned(), cli, title, session.status?);
+            shown.unread = session.unread;
+            shown.active_at = session.active_at;
+            shown.next_trigger = session.next_trigger;
+            shown.called_at = session.called_at;
+            Some((session.attention_rank.unwrap_or(u32::MAX), shown))
+        }),
+    );
     ranked.sort_by(|a, b| (a.0, &a.1.agent_id).cmp(&(b.0, &b.1.agent_id)));
     ranked.into_iter().map(|(_, shown)| shown).collect()
 }

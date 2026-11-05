@@ -17,6 +17,7 @@ use crate::cli::protocol::HarnessRequest;
 use crate::launch::PermissionMode;
 use sikemux_wire::protocol::Event;
 
+use super::caller::text_param;
 use super::chat;
 use super::connection::blocking;
 use super::follow::{self, TerminalAnswer};
@@ -75,18 +76,6 @@ fn open(core: &Core) -> HashSet<String> {
     let mut open = core.open_agents();
     open.extend(core.harness.spawning.opening().iter().cloned());
     open
-}
-
-fn text_param<'a>(params: &'a Value, key: &str, max: usize) -> Result<Option<&'a str>, String> {
-    match params.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(text)) if !text.trim().is_empty() && text.len() <= max => Ok(Some(text)),
-        Some(Value::String(text)) if !text.trim().is_empty() => Err(format!(
-            "{key} is {} bytes, more than the {max} it may hold",
-            text.len()
-        )),
-        Some(_) => Err(format!("{key} must be nonempty text")),
-    }
 }
 
 /// Whether the agent gets a checkout of its own, cut from its lead's, rather
@@ -521,9 +510,9 @@ async fn send_to_open(
     let stopped = {
         let (core, agent_id) = (core.clone(), agent_id.to_owned());
         blocking(move || {
-            Ok(messages::listed(&core)
-                .iter()
-                .any(|agent| agent.agent_id == agent_id && agent.reach == messages::Reach::Stopped))
+            Ok(crate::server::roster::listed(&core).iter().any(|agent| {
+                agent.agent_id == agent_id && agent.reach == crate::server::roster::Reach::Stopped
+            }))
         })
         .await
         .map_err(|error| error.to_string())?

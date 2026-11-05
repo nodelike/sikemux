@@ -349,21 +349,14 @@ fn show(core: &Core, trigger: &Trigger) {
     core.changed(What::View);
 }
 
-fn caller(request: &HarnessRequest, tool: &str) -> Result<String, String> {
-    request
-        .agent_id
-        .clone()
-        .ok_or_else(|| format!("{tool} needs the calling agent's id"))
-}
-
 pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent_id = caller(request, "trigger_add")?;
+    let agent_id = crate::server::caller::agent_of(request, "trigger_add")?;
     let params = &request.params;
     let title = text(params, "title", MAX_TITLE_CHARS)?;
     let prompt = text(params, "prompt", MAX_PROMPT_CHARS)?;
     let board = match params.get("board") {
         None | Some(Value::Null) | Some(Value::Bool(false)) => None,
-        Some(Value::Bool(true)) => Some(super::board::caller_project(core, request)),
+        Some(Value::Bool(true)) => Some(crate::server::caller::project_of(core, request)),
         Some(_) => return Err("board must be a boolean".into()),
     };
     let now = epoch_ms();
@@ -464,8 +457,8 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
 }
 
 pub(crate) fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent_id = caller(request, "trigger_list")?;
-    let project = super::board::caller_project(core, request);
+    let agent_id = crate::server::caller::agent_of(request, "trigger_list")?;
+    let project = crate::server::caller::project_of(core, request);
     let state = core.triggers.state.locked();
     let mut triggers: Vec<&Trigger> = state
         .triggers
@@ -491,8 +484,8 @@ pub(crate) fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, 
 }
 
 pub(crate) fn remove_by_agent(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent_id = caller(request, "trigger_remove")?;
-    let project = super::board::caller_project(core, request);
+    let agent_id = crate::server::caller::agent_of(request, "trigger_remove")?;
+    let project = crate::server::caller::project_of(core, request);
     let id = request
         .params
         .get("trigger")

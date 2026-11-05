@@ -133,16 +133,17 @@ pub(super) fn fact(
     text: &str,
     open: SourceLink,
 ) -> Moment {
-    let mut source = source(kind, at, who, clipped(&one_line(text), MAX_FACT_CHARS));
+    let mut source = source(
+        kind,
+        at,
+        who,
+        clipped(&crate::text::one_line(text), MAX_FACT_CHARS),
+    );
     source.open = Some(open);
     Moment {
         source,
         place: None,
     }
-}
-
-fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn top_of<'a>(cards: &'a [CardView], card: &'a CardView) -> &'a CardView {
@@ -218,12 +219,12 @@ pub(crate) fn person_said(text: &str) -> Option<String> {
         .map(|(question, _)| question.replace("&quot;", "\"").replace("&amp;", "&"))?;
     let answer = text.split_once('>')?.1.split("</question-answer>").next()?;
     let line = format!("Asked \"{question}\", you answered: {}", answer.trim());
-    (!may_hold_secret(&line)).then(|| clipped(&one_line(&line), MAX_PERSON_CHARS))
+    (!may_hold_secret(&line)).then(|| clipped(&crate::text::one_line(&line), MAX_PERSON_CHARS))
 }
 
 /// The start and end of a long answer, which are where it says what it did and what is left.
 pub(super) fn answer_text(text: &str) -> String {
-    let line = one_line(&sikemux_markdown::words(&prose_of(text)));
+    let line = crate::text::one_line(&sikemux_markdown::words(&prose_of(text)));
     let count = line.chars().count();
     if count <= MAX_ANSWER_CHARS {
         return line;
@@ -239,7 +240,10 @@ fn is_check(title: &str) -> bool {
 }
 
 fn place_of(text: &str) -> String {
-    one_line(text).chars().take(PLACE_CHARS).collect()
+    crate::text::one_line(text)
+        .chars()
+        .take(PLACE_CHARS)
+        .collect()
 }
 
 /// What one agent's turns add, from what its session file said.
@@ -495,7 +499,7 @@ fn commits(core: &Core, project: &str, workers: &[Worker], since: u64) -> Vec<Mo
             true => "on the project's branch",
             false => "not on the project's branch",
         };
-        let subject = one_line(&prose_of(subject));
+        let subject = crate::text::one_line(&prose_of(subject));
         found.push(fact(
             SourceKind::Commit,
             at,

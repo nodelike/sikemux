@@ -19,7 +19,7 @@ use super::connection::blocking;
 use super::edits::note::{self, Note, Wrote};
 use super::edits::{commit_lines, owners_at, CommitLines};
 use super::edits::{footer, git};
-use super::messages::{self, Listed, Reach};
+use super::roster::{self, Listed, Reach};
 use super::{saved, Core, CoreResult};
 
 mod ci;
@@ -218,7 +218,7 @@ pub(crate) async fn call(
                 .iter()
                 .map(|(commit, agents)| (commit.as_str(), agents.as_slice())),
         );
-        let listed = messages::listed(&core);
+        let listed = roster::listed(&core);
         Ok(found
             .into_iter()
             .map(|(commit, agents)| {
@@ -591,7 +591,7 @@ fn uncommitted_by(core: &Core, top: &Path, path: &str, asked: Option<&Lines>) ->
     let Some(file) = owners.files.iter().find(|file| file.path == path) else {
         return Vec::new();
     };
-    let listed = messages::listed(core);
+    let listed = roster::listed(core);
     let mut by: BTreeMap<usize, Vec<u64>> = BTreeMap::new();
     for run in &file.lines {
         let lines = (run.start..run.start + run.count).filter(|line| {
@@ -786,7 +786,7 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         } else {
             describe(&top, &hashes)?
         };
-        let listed = messages::listed(&core);
+        let listed = roster::listed(&core);
         let agents: Vec<(Described, Vec<Agent>)> = described
             .into_iter()
             .map(|commit| {

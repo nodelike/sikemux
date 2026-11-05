@@ -219,6 +219,11 @@ impl Names {
         open
     }
 
+    /// The agent's name, or its id for one with none.
+    pub(crate) fn name_or_id(&self, agent_id: &str) -> String {
+        self.name(agent_id).unwrap_or_else(|| agent_id.to_owned())
+    }
+
     pub(crate) fn is_pinned(&self, agent_id: &str) -> bool {
         self.pinned.locked().contains(agent_id)
     }

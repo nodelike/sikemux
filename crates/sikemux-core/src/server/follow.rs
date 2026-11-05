@@ -15,7 +15,8 @@ use sikemux_wire::protocol::AgentStatus;
 
 use super::chat::feed::Said;
 use super::connection::blocking;
-use super::messages::{self, Listed, Reach};
+use super::messages;
+use super::roster::{self, Listed, Reach};
 use super::transcript;
 use super::Core;
 use crate::agent_catalog::AgentKind;
@@ -581,9 +582,8 @@ pub(crate) async fn read(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     let target = {
         let (core, request, caller) = (core.clone(), request.clone(), caller.clone());
         blocking(move || {
-            let project = messages::caller_project(&core, &request);
-            let target =
-                messages::resolve(&core, &messages::listed(&core), &agent, &project, &caller)?;
+            let project = super::caller::project_of(&core, &request);
+            let target = roster::resolve(&core, &roster::listed(&core), &agent, &project, &caller)?;
             if target.agent_id == caller {
                 return Err("That agent is you".into());
             }
@@ -614,7 +614,7 @@ pub(crate) async fn read_here(
 ) -> Result<Value, String> {
     let core = core.clone();
     blocking(move || {
-        let target = messages::listed(&core)
+        let target = roster::listed(&core)
             .into_iter()
             .find(|agent| agent.agent_id == agent_id && agent.reach != Reach::Remote)
             .ok_or("that agent is not on this host")?;
@@ -655,7 +655,7 @@ fn read_target(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Val
     fields.insert("cli".into(), target.cli.clone().into());
     fields.insert(
         "status".into(),
-        messages::status_word(target.standing(core)).into(),
+        roster::status_word(target.standing(core)).into(),
     );
     Ok(answer)
 }
@@ -696,11 +696,11 @@ fn waited(
     wanted: &[String],
     caller: &str,
 ) -> Result<Vec<Waited>, String> {
-    let project = messages::caller_project(core, request);
-    let agents = messages::listed(core);
+    let project = super::caller::project_of(core, request);
+    let agents = roster::listed(core);
     let mut found: Vec<Waited> = Vec::new();
     for agent in wanted {
-        let waited = match messages::resolve(core, &agents, agent, &project, caller) {
+        let waited = match roster::resolve(core, &agents, agent, &project, caller) {
             Ok(target) => Waited {
                 status: Some(target.standing(core)),
                 name: target.name.unwrap_or_else(|| target.agent_id.clone()),
@@ -744,7 +744,7 @@ fn waited(
 /// The agents a wait is on as they stand now, found again by id, as a name
 /// no longer finds an agent that has gone.
 fn refreshed(core: &Core, waited: &[Waited]) -> Vec<Waited> {
-    let agents = messages::listed(core);
+    let agents = roster::listed(core);
     waited
         .iter()
         .map(
@@ -767,7 +767,7 @@ fn standing(waited: &Waited) -> Value {
     json!({
         "name": waited.name,
         "agentId": waited.agent_id,
-        "status": waited.status.map_or("gone", messages::status_word),
+        "status": waited.status.map_or("gone", roster::status_word),
     })
 }
 
@@ -817,7 +817,7 @@ pub(crate) async fn wait(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                     json!({
                         "agent": waited.name,
                         "agentId": waited.agent_id,
-                        "what": format!("is {} now", waited.status.map_or("gone", messages::status_word)),
+                        "what": format!("is {} now", waited.status.map_or("gone", roster::status_word)),
                     })
                 })
                 .collect();

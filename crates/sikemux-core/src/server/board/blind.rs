@@ -197,7 +197,9 @@ fn unseat(core: &Arc<Core>, step: &Step, agent: &str, held: Option<Hold>, note: 
 
 /// Starts the reviewer. False when no agent can review the change.
 async fn start(core: &Arc<Core>, step: &Step, agent: &str, head: &str) -> Result<bool, String> {
-    let builder = super::cli_of(core, step.agent())
+    let builder = core
+        .agent_now(step.agent())
+        .cli()
         .or_else(|| step.card.owner.as_ref().and_then(|owner| owner.cli.clone()));
     let chosen = step.settings.reviewer.clone();
     let Some(launcher) = core.workspaces.reviewer_launcher(

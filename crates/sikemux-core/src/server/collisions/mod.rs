@@ -726,7 +726,7 @@ impl Collisions {
             return;
         }
         state.claim_notes.insert(key, now);
-        let name = |id: &str| core.names.name(id).unwrap_or_else(|| id.to_owned());
+        let name = |id: &str| core.names.name_or_id(id);
         let (agent_name, holder_name) = (name(agent), name(&holder));
         let file = shown(path, project);
         let minutes = now.saturating_sub(held_at) / 60_000;
@@ -1000,7 +1000,7 @@ fn changed_by(core: &Core, state: &State, agent_id: &str, path: &Path, since: u6
     {
         let name = match &version.by {
             Some(by) if by == agent_id => continue,
-            Some(by) => core.names.name(by).unwrap_or_else(|| by.clone()),
+            Some(by) => core.names.name_or_id(&by),
             None => "someone outside the agents' edit tools".to_owned(),
         };
         if !names.contains(&name) {
@@ -1215,7 +1215,7 @@ fn warn(
     now: u64,
 ) {
     let (path, writer, owner) = key;
-    let name = |id: &str| core.names.name(id).unwrap_or_else(|| id.to_owned());
+    let name = |id: &str| core.names.name_or_id(id);
     let file = shown(path, &overlap.project);
     let lines = spoken(&overlap.lines);
     let owner_name = name(owner);
@@ -1268,7 +1268,7 @@ impl Collisions {
         } = change;
         let at = written.at;
         let project = core.workspaces.project_of(&path);
-        let listed = super::messages::listed(core);
+        let listed = super::roster::listed(core);
         let (shells, terminals) = self.writers(core, &listed, &project, &path, written);
         let writer = match (shells.len(), terminals.len()) {
             (1, 0) => shells.first().cloned().map(|agent| (agent, true)),
@@ -1401,7 +1401,7 @@ impl Collisions {
             return false;
         }
         let project = core.workspaces.project_of(path);
-        let listed = super::messages::listed(core);
+        let listed = super::roster::listed(core);
         unclaimed.into_iter().any(|written| {
             let (shells, terminals) = self.writers(core, &listed, &project, path, written);
             !shells.contains(agent_id) && !terminals.contains(agent_id)
@@ -1415,7 +1415,7 @@ impl Collisions {
     pub(crate) fn writers(
         &self,
         core: &Core,
-        listed: &[super::messages::Listed],
+        listed: &[super::roster::Listed],
         project: &str,
         place: &Path,
         written: Written,
@@ -1457,7 +1457,7 @@ impl Collisions {
     pub(crate) fn at_work(
         &self,
         core: &Core,
-        listed: &[super::messages::Listed],
+        listed: &[super::roster::Listed],
         project: &str,
         place: &Path,
         at: u64,
@@ -1519,14 +1519,14 @@ fn in_background(core: &Core, project: &str, place: &Path) -> BTreeSet<String> {
 /// The terminal agents in `project` working now, in the checkout holding `place`.
 fn terminals_at_work(
     core: &Core,
-    listed: &[super::messages::Listed],
+    listed: &[super::roster::Listed],
     project: &str,
     place: &Path,
 ) -> BTreeSet<String> {
     listed
         .iter()
         .filter(|agent| {
-            agent.reach == super::messages::Reach::Terminal
+            agent.reach == super::roster::Reach::Terminal
                 && agent.project == project
                 && agent.status == sikemux_wire::protocol::AgentStatus::Working
         })

@@ -106,10 +106,6 @@ struct SaidLine {
     moments: Vec<i64>,
 }
 
-fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 /// A sentence's sources, when it names at least one moment and all that it names exist.
 fn sources(numbers: &[i64], moments: &[Moment]) -> Option<Vec<SummarySource>> {
     let mut sources: Vec<SummarySource> = Vec::new();
@@ -149,7 +145,7 @@ fn lines(said: Vec<SaidLine>, moments: &[Moment], most: usize) -> (Vec<SummaryLi
     let mut lines = Vec::new();
     let mut dropped = 0;
     for line in said {
-        let text = one_line(&line.text);
+        let text = crate::text::one_line(&line.text);
         let sources = sources(&line.moments, moments)
             .filter(|sources| names_only_its_sources(&text, sources))
             .filter(|_| !text.is_empty() && text.chars().count() <= MAX_SENTENCE_CHARS);
@@ -184,7 +180,7 @@ pub(super) fn read(
         .ok_or_else(|| {
             format!(
                 "The model answered: {}",
-                clipped(&one_line(said), MAX_SAID_CHARS)
+                clipped(&crate::text::one_line(said), MAX_SAID_CHARS)
             )
         })?;
     let answer: Said = serde_json::from_str(json)
@@ -222,7 +218,7 @@ pub(super) fn read(
     let unchecked = !moments
         .iter()
         .any(|moment| matches!(moment.source.kind, SourceKind::Evidence | SourceKind::Gate));
-    let title = (answer.title.as_deref().map(one_line))
+    let title = (answer.title.as_deref().map(crate::text::one_line))
         .filter(|title| gathered.title_is_chopped && !title.is_empty())
         .map(|title| clipped(&title, MAX_TITLE_CHARS));
     let summary = GoalSummary {

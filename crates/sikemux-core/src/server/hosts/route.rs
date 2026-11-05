@@ -17,8 +17,9 @@ use sikemux_wire::protocol::AgentStatus;
 
 use super::super::connection::blocking;
 use super::super::follow::{self, Happened};
-use super::super::messages::{self, Carried, Kind, Reach};
+use super::super::messages::{self, Carried, Kind};
 use super::super::names::Worker;
+use super::super::roster::{self, Reach};
 use super::super::{questions, Core, CoreResult};
 use super::team::{Foreign, Role};
 use super::{ask, goes_now, name_of, post, Failed, Sending};
@@ -199,7 +200,7 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
     tokio::spawn(async move {
         let listed = {
             let core = core.clone();
-            blocking(move || Ok(messages::listed(&core))).await
+            blocking(move || Ok(roster::listed(&core))).await
         };
         let Ok(listed) = listed else {
             return;

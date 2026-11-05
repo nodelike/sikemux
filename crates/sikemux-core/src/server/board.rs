@@ -1037,25 +1037,6 @@ fn board_project(core: &Core, path: &str) -> String {
     core.workspaces.project_of(Path::new(path))
 }
 
-pub(crate) fn caller_project(core: &Core, request: &HarnessRequest) -> String {
-    request
-        .agent_id
-        .as_deref()
-        .and_then(|agent_id| core.names.get(agent_id))
-        .map(|named| named.project)
-        .unwrap_or_else(|| board_project(core, &request.project))
-}
-
-fn cli_of(core: &Core, agent_id: &str) -> Option<String> {
-    core.chats
-        .get(agent_id)
-        .map(|chat| chat.provider().to_owned())
-        .or_else(|| {
-            core.agent_session(agent_id)
-                .and_then(|session| session.info().agent_type)
-        })
-}
-
 /// The provider paying for the agent's turns, by name, when not its own account.
 fn paid_by(core: &Core, agent_id: &str) -> Option<String> {
     let chat = core.chats.get(agent_id)?;
@@ -1067,9 +1048,7 @@ fn paid_by(core: &Core, agent_id: &str) -> Option<String> {
 }
 
 fn name_of(core: &Core, agent_id: &str) -> String {
-    core.names
-        .name(agent_id)
-        .unwrap_or_else(|| agent_id.to_owned())
+    core.names.name_or_id(agent_id)
 }
 
 /// The agent that answers for a card: its owner while that agent is open, here
@@ -1106,7 +1085,7 @@ impl Owner {
         Self {
             id: agent.to_owned(),
             name: Some(name_of(core, agent)),
-            cli: cli_of(core, agent),
+            cli: core.agent_now(agent).cli(),
         }
     }
 
@@ -1360,10 +1339,11 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         status: card.status,
         owner: card.owner_id().map(str::to_owned),
         owner_name: card.owner_name(core),
-        owner_cli: card
-            .owner
-            .as_ref()
-            .and_then(|owner| cli_of(core, &owner.id).or_else(|| owner.cli.clone())),
+        owner_cli: card.owner.as_ref().and_then(|owner| {
+            core.agent_now(&owner.id)
+                .cli()
+                .or_else(|| owner.cli.clone())
+        }),
         paid_by: card.owner_id().and_then(|owner| paid_by(core, owner)),
         team: team.as_ref().map(|team| team.lead.clone()),
         team_name: team.map(|team| team.name),
@@ -2156,15 +2136,8 @@ fn send_notices(core: &Arc<Core>, notices: Vec<Notice>) {
     });
 }
 
-fn caller(request: &HarnessRequest, tool: &str) -> Result<String, String> {
-    request
-        .agent_id
-        .clone()
-        .ok_or_else(|| format!("{tool} needs the calling agent's id"))
-}
-
 pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = caller(request, "board_add")?;
+    let agent = super::caller::agent_of(request, "board_add")?;
     let params = &request.params;
     if ["ticket", "key", "url"]
         .iter()
@@ -2183,7 +2156,7 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     };
     let (core, request) = (core.clone(), request.clone());
     blocking(move || {
-        let project = caller_project(&core, &request);
+        let project = super::caller::project_of(&core, &request);
         let holder = claim.then_some(agent.as_str());
         add_card(&core, &project, &By::Agent(agent.clone()), adding, holder)
             .map(|(_, view)| view)
@@ -2194,11 +2167,11 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
 }
 
 pub(crate) async fn claim(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = caller(request, "board_claim")?;
+    let agent = super::caller::agent_of(request, "board_claim")?;
     let id = card_id(request.params.get("card").unwrap_or(&Value::Null), "card")?;
     let (core, request) = (core.clone(), request.clone());
     blocking(move || {
-        let project = caller_project(&core, &request);
+        let project = super::caller::project_of(&core, &request);
         claim_card(&core, &project, &agent, id).map_err(Into::into)
     })
     .await
@@ -2206,13 +2179,13 @@ pub(crate) async fn claim(core: &Arc<Core>, request: &HarnessRequest) -> Result<
 }
 
 pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = caller(request, "board_update")?;
+    let agent = super::caller::agent_of(request, "board_update")?;
     let id = card_id(request.params.get("card").unwrap_or(&Value::Null), "card")?;
     let mut changes = Changes::from_params(&request.params)?;
     let (mut view, notices, shipping) = {
         let (core, request) = (core.clone(), request.clone());
         blocking(move || {
-            let project = caller_project(&core, &request);
+            let project = super::caller::project_of(&core, &request);
             let own_run = {
                 let state = core.boards.state.locked();
                 state
@@ -2254,14 +2227,14 @@ pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result
 }
 
 pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = caller(request, "board_list")?;
+    let agent = super::caller::agent_of(request, "board_list")?;
     let one = match request.params.get("card") {
         None | Some(Value::Null) => None,
         Some(value) => Some(card_id(value, "card")?),
     };
     let (core, request) = (core.clone(), request.clone());
     blocking(move || {
-        let project = caller_project(&core, &request);
+        let project = super::caller::project_of(&core, &request);
         let state = core.boards.state.locked();
         let Some(board) = state.boards.get(&project) else {
             if let Some(id) = one {
@@ -2512,7 +2485,7 @@ pub(crate) fn run_by_auto(core: &Core, agent_id: &str) -> bool {
 
 /// A reviewer Auto started gives its verdict on the change it reviews.
 pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
-    let agent = caller(request, "review_verdict")?;
+    let agent = super::caller::agent_of(request, "review_verdict")?;
     let params = request.params.clone();
     let core = core.clone();
     blocking(move || blind::record(&core, &agent, &params).map_err(Into::into))

@@ -11,7 +11,7 @@ use super::commit::{in_checkout, names};
 use super::owners::{git, traced};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
-use crate::server::messages::{listed, Reach};
+use crate::server::roster::{listed, Reach};
 use crate::server::workspace::project_of;
 use crate::server::Core;
 

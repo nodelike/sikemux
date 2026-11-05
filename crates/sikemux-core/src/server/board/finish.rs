@@ -833,7 +833,7 @@ fn unanswered(core: &Core, step: &Step) -> Option<String> {
     let who = if asker == step.agent() {
         step.name(core)
     } else {
-        let name = core.names.name(asker).unwrap_or_else(|| asker.clone());
+        let name = core.names.name_or_id(&asker);
         format!("{name}, working under {},", step.name(core))
     };
     Some(format!(

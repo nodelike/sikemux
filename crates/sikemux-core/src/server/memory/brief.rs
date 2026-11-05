@@ -32,10 +32,6 @@ fn names(text: &str, term: &str) -> bool {
     })
 }
 
-fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 /// What Sikemux keeps for the agent, for after its task in the same letter.
 /// Knowledge is picked by the words of `task`, a lead's own, when given, and
 /// of the agent's card.
@@ -98,7 +94,11 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         for held in state.applying(&project) {
             for rule in &held.rules {
                 if rules.len() < MAX_RULES && from_person(&rule.learned) {
-                    rules.push(format!("- #{} {}", rule.id, one_line(&rule.text)));
+                    rules.push(format!(
+                        "- #{} {}",
+                        rule.id,
+                        crate::text::one_line(&rule.text)
+                    ));
                 }
             }
             for known in &held.knowledge {
@@ -114,7 +114,11 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
                 {
                     continue;
                 }
-                knowledge.push(format!("- #{} {}", known.id, one_line(&known.text)));
+                knowledge.push(format!(
+                    "- #{} {}",
+                    known.id,
+                    crate::text::one_line(&known.text)
+                ));
                 let fresh = known
                     .checked
                     .as_ref()
@@ -138,7 +142,7 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         let goal_rules: Vec<String> = (standing.rules.iter())
             .filter(|rule| from_person(&rule.learned))
             .take(MAX_RULES)
-            .map(|rule| format!("- #{} {}", rule.id, one_line(&rule.text)))
+            .map(|rule| format!("- #{} {}", rule.id, crate::text::one_line(&rule.text)))
             .collect();
         if !goal_rules.is_empty() {
             sections.push(format!(
@@ -156,10 +160,14 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
                 Some(why) => format!(
                     "- #{} {} ({})",
                     decision.id,
-                    one_line(&decision.text),
-                    one_line(why)
+                    crate::text::one_line(&decision.text),
+                    crate::text::one_line(why)
                 ),
-                None => format!("- #{} {}", decision.id, one_line(&decision.text)),
+                None => format!(
+                    "- #{} {}",
+                    decision.id,
+                    crate::text::one_line(&decision.text)
+                ),
             })
             .collect();
         if !decisions.is_empty() {
