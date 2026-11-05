@@ -14,6 +14,7 @@ mod buddy_picker;
 mod chat;
 mod goals;
 mod keyboard;
+mod trust;
 pub use chat::changes as chat_changes;
 pub use chat::composer;
 mod closing;
