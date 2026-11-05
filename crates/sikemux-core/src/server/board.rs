@@ -1388,7 +1388,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
             let wait = wait::of(core, board, card, now);
             slice.view(
                 card.owner_id(),
-                board.held_up(card),
+                slice::held_up_now(core, board, card),
                 |agent| name_of(core, agent),
                 wait,
                 &board.settings,

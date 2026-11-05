@@ -10,7 +10,6 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
-use sikemux_wire::slice::{CheckRun, Wait, WaitOn};
 
 use super::{
     hand_off, hand_off::HandOnParams, holder, name_of, project_at, project_view, remember_team,
@@ -85,8 +84,7 @@ fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
             let Some(owner) = card.owner_id().filter(|_| held) else {
                 continue;
             };
-            let waits = wait::of(core, board, card, now);
-            if waits.is_none() || waits.is_some_and(|wait| nothing_is_checking(card, &wait)) {
+            if wait::of(core, board, card, now).is_none() {
                 found.push(Unattended {
                     project: board.project.clone(),
                     id: card.id,
@@ -97,20 +95,6 @@ fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
         }
     }
     found
-}
-
-/// A slice with a commit reads as waiting on a check, but none runs until its owner says it is
-/// done, so an owner that never said so, or closed, would hold the slice for good.
-fn nothing_is_checking(card: &Card, wait: &Wait) -> bool {
-    let said_done = card.slice.as_ref().is_some_and(|slice| slice.done_said);
-    !said_done
-        && matches!(
-            wait.on,
-            WaitOn::Check {
-                run: CheckRun::Queued,
-                ..
-            }
-        )
 }
 
 /// Whether the owner waits on something that brings it back by itself, or that the person knows
@@ -173,6 +157,7 @@ pub(super) fn settle(core: &Core) -> Option<u64> {
 
 fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
     let mut state = core.boards.state.locked();
+    let mut owners = Vec::new();
     for (slice, why) in lost {
         let Some(board) = state.boards.get_mut(&slice.project) else {
             continue;
@@ -187,6 +172,7 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
         let Some(held) = &mut card.slice else {
             continue;
         };
+        owners.push(slice.owner.clone());
         held.stalled = Some(Stalled {
             name: name.unwrap_or_else(|| slice.owner.clone()),
             agent: slice.owner,
@@ -199,6 +185,10 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
             .offered
             .retain(|(project, id, _)| !(*project == slice.project && *id == slice.id));
         core.boards.save(&mut state, &slice.project);
+    }
+    drop(state);
+    for owner in owners {
+        super::chat_goal::lease_lapsed(core, &owner);
     }
 }
 

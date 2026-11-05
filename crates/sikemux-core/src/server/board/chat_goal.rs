@@ -11,10 +11,10 @@ use serde_json::json;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_wire::chat::{ChatGoal, GoalMarker};
-use sikemux_wire::slice::SliceState;
+use sikemux_wire::slice::{SliceState, Wait, WaitOn};
 
 use super::{
-    add_card, holder, lease, slice, title_of, waits, Adding, Board, By, Card, Status,
+    add_card, auto, holder, lease, slice, title_of, waits, Adding, Board, By, Card, Status,
     MAX_TITLE_CHARS,
 };
 use crate::protocol::{ChatContext, FOR_AGENT_URI};
@@ -35,6 +35,9 @@ const LONG_TURN_MS: u64 = 5 * 60 * 1000;
 const COMMIT_POINTS: u32 = 2;
 const TEAMMATE_POINTS: u32 = 3;
 const LONG_TURN_POINTS: u32 = 2;
+/// A CLI starts subagents by itself for small questions, often several at once, so each counts
+/// least and none waives the time a bar asks: the chat's clock runs while they do.
+const SUBAGENT_POINTS: u32 = 1;
 
 /// How much a chat must have done for a suggestion. Points alone are not enough, as a few
 /// commits in five minutes are a quick chat; a teammate waives the time, as the chat's own
@@ -65,6 +68,7 @@ const FILE: &str = "chat-goals.json";
 struct Tally {
     commits: u32,
     teammates: u32,
+    subagents: u32,
     long_turns: u32,
     worked_ms: u64,
 }
@@ -74,6 +78,7 @@ impl Tally {
         Tally {
             commits: self.commits.saturating_sub(earlier.commits),
             teammates: self.teammates.saturating_sub(earlier.teammates),
+            subagents: self.subagents.saturating_sub(earlier.subagents),
             long_turns: self.long_turns.saturating_sub(earlier.long_turns),
             worked_ms: self.worked_ms.saturating_sub(earlier.worked_ms),
         }
@@ -82,6 +87,7 @@ impl Tally {
     fn clears(self, bar: &Bar) -> bool {
         let points = self.commits * COMMIT_POINTS
             + self.teammates * TEAMMATE_POINTS
+            + self.subagents * SUBAGENT_POINTS
             + self.long_turns * LONG_TURN_POINTS;
         points >= bar.points && (self.worked_ms >= bar.worked_ms || self.teammates > 0)
     }
@@ -96,6 +102,7 @@ impl Tally {
         let parts = [
             counted(self.commits.into(), "commit"),
             counted(self.teammates.into(), "teammate"),
+            counted(self.subagents.into(), "subagent"),
             counted(self.worked_ms / 60_000, "minute").map(|minutes| format!("{minutes} of work")),
         ];
         parts.into_iter().flatten().collect::<Vec<_>>().join(", ")
@@ -108,9 +115,11 @@ struct Attached {
     project: String,
     card: u64,
     name: String,
-    /// The person only just tracked it: it can be undone, and its line in the chat waits until
-    /// that has passed, so the chat never shows a goal that was taken back.
+    /// The person only just tracked it and can still take that back.
     undoable: bool,
+    /// Its line in the chat waits until that has passed, so the chat never shows a goal that was
+    /// taken back.
+    unshown: bool,
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -157,8 +166,8 @@ impl Record {
 pub(super) struct ChatGoals {
     kept: Kept,
     chats: Mutex<BTreeMap<String, Record>>,
-    /// How each goal with no slice last stood, to tell clients when that changes.
-    plain: Mutex<HashMap<(String, u64), SliceState>>,
+    /// How each card with an owner last stood, to tell clients when that changes.
+    owned: Mutex<HashMap<(String, u64), SliceState>>,
 }
 
 impl ChatGoals {
@@ -168,7 +177,7 @@ impl ChatGoals {
         Self {
             kept,
             chats,
-            plain: Mutex::default(),
+            owned: Mutex::default(),
         }
     }
 
@@ -214,6 +223,11 @@ pub(crate) fn hired(core: &Core, lead: &str) {
     count(core, lead, |tally| tally.teammates += 1);
 }
 
+/// The chat's agent started a subagent of its own.
+pub(crate) fn subagent_started(core: &Core, agent: &str) {
+    count(core, agent, |tally| tally.subagents += 1);
+}
+
 /// A turn began, which ends the moment a goal just tracked could be taken back.
 pub(crate) fn turn_started(core: &Core, agent: &str) {
     if !counted(core, agent) {
@@ -225,9 +239,10 @@ pub(crate) fn turn_started(core: &Core, agent: &str) {
         let record = chats.entry(agent.to_owned()).or_default();
         record.began = Some(epoch_ms());
         let settled = (record.goal.as_mut())
-            .filter(|goal| goal.undoable)
+            .filter(|goal| goal.unshown)
             .map(|goal| {
                 goal.undoable = false;
+                goal.unshown = false;
                 goal.clone()
             });
         let attached = record.goal.clone();
@@ -278,6 +293,19 @@ pub(crate) fn not_now(core: &Core, agent: &str) {
     }
     drop(chats);
     push_head(core, agent);
+}
+
+/// The agent lost its slice to the lease, which ends the moment it could be taken back.
+pub(super) fn lease_lapsed(core: &Core, agent: &str) {
+    let goals = &core.boards.chat_goals;
+    let mut chats = goals.chats.locked();
+    let Some(goal) = chats.get_mut(agent).and_then(|record| record.goal.as_mut()) else {
+        return;
+    };
+    if goal.undoable {
+        goal.undoable = false;
+        goals.save(&mut chats);
+    }
 }
 
 /// What the agent is told with the person's next message, once.
@@ -369,6 +397,7 @@ fn track_now(core: &Arc<Core>, agent: &str) -> Result<(String, u64, String), Str
         card,
         name: title.clone(),
         undoable: true,
+        unshown: true,
     });
     record.offer = None;
     record.at = epoch_ms();
@@ -480,7 +509,7 @@ fn done_line(chat: &Chat, goal: &Attached) {
 
 /// How the goal `goal` stands for a chat: its state, and a step for each gate or slice.
 fn chat_goal(core: &Core, project: &str, board: &Board, goal: &Card) -> ChatGoal {
-    let (steps, of_gates) = slice::goal_steps(board, goal);
+    let (steps, of_gates) = slice::goal_steps(core, board, goal);
     ChatGoal {
         project: project.to_owned(),
         card: goal.id,
@@ -494,7 +523,7 @@ fn chat_goal(core: &Core, project: &str, board: &Board, goal: &Card) -> ChatGoal
 
 /// How a goal stands: as its slices do together, or for one with none, as its owner does.
 pub(super) fn goal_state(core: &Core, board: &Board, goal: &Card) -> Option<SliceState> {
-    slice::goal_state(board, goal).or_else(|| plain_state(core, board, goal))
+    slice::goal_state(core, board, goal).or_else(|| plain_state(core, board, goal))
 }
 
 /// A goal with an agent on it and no slice takes its state from that agent: moving only while it
@@ -509,13 +538,22 @@ fn plain_state(core: &Core, board: &Board, goal: &Card) -> Option<SliceState> {
     })
 }
 
+/// Whether the agent is working, or something on its way will have it work without anyone asking.
 fn at_work(core: &Core, agent: &str) -> bool {
-    match core.chats.get(agent) {
-        Some(chat) => chat.turn_running() || chat.feed.running_subagents() > 0,
-        None => (core.agent_session(agent))
-            .and_then(|session| session.agent.as_ref().map(|agent| !agent.idle()))
-            .unwrap_or(false),
-    }
+    auto::mid_turn(core, agent)
+        || (core.chats.get(agent)).is_some_and(|chat| chat.feed.running_subagents() > 0)
+        || core.harness.mailbox.has_waiting(agent)
+        || auto::workers_busy(core, agent, agent)
+}
+
+/// Whether nothing moves the slice `card` on for now: its owner is not at work and no check it
+/// asked for is coming. Auto's cards move by Auto, whatever their agent does between its steps.
+pub(super) fn owner_idle(core: &Core, board: &Board, card: &Card) -> bool {
+    let Some(owner) = card.owner_id().filter(|_| card.auto.is_none()) else {
+        return false;
+    };
+    let checking = |wait: Wait| matches!(wait.on, WaitOn::Check { .. });
+    !at_work(core, owner) && !super::wait::of(core, board, card, epoch_ms()).is_some_and(checking)
 }
 
 /// The goal each open chat works on now: the goal above the card it holds, or the slice it lost
@@ -567,7 +605,7 @@ fn finished(core: &Core, goal: &Attached) -> bool {
 /// Tells each chat of its goal and marks where goals began and ended. Runs when a board or the
 /// agents change, so a goal's strip clears, and the line stays, as soon as it finishes.
 pub(super) fn settle(core: &Core) {
-    tell_plain_changes(core);
+    tell_owner_changes(core);
     let open = core.chats.all();
     let resting = core.chats.resting_feeds();
     let held = goals_held(
@@ -589,9 +627,14 @@ pub(super) fn settle(core: &Core) {
             let was = record.goal.clone();
             match (&was, now) {
                 (Some(was), Some(now)) if was.card == now.card => {
-                    if was.name != now.name {
-                        (record.goal.as_mut()).expect("just read").name = now.name.clone();
+                    let held = record.goal.as_mut().expect("just read");
+                    changed |= was.name != now.name;
+                    held.name.clone_from(&now.name);
+                    // Undo has passed, by the lease lapsing, so its line can show now.
+                    if held.unshown && !held.undoable {
+                        held.unshown = false;
                         changed = true;
+                        lines.push((chat.clone(), Some(held.clone()), None));
                     }
                     continue;
                 }
@@ -608,11 +651,12 @@ pub(super) fn settle(core: &Core) {
                 card: now.card,
                 name: now.name.clone(),
                 undoable: false,
+                unshown: false,
             });
             record.goal.clone_from(&started);
             record.offer = record.offer.take().filter(|_| started.is_none());
             // A goal still waiting out its Undo has shown no line yet, so its end shows both.
-            let unshown = was.filter(|was| was.undoable && done.is_some());
+            let unshown = was.filter(|was| was.unshown && done.is_some());
             if let Some(unshown) = unshown {
                 lines.push((chat.clone(), Some(unshown), None));
             }
@@ -643,31 +687,32 @@ pub(super) fn settle(core: &Core) {
     }
 }
 
-/// Clients read a board again when a goal with no slice changed state with its owner, which
-/// changes nothing on the card itself.
-fn tell_plain_changes(core: &Core) {
+/// Clients read a board again when a card's state changed with its owner, which changes nothing
+/// on the card itself.
+fn tell_owner_changes(core: &Core) {
     let goals = &core.boards.chat_goals;
     let mut state = core.boards.state.locked();
     let mut now = HashMap::new();
     let mut changed = Vec::new();
     {
-        let seen = goals.plain.locked();
+        let seen = goals.owned.locked();
         for board in state.boards.values() {
-            let plain_goals = (board.cards.iter())
-                .filter(|card| card.slice.is_none() && card.status != Status::Done)
-                .filter(|card| card.owner.is_some() && card.parent.is_none());
-            for card in plain_goals {
-                if let Some(plain) = goal_state(core, board, card) {
+            let owned = (board.cards.iter())
+                .filter(|card| card.owner.is_some() && card.status != Status::Done);
+            for card in owned {
+                let stands =
+                    slice::state_of(core, board, card).or_else(|| plain_state(core, board, card));
+                if let Some(stands) = stands {
                     let key = (board.project.clone(), card.id);
-                    if seen.get(&key) != Some(&plain) {
+                    if seen.get(&key) != Some(&stands) {
                         changed.push(board.project.clone());
                     }
-                    now.insert(key, plain);
+                    now.insert(key, stands);
                 }
             }
         }
     }
-    *goals.plain.locked() = now;
+    *goals.owned.locked() = now;
     state.dirty.extend(changed);
 }
 

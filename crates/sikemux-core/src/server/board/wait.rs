@@ -130,16 +130,19 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
     if let Some(sha) = slice.awaits_check(&board.settings) {
         let running = (board.checking.running.as_ref())
             .filter(|running| running.covered.iter().any(|covered| covered == sha));
-        let (run, since) = match running {
-            Some(running) => (running.run.clone(), running.at),
-            None => (CheckRun::Queued, slice.waiting_since()),
-        };
-        let ends = board.checking.took(&run).map(|took| since + took);
-        let on = WaitOn::Check {
-            sha: sha.to_owned(),
-            run,
-        };
-        return Some(wait(on, since, ends, now));
+        // None runs until the owner says it is done, so a commit alone waits on no check.
+        let queued = (slice.done_said).then(|| (CheckRun::Queued, slice.waiting_since()));
+        let on_its_way = running
+            .map(|running| (running.run.clone(), running.at))
+            .or(queued);
+        if let Some((run, since)) = on_its_way {
+            let ends = board.checking.took(&run).map(|took| since + took);
+            let on = WaitOn::Check {
+                sha: sha.to_owned(),
+                run,
+            };
+            return Some(wait(on, since, ends, now));
+        }
     }
     let owner = card.owner_id().filter(|owner| mid_turn(core, owner))?;
     let since = (core.seen.started_at(owner))

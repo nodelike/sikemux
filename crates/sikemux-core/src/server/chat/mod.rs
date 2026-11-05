@@ -339,6 +339,14 @@ impl Chat {
         if kind == ChatEventKind::SessionUpdate {
             match UpdateKind::within(&payload) {
                 Some(UpdateKind::ToolCall) => self.note_tool_call(&payload),
+                // A saved session read back says the same outside any turn.
+                Some(UpdateKind::SubagentSpawned)
+                    if self.turn_running() && self.feed.starts_own_subagent(&payload) =>
+                {
+                    if let Some(core) = self.core.upgrade() {
+                        super::board::chat_goal::subagent_started(&core, self.agent_id());
+                    }
+                }
                 Some(UpdateKind::SessionInfoUpdate | UpdateKind::AccountSwitched) => {
                     self.note_session(&payload)
                 }

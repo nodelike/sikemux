@@ -812,6 +812,12 @@ impl Feed {
         self.inner.locked().replay.reconnecting
     }
 
+    /// Whether `payload` starts a subagent of the chat itself not heard of before, rather than
+    /// one started by a subagent or told of again.
+    pub(crate) fn starts_own_subagent(&self, payload: &Value) -> bool {
+        self.inner.locked().replay.work.starts_own_subagent(payload)
+    }
+
     pub(crate) fn running_subagents(&self) -> u32 {
         self.inner.locked().replay.work.running_subagents() as u32
     }

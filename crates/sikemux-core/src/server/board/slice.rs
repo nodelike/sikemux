@@ -1483,15 +1483,32 @@ pub(super) fn goal_stalled(board: &Board, goal: &Card) -> bool {
     left.peek().is_some() && left.all(|slice| slice.stalled.is_some())
 }
 
+/// Whether every slice of the goal has passed all its gates.
+pub(super) fn goal_done(board: &Board, goal: &Card) -> bool {
+    let mut slices = (board.held_by_goal(goal).into_iter())
+        .filter_map(|card| card.slice.as_ref())
+        .peekable();
+    slices.peek().is_some() && slices.all(|slice| slice.waiting().is_none())
+}
+
+/// Whether nothing moves the slice `card` on: nobody holds it, it waits on another card, or its
+/// owner sits idle. The one place every state of a slice reads this from.
+pub(super) fn held_up_now(core: &Core, board: &Board, card: &Card) -> bool {
+    board.held_up(card) || super::chat_goal::owner_idle(core, board, card)
+}
+
+/// How the slice `card` stands; none for a card that is no slice.
+pub(super) fn state_of(core: &Core, board: &Board, card: &Card) -> Option<SliceState> {
+    let held_up = held_up_now(core, board, card);
+    Some(card.slice.as_ref()?.state(held_up, &board.settings))
+}
+
 /// How a goal's slices stand together, marked as one: failed when one
 /// failed, needing the person when one does, moving when one moves, done when
 /// every one is, else waiting. None for a card that is no goal.
-pub(super) fn goal_state(board: &Board, goal: &Card) -> Option<SliceState> {
+pub(super) fn goal_state(core: &Core, board: &Board, goal: &Card) -> Option<SliceState> {
     let states: Vec<SliceState> = (board.held_by_goal(goal).into_iter())
-        .filter_map(|card| {
-            let held_up = board.held_up(card);
-            Some(card.slice.as_ref()?.state(held_up, &board.settings))
-        })
+        .filter_map(|card| state_of(core, board, card))
         .collect();
     let any = |state: SliceState| states.contains(&state);
     Some(match () {
@@ -1507,13 +1524,11 @@ pub(super) fn goal_state(board: &Board, goal: &Card) -> Option<SliceState> {
 /// How a goal stands step by step for a chat's strip: one step per gate of a goal of one slice,
 /// where each passed gate is done and the one it waits at stands as the slice does, else one per
 /// slice, and whether the steps are gates.
-pub(super) fn goal_steps(board: &Board, goal: &Card) -> (Vec<SliceState>, bool) {
+pub(super) fn goal_steps(core: &Core, board: &Board, goal: &Card) -> (Vec<SliceState>, bool) {
     let cards: Vec<&Card> = (board.held_by_goal(goal).into_iter())
         .filter(|card| card.slice.is_some())
         .collect();
-    let state_of = |card: &Card| {
-        (card.slice.as_ref()).map(|slice| slice.state(board.held_up(card), &board.settings))
-    };
+    let state_of = |card: &Card| state_of(core, board, card);
     if let [card] = cards.as_slice() {
         let Some(slice) = card.slice.as_ref() else {
             return (Vec::new(), false);
