@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sikemux_wire::chat::GoalMarker;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -174,6 +175,13 @@ pub fn notice(severity: &str, title: &str, description: Option<&str>) -> Value {
     if let Some(description) = description.filter(|description| !description.is_empty()) {
         update["description"] = json!(description);
     }
+    update
+}
+
+/// The line in a chat where the goal `marker` began or ended.
+pub fn goal_notice(title: &str, marker: GoalMarker) -> Value {
+    let mut update = notice("info", title, None);
+    update["goal"] = json!(marker);
     update
 }
 

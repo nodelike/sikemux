@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::slice::SliceState;
+
 /// A chat as a client opening it is sent: how it stands, its latest rows, and
 /// the rows of the subagents those name.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -272,6 +274,32 @@ pub struct ChatHead {
     /// What the person has written and not sent, as the host keeps it for every app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<ChatDraft>,
+    /// The goal the chat works on now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<ChatGoal>,
+    /// Why the chat's work looks worth tracking as a goal, for the person to decide.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal_offer: Option<String>,
+}
+
+/// The goal a chat works on, as its composer shows it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatGoal {
+    pub project: String,
+    pub card: u64,
+    pub name: String,
+    pub state: SliceState,
+    /// How it stands, in order: one step per gate of a goal of one slice, else one per slice.
+    /// None for a goal with no slice.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub steps: Vec<SliceState>,
+    /// Its steps are gates rather than slices.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub of_gates: bool,
+    /// The person only just tracked it, and can still take that back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub undoable: bool,
 }
 
 /// A chat's unsent draft: its text, what the apps keep beside it, such as its files as
@@ -1076,6 +1104,18 @@ pub struct AgentNotice {
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The goal it marks the start or the end of. A client that does not know it shows the
+    /// notice's title like any other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<GoalMarker>,
+}
+
+/// Where a goal began or ended in a chat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalMarker {
+    pub card: u64,
+    pub state: SliceState,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

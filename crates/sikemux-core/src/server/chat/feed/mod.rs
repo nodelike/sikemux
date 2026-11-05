@@ -16,7 +16,7 @@ use sikemux_process::sync::Locked;
 use crate::protocol::{ChatContext, ChatStart, PermissionMode};
 use sikemux_process::clock::epoch_ms;
 use sikemux_wire::chat::{
-    ChatChange, ChatDraft, ChatPage, ChatTrigger, QueuedMessage, SentContext, ToolDetail,
+    ChatChange, ChatDraft, ChatGoal, ChatPage, ChatTrigger, QueuedMessage, SentContext, ToolDetail,
 };
 
 use super::super::connection::{ClientConn, ClientId};
@@ -90,6 +90,8 @@ struct Inner {
     /// What the person sent while the agent was at work, oldest first.
     queued: Vec<Queued>,
     triggers: Vec<ChatTrigger>,
+    goal: Option<ChatGoal>,
+    goal_offer: Option<String>,
     /// The folder the chat's agent works in, and where its edits sit in their files,
     /// for each fold made for it.
     work: Option<(PathBuf, Place)>,
@@ -219,6 +221,8 @@ impl Feed {
                 holding: false,
                 queued: Vec::new(),
                 triggers: Vec::new(),
+                goal: None,
+                goal_offer: None,
                 work: None,
                 waits_for_person: false,
                 reach: None,
@@ -297,6 +301,8 @@ impl Feed {
                 holding: false,
                 queued: Vec::new(),
                 triggers: Vec::new(),
+                goal: None,
+                goal_offer: None,
                 work: None,
                 waits_for_person: false,
                 reach: state.reach,
@@ -372,6 +378,8 @@ impl Feed {
             }
             fold.set_queued(queued_view(&inner.queued));
             fold.set_triggers(inner.triggers.clone());
+            fold.set_goal(inner.goal.clone());
+            fold.set_goal_offer(inner.goal_offer.clone());
             if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
                 fold.set_earlier_lost();
             }
@@ -529,6 +537,22 @@ impl Feed {
         inner.triggers = triggers.clone();
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_triggers(triggers);
+            self.flush_locked(&mut inner);
+        }
+    }
+
+    /// The goal the chat works on or the suggestion to track one changed; clients already
+    /// hearing the chat are told.
+    pub(crate) fn set_goal(&self, goal: Option<ChatGoal>, offer: Option<String>) {
+        let mut inner = self.inner.locked();
+        if inner.goal == goal && inner.goal_offer == offer {
+            return;
+        }
+        inner.goal.clone_from(&goal);
+        inner.goal_offer.clone_from(&offer);
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_goal(goal);
+            fold.set_goal_offer(offer);
             self.flush_locked(&mut inner);
         }
     }

@@ -54,6 +54,7 @@ impl Core {
         }
         match activity {
             Activity::Started => {
+                super::board::chat_goal::turn_started(self, &agent_id);
                 self.ship.turn_started(&agent_id);
                 self.seen.started(&agent_id);
                 self.inbox.started(&agent_id);
@@ -63,6 +64,7 @@ impl Core {
             }
             Activity::Working => self.seen.working(&agent_id),
             Activity::Finished { cancelled } => {
+                super::board::chat_goal::turn_ended(self, &agent_id, !cancelled);
                 super::questions::turn_ended(self, &agent_id);
                 if cancelled {
                     self.seen.active(&agent_id);
@@ -82,6 +84,7 @@ impl Core {
             }
             Activity::NeedsYou => self.seen.wants_a_look(&agent_id),
             Activity::Problem(message) => {
+                super::board::chat_goal::turn_ended(self, &agent_id, false);
                 self.seen.wants_a_look(&agent_id);
                 self.inbox.ended(&agent_id, Some(message));
                 self.notify.send(Signal::Problem {

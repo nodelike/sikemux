@@ -171,7 +171,10 @@ pub(crate) fn lead_of(
 /// Names a worker for its lead, one spawn at a time.
 pub(crate) fn hire(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
     let _one_at_a_time = core.harness.spawning.one_at_a_time();
-    core.names.hire(worker, open(core))
+    let lead = worker.lead.to_owned();
+    let named = core.names.hire(worker, open(core))?;
+    super::board::chat_goal::hired(core, &lead);
+    Ok(named)
 }
 
 /// A worker here for a lead on a linked host, as that host named it.
@@ -361,6 +364,7 @@ fn start(
                 },
                 open(core),
             )?;
+            super::board::chat_goal::hired(core, &lead_id);
             (agent_id, named)
         }
     };
@@ -665,6 +669,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
         },
         open(core),
     )?;
+    super::board::chat_goal::hired(core, &lead_id);
     core.harness.spawning.opening().insert(agent_id.clone());
     let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
     Ok(Opening {

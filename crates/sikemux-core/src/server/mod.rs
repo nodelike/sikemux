@@ -119,6 +119,7 @@ pub use board::{
     Ticket, TicketCard, TicketParams as BoardTicketParams, Tracker,
     UpdateParams as BoardUpdateParams,
 };
+pub use calls::ChatGoalParams;
 pub use calls::{
     call, AgentMessageRows, AgentMessagesParams, ClosedAgentsParams, NoParams, QueuedParams,
     SetDraftParams, ToolDetailParams, WorktreeDefaultParams,

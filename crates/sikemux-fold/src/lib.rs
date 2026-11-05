@@ -28,8 +28,8 @@ use sikemux_wire::protocol::PermissionMode;
 
 use sikemux_wire::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
-    ChatDraft, ChatFailure, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger, Compactions,
-    ContentBlock, ContextUsage, FailureKind, MoveReason, NoticeSeverity, NoticeState,
+    ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
+    Compactions, ContentBlock, ContextUsage, FailureKind, MoveReason, NoticeSeverity, NoticeState,
     PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage, Retrying,
     SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice, TaskState,
     TaskUsage, ToolDetail, ToolStatus, TurnStart, UsageCost, WorkflowAgent,
@@ -685,6 +685,20 @@ impl Fold {
         if self.head.draft != draft {
             self.head.draft = draft;
             self.set_head("draft");
+        }
+    }
+
+    pub fn set_goal(&mut self, goal: Option<ChatGoal>) {
+        if self.head.goal != goal {
+            self.head.goal = goal;
+            self.set_head("goal");
+        }
+    }
+
+    pub fn set_goal_offer(&mut self, offer: Option<String>) {
+        if self.head.goal_offer != offer {
+            self.head.goal_offer = offer;
+            self.set_head("goalOffer");
         }
     }
 
@@ -2003,14 +2017,16 @@ impl Fold {
             self.append_part(index, &None, |id| ChatPart::Notice { id, notice }, false);
             return;
         }
+        self.push_between(index, at, |id| ChatPart::Notice { id, notice });
+    }
+
+    /// A row of its own between the turns, holding only `part`.
+    fn push_between(&mut self, index: u64, at: Option<u64>, part: impl FnOnce(String) -> ChatPart) {
         let id = self.row_id(index, &None);
         let mut row = Row::new(id, ChatRole::Assistant, index);
         row.msg.opens_turn = Some(TurnStart { at });
         let part_id = row.next_part_id();
-        row.push_part(ChatPart::Notice {
-            id: part_id,
-            notice,
-        });
+        row.push_part(part(part_id));
         let position = self.main.push(row);
         self.note_main_change(&None, position);
     }
@@ -2078,6 +2094,9 @@ impl Fold {
             severity,
             title: title.to_owned(),
             description: text_of(update.get("description")).map(str::to_owned),
+            goal: update
+                .get("goal")
+                .and_then(|goal| serde_json::from_value(goal.clone()).ok()),
         };
         // A chat a usage limit stopped says when it resumes, or that it no longer will.
         if let Some(failure) = self
@@ -2090,6 +2109,12 @@ impl Fold {
                 failure.resumes_at = update.get("resumesAt").and_then(Value::as_u64);
                 self.head_dirty.insert("failure");
             }
+        }
+        // Between turns a goal's line stands on its own, so the turn before keeps its fold and line.
+        if notice.goal.is_some() && !self.head.running {
+            let at = stamped_at(update);
+            self.push_between(index, at, |id| ChatPart::AgentNotice { id, notice });
+            return;
         }
         self.append_part(
             index,

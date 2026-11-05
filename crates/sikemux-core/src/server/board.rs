@@ -32,6 +32,7 @@ use sikemux_wire::slice::{
 mod arrival;
 pub(crate) mod auto;
 mod blind;
+pub(crate) mod chat_goal;
 pub(crate) mod environments;
 mod eta;
 mod failing;
@@ -550,6 +551,7 @@ pub(crate) struct Boards {
     found_checks: Mutex<HashMap<String, Option<String>>>,
     /// Offers cards, runs Auto and keeps tickets and the window up to date.
     pub(crate) wake: Wake,
+    chat_goals: chat_goal::ChatGoals,
     /// When this core started: an owner's lease runs from no earlier, since a restart
     /// stopped it and what it last did before then was not seen.
     born: u64,
@@ -711,6 +713,7 @@ impl Boards {
             footers: slice::Footers::default(),
             found_checks: Mutex::default(),
             wake: Wake::default(),
+            chat_goals: chat_goal::ChatGoals::new(data_dir),
             born: epoch_ms(),
         };
         {
@@ -1396,13 +1399,10 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
             .map(|held| held.id)
             .collect(),
         is_goal: board.is_goal(card),
-        display_title: (card.parent.is_none())
-            .then(|| core.goal_summaries.title(&board.project, card.id))
-            .flatten()
-            .filter(|_| title_is_chopped(&card.title, &card.details)),
+        display_title: display_title(core, board, card),
         next: slice::next_gates(core, board, card, now),
-        goal_state: slice::goal_state(board, card),
-        goal_stalled: slice::goal_stalled(board, card),
+        goal_state: chat_goal::goal_state(core, board, card),
+        goal_stalled: slice::goal_stalled(board, card) || chat_goal::plain_owner_closed(core, card),
         eta: board.promises.get(&card.id).and_then(eta::Promise::view),
         decisions: card.goal.decisions(),
         rules: card.goal.rules(),
@@ -1411,6 +1411,14 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         at: card.at,
         updated_at: card.updated_at,
     }
+}
+
+/// The short name a goal's summary gave it, for one whose title is only its prompt cut short.
+fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
+    (card.parent.is_none())
+        .then(|| core.goal_summaries.title(&board.project, card.id))
+        .flatten()
+        .filter(|_| title_is_chopped(&card.title, &card.details))
 }
 
 fn board_view(core: &Core, board: &Board) -> BoardView {
@@ -2404,10 +2412,7 @@ fn waits(core: &Core, settings: &Settings, card: &Card) -> Option<Waits> {
             note: run.note.clone(),
         });
     }
-    if let Some(stalled) = (card.slice.as_ref())
-        .and_then(|slice| slice.stalled.as_ref())
-        .filter(|_| card.owner.is_none())
-    {
+    if let Some(stalled) = lease::stalled_of(core, card) {
         return Some(Waits::Stalled {
             agent: stalled.agent.clone(),
             name: stalled.name.clone(),
@@ -3447,6 +3452,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     if !moved.is_empty() {
         core.notify.goals_moved(moved);
     }
+    chat_goal::settle(core);
     if !core.boards.state.locked().dirty.is_empty() {
         core.harness.questions.boards_changed();
     }

@@ -6,6 +6,7 @@
 //! of its own, so saving the board stays the same size.
 
 mod answer;
+mod draft;
 mod moments;
 mod pulls;
 
@@ -19,6 +20,7 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::slice::{GoalSummary, GoalSummaryParams, GoalSummaryView};
 use tokio::sync::Semaphore;
 
+pub(crate) use self::draft::{draft_goal, GoalDraft};
 pub(crate) use self::moments::title_is_chopped;
 use self::moments::Gathered;
 use super::board;

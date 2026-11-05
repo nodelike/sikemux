@@ -46,6 +46,9 @@ fn footer(
     index: Option<&Path>,
     amend: bool,
 ) -> Result<(Vec<String>, Option<PendingNote>), String> {
+    if let Some(committer) = fallback.filter(|_| !amend) {
+        crate::server::board::chat_goal::committed(core, committer);
+    }
     let (staged, (tree, parents)) = std::thread::scope(|scope| {
         let made_of = scope.spawn(|| made_of(dir, index, amend));
         let staged = staged_in(core, dir, index, amend);

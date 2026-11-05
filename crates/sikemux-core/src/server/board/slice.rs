@@ -1504,6 +1504,36 @@ pub(super) fn goal_state(board: &Board, goal: &Card) -> Option<SliceState> {
     })
 }
 
+/// How a goal stands step by step for a chat's strip: one step per gate of a goal of one slice,
+/// where each passed gate is done and the one it waits at stands as the slice does, else one per
+/// slice, and whether the steps are gates.
+pub(super) fn goal_steps(board: &Board, goal: &Card) -> (Vec<SliceState>, bool) {
+    let cards: Vec<&Card> = (board.held_by_goal(goal).into_iter())
+        .filter(|card| card.slice.is_some())
+        .collect();
+    let state_of = |card: &Card| {
+        (card.slice.as_ref()).map(|slice| slice.state(board.held_up(card), &board.settings))
+    };
+    if let [card] = cards.as_slice() {
+        let Some(slice) = card.slice.as_ref() else {
+            return (Vec::new(), false);
+        };
+        let steps = (slice.ladder.iter())
+            .map(|gate| {
+                if slice.pass_of(gate).is_some() {
+                    SliceState::Done
+                } else if slice.waiting() == Some(gate) {
+                    state_of(card).unwrap_or(SliceState::Waiting)
+                } else {
+                    SliceState::Waiting
+                }
+            })
+            .collect();
+        return (steps, true);
+    }
+    (cards.into_iter().filter_map(state_of).collect(), false)
+}
+
 /// The gates a goal's slices wait at, in the order they will be reached: a
 /// slice that waits on another comes after it. Each says what it waits on now.
 pub(super) fn next_gates(core: &Core, board: &Board, goal: &Card, now: u64) -> Vec<NextGate> {
@@ -1910,6 +1940,39 @@ fn owner_latest(core: &Core, project: &str, agent: &str, base: &str) -> Result<S
             short(base)
         )),
     }
+}
+
+/// The last `commits` commits the footer names `agent` on, as work on a slice it takes on only
+/// now, such as a chat tracked as a goal after it committed them.
+pub(super) fn earlier_work(
+    core: &Core,
+    project: &str,
+    agent: &str,
+    commits: usize,
+) -> Option<Head> {
+    let worktree = core
+        .workspaces
+        .agent(agent)
+        .and_then(|agent| agent.worktree);
+    let dir = worktree
+        .as_ref()
+        .map_or(Path::new(project), |tree| &tree.path);
+    let read = OWNER_COMMITS_READ.to_string();
+    let log = Git::quick(dir)
+        .trimmed(&["log", "-n", &read, "--format=%H%x00%P"])
+        .ok()?;
+    let mine: Vec<(&str, &str)> = (log.lines())
+        .filter_map(|line| line.split_once('\0'))
+        .filter(|(sha, _)| core.boards.footers.names(core, dir, sha, agent))
+        .take(commits)
+        .collect();
+    let (head, _) = mine.first()?;
+    let (_, parents) = mine.last()?;
+    Some(Head {
+        from: parents.split_whitespace().next()?.to_owned(),
+        head: (*head).to_owned(),
+        on_branch: worktree.is_none(),
+    })
 }
 
 /// The card `agent` works now on `board`: the one it last claimed or changed.
@@ -2337,6 +2400,14 @@ pub(super) fn auto_slice(card: &mut Card, settings: &Settings) {
     slice.started = true;
     slice.started_at = Some(epoch_ms());
     slice.stalled = None;
+}
+
+/// The slice takes `head` as its work so far.
+pub(super) fn took_work(card: &mut Card, head: &Head) {
+    let owner = card.owner_id().map(str::to_owned);
+    if let Some(slice) = card.slice.as_mut() {
+        slice.worked(head, true, owner.as_deref(), None);
+    }
 }
 
 /// Auto's agent shipped `head`, made on `from`, which counts as its owner

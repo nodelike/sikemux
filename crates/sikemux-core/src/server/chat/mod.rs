@@ -1342,7 +1342,7 @@ impl Chats {
         self.chats.locked().keys().cloned().collect()
     }
 
-    fn all(&self) -> Vec<Arc<Chat>> {
+    pub(crate) fn all(&self) -> Vec<Arc<Chat>> {
         self.chats.locked().values().cloned().collect()
     }
 

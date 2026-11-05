@@ -11,8 +11,9 @@ pub enum StartMode {
     /// A lead talks it through with the person first, and it goes on in
     /// slices they approve.
     PlanFirst,
-    /// A chat with the person, as today, still kept as a goal. What the start
-    /// box opens on, and what triage picks when nothing calls for planning.
+    /// A chat with the person, which makes no card and can pick up goals as it
+    /// goes. What the start box opens on, and what triage picks when nothing
+    /// calls for planning.
     #[default]
     Chat,
 }

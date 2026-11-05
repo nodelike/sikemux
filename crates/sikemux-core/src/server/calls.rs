@@ -621,6 +621,13 @@ calls! { core, client, params;
     "promoteRule" PromoteRule (memory::MemoryEntryParams) -> MemoryView: Person => memory::promote(&core, client.peer.clone(), params).await?,
     "keepSeededRules" KeepSeededRules (memory::KeepSeededParams) -> MemoryView: Person => memory::keep_seeded(&core, client.peer.clone(), params).await?,
     "seedRules" SeedRules (memory::MemoryParams) -> MemoryView: Person => memory::seed_again(&core, client.peer.clone(), params).await?,
+    "chatGoalTrack" ChatGoalTrack (ChatGoalParams) -> (): Full => {
+        board::chat_goal::track(&core, params.agent_id).await?
+    },
+    "chatGoalUndo" ChatGoalUndo (ChatGoalParams) -> (): Full => {
+        board::chat_goal::undo(&core, params.agent_id).await?
+    },
+    "chatGoalNotNow" ChatGoalNotNow (ChatGoalParams) -> (): Full => board::chat_goal::not_now(&core, &params.agent_id),
     "boardRetry" BoardRetry (board::CardParams) -> board::BoardView: Full => board::person_retry(&core, params).await?,
     "boardPass" BoardPass (board::PassParams) -> board::BoardView: Full => board::person_pass(&core, params).await?,
     "boardNote" BoardNote (board::NoteParams) -> board::BoardView: Full => board::person_note(&core, params).await?,
@@ -1309,6 +1316,13 @@ pub struct PromptChatParams {
 
 /// Sends the person's message as `AcpPrompt` does, for a client whose own request
 /// carries no context: the agents, earlier chats and issues the message names.
+/// The chat a goal's button acts on.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatGoalParams {
+    pub agent_id: String,
+}
+
 pub(super) async fn prompt_chat(core: &Arc<Core>, params: PromptChatParams) -> CoreResult<()> {
     let PromptChatParams {
         agent_id,
@@ -1321,6 +1335,7 @@ pub(super) async fn prompt_chat(core: &Arc<Core>, params: PromptChatParams) -> C
         messages::from_person(core, &agent_id, text)?;
     } else {
         super::chat::wake_for_prompt(core, &agent_id, &mut context).await?;
+        context.extend(board::chat_goal::take_note(core, &agent_id));
         super::chat::prompt(core, &agent_id, message_id, text, paths, context)?;
     }
     Ok(())

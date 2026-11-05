@@ -1177,6 +1177,10 @@ export interface ChatHead {
     activeTool?: string;
     /** What the person has written and not sent, as the host keeps it for every app. */
     draft?: ChatDraft;
+    /** The goal the chat works on now. */
+    goal?: ChatGoal;
+    /** Why the chat's work looks worth tracking as a goal, for the person to decide. */
+    goalOffer?: string;
 }
 
 export type ChatConnection = "connecting" | "starting" | "initializing" | "ready" | "stopped" | "error";
@@ -1475,6 +1479,26 @@ export interface ChatDraft {
     rev: number;
 }
 
+/** The goal a chat works on, as its composer shows it. */
+export interface ChatGoal {
+    project: string;
+    card: number;
+    name: string;
+    state: SliceState;
+    /**
+     * How it stands, in order: one step per gate of a goal of one slice, else one per slice.
+     * None for a goal with no slice.
+     */
+    steps?: SliceState[];
+    /** Its steps are gates rather than slices. */
+    ofGates?: boolean;
+    /** The person only just tracked it, and can still take that back. */
+    undoable?: boolean;
+}
+
+/** Where a slice stands as a whole, so clients mark it without working it out. */
+export type SliceState = "done" | "failed" | "needsYou" | "waiting" | "moving";
+
 /** One message of a chat. */
 export interface ChatMessage {
     id: string;
@@ -1658,9 +1682,20 @@ export interface AgentNotice {
     severity: NoticeSeverity;
     title: string;
     description?: string;
+    /**
+     * The goal it marks the start or the end of. A client that does not know it shows the
+     * notice's title like any other.
+     */
+    goal?: GoalMarker;
 }
 
 export type NoticeSeverity = "info" | "warning" | "error";
+
+/** Where a goal began or ended in a chat. */
+export interface GoalMarker {
+    card: number;
+    state: SliceState;
+}
 
 /** The chat moved to another of the person's accounts. */
 export interface AccountMove {
@@ -2414,9 +2449,6 @@ export interface SliceView {
      */
     wait?: Wait | null;
 }
-
-/** Where a slice stands as a whole, so clients mark it without working it out. */
-export type SliceState = "done" | "failed" | "needsYou" | "waiting" | "moving";
 
 /** A gate of a slice's ladder as clients draw it. */
 export interface GateView {
@@ -4208,6 +4240,15 @@ export interface KeepSeededParams {
     keep: number[];
 }
 
+/**
+ * Sends the person's message as `AcpPrompt` does, for a client whose own request
+ * carries no context: the agents, earlier chats and issues the message names.
+ * The chat a goal's button acts on.
+ */
+export interface ChatGoalParams {
+    agentId: string;
+}
+
 /** The person passes a gate of a slice. */
 export interface BoardPassParams {
     project: string;
@@ -4284,6 +4325,9 @@ export interface CoreCalls {
     promoteRule: { params: MemoryEntryParams; answer: MemoryView };
     keepSeededRules: { params: KeepSeededParams; answer: MemoryView };
     seedRules: { params: MemoryParams; answer: MemoryView };
+    chatGoalTrack: { params: ChatGoalParams; answer: null };
+    chatGoalUndo: { params: ChatGoalParams; answer: null };
+    chatGoalNotNow: { params: ChatGoalParams; answer: null };
     boardRetry: { params: BoardCardParams; answer: ProjectBoard };
     boardPass: { params: BoardPassParams; answer: ProjectBoard };
     boardNote: { params: BoardNoteParams; answer: ProjectBoard };

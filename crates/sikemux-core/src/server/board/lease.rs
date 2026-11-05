@@ -12,8 +12,8 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::{
-    hand_off, hand_off::HandOnParams, name_of, project_at, project_view, remember_team, take,
-    tell_clients, wait, BoardView, Card, CardParams, Status,
+    hand_off, hand_off::HandOnParams, holder, name_of, project_at, project_view, remember_team,
+    take, tell_clients, wait, BoardView, Card, CardParams, Status,
 };
 use crate::server::connection::blocking;
 use crate::server::wake::sooner;
@@ -37,7 +37,7 @@ pub(crate) enum Why {
 impl Why {
     pub(crate) fn words(self) -> String {
         match self {
-            Why::Closed => "Its chat closed with the slice unfinished.".to_owned(),
+            Why::Closed => "Its chat closed with the work unfinished.".to_owned(),
             Why::Stopped => "Its chat went to sleep or stopped and has not come back.".to_owned(),
             Why::Quiet => format!(
                 "It has run no turn and left the slice untouched for {} minutes.",
@@ -54,6 +54,15 @@ pub(super) struct Stalled {
     pub agent: String,
     pub name: String,
     pub why: Why,
+}
+
+/// The owner a card lost, for the person to resume or hand it on: the one a slice's lease took,
+/// or the closed owner of a goal with no slice, which has no lease to lose.
+pub(super) fn stalled_of(core: &Core, card: &Card) -> Option<Stalled> {
+    (card.slice.as_ref())
+        .and_then(|slice| slice.stalled.clone())
+        .filter(|_| card.owner.is_none())
+        .or_else(|| super::chat_goal::plain_stalled(core, card))
 }
 
 /// A started slice an owner holds, which waits on no check, card, gate or turn.
@@ -191,9 +200,7 @@ async fn stalled_card(
             .get(&project)
             .ok_or_else(|| format!("There is no card #{id} on this project's board"))?
             .card(id)?;
-        let stalled = (card.slice.as_ref())
-            .and_then(|slice| slice.stalled.clone())
-            .filter(|_| card.owner.is_none())
+        let stalled = stalled_of(&core, card)
             .ok_or_else(|| format!("{} has no stalled owner", card.label()))?;
         let label = card.label();
         Ok((project.clone(), stalled, label))
@@ -210,13 +217,32 @@ pub(super) fn give(core: &Core, project: &str, id: u64, agent: &str) -> Result<(
         .get_mut(project)
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let card: &mut Card = board.card_mut(id)?;
-    if let Some(owner) = card.owner_id() {
+    if let Some(owner) = holder(core, card) {
         return Err(format!("{} has #{id} now", name_of(core, owner)));
     }
     take(core, card, agent);
     remember_team(core, board, id);
     core.boards.save(&mut state, project);
     Ok(())
+}
+
+/// The chat that lost the slice `id` by sitting idle is working again, so it holds the slice
+/// again, unless someone took it meanwhile.
+pub(super) fn back_at_work(core: &Core, project: &str, id: u64, agent: &str) {
+    let mut state = core.boards.state.locked();
+    let Some(board) = state.boards.get_mut(project) else {
+        return;
+    };
+    let Ok(card) = board.card_mut(id) else {
+        return;
+    };
+    let lost_it = (card.slice.as_ref())
+        .and_then(|slice| slice.stalled.as_ref())
+        .is_some_and(|stalled| stalled.agent == agent);
+    if lost_it && card.owner.is_none() {
+        take(core, card, agent);
+        core.boards.save(&mut state, project);
+    }
 }
 
 async fn tell(core: &Arc<Core>, agent: &str, text: String) -> Result<(), String> {

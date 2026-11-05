@@ -41,7 +41,7 @@ const MAX_LOG_COMMITS: &str = "--max-count=400";
 /// A prompt written just before its card was added belongs to the card.
 const START_SLACK_MS: u64 = 5 * 60 * 1000;
 /// Only these agents' one-shot answer keeps no session, uses no tools and runs no hooks.
-const ASKED: [AgentKind; 2] = [AgentKind::Claude, AgentKind::Codex];
+pub(super) const ASKED: [AgentKind; 2] = [AgentKind::Claude, AgentKind::Codex];
 /// Commands that check work, among what an agent ran.
 const CHECKS: [&str; 15] = [
     "cargo test",

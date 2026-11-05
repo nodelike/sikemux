@@ -18,7 +18,7 @@ fn is_reply(part: &ChatPart) -> bool {
     matches!(
         part,
         ChatPart::Text { .. } | ChatPart::Content { .. } | ChatPart::Tool { gif: Some(_), .. }
-    )
+    ) || matches!(part, ChatPart::AgentNotice { notice, .. } if notice.goal.is_some())
 }
 
 fn reply_start(parts: &[ChatPart], end: usize) -> usize {
