@@ -27,6 +27,7 @@ use sikemux_browser::{
 use sikemux_core::cli::protocol::{is_browser_method, is_sim_method, HarnessRequest};
 use sikemux_core::harness::runs::RunStatus;
 use sikemux_process::sync::Locked;
+use sikemux_wire::goals::{AgentDesk, DeskTerminal};
 use sikemux_wire::protocol::{AgentStatus, CallId, Pane, PaneKind, WindowAnswer, WindowCall};
 use tokio::sync::mpsc;
 
@@ -191,6 +192,18 @@ impl Desks {
 
 /// How many site icons the desks keep decoded.
 const MAX_FAVICONS: usize = 64;
+
+/// What a desk's chip on the goals' panel brings to the front.
+#[derive(Clone)]
+pub enum DeskShown {
+    Page(String),
+    File(String),
+    Terminal { session: u64, title: String },
+    Simulator,
+}
+
+/// How long the desks are left to settle before the core hears what they hold.
+const DESKS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum DeskKind {
@@ -422,6 +435,44 @@ impl Desks {
         cx.notify();
     }
 
+    /// What every agent has out on its desk, as the core hears it.
+    fn held(
+        &self,
+        sims: &crate::sim::pane::Simulators,
+    ) -> std::collections::BTreeMap<String, AgentDesk> {
+        let mut held: std::collections::BTreeMap<String, AgentDesk> = Default::default();
+        for (agent, strip) in &self.strips {
+            let pages = (strip.tabs.iter())
+                .filter(|tab| !idle_blank(tab))
+                .map(|tab| sikemux_wire::goals::DeskPage {
+                    id: tab.id.clone(),
+                    title: tab.title.clone(),
+                    url: tab.url.clone(),
+                });
+            let desk = held.entry(agent.clone()).or_default();
+            desk.pages.extend(pages);
+        }
+        for (agent, items) in &self.items {
+            let desk = held.entry(agent.clone()).or_default();
+            for item in items {
+                match item {
+                    DeskItem::File(path) => desk.files.push(path.to_string_lossy().into_owned()),
+                    DeskItem::Terminal { session, title } => desk.terminals.push(DeskTerminal {
+                        session: *session,
+                        title: title.clone(),
+                    }),
+                }
+            }
+        }
+        for agent in self.kinds.keys() {
+            if let Some(device) = sims.device_name(agent) {
+                held.entry(agent.clone()).or_default().simulator = Some(device.to_owned());
+            }
+        }
+        held.retain(|_, desk| *desk != AgentDesk::default());
+        held
+    }
+
     /// The files on every desk.
     fn files(&self) -> impl Iterator<Item = &PathBuf> {
         self.items.values().flatten().filter_map(|item| match item {
@@ -592,6 +643,62 @@ impl Surface for DeskPage {
 }
 
 impl Workbench {
+    /// Opens what a chip on the goals' panel names, on `agent`'s desk beside it.
+    pub fn show_on_agent_desk(&mut self, agent: &str, shown: DeskShown, cx: &mut Context<Self>) {
+        self.open_agent(agent, cx);
+        if !self.desk_open_anywhere(agent) {
+            self.reveal_desk(agent);
+        }
+        match shown {
+            DeskShown::Page(tab) => {
+                self.desks.update(cx, |desks, cx| {
+                    desks.front.remove(agent);
+                    desks.show_kind(agent, DeskKind::Pages, cx);
+                });
+                self.with_engine(cx, |engine| engine.switch_tab(agent, &tab));
+            }
+            DeskShown::File(path) => self.desks.update(cx, |desks, cx| {
+                desks.put(agent, DeskItem::File(PathBuf::from(path)), true, cx)
+            }),
+            DeskShown::Terminal { session, title } => self.desks.update(cx, |desks, cx| {
+                desks.put(agent, DeskItem::Terminal { session, title }, true, cx)
+            }),
+            DeskShown::Simulator => self.show_simulator(agent, cx),
+        }
+        self.parts.redraw_stage(cx);
+    }
+
+    /// The desks changed, so the core hears what they hold once they settle.
+    pub(crate) fn desks_moved(&mut self, cx: &mut Context<Self>) {
+        if self.desks_telling.is_some() {
+            return;
+        }
+        self.desks_telling = Some(cx.spawn(async move |bench, cx| {
+            cx.background_executor().timer(DESKS_SETTLE).await;
+            let _ = bench.update(cx, |bench, cx| {
+                bench.desks_telling = None;
+                bench.tell_desks(cx);
+            });
+        }));
+    }
+
+    fn tell_desks(&mut self, cx: &App) {
+        let params = sikemux_wire::goals::DesksParams {
+            desks: self.desks.read(cx).held(self.sims.read(cx)),
+        };
+        if self.desks_sent.as_ref() == Some(&params) {
+            return;
+        }
+        self.desks_sent = Some(params.clone());
+        let told = crate::core::Target::here(&self.asks)
+            .request_typed::<sikemux_core::server::call::SetDesks>(params);
+        cx.foreground_executor()
+            .spawn(async move {
+                let _ = told.await;
+            })
+            .detach();
+    }
+
     fn hear(&mut self, heard: Heard, window: &mut Window, cx: &mut Context<Self>) {
         match heard {
             Heard::Tabs => self.read_strips(cx),

@@ -4,8 +4,9 @@ use std::sync::Arc;
 use gpui_kit::base::{Button as BaseButton, Selectable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, ClickEvent, ElementId, FontWeight, InteractiveElement, IntoElement,
-    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
+    div, px, AnyElement, App, Background, ClickEvent, ElementId, FontWeight, InteractiveElement,
+    IntoElement, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
+    Window,
 };
 use smallvec::SmallVec;
 
@@ -56,6 +57,10 @@ pub struct Row {
     glided: bool,
     compact: bool,
     centered: bool,
+    /// Its height, for a row taller than the rail's.
+    height: Option<f32>,
+    /// A tint laid over its surface, such as for a row that needs the person.
+    ground: Option<Background>,
     subtitle: Option<AnyElement>,
     detail: Option<SharedString>,
     status: Option<AnyElement>,
@@ -81,6 +86,8 @@ impl Row {
             glided: false,
             compact: false,
             centered: false,
+            height: None,
+            ground: None,
             subtitle: None,
             detail: None,
             status: None,
@@ -130,6 +137,16 @@ impl Row {
     /// picture as tall as the two.
     pub fn centered(mut self) -> Self {
         self.centered = true;
+        self
+    }
+
+    pub fn height(mut self, height: f32) -> Self {
+        self.height = Some(height);
+        self
+    }
+
+    pub fn ground(mut self, ground: Background) -> Self {
+        self.ground = Some(ground);
         self
     }
 
@@ -224,10 +241,11 @@ impl RenderOnce for Row {
             .accessibility_label(self.title.clone())
             .relative()
             .w_full()
-            .h(px(match (two_lines, self.compact) {
-                (true, _) => 40.,
-                (false, true) => 27.,
-                (false, false) => 28.,
+            .h(px(match (self.height, two_lines, self.compact) {
+                (Some(height), ..) => height,
+                (None, true, _) => 40.,
+                (None, false, true) => 27.,
+                (None, false, false) => 28.,
             }))
             .pl(px(4. + (20. - self.slot) / 2.))
             .pr(px(right))
@@ -252,6 +270,10 @@ impl RenderOnce for Row {
                 row.cursor_pointer()
                     .on_click(move |event, window, cx| handler(event, window, cx))
             })
+            .children(
+                self.ground
+                    .map(|ground| div().absolute().inset_0().rounded(RADIUS_2).bg(ground)),
+            )
             .children(
                 self.mark.map(|mark| {
                     mark_box(self.slot, mark).when(top_aligned, |slot| slot.mt(px(-2.)))

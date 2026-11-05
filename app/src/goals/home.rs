@@ -1,6 +1,7 @@
-//! The pane's first screen: what needs the person, by what for, and the goals with work under
-//! way; and what happened while the person was away, by goal. The core ranks, sorts and counts
-//! both; the pane only groups them under the goal each item is on.
+//! The pane's first screen, Home: every goal and agent over the composer that starts more; a line
+//! for something waiting on the person, on a goal's page; and what happened while the person was
+//! away, by goal. The core ranks, sorts and counts them; the pane only groups them under the goal
+//! each item is on.
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
@@ -9,18 +10,16 @@ use gpui_kit::{
     ParentElement, Pixels, SharedString, Stateful, StatefulInteractiveElement, Styled, Window,
 };
 use sikemux_core::server::call;
-use sikemux_core::server::{AnswerParams, BoardCardParams, BoardHandOnParams, BoardView, CardView};
+use sikemux_core::server::{AnswerParams, BoardCardParams, BoardHandOnParams};
 use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
-use sikemux_wire::slice::{SliceState, SliceView};
+use sikemux_wire::memory::Seeding;
 
 use super::evidence::minute;
-use super::goal::{count, crumb, row, section, strip};
-use super::{empty, goal_name, goals_of, slices_of, At, GoalsPane};
+use super::goal::{crumb, row};
+use super::{empty, goal_name, At, GoalsPane};
 use crate::chat::{NewerPrompt, OlderPrompt, START};
 use crate::icons::Icon;
-use crate::theme::{
-    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_4, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL,
-};
+use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_5, TEXT_2XS, TEXT_SM, TEXT_XL};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
@@ -34,14 +33,8 @@ pub(super) struct Happened<'a> {
     item: &'a InboxItem,
 }
 
-const NEEDS: [(InboxNeed, &str); 3] = [
-    (InboxNeed::Decide, "Decide"),
-    (InboxNeed::Unblock, "Unblock"),
-    (InboxNeed::Fix, "Fix"),
-];
-
 /// The name of the project at `folder`, or the folder's last part when no project is there.
-fn project_name(bench: &Workbench, folder: &str) -> String {
+pub(super) fn project_name(bench: &Workbench, folder: &str) -> String {
     let named = (bench.projects().iter())
         .find(|project| project.path.to_string_lossy() == folder)
         .map(|project| project.name.clone());
@@ -49,14 +42,6 @@ fn project_name(bench: &Workbench, folder: &str) -> String {
         let last = folder.rsplit('/').find(|part| !part.is_empty());
         last.unwrap_or(folder).to_owned()
     })
-}
-
-/// What Home lists from the inbox and the digest.
-#[derive(Default)]
-struct Inboxed {
-    questions: Vec<(InboxItem, String)>,
-    needs: Vec<(InboxItem, String)>,
-    happened: usize,
 }
 
 impl GoalsPane {
@@ -113,7 +98,7 @@ impl GoalsPane {
     }
 
     /// Answers question `question` with the answer at `choice` among those it takes in one click.
-    fn answer(&mut self, question: String, choice: usize, cx: &mut Context<Self>) {
+    pub(super) fn answer(&mut self, question: String, choice: usize, cx: &mut Context<Self>) {
         let answered = crate::core::Target::here(&self.asks).request_typed::<call::AnswerQuestion>(
             AnswerParams {
                 id: question,
@@ -131,72 +116,50 @@ impl GoalsPane {
         .detach();
     }
 
-    /// What waits on the person and how many things happened while they were away, read from the
-    /// window.
-    fn read_inbox(&self, cx: &gpui_kit::App) -> Inboxed {
-        let Some(bench) = self.bench.upgrade() else {
-            return Inboxed::default();
-        };
-        let bench = bench.read(cx);
-        let named = |item: InboxItem| {
-            let folder =
-                (item.card.as_ref().map(|card| card.project.as_str())).or(item.project.as_deref());
-            let project = folder.map(|folder| project_name(bench, folder));
-            (item.clone(), project.unwrap_or_default())
-        };
-        Inboxed {
-            questions: Self::questions(bench).into_iter().map(named).collect(),
-            needs: Self::needs(bench).into_iter().map(named).collect(),
-            happened: self.happened(bench).len(),
-        }
-    }
-
     /// The title of the goal an item is on, when it is on one here.
     fn goal_title(&self, item: &InboxItem) -> Option<String> {
         Some(goal_name(self.goal_of(item.card.as_ref()?)?))
     }
 }
 
-/// Home, laid out as a new chat opens: an agent asking what is being made in the project, over
-/// what needs the person and what is moving, with the composer that starts work at the bottom.
-pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
+/// Home: the numbers, the tabs and the rows, over the composer that starts work.
+pub(super) fn home(
+    pane: &mut GoalsPane,
+    window: &mut Window,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     let Some(bench) = pane.bench.upgrade() else {
         return div().into_any_element();
     };
-    let (mark, project, composer) = {
+    let (composer, happened) = {
         let bench = bench.read(cx);
-        let mark = pane.start_launcher(bench).map_or_else(
-            || ui::mark("claude", 32.),
-            |launcher| ui::mark(&launcher.provider, 32.),
-        );
-        let project = bench.project().map(|project| project.name.clone());
-        let composer = bench.composing(START).map(|start| start.view.clone());
-        (mark, project.unwrap_or_default(), composer)
-    };
-    let welcome = crate::home::welcome_over(mark, project, lists(pane, cx), cx)
-        .max_w(px(crate::chat::composer::WIDTH));
-    let home = div()
-        .size_full()
-        .relative()
-        .p(px(ui::AGENT_INSET))
-        .flex()
-        .flex_col();
-    crate::chat::takes_drops(home, START, pane.bench.clone())
-        .child(
-            div()
-                .id("goals-home")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .child(
-                    crate::home::centred(welcome)
-                        .min_h_full()
-                        .py(SPACE_5)
-                        .px(SPACE_4),
-                ),
+        (
+            bench.composing(START).map(|start| start.view.clone()),
+            pane.happened(bench).len(),
         )
+    };
+    let reading_rules = matches!(
+        pane.memory
+            .as_ref()
+            .and_then(|memory| memory.seeding.as_ref()),
+        Some(Seeding::Reading { .. })
+    );
+    let home = div().size_full().relative().flex().flex_col();
+    crate::chat::takes_drops(home, START, pane.bench.clone())
+        .child(super::room::stats(pane, cx))
+        .child(super::room::tools(pane, happened, window, cx))
+        .when(reading_rules, |home| {
+            home.children(
+                super::rules::offer(pane, false, cx)
+                    .map(|reading| div().px(px(32.)).child(reading)),
+            )
+        })
+        .child(super::room::rows(pane, cx))
         .children(composer.map(|composer| {
             div()
+                .flex_none()
+                .px(px(16.))
+                .pb(px(8.))
                 .on_action(
                     cx.listener(|pane, _: &OlderPrompt, window, cx| pane.recall(true, window, cx)),
                 )
@@ -208,107 +171,6 @@ pub(super) fn home(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
         .when(cx.has_active_drag(), |home| {
             let hint = crate::chat::drop_hint("Drop files or folders to go with the work", cx);
             home.child(gpui_kit::deferred(hint))
-        })
-        .into_any_element()
-}
-
-/// What needs the person, grouped by what they are needed for, then the goals moving and done.
-fn lists(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let Inboxed {
-        questions,
-        needs,
-        happened,
-    } = pane.read_inbox(cx);
-    let needed = needs.len();
-    let goals: Vec<(&BoardView, &CardView)> = pane
-        .board()
-        .into_iter()
-        .flat_map(|board| {
-            goals_of(&board.cards)
-                .into_iter()
-                .map(move |goal| (board, goal))
-        })
-        .collect();
-    let (mut moving, finished): (Vec<_>, Vec<_>) = goals
-        .iter()
-        .partition(|(_, goal)| super::goal_mark(goal) != SliceState::Done);
-    moving.retain(|(_, goal)| !goal.goal_stalled);
-    let (waiting, moving): (Vec<_>, Vec<_>) =
-        (moving.into_iter()).partition(|(_, goal)| super::goal_mark(goal) == SliceState::Waiting);
-    div()
-        .flex()
-        .flex_col()
-        .when(happened > 0, |view| {
-            view.child(
-                div()
-                    .id("goals-overnight")
-                    .flex()
-                    .justify_center()
-                    .cursor_pointer()
-                    .text_color(t.text_secondary)
-                    .hover(move |style| style.text_color(t.text_primary))
-                    .child(ui::text(
-                        format!("{happened} happened while you were away"),
-                        TEXT_2XS,
-                        FontWeight::NORMAL,
-                    ))
-                    .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Overnight, cx))),
-            )
-        })
-        .when(!questions.is_empty(), |view| {
-            view.child(section("Waiting on you", questions.len(), cx))
-                .children(
-                    (questions.iter()).map(|(item, project)| question_row(pane, item, project, cx)),
-                )
-        })
-        .when(!needs.is_empty(), |view| {
-            view.child(section("Needs you", needed, cx))
-                .children(NEEDS.iter().filter_map(|(need, name)| {
-                    let listed: Vec<&(InboxItem, String)> = needs
-                        .iter()
-                        .filter(|(item, _)| item.need == Some(*need))
-                        .collect();
-                    (!listed.is_empty()).then(|| {
-                        div()
-                            .flex()
-                            .flex_col()
-                            .pt(SPACE_2)
-                            .child(ui::caps(name, cx))
-                            .children((listed.into_iter()).map(|(item, project)| {
-                                let about = pane.goal_title(item).or_else(|| item.name.clone());
-                                needs_row(pane, item, project, about, cx)
-                            }))
-                    })
-                }))
-        })
-        .children(super::rules::offer(pane, false, cx).map(|offer| {
-            div()
-                .flex()
-                .flex_col()
-                .child(section("Rules from past sessions", pane.offered(), cx))
-                .child(offer)
-        }))
-        .when(!moving.is_empty(), |view| {
-            view.child(section("Moving", moving.len(), cx)).children(
-                moving
-                    .iter()
-                    .map(|(board, goal)| goal_row(pane, board, goal, cx)),
-            )
-        })
-        .when(!waiting.is_empty(), |view| {
-            view.child(section("Waiting", waiting.len(), cx)).children(
-                waiting
-                    .iter()
-                    .map(|(board, goal)| goal_row(pane, board, goal, cx)),
-            )
-        })
-        .when(!finished.is_empty(), |view| {
-            view.child(section("Done", finished.len(), cx)).children(
-                finished
-                    .iter()
-                    .map(|(board, goal)| goal_row(pane, board, goal, cx)),
-            )
         })
         .into_any_element()
 }
@@ -566,74 +428,6 @@ fn question_row(
             },
         );
     super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
-}
-
-/// A goal on one line: its title, how many slices are done, what comes next and
-/// what that waits on, and its strip. It opens the goal, or the chat of the agent working it
-/// alone, unless that agent closed and the goal page is where to resume or hand it on.
-fn goal_row(
-    pane: &GoalsPane,
-    board: &BoardView,
-    goal: &CardView,
-    cx: &mut Context<GoalsPane>,
-) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let id = goal.id;
-    let slices = slices_of(&board.cards, id);
-    let done = count(&slices, SliceState::Done);
-    let worker = (goal.owner.clone())
-        .filter(|_| !goal.goal_stalled && (goal.slice.is_some() || goal.goal_slices.is_empty()));
-    let says = row_says()
-        .child(
-            ui::text(goal_name(goal), TEXT_SM, FontWeight::MEDIUM)
-                .flex_shrink_1()
-                .min_w_0()
-                .truncate()
-                .text_color(t.text_primary),
-        )
-        .when(!slices.is_empty(), |says| {
-            says.child(ui::meta(format!("{done} of {} done", slices.len()), cx))
-        })
-        .children(plain_owner(goal, &slices).map(|words| ui::meta(words, cx).flex_none()))
-        .children(
-            (goal.next.first())
-                .and_then(|next| super::goal::step(&board.cards, next))
-                .map(|next| ui::meta(next, cx).flex_shrink_1().min_w_0().truncate()),
-        );
-    let does = row_does()
-        .children(goal.eta.as_ref().and_then(|eta| {
-            let words = super::eta_words(eta)?;
-            let shown = ui::meta(words, cx).flex_none();
-            Some(match eta.slip {
-                Some(_) => shown.text_color(t.warn),
-                None => shown,
-            })
-        }))
-        .child(match slices.is_empty() {
-            true => super::state_strip([super::goal_mark(goal)], px(120.), cx),
-            false => strip(&slices, px(120.), cx),
-        });
-    let line = wrapping(row(
-        SharedString::from(format!("goal-{}-{id}", board.project)),
-        cx,
-    ))
-    .on_click(cx.listener(move |pane, _, _, cx| match &worker {
-        Some(agent) => pane.open_agent(agent, cx),
-        None => pane.go(At::Goal(id), cx),
-    }))
-    .child(says)
-    .child(does);
-    super::with_agent_menu(line, goal.owner.clone(), &pane.bench)
-}
-
-/// What a goal with no slices says of the agent on it, whose state is the goal's.
-fn plain_owner(goal: &CardView, slices: &[(&CardView, &SliceView)]) -> Option<String> {
-    let owner = goal.owner_name.as_deref().filter(|_| slices.is_empty())?;
-    match super::goal_mark(goal) {
-        SliceState::Moving => Some(format!("@{owner} at work")),
-        SliceState::Waiting => Some(format!("@{owner} idle")),
-        _ => None,
-    }
 }
 
 pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {

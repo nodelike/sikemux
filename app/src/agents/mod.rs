@@ -76,6 +76,17 @@ pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
 
 /// While the window is on the goals, the rail lists only the goals of the project in front.
 fn goals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let panel = (bench.goals.as_ref())
+        .filter(|_| bench.showing_goals())
+        .and_then(|goals| {
+            goals
+                .read(cx)
+                .shows_panel()
+                .then(|| goals.update(cx, |goals, cx| goals.panel(cx)))
+        });
+    if let Some(panel) = panel {
+        return Some(panel.into_any_element());
+    }
     let rows = crate::goals::goal_rows(bench, cx)?;
     let list = match (rows.is_empty(), bench.project()) {
         (false, _) => div()
@@ -105,6 +116,16 @@ fn goals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEleme
             .child(list)
             .into_any_element(),
     )
+}
+
+/// Says the rail lists only one goal's agents, and takes that away.
+fn goal_focus_row(title: &str, cx: &mut Context<Workbench>) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    Row::new("goal-focus-row", title.to_owned())
+        .mark(22., ui::icon(Icon::Steps, 14.).text_color(t.text_secondary))
+        .status(Some(ui::icon(Icon::Close, 11.).text_color(t.text_tertiary)))
+        .on_click(cx.listener(|bench, _, _, cx| bench.clear_goal_focus(cx)))
+        .into_any_element()
 }
 
 /// What one of the rail's pages holds; the rail's frame and its page switch stay put while
@@ -137,7 +158,10 @@ fn page_panel(bench: &Workbench, page: RailPage, cx: &mut Context<Workbench>) ->
         pins.iter()
             .any(|pin| pin.agent_id.as_deref() == Some(agent.id.as_str()))
     });
-    let (copy, rows) = team_rows(bench, &agents, cx);
+    let (copy, mut rows) = team_rows(bench, &agents, cx);
+    if let Some(focus) = &bench.rails.goal_focus {
+        rows.insert(0, goal_focus_row(&focus.title, cx));
+    }
     let pinned: Vec<_> = pins
         .iter()
         .map(|pin| {

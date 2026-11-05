@@ -174,6 +174,24 @@ pub fn agent_mark(
     }
 }
 
+/// An agent's mark held still whatever it is doing, for a list long enough that its faces moving
+/// would cost more than they say.
+pub fn still_mark(
+    provider: &str,
+    face: Option<&AgentFace>,
+    group: AgentGroup,
+    size: f32,
+    cx: &App,
+) -> AnyElement {
+    match face.and_then(|face| crate::faces::image(face, group, cx)) {
+        Some(image) => gpui_kit::img(image)
+            .size(px(size))
+            .flex_none()
+            .into_any_element(),
+        None => mark(provider, size),
+    }
+}
+
 /// Someone's initials on a colour of their own, picked by `key` when there is one, else
 /// their name, as today's history and code host draw people without a picture.
 pub fn initials(name: &str, key: &str, size: f32, cx: &App) -> Div {

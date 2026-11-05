@@ -48,6 +48,13 @@ impl Rails {
 
 /// The two rails' state: which stay open and how wide, the page the tab rail shows and what it
 /// lists, and what their drawing remembers between frames.
+pub struct GoalFocus {
+    pub(crate) project: String,
+    pub(crate) card: u64,
+    pub(crate) title: String,
+    pub(crate) agents: Vec<String>,
+}
+
 pub struct Rails {
     /// Which rails stay open; a closed one comes out over the stage while the pointer is at its edge.
     pub(crate) side_open: bool,
@@ -63,6 +70,8 @@ pub struct Rails {
     /// The rails' state waiting to be kept in the core's preferences, once a drag settles.
     pub(crate) keeping: Option<gpui_kit::Task<()>>,
     pub(crate) all_projects: bool,
+    /// The goal the agent rail is narrowed to, by Focus on the goals' panel.
+    pub(crate) goal_focus: Option<GoalFocus>,
     /// The rail lists the recent chats of every agent, not one's.
     pub(crate) all_harnesses: bool,
     /// The leads whose teams the agent rail folds away.

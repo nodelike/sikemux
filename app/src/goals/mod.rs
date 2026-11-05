@@ -1,6 +1,6 @@
-//! The goals view, which takes the whole window: a rail of its own with Home, Overnight and
-//! every project's goals, beside one column showing what needs the person and what is moving,
-//! a goal, a card with slices under it, or a slice on its ladder of gates with the evidence the
+//! The goals view, which takes the whole window: Home lists every goal and agent beside the row
+//! chosen, and one column shows a goal, a card with slices under it, or a slice on its ladder of
+//! gates with the evidence the
 //! core collected for it. The person reads what a goal waits on, looks at a slice's evidence and
 //! passes its gate or pins a note to what needs work, and moves a project's rule into AGENTS.md.
 //! An agent's chat opens here too: the one its tab holds, with that tab in front behind the goals.
@@ -46,7 +46,9 @@ mod evidence;
 mod goal;
 mod happened;
 mod home;
+mod panel;
 mod rails;
+mod room;
 mod rules;
 mod slice;
 mod start;
@@ -63,11 +65,22 @@ pub struct Moved;
 
 impl gpui_kit::EventEmitter<Moved> for GoalsPane {}
 
-actions!(goals, [LeaveChat]);
+actions!(
+    goals,
+    [LeaveChat, NextGoal, PreviousGoal, FindGoal, OpenChosen]
+);
 
 /// Binds the key that leaves a chat open in the goals. A chat with a turn to stop takes it first.
 pub fn bind_keys(cx: &mut gpui_kit::App) {
-    cx.bind_keys([KeyBinding::new("escape", LeaveChat, Some("Goals"))]);
+    cx.bind_keys([
+        KeyBinding::new("escape", LeaveChat, Some("Goals")),
+        KeyBinding::new("j", NextGoal, Some("GoalsList")),
+        KeyBinding::new("down", NextGoal, Some("GoalsList")),
+        KeyBinding::new("k", PreviousGoal, Some("GoalsList")),
+        KeyBinding::new("up", PreviousGoal, Some("GoalsList")),
+        KeyBinding::new("/", FindGoal, Some("GoalsList")),
+        KeyBinding::new("enter", OpenChosen, Some("GoalsList")),
+    ]);
 }
 
 /// Where in the goals the pane is.
@@ -116,6 +129,10 @@ pub struct GoalsPane {
     /// The note being written on what needs work, while it is open.
     note: Option<(Entity<InputState>, Subscription)>,
     busy: bool,
+    /// Home's list of every goal and agent.
+    room: room::Room,
+    /// What takes the tab rail's place while Home shows.
+    panel: Option<Entity<panel::Panel>>,
     /// The box that starts work, at the top of Home.
     start: start::Start,
     /// The line on a goal that writes a new assertion.
@@ -152,6 +169,8 @@ impl GoalsPane {
             picked: None,
             note: None,
             busy: false,
+            room: room::Room::new(cx),
+            panel: None,
             start: start::Start::default(),
             asserting: None,
             environments: None,
@@ -162,7 +181,21 @@ impl GoalsPane {
             _reading_summary: Task::ready(()),
         };
         pane.changed(cx);
+        pane.read_goals(cx);
         pane
+    }
+
+    /// What takes the tab rail's place while Home shows, made the first time it does.
+    pub fn panel(&mut self, cx: &mut Context<Self>) -> Entity<panel::Panel> {
+        let pane = cx.entity();
+        self.panel
+            .get_or_insert_with(|| cx.new(|cx| panel::Panel::new(&pane, cx)))
+            .clone()
+    }
+
+    /// Whether the panel beside Home's list shows in place of the rail's goals.
+    pub fn shows_panel(&self) -> bool {
+        self.lit() == At::Home
     }
 
     /// Reads every board, what happened while the person was away and the open project's rules
@@ -297,7 +330,8 @@ impl GoalsPane {
         if front == self.here {
             return;
         }
-        self.here = front;
+        self.here = front.clone();
+        self.project_picked(front, cx);
         if matches!(self.at, At::Goal(_) | At::Slice(_)) {
             self.at = At::Home;
         }
@@ -318,6 +352,7 @@ impl GoalsPane {
 
     /// Shows the first screen, as switching the window to the goals does.
     pub fn home(&mut self, cx: &mut Context<Self>) {
+        self.room.picks_project = false;
         self.go(At::Home, cx);
     }
 
@@ -425,6 +460,9 @@ impl GoalsPane {
         }
         self.at = at;
         self.chat = None;
+        if at == At::Home {
+            self.read_goals_if_stale(cx);
+        }
         cx.emit(Moved);
         cx.notify();
     }
@@ -590,18 +628,6 @@ impl GoalsPane {
     fn promote(&mut self, id: u64, cx: &mut Context<Self>) {
         if let Some(project) = self.here.clone() {
             self.ask_memory::<call::PromoteRule>(MemoryEntryParams { project, id }, cx);
-        }
-    }
-
-    /// How many rules from past sessions are offered to keep now.
-    fn offered(&self) -> usize {
-        match self
-            .memory
-            .as_ref()
-            .and_then(|memory| memory.seeding.as_ref())
-        {
-            Some(Seeding::Offered { rules, .. }) => rules.len(),
-            _ => 0,
         }
     }
 
@@ -925,22 +951,18 @@ impl GoalsPane {
 }
 
 impl GoalsPane {
-    /// Where the keys nothing else holds go: the composer of Home or of the chat showing, else
+    /// Where the keys nothing else holds go: Home's list, the composer of the chat showing, else
     /// the pane, which a chat does not draw.
     pub fn keys_go_to(&self, chats: &Chats, cx: &gpui_kit::App) -> Option<FocusHandle> {
-        let composer = match self.at {
-            At::Home => chats.start.as_ref(),
+        match self.at {
+            At::Home => Some(self.room.keys.clone()),
             At::Chat => {
                 let agent = self.chat_shown()?;
                 let composer = chats.open.get(agent)?.composer.as_ref()?;
-                return Some(composer.draft.read(cx).focus_handle(cx));
+                Some(composer.draft.read(cx).focus_handle(cx))
             }
-            _ => None,
-        };
-        Some(composer.map_or_else(
-            || self.focus.clone(),
-            |composer| composer.draft.read(cx).focus_handle(cx),
-        ))
+            _ => Some(self.focus.clone()),
+        }
     }
 }
 
@@ -954,6 +976,7 @@ impl Render for GoalsPane {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.follow_chat(window, cx);
         self.follow_project(cx);
+        self.room.picks_project = true;
         self.assert_field(window, cx);
         let chat = self.chat_view(cx);
         let column = |body: AnyElement| {
@@ -984,7 +1007,7 @@ impl Render for GoalsPane {
                 column(empty(None, "reading the goals…", cx)).into_any_element(),
                 cx,
             ),
-            (true, At::Home | At::Chat, _) => framed(home::home(self, cx), cx),
+            (true, At::Home | At::Chat, _) => framed(home::home(self, window, cx), cx),
             (true, At::Environments, _) => {
                 framed(column(environments::page(self, cx)).into_any_element(), cx)
             }
@@ -1146,7 +1169,8 @@ fn waiting(slice: &SliceView) -> Option<&GateView> {
 /// else its gate's unmet needs, or who passes it.
 fn waiting_words(card: &CardView, slice: &SliceView) -> Option<String> {
     let gate = waiting(slice)?;
-    if let Some(wait) = slice.wait.as_ref().and_then(|wait| wait_words(wait, card)) {
+    let owner = card.owner_name.as_deref();
+    if let Some(wait) = slice.wait.as_ref().and_then(|wait| wait_words(wait, owner)) {
         return Some(format!("{} · {wait}", step_name(gate)));
     }
     Some(match gate.needs.as_slice() {
@@ -1168,16 +1192,14 @@ fn waiting_words(card: &CardView, slice: &SliceView) -> Option<String> {
 
 /// What is under way that a slice waits on, such as "check · ETA 16:40" or "waits for #4"; none
 /// for the person, whom the gate already names.
-fn wait_words(wait: &Wait, card: &CardView) -> Option<String> {
+fn wait_words(wait: &Wait, owner: Option<&str>) -> Option<String> {
     let what = match &wait.on {
         WaitOn::Person { .. } => return None,
         WaitOn::Card { card } => return Some(format!("waits for #{card}")),
-        WaitOn::Agent { .. } => {
-            format!(
-                "{} at work",
-                card.owner_name.as_deref().unwrap_or("its owner")
-            )
-        }
+        WaitOn::Agent { .. } => match owner {
+            Some(owner) => format!("@{owner} at work"),
+            None => "its owner at work".to_owned(),
+        },
         WaitOn::Check {
             run: CheckRun::Queued,
             ..
@@ -1212,16 +1234,21 @@ fn eta_words(eta: &GoalEta) -> Option<String> {
 /// A slice's mark, the same everywhere: solid green done, a green ring moving, a dashed grey
 /// ring waiting, amber when it needs the person and red when it failed.
 pub(crate) fn state_mark(state: SliceState, cx: &gpui_kit::App) -> AnyElement {
+    ui::mark_box(14., state_dot(state, 8., cx)).into_any_element()
+}
+
+/// That mark on its own, at `size`.
+fn state_dot(state: SliceState, size: f32, cx: &gpui_kit::App) -> AnyElement {
     let t = Tokens::get(cx);
-    let dot = div().size(px(8.)).rounded_full();
-    let mark = match state {
+    let dot = div().size(px(size)).flex_none().rounded_full();
+    match state {
         SliceState::Done => dot.bg(t.live),
         SliceState::Moving => dot.border(px(1.5)).border_color(t.live),
         SliceState::Waiting => dot.border_1().border_dashed().border_color(t.text_tertiary),
         SliceState::NeedsYou => dot.bg(t.warn),
         SliceState::Failed => dot.bg(t.danger),
-    };
-    ui::mark_box(14., mark).into_any_element()
+    }
+    .into_any_element()
 }
 
 /// A row of segments, one per state, the same wherever progress shows.

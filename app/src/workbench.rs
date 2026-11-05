@@ -197,6 +197,11 @@ pub struct Workbench {
     pub parts: Parts,
     pub panes: crate::panes::Panes,
     pub desks: Entity<crate::desk::Desks>,
+    /// What the core was last told the desks hold.
+    pub(crate) desks_sent: Option<sikemux_wire::goals::DesksParams>,
+    /// Telling the core what the desks hold, once they settle.
+    pub(crate) desks_telling: Option<Task<()>>,
+    _desks_watched: Vec<Subscription>,
     _desk_ears: crate::desk::DeskEars,
     pub sims: Entity<crate::sim::pane::Simulators>,
     _sim_news: Subscription,
@@ -599,6 +604,7 @@ impl Workbench {
                 page: RailPage::Agents,
                 keeping: None,
                 all_projects: false,
+                goal_focus: None,
                 all_harnesses: false,
                 folded_teams: HashSet::new(),
                 seen: Default::default(),
@@ -657,12 +663,19 @@ impl Workbench {
             panes: crate::panes::Panes::default(),
             _desk_ears: crate::desk::listen(&desks, window, cx),
             desks,
+            desks_sent: None,
+            desks_telling: None,
+            _desks_watched: Vec::new(),
             _sim_news: cx.subscribe(&sims, Self::hear_sims),
             sims,
             _older: None,
         };
         bench.parts.stage_follows(&bench.sims, cx);
         bench.parts.stage_follows(&bench.desks, cx);
+        bench._desks_watched = vec![
+            cx.observe(&bench.desks, |bench, _, cx| bench.desks_moved(cx)),
+            cx.observe(&bench.sims, |bench, _, cx| bench.desks_moved(cx)),
+        ];
         bench.parts.stage_follows(&bench.editors, cx);
         bench.parts.stage_follows(&bench.settings, cx);
         bench.keys.focus.focus(window, cx);
@@ -703,6 +716,8 @@ impl Workbench {
                     self.usage_wanted = true;
                 }
                 self.on_screen = None;
+                self.desks_sent = None;
+                self.desks_moved(cx);
                 for (agent, chat) in self.chats.open.iter().filter(|(_, chat)| !chat.resting) {
                     self.ask_chat(ChatAsk::Attach {
                         agent: agent.clone(),
@@ -1205,6 +1220,13 @@ impl Workbench {
                         goals.update(cx, |goals, cx| goals.summary_moved(cx));
                     }
                 }
+                if matches!(topic, Topic::Boards | Topic::Goals) {
+                    if let Some(goals) = &self.goals {
+                        let on_screen = self.showing_goals();
+                        let focused = self.rails.goal_focus.is_some();
+                        goals.update(cx, |goals, cx| goals.goals_moved(on_screen, focused, cx));
+                    }
+                }
                 if topic == Topic::Mods {
                     self.mods_moved(&Place::This, paths.as_deref(), cx);
                 }
@@ -1383,7 +1405,7 @@ impl Workbench {
     ) -> Composing {
         let draft = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(2, 12)
+                .auto_grow(if owner == crate::chat::START { 1 } else { 2 }, 12)
                 .submit_on_enter(true)
         });
         let secret = cx.new(|cx| {
@@ -4158,7 +4180,8 @@ impl Workbench {
 
     /// The rows the agent rail lists: this project's, or every project's.
     pub fn listed_agents(&self) -> Vec<AgentRow> {
-        let mut rows = if self.rails.all_projects {
+        let focus = self.rails.goal_focus.as_ref();
+        let mut rows: Vec<AgentRow> = if self.rails.all_projects || focus.is_some() {
             self.projects()
                 .iter()
                 .flat_map(|project| self.agents_of(&project.id))
@@ -4168,9 +4191,60 @@ impl Workbench {
                 .map(|project| self.agents_of(&project.id))
                 .unwrap_or_default()
         };
+        if let Some(focus) = focus {
+            rows.retain(|row| focus.agents.contains(&row.id));
+        }
         let filter = self.filter_text();
         rows.retain(|row| row.title.to_lowercase().contains(filter));
         rows
+    }
+
+    /// Narrows the agent rail to a goal's agents and shows the workbench with the first in front.
+    pub fn focus_goal(
+        &mut self,
+        title: String,
+        agents: Vec<String>,
+        project: &str,
+        card: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let first = agents.first().cloned();
+        self.rails.goal_focus = Some(crate::rail::GoalFocus {
+            project: project.to_owned(),
+            card,
+            title,
+            agents,
+        });
+        self.rails.page = RailPage::Agents;
+        self.rails.tab_open = true;
+        self.show_workbench(cx);
+        if let Some(agent) = first {
+            self.bring_agent(&agent);
+        }
+        cx.notify();
+    }
+
+    pub fn clear_goal_focus(&mut self, cx: &mut Context<Self>) {
+        self.rails.goal_focus = None;
+        cx.notify();
+    }
+
+    /// Keeps the rail's goal up with who works it now; a goal gone takes the narrowing with it.
+    pub fn refocus_goal(&mut self, goals: &sikemux_wire::goals::GoalsView, cx: &mut Context<Self>) {
+        let Some(focus) = self.rails.goal_focus.as_mut() else {
+            return;
+        };
+        let row =
+            (goals.goals.iter()).find(|row| row.card == focus.card && row.project == focus.project);
+        match row {
+            Some(row) if row.agents == focus.agents && row.title == focus.title => return,
+            Some(row) => {
+                focus.agents = row.agents.clone();
+                focus.title = row.title.clone();
+            }
+            None => self.rails.goal_focus = None,
+        }
+        cx.notify();
     }
 
     /// Whether the agent has a title of its own: the person named it, or it is neither empty,

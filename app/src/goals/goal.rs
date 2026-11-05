@@ -339,6 +339,11 @@ pub(super) fn strip(
 /// A gate a slice waits at, as a short sentence: who does what to which slice.
 pub(super) fn step(cards: &[CardView], next: &NextGate) -> Option<String> {
     let card = cards.iter().find(|card| card.id == next.card)?;
+    Some(step_words(next, &card.title, card.owner_name.as_deref()))
+}
+
+/// [`step`], of a slice titled `title` that `owner` holds.
+pub(super) fn step_words(next: &NextGate, title: &str, owner: Option<&str>) -> String {
     let you = next.passer == Passer::Person;
     let verb = match (next.gate, you) {
         (Gate::Built, true) => "build",
@@ -349,24 +354,22 @@ pub(super) fn step(cards: &[CardView], next: &NextGate) -> Option<String> {
         (Gate::Landed, false) => "lands",
     };
     let who = match next.passer {
-        Passer::Person => "you",
-        Passer::Core => "Sikemux",
-        Passer::Owner => match card.owner_name.as_deref() {
-            Some(owner) => owner,
-            None => return Some(format!("{} waits for an owner", card.title)),
+        Passer::Person => "you".to_owned(),
+        Passer::Core => "Sikemux".to_owned(),
+        Passer::Owner => match owner {
+            Some(owner) => format!("@{owner}"),
+            None => return format!("{title} waits for an owner"),
         },
     };
     let step = match &next.environment {
-        Some(environment) if you => format!("you pass {environment} on {}", card.title),
-        Some(environment) => format!("{who} deploys {} to {environment}", card.title),
-        None => format!("{who} {verb} {}", card.title),
+        Some(environment) if you => format!("you pass {environment} on {title}"),
+        Some(environment) => format!("{who} deploys {title} to {environment}"),
+        None => format!("{who} {verb} {title}"),
     };
-    Some(
-        match next.wait.as_ref().and_then(|wait| wait_words(wait, card)) {
-            Some(wait) => format!("{step} ({wait})"),
-            None => step,
-        },
-    )
+    match next.wait.as_ref().and_then(|wait| wait_words(wait, owner)) {
+        Some(wait) => format!("{step} ({wait})"),
+        None => step,
+    }
 }
 
 /// One slice: its state, title and what it waits on, then its ticket and owner.
@@ -431,19 +434,6 @@ pub(super) fn quiet_section(
         .items_center()
         .gap(SPACE_1H)
         .child(ui::caps(title, cx))
-        .child(ui::meta(count.to_string(), cx))
-        .into_any_element()
-}
-
-pub(super) fn section(title: &'static str, count: usize, cx: &Context<GoalsPane>) -> AnyElement {
-    let t = Tokens::get(cx);
-    div()
-        .pt(SPACE_5)
-        .pb(SPACE_1H)
-        .flex()
-        .items_center()
-        .gap(SPACE_1H)
-        .child(ui::text(title, TEXT_SM, FontWeight::SEMIBOLD).text_color(t.text_primary))
         .child(ui::meta(count.to_string(), cx))
         .into_any_element()
 }

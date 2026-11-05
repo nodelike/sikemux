@@ -578,6 +578,7 @@ pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> Any
         }
     }
     composer = composer
+        .short()
         .strip(strip)
         .aside(move |roomy| modes.icons_only(!roomy));
     if notice.is_some() {
