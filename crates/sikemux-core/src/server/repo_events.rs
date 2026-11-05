@@ -9,6 +9,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::slice::{CheckRun, Verdict};
 use tokio::sync::Notify;
 
+use super::board::DeployRan;
 use super::Core;
 
 /// Told events the board has not read yet, past which the oldest go.
@@ -30,6 +31,12 @@ pub(crate) enum RepoEvent {
         agent: String,
         onto: String,
         tip: String,
+    },
+    /// A deploy of `agent`'s ended, which its slice keeps.
+    Deployed {
+        project: String,
+        agent: String,
+        ran: DeployRan,
     },
     /// The project's check started on the `covered` commits, the newest last,
     /// here or in CI as `run` says.
@@ -96,6 +103,7 @@ impl RepoEvent {
         match self {
             RepoEvent::Committed { project, .. }
             | RepoEvent::Landed { project, .. }
+            | RepoEvent::Deployed { project, .. }
             | RepoEvent::CheckStarted { project, .. }
             | RepoEvent::Checked { project, .. } => project,
         }

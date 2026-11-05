@@ -138,6 +138,7 @@ pub(crate) async fn follow(core: Arc<Core>) {
             .map(|event| match event {
                 RepoEvent::Committed { project, .. }
                 | RepoEvent::Landed { project, .. }
+                | RepoEvent::Deployed { project, .. }
                 | RepoEvent::CheckStarted { project, .. }
                 | RepoEvent::Checked { project, .. } => project.clone(),
             })
@@ -206,7 +207,9 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
             .trimmed(&["rev-parse", &format!("{sha}^")])
             .unwrap_or_else(|_| sha.clone()),
         RepoEvent::Landed { onto, .. } => onto.clone(),
-        RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => String::new(),
+        RepoEvent::Deployed { .. } | RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => {
+            String::new()
+        }
     };
     let older = match &event {
         RepoEvent::Committed {
@@ -235,7 +238,9 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                         .is_ok()
             })
         }
-        RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => None,
+        RepoEvent::Deployed { .. } | RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => {
+            None
+        }
     };
     let behind = |card: &Card| {
         older.is_some() && card.slice.as_ref().and_then(Slice::head) == older.as_deref()
@@ -280,6 +285,14 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                     return;
                 };
                 (project, vec![id])
+            }
+            RepoEvent::Deployed {
+                project,
+                agent,
+                ran,
+            } => {
+                drop(state);
+                return deployed(core, &project, &agent, ran);
             }
             RepoEvent::CheckStarted {
                 project,

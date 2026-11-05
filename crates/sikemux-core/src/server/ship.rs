@@ -21,6 +21,7 @@ use sikemux_view::slice::Verdict;
 
 use super::board::{self, auto::Landing, environments::Goes, DeployRan};
 use super::plugins::Provided;
+use super::repo_events::RepoEvent;
 use super::{messages, plugins, Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
@@ -604,10 +605,11 @@ async fn ended(core: Arc<Core>, deploy: Deploy, verdict: Option<Verdict>, output
         output: text.chars().skip(start).collect(),
         by_person: deploy.by_person,
     };
-    let _ = tokio::task::spawn_blocking(move || {
-        board::deployed(&core, &deploy.project, &deploy.agent_id, ran);
-    })
-    .await;
+    core.repo_events.tell(RepoEvent::Deployed {
+        project: deploy.project,
+        agent: deploy.agent_id,
+        ran,
+    });
 }
 
 #[derive(Deserialize, Serialize)]
