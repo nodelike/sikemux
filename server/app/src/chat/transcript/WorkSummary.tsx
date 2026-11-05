@@ -1,26 +1,23 @@
 import { useContext } from "react";
 import { AgentMark } from "../agents/AgentMark";
-import type { AgentType } from "../agents/agent";
 import { IconChevron } from "@shared/ui/Icons";
 import { ChatAgentContext } from "./chatAgent";
 import { callsLabel, workedLabel } from "@shared/chat/toolView";
 
 export function WorkSummary({
-  agent,
   took,
   calls,
   thought,
   open,
   onToggle,
 }: {
-  agent: AgentType;
   took: number | null;
   calls: number;
   thought: boolean;
   open: boolean;
   onToggle: () => void;
 }) {
-  const agentId = useContext(ChatAgentContext).id;
+  const agent = useContext(ChatAgentContext);
   return (
     <div className="chat-work">
       <button
@@ -33,7 +30,7 @@ export function WorkSummary({
           className={`chat-work-mark agent-glyph ${agent}`}
           aria-hidden="true"
         >
-          <AgentMark agentId={agentId} cli={agent} size={17} />
+          <AgentMark type={agent} size={17} />
         </span>
         <span>{workedLabel(took, thought)}</span>
         {calls > 0 && (

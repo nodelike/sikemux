@@ -98,7 +98,6 @@ export function SharedChat({
   );
 
   const type = chat?.provider ?? "agent";
-  const chatAgent = useMemo(() => ({ id: "", type }), [type]);
   const origin = useMemo(() => ({ readImage: session.readImage }), [session]);
   const toolDetail = useCallback(
     (toolCallId: string) =>
@@ -154,7 +153,7 @@ export function SharedChat({
   return (
     <RemoteOriginContext value={origin}>
       <PathRootsProvider cwd={chat?.cwd ?? ""} home={chat?.home ?? undefined}>
-        <ChatAgentContext.Provider value={chatAgent}>
+        <ChatAgentContext.Provider value={type}>
           <ChatSubagentsContext.Provider value={subagents}>
             <ReaderScrollContext.Provider value={scrollByReader}>
               <ToolDetailContext.Provider value={toolDetail}>
@@ -184,7 +183,6 @@ export function SharedChat({
                       <div className="agent-chat-pane">
                         <ChatTranscript
                           state={state}
-                          agentType={type}
                           foldMemory={foldMemory}
                           unfolded={false}
                           scrollRef={scrollRef}

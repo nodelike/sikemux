@@ -1,11 +1,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
-import type { PageRef } from "./ref";
+import type { PageRef } from "@shared/wire.generated";
 import { currentTheme, subscribeTheme } from "../themes/bus";
-import {
-  ChatAgentContext,
-  openLink,
-  ReaderScrollContext,
-} from "../transcript/chatAgent";
+import { openLink, ReaderScrollContext } from "../transcript/chatAgent";
 import { pageThemeMessage } from "./theme";
 import {
   clampPageHeight,
@@ -25,7 +21,6 @@ function personJustActedIn(frame: HTMLIFrameElement): boolean {
 
 /** A page an agent showed, drawn as part of its reply in a sandboxed frame. */
 export function ChatPage({ page }: { page: PageRef }) {
-  const agent = useContext(ChatAgentContext);
   const scrollByReader = useContext(ReaderScrollContext);
   const frame = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(() =>
@@ -56,7 +51,7 @@ export function ChatPage({ page }: { page: PageRef }) {
       window.removeEventListener("message", receive);
       unsubscribe();
     };
-  }, [agent.id, page.id, scrollByReader]);
+  }, [page.id, scrollByReader]);
 
   return (
     <div className="chat-page" style={{ height }}>

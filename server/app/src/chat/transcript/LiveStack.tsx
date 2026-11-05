@@ -1,7 +1,6 @@
 import { useContext, type ReactNode } from "react";
 import { PRIMARY_SHORTCUT } from "@shared/lib/platform";
 import {
-  AgentIcon,
   IconCheck,
   IconChevron,
   IconClock,
@@ -10,6 +9,7 @@ import {
   IconTimer,
   IconWorkflow,
 } from "@shared/ui/Icons";
+import { AgentMark } from "../agents/AgentMark";
 import { ChatAgentContext } from "./chatAgent";
 import { queuedLabel } from "@shared/chat/queuedMessages";
 import type { QueuedMessage } from "@shared/chat/types";
@@ -99,7 +99,7 @@ function BackgroundTasks({
 }
 
 function WorkflowAgentRow({ agent }: { agent: WorkflowAgent }) {
-  const agentType = useContext(ChatAgentContext).type;
+  const agentType = useContext(ChatAgentContext);
   const running = agent.state === "running";
   const detail = workflowAgentDetail(agent);
   const cost = workflowAgentCost(agent);
@@ -107,11 +107,7 @@ function WorkflowAgentRow({ agent }: { agent: WorkflowAgent }) {
     <div
       className={`chat-task chat-task-agent chat-workflow-agent state-${agent.state}`}
     >
-      <AgentIcon
-        type={agentType}
-        size={16}
-        className={`agent-glyph ${agentType}`}
-      />
+      <AgentMark type={agentType} size={16} />
       <span className="chat-task-name">{agent.label}</span>
       <span className={`chat-task-detail${running ? " chat-shimmer" : ""}`}>
         {running && detail ? <Shimmer>{detail}</Shimmer> : detail}
@@ -141,15 +137,9 @@ function RunningSubagents({
   subagents: SubagentCard[];
   folds: GroupFolds;
 }) {
-  const agentType = useContext(ChatAgentContext).type;
+  const agentType = useContext(ChatAgentContext);
   if (subagents.length === 0) return null;
-  const icon = (
-    <AgentIcon
-      type={agentType}
-      size={16}
-      className={`agent-glyph ${agentType}`}
-    />
-  );
+  const icon = <AgentMark type={agentType} size={16} />;
   return (
     <Group
       label="subagent"

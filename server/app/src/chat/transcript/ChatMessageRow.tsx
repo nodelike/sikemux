@@ -2,7 +2,6 @@ import { memo, useContext, useMemo, useState, type ReactNode } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import { basename } from "@shared/lib/paths";
 import {
-  AgentIcon,
   IconCheck,
   IconChevron,
   IconClose,
@@ -363,7 +362,7 @@ function SubagentStateMark({ state }: { state: SubagentCard["state"] }) {
 /* A folded subagent keeps streaming into a transcript nobody is reading, so its
    body is only built once the reader opens it. */
 function SubagentPart({ subagent }: { subagent: SubagentCard }) {
-  const agentType = useContext(ChatAgentContext).type;
+  const agentType = useContext(ChatAgentContext);
   const rows = useContext(ChatSubagentsContext).rows[subagent.sessionId];
   const [open, setOpen] = useState(false);
   const parts = useMemo(
@@ -380,11 +379,7 @@ function SubagentPart({ subagent }: { subagent: SubagentCard }) {
       <summary>
         <IconChevron size={9} className="chat-subagent-chevron" />
         <span className="chat-subagent-mark">
-          <AgentIcon
-            type={agentType}
-            size={18}
-            className={`agent-glyph ${agentType}`}
-          />
+          <AgentMark type={agentType} size={18} />
         </span>
         <span className="chat-subagent-name">{subagent.name}</span>
         {subagent.state === "running" ? (
@@ -440,7 +435,7 @@ function TeammateLetter({ id, letter }: { id: string; letter: AgentLetter }) {
             {letter.cli === "sikemux" ? (
               <img src={sikemuxMark} width={17} height={17} alt="" />
             ) : (
-              <AgentMark agentId={letter.agentId} cli={letter.cli} size={17} />
+              <AgentMark type={letter.cli} size={17} />
             )}
           </span>
           <span>

@@ -1,11 +1,8 @@
 import { createContext } from "react";
-import type { Agent } from "../agents/agent";
+import type { AgentType } from "@shared/agents/catalog";
 import type { ChatMessage, SubagentCard, ToolDetail } from "@shared/chat/types";
 
-export const ChatAgentContext = createContext<{
-  id: string;
-  type: Agent["type"];
-}>({ id: "", type: "agent" });
+export const ChatAgentContext = createContext<AgentType>("agent");
 
 /** Every subagent card the chat holds, and each subagent's own rows, by its session. */
 export const ChatSubagentsContext = createContext<{

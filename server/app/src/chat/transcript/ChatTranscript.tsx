@@ -6,7 +6,6 @@ import {
   type RefObject,
   type UIEvent,
 } from "react";
-import type { Agent } from "../agents/agent";
 import { ChatActivity } from "./ChatActivity";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
@@ -79,7 +78,6 @@ export interface TranscriptPermissions {
  */
 export function ChatTranscript({
   state,
-  agentType,
   foldMemory,
   unfolded,
   scrollRef,
@@ -92,7 +90,6 @@ export function ChatTranscript({
   after,
 }: {
   state: ChatRows;
-  agentType: Agent["type"];
   foldMemory: FoldMemory;
   /** Shows every fold open, as while finding in the chat. */
   unfolded: boolean;
@@ -145,7 +142,6 @@ export function ChatTranscript({
               fold &&
               index === Math.max(span.start, firstRow) && (
                 <WorkSummary
-                  agent={agentType}
                   took={fold.took ?? null}
                   calls={fold.calls}
                   thought={fold.thought}
@@ -191,7 +187,7 @@ export function ChatTranscript({
         </FoldMemoryContext>
         {activity &&
           (state.running ? (
-            <ChatActivity label={activity} agentType={agentType} />
+            <ChatActivity label={activity} />
           ) : (
             <div className="chat-activity" role="status">
               <span className="chat-activity-loader" aria-hidden="true" />
