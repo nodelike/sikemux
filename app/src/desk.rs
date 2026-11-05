@@ -1623,9 +1623,9 @@ impl Workbench {
             "files": files,
             "spots": crate::drive::spots(),
             "rail": match self.rails.page {
-                crate::workbench::TabRailPage::Agents => "agents",
-                crate::workbench::TabRailPage::Terminals => "terminals",
-                crate::workbench::TabRailPage::Files => "files",
+                sikemux_view::prefs::TabRailPage::Agents => "agents",
+                sikemux_view::prefs::TabRailPage::Terminals => "terminals",
+                sikemux_view::prefs::TabRailPage::Files => "files",
             },
             "railBounds": self.rails.frame.get(),
             "tree": self.files.drive_state(),
