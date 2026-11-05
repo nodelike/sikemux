@@ -289,7 +289,7 @@ pub fn tool_result(
 
 /// `content` already carries the result's pictures, and they are most of a
 /// long chat's bytes.
-pub(super) fn without_pictures(raw_output: Value) -> Value {
+fn without_pictures(raw_output: Value) -> Value {
     match raw_output {
         Value::Array(blocks) => Value::Array(
             blocks
@@ -1494,7 +1494,5 @@ fn is_line_terminator(ch: char) -> bool {
     matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}')
 }
 
-#[cfg(test)]
-pub(super) mod matches_adapter;
 #[cfg(test)]
 mod tests;

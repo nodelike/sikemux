@@ -1640,8 +1640,6 @@ fn command_invocation(text: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod matches_adapter;
-#[cfg(test)]
 mod matches_sdk;
 #[cfg(test)]
 mod tests;

@@ -8,6 +8,8 @@ mod messages;
 mod permission;
 mod reader;
 mod replay;
+#[cfg(test)]
+mod rows;
 mod tools;
 
 use std::collections::{HashMap, HashSet};
