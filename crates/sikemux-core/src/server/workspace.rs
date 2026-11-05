@@ -1812,7 +1812,9 @@ mod tests {
                 ..Book::default()
             })
             .unwrap();
-        workspaces.set_permission_mode(PermissionMode::Bypass).unwrap();
+        workspaces
+            .set_permission_mode(PermissionMode::Bypass)
+            .unwrap();
         let offered = workspaces.offered();
         let ids: Vec<&str> = offered
             .iter()
@@ -1839,7 +1841,10 @@ mod tests {
             Some("~/.work")
         );
         assert_eq!(by_id("codex:cx").label, "Codex");
-        assert_eq!(by_id("opencode").permission_mode, PermissionMode::WorkspaceWrite);
+        assert_eq!(
+            by_id("opencode").permission_mode,
+            PermissionMode::WorkspaceWrite
+        );
         assert_eq!(by_id("grok").permission_mode, PermissionMode::Bypass);
     }
 }

@@ -71,7 +71,12 @@ import { Shimmer } from "../ui/Shimmer";
 import { useCutOff } from "../transcript/useCutOff";
 import { toolKind, toolRunning, toolUrl } from "@shared/chat/toolLabels";
 import { useToolDetail } from "@shared/chat/useToolDetail";
-import { OUTPUT_FOLD_LINES, toolElapsed, toolIconName, type ToolIconName } from "@shared/chat/toolView";
+import {
+  OUTPUT_FOLD_LINES,
+  toolElapsed,
+  toolIconName,
+  type ToolIconName,
+} from "@shared/chat/toolView";
 import { attachmentName } from "@shared/chat/transcript";
 import type { ChatPart, ToolCall, ToolOutput } from "@shared/chat/types";
 
