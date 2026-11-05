@@ -53,14 +53,6 @@ function run(command, commandArgs, options = {}) {
   return result.stdout?.trim() ?? "";
 }
 
-function option(flag) {
-  const exact = args.indexOf(flag);
-  if (exact >= 0) return args[exact + 1] ?? "";
-  return (
-    args.find((arg) => arg.startsWith(`${flag}=`))?.slice(flag.length + 1) ?? ""
-  );
-}
-
 function hostTriple() {
   const details = run("rustc", ["-vV"], { capture: true });
   const host = details.match(/^host:\s*(\S+)$/m)?.[1];
@@ -86,18 +78,14 @@ function fingerprint(paths, extra = []) {
   return hash.digest("hex");
 }
 
-const target = option("--target") || hostTriple();
+const target = hostTriple();
 if (!target.includes("apple-darwin")) {
   console.log(`- ${name} skipped: the iOS Simulator is macOS only`);
   process.exit(0);
 }
 
-const archs = {
-  "aarch64-apple-darwin": ["arm64"],
-  "x86_64-apple-darwin": ["x86_64"],
-  "universal-apple-darwin": ["arm64", "x86_64"],
-}[target];
-if (!archs) fail(`unsupported target ${target}`);
+if (target !== "aarch64-apple-darwin")
+  fail(`${name} needs a Mac with Apple Silicon, not ${target}`);
 
 function canBuildSimulators(dir) {
   return existsSync(join(dir, "Platforms", "iPhoneSimulator.platform"));
@@ -120,20 +108,17 @@ if (xcodebuild.status !== 0)
     `xcodebuild cannot run (${(xcodebuild.stderr || xcodebuild.error?.message || "").trim().split("\n")[0]}); open Xcode once to finish setting it up`,
   );
 const xcodeVersion = xcodebuild.stdout.trim();
-// A dev build makes FBControlCore for this Mac alone; a release needs both.
-const frameworkArchs = dev ? archs : ["arm64", "x86_64"];
-
 // FBControlCore's Swift and Objective-C halves import each other, which one
 // SwiftPM target cannot hold, so XcodeGen and xcodebuild build it into the
 // xcframework Package.swift links. It is rebuilt only when its sources, its
-// spec, the Xcode or the architectures change.
+// spec or the Xcode change.
 function buildFBControlCore() {
   const spec = join(simDir, "FBControlCore.yml");
   const xcframework = join(frameworks, "FBControlCore.xcframework");
   const stamp = join(frameworks, "FBControlCore.fingerprint");
   const current = fingerprint(
     [join(idbDir, "FBControlCore"), spec],
-    [xcodeVersion, ...frameworkArchs],
+    [xcodeVersion, "arm64"],
   );
   const archive = join(frameworks, "FBControlCore.a");
   if (
@@ -163,7 +148,7 @@ function buildFBControlCore() {
       "macosx",
       "-quiet",
       "-skipMacroValidation",
-      `ARCHS=${frameworkArchs.join(" ")}`,
+      "ARCHS=arm64",
       "ONLY_ACTIVE_ARCH=NO",
       "ENABLE_USER_SCRIPT_SANDBOXING=NO",
       `SYMROOT=${join(xcode, "products")}`,
@@ -185,7 +170,7 @@ function buildFBControlCore() {
     ],
     { env },
   );
-  // The same archive at a path that does not depend on its architectures, for Package.swift to force-load.
+  // The same archive at a path of its own, for Package.swift to force-load.
   copyFileSync(
     join(
       xcode,
@@ -199,10 +184,8 @@ function buildFBControlCore() {
   writeFileSync(stamp, current);
 }
 
-// One build per architecture: building both in one `swift build` switches to
-// Xcode's build system, which links FBControlCore into the executable twice.
-function buildHelper(arch) {
-  const triple = `${arch}-apple-macosx${deploymentTarget}`;
+function buildHelper() {
+  const triple = `arm64-apple-macosx${deploymentTarget}`;
   const swiftArgs = [
     "build",
     "-c",
@@ -223,13 +206,12 @@ function buildHelper(arch) {
 }
 
 buildFBControlCore();
-const built = archs.map(buildHelper);
+const built = buildHelper();
 const destination = args.includes("--dev")
   ? join(root, "target", "debug", name)
   : join(root, "packaging", "binaries", `${name}-${target}`);
 mkdirSync(dirname(destination), { recursive: true });
-if (built.length === 1) copyFileSync(built[0], destination);
-else run("lipo", ["-create", ...built, "-output", destination]);
+copyFileSync(built, destination);
 chmodSync(destination, 0o755);
 run("strip", ["-x", destination]);
 
@@ -247,11 +229,8 @@ if (!args.includes("--dev")) {
   });
 }
 
-if (target === hostTriple() || target === "universal-apple-darwin") {
-  const version = run(destination, ["--version"], { capture: true });
-  if (!version.startsWith(name))
-    fail(`unexpected --version output: ${version}`);
-}
+const version = run(destination, ["--version"], { capture: true });
+if (!version.startsWith(name)) fail(`unexpected --version output: ${version}`);
 
 const size = (statSync(destination).size / 1024 / 1024).toFixed(1);
 console.log(

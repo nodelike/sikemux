@@ -165,12 +165,8 @@ if [[ "$NOTARIZED" == "1" ]]; then
     fail "signed tools MCP server does not start"
   fi
 fi
-if [[ "$(/usr/bin/lipo -archs "$VOICE")" == *"$(uname -m)"* ]]; then
-  "$VOICE" --version | grep -Fq "sikemux-voice" || fail "signed voice helper does not start"
-fi
-if [[ "$(/usr/bin/lipo -archs "$SIM")" == *"$(uname -m)"* ]]; then
-  "$SIM" --version | grep -Fq "sikemux-sim" || fail "signed simulator helper does not start"
-fi
+"$VOICE" --version | grep -Fq "sikemux-voice" || fail "signed voice helper does not start"
+"$SIM" --version | grep -Fq "sikemux-sim" || fail "signed simulator helper does not start"
 
 DMG_MOUNT="$(mktemp -d)"
 /usr/bin/hdiutil attach -nobrowse -readonly -mountpoint "$DMG_MOUNT" "$DMG" >/dev/null || fail "could not mount DMG"
@@ -194,13 +190,8 @@ DMG_BUDGET_BYTES=30000000
 DMG_BYTES="$(stat -f %z "$DMG")"
 ((DMG_BYTES <= DMG_BUDGET_BYTES)) || fail "$DMG is $DMG_BYTES bytes, over the $DMG_BUDGET_BYTES byte budget"
 
-PLATFORMS=()
-[[ " $ARCHS " == *" arm64 "* ]] && PLATFORMS+=(darwin-aarch64)
-[[ " $ARCHS " == *" x86_64 "* ]] && PLATFORMS+=(darwin-x86_64)
-[[ ${#PLATFORMS[@]} -gt 0 ]] || fail "unsupported updater architecture set: $ARCHS"
-for arch in $ARCHS; do
-  [[ "$arch" == "arm64" || "$arch" == "x86_64" ]] || fail "unsupported executable architecture: $arch"
-done
+[[ "$ARCHS" == "arm64" ]] || fail "unsupported executable architecture: $ARCHS"
+PLATFORMS=(darwin-aarch64)
 
 PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # Artifacts live on a tag that never moves. The nightly release carries only

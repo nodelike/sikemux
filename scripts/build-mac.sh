@@ -12,21 +12,6 @@ APP_VERSION="$(node scripts/app-metadata.mjs version)"
 APP_IDENTIFIER="$(node scripts/app-metadata.mjs identifier)"
 MINIMUM_MACOS="$(node scripts/app-metadata.mjs minimum-macos)"
 ICON_ASSET="sikemux"
-TARGET=""
-
-args=("$@")
-for ((i = 0; i < ${#args[@]}; i++)); do
-  case "${args[$i]}" in
-    --target)
-      if ((i + 1 >= ${#args[@]})); then
-        echo "--target requires a value" >&2
-        exit 2
-      fi
-      TARGET="${args[$((i + 1))]}"
-      ;;
-    --target=*) TARGET="${args[$i]#--target=}" ;;
-  esac
-done
 
 # No signing material reaches the build.
 unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD
@@ -41,26 +26,22 @@ STEP="${BUILD_STEP:-all}"
 }
 
 "$ROOT/scripts/icons.sh"
-TARGET_ARGS=()
-[[ -n "$TARGET" ]] && TARGET_ARGS=(--target "$TARGET")
 # A release builds the voice and simulator helpers first and signs them; they
 # are published beside the app, never inside it.
 if [[ "${PREBUILT_HELPERS:-0}" != "1" && "$STEP" != "package" ]]; then
-  node "$ROOT/scripts/build-voice-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
-  node "$ROOT/scripts/build-sim-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
+  node "$ROOT/scripts/build-voice-helper.mjs"
+  node "$ROOT/scripts/build-sim-helper.mjs"
 fi
 GPUI="$ROOT/app"
-TARGET_ROOT="$ROOT/target"
-[[ -n "$TARGET" ]] && TARGET_ROOT="$TARGET_ROOT/$TARGET"
 if [[ "$STEP" != "package" ]]; then
-  echo "→ cargo build --release --locked --bin sikemux ${TARGET_ARGS[*]-}"
-  (cd "$GPUI" && cargo build --release --locked --bin sikemux ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"})
+  echo "→ cargo build --release --locked --bin sikemux"
+  (cd "$GPUI" && cargo build --release --locked --bin sikemux)
 fi
 [[ "$STEP" == "compile" ]] && exit 0
-node "$ROOT/scripts/build-notch-helper.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
-node "$ROOT/scripts/build-cli-sidecar.mjs" ${TARGET_ARGS[@]+"${TARGET_ARGS[@]}"}
+node "$ROOT/scripts/build-notch-helper.mjs"
+node "$ROOT/scripts/build-cli-sidecar.mjs"
 
-BUNDLE="$TARGET_ROOT/release/bundle"
+BUNDLE="$ROOT/target/release/bundle"
 APP_PATH="$BUNDLE/macos/${APP_NAME}.app"
 PLIST="$APP_PATH/Contents/Info.plist"
 
@@ -72,7 +53,7 @@ fail() {
 echo "→ Assembling $APP_NAME.app"
 rm -rf "$APP_PATH" "$BUNDLE/dmg"
 mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$APP_PATH/Contents/Helpers" "$BUNDLE/dmg"
-/usr/bin/ditto "$TARGET_ROOT/release/sikemux" "$APP_PATH/Contents/MacOS/sikemux"
+/usr/bin/ditto "$ROOT/target/release/sikemux" "$APP_PATH/Contents/MacOS/sikemux"
 /usr/bin/ditto "$ROOT/packaging/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"
 /usr/bin/ditto "$ROOT/packaging/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"
 ln -s "../Helpers/Sikemux Core.app/Contents/MacOS/sikemux-host" "$APP_PATH/Contents/MacOS/sikemux-host"
@@ -101,8 +82,7 @@ DMG_BUDGET_BYTES=30000000
 
 # The DMG holds what every release's has: the app, a link to Applications, the
 # background and the volume's icon, packed with LZMA.
-ARCH="$(/usr/bin/lipo -archs "$APP_PATH/Contents/MacOS/sikemux" | tr ' ' '\n' | sed -e 's/^arm64$/aarch64/' -e 's/^x86_64$/x64/' | head -1)"
-DMG="$BUNDLE/dmg/${APP_NAME}_${APP_VERSION}_${ARCH}.dmg"
+DMG="$BUNDLE/dmg/${APP_NAME}_${APP_VERSION}_aarch64.dmg"
 LAYOUT="$(mktemp -d)"
 trap 'rm -rf "$LAYOUT"' EXIT
 mkdir "$LAYOUT/.background"
@@ -157,8 +137,7 @@ CLI_ARCHS="$(/usr/bin/lipo -archs "$CLI_EXECUTABLE")"
 [[ -s "$CORE_APP/Contents/Resources/sikemux_pi_tools.ts" ]] || fail "bundled Pi browser extension is missing"
 # The voice helper is published beside the release and downloaded with the
 # speech model, so it must be built and signed but stay out of the app.
-VOICE_TARGET="${TARGET:-$(rustc -vV | sed -n 's/^host: //p')}"
-VOICE_EXECUTABLE="$ROOT/packaging/binaries/sikemux-voice-$VOICE_TARGET"
+VOICE_EXECUTABLE="$ROOT/packaging/binaries/sikemux-voice-aarch64-apple-darwin"
 [[ -x "$VOICE_EXECUTABLE" ]] || fail "voice helper is missing or not executable"
 [[ ! -e "$APP_PATH/Contents/MacOS/sikemux-voice" ]] || fail "the voice helper is bundled in the app"
 /usr/bin/codesign --verify --strict "$VOICE_EXECUTABLE" || fail "voice helper signature is invalid"
@@ -174,7 +153,7 @@ NOTCH_EXECUTABLE="$NOTCH_APP/Contents/MacOS/sikemux-notch"
 NOTCH_ARCHS="$(/usr/bin/lipo -archs "$NOTCH_EXECUTABLE")"
 [[ "$(sorted_archs "$NOTCH_ARCHS")" == "$(sorted_archs "$ARCHS")" ]] || fail "notch helper architecture ($NOTCH_ARCHS) differs from app ($ARCHS)"
 # The simulator helper is published and downloaded the same way.
-SIM_EXECUTABLE="$ROOT/packaging/binaries/sikemux-sim-$VOICE_TARGET"
+SIM_EXECUTABLE="$ROOT/packaging/binaries/sikemux-sim-aarch64-apple-darwin"
 [[ -x "$SIM_EXECUTABLE" ]] || fail "simulator helper is missing or not executable"
 [[ ! -e "$APP_PATH/Contents/MacOS/sikemux-sim" ]] || fail "the simulator helper is bundled in the app"
 /usr/bin/codesign --verify --strict "$SIM_EXECUTABLE" || fail "simulator helper signature is invalid"

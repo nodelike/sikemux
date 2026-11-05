@@ -89,11 +89,9 @@ shopt -u nullglob
 DMG="${DMGS[0]}"
 
 echo "→ Fetching Tauri CLI $TAURI_CLI_VERSION"
-case "$(uname -m)" in
-  arm64) TRIPLE=aarch64-apple-darwin TAURI_CLI_SHA256=c0d45bb76b9501ee8871a1712bc8e45d0b6a97d0695e0de85b4477794f07682a ;;
-  x86_64) TRIPLE=x86_64-apple-darwin TAURI_CLI_SHA256=157b919fa24c6c14ff34f5ae4046b8df59c894d1955b845f01a9a30d07abe8b9 ;;
-  *) fail "no pinned Tauri CLI for $(uname -m)" ;;
-esac
+[[ "$(uname -m)" == arm64 ]] || fail "no pinned Tauri CLI for $(uname -m)"
+TRIPLE=aarch64-apple-darwin
+TAURI_CLI_SHA256=c0d45bb76b9501ee8871a1712bc8e45d0b6a97d0695e0de85b4477794f07682a
 /usr/bin/curl -fsSL --retry 3 -o "$WORK/tauri-cli.zip" \
   "https://github.com/tauri-apps/tauri/releases/download/tauri-cli-v$TAURI_CLI_VERSION/cargo-tauri-$TRIPLE.zip"
 [[ "$(/usr/bin/shasum -a 256 "$WORK/tauri-cli.zip" | cut -d ' ' -f 1)" == "$TAURI_CLI_SHA256" ]] ||

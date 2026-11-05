@@ -28,14 +28,6 @@ function run(command, commandArgs, options = {}) {
   return result.stdout?.trim() ?? "";
 }
 
-function option(flag) {
-  const exact = args.indexOf(flag);
-  if (exact >= 0) return args[exact + 1] ?? "";
-  return (
-    args.find((arg) => arg.startsWith(`${flag}=`))?.slice(flag.length + 1) ?? ""
-  );
-}
-
 function hostTriple() {
   const details = run("rustc", ["-vV"], { capture: true });
   const host = details.match(/^host:\s*(\S+)$/m)?.[1];
@@ -43,18 +35,14 @@ function hostTriple() {
   return host;
 }
 
-const target = option("--target") || hostTriple();
+const target = hostTriple();
 if (!target.includes("apple-darwin")) {
   console.log(`- ${name} skipped: dictation is macOS only`);
   process.exit(0);
 }
 
-const archs = {
-  "aarch64-apple-darwin": ["arm64"],
-  "x86_64-apple-darwin": ["x86_64"],
-  "universal-apple-darwin": ["arm64", "x86_64"],
-}[target];
-if (!archs) fail(`unsupported target ${target}`);
+if (target !== "aarch64-apple-darwin")
+  fail(`${name} needs a Mac with Apple Silicon, not ${target}`);
 
 const swiftArgs = [
   "build",
@@ -66,7 +54,8 @@ const swiftArgs = [
   // makes the helper about 15% smaller without slowing transcription.
   "-Xswiftc",
   "-Osize",
-  ...archs.flatMap((arch) => ["--arch", arch]),
+  "--arch",
+  "arm64",
 ];
 run("swift", swiftArgs);
 const built = join(
@@ -98,10 +87,7 @@ if (!args.includes("--dev")) {
   });
 }
 
-if (target === hostTriple() || target === "universal-apple-darwin") {
-  const version = run(destination, ["--version"], { capture: true });
-  if (!version.startsWith(name))
-    fail(`unexpected --version output: ${version}`);
-}
+const version = run(destination, ["--version"], { capture: true });
+if (!version.startsWith(name)) fail(`unexpected --version output: ${version}`);
 
 console.log(`✓ ${name} ready: ${destination.slice(root.length + 1)}`);

@@ -40,17 +40,6 @@ function run(command, commandArgs, options = {}) {
   return result.stdout?.trim() ?? "";
 }
 
-function option(name) {
-  const exact = args.indexOf(name);
-  if (exact >= 0) {
-    if (!args[exact + 1] || args[exact + 1].startsWith("--"))
-      fail(`${name} requires a value`);
-    return args[exact + 1];
-  }
-  const prefix = `${name}=`;
-  return args.find((arg) => arg.startsWith(prefix))?.slice(prefix.length) ?? "";
-}
-
 function hostTriple() {
   const details = run("rustc", ["-vV"], { capture: true });
   const host = details.match(/^host:\s*(\S+)$/m)?.[1];
@@ -62,15 +51,12 @@ function executableName(name, target) {
   return target.includes("windows") ? `${name}.exe` : name;
 }
 
-function buildFor(target, explicitTarget) {
+function buildFor(target) {
   const cargoArgs = ["build", "--locked", "--release", "-p", "sikemux-host"];
   for (const name of sidecars) cargoArgs.push("--bin", name);
-  if (explicitTarget) cargoArgs.push("--target", target);
   run("cargo", cargoArgs);
-  const releaseDir = explicitTarget
-    ? join(root, "target", target, "release")
-    : join(root, "target", "release");
-  return (name) => join(releaseDir, executableName(name, target));
+  return (name) =>
+    join(root, "target", "release", executableName(name, target));
 }
 
 // A macOS release runs the core as an app of its own, since only an app can
@@ -139,7 +125,7 @@ function bundleCore(binary) {
   return app;
 }
 
-const requestedTarget = option("--target") || hostTriple();
+const requestedTarget = hostTriple();
 if (requestedTarget.includes("apple-darwin")) {
   run("bash", [join(root, "scripts", "icons.sh")]);
 }
@@ -157,16 +143,8 @@ if (prebuiltCore) {
   copyFileSync(prebuiltCore, destination);
   chmodSync(destination, 0o755);
   shipped.set("sikemux-host", destination);
-} else if (requestedTarget === "universal-apple-darwin") {
-  const arm = buildFor("aarch64-apple-darwin", true);
-  const intel = buildFor("x86_64-apple-darwin", true);
-  for (const name of sidecars) {
-    const destination = join(binariesDir, `${name}-${requestedTarget}`);
-    run("lipo", ["-create", "-output", destination, arm(name), intel(name)]);
-    shipped.set(name, destination);
-  }
 } else {
-  const built = buildFor(requestedTarget, Boolean(option("--target")));
+  const built = buildFor(requestedTarget);
   for (const name of sidecars) {
     const destination = join(
       binariesDir,
@@ -181,12 +159,7 @@ for (const destination of shipped.values()) {
   if (!requestedTarget.includes("windows")) chmodSync(destination, 0o755);
 }
 
-// A cross-built sidecar cannot be started here, so the smoke only runs for a
-// binary this machine can execute.
-const runnable =
-  requestedTarget === hostTriple() ||
-  requestedTarget === "universal-apple-darwin";
-if (runnable && !args.includes("--skip-smoke")) {
+if (!args.includes("--skip-smoke")) {
   const browser = shipped.get("sikemux-host");
   try {
     await smokeBrowserSidecar(browser);
