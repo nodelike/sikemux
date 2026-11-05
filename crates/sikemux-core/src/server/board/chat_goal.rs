@@ -23,6 +23,7 @@ use crate::server::connection::blocking;
 use crate::server::goal_summary;
 use crate::server::kept::Kept;
 use crate::server::{memory, Core};
+use crate::sessions::asked::may_hold_secret;
 use crate::text::clipped;
 use sikemux_fold::update::goal_notice;
 use sikemux_fold::ChatEventKind;
@@ -317,9 +318,16 @@ pub(crate) fn take_note(core: &Core, agent: &str) -> Option<ChatContext> {
     Some(note)
 }
 
-/// The first draft of a goal, there at once: the chat's title, or else what the person last
-/// asked, which is not always what the agent was last sent, as a teammate's report comes in too.
-fn first_guess(chat: &Chat) -> (String, String, String) {
+/// Whether a chat's title can name a goal: short enough for a card, and not something pasted or
+/// that may hold a secret.
+fn usable_title(title: &str) -> bool {
+    !title.contains("```") && title.chars().count() <= MAX_TITLE_CHARS && !may_hold_secret(title)
+}
+
+/// The first draft of a goal, there at once: the title the chat goes by, or else what the person
+/// last asked, which is not always what the agent was last sent, as a teammate's report comes in
+/// too.
+fn first_guess(core: &Core, chat: &Chat) -> (String, String, String) {
     const READ_TURNS: usize = 6;
     const READ_BYTES: usize = 64 * 1024;
     let said = chat.feed.excerpt(None, READ_TURNS, READ_BYTES).said;
@@ -329,17 +337,13 @@ fn first_guess(chat: &Chat) -> (String, String, String) {
             _ => None,
         })
         .unwrap_or_default();
-    let first_line = asked.as_str();
-    let title = clipped(
-        chat.feed.title().as_deref().unwrap_or(first_line),
-        MAX_TITLE_CHARS,
-    );
-    let title = if title.is_empty() {
-        "Work in this chat".to_owned()
-    } else {
-        title
+    let shown = (core.workspaces.title_given(chat.agent_id())).filter(|title| usable_title(title));
+    let title = match shown {
+        Some(title) => title,
+        None if asked.is_empty() => "Work in this chat".to_owned(),
+        None => clipped(&asked, MAX_TITLE_CHARS),
     };
-    let promise = match first_line {
+    let promise = match asked.as_str() {
         "" => title.clone(),
         line => clipped(line, slice::MAX_PROMISE_CHARS),
     };
@@ -370,7 +374,7 @@ fn track_now(core: &Arc<Core>, agent: &str) -> Result<(String, u64, String), Str
     let project = (core.names.get(agent))
         .ok_or("That chat has no project yet")?
         .project;
-    let (title, promise, asked) = first_guess(&chat);
+    let (title, promise, asked) = first_guess(core, &chat);
     let goals = &core.boards.chat_goals;
     // Held across adding the card, so a settle that runs at once finds the chat already attached.
     let mut chats = goals.chats.locked();

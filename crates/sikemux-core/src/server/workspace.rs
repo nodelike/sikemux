@@ -692,22 +692,11 @@ impl Workspaces {
             false => title.to_owned(),
         };
         self.change(|saved| {
-            let profile = |id: &str| {
-                saved
-                    .accounts
-                    .as_ref()?
-                    .profiles
-                    .iter()
-                    .find(|profile| profile.id == id)
-                    .map(|profile| profile.name.clone())
-            };
             let Some(kept) = saved.kept(agent_id) else {
                 return Ok(false);
             };
             let agent = &kept.agent;
-            let untitled = agent.title.trim().is_empty()
-                || agent.title == agent.provider
-                || agent.profile_id.as_deref().and_then(profile).as_deref() == Some(&agent.title);
+            let untitled = untitled(saved, agent);
             if agent.renamed || agent.title == title || (stand_in && !untitled) {
                 return Ok(false);
             }
@@ -717,6 +706,16 @@ impl Workspaces {
             Ok(true)
         })
         .unwrap_or(false)
+    }
+
+    /// The title the agent goes by, unless that is still only its agent's or account's name, or
+    /// its first prompt cut short.
+    pub(crate) fn title_given(&self, agent_id: &str) -> Option<String> {
+        let published = self.published.locked();
+        let agent = &published.saved.kept(agent_id)?.agent;
+        let cut_short = agent.title.chars().count() == STAND_IN_TITLE_CHARS;
+        (!untitled(&published.saved, agent) && (agent.renamed || !cut_short))
+            .then(|| agent.title.trim().to_owned())
     }
 
     /// Holds every agent asleep until the person opens or messages it, as
@@ -1386,6 +1385,22 @@ pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
 
 /// Titles the agent from what its chat said, as [`Workspaces::note_title`]
 /// does.
+/// Whether the agent has no title of its own yet, only its agent's or account's name.
+fn untitled(saved: &Saved, agent: &WorkspaceAgent) -> bool {
+    let profile = |id: &str| {
+        saved
+            .accounts
+            .as_ref()?
+            .profiles
+            .iter()
+            .find(|profile| profile.id == id)
+            .map(|profile| profile.name.clone())
+    };
+    agent.title.trim().is_empty()
+        || agent.title == agent.provider
+        || agent.profile_id.as_deref().and_then(profile).as_deref() == Some(&agent.title)
+}
+
 pub(crate) fn retitle(core: &Core, agent_id: &str, title: Option<String>, stand_in: bool) {
     if let Some(title) = title {
         core.workspaces.note_title(agent_id, &title, stand_in);
