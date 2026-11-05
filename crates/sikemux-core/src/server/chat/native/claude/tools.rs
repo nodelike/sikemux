@@ -5,9 +5,7 @@ use serde_json::{json, Map, Value};
 
 use crate::server::edits;
 
-use super::super::json::{
-    is_js_whitespace, js_join_item, js_number, js_str, non_nullish, str_field, texts, truthy,
-};
+use super::super::json::{not_null, number_text, present, printed, str_field, texts};
 
 pub struct ToolInfo {
     pub title: String,
@@ -42,8 +40,8 @@ pub fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
     let field = |key: &str| input.get(key);
     match name {
         "Agent" | "Task" => {
-            let title = if truthy(field("description")) {
-                js_str(field("description"))
+            let title = if present(field("description")) {
+                printed(field("description"))
             } else {
                 "Task".to_string()
             };
@@ -54,13 +52,13 @@ pub fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
             ToolInfo::new(title, "think").with_content(content)
         }
         "Bash" | "PowerShell" => {
-            let title = if truthy(field("command")) {
-                js_str(field("command"))
+            let title = if present(field("command")) {
+                printed(field("command"))
             } else {
                 "Terminal".to_string()
             };
             let content = match field("description") {
-                Some(description) if truthy(Some(description)) => {
+                Some(description) if present(Some(description)) => {
                     vec![text_content(description.clone())]
                 }
                 _ => Vec::new(),
@@ -72,34 +70,34 @@ pub fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
         "Edit" => edit_info(input, cwd),
         "Glob" => {
             let mut title = "Find".to_string();
-            if truthy(field("path")) {
-                title.push_str(&format!(" `{}`", js_str(field("path"))));
+            if present(field("path")) {
+                title.push_str(&format!(" `{}`", printed(field("path"))));
             }
-            if truthy(field("pattern")) {
-                title.push_str(&format!(" `{}`", js_str(field("pattern"))));
+            if present(field("pattern")) {
+                title.push_str(&format!(" `{}`", printed(field("pattern"))));
             }
             let locations = match field("path") {
-                Some(path) if truthy(Some(path)) => vec![json!({ "path": path })],
+                Some(path) if present(Some(path)) => vec![json!({ "path": path })],
                 _ => Vec::new(),
             };
             ToolInfo::new(title, "search").with_locations(locations)
         }
         "Grep" => ToolInfo::new(grep_title(input), "search"),
         "WebFetch" => {
-            let title = if truthy(field("url")) {
-                format!("Fetch {}", js_str(field("url")))
+            let title = if present(field("url")) {
+                format!("Fetch {}", printed(field("url")))
             } else {
                 "Fetch".to_string()
             };
             let content = match field("prompt") {
-                Some(prompt) if truthy(Some(prompt)) => vec![text_content(prompt.clone())],
+                Some(prompt) if present(Some(prompt)) => vec![text_content(prompt.clone())],
                 _ => Vec::new(),
             };
             ToolInfo::new(title, "fetch").with_content(content)
         }
         "WebSearch" => {
-            let title = if truthy(field("query")) {
-                format!("Search \"{}\"", js_str(field("query")))
+            let title = if present(field("query")) {
+                format!("Search \"{}\"", printed(field("query")))
             } else {
                 "Web search".to_string()
             };
@@ -111,7 +109,7 @@ pub fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
                     "Update TODOs: {}",
                     todos
                         .iter()
-                        .map(|todo| js_join_item(todo.get("content")))
+                        .map(|todo| printed(todo.get("content")))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
@@ -132,16 +130,16 @@ pub fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
             let content = findings
                 .iter()
                 .map(|finding| {
-                    let line = if truthy(finding.get("line")) {
-                        format!(":{}", js_str(finding.get("line")))
+                    let line = if present(finding.get("line")) {
+                        format!(":{}", printed(finding.get("line")))
                     } else {
                         String::new()
                     };
                     text_content(Value::String(format!(
                         "**{}{}** — {}",
-                        js_str(finding.get("file")),
+                        printed(finding.get("file")),
                         line,
-                        js_str(finding.get("summary"))
+                        printed(finding.get("summary"))
                     )))
                 })
                 .collect();
@@ -153,14 +151,14 @@ pub fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
         "TaskGet" => ToolInfo::new("Get task", "think"),
         "ExitPlanMode" => {
             let content = match field("plan") {
-                Some(plan) if truthy(Some(plan)) => vec![text_content(plan.clone())],
+                Some(plan) if present(Some(plan)) => vec![text_content(plan.clone())],
                 _ => Vec::new(),
             };
             ToolInfo::new("Approve Plan", "switch_mode").with_content(content)
         }
         "Skill" => {
-            let title = if truthy(field("skill")) {
-                format!("Load skill: {}", js_str(field("skill")))
+            let title = if present(field("skill")) {
+                format!("Load skill: {}", printed(field("skill")))
             } else {
                 "Load skill".to_string()
             };
@@ -172,7 +170,7 @@ pub fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
                 .cloned()
                 .unwrap_or_default();
             let only_question = match questions.as_slice() {
-                [only] if truthy(only.get("question")) => Some(js_str(only.get("question"))),
+                [only] if present(only.get("question")) => Some(printed(only.get("question"))),
                 _ => None,
             };
             let content = questions
@@ -249,7 +247,7 @@ fn insert_info(update: &mut Map<String, Value>, info: ToolInfo) {
 
 /// §4.4: the completion `tool_call_update` for a tool_result block, given the tool's name/input and the message-level `tool_use_result` (only when the user message had exactly one tool_result).
 ///
-/// For plan tools this is only the bare status/rawOutput resolution the adapter sends when a
+/// For plan tools this is only the bare status/rawOutput resolution when a
 /// permission request had surfaced them as a tool call; otherwise callers do not send one.
 pub fn tool_result(
     id: &str,
@@ -313,14 +311,14 @@ fn exit_plan_mode_raw_output(name: &str, content: &Value) -> Value {
 
 /// `^\s*```[^\r\n]*\r?\n([\s\S]*?)\r?\n```\s*$`
 fn strip_outer_fence(text: &str) -> Option<String> {
-    let body = text.trim_start_matches(is_js_whitespace);
+    let body = text.trim_start();
     let body = body.strip_prefix("```")?;
     let line_end = body.find(['\r', '\n'])?;
     let rest = &body[line_end..];
     let rest = rest
         .strip_prefix("\r\n")
         .or_else(|| rest.strip_prefix('\n'))?;
-    let tail = rest.trim_end_matches(is_js_whitespace);
+    let tail = rest.trim_end();
     let before_close = tail.strip_suffix("```")?;
     before_close
         .strip_suffix("\r\n")
@@ -337,7 +335,7 @@ fn content_field(blocks: Vec<Value>) -> Fields {
 /// Sikemux answers AskUserQuestion by refusing it and asking the person
 /// itself, so that refusal is not a failure.
 fn failed(name: &str, result: &Value) -> bool {
-    truthy(result.get("is_error")) && name != "AskUserQuestion"
+    present(result.get("is_error")) && name != "AskUserQuestion"
 }
 
 fn result_fields(
@@ -449,26 +447,26 @@ fn read_result(input: &Value, content: Option<&Value>, structured: Option<&Value
             .and_then(Value::as_str)
             .filter(|t| !t.is_empty())
         {
-            let start = non_nullish(file.get("startLine"))
-                .or_else(|| non_nullish(input.get("offset")))
+            let start = not_null(file.get("startLine"))
+                .or_else(|| not_null(input.get("offset")))
                 .and_then(Value::as_f64)
                 .unwrap_or(1.0);
             let text = text.strip_suffix('\n').unwrap_or(text);
             let mut numbered = text
                 .split('\n')
                 .enumerate()
-                .map(|(i, line)| format!("{}\t{}", js_number(start + i as f64), line))
+                .map(|(i, line)| format!("{}\t{}", number_text(start + i as f64), line))
                 .collect::<Vec<_>>()
                 .join("\n");
-            if truthy(file.get("truncatedByTokenCap")) {
+            if present(file.get("truncatedByTokenCap")) {
                 let detail = match (
                     file.get("numLines").and_then(Value::as_f64),
                     file.get("totalLines").and_then(Value::as_f64),
                 ) {
                     (Some(shown), Some(total)) => format!(
                         ": showing {} of {} lines",
-                        js_number(shown),
-                        js_number(total)
+                        number_text(shown),
+                        number_text(total)
                     ),
                     _ => String::new(),
                 };
@@ -487,7 +485,7 @@ fn read_result(input: &Value, content: Option<&Value>, structured: Option<&Value
                     let inner = if block.get("type").and_then(Value::as_str) == Some("text") {
                         json!({
                             "type": "text",
-                            "text": markdown_escape(&js_str(block.get("text"))),
+                            "text": markdown_escape(&printed(block.get("text"))),
                         })
                     } else {
                         content_block(block, false)
@@ -508,17 +506,17 @@ fn bash_result(content: Option<&Value>, structured: Option<&Value>, is_error: bo
     let structured = structured.filter(|s| {
         s.get("stdout").is_some_and(Value::is_string)
             && s.get("stderr").is_some_and(Value::is_string)
-            && !truthy(s.get("isImage"))
+            && !present(s.get("isImage"))
             && s.get("backgroundTaskId").is_none()
     });
     if let Some(bash) = structured {
-        output = join_non_empty(&[js_str(bash.get("stdout")), js_str(bash.get("stderr"))]);
-        if truthy(bash.get("interrupted")) {
+        output = join_non_empty(&[printed(bash.get("stdout")), printed(bash.get("stderr"))]);
+        if present(bash.get("interrupted")) {
             output = join_non_empty(&[output, "[Command was aborted before completion]".into()]);
         }
         if let Some(path) = bash.get("persistedOutputPath").and_then(Value::as_str) {
             let size = match bash.get("persistedOutputSize").and_then(Value::as_f64) {
-                Some(size) => format!(" ({} bytes total)", js_number(size)),
+                Some(size) => format!(" ({} bytes total)", number_text(size)),
                 None => String::new(),
             };
             output = join_non_empty(&[
@@ -551,12 +549,12 @@ fn bash_result(content: Option<&Value>, structured: Option<&Value>, is_error: bo
             _ => {}
         }
     }
-    if output.trim_matches(is_js_whitespace).is_empty() {
+    if output.trim().is_empty() {
         return Vec::new();
     }
     content_field(vec![text_content(Value::String(format!(
         "```console\n{}\n```",
-        output.trim_end_matches(is_js_whitespace)
+        output.trim_end()
     )))])
 }
 
@@ -570,8 +568,8 @@ fn join_non_empty(parts: &[String]) -> String {
 }
 
 fn js_or_empty(value: Option<&Value>) -> String {
-    if truthy(value) {
-        js_str(value)
+    if present(value) {
+        printed(value)
     } else {
         String::new()
     }
@@ -609,15 +607,19 @@ fn content_block(block: &Value, is_error: bool) -> Value {
     let wrap = |text: String| json!({ "type": "text", "text": error_wrap(&text, is_error) });
     let field = |key: &str| block.get(key);
     let error_with_message = || {
-        let message = if truthy(field("error_message")) {
-            format!(" - {}", js_str(field("error_message")))
+        let message = if present(field("error_message")) {
+            format!(" - {}", printed(field("error_message")))
         } else {
             String::new()
         };
-        wrap(format!("Error: {}{}", js_str(field("error_code")), message))
+        wrap(format!(
+            "Error: {}{}",
+            printed(field("error_code")),
+            message
+        ))
     };
     match field("type").and_then(Value::as_str).unwrap_or_default() {
-        "text" => wrap(js_str(field("text"))),
+        "text" => wrap(printed(field("text"))),
         "image" => {
             let source = field("source");
             match source.and_then(|s| s.get("type")).and_then(Value::as_str) {
@@ -628,7 +630,7 @@ fn content_block(block: &Value, is_error: bool) -> Value {
                 }),
                 Some("url") => wrap(format!(
                     "[image: {}]",
-                    js_str(source.and_then(|s| s.get("url")))
+                    printed(source.and_then(|s| s.get("url")))
                 )),
                 _ => wrap("[image: file reference]".to_string()),
             }
@@ -643,7 +645,7 @@ fn content_block(block: &Value, is_error: bool) -> Value {
             match source_field("type").and_then(Value::as_str) {
                 Some("url") => wrap(format!(
                     "[document{title}: {}]",
-                    js_str(source_field("url"))
+                    printed(source_field("url"))
                 )),
                 Some(kind @ ("base64" | "text")) => {
                     let length = source_field("data")
@@ -657,20 +659,20 @@ fn content_block(block: &Value, is_error: bool) -> Value {
                     };
                     wrap(format!(
                         "[document{title}: {}, {}]",
-                        js_str(source_field("media_type")),
+                        printed(source_field("media_type")),
                         format_byte_size(bytes)
                     ))
                 }
                 _ => wrap(format!("[document{title}]")),
             }
         }
-        "tool_reference" => wrap(format!("Tool: {}", js_str(field("tool_name")))),
+        "tool_reference" => wrap(format!("Tool: {}", printed(field("tool_name")))),
         "tool_search_tool_search_result" => {
             let names = field("tool_references")
                 .and_then(Value::as_array)
                 .map(|refs| {
                     refs.iter()
-                        .map(|r| js_join_item(r.get("tool_name")))
+                        .map(|r| printed(r.get("tool_name")))
                         .collect::<Vec<_>>()
                         .join(", ")
                 })
@@ -687,27 +689,27 @@ fn content_block(block: &Value, is_error: bool) -> Value {
         }
         "web_search_result" => wrap(format!(
             "{} ({})",
-            js_str(field("title")),
-            js_str(field("url"))
+            printed(field("title")),
+            printed(field("url"))
         )),
         "web_search_tool_result_error"
         | "web_fetch_tool_result_error"
         | "code_execution_tool_result_error"
         | "bash_code_execution_tool_result_error" => {
-            wrap(format!("Error: {}", js_str(field("error_code"))))
+            wrap(format!("Error: {}", printed(field("error_code"))))
         }
-        "web_fetch_result" => wrap(format!("Fetched: {}", js_str(field("url")))),
+        "web_fetch_result" => wrap(format!("Fetched: {}", printed(field("url")))),
         "code_execution_result" | "bash_code_execution_result" => {
-            let output = if truthy(field("stdout")) {
-                js_str(field("stdout"))
+            let output = if present(field("stdout")) {
+                printed(field("stdout"))
             } else {
                 js_or_empty(field("stderr"))
             };
             wrap(format!("Output: {output}"))
         }
-        "text_editor_code_execution_view_result" => wrap(js_str(field("content"))),
+        "text_editor_code_execution_view_result" => wrap(printed(field("content"))),
         "text_editor_code_execution_create_result" => wrap(
-            if truthy(field("is_file_update")) {
+            if present(field("is_file_update")) {
                 "File updated"
             } else {
                 "File created"
@@ -720,7 +722,7 @@ fn content_block(block: &Value, is_error: bool) -> Value {
                 .map(|lines| {
                     lines
                         .iter()
-                        .map(|line| js_join_item(Some(line)))
+                        .map(|line| printed(Some(line)))
                         .collect::<Vec<_>>()
                         .join("\n")
                 })
@@ -767,7 +769,7 @@ fn strip_agent_trailer(text: &str) -> String {
 fn strip_usage_block(text: &str) -> String {
     const OPEN: &str = "<usage>";
     const CLOSE: &str = "</usage>";
-    let body = text.trim_end_matches(is_js_whitespace);
+    let body = text.trim_end();
     if !body.ends_with(CLOSE) {
         return text.to_string();
     }
@@ -783,7 +785,7 @@ fn strip_usage_block(text: &str) -> String {
 }
 
 fn strip_agent_id_line(text: &str) -> String {
-    let body = text.trim_end_matches(is_js_whitespace);
+    let body = text.trim_end();
     let line_start = body.rfind('\n').map_or(0, |i| i + 1);
     if !is_agent_id_line(&body[line_start..]) {
         return text.to_string();
@@ -825,7 +827,7 @@ fn unwrap_handback_frame(text: &str) -> String {
         }
     };
     let notes = dedent_handback(&text[..header_start.saturating_sub(1)]);
-    let notes = notes.trim_end_matches(is_js_whitespace);
+    let notes = notes.trim_end();
     let report = dedent_handback(&text[header_start + header_line.len()..]);
     if notes.is_empty() {
         report
@@ -860,7 +862,7 @@ fn replace_partial_note_in_text(text: &str) -> String {
         return text.to_string();
     }
     let report = match text.find("\n\n") {
-        Some(end) => text[end + 2..].trim_start_matches(is_js_whitespace),
+        Some(end) => text[end + 2..].trim_start(),
         None => "",
     };
     if report.is_empty() {
@@ -914,7 +916,7 @@ pub fn todo_plan(input: &Value) -> Option<Value> {
         .iter()
         .map(|todo| {
             let in_progress = todo.get("status").and_then(Value::as_str) == Some("in_progress");
-            let content = if in_progress && truthy(todo.get("activeForm")) {
+            let content = if in_progress && present(todo.get("activeForm")) {
                 todo.get("activeForm")
             } else {
                 todo.get("content")
@@ -934,7 +936,7 @@ fn plan_entry(content: Option<&Value>, status: Option<&Value>) -> Value {
 
 /// §3.3 updates for one Anthropic content block (text/image/thinking) of role "assistant"|"user", with messageId; tool blocks are not handled here.
 ///
-/// A bare JSON string is treated as plain message text, as the adapter does for string content.
+/// A bare JSON string is treated as plain message text.
 pub fn content_chunk(block: &Value, role: &str, message_id: Option<&str>) -> Option<Value> {
     let message_update = if role == "assistant" {
         UpdateKind::AgentMessageChunk
@@ -946,7 +948,7 @@ pub fn content_chunk(block: &Value, role: &str, message_id: Option<&str>) -> Opt
             (message_update, json!({ "type": "text", "text": text }))
         }
         Value::Object(_) => match block.get("type").and_then(Value::as_str)? {
-            "text" | "text_delta" if truthy(block.get("text")) => (
+            "text" | "text_delta" if present(block.get("text")) => (
                 message_update,
                 json!({ "type": "text", "text": block.get("text") }),
             ),
@@ -969,7 +971,7 @@ pub fn content_chunk(block: &Value, role: &str, message_id: Option<&str>) -> Opt
                 }
                 (message_update, Value::Object(image))
             }
-            "thinking" | "thinking_delta" if truthy(block.get("thinking")) => (
+            "thinking" | "thinking_delta" if present(block.get("thinking")) => (
                 UpdateKind::AgentThoughtChunk,
                 json!({ "type": "text", "text": block.get("thinking") }),
             ),
@@ -1009,7 +1011,7 @@ impl TaskPlan {
         result: &Value,
         tool_use_result: Option<&Value>,
     ) -> Option<Value> {
-        if truthy(result.get("is_error")) {
+        if present(result.get("is_error")) {
             return None;
         }
         let content = result.get("content");
@@ -1019,21 +1021,21 @@ impl TaskPlan {
                     .and_then(parse_task_create)
                     .or_else(|| content.and_then(parse_task_create))
                     .filter(|id| !id.is_empty());
-                if let (Some(id), true) = (created, truthy(Some(input))) {
+                if let (Some(id), true) = (created, present(Some(input))) {
                     self.set(
                         id,
                         TaskEntry {
                             subject: input.get("subject").cloned(),
                             status: "pending".into(),
-                            active_form: non_nullish(input.get("activeForm")).cloned(),
-                            description: non_nullish(input.get("description")).cloned(),
+                            active_form: not_null(input.get("activeForm")).cloned(),
+                            description: not_null(input.get("description")).cloned(),
                         },
                     );
                 }
                 Some(self.plan())
             }
             "TaskUpdate" => {
-                let expected = non_nullish(input.get("taskId")).map(|id| js_str(Some(id)));
+                let expected = not_null(input.get("taskId")).map(|id| printed(Some(id)));
                 let output = tool_use_result
                     .and_then(|r| parse_task_update(r, expected.as_deref()))
                     .or_else(|| content.and_then(|c| parse_task_update(c, expected.as_deref())));
@@ -1080,7 +1082,7 @@ impl TaskPlan {
                     let content = match &task.active_form {
                         Some(active)
                             if task.status.as_str() == Some("in_progress")
-                                && truthy(Some(active)) =>
+                                && present(Some(active)) =>
                         {
                             Some(active)
                         }
@@ -1104,30 +1106,30 @@ impl TaskPlan {
     }
 
     fn apply_update(&mut self, input: &Value) {
-        let Some(task_id) = input.get("taskId").filter(|id| truthy(Some(id))) else {
+        let Some(task_id) = input.get("taskId").filter(|id| present(Some(id))) else {
             return;
         };
-        let task_id = js_str(Some(task_id));
+        let task_id = printed(Some(task_id));
         if input.get("status").and_then(Value::as_str) == Some("deleted") {
             self.tasks.retain(|(id, _)| *id != task_id);
             return;
         }
         let existing = self.position(&task_id).map(|i| self.tasks[i].1.clone());
-        let subject = non_nullish(input.get("subject"))
+        let subject = not_null(input.get("subject"))
             .cloned()
             .or_else(|| existing.as_ref().and_then(|e| e.subject.clone()))
-            .filter(|s| truthy(Some(s)));
+            .filter(|s| present(Some(s)));
         let Some(subject) = subject else {
             return;
         };
-        let status = non_nullish(input.get("status"))
+        let status = not_null(input.get("status"))
             .cloned()
             .or_else(|| existing.as_ref().map(|e| e.status.clone()))
             .unwrap_or_else(|| "pending".into());
-        let active_form = non_nullish(input.get("activeForm"))
+        let active_form = not_null(input.get("activeForm"))
             .cloned()
             .or_else(|| existing.as_ref().and_then(|e| e.active_form.clone()));
-        let description = non_nullish(input.get("description"))
+        let description = not_null(input.get("description"))
             .cloned()
             .or_else(|| existing.as_ref().and_then(|e| e.description.clone()));
         self.set(
@@ -1171,8 +1173,8 @@ fn parse_task_create(content: &Value) -> Option<String> {
         return parsed["task"]["id"].as_str().map(str::to_string);
     }
     texts(content).into_iter().find_map(|text| {
-        let rest = text.trim_matches(is_js_whitespace).strip_prefix("Task #")?;
-        let id_end = rest.find(is_js_whitespace)?;
+        let rest = text.trim().strip_prefix("Task #")?;
+        let id_end = rest.find(char::is_whitespace)?;
         let subject = rest[id_end..].strip_prefix(" created successfully: ")?;
         let valid = id_end > 0 && !subject.is_empty() && !subject.contains(is_line_terminator);
         valid.then(|| rest[..id_end].to_string())
@@ -1195,11 +1197,11 @@ fn parse_task_update(content: &Value, expected: Option<&str>) -> Option<(bool, S
         ));
     }
     texts(content).into_iter().find_map(|text| {
-        let trimmed = text.trim_matches(is_js_whitespace);
+        let trimmed = text.trim();
         let not_found = trimmed
             .strip_prefix("Task #")
             .and_then(|rest| rest.strip_suffix(" not found"))
-            .filter(|id| !id.is_empty() && !id.contains(is_js_whitespace));
+            .filter(|id| !id.is_empty() && !id.contains(char::is_whitespace));
         let task_id = not_found.or(expected)?;
         (not_found.is_some() || trimmed == "Failed to delete task")
             .then(|| (false, task_id.to_string()))
@@ -1231,16 +1233,16 @@ fn parse_task_list(content: &Value) -> Option<Vec<(String, String, String)>> {
                 .flatten()
                 .map(|task| {
                     (
-                        js_str(task.get("id")),
-                        js_str(task.get("subject")),
-                        js_str(task.get("status")),
+                        printed(task.get("id")),
+                        printed(task.get("subject")),
+                        printed(task.get("status")),
                     )
                 })
                 .collect(),
         );
     }
     for text in texts(content) {
-        let trimmed = text.trim_matches(is_js_whitespace);
+        let trimmed = text.trim();
         if trimmed == "No tasks found" {
             return Some(Vec::new());
         }
@@ -1255,7 +1257,7 @@ fn parse_task_list(content: &Value) -> Option<Vec<(String, String, String)>> {
 /// `^#(\S+) \[(pending|in_progress|completed)\] (.+)$`, with the owner and blocked-by suffixes removed.
 fn parse_task_line(line: &str) -> Option<(String, String, String)> {
     let rest = line.strip_prefix('#')?;
-    let id_end = rest.find(is_js_whitespace)?;
+    let id_end = rest.find(char::is_whitespace)?;
     let (id, rest) = rest.split_at(id_end);
     let rest = rest.strip_prefix(" [")?;
     let (status, subject) = ["pending", "in_progress", "completed"]
@@ -1293,27 +1295,29 @@ fn parse_task_line(line: &str) -> Option<(String, String, String)> {
 }
 
 fn read_info(input: &Value, cwd: &Path) -> ToolInfo {
-    let file_path = input.get("file_path").filter(|p| truthy(Some(p)));
-    let offset = non_nullish(input.get("offset"));
+    let file_path = input.get("file_path").filter(|p| present(Some(p)));
+    let offset = not_null(input.get("offset"));
     let start = offset.cloned().unwrap_or_else(|| Value::from(1));
     let limit = input
         .get("limit")
-        .filter(|l| truthy(Some(l)))
+        .filter(|l| present(Some(l)))
         .and_then(Value::as_f64);
     let range = match limit {
         Some(limit) if limit > 0.0 => {
             let first = start.as_f64().unwrap_or(1.0);
             format!(
                 " ({} - {})",
-                js_str(Some(&start)),
-                js_number(first + limit - 1.0)
+                printed(Some(&start)),
+                number_text(first + limit - 1.0)
             )
         }
-        _ if truthy(input.get("offset")) => format!(" (from line {})", js_str(input.get("offset"))),
+        _ if present(input.get("offset")) => {
+            format!(" (from line {})", printed(input.get("offset")))
+        }
         _ => String::new(),
     };
     let display = match file_path {
-        Some(path) => display_path(&js_str(Some(path)), cwd),
+        Some(path) => display_path(&printed(Some(path)), cwd),
         None => "File".to_string(),
     };
     let locations = match file_path {
@@ -1327,12 +1331,12 @@ fn write_info(input: &Value, cwd: &Path) -> ToolInfo {
     if !input.is_object() {
         return ToolInfo::new("Preparing file…", "edit");
     }
-    let file_path = non_nullish(input.get("file_path"))
+    let file_path = not_null(input.get("file_path"))
         .or_else(|| input.get("path").filter(|p| p.is_string()))
-        .filter(|p| truthy(Some(p)));
-    let content = non_nullish(input.get("content"))
-        .or_else(|| non_nullish(input.get("file_text")))
-        .or_else(|| non_nullish(input.get("file_content")));
+        .filter(|p| present(Some(p)));
+    let content = not_null(input.get("content"))
+        .or_else(|| not_null(input.get("file_text")))
+        .or_else(|| not_null(input.get("file_content")));
     let blocks = match (file_path, content) {
         (Some(path), _) => {
             let mut diff = Map::new();
@@ -1344,11 +1348,11 @@ fn write_info(input: &Value, cwd: &Path) -> ToolInfo {
             }
             vec![Value::Object(diff)]
         }
-        (None, Some(content)) if truthy(Some(content)) => vec![text_content(content.clone())],
+        (None, Some(content)) if present(Some(content)) => vec![text_content(content.clone())],
         _ => Vec::new(),
     };
     let display = file_path
-        .map(|path| display_path(&js_str(Some(path)), cwd))
+        .map(|path| display_path(&printed(Some(path)), cwd))
         .filter(|display| !display.is_empty());
     let title = match display {
         Some(display) => format!("Write {display}"),
@@ -1363,20 +1367,20 @@ fn write_info(input: &Value, cwd: &Path) -> ToolInfo {
 }
 
 fn edit_info(input: &Value, cwd: &Path) -> ToolInfo {
-    let file_path = input.get("file_path").filter(|p| truthy(Some(p)));
-    let old = input.get("old_string").filter(|s| truthy(Some(s)));
+    let file_path = input.get("file_path").filter(|p| present(Some(p)));
+    let old = input.get("old_string").filter(|s| present(Some(s)));
     let new = input.get("new_string");
     let content = match file_path {
-        Some(path) if old.is_some() || truthy(new) => vec![json!({
+        Some(path) if old.is_some() || present(new) => vec![json!({
             "type": "diff",
             "path": path,
             "oldText": old.cloned().unwrap_or(Value::Null),
-            "newText": non_nullish(new).cloned().unwrap_or_else(|| Value::String(String::new())),
+            "newText": not_null(new).cloned().unwrap_or_else(|| Value::String(String::new())),
         })],
         _ => Vec::new(),
     };
     let display = file_path
-        .map(|path| display_path(&js_str(Some(path)), cwd))
+        .map(|path| display_path(&printed(Some(path)), cwd))
         .filter(|display| !display.is_empty());
     let title = match display {
         Some(display) => format!("Edit {display}"),
@@ -1393,18 +1397,18 @@ fn edit_info(input: &Value, cwd: &Path) -> ToolInfo {
 fn grep_title(input: &Value) -> String {
     let field = |key: &str| input.get(key);
     let mut title = "grep".to_string();
-    if truthy(field("-i")) {
+    if present(field("-i")) {
         title.push_str(" -i");
     }
-    if truthy(field("-n")) {
+    if present(field("-n")) {
         title.push_str(" -n");
     }
     for flag in ["-A", "-B", "-C"] {
-        if let Some(value) = field(flag) {
-            title.push_str(&format!(" {flag} {}", js_str(Some(value))));
+        if let Some(value) = not_null(field(flag)) {
+            title.push_str(&format!(" {flag} {}", printed(Some(value))));
         }
     }
-    if truthy(field("output_mode")) {
+    if present(field("output_mode")) {
         match field("output_mode").and_then(Value::as_str) {
             Some("files_with_matches") => title.push_str(" -l"),
             Some("count") => title.push_str(" -c"),
@@ -1412,29 +1416,29 @@ fn grep_title(input: &Value) -> String {
         }
     }
     if let Some(limit) = field("head_limit") {
-        title.push_str(&format!(" | head -{}", js_str(Some(limit))));
+        title.push_str(&format!(" | head -{}", printed(Some(limit))));
     }
-    if truthy(field("glob")) {
-        title.push_str(&format!(" --include=\"{}\"", js_str(field("glob"))));
+    if present(field("glob")) {
+        title.push_str(&format!(" --include=\"{}\"", printed(field("glob"))));
     }
-    if truthy(field("type")) {
-        title.push_str(&format!(" --type={}", js_str(field("type"))));
+    if present(field("type")) {
+        title.push_str(&format!(" --type={}", printed(field("type"))));
     }
-    if truthy(field("multiline")) {
+    if present(field("multiline")) {
         title.push_str(" -P");
     }
-    if truthy(field("pattern")) {
-        title.push_str(&format!(" \"{}\"", js_str(field("pattern"))));
+    if present(field("pattern")) {
+        title.push_str(&format!(" \"{}\"", printed(field("pattern"))));
     }
-    if truthy(field("path")) {
-        title.push_str(&format!(" {}", js_str(field("path"))));
+    if present(field("path")) {
+        title.push_str(&format!(" {}", printed(field("path"))));
     }
     title
 }
 
 fn subject_title(prefix: &str, subject: Option<&Value>) -> String {
-    if truthy(subject) {
-        format!("{prefix}: {}", js_str(subject))
+    if present(subject) {
+        format!("{prefix}: {}", printed(subject))
     } else {
         prefix.to_string()
     }

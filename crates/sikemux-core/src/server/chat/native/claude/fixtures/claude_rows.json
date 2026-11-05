@@ -1064,7 +1064,7 @@
                 "id": "m1.0",
                 "tool": {
                   "toolCallId": "toolu_1",
-                  "title": "grep -i -n -A 2 -B 0 -C null | head -10 --include=\"*.rs\" --type=rust -P \"fn main\" src",
+                  "title": "grep -i -n -A 2 -B 0 | head -10 --include=\"*.rs\" --type=rust -P \"fn main\" src",
                   "kind": "search",
                   "status": "pending",
                   "rawInput": {
@@ -1082,7 +1082,7 @@
                   },
                   "row": {
                     "action": "search",
-                    "target": "grep -i -n -A 2 -B 0 -C null | head -10 --include=\"*.rs\" --type=rust -P \"fn main\" src"
+                    "target": "grep -i -n -A 2 -B 0 | head -10 --include=\"*.rs\" --type=rust -P \"fn main\" src"
                   }
                 },
                 "startedAt": 1000

@@ -608,7 +608,6 @@ impl Backend for Codex {
             session_id: thread_id,
             capabilities: Opened::native_capabilities(),
             setup: json!({
-                "modes": config::modes(mode),
                 "configOptions": codex.kept.models.options("Codex", &codex.kept.model, codex.kept.effort.as_deref()),
             }),
         };

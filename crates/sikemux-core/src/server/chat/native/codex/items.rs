@@ -1,12 +1,12 @@
-//! What Codex's thread items look like in the chat: the ACP session updates
-//! Codex's ACP adapter sends for each, so the app reads them alike.
+//! What Codex's thread items look like in the chat: the session updates every
+//! agent sends for the same kind of work, so the app reads them alike.
 
 use sikemux_fold::update::{
     self, agent_text, compaction, content, diff_block, mcp_input, terminal_call, terminal_done,
     thought, tool_call, tool_update, TurnUsage,
 };
 use sikemux_fold::UpdateKind;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -58,15 +58,6 @@ fn without_shell(command: &str) -> Option<&str> {
         }
     }
     Some(rest)
-}
-
-/// What the agent said, marked with the phase of its answer Codex gave it.
-fn phased_text(text: &str, message_id: Option<&str>, phase: Option<&Value>) -> Value {
-    let mut update = agent_text(text, message_id);
-    if let Some(phase) = phase.filter(|phase| !phase.is_null()) {
-        update["_meta"] = json!({ "codex": { "phase": phase } });
-    }
-    update
 }
 
 fn terminal(id: &str, status: &str, title: &str, command: &Value, cwd: &Value) -> Value {
@@ -324,17 +315,12 @@ fn collaboration(item: &Value, session_update: UpdateKind) -> Value {
             "reasoningEffort": item["reasoningEffort"],
             "status": item["status"],
         },
-        "_meta": { "codex": { "collaboration": {
-            "tool": item["tool"],
-            "senderThreadId": item["senderThreadId"],
-            "receiverThreadIds": item["receiverThreadIds"],
-        } } },
     })
 }
 
 fn plan_text(item: &Value) -> Option<Value> {
     let text = text(item, "text");
-    (!text.is_empty()).then(|| phased_text(text, item["id"].as_str(), Some(&json!("final_answer"))))
+    (!text.is_empty()).then(|| agent_text(text, item["id"].as_str()))
 }
 
 fn reasoning_parts(item: &Value) -> Vec<&str> {
@@ -381,11 +367,7 @@ pub(super) fn user_blocks(item: &Value) -> Vec<Value> {
 /// A finished item as it is replayed from the thread's history.
 pub(super) fn replayed(item: &Value, read: &impl Fn(&str) -> Option<String>) -> Vec<Value> {
     match text(item, "type") {
-        "agentMessage" => vec![phased_text(
-            text(item, "text"),
-            item["id"].as_str(),
-            Some(&item["phase"]),
-        )],
+        "agentMessage" => vec![agent_text(text(item, "text"), item["id"].as_str())],
         "reasoning" => reasoning_parts(item)
             .into_iter()
             .map(|part| thought(part, item["id"].as_str()))
@@ -425,16 +407,11 @@ pub(super) fn replayed(item: &Value, read: &impl Fn(&str) -> Option<String>) -> 
 /// What the chat has been shown of the items streaming in.
 #[derive(Default, Serialize, Deserialize)]
 pub(super) struct Items {
-    phases: HashMap<String, Value>,
     streamed_reasoning: HashSet<String>,
     shown: HashSet<String>,
 }
 
 impl Items {
-    pub fn message_delta(&self, item_id: &str, delta: &str) -> Value {
-        phased_text(delta, Some(item_id), self.phases.get(item_id))
-    }
-
     pub fn thought_delta(&mut self, item_id: &str, delta: &str) -> Value {
         self.streamed_reasoning.insert(item_id.to_owned());
         thought(delta, Some(item_id))
@@ -443,10 +420,6 @@ impl Items {
     pub fn started(&mut self, item: &Value) -> Vec<Value> {
         let id = text(item, "id").to_owned();
         let call = match text(item, "type") {
-            "agentMessage" => {
-                self.phases.insert(id, item["phase"].clone());
-                return Vec::new();
-            }
             "fileChange" => edit_call(item, status(item), &read_file),
             "commandExecution" => command_call(item),
             "mcpToolCall" => mcp_call(item),
@@ -482,7 +455,6 @@ impl Items {
         let id = text(item, "id");
         let kind = text(item, "type");
         if kind == "agentMessage" {
-            self.phases.insert(id.to_owned(), item["phase"].clone());
             return Vec::new();
         }
         if kind == "reasoning" {
@@ -721,24 +693,6 @@ mod tests {
         let replayed = edit_call(&item, "completed", &applied);
         assert_eq!(replayed["content"][0]["oldText"], "one\ntwo\n");
         assert_eq!(replayed["content"][0]["newText"], "one\nTWO\n");
-    }
-
-    #[test]
-    fn streamed_text_carries_its_message_and_phase() {
-        let mut items = Items::default();
-        items.started(
-            &json!({ "type": "agentMessage", "id": "msg_1", "text": "", "phase": "final_answer" }),
-        );
-        assert_eq!(
-            items.message_delta("msg_1", "Hi"),
-            json!({
-                "sessionUpdate": "agent_message_chunk",
-                "content": { "type": "text", "text": "Hi" },
-                "messageId": "msg_1",
-                "_meta": { "codex": { "phase": "final_answer" } },
-            })
-        );
-        assert!(items.message_delta("msg_2", "x").get("_meta").is_none());
     }
 
     #[test]

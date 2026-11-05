@@ -9,16 +9,6 @@ use super::super::models::{self, Effort, Model, Models};
 use super::super::servers;
 use crate::launch::PermissionMode;
 
-/// The preset Codex's ACP adapter names the app's permission mode by.
-/// "read-only" still writes inside the workspace; it asks first for
-/// anything outside it.
-pub(super) fn mode_id(mode: PermissionMode) -> &'static str {
-    match mode {
-        PermissionMode::WorkspaceWrite => "read-only",
-        PermissionMode::Bypass => "agent-full-access",
-    }
-}
-
 pub(super) fn approval_policy(mode: PermissionMode) -> &'static str {
     match mode {
         PermissionMode::WorkspaceWrite => "on-request",
@@ -44,33 +34,6 @@ pub(super) fn sandbox_name(mode: PermissionMode) -> &'static str {
         PermissionMode::WorkspaceWrite => "workspace-write",
         PermissionMode::Bypass => "danger-full-access",
     }
-}
-
-/// The session's `modes`, as Codex's ACP adapter offers them.
-pub(super) fn modes(current: PermissionMode) -> Value {
-    json!({
-        "availableModes": [
-            {
-                "id": "read-only",
-                "name": "Ask for approval",
-                "description": "Always ask to edit external files and use the internet",
-                "_meta": { "kind": "standard" },
-            },
-            {
-                "id": "agent",
-                "name": "Approve for me",
-                "description": "Only ask for actions detected as potentially unsafe",
-                "_meta": { "kind": "auto_review" },
-            },
-            {
-                "id": "agent-full-access",
-                "name": "Full access",
-                "description": "Unrestricted access to the internet and any file on your computer",
-                "_meta": { "kind": "full_access" },
-            },
-        ],
-        "currentModeId": mode_id(current),
-    })
 }
 
 #[derive(Deserialize)]
@@ -213,32 +176,6 @@ mod tests {
                 "inputModalities": ["text"],
             }),
         ])
-    }
-
-    #[test]
-    fn the_app_modes_map_to_the_adapter_presets() {
-        assert_eq!(mode_id(PermissionMode::Bypass), "agent-full-access");
-        assert_eq!(mode_id(PermissionMode::WorkspaceWrite), "read-only");
-        assert_eq!(approval_policy(PermissionMode::Bypass), "never");
-        assert_eq!(
-            sandbox_policy(PermissionMode::Bypass)["type"],
-            "dangerFullAccess"
-        );
-        assert_eq!(
-            approval_policy(PermissionMode::WorkspaceWrite),
-            "on-request"
-        );
-        assert_eq!(
-            sandbox_policy(PermissionMode::WorkspaceWrite)["type"],
-            "workspaceWrite"
-        );
-        let ids: Vec<_> = modes(PermissionMode::WorkspaceWrite)["availableModes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|mode| mode["id"].as_str().unwrap().to_owned())
-            .collect();
-        assert_eq!(ids, ["read-only", "agent", "agent-full-access"]);
     }
 
     #[test]

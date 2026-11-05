@@ -34,19 +34,6 @@ pub(crate) fn permission_mode(mode: PermissionMode) -> &'static str {
     }
 }
 
-/// The modes as an ACP session lists them, for the setup the chat keeps.
-pub(crate) fn modes(current: &str) -> Value {
-    json!({
-        "currentModeId": current,
-        "availableModes": [
-            { "id": "default", "name": "Manual", "description": "Always ask before making changes" },
-            { "id": "acceptEdits", "name": "Accept edits", "description": "Automatically accept all file edits" },
-            { "id": "plan", "name": "Plan", "description": "Create a plan before making changes" },
-            { "id": "bypassPermissions", "name": "Bypass permissions", "description": "Accepts all permissions" },
-        ],
-    })
-}
-
 fn find<'a>(models: &'a [Value], value: &str) -> Option<&'a Value> {
     models
         .iter()

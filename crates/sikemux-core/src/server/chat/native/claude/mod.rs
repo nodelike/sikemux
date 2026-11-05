@@ -605,10 +605,7 @@ impl Backend for Claude {
         if let Some(commands) = initialized.get("commands") {
             sink.update(&session_id, reader::available_commands(commands));
         }
-        let setup = json!({
-            "modes": config::modes(mode),
-            "configOptions": claude.options(),
-        });
+        let setup = json!({ "configOptions": claude.options() });
         Ok((
             claude,
             Opened {

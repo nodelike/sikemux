@@ -3,6 +3,8 @@
 //! standard input and output. Their session updates already have the shape
 //! the chat reads, so they pass through as they come.
 
+mod mcp_calls;
+
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -27,8 +29,8 @@ use super::super::Respond;
 use super::pending::{Answered, Purpose};
 use super::process::{self, Lines, Process, Reading, Reads, Released, Writer};
 use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
+use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, TurnEnd};
-use super::{mcp_calls, servers};
 
 /// The error code an agent turns a prompt down with when it needs a sign-in.
 const AUTH_REQUIRED: i64 = -32000;
@@ -496,14 +498,6 @@ impl Backend for Acp {
             permission_mode_id(&acp.provider, launch.permission_mode, &acp.kept.setup)?
         {
             acp.set_mode(mode_id).await?;
-            if let Some(modes) = acp
-                .kept
-                .setup
-                .get_mut("modes")
-                .and_then(Value::as_object_mut)
-            {
-                modes.insert("currentModeId".into(), json!(mode_id));
-            }
         }
         acp.apply_saved_choices(launch.model.as_deref(), launch.effort.as_deref())
             .await;

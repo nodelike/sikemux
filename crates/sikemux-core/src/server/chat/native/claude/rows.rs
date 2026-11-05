@@ -44,7 +44,12 @@ fn read(fixture: &mut Value) {
         let name = case["name"].as_str().expect("name");
         case["shown"] = rows_of([
             at_root(tools::tool_call("toolu_1", name, &case["input"], cwd)),
-            at_root(tools::tool_call_refined("toolu_1", name, &case["input"], cwd)),
+            at_root(tools::tool_call_refined(
+                "toolu_1",
+                name,
+                &case["input"],
+                cwd,
+            )),
         ]);
     }
     for case in fixture["results"].as_array_mut().expect("results") {
@@ -87,7 +92,10 @@ fn claudes_input_reads_as_the_rows_a_client_draws() {
     for group in ["calls", "results", "transcripts"] {
         let (now, then) = (&read_now[group], &kept[group]);
         for (index, case) in then.as_array().expect("cases").iter().enumerate() {
-            assert_eq!(now[index]["shown"], case["shown"], "{group} {index}: {case}");
+            assert_eq!(
+                now[index]["shown"], case["shown"],
+                "{group} {index}: {case}"
+            );
             assert_eq!(now[index]["model"], case["model"], "{group} {index}");
         }
     }

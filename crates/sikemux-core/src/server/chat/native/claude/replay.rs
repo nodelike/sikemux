@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Map, Value};
 
 use super::super::super::states::{self, Subagent};
-use super::super::json::{self, is_js_whitespace, js_str, str_field, truthy};
+use super::super::json::{self, present, printed, str_field};
 use super::failure;
 use super::tools::{self, TaskPlan};
 
@@ -382,7 +382,7 @@ impl Records {
     fn parent_of(&self, record: &Value) -> Option<&Value> {
         record
             .get("parentUuid")
-            .filter(|parent| truthy(Some(parent)))
+            .filter(|parent| present(Some(parent)))
             .and_then(Value::as_str)
             .and_then(|parent| self.get(parent))
     }
@@ -428,11 +428,12 @@ impl Records {
         for metadata in boundaries {
             let preserved = metadata
                 .get("preservedMessages")
-                .filter(|p| truthy(Some(p)));
+                .filter(|p| present(Some(p)));
             if let Some(preserved) = preserved {
                 self.relink_preserved_messages(preserved);
-            } else if let Some(segment) =
-                metadata.get("preservedSegment").filter(|s| truthy(Some(s)))
+            } else if let Some(segment) = metadata
+                .get("preservedSegment")
+                .filter(|s| present(Some(s)))
             {
                 self.relink_preserved_segment(segment);
             }
@@ -523,7 +524,7 @@ fn branch(
                 .filter(|_| str_field(record, "subtype") == Some("compact_boundary"));
             before = record
                 .get("parentUuid")
-                .filter(|parent| truthy(Some(parent)))
+                .filter(|parent| present(Some(parent)))
                 .and_then(Value::as_str)
                 .or(logical)
                 .map(str::to_owned);
@@ -543,7 +544,7 @@ fn latest_tip(entries: &[Value], records: &Records) -> Option<String> {
         .order
         .iter()
         .filter_map(|uuid| records.get(uuid))
-        .filter_map(|record| record.get("parentUuid").filter(|p| truthy(Some(p))))
+        .filter_map(|record| record.get("parentUuid").filter(|p| present(Some(p))))
         .filter_map(Value::as_str)
         .collect();
     let mut tips: Vec<&Value> = Vec::new();
@@ -569,9 +570,9 @@ fn latest_tip(entries: &[Value], records: &Records) -> Option<String> {
         .iter()
         .copied()
         .filter(|record| {
-            !truthy(record.get("isSidechain"))
-                && !truthy(record.get("teamName"))
-                && !truthy(record.get("isMeta"))
+            !present(record.get("isSidechain"))
+                && !present(record.get("teamName"))
+                && !present(record.get("isMeta"))
         })
         .collect();
     let pool = if main_tips.is_empty() {
@@ -595,7 +596,7 @@ fn api_message_id(record: &Value) -> Option<&str> {
 
 fn carries_tool_result(record: &Value) -> bool {
     str_field(record, "type") == Some("user")
-        && truthy(record.get("parentUuid"))
+        && present(record.get("parentUuid"))
         && record
             .get("message")
             .and_then(|message| message.get("content"))
@@ -769,7 +770,7 @@ fn completed_local_commands(records: &[Value]) -> HashSet<usize> {
     let mut completed = HashSet::new();
     for (index, record) in records.iter().enumerate() {
         if str_field(record, "type") != Some("user")
-            || !truthy(record.get("isMeta"))
+            || !present(record.get("isMeta"))
             || local_command_part(record) != Some(LocalCommandPart::Caveat)
         {
             continue;
@@ -778,7 +779,7 @@ fn completed_local_commands(records: &[Value]) -> HashSet<usize> {
         for (later_index, later) in records.iter().enumerate().skip(index + 1) {
             match str_field(later, "type") {
                 Some("assistant") => break,
-                Some("user") if !truthy(later.get("isMeta")) => {}
+                Some("user") if !present(later.get("isMeta")) => {}
                 _ => continue,
             }
             match local_command_part(later) {
@@ -804,8 +805,8 @@ fn answered_flags(records: &[Value], completed: &HashSet<usize>) -> Vec<bool> {
         {
             next_is_reply = true;
         } else if str_field(record, "type") == Some("user")
-            && !truthy(record.get("isMeta"))
-            && !truthy(record.get("isCompactSummary"))
+            && !present(record.get("isMeta"))
+            && !present(record.get("isCompactSummary"))
             && !completed.contains(&index)
         {
             next_is_reply = false;
@@ -819,7 +820,8 @@ fn queued_prompt(record: &Value, uuids: &mut HashSet<String>) -> Option<Value> {
         return None;
     }
     let attachment = record.get("attachment").filter(|a| a.is_object())?;
-    if str_field(attachment, "type") != Some("queued_command") || truthy(attachment.get("isMeta")) {
+    if str_field(attachment, "type") != Some("queued_command") || present(attachment.get("isMeta"))
+    {
         return None;
     }
     let prompt = attachment
@@ -892,9 +894,9 @@ fn finish_messages(records: Vec<Value>) -> Vec<Value> {
         })
         .filter(|record| {
             is_conversation(record)
-                && !truthy(record.get("isMeta"))
-                && !truthy(record.get("isSidechain"))
-                && !truthy(record.get("teamName"))
+                && !present(record.get("isMeta"))
+                && !present(record.get("isSidechain"))
+                && !present(record.get("teamName"))
         })
         .collect()
 }
@@ -913,7 +915,7 @@ pub fn resumed_model(records: &[Value]) -> Option<String> {
             .filter(|message| message.is_object())?
             .get("model")?
             .as_str()?
-            .trim_matches(is_js_whitespace);
+            .trim();
         let placeholder = model.len() > 2
             && model.starts_with('<')
             && model.ends_with('>')
@@ -943,12 +945,12 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
     let pictures_from = records
         .iter()
         .rposition(|record| {
-            truthy(record.get("isCompactSummary")) && parent_tool_use_id(record).is_none()
+            present(record.get("isCompactSummary")) && parent_tool_use_id(record).is_none()
         })
         .unwrap_or(0);
     for (position, record) in records.iter().enumerate() {
         let parent = parent_tool_use_id(record);
-        if truthy(record.get("isCompactSummary")) {
+        if present(record.get("isCompactSummary")) {
             let target = match parent {
                 Some(parent) => replay.announce(parent, &mut Vec::new()),
                 None => replay.root.clone(),
@@ -1356,7 +1358,11 @@ impl Replay<'_> {
     fn usage_limit(&mut self, record: &Value, turn_id: Option<&str>, title: String) {
         let id = match turn_id {
             Some(turn) => format!("{turn}:error"),
-            None => format!("{}:history-error:{}", self.root, js_str(record.get("uuid"))),
+            None => format!(
+                "{}:history-error:{}",
+                self.root,
+                printed(record.get("uuid"))
+            ),
         };
         let revision = self.failure_revisions.entry(id.clone()).or_insert(0);
         *revision += 1;
@@ -1409,8 +1415,8 @@ impl Replay<'_> {
     }
 
     fn tool_use(&mut self, block: &Value) -> Option<Value> {
-        let id = js_str(block.get("id"));
-        let name = js_str(block.get("name"));
+        let id = printed(block.get("id"));
+        let name = printed(block.get("name"));
         let input = block.get("input").cloned().unwrap_or(Value::Null);
         let seen = self
             .tool_uses
@@ -1436,7 +1442,7 @@ impl Replay<'_> {
     }
 
     fn tool_result(&mut self, block: &Value) -> Option<Value> {
-        let id = js_str(block.get("tool_use_id"));
+        let id = printed(block.get("tool_use_id"));
         let (name, input) = self.tool_uses.remove(&id)?;
         if tools::is_plan_tool(&name) {
             return if name == "TodoWrite" {
@@ -1571,7 +1577,7 @@ pub fn strip_local_command_metadata(content: &Value) -> Option<Value> {
 
 fn strip_command_text(text: &str) -> Option<String> {
     let stripped = strip_marker_tags(text);
-    if !stripped.trim_matches(is_js_whitespace).is_empty() {
+    if !stripped.trim().is_empty() {
         return Some(stripped);
     }
     command_invocation(text)
@@ -1625,7 +1631,7 @@ fn command_invocation(text: &str) -> Option<String> {
     {
         return None;
     }
-    let name = marker_text(text, "command-name")?.trim_matches(is_js_whitespace);
+    let name = marker_text(text, "command-name")?.trim();
     if !name.starts_with('/') {
         return None;
     }
@@ -1633,7 +1639,7 @@ fn command_invocation(text: &str) -> Option<String> {
     if REPLAY_HIDDEN_COMMANDS.contains(&command) {
         return None;
     }
-    match marker_text(text, "command-args").map(|args| args.trim_matches(is_js_whitespace)) {
+    match marker_text(text, "command-args").map(|args| args.trim()) {
         Some(args) if !args.is_empty() => Some(format!("{name} {args}")),
         _ => Some(name.to_string()),
     }

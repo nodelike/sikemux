@@ -315,12 +315,10 @@ impl Session {
                 }
                 let said = match server.status {
                     "failed" => format!(
-                        "[codex-acp forwarded startup error] MCP server `{name}` failed to start: {}",
+                        "MCP server `{name}` failed to start: {}",
                         server.error.unwrap_or("unknown MCP startup error")
                     ),
-                    "cancelled" => {
-                        format!("[codex-acp forwarded startup error] MCP server `{name}` startup was cancelled.")
-                    }
+                    "cancelled" => format!("MCP server `{name}` startup was cancelled."),
                     _ => return Vec::new(),
                 };
                 vec![Effect::Update(
@@ -343,7 +341,7 @@ impl Session {
     fn updates(&mut self, notification: &Notification) -> Vec<Value> {
         match notification {
             Notification::MessageDelta(delta) => {
-                vec![self.items.message_delta(delta.item_id, delta.delta)]
+                vec![agent_text(delta.delta, Some(delta.item_id))]
             }
             Notification::ReasoningDelta(delta) => {
                 vec![self.items.thought_delta(delta.item_id, delta.delta)]

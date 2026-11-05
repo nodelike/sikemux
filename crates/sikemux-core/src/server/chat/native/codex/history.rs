@@ -289,7 +289,6 @@ mod tests {
             json!({ "type": "text", "text": "Fix   the\nbug" })
         );
         assert_eq!(out[4].1["messageId"], "u2");
-        assert_eq!(out[5].1["_meta"]["codex"]["phase"], "final_answer");
         assert_eq!(out[6].1["messageId"], "turn-2");
     }
 

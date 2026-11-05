@@ -36,8 +36,8 @@ pub(crate) fn joined_text(content: Option<&Value>) -> String {
     content.map(texts).unwrap_or_default().join("\n")
 }
 
-/// Whether JavaScript would call `value` true.
-pub(crate) fn truthy(value: Option<&Value>) -> bool {
+/// Whether `value` says something: it is there and not null, false, zero or empty.
+pub(crate) fn present(value: Option<&Value>) -> bool {
     match value {
         None | Some(Value::Null) | Some(Value::Bool(false)) => false,
         Some(Value::String(text)) => !text.is_empty(),
@@ -46,52 +46,33 @@ pub(crate) fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
-pub(crate) fn non_nullish(value: Option<&Value>) -> Option<&Value> {
+pub(crate) fn not_null(value: Option<&Value>) -> Option<&Value> {
     value.filter(|v| !v.is_null())
 }
 
-/// How a JavaScript template literal prints a value (`undefined` when absent).
-pub(crate) fn js_str(value: Option<&Value>) -> String {
-    match value {
-        None => "undefined".to_string(),
-        Some(Value::Null) => "null".to_string(),
-        Some(Value::Bool(flag)) => flag.to_string(),
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Number(number)) => match (number.as_i64(), number.as_u64()) {
-            (Some(n), _) => n.to_string(),
-            (_, Some(n)) => n.to_string(),
-            _ => js_number(number.as_f64().unwrap_or(f64::NAN)),
-        },
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| js_join_item(Some(item)))
-            .collect::<Vec<_>>()
-            .join(","),
-        Some(Value::Object(_)) => "[object Object]".to_string(),
-    }
-}
-
-/// How `Array.prototype.join` prints an element: null and undefined become empty.
-pub(crate) fn js_join_item(value: Option<&Value>) -> String {
+/// `value` as words: nothing when it is absent or null, and a list's items
+/// separated by commas.
+pub(crate) fn printed(value: Option<&Value>) -> String {
     match value {
         None | Some(Value::Null) => String::new(),
-        other => js_str(other),
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Number(number)) => number_text(number.as_f64().unwrap_or(f64::NAN)),
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|item| printed(Some(item)))
+            .collect::<Vec<_>>()
+            .join(","),
+        Some(other) => other.to_string(),
     }
 }
 
-pub(crate) fn js_number(number: f64) -> String {
+/// A number with no decimal point when it is whole.
+pub(crate) fn number_text(number: f64) -> String {
     if number.is_finite() && number.fract() == 0.0 && number.abs() < 1e21 {
         format!("{number:.0}")
-    } else if number.is_nan() {
-        "NaN".to_string()
     } else {
         number.to_string()
     }
-}
-
-/// The characters JavaScript's `trim` and `\s` treat as whitespace.
-pub(crate) fn is_js_whitespace(ch: char) -> bool {
-    ch.is_whitespace() || ch == '\u{feff}'
 }
 
 /// A map whose keys are not strings, kept as a list of pairs, since JSON
