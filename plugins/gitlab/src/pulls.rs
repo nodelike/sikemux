@@ -1,4 +1,4 @@
-// Merge requests, in the words the Git pane uses for every host's pull
+// Merge requests, in the words used for every host's pull
 // requests: their changes, commits, approvals and history, and merging,
 // opening, closing and approving one.
 

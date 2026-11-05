@@ -1,8 +1,6 @@
 {
   "id": "sikemux.aws",
   "name": "AWS",
-  "version": "0.1.0",
-  "sikemux": ">=0.4",
   "callTimeoutSecs": 150,
   "environment": [
     "AWS_CLI",

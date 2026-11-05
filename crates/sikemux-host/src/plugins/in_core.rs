@@ -118,10 +118,7 @@ fn core_environment() -> UserEnvironment {
 /// the app always has, after giving the core the environment they read.
 pub fn provide_to_core(data_dir: &Path) -> Option<Provided> {
     crate::install_tls_crypto();
-    let host = semver::Version::parse(env!("CARGO_PKG_VERSION"))
-        .map_err(std::io::Error::other)
-        .and_then(|version| PluginHost::with_builtins(&data_dir.join("plugins"), &version));
-    let plugins = match host {
+    let plugins = match PluginHost::with_builtins(&data_dir.join("plugins")) {
         Ok(host) => {
             let _ = SHELL_VARIABLES.set(host.shell_variables());
             let plugins: Box<dyn Plugins> = Box::new(InCore(host));

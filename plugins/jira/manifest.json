@@ -1,8 +1,6 @@
 {
   "id": "sikemux.jira",
   "name": "Jira",
-  "version": "0.1.0",
-  "sikemux": ">=0.4",
   "accountMethods": ["signIn", "signInWithBrowser", "signOut"],
   "tokenForm": {
     "method": "signIn",

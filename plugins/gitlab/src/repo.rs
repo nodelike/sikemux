@@ -1,6 +1,6 @@
 // Which project a call is about, the people GitLab names, and the projects and
 // branches an account can see. A GitLab project sits in a group that may sit in
-// other groups, so the owner the Git pane names can hold slashes.
+// other groups, so an owner can hold slashes.
 
 use std::path::Path;
 

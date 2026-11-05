@@ -89,7 +89,7 @@ impl Session {
             SignIn::Browser => {
                 let install = config.install(team.as_deref()).ok_or_else(|| {
                     VercelError::NotFound(format!(
-                        "Sikemux is not installed on {}; add it from the team menu in the Vercel pane",
+                        "Sikemux is not installed on {}; add it from Vercel in Settings, under Connectors",
                         team.as_deref().unwrap_or("the personal account")
                     ))
                 })?;

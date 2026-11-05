@@ -145,7 +145,6 @@ impl Plugin for Signoz {
             let (method, input) = agent::route(method, input)?;
             match method {
                 "status" => reply(status(data_dir).await),
-                "inspect" => answer(auth::inspect(data_dir, params(input)?)).await,
                 "signIn" => {
                     signed_in(data_dir, auth::sign_in(data_dir, params(input)?).await).await
                 }
@@ -367,11 +366,13 @@ mod live {
         };
         let (ctx, dir) = scratch("key");
         let plugin = plugin().expect("plugin loads");
-        let inspection = plugin
-            .call(&ctx, "inspect", json!({ "url": url }))
-            .await
-            .expect("inspect");
-        assert!(inspection["version"].is_string(), "{inspection}");
+        let inspection = auth::inspect(
+            ctx.data_dir(),
+            serde_json::from_value(json!({ "url": url })).expect("reads"),
+        )
+        .await
+        .expect("inspect");
+        assert!(inspection.version.is_some());
         let status = plugin
             .call(&ctx, "useApiKey", json!({ "url": url, "account": account }))
             .await
@@ -401,11 +402,13 @@ mod live {
         };
         let (ctx, dir) = scratch("session");
         let plugin = plugin().expect("plugin loads");
-        let inspection = plugin
-            .call(&ctx, "inspect", json!({ "url": url, "email": email }))
-            .await
-            .expect("inspect");
-        assert_eq!(inspection["accountExists"], true, "{inspection}");
+        let inspection = auth::inspect(
+            ctx.data_dir(),
+            serde_json::from_value(json!({ "url": url, "email": email })).expect("reads"),
+        )
+        .await
+        .expect("inspect");
+        assert_eq!(inspection.account_exists, Some(true));
         let status = plugin
             .call(
                 &ctx,

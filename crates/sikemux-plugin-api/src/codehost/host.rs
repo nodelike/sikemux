@@ -5,7 +5,6 @@
 use std::future::Future;
 use std::path::Path;
 
-use serde::de::IgnoredAny;
 use serde_json::Value;
 
 use super::asks::*;
@@ -117,6 +116,4 @@ code_host! {
 
     releases "releases" read (RepoRef) -> Vec<Release>;
     inbox "inbox" read (InboxQuery) -> Vec<Notification>;
-    mark_read "markRead" (NotificationRef) -> ();
-    mark_all_read "markAllRead" (IgnoredAny) -> ();
 }

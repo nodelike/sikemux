@@ -24,10 +24,8 @@ pub const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 pub static HTTP: Http<Bitbucket> = Http::new(Redirects::Follow, Deadline::WholeAnswer, 8);
 /// Bitbucket counts requests over a rolling hour and only says whether few are left.
 pub static LIMITS: RateLimits = RateLimits::new(LimitHeaders {
-    limit: "x-ratelimit-limit",
     remaining: None,
     reset: None,
-    near: Some("x-ratelimit-nearlimit"),
 });
 static API_TOKENS: Held<String> = Held::secrets();
 

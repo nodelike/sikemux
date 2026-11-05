@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use sikemux_plugin_api::account::{as_account, chosen};
 use sikemux_plugin_api::codehost::asks::AccountQuery;
@@ -138,34 +138,6 @@ pub async fn status(data_dir: &Path) -> Status {
         Err(_) => {}
     }
     Status::checked(account.is_some(), signed, &check)
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Listed {
-    pub id: String,
-    pub host: String,
-    pub login: String,
-    pub display_name: Option<String>,
-    pub avatar_url: Option<String>,
-    pub is_default: bool,
-}
-
-/// Every account signed in, the default first.
-pub fn accounts(data_dir: &Path) -> GitlabResult<Vec<Listed>> {
-    let config = config::load(data_dir)?;
-    Ok(config
-        .in_order()
-        .into_iter()
-        .map(|account| Listed {
-            is_default: config.default.as_deref() == Some(account.id.as_str()),
-            id: account.id,
-            host: account.host,
-            login: account.login,
-            display_name: account.display_name,
-            avatar_url: account.avatar_url,
-        })
-        .collect())
 }
 
 fn new_account(host: &str, user: &User) -> GitlabResult<Account> {

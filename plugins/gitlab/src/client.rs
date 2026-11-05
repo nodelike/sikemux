@@ -21,10 +21,8 @@ const PER_PAGE: u32 = 100;
 
 pub static HTTP: Http<Gitlab> = Http::new(Redirects::SameHost, Deadline::WholeAnswer, 8);
 pub static LIMITS: RateLimits = RateLimits::new(LimitHeaders {
-    limit: "ratelimit-limit",
     remaining: Some("ratelimit-remaining"),
     reset: Some("ratelimit-reset"),
-    near: None,
 });
 static TOKENS: Held<String> = Held::secrets();
 

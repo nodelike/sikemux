@@ -1,6 +1,6 @@
-//! The contract between Sikemux and a plugin. A plugin sees only what is in
-//! this crate: every exchange with the host is a method name and JSON, so the
-//! same plugin can later run in its own process without changing.
+//! The contract between Sikemux and a plugin, which is compiled into the core.
+//! Every exchange with the host is a method name and JSON, so the mods bridge
+//! and agent tools reach a plugin's methods by name.
 
 pub mod account;
 pub mod codehost;
@@ -25,9 +25,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 pub use error::{Category, PluginError, PluginResult};
-pub use manifest::{
-    is_valid_id, AgentTool, CodeHostSpec, Compare, FormField, Listed, Manifest, TokenForm,
-};
+pub use manifest::{AgentTool, CodeHostSpec, Compare, FormField, Listed, Manifest, TokenForm};
 pub use network::{unreachable, Unreachable};
 pub use service::{Service, ServiceError, ServiceResult};
 pub use signin::{SignInStatus, SignedInAs};
@@ -72,10 +70,6 @@ pub trait Plugin: Send + Sync {
     /// answer at once.
     fn agent_environment(&self, _ctx: &PluginContext, _project: &Path) -> BTreeMap<String, String> {
         BTreeMap::new()
-    }
-
-    fn diagnostics(&self) -> Value {
-        Value::Null
     }
 }
 

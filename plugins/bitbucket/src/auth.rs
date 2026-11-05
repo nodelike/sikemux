@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sikemux_plugin_api::account::{as_account, chosen};
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::Signed;
@@ -20,7 +20,6 @@ use crate::error::{BitbucketError, BitbucketResult};
 use crate::oauth;
 use crate::repo::{Place, User};
 
-/// Long enough to sign in to Atlassian from scratch, two-step login included.
 const PIPELINE_WRITE: &str = "pipeline:write";
 
 async fn identify(credential: &Credential) -> BitbucketResult<User> {
@@ -96,32 +95,6 @@ pub async fn status(data_dir: &Path) -> Status {
         Err(error) => Err(error),
     };
     Status::checked(account.is_some(), signed, &check)
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Listed {
-    pub id: String,
-    pub login: String,
-    pub display_name: Option<String>,
-    pub avatar_url: Option<String>,
-    pub is_default: bool,
-}
-
-/// Every account signed in, the default first, as they were when they signed in.
-pub fn accounts(data_dir: &Path) -> BitbucketResult<Vec<Listed>> {
-    let config = config::load(data_dir)?;
-    Ok(config
-        .in_order()
-        .into_iter()
-        .map(|account| Listed {
-            is_default: config.default.as_deref() == Some(account.id.as_str()),
-            id: account.id,
-            login: account.login,
-            display_name: account.display_name,
-            avatar_url: account.avatar_url,
-        })
-        .collect())
 }
 
 fn new_account(

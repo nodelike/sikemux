@@ -74,8 +74,7 @@ pub fn same_host(next: &Url, first: &Url) -> bool {
         && next.port_or_known_default() == first.port_or_known_default()
 }
 
-/// One warm client for a service, and the bound on its requests in flight,
-/// which every screen of the plugin shares.
+/// One warm client for a service, and the bound on its requests in flight.
 pub struct Http<S> {
     client: OnceLock<Option<Client>>,
     redirects: Redirects,

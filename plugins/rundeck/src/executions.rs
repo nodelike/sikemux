@@ -218,7 +218,7 @@ pub async fn execution(session: &Session, execution_id: u64) -> RundeckResult<Ex
     get_json(session, &format!("/execution/{execution_id}"), &[]).await
 }
 
-// ---- summaries for the matrix and the plan ---------------------------------
+// ---- summaries for the plan ----------------------------------------------
 
 /// The value of the first option named like one of `branch_options`, trying
 /// the names in order and ignoring case.

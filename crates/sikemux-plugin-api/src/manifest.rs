@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -17,8 +16,6 @@ const MAX_CALL_TIMEOUT_SECS: u64 = 600;
 pub struct Manifest {
     pub id: String,
     pub name: String,
-    pub version: Version,
-    pub sikemux: VersionReq,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub call_timeout_secs: Option<u64>,
     #[serde(default)]
@@ -187,7 +184,7 @@ pub struct Compare {
 }
 
 /// A plugin method that agents may call as a tool. Only methods named here are
-/// reachable from an agent; everything else stays behind the plugin's own UI.
+/// reachable from an agent.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AgentTool {
@@ -280,17 +277,9 @@ impl Manifest {
         }
         Ok(manifest)
     }
-
-    /// Nightly builds carry a pre-release tag, which a plain range like `>=0.4`
-    /// would never match. Plugins target the release line, so compare against
-    /// the version with the tag removed.
-    pub fn supports(&self, sikemux: &Version) -> bool {
-        let release_line = Version::new(sikemux.major, sikemux.minor, sikemux.patch);
-        self.sikemux.matches(&release_line)
-    }
 }
 
-pub fn is_valid_id(id: &str) -> bool {
+fn is_valid_id(id: &str) -> bool {
     if id.is_empty() || id.len() > MAX_ID_LENGTH {
         return false;
     }
@@ -324,29 +313,11 @@ fn is_valid_segment(segment: &str) -> bool {
 mod tests {
     use super::*;
 
-    fn manifest(sikemux: &str) -> Result<Manifest, PluginError> {
-        Manifest::from_json(&format!(
-            r#"{{"id":"sikemux.rundeck","name":"Rundeck","version":"1.0.0","sikemux":"{sikemux}"}}"#
-        ))
-    }
-
-    #[test]
-    fn a_nightly_satisfies_its_release_line() -> Result<(), PluginError> {
-        let manifest = manifest(">=0.4")?;
-        let nightly = Version::parse("0.4.0-nightly.10")
-            .map_err(|e| PluginError::new(Category::own("test"), e.to_string()))?;
-        let older = Version::parse("0.3.9")
-            .map_err(|e| PluginError::new(Category::own("test"), e.to_string()))?;
-        assert!(manifest.supports(&nightly));
-        assert!(!manifest.supports(&older));
-        Ok(())
-    }
-
     #[test]
     fn environment_names_must_be_variables() {
         let with = |names: &str| {
             Manifest::from_json(&format!(
-                r#"{{"id":"sikemux.github","name":"GitHub","version":"1.0.0","sikemux":">=0.4","environment":{names}}}"#
+                r#"{{"id":"sikemux.github","name":"GitHub","environment":{names}}}"#
             ))
         };
         assert!(with(r#"["GH_TOKEN","_X1"]"#).is_ok());
@@ -377,9 +348,7 @@ mod tests {
     #[test]
     fn reads_agent_tools_and_refuses_bad_ones() -> Result<(), PluginError> {
         let with_tools = |tools: &str| {
-            Manifest::from_json(&format!(
-                r#"{{"id":"a.b","name":"B","version":"1.0.0","sikemux":"*","tools":{tools}}}"#
-            ))
+            Manifest::from_json(&format!(r#"{{"id":"a.b","name":"B","tools":{tools}}}"#))
         };
         let manifest = with_tools(
             r#"[{"name":"b_logs","method":"searchLogs","description":"Search logs.","properties":{"text":{"type":"string"}},"required":["text"]}]"#,
@@ -404,12 +373,13 @@ mod tests {
     fn a_call_timeout_must_be_between_one_second_and_ten_minutes() -> Result<(), PluginError> {
         let with_timeout = |secs: &str| {
             Manifest::from_json(&format!(
-                r#"{{"id":"a.b","name":"B","version":"1.0.0","sikemux":"*","callTimeoutSecs":{secs}}}"#
+                r#"{{"id":"a.b","name":"B","callTimeoutSecs":{secs}}}"#
             ))
         };
         assert_eq!(with_timeout("1")?.call_timeout_secs, Some(1));
         assert_eq!(with_timeout("600")?.call_timeout_secs, Some(600));
-        assert_eq!(manifest("*")?.call_timeout_secs, None);
+        let without = Manifest::from_json(r#"{"id":"a.b","name":"B"}"#)?;
+        assert_eq!(without.call_timeout_secs, None);
         for refused in ["0", "601", "-1", "1.5", "\"60\""] {
             assert!(
                 with_timeout(refused).is_err(),

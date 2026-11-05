@@ -7,7 +7,7 @@ use reqwest::Method;
 use serde::Deserialize;
 use serde_json::json;
 use sikemux_plugin_api::codehost::asks::{
-    InboxQuery, IssueQuery, IssueRef, NewIssue, NotificationRef, RepoRef, SetIssueState,
+    InboxQuery, IssueQuery, IssueRef, NewIssue, RepoRef, SetIssueState,
 };
 use sikemux_plugin_api::codehost::{Issue, IssuePage, Notification, Release};
 
@@ -244,24 +244,6 @@ pub async fn inbox(data_dir: &Path, input: InboxQuery) -> GitlabResult<Vec<Notif
     let mut notes: Vec<Notification> = lists.into_iter().flatten().map(notification).collect();
     notes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(notes)
-}
-
-pub async fn mark_read(data_dir: &Path, input: NotificationRef) -> GitlabResult<()> {
-    let id: u64 = input
-        .id
-        .parse()
-        .map_err(|_| GitlabError::BadArg(format!("`{}` is not a To-Do item", input.id)))?;
-    client::write(
-        data_dir,
-        Method::POST,
-        &format!("/todos/{id}/mark_as_done"),
-        None,
-    )
-    .await
-}
-
-pub async fn mark_all_read(data_dir: &Path) -> GitlabResult<()> {
-    client::write(data_dir, Method::POST, "/todos/mark_as_done", None).await
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-//! The shapes every code host hands the Git pane: pull requests, CI runs,
+//! The shapes every code host answers in: pull requests, CI runs,
 //! issues, releases and the rest. A host's plugin maps its own API onto these,
 //! and the core reads them back to work out what clients show. Statuses and
 //! conclusions use GitHub's words, which other hosts map onto. Ids a host may
@@ -320,13 +320,6 @@ pub struct Artifact {
     pub expires_at: Option<String>,
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SavedArtifact {
-    pub path: String,
-    pub bytes: u64,
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingApproval {
@@ -609,28 +602,6 @@ pub enum PullState {
     Merged,
 }
 
-/// How many of a commit's runs stand each way, and what they come to.
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct CheckTally {
-    /// Any failure fails them; then any still going keeps them running, or
-    /// queued while none has started; then any waiting on approval.
-    pub outcome: Outcome,
-    pub total: u32,
-    /// Passed or skipped, which count as passing.
-    pub passed: u32,
-    pub failing: u32,
-    pub running: u32,
-    pub queued: u32,
-    /// Waiting on someone's approval.
-    pub waiting: u32,
-    pub cancelled: u32,
-    pub unknown: u32,
-    /// Of those passing, how many were skipped.
-    #[serde(default)]
-    pub skipped: u32,
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PullList {
@@ -656,90 +627,6 @@ pub struct Check {
     pub url: Option<String>,
 }
 
-/// A run as a list shows it.
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ListedRun {
-    pub run: Run,
-    /// Still going, including held for approval: it can be cancelled but not
-    /// run again.
-    pub unfinished: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct RunList {
-    pub runs: Vec<ListedRun>,
-    pub total: u64,
-    pub next_page: Option<u32>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct IssueList {
-    pub issues: Vec<Issue>,
-    pub total: u64,
-    pub next_page: Option<u32>,
-    /// How many are open and closed, from hosts that count them cheaply.
-    pub counts: Option<PullCounts>,
-}
-
-/// One pull request as its page shows it, with what the core works out from
-/// it and its reviews.
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenPull {
-    pub pull: Pull,
-    pub state: PullState,
-    pub closes: Vec<u64>,
-    pub own_branch: bool,
-    /// What its reviewers' latest reviews come to, once one approved or asked
-    /// for changes.
-    pub verdict: Option<ReviewVerdict>,
-    /// Somebody reviewed it at all.
-    pub reviewed: bool,
-    /// Whether it can merge, from what the host said of its merge state.
-    pub merge: MergeReadiness,
-    /// How the runs on its head commit stand, once any have run.
-    pub checks: Option<CheckTally>,
-    /// The runs on its head commit.
-    pub runs: Vec<ListedRun>,
-    /// Every check on its head commit, each job of its runs and each status an
-    /// app outside the host's CI posted, from hosts that list them.
-    #[serde(default)]
-    pub jobs: Vec<Check>,
-    /// The files its head and its base both changed in ways git cannot merge,
-    /// as the project's clone works them out while it conflicts.
-    #[serde(default)]
-    pub conflicts: Vec<String>,
-    /// The local branch checking it out makes: its own branch when it lives on
-    /// the repository, else `pr-<number>` from the host's ref for it. None when
-    /// it comes from a fork the host keeps no ref for.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkout: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum ReviewVerdict {
-    Approved,
-    ChangesRequested,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum MergeReadiness {
-    Ready,
-    /// It conflicts with its base.
-    Conflicts,
-    /// Waiting on required reviews or checks.
-    Blocked,
-    /// Its branch is behind its base.
-    Behind,
-    /// The host has not worked it out yet.
-    Checking,
-}
-
 /// An open issue or pull request a message can be about.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -756,172 +643,6 @@ pub struct TrackedItem {
 pub enum TrackedKind {
     Issue,
     Pull,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ReleaseList {
-    pub releases: Vec<Release>,
-    /// The newest published release that is not a pre-release.
-    pub latest: Option<u64>,
-}
-
-/// One attempt of a run as its page shows it, with what the core works out
-/// from it.
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenRun {
-    pub run: Run,
-    pub jobs: Vec<ListedJob>,
-    /// How many attempts the run has had.
-    pub attempts: u64,
-    pub unfinished: bool,
-    /// How many jobs are over.
-    pub done: u32,
-    pub failed: u32,
-    /// The first job that failed.
-    pub failed_job: Option<String>,
-    pub graph: JobGraph,
-    /// What it took and is billed for, once it is over.
-    pub timing: Option<RunTiming>,
-    /// The jobs that may have written a summary, once the run is over.
-    pub summaries: Vec<String>,
-    /// The deployments it waits on someone to approve, while it waits.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub approvals: Vec<PendingApproval>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ListedJob {
-    pub job: Job,
-    /// The step it failed at.
-    pub stopped_at: Option<String>,
-}
-
-/// A run's jobs in columns as the host draws them: each column after every
-/// column it waits for.
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct JobGraph {
-    pub columns: Vec<Vec<GraphBox>>,
-    pub edges: Vec<GraphEdge>,
-}
-
-/// A lone job, a matrix job's runs, or jobs that wait for the same jobs and
-/// are waited on by the same jobs.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphBox {
-    pub id: String,
-    /// A matrix job's or a called workflow's name.
-    pub title: Option<String>,
-    pub jobs: Vec<GraphJob>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphJob {
-    /// None for a job the workflow file declares that the run has not made yet.
-    pub job: Option<String>,
-    pub label: String,
-    /// The job that called its workflow was skipped, so it never will run.
-    pub skipped: bool,
-}
-
-/// From a box to a box that waits for it.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphEdge {
-    pub from: String,
-    pub to: String,
-}
-
-/// A job's log as its page shows it, split into its steps: all of it, or the
-/// lines a client asked for.
-#[derive(Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenJobLog {
-    pub lines: Vec<JobLogLine>,
-    /// Where in the log the first of `lines` is.
-    pub from: usize,
-    /// How many lines the whole log has.
-    pub total: usize,
-    /// Over the whole log.
-    pub sections: Vec<LogSection>,
-    /// The log has aged out of the host's retention, so nothing is coming.
-    pub expired: bool,
-    /// The log was too long to read whole, so only its end is here.
-    pub truncated: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct JobLogLine {
-    pub number: u64,
-    /// Without its colour codes or the runner's `##[...]` markup, which `mark`
-    /// says instead.
-    pub text: String,
-    /// Its text in the colours the job printed it in; none for a plain line.
-    pub spans: Vec<LogSpan>,
-    pub mark: Option<LogMark>,
-    /// Part of the script a step runs, as its log repeats it before running it.
-    pub script: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum LogMark {
-    Group,
-    Endgroup,
-    Section,
-    Command,
-    Error,
-    Warning,
-    Notice,
-    Debug,
-}
-
-/// A stretch of a line in one style.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LogSpan {
-    pub text: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fg: Option<LogColor>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bg: Option<LogColor>,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub bold: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub dim: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub italic: bool,
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub underline: bool,
-}
-
-fn is_false(value: &bool) -> bool {
-    !value
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum LogColor {
-    /// One of the terminal's 256: the first sixteen are its theme's own.
-    Palette { index: u8 },
-    /// Written out as `#rrggbb`.
-    Rgb { hex: String },
-}
-
-/// One step's stretch of the log: lines `from` up to `to`.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct LogSection {
-    /// The step's number, or none for a job without steps.
-    pub step: Option<u64>,
-    pub from: usize,
-    pub to: usize,
 }
 
 #[cfg(test)]

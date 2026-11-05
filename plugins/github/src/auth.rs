@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use reqwest::Method;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sikemux_plugin_api::account::{as_account, chosen};
 use sikemux_plugin_api::codehost::asks::RepoRef;
 use sikemux_plugin_api::codehost::Signed;
@@ -126,32 +126,6 @@ pub async fn status(data_dir: &Path) -> Status {
     status.auth_failed |= matches!(check, Err(GithubError::Forbidden(_)));
     status.details.can_write_ci = status.ok && can_write(&status.details.scopes);
     status
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Listed {
-    pub id: String,
-    pub host: String,
-    pub login: String,
-    pub source: TokenSource,
-    pub is_default: bool,
-}
-
-/// Every account signed in, the default first.
-pub fn accounts(data_dir: &Path) -> GithubResult<Vec<Listed>> {
-    let config = config::load(data_dir)?;
-    Ok(config
-        .in_order()
-        .into_iter()
-        .map(|account| Listed {
-            is_default: config.default.as_deref() == Some(account.id.as_str()),
-            id: account.id,
-            host: account.host,
-            login: account.login,
-            source: account.source,
-        })
-        .collect())
 }
 
 #[derive(Deserialize)]

@@ -37,8 +37,7 @@ pub enum Category {
     Timeout,
     /// The core could not make sense of what it was asked or answered.
     Invalid,
-    /// What only one service says, such as AWS's `aws-token-expired`, or a
-    /// service's own error, named by the service.
+    /// A service's own error, named by the service.
     #[serde(untagged)]
     Own(String),
 }
@@ -49,8 +48,8 @@ impl Category {
     }
 }
 
-/// The frontend branches on `category`, so a plugin keeps its categories
-/// stable and puts the human-readable detail in `message`.
+/// Clients branch on `category`, so a plugin keeps its categories stable and
+/// puts the human-readable detail in `message`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PluginError {
     pub category: Category,
@@ -73,8 +72,8 @@ impl PluginError {
         self
     }
 
-    /// Signed in, but this account may not do that. The frontend keeps the
-    /// person signed in, unlike category `auth` or `http` with status 401.
+    /// Signed in, but this account may not do that. A client keeps the person
+    /// signed in, unlike category `auth` or `http` with status 401.
     pub fn forbidden(message: impl Into<String>) -> Self {
         Self::new(Category::Forbidden, message).with_status(403)
     }

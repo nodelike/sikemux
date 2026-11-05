@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
-use semver::Version;
 use serde_json::Value;
 use sikemux_plugin_api::{
     AgentTool, Category, Manifest, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
@@ -45,8 +44,8 @@ type OfferedBefore = HashMap<(String, Arc<[String]>), bool>;
 const DISABLED_FILE: &str = "disabled.json";
 
 impl PluginHost {
-    pub fn with_builtins(data_root: &Path, sikemux: &Version) -> std::io::Result<Self> {
-        let mut host = Self::new(data_root, sikemux, builtin::plugins(), CALL_TIMEOUT)?;
+    pub fn with_builtins(data_root: &Path) -> std::io::Result<Self> {
+        let mut host = Self::new(data_root, builtin::plugins(), CALL_TIMEOUT)?;
         host.disabled_file = Some(data_root.join(DISABLED_FILE));
         host.read_disabled();
         Ok(host)
@@ -54,7 +53,6 @@ impl PluginHost {
 
     fn new(
         data_root: &Path,
-        sikemux: &Version,
         plugins: Vec<Arc<dyn Plugin>>,
         default_call_timeout: Duration,
     ) -> std::io::Result<Self> {
@@ -66,13 +64,6 @@ impl PluginHost {
         let mut loaded = BTreeMap::new();
         for plugin in plugins {
             let manifest = plugin.manifest();
-            if !manifest.supports(sikemux) {
-                eprintln!(
-                    "plugin {} needs sikemux {} and this is {sikemux}; not loading it",
-                    manifest.id, manifest.sikemux
-                );
-                continue;
-            }
             if loaded.contains_key(&manifest.id) {
                 eprintln!(
                     "plugin {} is registered twice; keeping the first",
@@ -368,12 +359,9 @@ mod tests {
     struct Echo(Manifest);
 
     impl Echo {
-        fn plugin(id: &str, sikemux: &str) -> Arc<dyn Plugin> {
-            let manifest = Manifest::from_json(
-                &json!({ "id": id, "name": "Echo", "version": "1.0.0", "sikemux": sikemux })
-                    .to_string(),
-            )
-            .expect("test manifest parses");
+        fn plugin(id: &str) -> Arc<dyn Plugin> {
+            let manifest = Manifest::from_json(&json!({ "id": id, "name": "Echo" }).to_string())
+                .expect("test manifest parses");
             Arc::new(Self(manifest))
         }
     }
@@ -410,7 +398,6 @@ mod tests {
     fn host(plugins: Vec<Arc<dyn Plugin>>) -> PluginHost {
         PluginHost::new(
             Path::new("/tmp/plugins"),
-            &Version::new(0, 4, 0),
             plugins,
             Duration::from_millis(100),
         )
@@ -421,8 +408,7 @@ mod tests {
     #[cfg(all(feature = "github", feature = "signoz"))]
     fn collects_the_shell_variables_plugins_read() {
         let data = tempfile::tempdir().expect("tempdir");
-        let version = Version::parse(env!("CARGO_PKG_VERSION")).expect("a version");
-        let host = PluginHost::with_builtins(data.path(), &version).expect("plugin runtime starts");
+        let host = PluginHost::with_builtins(data.path()).expect("plugin runtime starts");
         let names = host.shell_variables();
         for name in [
             "GH_TOKEN",
@@ -435,19 +421,15 @@ mod tests {
     }
 
     #[test]
-    fn skips_incompatible_and_duplicate_plugins() {
-        let host = host(vec![
-            Echo::plugin("test.echo", ">=0.4"),
-            Echo::plugin("test.echo", ">=0.4"),
-            Echo::plugin("test.future", ">=9"),
-        ]);
+    fn skips_a_plugin_registered_twice() {
+        let host = host(vec![Echo::plugin("test.echo"), Echo::plugin("test.echo")]);
         let ids: Vec<String> = host.manifests().map(|m| m.id.clone()).collect();
         assert_eq!(ids, ["test.echo"]);
     }
 
     #[tokio::test]
     async fn routes_calls_and_tags_errors_with_the_plugin() {
-        let host = host(vec![Echo::plugin("test.echo", "*")]);
+        let host = host(vec![Echo::plugin("test.echo")]);
         assert_eq!(
             host.call("test.echo", "echo", json!({ "a": 1 })).await.ok(),
             Some(json!({ "a": 1 }))
@@ -477,7 +459,7 @@ mod tests {
     async fn agents_reach_only_the_methods_a_plugin_names_as_tools() {
         let manifest = Manifest::from_json(
             &json!({
-                "id": "test.echo", "name": "Echo", "version": "1.0.0", "sikemux": "*",
+                "id": "test.echo", "name": "Echo",
                 "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
             })
             .to_string(),
@@ -504,7 +486,7 @@ mod tests {
     async fn a_switched_off_plugin_answers_nothing_and_offers_no_tools() {
         let manifest = Manifest::from_json(
             &json!({
-                "id": "test.echo", "name": "Echo", "version": "1.0.0", "sikemux": "*",
+                "id": "test.echo", "name": "Echo",
                 "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
             })
             .to_string(),
@@ -538,7 +520,7 @@ mod tests {
         fn plugin(id: &str, host: &'static str) -> Arc<dyn Plugin> {
             let manifest = Manifest::from_json(
                 &json!({
-                    "id": id, "name": "Picky", "version": "1.0.0", "sikemux": "*",
+                    "id": id, "name": "Picky",
                     "tools": [{ "name": "picky_look", "method": "look", "description": "Look." }],
                 })
                 .to_string(),
@@ -615,7 +597,7 @@ mod tests {
         let claiming = |id: &str| -> Arc<dyn Plugin> {
             let manifest = Manifest::from_json(
                 &json!({
-                    "id": id, "name": "Echo", "version": "1.0.0", "sikemux": "*",
+                    "id": id, "name": "Echo",
                     "tools": [{ "name": "echo_back", "method": "echo", "description": "Echo." }],
                 })
                 .to_string(),
@@ -634,7 +616,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_plugin_that_never_answers_times_out() {
-        let host = host(vec![Echo::plugin("test.echo", "*")]);
+        let host = host(vec![Echo::plugin("test.echo")]);
         let error = host
             .call("test.echo", "hang", Value::Null)
             .await
@@ -649,16 +631,13 @@ mod tests {
     async fn a_plugin_gets_the_call_timeout_it_declares() {
         let manifest = Manifest::from_json(
             &json!({
-                "id": "test.slow", "name": "Slow", "version": "1.0.0", "sikemux": "*",
+                "id": "test.slow", "name": "Slow",
                 "callTimeoutSecs": 1,
             })
             .to_string(),
         )
         .expect("test manifest parses");
-        let host = host(vec![
-            Arc::new(Echo(manifest)),
-            Echo::plugin("test.echo", "*"),
-        ]);
+        let host = host(vec![Arc::new(Echo(manifest)), Echo::plugin("test.echo")]);
         assert_eq!(
             host.call("test.slow", "block", Value::Null).await.ok(),
             Some(Value::Null)
@@ -668,7 +647,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn a_blocking_plugin_does_not_hold_up_the_caller() {
-        let host = host(vec![Echo::plugin("test.echo", "*")]);
+        let host = host(vec![Echo::plugin("test.echo")]);
         let started = std::time::Instant::now();
         let error = host
             .call("test.echo", "block", Value::Null)

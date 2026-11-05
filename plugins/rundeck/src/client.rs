@@ -1,5 +1,5 @@
 // Shared HTTP plumbing. One process-wide reqwest::Client keeps connections
-// warm across the matrix dashboard's parallel fan-out. A rejected token is
+// warm across parallel calls. A rejected token is
 // reported as an `auth` error; nothing here logs in again on its own.
 
 use std::collections::BTreeMap;
@@ -27,7 +27,7 @@ const REDIRECTED: &str = "Rundeck redirected the API call — a proxy or SSO log
 const NOT_API_DATA: &str =
     "Rundeck answered with a web page instead of API data — a proxy or SSO login is in front of it";
 
-/// Fan-outs from different screens share one bound on concurrent Rundeck calls.
+/// Every Rundeck call shares one bound on how many run at once.
 pub static HTTP: Http<Rundeck> = Http::new(
     Redirects::Refuse,
     Deadline::WholeAnswer,
@@ -52,7 +52,7 @@ pub fn seg(value: &str) -> RundeckResult<String> {
 
 /// A warm client per pinned target. Building one per request threw away the
 /// connection pool, so a private-HTTP install paid a fresh handshake on every
-/// call of the dashboard's fan-out. The key is the pinned address set, so a
+/// call. The key is the pinned address set, so a
 /// different DNS answer never reuses the old client.
 fn pinned_http(transport: &config::ValidatedTransport) -> RundeckResult<Client> {
     const MAX_CACHED_CLIENTS: usize = 8;

@@ -1,4 +1,4 @@
-// Pipelines, in the words the Git pane uses for every host's CI: a pipeline is
+// Pipelines, in the words every host's CI uses: a pipeline is
 // a run, its steps are jobs, and each pipeline the repository's
 // bitbucket-pipelines.yml defines is a workflow.
 

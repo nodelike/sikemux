@@ -1,5 +1,5 @@
 // Bitbucket Cloud: the pull requests and pipelines of whichever repository
-// Sikemux has open, answered in the shapes the Git pane reads from every host.
+// Sikemux has open, answered in the shapes every code host answers in.
 //
 //   config    — which way this is signed in, and the Keychain entry behind it
 //   oauth     — signing in through the browser, and keeping the token fresh
@@ -28,22 +28,19 @@ mod review;
 use std::path::Path;
 use std::sync::Arc;
 
-use serde::de::IgnoredAny;
 use serde_json::Value;
-use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::account::as_account;
 use sikemux_plugin_api::codehost::asks::{
     AccountQuery, Answers, CommitRef, CommitsQuery, Dispatch, ExcerptQuery, FeedbackQuery,
     FilesQuery, ImageRef, InboxQuery, IssueQuery, IssueRef, JobRef, Merge, MineQuery, NewComment,
-    NewIssue, NewPull, NewReview, NotificationRef, PullEdit, PullQuery, PullRef, RemoteQuery,
-    RepoRef, Rerun, RunQuery, RunRef, SetIssueState, SetPullState, ThreadOf, ThreadRef,
-    WorkflowRef,
+    NewIssue, NewPull, NewReview, PullEdit, PullQuery, PullRef, RemoteQuery, RepoRef, Rerun,
+    RunQuery, RunRef, SetIssueState, SetPullState, ThreadOf, ThreadRef, WorkflowRef,
 };
 use sikemux_plugin_api::codehost::{
     self, work, ChangedFile, CodeHost, Comment, CommitAuthor, Issue, IssuePage, JobLog, LogExcerpt,
     Notification, Pull, PullCommit, Release, RepoListing, Resolved, Review, ReviewFeedback,
     RunDetail, RunPage, RunTiming, TimelineItem, Workflow, WorkflowFile,
 };
-use sikemux_plugin_api::store::Accounts;
 use sikemux_plugin_api::{
     answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
 };
@@ -137,15 +134,7 @@ async fn dispatch(
     let data_dir = ctx.data_dir();
     match method {
         "status" => reply(auth::status(data_dir).await),
-        "accounts" => reply(auth::accounts(data_dir)?),
         "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
-        "rateLimit" => {
-            let id = config::load(data_dir)?
-                .account(chosen().as_deref())
-                .map(|account| account.id.clone())
-                .unwrap_or_default();
-            reply(client::LIMITS.budget(&id))
-        }
         "signInWithToken" => {
             signed_in(
                 data_dir,
@@ -361,16 +350,8 @@ impl CodeHost for Bitbucket {
         work(issues::releases(dir, ask))
     }
 
-    fn inbox<'a>(&'a self, dir: &'a Path, ask: InboxQuery) -> PluginFuture<'a, Vec<Notification>> {
-        work(issues::inbox(dir, ask))
-    }
-
-    fn mark_read<'a>(&'a self, dir: &'a Path, ask: NotificationRef) -> PluginFuture<'a, ()> {
-        work(async move { issues::mark_read(dir, ask) })
-    }
-
-    fn mark_all_read<'a>(&'a self, dir: &'a Path, _ask: IgnoredAny) -> PluginFuture<'a, ()> {
-        work(issues::mark_all_read(dir))
+    fn inbox<'a>(&'a self, dir: &'a Path, _ask: InboxQuery) -> PluginFuture<'a, Vec<Notification>> {
+        work(issues::inbox(dir))
     }
 }
 
@@ -393,6 +374,7 @@ async fn dispatch_stream(
 mod tests {
     use super::*;
     use serde_json::json;
+    use sikemux_plugin_api::store::Accounts;
 
     #[test]
     fn its_manifest_parses() {

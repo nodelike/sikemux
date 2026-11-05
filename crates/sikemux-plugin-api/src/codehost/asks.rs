@@ -438,8 +438,3 @@ pub struct InboxQuery {
     #[serde(default)]
     pub per_page: Option<u32>,
 }
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct NotificationRef {
-    pub id: String,
-}

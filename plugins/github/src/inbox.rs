@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde::Deserialize;
 use sikemux_plugin_api::account::chosen;
-use sikemux_plugin_api::codehost::asks::{InboxQuery, NotificationRef};
+use sikemux_plugin_api::codehost::asks::InboxQuery;
 use sikemux_plugin_api::codehost::Notification;
 
 use crate::client;
@@ -132,26 +132,6 @@ pub async fn list(data_dir: &Path, input: InboxQuery) -> GithubResult<Vec<Notifi
         .collect())
 }
 
-/// Thread ids are numbers GitHub hands out, so anything else is refused rather
-/// than pasted into a path.
-fn valid_thread(id: &str) -> bool {
-    !id.is_empty() && id.len() <= 32 && id.chars().all(|c| c.is_ascii_digit())
-}
-
-pub async fn mark_read(data_dir: &Path, input: NotificationRef) -> GithubResult<()> {
-    if !valid_thread(&input.id) {
-        return Err(crate::error::GithubError::BadArg(
-            "that is not a notification".into(),
-        ));
-    }
-    let path = format!("/notifications/threads/{}", input.id);
-    client::act(data_dir, reqwest::Method::PATCH, &path, None).await
-}
-
-pub async fn mark_all_read(data_dir: &Path) -> GithubResult<()> {
-    client::act(data_dir, reqwest::Method::PUT, "/notifications", None).await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -214,13 +194,5 @@ mod tests {
             number_of("https://api.github.com/repos/a/b/issues/7"),
             Some(7)
         );
-    }
-
-    #[test]
-    fn only_a_number_is_a_thread() {
-        assert!(valid_thread("1234567890"));
-        assert!(!valid_thread(""));
-        assert!(!valid_thread("../../user"));
-        assert!(!valid_thread("12a"));
     }
 }

@@ -85,11 +85,13 @@ impl From<serde_json::Error> for AwsError {
 impl From<AwsError> for PluginError {
     fn from(error: AwsError) -> Self {
         let category = match &error {
-            AwsError::Aws(_) | AwsError::Io(_) | AwsError::Json(_) => Category::own("aws"),
-            AwsError::CliMissing(_) => Category::own("aws-cli-missing"),
-            AwsError::TokenExpired(_) => Category::own("aws-token-expired"),
-            AwsError::NoCredentials(_) => Category::own("aws-no-credentials"),
-            AwsError::NoProfiles => Category::own("aws-no-profiles"),
+            AwsError::Aws(_)
+            | AwsError::Io(_)
+            | AwsError::Json(_)
+            | AwsError::CliMissing(_)
+            | AwsError::TokenExpired(_)
+            | AwsError::NoCredentials(_)
+            | AwsError::NoProfiles => Category::own("aws"),
             AwsError::NotFound(_) => Category::NotFound,
             AwsError::ChooseProfile(_) | AwsError::UnknownProfile(..) | AwsError::BadArg(_) => {
                 Category::BadParams
@@ -100,29 +102,3 @@ impl From<AwsError> for PluginError {
 }
 
 pub type AwsResult<T> = Result<T, AwsError>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn categories_are_the_ones_the_frontend_reads() {
-        let category = |error: AwsError| {
-            serde_json::to_value(PluginError::from(error).category).unwrap_or_default()
-        };
-        assert_eq!(category(AwsError::Aws("x".into())), "aws");
-        assert_eq!(
-            category(AwsError::CliMissing("aws".into())),
-            "aws-cli-missing"
-        );
-        assert_eq!(
-            category(AwsError::TokenExpired("p".into())),
-            "aws-token-expired"
-        );
-        assert_eq!(
-            category(AwsError::NoCredentials("p".into())),
-            "aws-no-credentials"
-        );
-        assert_eq!(category(AwsError::BadArg("x")), "bad-params");
-    }
-}

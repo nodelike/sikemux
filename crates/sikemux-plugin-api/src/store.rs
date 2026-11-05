@@ -146,7 +146,7 @@ where
 
 /// A secret read from the Keychain is held this long, since starting
 /// `security` for every request costs more than the request.
-pub const SECRET_LIFE: Duration = Duration::from_secs(60);
+const SECRET_LIFE: Duration = Duration::from_secs(60);
 
 /// Values read lately, each kept for a while by its key.
 pub struct Held<V> {

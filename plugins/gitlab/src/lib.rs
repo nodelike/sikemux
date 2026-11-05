@@ -1,6 +1,6 @@
 // GitLab, on gitlab.com or a company's own server: the merge requests,
 // pipelines, issues and releases of whichever project Sikemux has open,
-// answered in the shapes the Git pane reads from every host.
+// answered in the shapes every code host answers in.
 //
 //   config    — the accounts signed in, each on its server, and the Keychain entry behind it
 //   client    — the HTTP client, the token, GitLab's paging and error shapes
@@ -12,7 +12,6 @@
 //   issues    — issues, releases, and the To-Do list as the inbox
 //   images    — avatars, handed to the window as data: addresses
 //   pipelines — pipelines as runs, their jobs by stage, logs, and starting one
-//   watch     — following a pipeline while it is going
 
 mod auth;
 mod client;
@@ -29,9 +28,8 @@ mod review;
 use std::path::Path;
 use std::sync::Arc;
 
-use serde::de::IgnoredAny;
 use serde_json::Value;
-use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::account::as_account;
 use sikemux_plugin_api::codehost::asks::*;
 use sikemux_plugin_api::codehost::{self, work, CodeHost};
 use sikemux_plugin_api::codehost::{
@@ -39,7 +37,6 @@ use sikemux_plugin_api::codehost::{
     Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming,
     TimelineItem, Workflow, WorkflowFile,
 };
-use sikemux_plugin_api::store::Accounts;
 use sikemux_plugin_api::{
     answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
 };
@@ -134,15 +131,7 @@ async fn dispatch(
     let data_dir = ctx.data_dir();
     match method {
         "status" => reply(auth::status(data_dir).await),
-        "accounts" => reply(auth::accounts(data_dir)?),
         "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
-        "rateLimit" => {
-            let id = config::load(data_dir)?
-                .account(chosen().as_deref())
-                .map(|account| account.id.clone())
-                .unwrap_or_default();
-            reply(client::LIMITS.budget(&id))
-        }
         "signInWithToken" => {
             signed_in(
                 data_dir,
@@ -335,20 +324,13 @@ impl CodeHost for Gitlab {
     fn inbox<'a>(&'a self, dir: &'a Path, ask: InboxQuery) -> PluginFuture<'a, Vec<Notification>> {
         work(issues::inbox(dir, ask))
     }
-
-    fn mark_read<'a>(&'a self, dir: &'a Path, ask: NotificationRef) -> PluginFuture<'a, ()> {
-        work(issues::mark_read(dir, ask))
-    }
-
-    fn mark_all_read<'a>(&'a self, dir: &'a Path, _ask: IgnoredAny) -> PluginFuture<'a, ()> {
-        work(issues::mark_all_read(dir))
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use sikemux_plugin_api::store::Accounts;
 
     fn temp(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("sikemux-gl-{name}-{}", std::process::id()))

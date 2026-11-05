@@ -1,7 +1,7 @@
 // Notes: GitLab's word for both the comments on a merge request or issue and
 // the lines it writes itself when something happens to one ("approved this
 // merge request", "added 2 commits"). Comments become comments; the events
-// GitLab writes are read back into the event names the Git pane draws.
+// GitLab writes are read back into the event names every code host uses.
 
 use std::path::Path;
 

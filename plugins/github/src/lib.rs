@@ -17,7 +17,6 @@
 //   inbox     — the notifications GitHub would otherwise email
 //   common    — the shapes every part of the API repeats
 //   images    — avatars and pictures, handed to the window as data: addresses
-//   watch     — following a run while it is going
 
 mod annotations;
 mod approvals;
@@ -42,9 +41,8 @@ mod workflows;
 use std::path::Path;
 use std::sync::Arc;
 
-use serde::de::IgnoredAny;
 use serde_json::Value;
-use sikemux_plugin_api::account::{as_account, chosen};
+use sikemux_plugin_api::account::as_account;
 use sikemux_plugin_api::codehost::asks::*;
 use sikemux_plugin_api::codehost::{self, work, CodeHost};
 use sikemux_plugin_api::codehost::{
@@ -53,9 +51,8 @@ use sikemux_plugin_api::codehost::{
     RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming, TimelineItem,
     Workflow, WorkflowFile,
 };
-use sikemux_plugin_api::store::Accounts;
 use sikemux_plugin_api::{
-    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture, StreamSink,
+    answer, params, reply, Manifest, Plugin, PluginContext, PluginError, PluginFuture,
 };
 
 use crate::error::GithubResult;
@@ -112,20 +109,6 @@ impl Plugin for Github {
         let account = account_of(&input);
         Box::pin(as_account(account, self.dispatch(ctx, method, input)))
     }
-
-    fn stream<'a>(
-        &'a self,
-        ctx: &'a PluginContext,
-        method: &'a str,
-        input: Value,
-        sink: StreamSink,
-    ) -> PluginFuture<'a, ()> {
-        let account = account_of(&input);
-        Box::pin(as_account(
-            account,
-            dispatch_stream(ctx, method, input, sink),
-        ))
-    }
 }
 
 impl Github {
@@ -138,15 +121,7 @@ impl Github {
         let data_dir = ctx.data_dir();
         match method {
             "status" => reply(auth::status(data_dir).await),
-            "accounts" => reply(auth::accounts(data_dir)?),
             "setDefaultAccount" => answer(auth::set_default(data_dir, params(input)?)).await,
-            "rateLimit" => {
-                let id = config::load(data_dir)?
-                    .account(chosen().as_deref())
-                    .map(|account| account.id.clone())
-                    .unwrap_or_default();
-                reply(client::LIMITS.budget(&id))
-            }
             "signIn" => signed_in(data_dir, auth::sign_in(data_dir, params(input)?).await).await,
             "signOut" => answer(auth::sign_out(data_dir)).await,
             _ => codehost::dispatch(self, data_dir, method, input).await,
@@ -406,28 +381,6 @@ impl CodeHost for Github {
     fn inbox<'a>(&'a self, dir: &'a Path, ask: InboxQuery) -> PluginFuture<'a, Vec<Notification>> {
         work(inbox::list(dir, ask))
     }
-
-    fn mark_read<'a>(&'a self, dir: &'a Path, ask: NotificationRef) -> PluginFuture<'a, ()> {
-        work(inbox::mark_read(dir, ask))
-    }
-
-    fn mark_all_read<'a>(&'a self, dir: &'a Path, _ask: IgnoredAny) -> PluginFuture<'a, ()> {
-        work(inbox::mark_all_read(dir))
-    }
-}
-
-async fn dispatch_stream(
-    ctx: &PluginContext,
-    method: &str,
-    input: Value,
-    sink: StreamSink,
-) -> Result<(), PluginError> {
-    let data_dir = ctx.data_dir();
-    match method {
-        "downloadArtifact" => artifacts::download(data_dir, params(input)?, &sink).await,
-        "downloadAsset" => releases::download(data_dir, params(input)?, &sink).await,
-        _ => Err(PluginError::unknown_method(method)),
-    }
 }
 
 #[cfg(test)]
@@ -563,53 +516,5 @@ mod live {
             .await
             .expect("sign out");
         std::fs::remove_dir_all(dir).ok();
-    }
-
-    /// `GHA_LIVE_ARTIFACT=owner/repo:artifact_id GH_TOKEN=… cargo test -p sikemux-plugin-github -- --ignored`
-    /// with an artifact over 16 MiB, which used to fail. The token is read from
-    /// the environment, so the Keychain is never touched.
-    #[tokio::test]
-    #[ignore]
-    async fn downloads_an_artifact_larger_than_an_api_answer() {
-        let (Some(target), Some(_)) = (env("GHA_LIVE_ARTIFACT"), env("GH_TOKEN")) else {
-            return;
-        };
-        let (slug, id) = target
-            .split_once(':')
-            .expect("GHA_LIVE_ARTIFACT is owner/repo:id");
-        let (owner, name) = slug.split_once('/').expect("owner/repo");
-        let dir = std::env::temp_dir().join(format!("sikemux-gha-dl-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("temp dir");
-        std::env::set_var("HOME", &dir);
-        let ctx = PluginContext::new(dir.clone());
-        let plugin = plugin().expect("plugin loads");
-        plugin
-            .call(&ctx, "signIn", json!({ "host": "github.com" }))
-            .await
-            .expect("sign in with the environment's token");
-        let ticks = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let kept = Arc::clone(&ticks);
-        let sink = StreamSink::new(move |tick| kept.lock().map(|mut all| all.push(tick)).is_ok());
-        plugin
-            .stream(
-                &ctx,
-                "downloadArtifact",
-                json!({ "owner": owner, "name": name, "artifactId": id.parse::<u64>().expect("id"), "fileName": "live" }),
-                sink,
-            )
-            .await
-            .expect("download");
-        let last = ticks
-            .lock()
-            .expect("ticks")
-            .last()
-            .cloned()
-            .expect("a tick");
-        let saved = &last["saved"];
-        let bytes = saved["bytes"].as_u64().expect("bytes");
-        assert!(bytes > 16 * 1024 * 1024, "{bytes}");
-        let path = saved["path"].as_str().expect("path");
-        assert_eq!(std::fs::metadata(path).expect("saved").len(), bytes);
-        std::fs::remove_dir_all(&dir).ok();
     }
 }

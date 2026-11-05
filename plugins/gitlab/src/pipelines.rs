@@ -1,4 +1,4 @@
-// Pipelines, in the words the Git pane uses for every host's CI: a pipeline is
+// Pipelines, in the words every host's CI uses: a pipeline is
 // a run and its jobs are jobs, named `stage / job` so the graph groups them by
 // stage. A project has one pipeline definition, .gitlab-ci.yml, so it has one
 // workflow, which can also be started by hand with variables.
@@ -169,7 +169,7 @@ async fn commit_title(data_dir: &Path, repo: &RepoRef, sha: &str) -> Option<Stri
     Some(title)
 }
 
-/// GitLab's own status names for one of the Git pane's, so the server filters.
+/// GitLab's own status names for one of ours, so the server filters.
 fn gitlab_status(wanted: &str) -> Option<&'static str> {
     Some(match wanted {
         "success" => "success",

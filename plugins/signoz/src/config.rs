@@ -1,7 +1,7 @@
 // Where SigNoz lives, how this machine signs in to it, and the Keychain
 // entries that hold the secret. An API key sits under the same Keychain
 // service the `signoz` shell CLI reads, so either can use a key the other
-// saved. A signed-in session keeps only its refresh token there.
+// saved. A signed-in session keeps its access and refresh tokens there.
 
 use std::path::Path;
 

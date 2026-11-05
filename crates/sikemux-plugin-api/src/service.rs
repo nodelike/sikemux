@@ -174,7 +174,7 @@ impl<S: Service> From<ServiceError<S>> for PluginError {
 }
 
 /// `40s`, `12 min` or `2 h 5 min`, for telling someone how long to wait.
-pub fn wait_in_words(secs: u64) -> String {
+fn wait_in_words(secs: u64) -> String {
     match secs {
         0..=59 => format!("{}s", secs.max(1)),
         60..=3599 => format!("{} min", secs.div_ceil(60)),

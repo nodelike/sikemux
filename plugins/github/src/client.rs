@@ -31,10 +31,8 @@ pub static HTTP: Http<Github> = Http::new(
     MAX_REQUESTS_IN_FLIGHT,
 );
 pub static LIMITS: RateLimits = RateLimits::new(LimitHeaders {
-    limit: "x-ratelimit-limit",
     remaining: Some("x-ratelimit-remaining"),
     reset: Some("x-ratelimit-reset"),
-    near: None,
 });
 
 /// Logs, artifacts and release files, which share `HTTP`'s request slots.

@@ -3,7 +3,7 @@
 
 use std::error::Error as _;
 
-use crate::{Category, PluginError};
+use crate::Category;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Unreachable {
@@ -44,14 +44,14 @@ pub fn unreachable(error: &reqwest::Error) -> Option<Unreachable> {
 }
 
 /// The plain words for a service that could not be reached.
-pub fn unreachable_message(kind: Unreachable, service: &str) -> String {
+pub(crate) fn unreachable_message(kind: Unreachable, service: &str) -> String {
     match kind {
         Unreachable::Offline => format!("Can't reach {service}. Check your connection."),
         Unreachable::Timeout => format!("{service} didn't answer in time."),
     }
 }
 
-/// The error category the frontend reads to keep showing what it last loaded.
+/// The error category a client reads to keep showing what it last loaded.
 pub fn category(kind: Unreachable) -> Category {
     match kind {
         Unreachable::Offline => Category::Offline,
@@ -59,25 +59,9 @@ pub fn category(kind: Unreachable) -> Category {
     }
 }
 
-impl PluginError {
-    pub fn unreachable(kind: Unreachable, service: &str) -> Self {
-        Self::new(category(kind), unreachable_message(kind, service))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_words_name_the_service_and_the_category_says_why() {
-        let offline = PluginError::unreachable(Unreachable::Offline, "Jira");
-        assert_eq!(offline.category, Category::Offline);
-        assert_eq!(offline.message, "Can't reach Jira. Check your connection.");
-        let slow = PluginError::unreachable(Unreachable::Timeout, "Bitbucket");
-        assert_eq!(slow.category, Category::Timeout);
-        assert_eq!(slow.message, "Bitbucket didn't answer in time.");
-    }
 
     #[tokio::test]
     async fn a_request_to_nowhere_reads_as_offline() {
@@ -86,10 +70,15 @@ mod tests {
             .connect_timeout(std::time::Duration::from_secs(5))
             .build()
             .unwrap_or_default();
-        let failed = client.get("http://127.0.0.1:9/").send().await;
-        let Err(error) = failed else {
-            return;
-        };
+        let nothing_listening = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|listener| listener.local_addr())
+            .map(|address| format!("http://{address}/"))
+            .expect("a free port");
+        let error = client
+            .get(nothing_listening)
+            .send()
+            .await
+            .expect_err("nothing answers");
         assert_eq!(unreachable(&error), Some(Unreachable::Offline));
     }
 }
