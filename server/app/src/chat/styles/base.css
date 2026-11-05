@@ -218,33 +218,6 @@
   font-style: normal;
   font-display: swap;
 }
-:root {
-  --void: #100e16;
-  --rail: #17141e;
-  --rail-2: #201c2b;
-  --pane: #17141e;
-  --line: #262130;
-  --line-soft: #1a1723;
-  --ink: #e7e5ef;
-  --ink-dim: #8b8898;
-  --ink-faint: #736f80;
-  --acc: #a277ff;
-  --acc-soft: rgba(162, 119, 255, 0.13);
-  --acc-line: rgba(162, 119, 255, 0.32);
-  --live: #61ffca;
-  --warn: #ffca85;
-  --cmd: #ff6ac1;
-  --danger: #ff6767;
-  --git-modified: #e2c08d;
-  --git-untracked: #73c991;
-  --git-added: #81b88b;
-  --git-deleted: #d75f47;
-  --git-renamed: #6c8cd5;
-  --mono:
-    "JetBrainsMono Nerd Font", "JetBrains Mono", ui-monospace, "SF Mono", Menlo,
-    monospace;
-}
-
 * {
   margin: 0;
   padding: 0;

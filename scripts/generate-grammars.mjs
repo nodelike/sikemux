@@ -4,10 +4,7 @@ import prettier from "prettier";
 
 const root = resolve(import.meta.dirname, "..");
 const langsDir = resolve(root, "node_modules/@shikijs/langs");
-const tsOutputPath = resolve(
-  root,
-  "server/app/src/chat/languages/generated/grammars.ts",
-);
+const tsOutputPath = resolve(root, "shared/languages/grammars.generated.ts");
 const check = process.argv.includes("--check");
 
 const { version } = JSON.parse(

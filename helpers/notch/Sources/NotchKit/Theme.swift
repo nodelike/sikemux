@@ -2,7 +2,7 @@ import AppKit
 import CoreText
 import SwiftUI
 
-/// The app's colours and type. The colours the share page's `base.css` names are in Theme.generated.swift.
+/// The app's colours and type. The colours `shared/ui/palette.css` names are in Theme.generated.swift.
 enum Theme {
     static let raised = Color.white.opacity(0.06)
     static let hover = Color.white.opacity(0.07)

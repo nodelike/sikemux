@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Writes what the notch helper shares with the app: its settings from
 // helpers/notch/settings.json, for the core's Rust and the helper's Swift,
-// its colours from the share page's base.css, and the app's buddies from
+// its colours from shared/ui/palette.css, and the app's buddies from
 // shared/buddies, which the helper runs to draw them. `--check` fails when one is
 // out of date instead of writing it.
 
@@ -11,7 +11,7 @@ import { build } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
 const settingsSource = resolve(root, "helpers/notch/settings.json");
-const cssSource = resolve(root, "server/app/src/chat/styles/base.css");
+const cssSource = resolve(root, "shared/ui/palette.css");
 const settingsRustPath = resolve(root, "crates/sikemux-view/src/notch.rs");
 const settingsSwiftPath = resolve(
   root,
@@ -28,7 +28,7 @@ const buddiesSwiftPath = resolve(
 );
 const check = process.argv.includes("--check");
 
-/** The helper's colour names and the base.css variable each one is. */
+/** The helper's colour names and the palette variable each one is. */
 const COLOURS = {
   ink: "--ink",
   inkDim: "--ink-dim",
@@ -173,8 +173,7 @@ ${helperReads
 
 const css = await readFile(cssSource, "utf8");
 const rootBlock = css.match(/^:root\s*\{([^}]*)\}/m)?.[1];
-if (!rootBlock)
-  throw new Error("server/app/src/chat/styles/base.css has no :root block");
+if (!rootBlock) throw new Error("shared/ui/palette.css has no :root block");
 const variables = Object.fromEntries(
   [...rootBlock.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)].map(
     ([, name, value]) => [name, value.trim()],
@@ -185,9 +184,7 @@ const hex = (channel) => Number(channel).toString(16).padStart(2, "0");
 function swiftColour(variable) {
   const value = variables[variable];
   if (!value)
-    throw new Error(
-      `server/app/src/chat/styles/base.css does not define ${variable}`,
-    );
+    throw new Error(`shared/ui/palette.css does not define ${variable}`);
   if (/^#[0-9a-f]{6}$/i.test(value))
     return `Color(hex: "${value.toLowerCase()}")`;
   const rgba = value.match(
@@ -201,7 +198,7 @@ function swiftColour(variable) {
 
 await emit(
   themeSwiftPath,
-  `// ${banner("server/app/src/chat/styles/base.css")}
+  `// ${banner("shared/ui/palette.css")}
 
 import SwiftUI
 

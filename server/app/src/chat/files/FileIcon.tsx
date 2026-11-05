@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { languageOf } from "../languages/index";
+import { languageOf } from "@shared/languages/index";
 
 /** The Material file icon theme's lookup tables, as scripts/generate-file-icons.mjs writes them. */
 export interface FileIconIndex {

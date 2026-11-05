@@ -8,10 +8,7 @@ const themeDir = resolve(root, "node_modules/material-icon-theme");
 const iconsOutputDir = resolve(root, "server/app/public/file-icons");
 const indexOutputPath = resolve(iconsOutputDir, "index.json");
 const gpuiBundlePath = resolve(root, "app/assets/file-icons.json.gz");
-const grammarsPath = resolve(
-  root,
-  "server/app/src/chat/languages/generated/grammars.ts",
-);
+const grammarsPath = resolve(root, "shared/languages/grammars.generated.ts");
 const check = process.argv.includes("--check");
 
 const theme = JSON.parse(
@@ -177,10 +174,10 @@ const server = await createServer({
 });
 try {
   const { FILE_NAMES, EXTENSIONS } = await server.ssrLoadModule(
-    "/server/app/src/chat/languages/index.ts",
+    "/shared/languages/index.ts",
   );
   const { GRAMMARS, GRAMMAR_ALIASES } = await server.ssrLoadModule(
-    "/server/app/src/chat/languages/generated/grammars.ts",
+    "/shared/languages/grammars.generated.ts",
   );
   const known = sorted({
     ...Object.fromEntries(
