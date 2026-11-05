@@ -29,6 +29,7 @@ use sikemux_wire::protocol::{
     SessionId, SessionInfo, SessionKind, StreamId,
 };
 
+use super::access::Peer;
 use super::agent::{self, AgentActivity};
 use super::connection::{blocking, ClientConn};
 use super::prepare::{Owner, PreparedLaunch};
@@ -1455,7 +1456,7 @@ pub(crate) fn type_when_asked(
     params: TypeWhenReadyParams,
 ) -> CoreResult<Value> {
     let session = core.session(params.id).ok_or(NOT_HERE)?;
-    let typist = super::connection::typist(client);
+    let typist = self::typist(client);
     if !session.may_type(typist) {
         return Err(SETUP_LOCKED.into());
     }
@@ -1480,6 +1481,15 @@ pub(crate) async fn reconnect(core: &Core, params: SessionParams) -> CoreResult<
     })
     .await?;
     Ok(json!({}))
+}
+
+/// Who `client` types as: the person's own app, or anyone else.
+pub(crate) fn typist(client: &ClientConn) -> Typist {
+    if client.peer == Peer::App {
+        Typist::App
+    } else {
+        Typist::Other
+    }
 }
 
 #[cfg(test)]

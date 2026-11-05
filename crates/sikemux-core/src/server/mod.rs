@@ -72,6 +72,7 @@ mod questions;
 mod remote;
 mod remote_image;
 mod repo_events;
+mod requests;
 mod saved;
 mod saved_sessions;
 pub mod search;

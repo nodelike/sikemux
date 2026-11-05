@@ -256,7 +256,7 @@ async fn terminal(
     };
     let target = Box::new(SpawnTarget::Terminal(spawn));
     let pending =
-        super::connection::spawn(core.clone(), core.launch_identity(), target, None).await?;
+        super::launching::spawn(core.clone(), core.launch_identity(), target, None).await?;
     let id = pending.id();
     pending.start(core);
     Ok(id)

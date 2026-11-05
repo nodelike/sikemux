@@ -24,6 +24,7 @@ use sikemux_process::sync::Locked;
 use tokio::sync::{oneshot, watch};
 
 use crate::accounts::protocol::{AccountProfile, Challenge, DeviceRegistration, DeviceRole};
+use crate::protocol::HostRegistration;
 use sikemux_view::device::AccountInfo;
 
 use super::access::Peer;
@@ -485,22 +486,17 @@ async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<S
         return Err(crate::accounts::refusal(response).await);
     }
     let challenge: Challenge = response.json().await.map_err(|error| error.to_string())?;
-    let signed = core
-        .remote
-        .may_join(&user_id, peer)
-        .and_then(|()| core.remote.sign_registration(&challenge.nonce, &user_id));
-    let (key, signature) = signed.map_err(|error| error.to_string())?;
-    let host = tokio::task::spawn_blocking(super::host::info)
+    let host = host_registration(core, &challenge.nonce, &user_id, peer)
         .await
         .map_err(|error| error.to_string())?;
     let registration = DeviceRegistration {
-        key,
+        key: host.key,
         role: DeviceRole::Host,
         name: host.name.chars().take(64).collect(),
         platform: super::HOST_PLATFORM,
         channel: Some(host.channel.into()),
         nonce: challenge.nonce,
-        signature,
+        signature: host.signature,
     };
     let response = client
         .post(api("/v1/devices"))
@@ -572,4 +568,23 @@ mod tests {
         assert!(subject(&format!("h.{machine}.s")).is_err());
         assert!(subject("not-a-token").is_err());
     }
+}
+
+/// This host as `user_id`'s account is to register it, signed for the challenge `nonce`, when
+/// the account may have it.
+pub(crate) async fn host_registration(
+    core: &Core,
+    nonce: &str,
+    user_id: &str,
+    peer: &Peer,
+) -> CoreResult<HostRegistration> {
+    core.remote.may_join(user_id, peer)?;
+    let (key, signature) = core.remote.sign_registration(nonce, user_id)?;
+    let host = super::connection::blocking(|| Ok(super::host::info())).await?;
+    Ok(HostRegistration {
+        key,
+        name: host.name,
+        channel: host.channel,
+        signature,
+    })
 }

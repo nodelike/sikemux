@@ -951,7 +951,7 @@ pub(crate) fn answer_trust(
 }
 
 async fn spawn(core: &Arc<Core>, request: TaskSpawnRequest) -> Result<SessionId, String> {
-    let task = super::connection::spawn(
+    let task = super::launching::spawn(
         core.clone(),
         core.launch_identity(),
         Box::new(SpawnTarget::Task { request }),

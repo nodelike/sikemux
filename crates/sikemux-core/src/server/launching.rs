@@ -18,12 +18,14 @@ use serde_json::{json, Value};
 use sikemux_process::vars;
 use sikemux_pty::launch::{LaunchKind, PtyAgentProfile, PtyContext, PtyDirectCommand};
 use sikemux_wire::protocol::{
-    ask, ChatAccount, ChatLaunch, ChatStart, Continuation, Event, RequestId, SessionId,
+    ask, ChatAccount, ChatLaunch, ChatStart, Continuation, Event, LaunchIdentity, RequestId, SessionId,
     SpawnTarget, TerminalSpawn, WAKE_WAIT,
 };
 
 use super::chat;
 use super::connection::{blocking, ClientConn};
+use super::prepare::{prepare_task, prepare_terminal};
+use super::session::PendingStart;
 use super::workspace::{launcher_of, ChatChoice, ResumeChoice, SessionChoice};
 use super::{lifecycle, Core, CoreError, CoreResult};
 
@@ -184,8 +186,7 @@ async fn launch_terminal(
         continues,
     };
     let target = Box::new(SpawnTarget::Terminal(spawn));
-    let pending =
-        super::connection::spawn(core.clone(), core.launch_identity(), target, None).await?;
+    let pending = self::spawn(core.clone(), core.launch_identity(), target, None).await?;
     let id = pending.id();
     pending.start(core);
     core.workspaces.edit_agent(agent_id, |agent| {
@@ -560,4 +561,65 @@ pub(crate) async fn start_terminal_at(
     let size = (params.cols, params.rows);
     let pty = start_terminal(core, &params.agent_id, size, None).await?;
     Ok(json!({ "ptyId": pty }))
+}
+
+pub(crate) async fn spawn(
+    core: Arc<Core>,
+    launch: LaunchIdentity,
+    mut target: Box<SpawnTarget>,
+    started_by: Option<String>,
+) -> CoreResult<PendingStart> {
+    if let SpawnTarget::Terminal(spawn) = target.as_mut() {
+        core.spares.note_size(spawn.cols, spawn.rows);
+        terminal_agent(&core, spawn).await;
+    }
+    blocking(move || {
+        let mut prepared = match *target {
+            SpawnTarget::Terminal(mut spawn) => {
+                let folder = spawn.cwd.clone().or_else(|| {
+                    spawn
+                        .context
+                        .as_ref()
+                        .and_then(|context| context.project.clone())
+                        .filter(|project| !project.is_empty())
+                });
+                if let Some(folder) = &folder {
+                    give_agent_environment(&core, folder, &mut spawn.env);
+                }
+                let resumed = super::activity_log::resumed_by(&spawn);
+                let prepared = prepare_terminal(&launch, spawn)?;
+                let owner = &prepared.owner;
+                if let Some(resumed) = resumed {
+                    super::activity_log::terminal_launched(&core, owner, resumed);
+                }
+                if let (Some(agent_id), Some(folder)) = (&owner.agent_id, folder) {
+                    core.name_agent(
+                        agent_id,
+                        std::path::Path::new(&folder),
+                        owner.agent_type.as_deref(),
+                        None,
+                    );
+                }
+                prepared
+            }
+            SpawnTarget::Task { mut request } => {
+                give_agent_environment(&core, &request.cwd, &mut request.env);
+                prepare_task(&launch, request)?
+            }
+        };
+        prepared.owner.started_by = started_by;
+        super::session::spawn_session(&core, prepared)
+    })
+    .await
+}
+
+fn give_agent_environment(
+    core: &Core,
+    folder: &str,
+    env: &mut std::collections::HashMap<String, String>,
+) {
+    let given = super::plugins::agent_environment(core, std::path::Path::new(folder));
+    for (key, value) in given {
+        env.entry(key).or_insert(value);
+    }
 }

@@ -88,6 +88,7 @@ pub(crate) enum Program {
 /// once stays its account's until the app, root or the account moves it.
 pub(crate) fn rule(request: &Request) -> Rule {
     let (needs, program) = match request {
+        Request::TerminalInput(_) => return Rule::TERMINAL_INPUT,
         Request::Call(ask::Call { method, .. }) => {
             let row = super::calls::row(method);
             (row.needs, row.program)
@@ -129,7 +130,6 @@ pub(crate) fn rule(request: &Request) -> Rule {
         | Request::Resize(_)
         | Request::Kill(_)
         | Request::ResetModes(_)
-        | Request::TerminalInput(_)
         | Request::TerminalClear(_)
         | Request::AcpStart(_)
         | Request::AcpPrompt(_)
@@ -166,6 +166,12 @@ pub(crate) fn rule(request: &Request) -> Rule {
 }
 
 impl Rule {
+    /// What typing into a terminal takes, by a request or a frame of input.
+    pub(crate) const TERMINAL_INPUT: Rule = Rule {
+        needs: Needs::Full,
+        program: Program::App,
+    };
+
     /// Whether only the app may send the request from this host, set up as `setup` says.
     pub(crate) fn only_the_app(&self, setup: Setup) -> bool {
         match self.program {
