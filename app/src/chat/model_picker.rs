@@ -134,8 +134,6 @@ pub struct Menu {
     _bench: Subscription,
 }
 
-/// Closes the popover the menu is in.
-
 /// Context, price per million tokens and tool calls, in a few words, as Settings words them.
 fn facts(route: &Route, model: &str) -> Vec<String> {
     let name = model.strip_suffix("[1m]").unwrap_or(model);
