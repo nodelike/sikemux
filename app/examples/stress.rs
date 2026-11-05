@@ -15,7 +15,8 @@
 //! open chats), `soak` (`agents` for `minutes`, ten by default, watching memory), and
 //! `windowed` (a chat filled to `STRESS_WINDOWED_ROWS` rows, its memory once settled, its
 //! first message found by the core and then by the find bar, asleep with
-//! `STRESS_WINDOWED_SLEEP`).
+//! `STRESS_WINDOWED_SLEEP`), and `goals` (Home with `STRESS_GOALS` goals and `STRESS_GOAL_AGENTS`
+//! agents streaming, drawn at rest, scrolled, moved through and searched).
 //! Each ends by typing in the front chat's composer while its load runs. `make-repo <folder> [files]` writes a
 //! generated repository to stress `repo` with.
 
@@ -694,6 +695,227 @@ fn agents(run: &mut Run, driver: &Arc<Driver>, minutes: Option<f64>) {
     stop.store(true, Ordering::Relaxed);
 }
 
+const GOAL_TITLES: [&str; 12] = [
+    "The Mac app opens a remote Linux host like a local one",
+    "Evidence the core collects, outside the agent",
+    "Decision inbox on Mac, phone and notch",
+    "Every wait names what it waits on and for how long",
+    "Rules said twice become a rule with one tap",
+    "Area claims on paths so plans do not collide",
+    "One owner per piece of work: arrival keys and leases",
+    "A push when a goal moves, not only when it needs you",
+    "Spend as a gate: paid runs stop at a budget",
+    "Phone and tablet widths as standard UI evidence",
+    "Terminal scroll stays fast under flood",
+    "Core owns the catalog of agents",
+];
+const SLICE_TITLES: [&str; 7] = [
+    "Tunnel",
+    "Sign-in",
+    "Files",
+    "Terminals",
+    "Deploy",
+    "Land",
+    "Review",
+];
+
+/// A board of goals in several projects, each with slices at different gates held by the chats,
+/// and desks full of what the agents would have out, as a window would have told the core.
+fn seed_goals(driver: &Driver, base: &Path, goals: usize, agents: usize) -> Vec<String> {
+    let projects: Vec<(String, PathBuf)> = ["sikemux", "swishx", "marketingiq", "nodelike"]
+        .iter()
+        .map(|name| ((*name).to_owned(), base.join("goal-work").join(name)))
+        .collect();
+    for (name, folder) in &projects {
+        std::fs::create_dir_all(folder).expect("a project folder");
+        driver.call(
+            "addProject",
+            json!({ "id": name, "name": name, "path": folder }),
+        );
+    }
+    let chats: Vec<(String, usize)> = (0..agents)
+        .map(|at| {
+            let project = at % projects.len();
+            let (chat, _) = driver
+                .runtime
+                .block_on(driver.client.start_chat(
+                    "opencode:fake".into(),
+                    projects[project].0.clone(),
+                    None,
+                ))
+                .expect("a chat starts");
+            (chat, project)
+        })
+        .collect();
+    let mut desks = serde_json::Map::new();
+    for (at, (chat, _)) in chats.iter().enumerate() {
+        let pages: Vec<Value> = (0..at % 3)
+            .map(|page| json!({ "id": format!("{chat}-{page}"), "title": "localhost:4321", "url": "http://localhost:4321" }))
+            .collect();
+        let files: Vec<&str> = ["rails.rs", "home.rs", "notes.md"][..at % 4].to_vec();
+        let terminals: Vec<Value> = (0..at % 2)
+            .map(|terminal| json!({ "session": 9000 + at + terminal, "title": "cargo check" }))
+            .collect();
+        let mut desk = json!({ "pages": pages, "files": files, "terminals": terminals });
+        if at % 17 == 0 {
+            desk["simulator"] = json!("iPhone 17 Pro");
+        }
+        desks.insert(chat.clone(), desk);
+    }
+    driver.call("setDesks", json!({ "desks": desks }));
+    let names_of = || {
+        let view = driver.call("goals", json!({}));
+        let agents = view["agents"].as_array().cloned().unwrap_or_default();
+        (agents.iter())
+            .filter(|agent| agent["name"].is_string())
+            .filter_map(|agent| Some(agent["id"].as_str()?.to_owned()))
+            .collect::<std::collections::HashSet<String>>()
+    };
+    let waiting = Instant::now();
+    let mut named = names_of();
+    while named.len() < agents && waiting.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(200));
+        named = names_of();
+    }
+    println!("  {} of {agents} agents have a name", named.len());
+    let mut next_chat = 0;
+    for goal in 0..goals {
+        let (_, folder) = &projects[goal % projects.len()];
+        let title = format!(
+            "{} {}",
+            GOAL_TITLES[goal % GOAL_TITLES.len()],
+            goal / GOAL_TITLES.len() + 1
+        );
+        let done = goal % 6 == 2;
+        let owner = done.then(|| &chats[goal % projects.len()].0);
+        let added = driver.call(
+            "boardAdd",
+            json!({ "project": folder, "title": title, "owner": owner }),
+        );
+        let goal_card = added["cards"]
+            .as_array()
+            .and_then(|cards| cards.last())
+            .and_then(|card| card["id"].as_u64())
+            .expect("the goal's card");
+        if done {
+            driver.call(
+                "boardUpdate",
+                json!({ "project": folder, "id": goal_card, "status": "done" }),
+            );
+            continue;
+        }
+        for slice in 0..3 + goal % 5 {
+            let (owner, project) = &chats[next_chat % chats.len()];
+            let held = *project == goal % projects.len() && goal % 5 != 4 && named.contains(owner);
+            let owner = held.then_some(owner);
+            next_chat += 1;
+            driver.call(
+                "boardAdd",
+                json!({
+                    "project": folder,
+                    "title": SLICE_TITLES[slice % SLICE_TITLES.len()],
+                    "promise": "It works.",
+                    "parent": goal_card,
+                    "owner": owner,
+                }),
+            );
+            if let (0, 1, Some(owner)) = (slice, goal % 3, owner) {
+                driver.prompt(owner, "ask".into());
+            }
+        }
+    }
+    chats.into_iter().map(|(chat, _)| chat).collect()
+}
+
+/// Home with many goals and agents: at rest, under every agent streaming, scrolled, moved through
+/// with the keys and narrowed by the find box.
+fn goals(run: &mut Run, driver: &Arc<Driver>, base: &Path) {
+    let count = |name: &str, default: usize| {
+        std::env::var(name)
+            .ok()
+            .and_then(|count| count.parse().ok())
+            .unwrap_or(default)
+    };
+    let (goals, agents) = (count("STRESS_GOALS", 55), count("STRESS_GOAL_AGENTS", 160));
+    let began = Instant::now();
+    let chats = seed_goals(driver, base, goals, agents);
+    println!(
+        "seeded {goals} goals and {agents} agents in {:.1}s",
+        began.elapsed().as_secs_f64()
+    );
+    run.bench
+        .update(&mut run.cx, |bench, cx| bench.toggle_goals_view(cx));
+    run.frames(240);
+    run.shot("goals");
+    let answer = |driver: &Driver| {
+        let began = Instant::now();
+        let view = driver.call("goals", json!({}));
+        (began.elapsed().as_secs_f64() * 1e3, view.to_string().len())
+    };
+    for _ in 0..19 {
+        answer(driver);
+    }
+    let (answered, bytes) = answer(driver);
+    println!(
+        "  the core answers `goals` in {answered:.1} ms, {} kB",
+        bytes / 1024
+    );
+    println!("{}", run.measure(10., |_, _| {}).line("Home at rest"));
+    println!(
+        "{}",
+        run.steps(120, |run, index| {
+            let delta = if index % 60 < 30 { -24. } else { 24. };
+            run.wheel((500., 500.), delta);
+        })
+        .line("Home scrolled, nothing streaming")
+    );
+    println!(
+        "{}",
+        run.steps(120, |run, index| {
+            run.key(if index % 60 < 30 { "j" } else { "k" });
+        })
+        .line("moving through the rows with j and k")
+    );
+    let stop = Arc::new(AtomicBool::new(false));
+    for chat in &chats {
+        driver.keep_busy(chat.clone(), 400, stop.clone());
+    }
+    run.frames(240);
+    println!(
+        "{}",
+        run.measure(20., |_, _| {})
+            .line("Home at rest, every agent streaming")
+    );
+    println!(
+        "{}",
+        run.measure(10., |run, index| {
+            let delta = if index % 60 < 30 { -24. } else { 24. };
+            run.wheel((500., 500.), delta);
+        })
+        .line("Home scrolled, every agent streaming")
+    );
+    println!(
+        "{}",
+        run.measure(10., |run, index| {
+            if index % 8 == 0 {
+                run.key(if index % 240 < 120 { "j" } else { "k" });
+            }
+        })
+        .line("moving through the rows, every agent streaming")
+    );
+    run.key("/");
+    run.frames(10);
+    println!(
+        "{}",
+        run.steps(48, |run, index| {
+            run.key(["a", "r", "e", "a"][index % 4]);
+        })
+        .line("typing in the find box, every agent streaming")
+    );
+    run.shot("goals-streaming");
+    stop.store(true, Ordering::Relaxed);
+}
+
 /// Opens new chats with ⌘N beside three already open, timing from the key to the new chat in
 /// front, to its composer holding the keys, and the frames of the switch. With
 /// FAKE_ACP_START_GATE set, the fake agent's start is held `STRESS_START_MS` (1500 by default),
@@ -1236,6 +1458,16 @@ fn make_repo(folder: &Path, files: usize) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The window's size, `STRESS_WINDOW` as `1440x900` when set.
+fn window_size() -> gpui::Size<Pixels> {
+    let sized = std::env::var("STRESS_WINDOW").ok().and_then(|sized| {
+        let (width, height) = sized.split_once('x')?;
+        Some((width.parse().ok()?, height.parse().ok()?))
+    });
+    let (width, height) = sized.unwrap_or(WINDOW_SIZE);
+    size(px(width), px(height))
+}
+
 fn main() -> anyhow::Result<()> {
     core::search_path_only_for_own_core();
     let mut args = std::env::args().skip(1);
@@ -1313,7 +1545,7 @@ fn main() -> anyhow::Result<()> {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
                     origin: point(px(0.), px(0.)),
-                    size: size(px(WINDOW_SIZE.0), px(WINDOW_SIZE.1)),
+                    size: window_size(),
                 })),
                 focus: true,
                 show: false,
@@ -1362,6 +1594,7 @@ fn main() -> anyhow::Result<()> {
             flood(&mut run, &driver, &log)
         }
         "repo" => repo(&mut run, &driver),
+        "goals" => goals(&mut run, &driver, &base),
         other => anyhow::bail!("no scenario named {other}"),
     }
     let (app, core) = run.memory();
