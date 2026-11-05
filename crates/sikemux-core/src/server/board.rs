@@ -1147,6 +1147,17 @@ pub(crate) fn title_is_chopped(title: &str, details: &str) -> bool {
 }
 
 impl Card {
+    /// `owner` holds it from now, at work on it: its status, times and slice go together.
+    fn hold(&mut self, owner: Owner) {
+        self.owner = Some(owner);
+        self.status = Status::Progress;
+        self.updated_at = epoch_ms();
+        self.acted_at = self.updated_at;
+        if let Some(slice) = &mut self.slice {
+            slice.begin(self.updated_at);
+        }
+    }
+
     /// Which of an agent's cards it works now: the highest of these.
     fn work_rank(&self) -> (bool, u64) {
         (self.status == Status::Progress, self.acted_at)
@@ -1669,15 +1680,14 @@ pub(crate) fn triggers_changed(core: &Core, project: &str) {
 }
 
 fn take(core: &Core, card: &mut Card, agent: &str) {
-    card.owner = Some(Owner::of(core, agent));
-    card.status = Status::Progress;
-    card.updated_at = epoch_ms();
-    card.acted_at = card.updated_at;
-    if let Some(slice) = &mut card.slice {
-        slice.started = true;
-        slice.started_at = Some(card.updated_at);
-        slice.stalled = None;
-    }
+    card.hold(Owner::of(core, agent));
+}
+
+/// `agent` claims the card, which joins it to the team it works in.
+fn take_on(core: &Core, board: &mut Board, id: u64, agent: &str) -> Result<(), String> {
+    take(core, board.card_mut(id)?, agent);
+    remember_team(core, board, id);
+    Ok(())
 }
 
 fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value, String> {
@@ -1713,9 +1723,7 @@ fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value,
             list.join(", ")
         ));
     }
-    let card = board.card_mut(id)?;
-    take(core, card, agent);
-    remember_team(core, board, id);
+    take_on(core, board, id, agent)?;
     let card = board.card(id)?;
     let view = agent_view(core, board, card, true);
     state.woken.remove(agent);
@@ -1852,14 +1860,12 @@ fn change_in(
             }
             Ok(slice::Said::Ready) => {}
             Err(refused) => {
-                let fixed = (refused.failed.as_deref())
-                    .and_then(|sha| slice::file_fix(core, board, id, sha))
-                    .unwrap_or_else(|| {
-                        "Mend it with a commit, then mark it done again.".to_owned()
-                    });
-                return Err(match refused.failed {
-                    Some(_) => format!("{}\n\n{fixed}", refused.text),
-                    None => refused.text,
+                return Err(match refused.failed.is_some() {
+                    true => {
+                        let fixed = slice::fix_for(core, board, id, &refused);
+                        format!("{}\n\n{fixed}", refused.text)
+                    }
+                    false => refused.text,
                 });
             }
         }
@@ -2025,6 +2031,19 @@ fn change_in(
         woken.remove(agent);
     }
     Ok((view, notices, later))
+}
+
+/// Moves the slice `id` on as far as what it now holds lets it, with nothing asked of it.
+fn advance(
+    core: &Core,
+    state: &mut State,
+    project: &str,
+    by: &By,
+    id: u64,
+    seen: &slice::Seen,
+) -> Result<(Vec<Notice>, slice::Later), String> {
+    let (_, notices, later) = change_in(core, state, project, by, id, Changes::default(), seen)?;
+    Ok((notices, later))
 }
 
 /// Moves a card back to Open and nobody's, with its slice's work and gates.
@@ -3411,6 +3430,19 @@ fn tell_clients(core: &Core) {
     let dirty = std::mem::take(&mut core.boards.state.locked().dirty);
     for project in dirty {
         core.changed(What::ReadIn(Topic::Boards, Some(&project), None));
+    }
+}
+
+impl Boards {
+    /// Changes one card and keeps the board, marking when it changed. Nothing happens when the
+    /// card has gone.
+    fn edit<T>(&self, project: &str, id: u64, change: impl FnOnce(&mut Card) -> T) -> Option<T> {
+        let mut state = self.state.locked();
+        let card = state.boards.get_mut(project)?.card_mut(id).ok()?;
+        let answer = change(card);
+        card.updated_at = epoch_ms();
+        self.save(&mut state, project);
+        Some(answer)
     }
 }
 

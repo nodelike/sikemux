@@ -24,8 +24,8 @@ use sikemux_view::slice::{
 use super::auto::{Landing, Settings};
 use super::environments::{ladder_steps, Passes, Step};
 use super::{
-    change_card, change_in, messages, project_at, project_view, send_notices, Board, BoardView, By,
-    Card, Changes, Checker, Notice, State, Status,
+    change_card, messages, project_at, project_view, send_notices, Board, BoardView, By, Card,
+    Changes, Checker, Notice, State, Status,
 };
 use crate::git::Git;
 use crate::server::connection::blocking;
@@ -332,6 +332,13 @@ impl HeardRuns {
 }
 
 impl Slice {
+    /// Its owner sets out on it.
+    pub(super) fn begin(&mut self, at: u64) {
+        self.started = true;
+        self.started_at = Some(at);
+        self.stalled = None;
+    }
+
     /// A new slice, keeping `recordings` the card had as pictures toward its
     /// first gate.
     pub(super) fn new(
@@ -2080,7 +2087,7 @@ pub(super) fn file_fix(core: &Core, board: &mut Board, id: u64, sha: &str) -> Op
     let settings = board.settings.clone();
     let fix = board.next.max(1);
     board.next = fix + 1;
-    let mut card = super::new_card(
+    let card = super::new_card(
         core,
         fix,
         super::Adding {
@@ -2092,8 +2099,8 @@ pub(super) fn file_fix(core: &Core, board: &mut Board, id: u64, sha: &str) -> Op
         None,
         &settings,
     );
-    super::take(core, &mut card, &owner);
     board.cards.push(card);
+    super::take_on(core, board, fix, &owner).ok()?;
     let slice = board.card_mut(id).ok()?;
     let kept = slice.slice.as_mut()?;
     let done_fix = kept.fix.replace(fix);
@@ -2232,6 +2239,10 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
     let (project, touched) = {
         let mut state = core.boards.state.locked();
         let State { boards, runs, .. } = &mut *state;
+        let mut moved = |project: &str, agent: &str, head: Head, new_work: bool| {
+            let board = boards.get_mut(project)?;
+            move_work(board, runs.get(project), agent, &head, new_work, &behind)
+        };
         match event {
             RepoEvent::Committed {
                 project,
@@ -2244,11 +2255,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                     head: sha,
                     on_branch,
                 };
-                let runs = runs.get(&project);
-                let Some(id) = boards
-                    .get_mut(&project)
-                    .and_then(|board| move_work(board, runs, &agent, &head, true, behind))
-                else {
+                let Some(id) = moved(&project, &agent, head, true) else {
                     return;
                 };
                 (project, vec![id])
@@ -2264,11 +2271,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                     head: tip,
                     on_branch: true,
                 };
-                let runs = runs.get(&project);
-                let Some(id) = boards
-                    .get_mut(&project)
-                    .and_then(|board| move_work(board, runs, &agent, &head, false, behind))
-                else {
+                let Some(id) = moved(&project, &agent, head, false) else {
                     return;
                 };
                 (project, vec![id])
@@ -2337,11 +2340,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                         }
                     }
                     for (id, owner, refused) in refusals {
-                        let fixed = (refused.failed.as_deref())
-                            .and_then(|sha| file_fix(core, board, id, sha))
-                            .unwrap_or_else(|| {
-                                "Mend it with a commit, then mark it done again.".to_owned()
-                            });
+                        let fixed = fix_for(core, board, id, &refused);
                         notices.push(Notice {
                             to: owner,
                             text: format!("{} {fixed}", refused.text),
@@ -2365,16 +2364,8 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
     {
         let mut state = core.boards.state.locked();
         for (id, seen) in seen {
-            match change_in(
-                core,
-                &mut state,
-                &project,
-                &By::Auto("Board"),
-                id,
-                Changes::default(),
-                &seen,
-            ) {
-                Ok((_, sent, more)) => {
+            match super::advance(core, &mut state, &project, &By::Auto("Board"), id, &seen) {
+                Ok((sent, more)) => {
                     notices.extend(sent);
                     later = later.and(more);
                 }
@@ -2398,9 +2389,7 @@ pub(super) fn auto_slice(card: &mut Card, settings: &Settings) {
     if slice.passes.is_empty() {
         slice.ladder = ladder;
     }
-    slice.started = true;
-    slice.started_at = Some(epoch_ms());
-    slice.stalled = None;
+    slice.begin(epoch_ms());
 }
 
 /// The slice takes `head` as its work so far.
@@ -2447,18 +2436,17 @@ pub(super) fn auto_checked(core: &Arc<Core>, project: &str, id: u64, agent: &str
             return;
         }
         card.updated_at = epoch_ms();
-        let moved = change_in(
+        let moved = super::advance(
             core,
             &mut state,
             project,
             &By::Auto("Auto"),
             id,
-            Changes::default(),
             &Seen::unread(),
         );
         core.boards.save(&mut state, project);
         match moved {
-            Ok((_, notices, later)) => (notices, later),
+            Ok(moved) => moved,
             Err(_) => return,
         }
     };
@@ -2603,24 +2591,31 @@ pub(super) fn moved_by_evidence(
             return;
         };
         collect(slice);
-        let moved = change_in(
+        let moved = super::advance(
             core,
             &mut state,
             project,
             &By::Auto("Board"),
             id,
-            Changes::default(),
             &Seen::unread(),
         );
         core.boards.save(&mut state, project);
         match moved {
-            Ok((_, notices, later)) => (notices, later),
+            Ok(moved) => moved,
             Err(_) => return,
         }
     };
     send_notices(core, notices);
     let core = core.clone();
     tokio::task::spawn_blocking(move || later.run(&core));
+}
+
+/// What `refused`'s agent is told to do about the failed check that stopped the slice `id`: mend
+/// it on a card filed for the fix, or with a commit when none can be.
+pub(super) fn fix_for(core: &Core, board: &mut Board, id: u64, refused: &Refused) -> String {
+    (refused.failed.as_deref())
+        .and_then(|sha| file_fix(core, board, id, sha))
+        .unwrap_or_else(|| "Mend it with a commit, then mark it done again.".to_owned())
 }
 
 /// Gives every open slice on `board` the ladder its project gives it now. A

@@ -8,7 +8,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
-use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::environments::{Environment, Passes};
@@ -460,7 +459,6 @@ pub(crate) fn has_work(boards: &super::Boards) -> bool {
 
 /// Starts an agent on each card Auto may take, while it has places free.
 pub(super) fn start_free(core: &Arc<Core>) {
-    let now = epoch_ms();
     let launchers = core.workspaces.has_launchers();
     let starts: Vec<(String, u64, String)> = {
         let mut state = core.boards.state.locked();
@@ -511,13 +509,10 @@ pub(super) fn start_free(core: &Arc<Core>) {
             for id in picks {
                 let agent = format!("agent-{}", uuid::Uuid::new_v4().simple());
                 if let Ok(card) = board.card_mut(id) {
-                    card.owner = Some(Owner::starting(&agent));
+                    card.hold(Owner::starting(&agent));
                     card.team = None;
-                    card.status = Status::Progress;
                     card.auto = Some(Run::starting(agent.clone()));
                     super::slice::auto_slice(card, &settings);
-                    card.updated_at = now;
-                    card.acted_at = now;
                     starts.push((project.clone(), id, agent));
                     state_jobs.push((project.clone(), id));
                 }

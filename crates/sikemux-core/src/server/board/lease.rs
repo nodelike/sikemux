@@ -13,8 +13,8 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::{
-    hand_off, hand_off::HandOnParams, holder, name_of, project_at, project_view, remember_team,
-    take, tell_clients, wait, BoardView, Card, CardParams, Status,
+    hand_off, hand_off::HandOnParams, holder, name_of, project_at, project_view, take_on,
+    tell_clients, wait, BoardView, Card, CardParams, Status,
 };
 use crate::server::connection::blocking;
 use crate::server::wake::sooner;
@@ -227,8 +227,7 @@ pub(super) fn give(core: &Core, project: &str, id: u64, agent: &str) -> Result<(
     if let Some(owner) = holder(core, card) {
         return Err(format!("{} has #{id} now", name_of(core, owner)));
     }
-    take(core, card, agent);
-    remember_team(core, board, id);
+    take_on(core, board, id, agent)?;
     core.boards.save(&mut state, project);
     Ok(())
 }
@@ -240,14 +239,13 @@ pub(super) fn back_at_work(core: &Core, project: &str, id: u64, agent: &str) {
     let Some(board) = state.boards.get_mut(project) else {
         return;
     };
-    let Ok(card) = board.card_mut(id) else {
+    let Ok(card) = board.card(id) else {
         return;
     };
     let lost_it = (card.slice.as_ref())
         .and_then(|slice| slice.stalled.as_ref())
         .is_some_and(|stalled| stalled.agent == agent);
-    if lost_it && card.owner.is_none() {
-        take(core, card, agent);
+    if lost_it && card.owner.is_none() && take_on(core, board, id, agent).is_ok() {
         core.boards.save(&mut state, project);
     }
 }

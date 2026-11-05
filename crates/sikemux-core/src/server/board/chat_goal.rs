@@ -410,13 +410,8 @@ fn track_now(core: &Arc<Core>, agent: &str) -> Result<(String, u64, String), Str
     drop(chats);
     // What it committed before now is the slice's work, so it can pass Built without a new commit.
     if let Some(head) = slice::earlier_work(core, &project, agent, commits) {
-        let mut state = core.boards.state.locked();
-        if let Some(held) =
-            (state.boards.get_mut(&project)).and_then(|board| board.card_mut(card).ok())
-        {
-            slice::took_work(held, &head);
-            core.boards.save(&mut state, &project);
-        }
+        core.boards
+            .edit(&project, card, |held| slice::took_work(held, &head));
     }
     Ok((project, card, title))
 }
@@ -427,19 +422,15 @@ fn redraft(core: &Core, project: &str, card: u64, guess: &str, draft: goal_summa
     else {
         return;
     };
-    let mut state = core.boards.state.locked();
-    let Some(held) = (state.boards.get_mut(project)).and_then(|board| board.card_mut(card).ok())
-    else {
-        return;
-    };
-    if held.title != guess {
-        return;
-    }
-    held.title = title;
-    if let Some(slice) = &mut held.slice {
-        slice.promise = promise;
-    }
-    core.boards.save(&mut state, project);
+    core.boards.edit(project, card, |held| {
+        if held.title != guess {
+            return;
+        }
+        held.title = title;
+        if let Some(slice) = &mut held.slice {
+            slice.promise = promise;
+        }
+    });
 }
 
 /// Undo: the card goes as if it never was, and the chat stays quiet until clearly more work
