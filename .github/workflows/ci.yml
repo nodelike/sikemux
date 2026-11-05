@@ -91,16 +91,16 @@ jobs:
 
           area() {
             name="$1" needs="$2" ignores="${3:-^$}"
-            if [ -z "$base" ] || printf '%s\n' "$changed" | grep -vE "$ignores" | grep -qE "^\.github/workflows/ci\.yml$|$needs"; then
+            if [ -z "$base" ] || printf '%s\n' "$changed" | grep -vE "$ignores" | grep -qE "^\.github/(workflows/ci\.yml$|actions/)|$needs"; then
               echo "$name=true" >>"$GITHUB_OUTPUT"
             else
               echo "$name=false" >>"$GITHUB_OUTPUT"
               echo "Skipped $name: nothing it checks changed" >>"$GITHUB_STEP_SUMMARY"
             fi
           }
-          area rust '^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|server/protocol/|rust-toolchain\.toml$)'
+          area rust '^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$)'
           area simulator '^(helpers/sim/|crates/sikemux-simulator/|Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|rust-toolchain\.toml$)'
-          area packaging '^(scripts/build-linux\.sh$|scripts/build-cli-sidecar\.mjs$|packaging/linux/|packaging/icons/|crates/sikemux-core/resources/sikemux_pi_tools\.ts$)'
+          area packaging '^(scripts/build-linux\.sh$|scripts/build-cli-sidecar\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-core/resources/sikemux_pi_tools\.ts$)'
 
   # The same check as `pnpm deps:audit`: any vulnerability fails it, and so does any unsound or
   # unmaintained warning dependency-audit.json does not explain. Advisories arrive without a change

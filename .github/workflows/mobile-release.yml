@@ -48,7 +48,14 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME is not a release of $base, the version in mobile/app/app.json"
             exit 1
           fi
-          if [[ "$version" == *-* ]]; then channel=nightly; else channel=stable; fi
+          case "$version" in
+            *-nightly.*) channel=nightly ;;
+            *-*)
+              echo "::error::$version is neither a nightly nor a stable version"
+              exit 1
+              ;;
+            *) channel=stable ;;
+          esac
           {
             echo "version=$version"
             echo "channel=$channel"

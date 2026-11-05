@@ -96,7 +96,14 @@ jobs:
             echo "::error::GitHub release v$version already exists"
             exit 1
           fi
-          if [[ "${version%%+*}" == *-* ]]; then channel=nightly; else channel=stable; fi
+          case "${version%%+*}" in
+            *-nightly.*) channel=nightly ;;
+            *-*)
+              echo "::error::v$version is neither a nightly nor a stable version"
+              exit 1
+              ;;
+            *) channel=stable ;;
+          esac
           echo "version=$version" >>"$GITHUB_OUTPUT"
           echo "channel=$channel" >>"$GITHUB_OUTPUT"
           echo "Releasing $channel v$version from $GITHUB_SHA" >>"$GITHUB_STEP_SUMMARY"
