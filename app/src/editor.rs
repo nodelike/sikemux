@@ -1575,12 +1575,13 @@ fn files_in(place: &Host, pane: &Pane, found: &mut Vec<FileKey>) {
 /// head, or none for anything.
 pub fn git_changed(
     bench: &mut Workbench,
+    place: &Host,
     project: Option<&str>,
     paths: Option<&[String]>,
     cx: &mut Context<Workbench>,
 ) {
     let open: Vec<FileKey> = (bench.editors.read(cx).open.keys())
-        .filter(|key| key.place == Host::This)
+        .filter(|key| key.place == *place)
         .filter(|key| project.is_none_or(|project| key.path.starts_with(project)))
         .filter(|key| {
             paths.is_none_or(|paths| {

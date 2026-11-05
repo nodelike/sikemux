@@ -623,7 +623,7 @@ fn main() -> anyhow::Result<()> {
         frame_ix: 0,
     };
     run.shown = run.folded.view(ROWS);
-    let _ = run.updates.send(Update::View(Box::new(view)));
+    let _ = run.updates.send(Update::View(sikemux_gpui::hosts::Place::This, Box::new(view)));
     for _ in 0..30 {
         run.frame();
     }

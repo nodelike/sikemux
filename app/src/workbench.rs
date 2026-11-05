@@ -657,9 +657,6 @@ impl Workbench {
         if let Update::Read(key, _) = &update {
             crate::drive::trace(format_args!("main read {key:?}"));
         }
-        if self.holds(&update) {
-            return;
-        }
         match update {
             Update::Connected(version) => {
                 // The app opens on this host, as the Mac's does, whichever host was last in front.
@@ -680,28 +677,7 @@ impl Workbench {
                 self.files.relist_shown(&self.target());
                 crate::editor::reconnected(self, cx);
             }
-            Update::From(_, update) if matches!(*update, Update::Chat(..)) => {
-                self.apply(*update, cx)
-            }
-            Update::HostView(host, view) => {
-                let moved = crate::mod_pane::Moved::View;
-                self.mods_follow(&Place::Account(host.clone()), moved, cx);
-                let in_front = self.place() == crate::hosts::Place::Account(host.clone());
-                self.hosts.views.insert(host, *view);
-                self.settle_closing();
-                if in_front {
-                    self.watch_project();
-                    self.watch_worktree();
-                    self.close_chats(cx);
-                    self.open_chat(cx);
-                    self.rest_chats_later(cx);
-                    self.look_for_older(false, crate::recent::PAGE, cx);
-                    self.front_moved(cx);
-                    self.files.reveal(self.front_file(), &self.target());
-                    crate::settings::front_moved(self, cx);
-                }
-                self.publish_on_screen();
-            }
+            Update::View(place, view) => return self.view_arrived(place, *view, cx),
             Update::HostReach(host, reached) => {
                 if reached {
                     self.hosts.reached.insert(host.clone());
@@ -715,55 +691,6 @@ impl Workbench {
             Update::HostsUnavailable(reason) => self.hosts.unavailable = Some(reason),
             Update::HostHome(host, home) => {
                 self.hosts.homes.insert(host, home);
-            }
-            Update::View(view) => {
-                self.mods_follow(&Place::This, crate::mod_pane::Moved::View, cx);
-                crate::ui::moving_face::set_on(view.face_style.motion, cx);
-                let account_moved =
-                    self.view.as_ref().map(|shown| &shown.account) != Some(&view.account);
-                self.view = Some(*view);
-                if account_moved {
-                    self.parts.redraw(&self.parts.rail, cx);
-                }
-                self.forget_departed(cx);
-                self.settle_closing();
-                // The core finds its agents a moment after it starts, so the plan limits are
-                // read once it lists them.
-                if self.usage_wanted && !self.launchers().is_empty() {
-                    self.usage_wanted = false;
-                    self.read_usage();
-                }
-                let sessions = &self
-                    .view
-                    .as_ref()
-                    .map_or(&[][..], |view| view.sessions.as_slice());
-                let hosts = &self.hosts.views;
-                self.terminals.keep(
-                    |place, id| match place {
-                        Place::This => sessions.iter().any(|session| session.id == id),
-                        Place::Account(host) => hosts.get(host).is_none_or(|view| {
-                            view.sessions.iter().any(|session| session.id == id)
-                        }),
-                    },
-                    &self.asks,
-                );
-                crate::editor::keep(self, cx);
-                crate::agents::setup::settle(self, cx);
-                self.settle_open_waits();
-                crate::notifications::badge(self);
-                crate::notifications::kept_running(self, cx);
-                self.note_place();
-                self.watch_project();
-                self.watch_worktree();
-                self.watch_picture();
-                self.close_chats(cx);
-                self.open_chat(cx);
-                self.rest_chats_later(cx);
-                self.look_for_older(false, crate::recent::PAGE, cx);
-                self.front_moved(cx);
-                self.files.reveal(self.front_file(), &self.target());
-                crate::settings::front_moved(self, cx);
-                self.publish_on_screen();
             }
             Update::Chat(agent, news) => {
                 match news {
@@ -788,65 +715,11 @@ impl Workbench {
             }
             Update::Read(read, value) => return self.read_answered(read, value, cx),
             Update::Refused(read, error) => self.read_refused(read, error, cx),
-            Update::Terminal(session, screenful) => {
-                let key = self.terminals.key(&Place::This, session);
+            Update::Terminal(place, session, screenful) => {
+                let key = self.terminals.key(&place, session);
                 self.terminals.apply(key, screenful, cx);
                 return self.terminals.redraw(key, cx);
             }
-            Update::From(host, update) if matches!(*update, Update::Terminal(..)) => {
-                if let Update::Terminal(session, screenful) = *update {
-                    let key = self.terminals.key(&Place::Account(host), session);
-                    self.terminals.apply(key, screenful, cx);
-                    return self.terminals.redraw(key, cx);
-                }
-            }
-            Update::From(host, update)
-                if matches!(
-                    &*update,
-                    Update::Changed {
-                        topic: Topic::Mods,
-                        ..
-                    }
-                ) =>
-            {
-                if let Update::Changed { paths, .. } = *update {
-                    self.mods_moved(&Place::Account(host), paths.as_deref(), cx);
-                }
-            }
-            Update::From(host, update)
-                if matches!(
-                    &*update,
-                    Update::Changed {
-                        topic: Topic::Files | Topic::Git,
-                        ..
-                    }
-                ) =>
-            {
-                if let Update::Changed {
-                    topic,
-                    project,
-                    paths,
-                } = *update
-                {
-                    let place = Place::Account(host);
-                    if topic == Topic::Files {
-                        crate::editor::changed(
-                            self,
-                            &place,
-                            paths.as_deref().unwrap_or_default(),
-                            cx,
-                        );
-                    }
-                    self.project_changed(&place, topic, project, paths, cx);
-                }
-            }
-            Update::From(host, update) if matches!(&*update, Update::Changed { .. }) => {
-                if let Update::Changed { topic, .. } = *update {
-                    let moved = crate::mod_pane::Moved::Topic(topic);
-                    self.mods_follow(&Place::Account(host), moved, cx);
-                }
-            }
-            Update::From(..) => {}
             Update::Lost(reason) => self.connection.lose(reason),
             Update::Stopped => self.connection.stop(),
             Update::Stuck(pid) => self.connection.hang(pid),
@@ -881,68 +754,142 @@ impl Workbench {
             }
             Update::WindowCall(call_id, call) => self.answer_window_call(call_id, call, cx),
             Update::Changed {
+                place,
                 topic,
                 project,
                 paths,
-            } => {
-                if topic == Topic::Files {
-                    crate::editor::changed(
-                        self,
-                        &Place::This,
-                        paths.as_deref().unwrap_or_default(),
-                        cx,
-                    );
-                }
-                self.project_changed(&Place::This, topic, project.clone(), paths.clone(), cx);
-                if topic == Topic::Boards {
-                    if let Some(board) = &self.board {
-                        board.update(cx, |board, cx| board.changed(cx));
-                    }
-                }
-                if matches!(topic, Topic::Boards | Topic::Memory) {
-                    if let Some(goals) = &self.goals {
-                        goals.update(cx, |goals, cx| goals.changed(cx));
-                    }
-                }
-                if topic == Topic::GoalSummary {
-                    if let Some(goals) = &self.goals {
-                        goals.update(cx, |goals, cx| goals.summary_moved(cx));
-                    }
-                }
-                if matches!(topic, Topic::Boards | Topic::Goals) {
-                    if let Some(goals) = &self.goals {
-                        let on_screen = self.showing_goals();
-                        let focused = self.rails.goal_focus.is_some();
-                        goals.update(cx, |goals, cx| goals.goals_moved(on_screen, focused, cx));
-                    }
-                }
-                if topic == Topic::Mods {
-                    self.mods_moved(&Place::This, paths.as_deref(), cx);
-                }
-                self.mods_follow(&Place::This, crate::mod_pane::Moved::Topic(topic), cx);
-                if topic == Topic::Lsp {
-                    crate::editor::diagnostics_changed(
-                        self,
-                        paths.as_deref().unwrap_or_default(),
-                        cx,
-                    );
-                }
-                if topic == Topic::AgentSignIn {
-                    crate::accounts::pages_moved(self, cx);
-                }
-                if topic == Topic::AgentAccounts {
-                    crate::accounts::book_moved(self, cx);
-                }
-                if topic == Topic::AgentStatus {
-                    crate::accounts::statuses_moved(self, cx);
-                }
-                if topic == Topic::Git {
-                    crate::editor::git_changed(self, project.as_deref(), paths.as_deref(), cx);
-                }
-                return;
-            }
+            } => return self.core_changed(place, topic, project, paths, cx),
         }
         cx.notify();
+    }
+
+    /// Takes in the view of the core at `place`.
+    fn view_arrived(&mut self, place: Place, view: DeviceView, cx: &mut Context<Self>) {
+        let here = place == Place::This;
+        if !here && self.view_at(&place) == Some(&view) {
+            return;
+        }
+        self.mods_follow(&place, crate::mod_pane::Moved::View, cx);
+        match &place {
+            Place::This => {
+                crate::ui::moving_face::set_on(view.face_style.motion, cx);
+                let account_moved =
+                    self.view.as_ref().map(|shown| &shown.account) != Some(&view.account);
+                self.view = Some(view);
+                if account_moved {
+                    self.parts.redraw(&self.parts.rail, cx);
+                }
+                self.forget_departed(cx);
+            }
+            Place::Account(host) => {
+                self.hosts.views.insert(host.clone(), view);
+            }
+        }
+        self.settle_closing();
+        self.keep_terminals();
+        crate::editor::keep(self, cx);
+        if here {
+            // The core finds its agents a moment after it starts, so the plan limits are
+            // read once it lists them.
+            if self.usage_wanted && !self.launchers().is_empty() {
+                self.usage_wanted = false;
+                self.read_usage();
+            }
+            crate::agents::setup::settle(self, cx);
+            self.settle_open_waits();
+            crate::notifications::badge(self);
+            crate::notifications::kept_running(self, cx);
+            self.note_place();
+            self.watch_picture();
+        }
+        // This host's view says which host is in front, so it can move what the front shows.
+        if here || self.place() == place {
+            self.watch_project();
+            self.watch_worktree();
+            self.close_chats(cx);
+            self.open_chat(cx);
+            self.rest_chats_later(cx);
+            self.look_for_older(false, crate::recent::PAGE, cx);
+            self.front_moved(cx);
+            self.files.reveal(self.front_file(), &self.target());
+            crate::settings::front_moved(self, cx);
+        }
+        self.publish_on_screen();
+        cx.notify();
+    }
+
+    /// Ends the terminals their core no longer lists.
+    fn keep_terminals(&mut self) {
+        let sessions = (self.view.as_ref()).map_or(&[][..], |view| view.sessions.as_slice());
+        let hosts = &self.hosts.views;
+        self.terminals.keep(
+            |place, id| match place {
+                Place::This => sessions.iter().any(|session| session.id == id),
+                Place::Account(host) => hosts
+                    .get(host)
+                    .is_none_or(|view| view.sessions.iter().any(|session| session.id == id)),
+            },
+            &self.asks,
+        );
+    }
+
+    /// Tells what follows it that a topic moved on the core at `place`.
+    fn core_changed(
+        &mut self,
+        place: Place,
+        topic: Topic,
+        project: Option<String>,
+        paths: Option<Vec<String>>,
+        cx: &mut Context<Self>,
+    ) {
+        if topic == Topic::Files {
+            crate::editor::changed(self, &place, paths.as_deref().unwrap_or_default(), cx);
+        }
+        self.project_changed(&place, topic, project.clone(), paths.clone(), cx);
+        if topic == Topic::Mods {
+            self.mods_moved(&place, paths.as_deref(), cx);
+        }
+        self.mods_follow(&place, crate::mod_pane::Moved::Topic(topic), cx);
+        if topic == Topic::Git {
+            crate::editor::git_changed(self, &place, project.as_deref(), paths.as_deref(), cx);
+        }
+        if place != Place::This {
+            return;
+        }
+        if topic == Topic::Boards {
+            if let Some(board) = &self.board {
+                board.update(cx, |board, cx| board.changed(cx));
+            }
+        }
+        if matches!(topic, Topic::Boards | Topic::Memory) {
+            if let Some(goals) = &self.goals {
+                goals.update(cx, |goals, cx| goals.changed(cx));
+            }
+        }
+        if topic == Topic::GoalSummary {
+            if let Some(goals) = &self.goals {
+                goals.update(cx, |goals, cx| goals.summary_moved(cx));
+            }
+        }
+        if matches!(topic, Topic::Boards | Topic::Goals) {
+            if let Some(goals) = &self.goals {
+                let on_screen = self.showing_goals();
+                let focused = self.rails.goal_focus.is_some();
+                goals.update(cx, |goals, cx| goals.goals_moved(on_screen, focused, cx));
+            }
+        }
+        if topic == Topic::Lsp {
+            crate::editor::diagnostics_changed(self, paths.as_deref().unwrap_or_default(), cx);
+        }
+        if topic == Topic::AgentSignIn {
+            crate::accounts::pages_moved(self, cx);
+        }
+        if topic == Topic::AgentAccounts {
+            crate::accounts::book_moved(self, cx);
+        }
+        if topic == Topic::AgentStatus {
+            crate::accounts::statuses_moved(self, cx);
+        }
     }
 
     pub fn ask_chat(&self, ask: ChatAsk) {
@@ -1870,15 +1817,6 @@ impl Workbench {
         self.overlays.in_layer(Layer::Over) || self.someone_waits()
     }
 
-    /// Whether a push from a watch carries what the window already holds, so nothing in it
-    /// moved and nothing need draw again. An answer to a request always counts, as what asked
-    /// waits for it.
-    fn holds(&self, update: &Update) -> bool {
-        match update {
-            Update::HostView(host, view) => self.hosts.views.get(host) == Some(&**view),
-            _ => false,
-        }
-    }
 
     /// The clock and every "ago" move each minute, which draws the whole window again. What
     /// counts seconds, such as a running tool call or the Run chip, counts them itself.

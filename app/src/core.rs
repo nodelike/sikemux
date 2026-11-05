@@ -38,9 +38,8 @@ use crate::retry::Backoff;
 pub enum Update {
     /// The core's release, which the app ships with.
     Connected(String),
-    /// What another host's core sent about one of its terminals or chats, by the host's key.
-    From(String, Box<Update>),
-    View(Box<DeviceView>),
+    /// The view of the core at the place.
+    View(Place, Box<DeviceView>),
     /// A read's latest answer.
     Read(Read, Value),
     /// The core turned down a read.
@@ -50,7 +49,7 @@ pub enum Update {
     FocusAgent(String),
     /// The core turned down something the person did, saying why.
     Failed(String),
-    Terminal(SessionId, Screenful),
+    Terminal(Place, SessionId, Screenful),
     Lost(String),
     /// The core said it stopped on purpose, as `sikemux stop` stops it, so the window starts it
     /// again only when the person asks with `Ask::StartCore`, or picks up one started elsewhere.
@@ -78,14 +77,14 @@ pub enum Update {
     Chat(String, ChatNews),
     /// Something the core asks of a window, such as an agent's browser step.
     WindowCall(CallId, WindowCall),
-    /// The core said something under a followed topic moved; no paths means anything may have.
+    /// The core at `place` said something under a followed topic moved; no paths means anything
+    /// may have.
     Changed {
+        place: Place,
         topic: Topic,
         project: Option<String>,
         paths: Option<Vec<String>>,
     },
-    /// Another host's view, by the host's key, as its core sends it.
-    HostView(String, Box<DeviceView>),
     /// Whether this app reaches another host now, by the host's key.
     HostReach(String, bool),
     /// Another host's home folder, by the host's key, as its core says it once reached.
@@ -726,21 +725,43 @@ fn follow_links(linked: &Option<Arc<Linked>>, client: &Arc<CoreClient>) {
     });
 }
 
-/// What another host said next, or never while this app reaches none.
-/// `update`, as from the host it came from: none for this host.
-fn from_host(host: &Option<String>, update: Update) -> Update {
-    match host {
-        Some(host) => Update::From(host.clone(), Box::new(update)),
-        None => update,
-    }
+/// What the window keeps each core answering. A read is watched in one place at a time.
+#[derive(Default)]
+struct Watches {
+    here: HashMap<Read, Watch>,
+    hosts: HashMap<String, HashMap<Read, Watch>>,
+    generations: WatchGenerations,
 }
 
-/// The generation the next watch of `key` is made under, wherever it is watched.
-fn next_generation(current: &WatchGenerations, key: Read) -> u64 {
-    let mut current = current.lock().expect("watch generations");
-    let next = current.get(&key).map_or(0, |generation| generation + 1);
-    current.insert(key, next);
-    next
+impl Watches {
+    /// Watches `read` on `host`, or here with none, in place of wherever it was watched.
+    fn set(&mut self, host: Option<&str>, read: Read, mut watch: Watch) -> &Watch {
+        self.remove(read);
+        watch.generation = self.next_generation(read);
+        match host {
+            Some(host) => self.hosts.entry(host.to_owned()).or_default(),
+            None => &mut self.here,
+        }
+        .entry(read)
+        .insert_entry(watch)
+        .into_mut()
+    }
+
+    /// Stops watching `read`, wherever it was watched, dropping an answer still on its way.
+    fn remove(&mut self, read: Read) {
+        self.next_generation(read);
+        self.here.remove(&read);
+        for table in self.hosts.values_mut() {
+            table.remove(&read);
+        }
+    }
+
+    fn next_generation(&self, read: Read) -> u64 {
+        let mut current = self.generations.lock().expect("watch generations");
+        let next = current.get(&read).map_or(0, |generation| generation + 1);
+        current.insert(read, next);
+        next
+    }
 }
 
 /// One of another host's core methods, waiting a while for a host that is reconnecting.
@@ -1083,12 +1104,11 @@ async fn run(
     updates: mpsc::UnboundedSender<Update>,
     mut asks: mpsc::UnboundedReceiver<Ask>,
 ) {
-    let mut watches: HashMap<Read, Watch> = HashMap::new();
-    let mut host_watches: HashMap<String, HashMap<Read, Watch>> = HashMap::new();
+    let mut watches = Watches::default();
     let mut followed: Vec<Topic> = Vec::new();
     let mut linked: Option<Arc<Linked>> = None;
     let mut heard: Option<mpsc::UnboundedReceiver<Happened>> = None;
-    let current = WatchGenerations::default();
+    let current = watches.generations.clone();
     let failed = FailedWatches::default();
     let mut reconnect = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
     loop {
@@ -1128,7 +1148,7 @@ async fn run(
                     .ok()
                     .map(|status| status.enabled);
                 start_at_login(&home, remote_on);
-                for (&key, watch) in &watches {
+                for (&key, watch) in &watches.here {
                     read(&client, key, watch, (&current, &failed), &updates);
                 }
                 if linked.is_none() {
@@ -1139,7 +1159,7 @@ async fn run(
                 }
                 follow_links(&linked, &client);
                 let (settle_tx, mut settled) = mpsc::unbounded_channel();
-                let mut streams = Streams::new(None, &client, &updates, &settle_tx);
+                let mut streams = Streams::new(Place::This, &client, &updates, &settle_tx);
                 let mut host_streams: HashMap<String, Streams> = HashMap::new();
                 let mut waiting_terminals: HashMap<String, Vec<(SessionId, TerminalAsk)>> =
                     HashMap::new();
@@ -1150,8 +1170,8 @@ async fn run(
                 loop {
                     tokio::select! {
                         settled = settled.recv() => match settled {
-                            Some((None, settled)) => streams.settle(settled),
-                            Some((Some(host), settled)) => {
+                            Some((Place::This, settled)) => streams.settle(settled),
+                            Some((Place::Account(host), settled)) => {
                                 if let Some(streams) = host_streams.get_mut(&host) {
                                     streams.settle(settled);
                                 }
@@ -1160,7 +1180,7 @@ async fn run(
                         },
                         reached = reached.recv() => {
                             if let Some((host, client)) = reached {
-                                let mut streams = Streams::new(Some(host.clone()), &client, &updates, &settle_tx);
+                                let mut streams = Streams::new(Place::Account(host.clone()), &client, &updates, &settle_tx);
                                 for (session, ask) in waiting_terminals.remove(&host).unwrap_or_default() {
                                     streams.ask(session, ask);
                                 }
@@ -1171,7 +1191,7 @@ async fn run(
                             Some(ClientEvent::Grid { stream, frame }) => streams.frame(stream, frame),
                             Some(ClientEvent::DeviceView(view)) => {
                                 if let Some(view) = read_device_view(&view) {
-                                    let _ = updates.send(Update::View(view));
+                                    let _ = updates.send(Update::View(Place::This, view));
                                 }
                             }
                             Some(ClientEvent::Event(Event::Notice { title, body, agent_id, goal })) => {
@@ -1183,7 +1203,7 @@ async fn run(
                             Some(ClientEvent::Event(Event::Network { change })) => {
                                 if change != NetworkChange::Offline {
                                     let again: Vec<Read> = failed.lock().expect("failed watches").drain().collect();
-                                    for (&key, watch) in watches.iter().filter(|(key, _)| again.contains(key)) {
+                                    for (&key, watch) in watches.here.iter().filter(|(key, _)| again.contains(key)) {
                                         read(&client, key, watch, (&current, &failed), &updates);
                                     }
                                 }
@@ -1220,25 +1240,25 @@ async fn run(
                             }
                             Some(ClientEvent::Event(Event::Changed { topic, project, paths })) => {
                                 stopping |= topic == Topic::Stopping;
-                                for (&key, watch) in watches.iter().filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref())) {
+                                for (&key, watch) in watches.here.iter().filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref())) {
                                     read(&client, key, watch, (&current, &failed), &updates);
                                 }
                                 if followed.contains(&topic) {
-                                    let _ = updates.send(Update::Changed { topic, project, paths });
+                                    let _ = updates.send(Update::Changed { place: Place::This, topic, project, paths });
                                 }
                             }
                             Some(ClientEvent::WindowCall { call_id, call }) => {
                                 let _ = updates.send(Update::WindowCall(call_id, call));
                             }
                             Some(ClientEvent::Event(Event::ShellMetadata(event))) => {
-                                let _ = updates.send(Update::Terminal(event.pty_id, Screenful::ShellChanged(event)));
+                                let _ = updates.send(Update::Terminal(Place::This, event.pty_id, Screenful::ShellChanged(event)));
                             }
                             Some(_) => {}
                             None => break,
                         },
                         happened = heard_from(&mut heard) => match happened {
                             Some(Happened::Connected(host)) => {
-                                for (&key, watch) in host_watches.get(&host).into_iter().flatten() {
+                                for (&key, watch) in watches.hosts.get(&host).into_iter().flatten() {
                                     read_on(&linked, &host, key, watch, &current, &updates);
                                 }
                                 if let Some(linked) = linked.clone() {
@@ -1256,7 +1276,7 @@ async fn run(
                                 let _ = updates.send(Update::HostReach(host, true));
                             }
                             Some(Happened::Lost(host)) => {
-                                for &key in host_watches.get(&host).into_iter().flat_map(HashMap::keys) {
+                                for &key in watches.hosts.get(&host).into_iter().flat_map(HashMap::keys) {
                                     let _ = updates.send(Update::Refused(key, format!("{host} is out of reach")));
                                 }
                                 host_streams.remove(&host);
@@ -1271,20 +1291,19 @@ async fn run(
                                 }
                                 ClientEvent::Event(Event::Chat { agent_id, seq, changes }) => {
                                     let changes = crate::chat::changes::read(changes);
-                                    let news = Update::Chat(agent_id, ChatNews::Changes { seq, changes });
-                                    let _ = updates.send(Update::From(host, Box::new(news)));
+                                    let _ = updates.send(Update::Chat(agent_id, ChatNews::Changes { seq, changes }));
                                 }
                                 ClientEvent::DeviceView(view) => {
                                     if let Some(view) = read_device_view(&view) {
-                                        let _ = updates.send(Update::HostView(host, view));
+                                        let _ = updates.send(Update::View(Place::Account(host), view));
                                     }
                                 }
                                 ClientEvent::Event(Event::ShellMetadata(event)) => {
-                                    let news = Update::Terminal(event.pty_id, Screenful::ShellChanged(event));
-                                    let _ = updates.send(Update::From(host, Box::new(news)));
+                                    let _ = updates.send(Update::Terminal(Place::Account(host), event.pty_id, Screenful::ShellChanged(event)));
                                 }
                                 ClientEvent::Event(Event::Changed { topic, project, paths }) => {
-                                    let changed = host_watches
+                                    let changed = watches
+                                        .hosts
                                         .get(&host)
                                         .into_iter()
                                         .flatten()
@@ -1293,8 +1312,7 @@ async fn run(
                                         read_on(&linked, &host, key, watch, &current, &updates);
                                     }
                                     if followed.contains(&topic) {
-                                        let news = Update::Changed { topic, project, paths };
-                                        let _ = updates.send(Update::From(host, Box::new(news)));
+                                        let _ = updates.send(Update::Changed { place: Place::Account(host), topic, project, paths });
                                     }
                                 }
                                 ClientEvent::Event(Event::Stream { stream, items, done, error }) => {
@@ -1309,21 +1327,11 @@ async fn run(
                             None => heard = None,
                         },
                         ask = asks.recv() => match ask {
-                            Some(Ask::Watch(key, mut watch)) => {
-                                watch.generation = next_generation(&current, key);
-                                for table in host_watches.values_mut() {
-                                    table.remove(&key);
-                                }
-                                read(&client, key, &watch, (&current, &failed), &updates);
-                                watches.insert(key, watch);
+                            Some(Ask::Watch(key, watch)) => {
+                                let watch = watches.set(None, key, watch);
+                                read(&client, key, watch, (&current, &failed), &updates);
                             }
-                            Some(Ask::Unwatch(key)) => {
-                                next_generation(&current, key);
-                                watches.remove(&key);
-                                for table in host_watches.values_mut() {
-                                    table.remove(&key);
-                                }
-                            }
+                            Some(Ask::Unwatch(key)) => watches.remove(key),
                             Some(Ask::RegisterWindow) => {
                                 let client = client.clone();
                                 tokio::spawn(async move {
@@ -1355,14 +1363,9 @@ async fn run(
                                 });
                             }
                             Some(Ask::On(host, ask)) => match *ask {
-                                Ask::Watch(key, mut watch) => {
-                                    watch.generation = next_generation(&current, key);
-                                    watches.remove(&key);
-                                    for table in host_watches.values_mut() {
-                                        table.remove(&key);
-                                    }
-                                    read_on(&linked, &host, key, &watch, &current, &updates);
-                                    host_watches.entry(host).or_default().insert(key, watch);
+                                Ask::Watch(key, watch) => {
+                                    let watch = watches.set(Some(&host), key, watch);
+                                    read_on(&linked, &host, key, watch, &current, &updates);
                                 }
                                 Ask::Stream { stream, method, params, parts } => {
                                     streamed.insert(stream, parts.clone());
@@ -1438,7 +1441,7 @@ async fn run(
                                         let (told, mut heard) = mpsc::unbounded_channel();
                                         let forward = tokio::spawn(async move {
                                             while let Some(update) = heard.recv().await {
-                                                let _ = updates.send(Update::From(host.clone(), Box::new(update)));
+                                                let _ = updates.send(update);
                                             }
                                         });
                                         chat(&client, ask, &told).await;
@@ -1575,7 +1578,7 @@ async fn run(
                 }
                 if stopping {
                     let _ = updates.send(Update::Stopped);
-                    if !wait_to_start(&home, &mut asks, &mut watches, &mut followed, &current).await
+                    if !wait_to_start(&home, &mut asks, &mut watches, &mut followed).await
                     {
                         return;
                     }
@@ -1601,7 +1604,7 @@ async fn run(
                 };
                 eprintln!("sikemux: the core, pid {pid}, holds the socket but does not answer");
                 let _ = updates.send(Update::Stuck(pid));
-                if !wait_to_start(&home, &mut asks, &mut watches, &mut followed, &current).await {
+                if !wait_to_start(&home, &mut asks, &mut watches, &mut followed).await {
                     return;
                 }
                 let socket = home.socket.clone();
@@ -1628,9 +1631,8 @@ const STOPPED_LOOK: Duration = Duration::from_secs(2);
 async fn wait_to_start(
     home: &Home,
     asks: &mut mpsc::UnboundedReceiver<Ask>,
-    watches: &mut HashMap<Read, Watch>,
+    watches: &mut Watches,
     followed: &mut Vec<Topic>,
-    current: &WatchGenerations,
 ) -> bool {
     let mut look = tokio::time::interval(STOPPED_LOOK);
     look.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -1638,14 +1640,10 @@ async fn wait_to_start(
         tokio::select! {
             ask = asks.recv() => match ask {
                 Some(Ask::StartCore) => return true,
-                Some(Ask::Watch(key, mut watch)) => {
-                    watch.generation = next_generation(current, key);
-                    watches.insert(key, watch);
+                Some(Ask::Watch(key, watch)) => {
+                    watches.set(None, key, watch);
                 }
-                Some(Ask::Unwatch(key)) => {
-                    next_generation(current, key);
-                    watches.remove(&key);
-                }
+                Some(Ask::Unwatch(key)) => watches.remove(key),
                 Some(Ask::Follow(topic)) => {
                     if !followed.contains(&topic) {
                         followed.push(topic);
@@ -1912,27 +1910,27 @@ const RESIZE_GAP: Duration = Duration::from_millis(50);
 /// The terminals attached on one connection: their streams, and frames that
 /// arrived before the attach that started them was answered.
 struct Streams {
-    /// The host the terminals run on, by its key; none for this host.
-    host: Option<String>,
+    /// The core the terminals run on.
+    place: Place,
     client: Arc<CoreClient>,
     updates: mpsc::UnboundedSender<Update>,
     sessions: HashMap<StreamId, SessionId>,
     streams: HashMap<SessionId, StreamId>,
     early: HashMap<StreamId, Vec<Vec<u8>>>,
-    settle_tx: mpsc::UnboundedSender<(Option<String>, Settled)>,
+    settle_tx: mpsc::UnboundedSender<(Place, Settled)>,
     /// The terminals with a resize on its way, and the size asked for since, sent after it.
     resizing: HashMap<SessionId, Option<(u16, u16)>>,
 }
 
 impl Streams {
     fn new(
-        host: Option<String>,
+        place: Place,
         client: &Arc<CoreClient>,
         updates: &mpsc::UnboundedSender<Update>,
-        settle_tx: &mpsc::UnboundedSender<(Option<String>, Settled)>,
+        settle_tx: &mpsc::UnboundedSender<(Place, Settled)>,
     ) -> Self {
         Self {
-            host,
+            place,
             client: client.clone(),
             updates: updates.clone(),
             sessions: HashMap::new(),
@@ -1946,7 +1944,7 @@ impl Streams {
     fn send(&self, session: SessionId, screenful: Screenful) {
         let _ = self
             .updates
-            .send(from_host(&self.host, Update::Terminal(session, screenful)));
+            .send(Update::Terminal(self.place.clone(), session, screenful));
     }
 
     fn frame(&mut self, stream: StreamId, bytes: Vec<u8>) {
@@ -1994,7 +1992,7 @@ impl Streams {
         let (client, settle, host) = (
             self.client.clone(),
             self.settle_tx.clone(),
-            self.host.clone(),
+            self.place.clone(),
         );
         tokio::spawn(async move {
             let _ = client.resize(session, cols, rows).await;
@@ -2008,7 +2006,7 @@ impl Streams {
         let stream = self.streams.get(&session).copied();
         match ask {
             TerminalAsk::Attach => {
-                let (settle, host) = (self.settle_tx.clone(), self.host.clone());
+                let (settle, host) = (self.settle_tx.clone(), self.place.clone());
                 tokio::spawn(async move {
                     match client.attach(session).await {
                         Ok(attached) => {
@@ -2024,7 +2022,7 @@ impl Streams {
                 let Some(stream) = self.streams.remove(&session) else {
                     return;
                 };
-                let (settle, host) = (self.settle_tx.clone(), self.host.clone());
+                let (settle, host) = (self.settle_tx.clone(), self.place.clone());
                 tokio::spawn(async move {
                     let _ = client.detach(stream).await;
                     let _ = settle.send((host, Settled::Detached(stream)));
@@ -2042,7 +2040,7 @@ impl Streams {
             }
             TerminalAsk::Resize(cols, rows) => self.resize(session, cols, rows),
             TerminalAsk::Lines { start, count } => {
-                let (updates, host) = (self.updates.clone(), self.host.clone());
+                let (updates, place) = (self.updates.clone(), self.place.clone());
                 tokio::spawn(async move {
                     if let Some(lines) = client
                         .lines(session, start, count)
@@ -2050,21 +2048,15 @@ impl Streams {
                         .ok()
                         .and_then(|bytes| decode_lines(&bytes))
                     {
-                        let _ = updates.send(from_host(
-                            &host,
-                            Update::Terminal(session, Screenful::Lines(lines)),
-                        ));
+                        let _ = updates.send(Update::Terminal(place, session, Screenful::Lines(lines)));
                     }
                 });
             }
             TerminalAsk::Copy(range) => {
-                let (updates, host) = (self.updates.clone(), self.host.clone());
+                let (updates, place) = (self.updates.clone(), self.place.clone());
                 tokio::spawn(async move {
                     if let Ok(text) = client.text(session, range).await {
-                        let _ = updates.send(from_host(
-                            &host,
-                            Update::Terminal(session, Screenful::Copied(text)),
-                        ));
+                        let _ = updates.send(Update::Terminal(place, session, Screenful::Copied(text)));
                     }
                 });
             }
@@ -2075,7 +2067,7 @@ impl Streams {
                 backwards,
                 inclusive,
             } => {
-                let (updates, host) = (self.updates.clone(), self.host.clone());
+                let (updates, place) = (self.updates.clone(), self.place.clone());
                 let request = ask::TerminalFind {
                     id: session,
                     query,
@@ -2086,10 +2078,7 @@ impl Streams {
                 };
                 tokio::spawn(async move {
                     let found = client.find(request).await.unwrap_or_default();
-                    let _ = updates.send(from_host(
-                        &host,
-                        Update::Terminal(session, Screenful::Found(found)),
-                    ));
+                    let _ = updates.send(Update::Terminal(place, session, Screenful::Found(found)));
                 });
             }
             TerminalAsk::Clear => drop(tokio::spawn(async move { client.clear(session).await })),
