@@ -2,7 +2,6 @@ import {
   type ComponentType,
   memo,
   useContext,
-  useEffect,
   useRef,
   useState,
 } from "react";
@@ -84,6 +83,7 @@ import {
   toolTarget,
   toolUrl,
 } from "@shared/chat/toolLabels";
+import { useToolDetail } from "@shared/chat/useToolDetail";
 import {
   OUTPUT_FOLD_LINES,
   toolElapsed,
@@ -95,7 +95,6 @@ import { attachmentName } from "@shared/chat/transcript";
 import type {
   ChatPart,
   ToolCall,
-  ToolDetail,
   ToolOutput,
 } from "@shared/chat/types";
 
@@ -258,30 +257,6 @@ function ToolTerminal({
   );
 }
 
-/* The row keeps only how the call went; what it did comes from the core once the row is opened. */
-function useToolDetail(
-  open: boolean,
-  part: Extract<ChatPart, { kind: "tool" }>,
-): ToolDetail | null {
-  const fetch = useContext(ToolDetailContext);
-  const [detail, setDetail] = useState<ToolDetail | null>(null);
-  const wanted = open && (part.diff !== undefined || part.output !== undefined);
-  const id = part.tool.toolCallId;
-  useEffect(() => {
-    if (!wanted) return;
-    let live = true;
-    fetch(id).then(
-      (fetched) => {
-        if (live) setDetail(fetched);
-      },
-      () => {},
-    );
-    return () => {
-      live = false;
-    };
-  }, [wanted, fetch, id, part.endedAt]);
-  return detail;
-}
 
 export const ToolRow = memo(function ToolRow({
   part,
@@ -289,7 +264,12 @@ export const ToolRow = memo(function ToolRow({
   part: Extract<ChatPart, { kind: "tool" }>;
 }) {
   const [open, setOpen] = useState(false);
-  const shown = useToolDetail(open, part);
+  const read = useContext(ToolDetailContext);
+  const { detail: shown } = useToolDetail(
+    read,
+    part,
+    open && (part.diff !== undefined || part.output !== undefined),
+  );
   const targetRef = useRef<HTMLSpanElement>(null);
   const tool = part.tool;
   const rowKind = toolRowKind(tool);

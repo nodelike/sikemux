@@ -2,6 +2,7 @@ import { createContext, memo, useContext, useEffect, useState, type ReactNode } 
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { durationLabel } from '@shared/chat/durationLabel';
+import { useToolDetail } from '@shared/chat/useToolDetail';
 import { rowOf, toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from '@shared/chat/toolLabels';
 import { attachmentName } from '@shared/chat/transcript';
 import {
@@ -36,27 +37,12 @@ export type ToolPart = Extract<ChatPart, { kind: 'tool' }>;
  */
 export const ToolDetailContext = createContext<((toolCallId: string, done: boolean) => Promise<Detail | null>) | null>(null);
 
-type Fetched = { detail: Detail | null; problem: string | null };
-
-/** What an opened row shows beyond its summary, fetched when it opens and again as a running call goes on. */
-function useToolDetail(part: ToolPart): Fetched {
+/** What an opened row shows beyond its summary, and why it could not get it. */
+function useToolFetch(part: ToolPart): { detail: Detail | null; problem: string | null } {
   const read = useContext(ToolDetailContext);
-  const [fetched, setFetched] = useState<Fetched>({ detail: null, problem: null });
-  const done = !toolRunning(part.tool);
-  const id = part.tool.toolCallId;
-  const lines = part.output?.lines;
-  useEffect(() => {
-    if (!read) return;
-    let current = true;
-    read(id, done).then(
-      (detail) => current && setFetched(detail ? { detail, problem: null } : { detail: null, problem: 'the host did not send it' }),
-      (error: unknown) => current && setFetched((before) => ({ ...before, problem: problemOf(error) })),
-    );
-    return () => {
-      current = false;
-    };
-  }, [read, id, done, lines]);
-  return read ? fetched : { detail: null, problem: 'the host is not here to send it' };
+  const { detail, error } = useToolDetail(read, part);
+  if (!read) return { detail: null, problem: 'the host is not here to send it' };
+  return { detail, problem: error ? problemOf(error) : null };
 }
 
 /** JetBrains Mono's advance at the rows' 11.5px, for lining the verbs up in one column. */
@@ -253,7 +239,7 @@ function Terminal({
 
 function ToolDetail({ part, command, group }: { part: ToolPart; command: string | null; group: string }) {
   const styles = useStyles(makeStyles);
-  const { detail, problem } = useToolDetail(part);
+  const { detail, problem } = useToolFetch(part);
   const waiting = detail ? null : problem ? `Could not load it: ${problem}` : 'Loading…';
   return (
     <View style={styles.detail}>

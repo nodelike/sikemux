@@ -6,7 +6,6 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { agentLabel } from "@shared/agents/catalog";
 import {
   ChatAgentContext,
   ChatSubagentsContext,
@@ -112,7 +111,7 @@ export function SharedChat({
     snapshot.status === "ended"
       ? endedText(snapshot)
       : PROBLEMS[snapshot.status];
-  const title = sharedChatTitle(snapshot) ?? `${agentLabel(type)} chat`;
+  const title = sharedChatTitle(snapshot);
 
   const before = (
     <>

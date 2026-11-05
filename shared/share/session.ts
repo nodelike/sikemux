@@ -1,7 +1,7 @@
 import type { ShareClientMessage, ShareServerMessage } from "../../server/protocol/generated/types";
 import { ShareCloseCode } from "../../server/protocol/generated/types";
 import { OVER_LIMIT_WAIT_MS, reconnectDelay, SignInRenewal } from "../account/renewal";
-import { setAgentCatalog } from "../agents/catalog";
+import { agentLabel, setAgentCatalog } from "../agents/catalog";
 import { imageType } from "../lib/imagePaths";
 import { applyChanges, emptyChat, fromView, withPage } from "../chat/rows";
 import type { ChatChange, ChatRows, ToolDetail } from "../chat/types";
@@ -38,15 +38,16 @@ export interface ShareSnapshot {
     readonly earlier: "idle" | "loading" | "failed";
 }
 
-/** What a shared chat is called: the app's name for it, else its first message. */
-export function sharedChatTitle(snapshot: ShareSnapshot): string | null {
+/** What a shared chat is called: the app's name for it, else its first message, else its agent's. */
+export function sharedChatTitle(snapshot: ShareSnapshot): string {
     if (snapshot.chat?.title) return snapshot.chat.title;
     if (snapshot.agent.title) return snapshot.agent.title;
     const first = snapshot.agent.messages.find((message) => message.role === "user");
     const part = first?.parts.find((candidate) => candidate.kind === "text");
     const text = first?.letters?.[0]?.text ?? (part?.kind === "text" ? part.text : "");
     const words = text.split(/\s+/).filter(Boolean).join(" ");
-    return words ? (words.length > 80 ? `${words.slice(0, 79)}…` : words) : null;
+    if (words) return words.length > 80 ? `${words.slice(0, 79)}…` : words;
+    return `${agentLabel(snapshot.chat?.provider ?? "agent")} chat`;
 }
 
 export interface ShareSessionOptions {

@@ -6,7 +6,6 @@ import { getClerkInstance } from '@clerk/expo';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { agentLabel } from '@shared/agents/catalog';
 import { activityText } from '@shared/chat/chatStatus';
 import { subagentsOf } from '@shared/chat/subagents';
 import { activeToolLabel } from '@shared/chat/toolLabels';
@@ -114,7 +113,7 @@ function SharedChat({ session }: { session: ShareSession }) {
   const snapshot = useSyncExternalStore(session.subscribe, session.snapshot);
   const state = snapshot.agent;
   const provider = snapshot.chat?.provider ?? 'agent';
-  const title = sharedChatTitle(snapshot) ?? `${agentLabel(provider)} chat`;
+  const title = sharedChatTitle(snapshot);
   const [folds] = useState(() => new Folds());
   const [openWork, setOpenWork] = useState<ReadonlySet<string>>(() => new Set());
   const workOpen = (id: string) => openWork.has(id);
