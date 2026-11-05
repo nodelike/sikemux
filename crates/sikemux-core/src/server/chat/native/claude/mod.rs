@@ -607,17 +607,11 @@ impl Backend for Claude {
             "modes": config::modes(mode),
             "configOptions": claude.options(),
         });
-        let capabilities = json!({
-            "loadSession": true,
-            "steering": true,
-            "editing": true,
-            "promptCapabilities": { "image": true, "embeddedContext": true },
-        });
         Ok((
             claude,
             Opened {
                 session_id,
-                capabilities,
+                capabilities: Opened::native_capabilities(),
                 setup,
             },
         ))

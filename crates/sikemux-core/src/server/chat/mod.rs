@@ -1604,13 +1604,7 @@ impl Chats {
         });
         let offers_effort = crate::agent_catalog::agent(&launch.provider)
             .and_then(|agent| agent.chat.as_ref())
-            .is_some_and(|driver| {
-                matches!(
-                    driver,
-                    crate::agent_catalog::ChatDriver::Claude
-                        | crate::agent_catalog::ChatDriver::Codex
-                )
-            });
+            .is_some_and(crate::agent_catalog::ChatDriver::offers_effort);
         if offers_effort {
             feed.offer_effort();
         }

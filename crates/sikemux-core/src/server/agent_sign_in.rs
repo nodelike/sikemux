@@ -143,7 +143,7 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
         .agent
         .ops()
         .account_sign_in()
-        .ok_or("Only Claude and Codex keep separate accounts")?;
+        .ok_or(crate::agent_accounts::NO_ACCOUNTS)?;
     let mut command = account.command().await?;
     command.args(args);
     command
@@ -285,7 +285,7 @@ pub(super) async fn sign_out(account: Account) -> CoreResult<()> {
         .agent
         .ops()
         .account_sign_out()
-        .ok_or("Only Claude and Codex keep separate accounts")?;
+        .ok_or(crate::agent_accounts::NO_ACCOUNTS)?;
     let mut command = account.command().await?;
     command.args(args);
     command

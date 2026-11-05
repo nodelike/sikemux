@@ -606,12 +606,7 @@ impl Backend for Codex {
         codex.offer_commands().await;
         let opened = Opened {
             session_id: thread_id,
-            capabilities: json!({
-                "loadSession": true,
-                "steering": true,
-                "editing": true,
-                "promptCapabilities": { "image": true, "embeddedContext": true },
-            }),
+            capabilities: Opened::native_capabilities(),
             setup: json!({
                 "modes": config::modes(mode),
                 "configOptions": codex.kept.models.options("Codex", &codex.kept.model, codex.kept.effort.as_deref()),

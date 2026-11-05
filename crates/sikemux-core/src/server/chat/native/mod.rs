@@ -80,7 +80,6 @@ fn shows_saved(provider: &str) -> bool {
 }
 
 /// The models and efforts `launch`'s agent offers, asked of its CLI without a session.
-/// Only Claude and Codex tell them outside one; an ACP agent offers them in `session/new`.
 pub(crate) async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
     let mut command = tokio::process::Command::from(
         sikemux_process::user_environment::agent_command(&launch.program),
@@ -97,7 +96,7 @@ pub(crate) async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
     match driver(&launch.provider) {
         Some(ChatDriver::Claude) => claude::read_options(command).await,
         Some(ChatDriver::Codex) => codex::read_options(command).await,
-        _ => Err(format!(
+        Some(ChatDriver::Muse | ChatDriver::Acp { .. }) | None => Err(format!(
             "{} offers its options only in a session",
             launch.provider
         )),
@@ -124,7 +123,11 @@ pub(crate) fn show_saved(chat: &Arc<Chat>) {
         let sink = session::Sink::showing(chat.clone());
         let shown = match driver(chat.provider()) {
             Some(ChatDriver::Claude) => claude::replay_saved(&chat.launch, &session, &sink),
-            _ => acp::replay_saved(&chat.launch, &session, &sink),
+            Some(ChatDriver::Acp { .. }) => acp::replay_saved(&chat.launch, &session, &sink),
+            Some(ChatDriver::Codex | ChatDriver::Muse) | None => Err(format!(
+                "Sikemux reads no saved chat of {} without its agent",
+                chat.provider()
+            )),
         };
         if let Err(error) = shown {
             chat.saved_shown

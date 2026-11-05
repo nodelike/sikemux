@@ -497,7 +497,7 @@ async fn account(
     let Some(read) =
         AgentKind::from_name(provider).and_then(|kind| kind.ops().account(program, config_path))
     else {
-        return Err("Only Claude and Codex keep separate accounts".into());
+        return Err(super::NO_ACCOUNTS.into());
     };
     let mut status = read.await?;
     status.sessions =

@@ -54,6 +54,13 @@ pub enum ChatDriver {
     },
 }
 
+impl ChatDriver {
+    /// Whether a chat of it picks a reasoning effort, even on a model that names none.
+    pub fn offers_effort(&self) -> bool {
+        !matches!(self, Self::Acp { .. })
+    }
+}
+
 /// The folder the CLI keeps its settings and sessions in: `variable`, else
 /// `dir` under the home folder, then `within` either.
 pub struct Home {

@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
-use sikemux_pty::agent_detection::AgentKind;
 
 use crate::cli::protocol::HarnessRequest;
 use crate::launch::PermissionMode;
@@ -634,7 +633,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
         .ok_or("cli must name the agent to start, such as claude or codex")?
         .trim()
         .to_lowercase();
-    if AgentKind::from_label(&provider).is_none() {
+    if crate::agent_catalog::agent(&provider).is_none() {
         return Err(format!(
             "{provider} is not an agent Sikemux runs in a terminal"
         ));

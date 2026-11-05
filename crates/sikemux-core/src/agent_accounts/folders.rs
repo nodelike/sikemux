@@ -167,8 +167,7 @@ fn claude_seed(default: &Value) -> Value {
 }
 
 fn make_account(provider: &str, name: &str, home: &Path) -> Result<String, String> {
-    let (kind, home_folder) =
-        accounts_home(provider).ok_or("Only Claude and Codex keep separate accounts")?;
+    let (kind, home_folder) = accounts_home(provider).ok_or(super::NO_ACCOUNTS)?;
     let prefix = home_folder.dir;
     let base = format!("{prefix}-{}", slug(name));
     let mut folder = base.clone();

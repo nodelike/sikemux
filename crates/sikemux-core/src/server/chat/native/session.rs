@@ -398,6 +398,18 @@ pub(crate) struct Opened {
     pub setup: Value,
 }
 
+impl Opened {
+    /// What the chat can do with an agent the core speaks to in that agent's own protocol.
+    pub fn native_capabilities() -> Value {
+        json!({
+            "loadSession": true,
+            "steering": true,
+            "editing": true,
+            "promptCapabilities": { "image": true, "embeddedContext": true },
+        })
+    }
+}
+
 /// A chat's brief as context handed over with its first message, titled by its first line.
 fn brief_context(brief: String) -> ChatContext {
     ChatContext {

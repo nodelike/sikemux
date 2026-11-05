@@ -303,8 +303,8 @@ pub(super) async fn account_status(
     core: &Arc<Core>,
     account: Account,
 ) -> CoreResult<status::AccountStatus> {
-    if !matches!(account.provider.as_str(), "claude" | "codex") {
-        return Err("Only Claude and Codex keep separate accounts".into());
+    if !crate::agent_catalog::agent(&account.provider).is_some_and(|agent| agent.accounts) {
+        return Err(crate::agent_accounts::NO_ACCOUNTS.into());
     }
     let program = program(core, &account).await?;
     let (provider, config_path) = (&account.provider, account.config_path.as_deref());

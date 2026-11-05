@@ -229,6 +229,9 @@ pub fn cli(
 }
 
 /// The core's calls about accounts and their limits, all of them the app's own.
+/// What an agent that keeps no accounts of its own answers when asked for one.
+pub const NO_ACCOUNTS: &str = "Only Claude and Codex keep separate accounts";
+
 pub const METHODS: [&str; 16] = [
     "agentAccounts",
     "setAgentAccounts",

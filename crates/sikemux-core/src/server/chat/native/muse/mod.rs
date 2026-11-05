@@ -677,12 +677,7 @@ impl Backend for Muse {
         muse.offer_commands().await;
         let opened = Opened {
             session_id,
-            capabilities: json!({
-                "loadSession": true,
-                "steering": true,
-                "editing": true,
-                "promptCapabilities": { "image": true, "embeddedContext": true },
-            }),
+            capabilities: Opened::native_capabilities(),
             setup: json!({
                 "configOptions": muse.kept.models.options("Muse", &muse.kept.model, muse.kept.effort.as_deref()),
             }),
