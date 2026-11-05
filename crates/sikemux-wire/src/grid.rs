@@ -13,6 +13,10 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+/// The fewest columns a terminal keeps. The emulator panics on a wide
+/// character in a single column, which would end every agent on the host.
+pub const MIN_TERMINAL_COLUMNS: u16 = 2;
+
 /// The client drops every row it holds; rows the frame does not set are blank.
 pub const FRAME_RESET: u8 = 1;
 /// The frame carries the colours programs set, replacing any sent before.

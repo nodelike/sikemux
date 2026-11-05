@@ -928,11 +928,14 @@ fn layout(
     let size = metrics.fit(bounds.size);
     if size != terminal.asked_size {
         terminal.asked_size = size;
-        let _ = asks.send(routed(
-            &bench.terminals.places,
-            id,
-            TerminalAsk::Resize(size.0, size.1),
-        ));
+        // A pane with no room yet, such as a desk starting to slide open, keeps its last size.
+        if size.0 >= wire::MIN_TERMINAL_COLUMNS {
+            let _ = asks.send(routed(
+                &bench.terminals.places,
+                id,
+                TerminalAsk::Resize(size.0, size.1),
+            ));
+        }
     }
     let header = &terminal.screen.header;
     if header.frame != terminal.acked && header.rows > 0 {

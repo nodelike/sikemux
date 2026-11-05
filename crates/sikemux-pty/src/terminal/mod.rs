@@ -16,7 +16,7 @@ use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::Line;
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle, Processor, Rgb};
-use sikemux_wire::grid::{SpanStyle, TerminalColors};
+use sikemux_wire::grid::{SpanStyle, TerminalColors, MIN_TERMINAL_COLUMNS};
 
 use history::History;
 
@@ -116,7 +116,7 @@ fn config(rows: usize) -> Config {
 impl Terminal {
     pub fn new(rows: u16, cols: u16) -> Self {
         let size = Size {
-            cols: usize::from(cols.max(1)),
+            cols: usize::from(cols.max(MIN_TERMINAL_COLUMNS)),
             rows: usize::from(rows.max(1)),
         };
         let events = Events::default();
@@ -216,7 +216,7 @@ impl Terminal {
     /// changes them.
     pub fn resize(&mut self, rows: u16, cols: u16) {
         let size = Size {
-            cols: usize::from(cols.max(1)),
+            cols: usize::from(cols.max(MIN_TERMINAL_COLUMNS)),
             rows: usize::from(rows.max(1)),
         };
         let old_cols = self.term.columns();
@@ -298,5 +298,23 @@ impl Terminal {
         let row = &self.term.grid()[Line((line - self.pushed) as i32)];
         frame::walk_row(row, cols, &mut String::new(), each);
         Some(frame::wrapped(row, cols))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sikemux_wire::grid::TerminalColors;
+
+    use super::Terminal;
+
+    #[test]
+    fn a_wide_character_in_a_terminal_asked_for_one_column_does_not_panic() {
+        let colors = TerminalColors::default();
+        let mut opened_narrow = Terminal::new(24, 1);
+        opened_narrow.process("中✅".as_bytes(), &colors);
+
+        let mut resized_narrow = Terminal::new(24, 80);
+        resized_narrow.resize(24, 1);
+        resized_narrow.process("中✅".as_bytes(), &colors);
     }
 }

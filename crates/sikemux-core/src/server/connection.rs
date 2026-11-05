@@ -740,7 +740,11 @@ async fn run_requests(
                 client.answer::<ask::Detach>(request_id, Ok(()));
             }
             Request::Resize(ask::Resize { id, cols, rows }) => {
-                core.spares.note_size(cols, rows);
+                if cols < sikemux_wire::grid::MIN_TERMINAL_COLUMNS {
+                    eprintln!("sikemux core: a client asked for {cols} columns in terminal {id}");
+                } else {
+                    core.spares.note_size(cols, rows);
+                }
                 let result = match validate_pty_dimensions(cols, rows) {
                     Ok(()) => match session_or_missing(&core, id) {
                         Ok(target) => blocking(move || session::resize(&target, cols, rows)).await,
