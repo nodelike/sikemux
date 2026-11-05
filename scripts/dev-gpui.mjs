@@ -2,6 +2,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import {
+  readFileSync,
   constants,
   copyFileSync,
   existsSync,
@@ -186,6 +187,24 @@ const CALLER_OPTIONS = [
   "SIKEMUX_GPUI_DRIVE_MOTION",
 ];
 
+// What the build compiles in when it is given them, which a checkout keeps in .env.
+const COMPILED_SECRETS = [
+  "BITBUCKET_OAUTH_SECRET",
+  "JIRA_OAUTH_SECRET",
+  "VERCEL_OAUTH_SECRET",
+  "KLIPY_API_KEY",
+];
+
+function loadCompiledSecrets() {
+  const kept = existsSync(join(root, ".env"))
+    ? readFileSync(join(root, ".env"), "utf8")
+    : "";
+  for (const key of COMPILED_SECRETS) {
+    const line = kept.match(new RegExp(`^${key}=(.*)$`, "m"));
+    if (line && !process.env[key]) process.env[key] = line[1];
+  }
+}
+
 function appEnvironment() {
   const env = withoutTerminalSession(process.env);
   for (const key of CALLER_OPTIONS)
@@ -216,6 +235,7 @@ async function runDevGpui() {
     console.error(before);
     return 1;
   }
+  loadCompiledSecrets();
   run("pnpm", ["core:dev"]);
   buildApp();
   const refused = refusal();

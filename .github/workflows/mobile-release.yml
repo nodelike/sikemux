@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    if: &approved_plan ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
     env:
       APP_VARIANT: production
       SIKEMUX_MOBILE_VERSION: ${{ needs.plan.outputs.version }}
@@ -102,17 +102,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: Use the runner's Java 17 and Android NDK
-        run: |
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >>"$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >>"$GITHUB_ENV"
-
-      - name: Setup Rust
-        run: |
-          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$channel" --profile minimal --no-self-update \
-            --target aarch64-linux-android --target x86_64-linux-android
-          cargo install cargo-ndk --locked
+      - name: Setup Android
+        uses: ./.github/actions/setup-android
 
       - name: Install phone dependencies
         working-directory: mobile
@@ -323,7 +314,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 120
     needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    if: *approved_plan
     env:
       APP_VARIANT: production
       SIKEMUX_MOBILE_VERSION: ${{ needs.plan.outputs.version }}
@@ -386,21 +377,7 @@ jobs:
           entitlements="$RUNNER_TEMP/entitlements"
           xcodebuild -project Sikemux.xcodeproj -alltargets -configuration Release -sdk iphoneos \
             -showBuildSettings -json >"$RUNNER_TEMP/settings.json"
-          node - "$RUNNER_TEMP/settings.json" "$entitlements" <<'NODE'
-          const fs = require('node:fs');
-          const path = require('node:path');
-          const [settingsPath, out] = process.argv.slice(2);
-          fs.mkdirSync(out, { recursive: true });
-          for (const { buildSettings: s } of JSON.parse(fs.readFileSync(settingsPath, 'utf8'))) {
-            if (!s.CODE_SIGN_ENTITLEMENTS) continue;
-            const text = fs
-              .readFileSync(path.resolve(s.SRCROOT, s.CODE_SIGN_ENTITLEMENTS), 'utf8')
-              .replaceAll('$(AppIdentifierPrefix)', 'D577WD6Z5U.')
-              .replaceAll('$(TeamIdentifierPrefix)', 'D577WD6Z5U.');
-            if (text.includes('$(')) throw new Error(`${s.CODE_SIGN_ENTITLEMENTS} uses a setting this step does not fill in`);
-            fs.writeFileSync(path.join(out, `${s.FULL_PRODUCT_NAME}.plist`), text);
-          }
-          NODE
+          node ../scripts/ios-entitlements.mjs "$RUNNER_TEMP/settings.json" "$entitlements"
           app="$archive/Products/Applications/Sikemux.app"
           [[ -f "$entitlements/Sikemux.app.plist" ]] || { echo "::error::The app has no entitlements"; exit 1; }
           find "$app" -depth -mindepth 1 \( -name '*.framework' -o -name '*.dylib' -o -name '*.appex' \) -print0 |

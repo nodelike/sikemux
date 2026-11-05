@@ -114,7 +114,7 @@ jobs:
   helpers:
     name: Build the helpers
     needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    if: &approved_plan ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
@@ -132,7 +132,7 @@ jobs:
           node-version: 22
 
       - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+        uses: ./.github/actions/setup-rust
 
       - name: Install XcodeGen
         # The simulator helper builds FBControlCore with it.
@@ -159,7 +159,7 @@ jobs:
   mac-core:
     name: Build the Mac core
     needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    if: *approved_plan
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
@@ -172,7 +172,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+        uses: ./.github/actions/setup-rust
 
       - name: Build the core
         env:
@@ -232,22 +232,10 @@ jobs:
 
       - name: Import the Developer ID certificate
         if: vars.RELEASE_NOTARIZED == '1'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          keychain="$RUNNER_TEMP/release.keychain-db"
-          password="$(openssl rand -base64 24)"
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          base64 --decode <<<"$APPLE_CERTIFICATE" >"$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/certificate.p12"
-          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
-          keychains=("$keychain")
-          while read -r existing; do keychains+=("${existing//\"/}"); done < <(security list-keychains -d user)
-          security list-keychains -d user -s "${keychains[@]}"
+        uses: ./.github/actions/developer-id
+        with:
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
       - name: Sign the helpers
         env:
@@ -278,7 +266,7 @@ jobs:
   build:
     name: Build the app
     needs: [approve, plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    if: *approved_plan
     runs-on: macos-26
     timeout-minutes: 90
     permissions:
@@ -302,7 +290,9 @@ jobs:
           node-version: 22
 
       - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --component clippy --component rustfmt --no-self-update
+        uses: ./.github/actions/setup-rust
+        with:
+          components: clippy rustfmt
 
       # release.sh refreshes Cargo.lock offline, which needs every crate
       # already on disk; a fresh runner has none.
@@ -381,7 +371,7 @@ jobs:
           node-version: 22
 
       - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+        uses: ./.github/actions/setup-rust
 
       - name: Fetch Rust dependencies
         run: cargo fetch --locked
@@ -453,22 +443,10 @@ jobs:
 
       - name: Import the Developer ID certificate
         if: needs.sign-helpers.outputs.notarized == '1'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          keychain="$RUNNER_TEMP/release.keychain-db"
-          password="$(openssl rand -base64 24)"
-          security create-keychain -p "$password" "$keychain"
-          security set-keychain-settings -lut 21600 "$keychain"
-          security unlock-keychain -p "$password" "$keychain"
-          base64 --decode <<<"$APPLE_CERTIFICATE" >"$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          rm "$RUNNER_TEMP/certificate.p12"
-          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain" >/dev/null
-          keychains=("$keychain")
-          while read -r existing; do keychains+=("${existing//\"/}"); done < <(security list-keychains -d user)
-          security list-keychains -d user -s "${keychains[@]}"
+        uses: ./.github/actions/developer-id
+        with:
+          certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
 
       - name: Sign, notarize and pack the app
         env:
@@ -557,7 +535,7 @@ jobs:
   build-linux:
     name: Build Linux packages
     needs: approve
-    if: ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    if: &approved ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
     # The oldest runner GitHub still supports; its glibc decides the oldest distribution the packages run on.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -580,7 +558,7 @@ jobs:
           node-version: 22
 
       - name: Setup Rust
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --no-self-update
+        uses: ./.github/actions/setup-rust
 
       - name: Install what the app builds and packs with
         run: |
@@ -609,7 +587,7 @@ jobs:
   build-host:
     name: Build the Linux host core (${{ matrix.arch }})
     needs: approve
-    if: ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
+    if: *approved
     strategy:
       matrix:
         include:

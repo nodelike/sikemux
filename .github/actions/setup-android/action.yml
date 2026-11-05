@@ -1,0 +1,19 @@
+name: Setup Android
+description: The runner's Java 17 and Android NDK, the pinned Rust with the phone's targets, and cargo-ndk.
+runs:
+  using: composite
+  steps:
+    - name: Use the runner's Java 17 and Android NDK
+      shell: bash
+      run: |
+        echo "JAVA_HOME=$JAVA_HOME_17_X64" >>"$GITHUB_ENV"
+        echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >>"$GITHUB_ENV"
+
+    - name: Setup Rust
+      uses: ./.github/actions/setup-rust
+      with:
+        targets: aarch64-linux-android x86_64-linux-android
+
+    - name: Install cargo-ndk
+      shell: bash
+      run: cargo install cargo-ndk --locked

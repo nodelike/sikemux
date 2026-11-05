@@ -184,17 +184,8 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
+          cache: "true"
           components: clippy rustfmt
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check Rust formatting
         run: cargo fmt --all -- --check
@@ -243,17 +234,8 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
+          cache: "true"
           components: clippy rustfmt
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run Clippy
         run: cargo clippy $GPUI_PACKAGES --all-targets -- -D warnings
@@ -275,15 +257,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+          cache: "true"
 
       - name: Build the window probe
         run: cargo build --example window_probe
@@ -375,6 +350,8 @@ jobs:
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
 
       - name: Install GPUI's Linux packages, an X server and a window manager
         uses: ./.github/actions/apt-install
@@ -386,16 +363,6 @@ jobs:
             xvfb openbox x11-utils xdotool imagemagick mesa-vulkan-drivers fonts-dejavu-core
             xdg-desktop-portal xdg-desktop-portal-gtk dconf-gsettings-backend gsettings-desktop-schemas libglib2.0-bin
             gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly ffmpeg
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Build the core and the fake agent
         run: cargo build --locked -p sikemux-core --bin sikemux-core --bin sikemux-fake-acp-agent
@@ -447,12 +414,12 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      # The Tauri app's, then GPUI's, as Zed's script/linux lists them.
+      # GPUI's, as Zed's script/linux lists them.
       - name: Install the Linux packages
         uses: ./.github/actions/apt-install
         with:
           packages: >-
-            libwebkit2gtk-4.1-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev build-essential file
+            libwebkit2gtk-4.1-dev build-essential file
             libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libssl-dev libzstd-dev clang pkg-config
             libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 
@@ -522,16 +489,8 @@ jobs:
       # restore that only partly matches empties target first.
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
-
-      - name: Build dependencies with light optimisation
-        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
-          cache-on-failure: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache: "true"
 
       - name: Build the helper
         run: node scripts/build-sim-helper.mjs --dev

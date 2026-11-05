@@ -3,7 +3,7 @@ name: Server
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       - "server/**"
       - "crates/sikemux-core/src/accounts/**"
       - "crates/sikemux-wire/src/accounts/**"
@@ -17,18 +17,7 @@ on:
       - .github/workflows/server.yml
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "server/**"
-      - "crates/sikemux-core/src/accounts/**"
-      - "crates/sikemux-wire/src/accounts/**"
-      # A shared chat's page draws with shared/ and its fonts, the core's themes and markdown, and the mark.
-      - "shared/**"
-      - "brand/mark/**"
-      - "crates/sikemux-core/src/server/themes/**"
-      - "crates/sikemux-markdown/**"
-      - "crates/sikemux-markdown-wasm/**"
-      - mobile/app/certs/updates-certificate.pem
-      - .github/workflows/server.yml
+    paths: *paths
   workflow_dispatch:
 
 permissions:
@@ -82,8 +71,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Setup Rust, for a shared chat's page to parse markdown as the core does
-        working-directory: .
-        run: rustup toolchain install "$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" --profile minimal --target wasm32-unknown-unknown --no-self-update
+        uses: ./.github/actions/setup-rust
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Check, test and build
         run: pnpm check
@@ -113,21 +103,26 @@ jobs:
       group: server-deploy
       cancel-in-progress: false
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Fetch the release
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: server-release
 
+      - name: Set up the deploy key
+        uses: ./.github/actions/deploy-key
+        with:
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+
       - name: Send it to citadel
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
-          install -d -m 700 ~/.ssh
-          install -m 600 /dev/null ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "sikemux-deploy@$DEPLOY_HOST" "$GITHUB_SHA" < release.tar.gz
 

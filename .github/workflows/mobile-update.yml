@@ -76,15 +76,8 @@ jobs:
           cache-dependency-path: |
             mobile/pnpm-lock.yaml
 
-      - name: Use the runner's Android NDK
-        run: echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >>"$GITHUB_ENV"
-
-      - name: Setup Rust
-        run: |
-          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$channel" --profile minimal --no-self-update \
-            --target aarch64-linux-android --target x86_64-linux-android
-          cargo install cargo-ndk --locked
+      - name: Setup Android
+        uses: ./.github/actions/setup-android
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -145,14 +138,10 @@ jobs:
           path: ${{ runner.temp }}/update
 
       - name: Set up the deploy key
-        env:
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-        run: |
-          install -d -m 700 ~/.ssh
-          install -m 600 /dev/null ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+        uses: ./.github/actions/deploy-key
+        with:
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
       # Only node's own modules run here: no dependency of the app ever sees the signing key.
       - name: Sign and send it to citadel
@@ -192,14 +181,10 @@ jobs:
           node-version: 22
 
       - name: Set up the deploy key
-        env:
-          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
-          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-        run: |
-          install -d -m 700 ~/.ssh
-          install -m 600 /dev/null ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
-          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+        uses: ./.github/actions/deploy-key
+        with:
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          known-hosts: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
 
       # Rolling back signs the order phones obey with the update key, like an update.
       - name: Act on citadel

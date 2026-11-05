@@ -160,6 +160,12 @@ grep -Fq 'group: release' .github/workflows/release.yml || {
   exit 1
 }
 
+channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+grep -Fq "container: rust:${channel%.*}-bookworm" .github/workflows/release.yml || {
+  echo "the Release workflow's container is not on rust-toolchain.toml's Rust" >&2
+  exit 1
+}
+
 CARGO_METADATA="$(cargo metadata --offline --locked --no-deps --format-version 1)"
 PACKAGE_VERSION="$(node -p "require('./package.json').version")"
 CARGO_VERSION="$(node -e '

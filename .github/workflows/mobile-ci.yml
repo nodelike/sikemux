@@ -6,7 +6,7 @@ name: Mobile CI
 on:
   push:
     branches: [main]
-    paths:
+    paths: &paths
       - "mobile/**"
       - "crates/sikemux-mobile/**"
       - "crates/sikemux-core/**"
@@ -17,15 +17,7 @@ on:
       - .github/workflows/mobile-update.yml
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - "mobile/**"
-      - "crates/sikemux-mobile/**"
-      - "crates/sikemux-core/**"
-      - "Cargo.lock"
-      - "server/protocol/**"
-      - "shared/**"
-      - .github/workflows/mobile-ci.yml
-      - .github/workflows/mobile-update.yml
+    paths: *paths
   workflow_dispatch:
 
 permissions:
@@ -59,17 +51,8 @@ jobs:
           cache-dependency-path: |
             mobile/pnpm-lock.yaml
 
-      - name: Use the runner's Java 17 and Android NDK
-        run: |
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >>"$GITHUB_ENV"
-          echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >>"$GITHUB_ENV"
-
-      - name: Setup Rust
-        run: |
-          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
-          rustup toolchain install "$channel" --profile minimal --no-self-update \
-            --target aarch64-linux-android --target x86_64-linux-android
-          cargo install cargo-ndk --locked
+      - name: Setup Android
+        uses: ./.github/actions/setup-android
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2

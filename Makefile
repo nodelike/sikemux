@@ -3,10 +3,6 @@
 # Homebrew's Rust ignores rust-toolchain.toml, so rustup's proxies must come first.
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 
-dev: export BITBUCKET_OAUTH_SECRET ?= $(shell sed -n 's/^BITBUCKET_OAUTH_SECRET=//p' .env 2>/dev/null)
-dev: export JIRA_OAUTH_SECRET ?= $(shell sed -n 's/^JIRA_OAUTH_SECRET=//p' .env 2>/dev/null)
-dev: export VERCEL_OAUTH_SECRET ?= $(shell sed -n 's/^VERCEL_OAUTH_SECRET=//p' .env 2>/dev/null)
-dev: export KLIPY_API_KEY ?= $(shell sed -n 's/^KLIPY_API_KEY=//p' .env 2>/dev/null)
 dev:
 	@node scripts/prune-target.mjs --throttled >/dev/null 2>&1
 	node scripts/dev-gpui.mjs

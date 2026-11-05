@@ -5,6 +5,14 @@ inputs:
     description: Extra components, separated by spaces
     required: false
     default: ""
+  targets:
+    description: Extra targets, separated by spaces
+    required: false
+    default: ""
+  cache:
+    description: Restore and save cargo's cache, with dependencies at the job's DEPS_OPT_LEVEL
+    required: false
+    default: "false"
 runs:
   using: composite
   steps:
@@ -14,13 +22,28 @@ runs:
       shell: bash
       env:
         COMPONENTS: ${{ inputs.components }}
+        TARGETS: ${{ inputs.targets }}
       run: |
         channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
         flags=()
         for component in $COMPONENTS; do flags+=(--component "$component"); done
+        for target in $TARGETS; do flags+=(--target "$target"); done
         rustup toolchain install "$channel" --profile minimal --no-self-update "${flags[@]}"
         rustup default "$channel"
         for toolchain in $(rustup toolchain list --quiet); do
           [[ "$toolchain" == "$channel"-* ]] || rustup toolchain uninstall "$toolchain"
         done
         rustup toolchain list
+
+    - name: Build dependencies with light optimisation
+      if: inputs.cache == 'true'
+      shell: bash
+      run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.dev.package."*"]\nopt-level = %s\n' "$DEPS_OPT_LEVEL" >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
+
+    - name: Cache cargo
+      if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
+        cache-on-failure: true
+        save-if: ${{ github.ref == 'refs/heads/main' }}
