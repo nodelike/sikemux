@@ -2546,7 +2546,8 @@ fn other_repos(pane: &GitPane, cx: &mut Context<GitPane>) -> Option<impl IntoEle
     let bench = pane.bench.upgrade()?;
     let inside = bench
         .read(cx)
-        .git_folder()
+        .watched_project
+        .as_deref()
         .is_some_and(|folder| folder != pane.repo && bench.read(cx).git_repos().is_some());
     inside.then(|| {
         ui::IconButton::new(

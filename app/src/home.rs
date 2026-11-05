@@ -191,7 +191,7 @@ fn agent_shown(
                 .any(|saved| saved.id == agent.id && saved.resume_id.is_some())
         });
         let welcome = chat.is_empty(cx).then(|| {
-            chat::connection_note(agent, chat, resumes, cx)
+            chat::status::connection_note(agent, chat, resumes, cx)
                 .unwrap_or_else(|| welcome(bench, Some(agent), cx).into_any_element())
         });
         return chat::pane(bench, agent, chat, welcome, cx).into_any_element();

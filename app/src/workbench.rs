@@ -29,8 +29,7 @@ use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::layout::{PaneKind, ProjectLayout, Tab};
 use sikemux_view::prefs::{MidTurnSend, Preferences, TabRailPage, WindowView};
 use sikemux_wire::protocol::{
-    LauncherInfo, NoticeGoal, PermissionMode, ProjectCodeHost, ProjectInfo, RemoteStatus,
-    SessionId, SessionInfo,
+    LauncherInfo, NoticeGoal, PermissionMode, ProjectInfo, RemoteStatus, SessionId, SessionInfo,
 };
 use tokio::sync::mpsc;
 
@@ -39,7 +38,6 @@ use crate::chat::{Answering, Chat, ComposeStage, Composing, Question, Sent, STAR
 use crate::core::{Ask, ChatAsk, Link, Target};
 use crate::files::FileTree;
 use crate::finder::ProjectFiles;
-use crate::git::GitPane;
 use crate::hosts::Place;
 use crate::motion;
 use crate::overlays::{Layer, Overlays};
@@ -48,7 +46,6 @@ use crate::search::SearchPane;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
-use sikemux_core::git::status::DiscoveredRepo;
 use sikemux_core::server::{AccountUsage, PortOwner, ProjectPort, RunView, TaskView};
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
@@ -1145,93 +1142,6 @@ impl Workbench {
         Some(label)
     }
 
-    /// Tells the Git pane whether its host is in reach, and its repository's code host.
-    fn tell_reach(&self, cx: &mut Context<Self>) {
-        let away = self.out_of_reach();
-        if let Some(pane) = &self.git.pane {
-            let host = self.code_host_of(&pane.read(cx).repo);
-            pane.update(cx, |pane, cx| {
-                pane.set_out_of_reach(away, cx);
-                pane.set_code_host(host, cx);
-            });
-        }
-    }
-
-    /// The code host of the project holding `repo`, with the account chosen for it there.
-    fn code_host_of(&self, repo: &str) -> Option<(ProjectCodeHost, Option<String>)> {
-        let project = self
-            .projects()
-            .iter()
-            .filter(|project| Path::new(repo).starts_with(&project.path))
-            .max_by_key(|project| project.path.as_os_str().len())?;
-        let host = project.code_host.clone()?;
-        let account = project
-            .code_hosts
-            .get(&host.host)
-            .and_then(|choice| choice.account.clone());
-        Some((host, account))
-    }
-
-    /// The repository the Git views of the project in front open on: one picked from the
-    /// list, else the core's pick, the folder when it is one or the one chosen among those
-    /// inside it. None while the person has to pick.
-    pub(crate) fn git_repo(&self) -> Option<String> {
-        let folder = self.watched_project.as_ref()?;
-        if self.git.listing {
-            return None;
-        }
-        if let Some((at, repo)) = &self.git.picked {
-            if at == folder {
-                return Some(repo.clone());
-            }
-        }
-        let found = self.reads.git_project_repo.as_ref()?;
-        match &found.repo {
-            Some(repo) => Some(repo.clone()),
-            None if found.repos.is_some() => None,
-            None => Some(folder.clone()),
-        }
-    }
-
-    /// The project folder the Git views follow.
-    pub(crate) fn git_folder(&self) -> Option<&str> {
-        self.watched_project.as_deref()
-    }
-
-    /// The repositories directly inside the project folder, while it is not one itself.
-    pub(crate) fn git_repos(&self) -> Option<&Vec<DiscoveredRepo>> {
-        self.reads.git_project_repo.as_ref()?.repos.as_ref()
-    }
-
-    /// Opens `repo` in the project's Git views until the project changes.
-    pub(crate) fn pick_git_repo(&mut self, repo: String, cx: &mut Context<Self>) {
-        let was = self.git_repo();
-        self.git.picked = self.watched_project.clone().map(|folder| (folder, repo));
-        self.git.listing = false;
-        self.follow_git_repo(was, cx);
-    }
-
-    /// Shows the repositories inside the project folder again.
-    pub(crate) fn list_git_repos(&mut self, cx: &mut Context<Self>) {
-        let was = self.git_repo();
-        self.git.listing = true;
-        self.follow_git_repo(was, cx);
-    }
-
-    /// Points the git overview at the repository shown, when it moved from `was`.
-    pub(crate) fn follow_git_repo(&mut self, was: Option<String>, cx: &mut Context<Self>) {
-        let repo = self.git_repo();
-        if let Some(repo) = repo.as_ref().filter(|repo| {
-            Some(*repo) != was.as_ref() || self.reads.git_overview.as_ref().is_none()
-        }) {
-            let target = self.target();
-            target.watch_folder(Read::GitOverview, json!({ "repo": repo }), repo.clone());
-            let draft = format!("git:{repo}");
-            target.watch(Read::GitDraft, json!({ "keys": [draft] }));
-        }
-        self.parts.redraw_stage(cx);
-    }
-
     /// Files dropped where nothing takes them go to the terminal holding the keys, else to the
     /// chat in front.
     fn take_stray_drop(&mut self, paths: &[PathBuf], window: &mut Window, cx: &mut Context<Self>) {
@@ -1930,12 +1840,6 @@ impl Workbench {
         }
     }
 
-    pub(crate) fn git_in_front(&self) -> bool {
-        self.tab()
-            .and_then(|tab| tabs::first_view(&tab.pane))
-            .is_some_and(|(kind, _)| kind == PaneKind::Git)
-    }
-
     /// Makes the pane of the tab in front, for the kinds made the first time they come to the
     /// front.
     fn make_front_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1947,58 +1851,6 @@ impl Workbench {
         if let Some(kind) = front {
             crate::pane_kind::make(kind, self, window, cx);
         }
-    }
-
-    /// Makes the Git pane when the project's Git tab comes to the front.
-    pub(crate) fn git_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(project) = self.project() else {
-            return;
-        };
-        let Some(repo) = self.git_repo() else {
-            return;
-        };
-        if project.path.to_string_lossy() != *self.watched_project.as_deref().unwrap_or_default() {
-            return;
-        }
-        let target = self.target();
-        if let Some(pane) = self.git.pane.as_ref().filter(|pane| {
-            let pane = pane.read(cx);
-            pane.repo == repo && pane.place() == target.place()
-        }) {
-            if std::mem::take(&mut self.git.behind) {
-                let overview = self.reads.git_overview.as_ref();
-                pane.update(cx, |pane, cx| {
-                    if let Some(overview) = overview {
-                        pane.overview(overview, cx);
-                    }
-                    pane.git_moved(None, None, cx);
-                });
-            }
-            return;
-        }
-        self.git.behind = false;
-        let bench = cx.entity().downgrade();
-        let away = self.out_of_reach();
-        let host = self.code_host_of(&repo);
-        let pane = cx.new(|cx| GitPane::new(target, repo, bench, window, cx));
-        pane.update(cx, |pane, cx| {
-            pane.set_out_of_reach(away, cx);
-            pane.set_code_host(host, cx);
-        });
-        if let Some(overview) = self.reads.git_overview.as_ref() {
-            pane.update(cx, |pane, cx| pane.overview(overview, cx));
-        }
-        if !self.reads.catalog.is_empty() {
-            let catalog = &self.reads.catalog;
-            pane.update(cx, |pane, cx| pane.catalog(catalog, cx));
-        }
-        if let Some(drafts) = self.reads.git_draft.as_ref() {
-            pane.update(cx, |pane, cx| pane.drafts(drafts, cx));
-        }
-        if let Some(sha) = self.git.wanted_commit.take() {
-            pane.update(cx, |pane, cx| pane.show_commit(&sha, cx));
-        }
-        self.git.pane = Some(pane);
     }
 
     /// Makes the Search pane when the project's Search tab comes to the front.
@@ -2075,26 +1927,6 @@ impl Workbench {
             .lines()
             .find(|line| !line.trim().is_empty())
             .map(str::to_owned)
-    }
-
-    /// Brings the project's Git tab to the front, opening one when it has none.
-    pub fn open_git(&mut self, cx: &mut App) {
-        self.take_keys_when_shown(TakesKeys::Git, cx);
-        if let Some(project) = self.project() {
-            self.call_in_front(
-                "openTab",
-                json!({ "project": project.id, "kind": "git", "target": project.path.to_string_lossy() }),
-            );
-        }
-    }
-
-    /// Opens the Git tab of the project in front at commit `sha`.
-    pub fn open_commit(&mut self, sha: &str, cx: &mut Context<Self>) {
-        self.open_git(cx);
-        match self.git.pane.clone() {
-            Some(pane) => pane.update(cx, |pane, cx| pane.show_commit(sha, cx)),
-            None => self.git.wanted_commit = Some(sha.to_owned()),
-        }
     }
 
     /// Opens a terminal in the project in front, or among the terminals of no project while

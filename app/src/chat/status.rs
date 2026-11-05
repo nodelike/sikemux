@@ -393,7 +393,8 @@ pub(super) fn trouble(
 /// stopped or failed with a way back, or that a message waits for its agent to start. A
 /// chat taken up again stays blank while its agent warms up unseen; None while the welcome
 /// belongs there.
-pub(super) fn connection_note(
+/// What `agent`'s empty chat says in place of the welcome while its session is not ready.
+pub(crate) fn connection_note(
     agent: &AgentRow,
     chat: &Chat,
     resumes: bool,

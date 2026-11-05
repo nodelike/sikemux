@@ -34,7 +34,11 @@ fn set_default(bench: &Workbench, folder: &str, repo: Option<&str>) {
 
 pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let folder = bench.git_folder().unwrap_or_default().to_owned();
+    let folder = bench
+        .watched_project
+        .as_deref()
+        .unwrap_or_default()
+        .to_owned();
     let repos = bench.git_repos().cloned().unwrap_or_default();
     let name = folder.rsplit('/').next().unwrap_or_default().to_owned();
     if repos.is_empty() {

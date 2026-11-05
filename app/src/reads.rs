@@ -612,7 +612,7 @@ impl Workbench {
             Read::ActivityEverywhere => {
                 self.reads.activity_everywhere = Some(None);
                 self.parts.redraw_stage(cx);
-                self.parts.activity.update(cx, |_, cx| cx.notify());
+                self.parts.redraw_activity(cx);
             }
             _ => {}
         }
