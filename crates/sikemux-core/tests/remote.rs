@@ -875,6 +875,10 @@ async fn a_sleeping_chat_shows_its_history_and_wakes_when_the_person_writes() {
         "its saved transcript shows"
     );
     assert!(ready_after_writing(&app, &claude).await, "writing wakes it");
+    assert!(
+        shown_with(&core, &claude, r#""name":"review""#).await,
+        "the chat it woke lists Claude's commands"
+    );
 }
 
 /// A window can ask to close a tab again before it hears the first close, as with a

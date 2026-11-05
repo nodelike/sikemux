@@ -23,7 +23,7 @@ use crate::server::inbox::Fault;
 
 use super::SessionEnd;
 use crate::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
-use sikemux_fold::ChatEventKind;
+use sikemux_fold::{ChatEventKind, UpdateKind};
 
 use super::super::feed::{Earlier, Reach};
 use super::super::kept::Progress;
@@ -160,7 +160,10 @@ impl Sink {
     }
 
     pub fn update(&self, session_id: &str, mut update: Value) {
-        if self.quiet.load(Ordering::Acquire) {
+        // The commands an agent lists are what it offers now, never history it replays.
+        if self.quiet.load(Ordering::Acquire)
+            && UpdateKind::of(&update) != Some(UpdateKind::AvailableCommandsUpdate)
+        {
             return;
         }
         self.chat.note_edits(&update);
