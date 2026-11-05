@@ -254,7 +254,7 @@ pub enum Choice {
 type Typed = Rc<dyn Fn(&mut Workbench, String, &mut Window, &mut Context<Workbench>)>;
 
 /// A question the shell puts to the person over the window, and what its answer does.
-pub(crate) enum Asking {
+pub enum Asking {
     Confirm {
         title: SharedString,
         body: SharedString,
