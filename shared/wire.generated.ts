@@ -3697,7 +3697,7 @@ export interface AgentMessageRows {
 export interface MessageRow {
     sentAt: number;
     at: number;
-    /** The sending agent's id, or `person`, `board`, `auto` or `sikemux`. */
+    /** The sending agent's id, or a [`super::Sender`]'s. */
     from: string | null;
     /**
      * The sending agent's name now, else when it was logged; none for those that are
