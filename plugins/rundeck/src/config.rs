@@ -6,8 +6,10 @@ use std::net::IpAddr;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sikemux_plugin_api::http::{self, AddressProblem, PlainHttp};
 use sikemux_plugin_api::keychain_service;
 use sikemux_plugin_api::store::{self, Held, Secrets};
+use url::Url;
 
 use crate::error::{RundeckError, RundeckResult};
 
@@ -116,37 +118,32 @@ pub async fn change_settings(
 }
 
 #[cfg(test)]
-pub fn validate_base_url(raw: &str) -> RundeckResult<()> {
+pub fn validate_base_url(raw: &str) -> RundeckResult<Url> {
     validate_base_url_with_policy(raw, false)
 }
 
 pub fn validate_base_url_with_policy(
     raw: &str,
     allow_insecure_private_http: bool,
-) -> RundeckResult<()> {
-    let url =
-        url::Url::parse(raw).map_err(|_| RundeckError::BadArg("invalid Rundeck URL".into()))?;
-    if url.username() != "" || url.password().is_some() {
-        return Err(RundeckError::BadArg(
-            "credentials in the Rundeck URL are not allowed".into(),
-        ));
-    }
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(RundeckError::BadArg(
-            "Rundeck URL must use HTTP or HTTPS".into(),
-        ));
-    }
-    if url.host_str().is_none() {
-        return Err(RundeckError::BadArg(
-            "Rundeck URL must include a host".into(),
-        ));
-    }
-    if url.scheme() == "http" && !allow_insecure_private_http {
-        return Err(RundeckError::BadArg(
-            "plaintext HTTP requires explicit private-network acknowledgement".into(),
-        ));
-    }
-    Ok(())
+) -> RundeckResult<Url> {
+    let plain = match allow_insecure_private_http {
+        true => PlainHttp::Acknowledged,
+        false => PlainHttp::Refused,
+    };
+    http::base_url(raw, plain).map_err(|problem| {
+        RundeckError::BadArg(
+            match problem {
+                AddressProblem::NotAnAddress => "invalid Rundeck URL",
+                AddressProblem::HoldsCredentials => {
+                    "credentials in the Rundeck URL are not allowed"
+                }
+                AddressProblem::Scheme => {
+                    "Rundeck URL must use HTTPS, or plaintext HTTP with explicit private-network acknowledgement"
+                }
+            }
+            .into(),
+        )
+    })
 }
 
 fn is_allowed_private_ip(ip: IpAddr) -> bool {
@@ -200,9 +197,7 @@ pub async fn validate_transport(
     raw: &str,
     allow_insecure_private_http: bool,
 ) -> RundeckResult<ValidatedTransport> {
-    validate_base_url_with_policy(raw, allow_insecure_private_http)?;
-    let url =
-        url::Url::parse(raw).map_err(|_| RundeckError::BadArg("invalid Rundeck URL".into()))?;
+    let url = validate_base_url_with_policy(raw, allow_insecure_private_http)?;
     let host = url
         .host_str()
         .ok_or(RundeckError::BadArg(

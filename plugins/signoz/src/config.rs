@@ -6,6 +6,7 @@
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use sikemux_plugin_api::http::{self, AddressProblem, PlainHttp};
 use sikemux_plugin_api::keychain_service;
 use sikemux_plugin_api::process;
 use sikemux_plugin_api::store::{self, Secrets};
@@ -66,24 +67,18 @@ fn with_url_override(config: SignozConfig, raw: &str) -> SignozConfig {
 
 pub fn validate_url(raw: &str) -> SignozResult<String> {
     let trimmed = raw.trim().trim_end_matches('/');
-    let url = url::Url::parse(trimmed)
-        .map_err(|_| SignozError::BadArg("the SigNoz URL is not a URL".into()))?;
-    if !url.username().is_empty() || url.password().is_some() {
-        return Err(SignozError::BadArg(
-            "leave credentials out of the URL".into(),
-        ));
-    }
-    let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-    match url.scheme() {
-        "https" => {}
-        "http" if local => {}
-        _ => {
-            return Err(SignozError::BadArg(
-                "SigNoz must be reached over HTTPS, or HTTP on this machine".into(),
-            ))
+    match http::base_url(trimmed, PlainHttp::OnThisMachine) {
+        Ok(_) => Ok(trimmed.to_string()),
+        Err(AddressProblem::NotAnAddress) => {
+            Err(SignozError::BadArg("the SigNoz URL is not a URL".into()))
         }
+        Err(AddressProblem::HoldsCredentials) => Err(SignozError::BadArg(
+            "leave credentials out of the URL".into(),
+        )),
+        Err(AddressProblem::Scheme) => Err(SignozError::BadArg(
+            "SigNoz must be reached over HTTPS, or HTTP on this machine".into(),
+        )),
     }
-    Ok(trimmed.to_string())
 }
 
 /// Keychain entries are named after the host, so two SigNoz instances never

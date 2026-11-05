@@ -10,7 +10,7 @@ use sikemux_plugin_api::account::chosen;
 use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::AccountQuery;
 use sikemux_plugin_api::codehost::Signed;
-use sikemux_plugin_api::http::Read;
+use sikemux_plugin_api::http::{self, Read};
 use sikemux_plugin_api::store::{self, Accounts};
 use sikemux_plugin_api::SignInStatus;
 
@@ -32,28 +32,9 @@ pub fn host_of(typed: &str) -> GitlabResult<String> {
             "GitLab is reached over https only, since the token goes with every request".into(),
         ));
     }
-    let rest = typed.strip_prefix("https://").unwrap_or(typed);
-    let host = rest
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let (name, port) = match host.split_once(':') {
-        Some((name, port)) => (name, Some(port)),
-        None => (host.as_str(), None),
-    };
-    let name_ok = !name.is_empty()
-        && name.contains('.')
-        && name.split('.').all(|label| {
-            !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-        });
-    let port_ok = port.is_none_or(|port| port.parse::<u16>().is_ok());
-    if !name_ok || !port_ok || host.contains('@') {
-        return Err(GitlabError::BadArg(format!(
-            "`{typed}` is not a GitLab server address"
-        )));
-    }
-    Ok(host)
+    http::bare_host(typed)
+        .filter(|host| host.contains('.') && !typed.contains('@'))
+        .ok_or_else(|| GitlabError::BadArg(format!("`{typed}` is not a GitLab server address")))
 }
 
 async fn get_with(host: &str, token: &str, path: &str) -> GitlabResult<serde_json::Value> {

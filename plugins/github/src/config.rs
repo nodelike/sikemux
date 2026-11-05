@@ -7,6 +7,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use sikemux_plugin_api::http;
 use sikemux_plugin_api::process;
 use sikemux_plugin_api::store::{self, Accounts, Held, Secrets};
 use sikemux_plugin_api::{accounts, keychain_service};
@@ -116,37 +117,8 @@ pub fn load(data_dir: &Path) -> GithubResult<GithubConfig> {
     Ok(store::load(data_dir)?)
 }
 
-fn valid_label(label: &str) -> bool {
-    !label.is_empty()
-        && label.len() <= 63
-        && !label.starts_with('-')
-        && !label.ends_with('-')
-        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-}
-
-/// A bare hostname, with a port only when one was given. People paste whole
-/// URLs, so a scheme, a user and a path are trimmed off rather than refused.
 pub fn validate_host(raw: &str) -> GithubResult<String> {
-    let bad = || GithubError::BadArg("that is not a GitHub hostname".into());
-    let trimmed = raw.trim();
-    let after_scheme = trimmed.split_once("://").map_or(trimmed, |(_, rest)| rest);
-    let authority = after_scheme.split('/').next().unwrap_or(after_scheme);
-    let authority = authority.split('@').next_back().unwrap_or(authority);
-    let (host, port) = match authority.rsplit_once(':') {
-        Some((host, port)) => (host, Some(port)),
-        None => (authority, None),
-    };
-    if let Some(port) = port {
-        let numeric =
-            !port.is_empty() && port.len() <= 5 && port.chars().all(|c| c.is_ascii_digit());
-        if !numeric {
-            return Err(bad());
-        }
-    }
-    if host.is_empty() || host.len() > 253 || !host.split('.').all(valid_label) {
-        return Err(bad());
-    }
-    Ok(authority.to_ascii_lowercase())
+    http::bare_host(raw).ok_or_else(|| GithubError::BadArg("that is not a GitHub hostname".into()))
 }
 
 /// github.com serves its API from a host of its own; every other GitHub serves

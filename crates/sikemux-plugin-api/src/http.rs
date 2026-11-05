@@ -83,6 +83,63 @@ pub fn same_host(next: &Url, first: &Url) -> bool {
         && next.port_or_known_default() == first.port_or_known_default()
 }
 
+fn valid_label(label: &str) -> bool {
+    !label.is_empty()
+        && label.len() <= 63
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// A bare host name out of whatever was pasted for one, with a port only when
+/// one was given: a scheme, a user and a path are trimmed off. For a service
+/// that is always reached over https, so none of those decide where a token goes.
+pub fn bare_host(typed: &str) -> Option<String> {
+    let typed = typed.trim();
+    let after_scheme = typed.split_once("://").map_or(typed, |(_, rest)| rest);
+    let authority = after_scheme.split(['/', '?', '#']).next()?;
+    let authority = authority.split('@').next_back()?;
+    let (host, port) = match authority.rsplit_once(':') {
+        Some((host, port)) => (host, Some(port)),
+        None => (authority, None),
+    };
+    let port_ok = port.is_none_or(|port| port.parse::<u16>().is_ok());
+    (port_ok && host.len() <= 253 && host.split('.').all(valid_label))
+        .then(|| authority.to_ascii_lowercase())
+}
+
+/// When a server a token is sent to may be reached over plain http.
+#[derive(Clone, Copy)]
+pub enum PlainHttp {
+    Refused,
+    /// `localhost` and its addresses, where nothing crosses a network.
+    OnThisMachine,
+    /// The person said so, and the plugin answers for where it may lead.
+    Acknowledged,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AddressProblem {
+    NotAnAddress,
+    HoldsCredentials,
+    Scheme,
+}
+
+/// The whole address of a server a token is sent to, as a person typed it.
+pub fn base_url(typed: &str, plain: PlainHttp) -> Result<Url, AddressProblem> {
+    let url = Url::parse(typed.trim()).map_err(|_| AddressProblem::NotAnAddress)?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err(AddressProblem::HoldsCredentials);
+    }
+    let host = url.host_str().ok_or(AddressProblem::NotAnAddress)?;
+    let local = matches!(host, "localhost" | "127.0.0.1" | "[::1]");
+    match (url.scheme(), plain) {
+        ("https", _) | ("http", PlainHttp::Acknowledged) => Ok(url),
+        ("http", PlainHttp::OnThisMachine) if local => Ok(url),
+        _ => Err(AddressProblem::Scheme),
+    }
+}
+
 /// One warm client for a service, the bound on its requests in flight, and
 /// its rate limit, when its answers report one.
 pub struct Http<S> {

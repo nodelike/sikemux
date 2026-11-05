@@ -6,7 +6,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use sikemux_plugin_api::store::{self, Accounts, Secrets};
-use sikemux_plugin_api::{accounts, keychain_service};
+use sikemux_plugin_api::{accounts, http, keychain_service};
 
 use crate::error::{JiraError, JiraResult};
 
@@ -90,15 +90,8 @@ impl JiraConfig {
 
 /// `https://Acme.atlassian.net/jira/…` and `acme.atlassian.net` name the same site.
 pub fn normalise_host(given: &str) -> String {
-    let trimmed = given.trim();
-    let with_scheme = if trimmed.contains("://") {
-        trimmed.to_string()
-    } else {
-        format!("https://{trimmed}")
-    };
-    url::Url::parse(&with_scheme)
-        .ok()
-        .and_then(|url| url.host_str().map(str::to_ascii_lowercase))
+    http::bare_host(given)
+        .and_then(|host| host.split(':').next().map(str::to_owned))
         .unwrap_or_default()
 }
 
