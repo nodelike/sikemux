@@ -19,12 +19,13 @@ use sikemux_wire::protocol::LauncherInfo;
 use crate::agents::menu::AgentMenu;
 use crate::icons::Icon;
 use crate::motion;
+use crate::rail::{Edge, RailWidth};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_6, TEXT_2XS,
     TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, Field, Group, IconButton, Row, Segmented};
-use crate::workbench::{AgentRow, Edge, RailWidth, Strip, TeamLink, Workbench};
+use crate::workbench::{AgentRow, Strip, TeamLink, Workbench};
 use sikemux_view::inbox::RemoteAgent;
 use sikemux_view::prefs::TabRailPage;
 

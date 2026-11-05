@@ -1,5 +1,7 @@
 use crate::keyboard::Keyboard;
 use crate::keyboard::TakesKeys;
+use crate::rail::DraggedRail;
+use crate::rail::Edge;
 use sikemux_wire::changed::Topic;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -17,13 +19,13 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     canvas, deferred, div, px, AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context,
     DragMoveEvent, Entity, ExternalPaths, FocusHandle, Focusable, Image, InteractiveElement,
-    IntoElement, ParentElement, Pixels, Render, SharedString, StatefulInteractiveElement,
-    StyleRefinement, Styled, Subscription, Task, WeakEntity, Window,
+    IntoElement, ParentElement, Pixels, Render, SharedString, StyleRefinement, Styled,
+    Subscription, Task, WeakEntity, Window,
 };
 use serde_json::{json, Value};
 use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::layout::{PaneKind, ProjectLayout, Tab};
-use sikemux_view::prefs::{MidTurnSend, Preferences, TabRailPage, TabRailScope, WindowView};
+use sikemux_view::prefs::{MidTurnSend, Preferences, TabRailPage, WindowView};
 use sikemux_wire::protocol::{
     AgentFace, AgentGroup, AgentStatus, LauncherInfo, NoticeGoal, PermissionMode, ProjectCodeHost,
     ProjectInfo, RemoteStatus, SessionId, SessionInfo,
@@ -62,18 +64,9 @@ fn keyboard_back() {}
 /// How long a tab asked to close stays closing in the window if the core never says it
 /// went, such as when its closing failed.
 const CLOSE_SETTLES: Duration = Duration::from_secs(2);
-/// How long a peeking rail stays after the pointer leaves it.
 /// How long a chat stays attached once its tab leaves the front, so flicking between tabs
 /// keeps them live while a long-hidden one stops streaming every change to the app.
 const CHAT_RESTS_AFTER: Duration = Duration::from_secs(60);
-const PEEK_CLOSE: Duration = Duration::from_millis(180);
-/// How close to the window's edge the pointer brings out a closed rail.
-const PEEK_REACH: f32 = 28.;
-/// How far past its own width a peeking rail starts and ends, out of sight beyond the window.
-const PEEK_GAP: f32 = 10.;
-/// The handle between a docked rail and the stage.
-const RESIZER_WIDTH: f32 = 10.;
-
 /// The decoded pictures a long chat full of screenshots keeps loaded: about a dozen at full size.
 const PICTURE_BUDGET: usize = 256 * 1024 * 1024;
 
@@ -230,21 +223,6 @@ impl Strip {
     }
 }
 
-/// A side of the window a rail lives on.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Edge {
-    Start,
-    End,
-}
-
-/// How wide a rail can be dragged, and how wide it starts.
-#[derive(Clone, Copy)]
-pub struct RailWidth {
-    pub min: f32,
-    pub max: f32,
-    pub initial: f32,
-}
-
 /// An agent's title while it is edited in place, in a field holding it.
 pub struct Retitling {
     pub agent: String,
@@ -253,15 +231,6 @@ pub struct Retitling {
     pub input: Entity<InputState>,
     title: String,
     _events: Subscription,
-}
-
-/// A rail's handle while it is dragged.
-struct DraggedRail(Edge);
-
-impl Render for DraggedRail {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        gpui_kit::Empty
-    }
 }
 
 /// How often the Limits panel reads the plan limits again while it shows, as the Mac app does.
@@ -1649,18 +1618,6 @@ impl Workbench {
         }
     }
 
-    /// Keeps a rail open, or closes it; a peeking rail that is kept stays where it is.
-    pub fn toggle_rail(&mut self, edge: Edge, cx: &mut Context<Self>) {
-        let open = match edge {
-            Edge::Start => &mut self.rails.side_open,
-            Edge::End => &mut self.rails.tab_open,
-        };
-        *open = !*open;
-        self.rails.peeking = None;
-        self.keep_rails(cx);
-        cx.notify();
-    }
-
     /// Swaps an agent's title in its header, or its tab rail row when `in_rail`, for a field
     /// holding it, which Enter or clicking away saves and Escape leaves unchanged.
     pub fn retitle(
@@ -1927,134 +1884,6 @@ impl Workbench {
             .call("switchAgentView", json!({ "agentId": agent, "to": to }));
     }
 
-    pub fn rail_width(&self, edge: Edge) -> f32 {
-        match edge {
-            Edge::Start => self.rails.side_width,
-            Edge::End => self.rails.tab_width,
-        }
-    }
-
-    /// Sets a rail's width, within what that rail allows, and draws it at once.
-    fn resize_rail(&mut self, edge: Edge, width: f32, window: &mut Window, cx: &mut Context<Self>) {
-        let (kept, range) = match edge {
-            Edge::Start => (&mut self.rails.side_width, rail::SIDE_RAIL),
-            Edge::End => (&mut self.rails.tab_width, agents::TAB_RAIL),
-        };
-        let width = width.clamp(range.min, range.max).round();
-        if *kept != width {
-            *kept = width;
-            window.refresh();
-            self.keep_rails(cx);
-        }
-    }
-
-    /// Moves the edge between a rail and the stage `by` points to the right.
-    fn nudge_rail(&mut self, edge: Edge, by: f32, window: &mut Window, cx: &mut Context<Self>) {
-        let outward = match edge {
-            Edge::Start => by,
-            Edge::End => -by,
-        };
-        self.resize_rail(edge, self.rail_width(edge) + outward, window, cx);
-    }
-
-    /// The handle between a rail and the stage, dragged or moved by arrow keys to resize the rail.
-    fn rail_resizer(&self, edge: Edge, cx: &mut Context<Self>) -> impl IntoElement {
-        use crate::keymap::{EdgeFarLeft, EdgeFarRight, EdgeLeft, EdgeRight};
-        div()
-            .id(match edge {
-                Edge::Start => "resize-side-rail",
-                Edge::End => "resize-tab-rail",
-            })
-            .flex_none()
-            .w(px(RESIZER_WIDTH))
-            .h_full()
-            .cursor_col_resize()
-            .key_context("RailResizer")
-            .track_focus(&self.rails.resizers[edge as usize])
-            .tooltip(crate::ui::tooltip("Drag or use arrow keys to resize"))
-            .on_click(cx.listener(move |bench, _, window, cx| {
-                bench.rails.resizers[edge as usize].focus(window, cx)
-            }))
-            .on_action(cx.listener(move |bench, _: &EdgeLeft, window, cx| {
-                bench.nudge_rail(edge, -16., window, cx)
-            }))
-            .on_action(cx.listener(move |bench, _: &EdgeRight, window, cx| {
-                bench.nudge_rail(edge, 16., window, cx)
-            }))
-            .on_action(cx.listener(move |bench, _: &EdgeFarLeft, window, cx| {
-                bench.nudge_rail(edge, -40., window, cx)
-            }))
-            .on_action(cx.listener(move |bench, _: &EdgeFarRight, window, cx| {
-                bench.nudge_rail(edge, 40., window, cx)
-            }))
-            .on_drag(DraggedRail(edge), |rail, _, _, cx| {
-                cx.new(|_| DraggedRail(rail.0))
-            })
-    }
-
-    /// Takes the rails as the person last left them, from the core's preferences.
-    pub(crate) fn follow_rails(&mut self, preferences: &Preferences) {
-        self.rails.follow(preferences);
-        self.window_view = preferences.window_view;
-        self.recent_commands = preferences
-            .recent_command_keys
-            .iter()
-            .map(|key| SharedString::from(key.clone()))
-            .collect();
-    }
-
-    /// Keeps the rails and the commands run lately in the core's preferences once changes
-    /// settle, so a drag is written once, and the rails come back as they were. Nothing is
-    /// kept before the preferences are first read, when the rails hold only the window's defaults.
-    pub fn keep_rails(&mut self, cx: &mut Context<Self>) {
-        if self.preferences.is_none() {
-            return;
-        }
-        self.rails.keeping = Some(cx.spawn(async move |bench, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(400))
-                .await;
-            let _ = bench.update(cx, |bench, _| {
-                bench.rails.keeping = None;
-                bench.write_rails();
-            });
-        }));
-    }
-
-    fn write_rails(&self) {
-        let page = self.rails.page;
-        let scope = if self.rails.all_projects {
-            TabRailScope::All
-        } else {
-            TabRailScope::Project
-        };
-        let recent: Vec<&str> = self
-            .recent_commands
-            .iter()
-            .map(|key| key.as_ref())
-            .collect();
-        let now = [
-            ("sideRailOpen", json!(self.rails.side_open)),
-            ("sideRailWidth", json!(self.rails.side_width)),
-            ("tabRailOpen", json!(self.rails.tab_open)),
-            ("tabRailWidth", json!(self.rails.tab_width)),
-            ("tabTabRailPage", json!(page)),
-            ("tabRailScope", json!(scope)),
-            ("tabRailAllAgents", json!(self.rails.all_harnesses)),
-            ("windowView", json!(self.window_view)),
-            ("recentCommandKeys", json!(recent)),
-        ];
-        let kept = self
-            .preferences
-            .as_ref()
-            .and_then(|kept| serde_json::to_value(kept).ok());
-        for (key, value) in now {
-            if kept.as_ref().and_then(|kept| kept.get(key)) != Some(&value) {
-                crate::settings::set(self, key, value);
-            }
-        }
-    }
-
     /// Shows the workbench in place of the goals, as anything opened in one of its tabs needs.
     pub fn show_workbench(&mut self, cx: &mut Context<Self>) {
         if self.window_view == WindowView::Goals {
@@ -2108,38 +1937,6 @@ impl Workbench {
             Some(cx.subscribe(&goals, |_, _, _: &crate::goals::Moved, cx| cx.notify()));
         self.goals = Some(goals.clone());
         goals
-    }
-
-    /// Opens both rails when either is closed, else closes both.
-    pub fn toggle_focus_mode(&mut self, cx: &mut Context<Self>) {
-        let open = !(self.rails.side_open && self.rails.tab_open);
-        self.rails.side_open = open;
-        self.rails.tab_open = open;
-        self.rails.peeking = None;
-        self.keep_rails(cx);
-        cx.notify();
-    }
-
-    /// Shows a closed rail over the stage while the pointer is at its edge or over it, and puts
-    /// it away a moment after the pointer leaves.
-    fn peek(&mut self, edge: Edge, inside: bool, cx: &mut Context<Self>) {
-        if inside {
-            self.rails.unpeek = None;
-            if self.rails.peeking != Some(edge) {
-                self.rails.peeking = Some(edge);
-                cx.notify();
-            }
-            return;
-        }
-        self.rails.unpeek = Some(cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(PEEK_CLOSE).await;
-            let _ = this.update(cx, |bench, cx| {
-                if bench.rails.peeking == Some(edge) {
-                    bench.rails.peeking = None;
-                    cx.notify();
-                }
-            });
-        }));
     }
 
     /// Takes up a saved chat again, in the project it ran in, and brings its tab forward.
@@ -3091,96 +2888,7 @@ impl Parts {
     }
 }
 
-impl Workbench {
-    /// A docked rail and its handle, `tuck` of the way under the stage. It keeps its width as
-    /// it goes, so nothing in it wraps again; the stage takes the room it gives up.
-    fn docked_rail(&self, edge: Edge, tuck: f32, cx: &mut Context<Self>) -> impl IntoElement {
-        let (part, width) = match edge {
-            Edge::Start => (&self.parts.rail, self.rails.side_width),
-            Edge::End => (&self.parts.tabs, self.rails.tab_width),
-        };
-        let rail = crate::settings::leaves(div().h_full().flex_none(), cx).child(
-            part.clone()
-                .cached(StyleRefinement::default().w(px(width)).h_full().flex_none()),
-        );
-        let drawer = div()
-            .flex_none()
-            .h_full()
-            .w(px((width + RESIZER_WIDTH) * (1. - tuck)))
-            .overflow_hidden()
-            .flex()
-            .opacity(1. - tuck);
-        match edge {
-            Edge::Start => drawer.child(rail).child(self.rail_resizer(edge, cx)),
-            Edge::End => drawer
-                .justify_end()
-                .child(self.rail_resizer(edge, cx))
-                .child(rail),
-        }
-    }
-
-    /// A closed rail's edge of the window, which brings the rail out over the stage.
-    fn rail_edge(
-        &self,
-        edge: Edge,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let (part, width) = match edge {
-            Edge::Start => (&self.parts.rail, self.rails.side_width),
-            Edge::End => (&self.parts.tabs, self.rails.tab_width),
-        };
-        let peeking = self.rails.peeking == Some(edge);
-        let shown = motion::follow(
-            match edge {
-                Edge::Start => "peek-start-shown",
-                Edge::End => "peek-end-shown",
-            },
-            if peeking { 1. } else { 0. },
-            if peeking {
-                motion::PEEK_IN
-            } else {
-                motion::PEEK_OUT
-            },
-            window,
-            cx,
-        );
-        let away = (width + PEEK_GAP) * (1. - shown);
-        let zone = div()
-            .id(match edge {
-                Edge::Start => "peek-start",
-                Edge::End => "peek-end",
-            })
-            .absolute()
-            .top(px(tabs::top_height(self) + 4.))
-            .bottom(px(10.))
-            .w(px(if shown > 0. { width + 20. } else { PEEK_REACH }))
-            .px(SPACE_2H)
-            .on_hover(cx.listener(move |bench, inside: &bool, _, cx| bench.peek(edge, *inside, cx)))
-            .when(shown > 0., |zone| {
-                zone.child(
-                    div()
-                        .h_full()
-                        .relative()
-                        .left(px(match edge {
-                            Edge::Start => -away,
-                            Edge::End => away,
-                        }))
-                        .opacity(shown)
-                        .child(
-                            crate::settings::leaves(div().h_full(), cx).child(
-                                part.clone()
-                                    .cached(StyleRefinement::default().w(px(width)).h_full()),
-                            ),
-                        ),
-                )
-            });
-        match edge {
-            Edge::Start => zone.left_0(),
-            Edge::End => zone.right_0(),
-        }
-    }
-}
+impl Workbench {}
 
 impl Render for Workbench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
