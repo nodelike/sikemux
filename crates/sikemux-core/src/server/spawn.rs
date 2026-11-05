@@ -805,11 +805,8 @@ pub(crate) enum Ending {
     },
 }
 
-/// An agent's turn ended: Auto moves its card on, and a worker's lead is sent how the
-/// turn ended.
-pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: Ending) {
-    super::board::auto::turn_ended(core, agent_id, &ending);
-    let ignored = super::board::offer_turn_ignored(core, agent_id);
+/// Sends a worker's lead how its turn ended, unless all it did was ignore the board's offer.
+pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending, ignored: bool) {
     let Some(lead) = core.names.reports_to(agent_id) else {
         return;
     };
@@ -858,7 +855,7 @@ pub(crate) fn terminal_turn_ended(core: &Core, agent_id: &str, ending: Ending) {
         return;
     }
     if let Some(core) = core.arc() {
-        turn_ended(&core, agent_id, ending);
+        core.note_ending(agent_id, ending);
     }
 }
 

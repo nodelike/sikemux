@@ -176,7 +176,7 @@ pub(super) fn happened_here(core: &Core, host: &str, params: Value) -> CoreResul
                 Happened::Done | Happened::Stopped | Happened::Failed
             )
         {
-            questions::turn_ended(core, &foreign.agent_id);
+            core.note_linked_turn_ended(&foreign.agent_id);
         }
         if happened == Happened::Gone {
             core.hosts.team.remove(&foreign.agent_id);

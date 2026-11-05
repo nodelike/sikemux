@@ -521,7 +521,7 @@ impl Chat {
     /// Tells the agent's lead how its turn ended, once per turn.
     fn report_turn(&self, core: &Arc<Core>, ending: Ending) {
         if self.take_unreported() {
-            super::spawn::turn_ended(core, self.agent_id(), ending);
+            core.note_ending(self.agent_id(), ending);
         }
     }
 
@@ -538,7 +538,7 @@ impl Chat {
             Ok(SessionEnd::Requested) => None,
             Ok(_) => self.take_failure(),
         };
-        super::spawn::turn_ended(core, self.agent_id(), Ending::Gone { reason, mid_turn });
+        core.note_ending(self.agent_id(), Ending::Gone { reason, mid_turn });
     }
 
     /// The agent began work nobody here asked for, such as answering a
