@@ -21,8 +21,24 @@ pub struct GoalsView {
     pub agents: Vec<GoalAgent>,
     /// The open agents working no goal still open, by id.
     pub no_goal: Vec<String>,
-    /// What waits on the person about no goal, as ids of the inbox's items, in its order.
-    pub loose_needs: Vec<String>,
+    /// What waits on the person about no goal, in the inbox's order.
+    pub loose_needs: Vec<LooseNeed>,
+}
+
+/// A row for something that waits on the person about no goal.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LooseNeed {
+    /// The inbox item's id, which says what can be done about it.
+    pub id: String,
+    pub need: InboxNeed,
+    /// What an agent asked, else what the core says it is.
+    pub what: String,
+    pub agent: Option<String>,
+    pub name: Option<String>,
+    /// The folder or project id the item names.
+    pub project: Option<String>,
+    pub at: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -109,6 +125,7 @@ pub enum GoalClock {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeskCounts {
+    /// Those still running.
     pub terminals: usize,
     pub pages: usize,
     pub simulators: usize,
@@ -117,7 +134,9 @@ pub struct DeskCounts {
 
 impl DeskCounts {
     pub fn add(&mut self, desk: &AgentDesk) {
-        self.terminals += desk.terminals.len();
+        self.terminals += (desk.terminals.iter())
+            .filter(|terminal| terminal.running)
+            .count();
         self.pages += desk.pages.len();
         self.simulators += usize::from(desk.simulator.is_some());
         self.files += desk.files.len();
@@ -166,6 +185,10 @@ pub struct DeskPage {
 pub struct DeskTerminal {
     pub session: SessionId,
     pub title: String,
+    /// Its session still runs. A finished one stays on the desk until its agent's turn ends. The
+    /// core fills this in; the window leaves it out.
+    #[serde(default)]
+    pub running: bool,
 }
 
 /// What the `setDesks` call takes: every desk the window holds, by agent. The window owns the

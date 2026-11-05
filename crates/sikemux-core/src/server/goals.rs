@@ -10,10 +10,10 @@ use std::sync::Mutex;
 use sikemux_process::sync::Locked;
 use sikemux_wire::goals::{
     AgentDesk, DeskCounts, DesksParams, GoalAgent, GoalClock, GoalNext, GoalRow, GoalSlice,
-    GoalsView,
+    GoalsView, LooseNeed,
 };
 use sikemux_wire::inbox::{Inbox, InboxItem, InboxKind, InboxNeed};
-use sikemux_wire::protocol::AgentGroup;
+use sikemux_wire::protocol::{AgentGroup, SessionId};
 use sikemux_wire::slice::SliceState;
 
 use super::board::{self, BoardView, CardView, Column};
@@ -64,6 +64,11 @@ pub(super) fn view_moved(core: &Core, inbox: &Inbox) {
     }
     for item in inbox.items.iter().filter(|item| item.need.is_some()) {
         (&item.id, &item.what, item.at).hash(&mut hasher);
+    }
+    if let Some((_, desks)) = &*core.goals.desks.locked() {
+        for terminal in desks.values().flat_map(|desk| &desk.terminals) {
+            (terminal.session, session_runs(core, terminal.session)).hash(&mut hasher);
+        }
     }
     let moved = hasher.finish();
     let mut seen = core.goals.seen.locked();
@@ -209,10 +214,7 @@ impl Placed<'_> {
         row.next = match (need, failed) {
             (Some((item, need)), _) => Some(GoalNext::Need {
                 need,
-                what: match (item.kind, &item.detail) {
-                    (InboxKind::Question, Some(asked)) => asked.clone(),
-                    _ => item.what.clone(),
-                },
+                what: asks(item),
             }),
             (None, Some(failed)) => Some(GoalNext::Failed {
                 slice: failed.title.clone(),
@@ -258,12 +260,20 @@ impl Placed<'_> {
     }
 }
 
-/// The desks that count now, by agent.
+/// The desks that count now, by agent, each terminal saying whether it still runs.
 fn held_desks(core: &Core) -> BTreeMap<String, AgentDesk> {
-    match &*core.goals.desks.locked() {
+    let mut desks = match &*core.goals.desks.locked() {
         Some((client, desks)) if core.clients.locked().contains_key(client) => desks.clone(),
         _ => BTreeMap::new(),
+    };
+    for terminal in desks.values_mut().flat_map(|desk| &mut desk.terminals) {
+        terminal.running = session_runs(core, terminal.session);
     }
+    desks
+}
+
+fn session_runs(core: &Core, id: SessionId) -> bool {
+    core.session(id).is_some_and(|session| session.is_running())
 }
 
 /// The agents each agent started, by the agent that did.
@@ -347,9 +357,17 @@ fn slices_of(board: &BoardView, goal: &CardView) -> Vec<GoalSlice> {
         .collect()
 }
 
+/// What an item says it needs, in a line: what an agent asked, else the core's words.
+fn asks(item: &InboxItem) -> String {
+    match (item.kind, &item.detail) {
+        (InboxKind::Question, Some(asked)) => asked.clone(),
+        _ => item.what.clone(),
+    }
+}
+
 /// Puts each need on the goal it is about, by its card or else by the agent asking, and answers
 /// those about no goal.
-fn place_needs(rows: &mut [Placed], needing: &[&InboxItem]) -> Vec<String> {
+fn place_needs(rows: &mut [Placed], needing: &[&InboxItem]) -> Vec<LooseNeed> {
     let mut loose = Vec::new();
     for item in needing {
         let on_card = item.card.as_ref().and_then(|card| {
@@ -366,7 +384,19 @@ fn place_needs(rows: &mut [Placed], needing: &[&InboxItem]) -> Vec<String> {
         };
         match on_card.or_else(by_agent) {
             Some(at) => rows[at].row.needs.push(item.id.clone()),
-            None => loose.push(item.id.clone()),
+            None => loose.extend(item.need.map(|need| {
+                LooseNeed {
+                    id: item.id.clone(),
+                    need,
+                    what: asks(item),
+                    agent: item.agent_id.clone(),
+                    name: item.name.clone(),
+                    project: (item.card.as_ref())
+                        .map(|card| card.project.clone())
+                        .or_else(|| item.project.clone()),
+                    at: item.at,
+                }
+            })),
         }
     }
     loose

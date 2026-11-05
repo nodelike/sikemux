@@ -460,6 +460,7 @@ impl Desks {
                     DeskItem::Terminal { session, title } => desk.terminals.push(DeskTerminal {
                         session: *session,
                         title: title.clone(),
+                        running: false,
                     }),
                 }
             }

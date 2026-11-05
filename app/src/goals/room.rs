@@ -14,7 +14,9 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::NoParams;
-use sikemux_wire::goals::{DeskCounts, GoalAgent, GoalClock, GoalNext, GoalRow, GoalsView};
+use sikemux_wire::goals::{
+    DeskCounts, GoalAgent, GoalClock, GoalNext, GoalRow, GoalsView, LooseNeed,
+};
 use sikemux_wire::inbox::{InboxItem, InboxKind, InboxNeed};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus, NoticeGoal};
 use sikemux_wire::slice::SliceState;
@@ -306,20 +308,13 @@ impl GoalsPane {
                 || row.agents.iter().any(agent_named)
         };
         let scoped: Vec<&GoalRow> = room.view.goals.iter().filter(|row| in_scope(row)).collect();
-        let needs_scoped = |item: &&InboxItem| {
-            scope.is_none_or(|scope| {
-                let folder = (item.card.as_ref().map(|card| card.project.clone()))
-                    .or_else(|| folder_of(bench, item.project.as_deref()))
-                    .or_else(|| item.project.clone());
-                folder.as_deref() == Some(scope)
+        let loose: Vec<&LooseNeed> = (room.view.loose_needs.iter())
+            .filter(|need| {
+                scope.is_none_or(|scope| {
+                    let named = need.project.as_deref();
+                    named == Some(scope) || folder_of(bench, named).as_deref() == Some(scope)
+                })
             })
-        };
-        let items = bench
-            .shown()
-            .map_or(&[][..], |view| view.inbox.items.as_slice());
-        let loose: Vec<&InboxItem> = (room.view.loose_needs.iter())
-            .filter_map(|id| items.iter().find(|item| item.id == *id))
-            .filter(needs_scoped)
             .collect();
         let agent_scoped = |agent: &GoalAgent| {
             scope.is_none_or(|scope| {
@@ -358,16 +353,16 @@ impl GoalsPane {
                 in_scope(row) && listed(room.filter, row.state) && found(row)
             })
             .collect();
-        let need_found = |item: &&InboxItem| {
+        let need_found = |need: &&LooseNeed| {
             find.is_empty()
-                || item.what.to_lowercase().contains(&find)
-                || (item.name.as_deref()).is_some_and(|name| name.to_lowercase().contains(&find))
+                || need.what.to_lowercase().contains(&find)
+                || (need.name.as_deref()).is_some_and(|name| name.to_lowercase().contains(&find))
         };
         let loose_ids: Vec<String> = match room.filter {
             Filter::Active | Filter::Needs => (loose.iter())
                 .copied()
                 .filter(need_found)
-                .map(|item| item.id.clone())
+                .map(|need| need.id.clone())
                 .collect(),
             _ => Vec::new(),
         };
@@ -958,10 +953,12 @@ fn entry_row(pane: &GoalsPane, at: usize, cx: &mut Context<GoalsPane>) -> AnyEle
             Some(row) => goal_row(pane, row, cx),
             None => div().into_any_element(),
         },
-        Some(Entry::Need(id)) => match pane.inbox_item(id, cx) {
-            Some(item) => need_row(pane, &item, cx),
-            None => div().into_any_element(),
-        },
+        Some(Entry::Need(id)) => {
+            match (pane.room.view.loose_needs.iter()).find(|need| need.id == *id) {
+                Some(need) => need_row(pane, need, cx),
+                None => div().into_any_element(),
+            }
+        }
         Some(Entry::Agent(agent)) => match pane.room.view.agents.get(*agent) {
             Some(agent) => agent_row(pane, agent, cx),
             None => div().into_any_element(),
@@ -1129,46 +1126,52 @@ fn goal_row(pane: &GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
 }
 
 /// A row for something that waits on the person about no goal.
-fn need_row(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let chosen = pane.room.chosen == Some(Chosen::Need(item.id.clone()));
+fn need_row(pane: &GoalsPane, need: &LooseNeed, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let chosen = pane.room.chosen == Some(Chosen::Need(need.id.clone()));
     let project = (pane.bench.upgrade()).and_then(|bench| {
         let bench = bench.read(cx);
-        let folder =
-            (item.card.as_ref().map(|card| card.project.as_str())).or(item.project.as_deref())?;
+        let folder = need.project.as_deref()?;
         let named = (bench.projects().iter())
             .find(|project| project.id == folder)
             .map(|project| project.name.clone());
         Some(named.unwrap_or_else(|| project_name(bench, folder)))
     });
-    let state = match item.need {
-        Some(InboxNeed::Fix) => SliceState::Failed,
+    let state = match need.need {
+        InboxNeed::Fix => SliceState::Failed,
         _ => SliceState::NeedsYou,
     };
-    let next = item.need.map(|need| {
-        let who = (item.name.as_ref()).map_or(String::new(), |name| format!(" · @{name}"));
-        format!("{}{who}", need_word(need))
-    });
-    let title = need_title(item);
-    let picks = Chosen::Need(item.id.clone());
-    let opened = item.clone();
-    let id = SharedString::from(format!("need-{}", item.id));
-    let line = two_lines(id.clone(), title, state, next, project, chosen, cx)
-        .on_click(cx.listener(move |pane, event: &ClickEvent, window, cx| {
-            pane.room.keys.focus(window, cx);
-            pane.room.chosen = Some(picks.clone());
-            cx.notify();
-            if event.click_count() == 2 {
-                pane.open(&opened, cx);
+    let who = (need.name.as_ref()).map_or(String::new(), |name| format!(" · @{name}"));
+    let next = Some(format!("{}{who}", need_word(need.need)));
+    let picks = Chosen::Need(need.id.clone());
+    let opened = need.id.clone();
+    let id = SharedString::from(format!("need-{}", need.id));
+    let line = two_lines(
+        id.clone(),
+        need.what.clone(),
+        state,
+        next,
+        project,
+        chosen,
+        cx,
+    )
+    .on_click(cx.listener(move |pane, event: &ClickEvent, window, cx| {
+        pane.room.keys.focus(window, cx);
+        pane.room.chosen = Some(picks.clone());
+        cx.notify();
+        if event.click_count() == 2 {
+            if let Some(item) = pane.inbox_item(&opened, cx) {
+                pane.open(&item, cx);
             }
-        }))
-        .child(ends(
-            div().into_any_element(),
-            crew(pane, item.agent_id.as_slice(), cx).into_any_element(),
-            div().into_any_element(),
-            Some(ui::time::age(item.at)),
-            cx,
-        ));
-    super::with_agent_menu(spaced(id, line), item.agent_id.clone(), &pane.bench)
+        }
+    }))
+    .child(ends(
+        div().into_any_element(),
+        crew(pane, need.agent.as_slice(), cx).into_any_element(),
+        div().into_any_element(),
+        Some(ui::time::age(need.at)),
+        cx,
+    ));
+    super::with_agent_menu(spaced(id, line), need.agent.clone(), &pane.bench)
 }
 
 /// What a need asks, in a line: what an agent asked, else what the core says it is.

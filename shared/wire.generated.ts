@@ -3975,8 +3975,8 @@ export interface GoalsView {
     agents: GoalAgent[];
     /** The open agents working no goal still open, by id. */
     noGoal: string[];
-    /** What waits on the person about no goal, as ids of the inbox's items, in its order. */
-    looseNeeds: string[];
+    /** What waits on the person about no goal, in the inbox's order. */
+    looseNeeds: LooseNeed[];
 }
 
 export interface GoalRow {
@@ -4058,6 +4058,7 @@ export interface GoalSlice {
 
 /** How much is on the desks of a goal's agents. */
 export interface DeskCounts {
+    /** Those still running. */
     terminals: number;
     pages: number;
     simulators: number;
@@ -4097,6 +4098,25 @@ export interface DeskPage {
 export interface DeskTerminal {
     session: number;
     title: string;
+    /**
+     * Its session still runs. A finished one stays on the desk until its agent's turn ends. The
+     * core fills this in; the window leaves it out.
+     */
+    running?: boolean;
+}
+
+/** A row for something that waits on the person about no goal. */
+export interface LooseNeed {
+    /** The inbox item's id, which says what can be done about it. */
+    id: string;
+    need: InboxNeed;
+    /** What an agent asked, else what the core says it is. */
+    what: string;
+    agent: string | null;
+    name: string | null;
+    /** The folder or project id the item names. */
+    project: string | null;
+    at: number;
 }
 
 /**

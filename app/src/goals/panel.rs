@@ -302,7 +302,7 @@ fn seeded_offer(
     cx: &mut Context<GoalsPane>,
 ) -> Option<AnyElement> {
     if pane.seeds_here(item) {
-        return super::rules::offer(pane, true, cx);
+        return super::rules::offer(pane, false, cx);
     }
     let folder = item.project.clone()?;
     Some(
