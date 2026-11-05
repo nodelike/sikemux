@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use super::SessionId;
+use super::{PermissionMode, SessionId};
 
 /// Where an agent stands for the person, in the order lists show the groups:
 /// waiting on them first. Only a running turn is Working; subagents and
@@ -151,7 +151,7 @@ pub struct WorkspaceAgent {
     /// The provider's session, which resumes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resume_id: Option<String>,
-    pub permission_mode: String,
+    pub permission_mode: PermissionMode,
     /// The person's account it runs on, by profile id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub profile_id: Option<String>,

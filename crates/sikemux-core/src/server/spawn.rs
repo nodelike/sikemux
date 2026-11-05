@@ -151,7 +151,7 @@ pub(crate) fn lead_of(
             provider: info.agent_type.unwrap_or_default(),
             launch: None,
             launcher: run.as_ref().map(|run| run.launcher.clone()),
-            permission_mode: run.and_then(|run| PermissionMode::parse(&run.permission_mode).ok()),
+            permission_mode: run.map(|run| run.permission_mode),
         },
         PathBuf::from(cwd),
     ))

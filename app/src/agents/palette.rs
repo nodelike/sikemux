@@ -21,7 +21,6 @@ const RESUME: &str = "resume:";
 /// Agents whose accounts the core signs in to itself; the rest sign in with their own
 /// command, in the sheet Settings › Installed shows.
 const SIGNS_IN: [&str; 2] = ["claude", "codex"];
-const YOLO: &str = "bypass";
 
 impl Workbench {
     pub fn toggle_agent_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -31,7 +30,7 @@ impl Workbench {
         let rows = self.agent_palette_rows(&project);
         let yolo = self
             .this_view()
-            .is_some_and(|view| view.workspace.permission_mode == YOLO);
+            .is_some_and(|view| view.workspace.permission_mode == PermissionMode::Bypass);
         let mode = Rc::new(Cell::new(usize::from(yolo)));
         let choice = Choice {
             options: vec![(Icon::Lock, "safe".into()), (Icon::BoltFill, "yolo".into())],

@@ -147,7 +147,7 @@ async fn launch_terminal(
     let profile = agent.profile_id.as_deref().and_then(|id| book.profile(id));
     let run = TerminalRun {
         resume_id: agent.resume_id.as_deref(),
-        permission_mode: PermissionMode::parse(&agent.permission_mode)?,
+        permission_mode: agent.permission_mode,
         model: agent.model.as_deref(),
         effort: agent.effort.as_deref(),
     };
@@ -310,7 +310,7 @@ pub(crate) async fn start_agent(
         agent_id: agent.id.clone(),
         launcher: launcher_of(&agent),
         cwd: agent.cwd,
-        permission_mode: Some(PermissionMode::parse(&agent.permission_mode)?),
+        permission_mode: Some(agent.permission_mode),
         model: agent.model,
         model_provider: agent.model_provider,
         effort: agent.effort,
@@ -444,7 +444,7 @@ async fn start_new(
             "title": kind,
             "permissionMode": choice
                 .permission_mode
-                .map_or(launcher.permission_mode, |mode| mode.as_str().to_owned()),
+                .unwrap_or(launcher.permission_mode),
             "profileId": launcher.id.strip_prefix(&format!("{kind}:")),
             "resumeId": choice.resume_id,
             "worktree": worktree,

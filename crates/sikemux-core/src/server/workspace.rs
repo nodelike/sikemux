@@ -86,7 +86,7 @@ pub(crate) struct Launcher {
     pub id: String,
     pub label: String,
     pub agent: AgentSpec,
-    pub permission_mode: String,
+    pub permission_mode: PermissionMode,
     /// Whether the agent is ready, signed out or cannot tell, as the core last checked.
     pub status: Option<AgentStatus>,
     /// The program the core last found for the agent.
@@ -137,7 +137,7 @@ struct Saved {
     /// The person's agent accounts, absent until the app first says which they are.
     accounts: Option<Book>,
     /// The mode the person starts agents in, absent until they first choose.
-    permission_mode: Option<String>,
+    permission_mode: Option<PermissionMode>,
     /// The `configOptions` each launcher's last session offered, by launcher, so a chat that
     /// has not started yet offers the same models and efforts.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -201,7 +201,7 @@ struct Published {
 #[derive(Clone, Debug)]
 pub(crate) struct AgentRun {
     pub launcher: String,
-    pub permission_mode: String,
+    pub permission_mode: PermissionMode,
 }
 
 /// The agent's title when it has one beyond its CLI's name.
@@ -313,7 +313,6 @@ fn check_agent(agent: &WorkspaceAgent, saved: &Saved) -> CoreResult<()> {
     }
     if too_long(&agent.title, MAX_TITLE_CHARS)
         || too_long(&agent.provider, 64)
-        || too_long(&agent.permission_mode, 64)
         || [
             &agent.lead,
             &agent.resume_id,
@@ -599,12 +598,9 @@ impl Workspaces {
     }
 
     /// Keeps the mode agents start in, and says whether it changed.
-    fn set_permission_mode(&self, mode: String) -> CoreResult<bool> {
-        if too_long(&mode, 64) {
-            return Err("that is not a permission mode".into());
-        }
+    fn set_permission_mode(&self, mode: PermissionMode) -> CoreResult<bool> {
         self.change(|saved| {
-            let changed = saved.permission_mode.as_ref() != Some(&mode);
+            let changed = saved.permission_mode != Some(mode);
             saved.permission_mode = Some(mode);
             Ok(changed)
         })
@@ -878,7 +874,7 @@ impl Workspaces {
             renamed: false,
             lead: lead.map(|lead| lead.id),
             resume_id: launch.resume_id.clone(),
-            permission_mode: launch.permission_mode.as_str().to_owned(),
+            permission_mode: launch.permission_mode,
             profile_id,
             model: launch.model.clone(),
             model_provider: launch.model_provider.clone(),
@@ -925,7 +921,7 @@ impl Workspaces {
             if let Some(kept) = saved.kept_mut(chat.agent_id()) {
                 let agent = &mut kept.agent;
                 agent.resume_id = launch.resume_id.or(agent.resume_id.take());
-                agent.permission_mode = launch.permission_mode.as_str().to_owned();
+                agent.permission_mode = launch.permission_mode;
                 agent.model = launch.model;
                 agent.effort = launch.effort;
                 kept.account = launch.account;
@@ -1066,7 +1062,7 @@ impl Workspaces {
                 reconnecting: None,
                 started_by: None,
                 launcher: None,
-                permission_mode: PermissionMode::parse(&agent.permission_mode).unwrap_or_default(),
+                permission_mode: agent.permission_mode,
                 model: None,
                 model_provider: None,
                 effort: None,
@@ -1136,10 +1132,7 @@ impl Workspaces {
             spaces: saved.spaces.clone(),
             agents: saved.agents.iter().map(|kept| kept.agent.clone()).collect(),
             pinned: saved.pinned.clone(),
-            permission_mode: saved
-                .permission_mode
-                .clone()
-                .unwrap_or_else(|| PermissionMode::Bypass.as_str().into()),
+            permission_mode: saved.permission_mode.unwrap_or(PermissionMode::Bypass),
             disabled_plugins: Default::default(),
             launchers: published
                 .launchers
@@ -1263,7 +1256,7 @@ pub(crate) fn set_spaces(core: &Core, params: SpacesParams) -> CoreResult<()> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DefaultsParams {
-    permission_mode: String,
+    permission_mode: PermissionMode,
 }
 
 /// Keeps the mode agents start in, and offers the launchers in it.
@@ -1303,7 +1296,7 @@ pub(crate) struct AgentPatch {
     title: Option<String>,
     renamed: Option<bool>,
     provider: Option<String>,
-    permission_mode: Option<String>,
+    permission_mode: Option<PermissionMode>,
     keep_alive: Option<bool>,
     #[serde(default, deserialize_with = "given")]
     lead: Option<Option<String>>,
@@ -1482,7 +1475,7 @@ mod tests {
                 config_path: Some("/Users/me/.claude-work".into()),
                 ..AgentSpec::new("claude")
             },
-            permission_mode: "bypass".into(),
+            permission_mode: PermissionMode::Bypass,
             status: None,
             program: Some("/usr/local/bin/claude".into()),
         }
@@ -1819,7 +1812,7 @@ mod tests {
                 ..Book::default()
             })
             .unwrap();
-        workspaces.set_permission_mode("bypass".into()).unwrap();
+        workspaces.set_permission_mode(PermissionMode::Bypass).unwrap();
         let offered = workspaces.offered();
         let ids: Vec<&str> = offered
             .iter()
@@ -1846,7 +1839,7 @@ mod tests {
             Some("~/.work")
         );
         assert_eq!(by_id("codex:cx").label, "Codex");
-        assert_eq!(by_id("opencode").permission_mode, "workspace-write");
-        assert_eq!(by_id("grok").permission_mode, "bypass");
+        assert_eq!(by_id("opencode").permission_mode, PermissionMode::WorkspaceWrite);
+        assert_eq!(by_id("grok").permission_mode, PermissionMode::Bypass);
     }
 }

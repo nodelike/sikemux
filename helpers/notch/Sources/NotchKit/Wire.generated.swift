@@ -311,7 +311,7 @@ struct LauncherInfo: Codable, Hashable {
     let id: String
     let provider: String
     let label: String
-    let permissionMode: String
+    let permissionMode: PermissionMode
     /// The models in `config_options`, as a picker shows them.
     let model: ConfigPicker?
     /// How hard the model thinks, as a picker shows it.

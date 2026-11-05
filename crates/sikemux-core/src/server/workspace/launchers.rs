@@ -110,7 +110,7 @@ pub(super) fn launcher_info(saved: &Saved, launcher: &Launcher) -> LauncherInfo 
         id: launcher.id.clone(),
         provider: launcher.agent.provider.clone(),
         label: launcher.label.clone(),
-        permission_mode: launcher.permission_mode.clone(),
+        permission_mode: launcher.permission_mode,
         config_options,
         status: launcher
             .status
@@ -212,17 +212,16 @@ impl Workspaces {
             .unwrap_or_default();
         let mut offered = Vec::new();
         for def in AGENTS.iter() {
-            let permission_mode = match saved.permission_mode.as_deref() {
+            let permission_mode = match saved.permission_mode {
                 Some(mode) if def.bypass => mode,
-                None if def.bypass => PermissionMode::Bypass.as_str(),
-                _ => PermissionMode::WorkspaceWrite.as_str(),
-            }
-            .to_owned();
+                None if def.bypass => PermissionMode::Bypass,
+                _ => PermissionMode::WorkspaceWrite,
+            };
             let launcher = |id: String, label: String, agent: AgentSpec| Launcher {
                 id,
                 label,
                 agent,
-                permission_mode: permission_mode.clone(),
+                permission_mode,
                 status: None,
                 program: None,
             };
@@ -345,7 +344,7 @@ impl Workspaces {
             env: built.env,
             mcp_servers: Vec::new(),
             resume_id: None,
-            permission_mode: PermissionMode::parse(&launcher.permission_mode)?,
+            permission_mode: launcher.permission_mode,
             model,
             model_provider: provider.map(str::to_owned),
             effort: None,

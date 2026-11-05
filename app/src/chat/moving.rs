@@ -117,7 +117,7 @@ impl Workbench {
             .kind(&saved.provider)
             .is_some_and(|kind| kind.bypass);
         if can {
-            let on = saved.permission_mode == "bypass";
+            let on = saved.permission_mode == PermissionMode::Bypass;
             let mode = if on {
                 PermissionMode::WorkspaceWrite
             } else {

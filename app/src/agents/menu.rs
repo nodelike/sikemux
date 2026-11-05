@@ -272,7 +272,7 @@ impl AgentMenu {
                     })),
             );
         if self.can_skip_permissions {
-            let yolo = agent.permission_mode == "bypass";
+            let yolo = agent.permission_mode == PermissionMode::Bypass;
             let mode = if yolo {
                 PermissionMode::WorkspaceWrite
             } else {

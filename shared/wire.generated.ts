@@ -83,7 +83,7 @@ export interface Workspace {
     agents?: WorkspaceAgent[];
     pinned?: PinnedChat[];
     /** The mode agents that can bypass permissions start in. */
-    permissionMode?: string;
+    permissionMode?: PermissionMode;
     /** The plugins the person switched off, by id. */
     disabledPlugins?: string[];
     launchers: LauncherInfo[];
@@ -265,7 +265,7 @@ export interface WorkspaceAgent {
     lead?: string;
     /** The provider's session, which resumes it. */
     resumeId?: string;
-    permissionMode: string;
+    permissionMode: PermissionMode;
     /** The person's account it runs on, by profile id. */
     profileId?: string;
     model?: string;
@@ -296,6 +296,9 @@ export interface WorkspaceAgent {
     /** Unix milliseconds. */
     createdAt?: number;
 }
+
+/** Whether a chat agent asks before it acts outside its workspace, or never asks. */
+export type PermissionMode = "workspace-write" | "bypass";
 
 /** The checkout an agent was given, as its workspace record keeps it. */
 export interface AgentWorktree {
@@ -346,7 +349,7 @@ export interface LauncherInfo {
     id: string;
     provider: string;
     label: string;
-    permissionMode: string;
+    permissionMode: PermissionMode;
     /**
      * The `configOptions` the provider's last session offered, such as its
      * models and effort levels, or null before one has started.
@@ -553,9 +556,6 @@ export interface ChatInfo {
 }
 
 export type ChatState = "starting" | "ready" | "asleep" | "stopped";
-
-/** Whether a chat agent asks before it acts outside its workspace, or never asks. */
-export type PermissionMode = "workspace-write" | "bypass";
 
 /** Something an agent is waiting on a person for. */
 export interface Attention {

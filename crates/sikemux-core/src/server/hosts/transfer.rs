@@ -317,7 +317,7 @@ pub(super) async fn take_here(core: &Arc<Core>, params: Value, body: Option<Rece
         draft.insert("title".into(), chat.title.into());
         draft.insert("renamed".into(), chat.renamed.into());
         draft.insert("resumeId".into(), chat.resume_id.into());
-        draft.insert("permissionMode".into(), mode.clone().into());
+        draft.insert("permissionMode".into(), mode.as_str().into());
         draft.insert("asleep".into(), true.into());
         for (key, value) in [("model", chat.model), ("effort", chat.effort)] {
             if let Some(value) = value {

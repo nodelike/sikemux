@@ -9,6 +9,8 @@ use std::path::Path;
 use serde::Deserialize;
 use serde_json::Value;
 
+use sikemux_wire::protocol::PermissionMode;
+
 use super::{check_agent, dress, is_chat_provider, Kept, Saved};
 use sikemux_wire::protocol::{
     ChatAccount, CodeHostChoice, PinnedChat, ProjectInfo, SpaceInfo, WorkspaceAgent,
@@ -179,12 +181,12 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
             continue;
         };
         let provider = text(agent, "type").unwrap_or_default();
-        let permission_mode = text(agent, "permissionMode").unwrap_or_else(|| {
-            match agent["skipPermissions"].as_bool() {
-                Some(true) => "bypass".into(),
-                _ => "workspace-write".into(),
-            }
-        });
+        let permission_mode = text(agent, "permissionMode")
+            .and_then(|mode| PermissionMode::parse(&mode).ok())
+            .unwrap_or(match agent["skipPermissions"].as_bool() {
+                Some(true) => PermissionMode::Bypass,
+                _ => PermissionMode::WorkspaceWrite,
+            });
         let pty_id = agent["ptyId"].as_u64();
         let asleep = earlier
             .chats
@@ -256,6 +258,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
         })
         .collect();
     if saved.permission_mode.is_none() {
-        saved.permission_mode = text(prefs, "defaultAgentPermissionMode");
+        saved.permission_mode = text(prefs, "defaultAgentPermissionMode")
+            .and_then(|mode| PermissionMode::parse(&mode).ok());
     }
 }

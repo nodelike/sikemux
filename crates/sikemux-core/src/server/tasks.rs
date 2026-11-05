@@ -819,7 +819,7 @@ fn resolve(
 fn bypasses(core: &Core, agent_id: Option<&str>) -> bool {
     agent_id
         .and_then(|agent_id| core.workspaces.run_of(agent_id))
-        .is_some_and(|run| run.permission_mode == PermissionMode::Bypass.as_str())
+        .is_some_and(|run| run.permission_mode == PermissionMode::Bypass)
 }
 
 fn trust_for(

@@ -7,6 +7,7 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_view::prefs::{MidTurnSend, RailDensity};
+use sikemux_wire::protocol::PermissionMode;
 
 use crate::core::Ask;
 use crate::settings::rows::{self, Choice};
@@ -94,13 +95,17 @@ impl Fields {
 }
 
 /// Each mode agents can start in: its word in the core, its name, and what it does.
-const MODES: [(&str, &str, &str); 2] = [
+const MODES: [(PermissionMode, &str, &str); 2] = [
     (
-        "workspace-write",
+        PermissionMode::WorkspaceWrite,
         "Normal",
         "Use the agent's normal approval and sandbox behavior.",
     ),
-    ("bypass", "YOLO", "Bypass approvals and sandboxing."),
+    (
+        PermissionMode::Bypass,
+        "YOLO",
+        "Bypass approvals and sandboxing.",
+    ),
 ];
 
 pub fn boundary(
@@ -112,23 +117,19 @@ pub fn boundary(
     let t = Tokens::get(cx).clone();
     let current = bench
         .this_view()
-        .map(|view| view.workspace.permission_mode.as_str())
-        .unwrap_or("workspace-write");
-    let current = if current == "bypass" {
-        "bypass"
-    } else {
-        "workspace-write"
-    };
+        .map_or(PermissionMode::WorkspaceWrite, |view| {
+            view.workspace.permission_mode
+        });
     let cards = div()
         .flex()
         .gap(SPACE_2H)
         .p(SPACE_4)
         .children(MODES.iter().map(|(mode, name, detail)| {
             let chosen = *mode == current;
-            let danger = *mode == "bypass";
+            let danger = *mode == PermissionMode::Bypass;
             let this = this.clone();
             div()
-                .id(SharedString::from(format!("launch-mode-{mode}")))
+                .id(SharedString::from(format!("launch-mode-{}", mode.as_str())))
                 .flex_1()
                 .min_w_0()
                 .flex()

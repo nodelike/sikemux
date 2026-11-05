@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::WorkspaceAgent;
+use super::{PermissionMode, WorkspaceAgent};
 
 /// A project on this host.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -194,7 +194,7 @@ pub struct LauncherInfo {
     pub id: String,
     pub provider: String,
     pub label: String,
-    pub permission_mode: String,
+    pub permission_mode: PermissionMode,
     /// The `configOptions` the provider's last session offered, such as its
     /// models and effort levels, or null before one has started.
     pub config_options: Value,
@@ -244,7 +244,7 @@ pub struct Workspace {
     pub pinned: Vec<PinnedChat>,
     /// The mode agents that can bypass permissions start in.
     #[serde(default)]
-    pub permission_mode: String,
+    pub permission_mode: PermissionMode,
     /// The plugins the person switched off, by id.
     #[serde(default)]
     pub disabled_plugins: Vec<String>,
