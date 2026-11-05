@@ -1265,6 +1265,6 @@ pub(crate) struct ChatRecord {
 pub(super) fn permission_gone() -> CoreError {
     CoreError::of(
         ErrorKind::NotPending,
-        "That permission request is no longer waiting",
+        "That permission request is no longer pending",
     )
 }
