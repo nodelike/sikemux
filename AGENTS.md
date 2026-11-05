@@ -185,7 +185,7 @@
 - A change that adds, removes or renames something users see updates its page in
   `docs-site/src/content/docs/` in the same commit.
 - The pages under `reference/` are generated: run `pnpm docs:reference` after changing
-  a default shortcut, the CLI's help or `browser/tools.json`. CI fails while they are
+  a default shortcut, the CLI's help or `tools/tools.json`. CI fails while they are
   out of date.
 
 ## UI rules

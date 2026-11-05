@@ -13,8 +13,8 @@ export function readRepo(path, at) {
 }
 
 export function loadSurface(plugins = SIGNED_IN_PLUGINS, at = null) {
-  const manifest = JSON.parse(readRepo('browser/tools.json', at));
-  const guide = readRepo(`browser/${manifest.guide.file}`, at);
+  const manifest = JSON.parse(readRepo('tools/tools.json', at));
+  const guide = readRepo(`tools/${manifest.guide.file}`, at);
   const byMethod = new Map(manifest.tools.map((tool) => [tool.method, tool.name]));
   const pluginTools = plugins.flatMap((folder) => {
     const plugin = JSON.parse(readRepo(`plugins/${folder}/manifest.json`, at));

@@ -101,7 +101,7 @@ await emit(
 );
 
 const { tools } = JSON.parse(
-  await readFile(resolve(root, "browser/tools.json"), "utf8"),
+  await readFile(resolve(root, "tools/tools.json"), "utf8"),
 );
 const groups = new Map();
 for (const tool of tools) {

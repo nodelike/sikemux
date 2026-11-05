@@ -6,8 +6,8 @@ use std::sync::LazyLock;
 
 use serde_json::{json, Value};
 
-pub const TOOLS: &str = include_str!("../../../../browser/tools.json");
-pub const GUIDE: &str = include_str!("../../../../browser/SIKEMUX_GUIDE.md");
+pub const TOOLS: &str = include_str!("../../../../tools/tools.json");
+pub const GUIDE: &str = include_str!("../../../../tools/SIKEMUX_GUIDE.md");
 
 static SERVED: LazyLock<Result<Value, String>> = LazyLock::new(|| {
     let manifest: Value = serde_json::from_str(TOOLS).map_err(|error| error.to_string())?;

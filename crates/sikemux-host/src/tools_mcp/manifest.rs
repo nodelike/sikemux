@@ -1,4 +1,4 @@
-//! The tool surface: browser/tools.json and the guide, as the running core
+//! The tool surface: tools/tools.json and the guide, as the running core
 //! serves them, or as this binary was built when the core cannot be asked.
 
 use serde::Deserialize;
@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 use sikemux_core::cli::manifest::{GUIDE, TOOLS};
 use sikemux_core::cli::protocol::REVIEWER_OFFER;
 
-/// A tool from browser/tools.json, or one a plugin offers, which the app
+/// A tool from tools/tools.json, or one a plugin offers, which the app
 /// describes in the same shape.
 #[derive(Deserialize)]
 pub struct Tool {
@@ -49,7 +49,7 @@ impl Manifest {
             tools: Vec<Tool>,
         }
         let built: Built =
-            serde_json::from_str(TOOLS).expect("browser/tools.json is a valid tool manifest");
+            serde_json::from_str(TOOLS).expect("tools/tools.json is a valid tool manifest");
         Self {
             guide: built.guide,
             guide_text: GUIDE.to_owned(),

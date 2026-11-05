@@ -8,10 +8,10 @@ import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
 const manifest = JSON.parse(
-  await readFile(resolve(root, "browser/tools.json"), "utf8"),
+  await readFile(resolve(root, "tools/tools.json"), "utf8"),
 );
 const guide = await readFile(
-  resolve(root, `browser/${manifest.guide.file}`),
+  resolve(root, `tools/${manifest.guide.file}`),
   "utf8",
 );
 

@@ -98,7 +98,7 @@ jobs:
               echo "Skipped $name: nothing it checks changed" >>"$GITHUB_STEP_SUMMARY"
             fi
           }
-          area rust '^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|browser/|server/protocol/|rust-toolchain\.toml$)'
+          area rust '^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|server/protocol/|rust-toolchain\.toml$)'
           area simulator '^(helpers/sim/|crates/sikemux-simulator/|Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|rust-toolchain\.toml$)'
           area packaging '^(scripts/build-linux\.sh$|scripts/build-cli-sidecar\.mjs$|packaging/linux/|packaging/icons/|crates/sikemux-core/resources/sikemux_pi_tools\.ts$)'
 

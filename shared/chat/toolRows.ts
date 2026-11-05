@@ -1,4 +1,4 @@
-/* The icons our tools' rows may name in browser/tools.json and the plugin manifests; the generator checks them. */
+/* The icons our tools' rows may name in tools/tools.json and the plugin manifests; the generator checks them. */
 export type ToolRowIcon =
     | "activity"
     | "book"

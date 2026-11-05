@@ -9,7 +9,7 @@ use super::tool_rows::SPECS;
 use super::tools::sikemux_tool_name;
 
 /// How a row of one of our tools reads, declared beside the tool's schema in
-/// browser/tools.json or its plugin's manifest. The first template whose every
+/// tools/tools.json or its plugin's manifest. The first template whose every
 /// `{argument}` the call was given is filled in.
 pub(super) struct Spec {
     pub verb: &'static str,

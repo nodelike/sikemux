@@ -158,7 +158,7 @@ Read [DESIGN.md](../../DESIGN.md) before changing anything visual.
 ### The browser engine
 
 `crates/sikemux-browser` is the browser with no UI toolkit: tabs, their pages, history,
-downloads and the agents' browser tools (`tools.rs`, declared in `browser/tools.json`). The
+downloads and the agents' browser tools (`tools.rs`, declared in `tools/tools.json`). The
 desk holds a `BrowserManager` and hands it the window to put pages in; the app answers the
 core's browser calls by running them on it.
 
@@ -245,8 +245,8 @@ same session when its account's sign-in changes and, when the person turned it o
 at a usage limit to the next signed-in account.
 
 **Harness tools.** Agents on both transports get Sikemux's tools through
-`sikemux-host --tools-mcp`. Tools are declared once in `browser/tools.json`, with the details in
-`browser/SIKEMUX_GUIDE.md`, which agents fetch with the `guide` tool. An agent keeps its MCP
+`sikemux-host --tools-mcp`. Tools are declared once in `tools/tools.json`, with the details in
+`tools/SIKEMUX_GUIDE.md`, which agents fetch with the `guide` tool. An agent keeps its MCP
 process across an update, so the process takes both from the core and uses its own copy only
 when the core cannot be reached. A tool call travels:
 
@@ -298,7 +298,7 @@ matching `:generate` script and commit what it writes:
 | Check                            | What it compares                                                                                                                        |
 | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `wire:check`                     | The types clients read the core's JSON with (TypeScript for the phone and web app, Swift for the notch) against the Rust that writes it |
-| `agent-tools:check`              | `crates/sikemux-base/src/cli/methods.rs` against `browser/tools.json`                                                                   |
+| `agent-tools:check`              | `crates/sikemux-base/src/cli/methods.rs` against `tools/tools.json`                                                                   |
 | `agent-catalog:check`            | The core's Rust copy of the agents' catalog against `sikemux-core/src/assets/agent-catalog.json`                                        |
 | `docs:reference:check`           | The docs site's reference pages against the shortcuts, CLI help and tools                                                               |
 | `grammars:check`, `syntax:check` | The grammar list and the GPUI app's highlighting bundle                                                                                 |
