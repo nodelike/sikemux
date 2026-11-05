@@ -11,7 +11,7 @@ import { rowOf, toolKind, toolPath } from '@shared/chat/toolLabels';
 import type { ChatRows } from '@shared/chat/rows';
 import type { ChatCommandInfo, ContextUsage, PermissionAsk, ToolCall } from '@shared/chat/types';
 import { isYolo } from '@shared/agents/agentLaunch';
-import { agentLabel, canSwitchMode, useAgentBrand } from '@shared/agents/catalog';
+import { agentLabel, agentReadsUsage, canSwitchMode, useAgentBrand } from '@shared/agents/catalog';
 import { problem } from '@/core/problem';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';
@@ -186,7 +186,7 @@ function usageColor(usage: ContextUsage, provider: string, brand: string | undef
   const tone = contextTone(usage);
   if (tone === 'hot') return colors.danger;
   if (tone === 'warm') return colors.warn;
-  return (provider === 'claude' || provider === 'codex') && brand ? brand : colors.accent;
+  return agentReadsUsage(provider) && brand ? brand : colors.accent;
 }
 
 const RING = 14;

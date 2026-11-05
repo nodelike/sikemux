@@ -7,7 +7,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { agentLabel, isAgentType } from "@shared/agents/catalog";
+import { agentLabel } from "@shared/agents/catalog";
 import {
   ChatAgentContext,
   ChatSubagentsContext,
@@ -96,8 +96,7 @@ export function SharedChat({
     [foldedLive],
   );
 
-  const provider = chat?.provider;
-  const type = isAgentType(provider) ? provider : "claude";
+  const type = chat?.provider ?? "agent";
   const chatAgent = useMemo(() => ({ id: "", type }), [type]);
   const origin = useMemo(() => ({ readImage: session.readImage }), [session]);
   const toolDetail = useCallback(

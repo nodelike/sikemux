@@ -1,5 +1,6 @@
 import type { ShareClientMessage, ShareServerMessage } from "../../server/protocol/generated/types";
 import { ShareCloseCode } from "../../server/protocol/generated/types";
+import { setAgentCatalog } from "../agents/catalog";
 import { applyChanges, emptyChat, fromView, withPage } from "../chat/rows";
 import type { ChatChange, ChatRows, ToolDetail } from "../chat/types";
 import type { ShareAsk, SharedChat, ShareFrame, ShareReply } from "../wire.generated";
@@ -71,6 +72,8 @@ export interface ShareSessionOptions {
     now?: () => number;
 }
 
+/** Whose catalog a share's agents are named from: the host that shared it, not one this client is on. */
+const SHARING_CORE = "share";
 const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_CAP_MS = 60_000;
 /** A question the host has not answered in this long gets no answer. */
@@ -394,6 +397,7 @@ export class ShareSession {
         this.cancelFrame = undefined;
         this.pending = [];
         this.chat = chat;
+        setAgentCatalog(SHARING_CORE, chat.agents ?? []);
         if (attachment.status !== "live") {
             this.status = "missing";
             this.feed = null;

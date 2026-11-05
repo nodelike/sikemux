@@ -5,7 +5,7 @@ import type { ChatMessage, SubagentCard, ToolDetail } from "@shared/chat/types";
 export const ChatAgentContext = createContext<{
   id: string;
   type: Agent["type"];
-}>({ id: "", type: "claude" });
+}>({ id: "", type: "agent" });
 
 /** Every subagent card the chat holds, and each subagent's own rows, by its session. */
 export const ChatSubagentsContext = createContext<{

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::catalog::CatalogAgent;
 use crate::chat::ToolDetail;
 use sikemux_wire::protocol::ChatAttachment;
 
@@ -54,6 +55,9 @@ pub struct SharedChat {
     pub cwd: Option<PathBuf>,
     /// The home folder on the host, so a viewer can shorten its paths.
     pub home: Option<PathBuf>,
+    /// The agents the host knows, so a viewer with no core of its own can name them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agents: Vec<CatalogAgent>,
 }
 
 /// What a viewer asks the host, numbered by `id` so its answer finds it.

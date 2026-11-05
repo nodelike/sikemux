@@ -2,7 +2,6 @@ import { useMemo } from "react";
 import { AgentBuddy } from "./Buddy";
 import { useStore } from "./store";
 import { AgentIcon } from "@shared/ui/Icons";
-import { isAgentType } from "@shared/agents/catalog";
 
 /** An agent's buddy when buddies are on and the agent is known, otherwise the mark of the CLI it runs, or nothing for one Sikemux does not know. */
 export function AgentMark({
@@ -25,7 +24,7 @@ export function AgentMark({
       <AgentBuddy agent={face} size={size} className="agent-glyph buddy-mark" />
     );
   const type = agent?.type ?? cli;
-  return type && isAgentType(type) ? (
+  return type ? (
     <AgentIcon type={type} size={size} className={`agent-glyph ${type}`} />
   ) : null;
 }

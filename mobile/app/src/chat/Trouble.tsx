@@ -3,18 +3,13 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { ConnectionLike } from '@sikemux/native';
 
 import type { ChatRows } from '@shared/chat/rows';
-import { agentLabel } from '@shared/agents/catalog';
+import { agentLabel, agentMaker } from '@shared/agents/catalog';
 import { useHostCall } from '@/core/hostCalls';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import type { ChatSession } from './session';
 
 /** The account a chat runs on and the signed-in ones that keep its chats too, as the host's `chatAccounts` answers. */
-
-/** Whose servers a provider's turns go to, for saying which the network lost. */
-function servedBy(provider: string) {
-  return provider === 'claude' ? 'Anthropic' : provider === 'codex' ? 'OpenAI' : 'the model provider';
-}
 
 /** Whether `at`, in Unix milliseconds, is still to come; it turns false as `at` passes. */
 function useAhead(at: number | undefined) {
@@ -105,7 +100,7 @@ export function Trouble({
           <Icon name="IconWarning" size={14} color={colors.danger} />
         </View>
         <Text style={styles.text} selectable>
-          {network ? `Lost connection to ${servedBy(provider)}. Sikemux sends it again when you're back online.` : state.error}
+          {network ? `Lost connection to ${agentMaker(provider) ?? 'the model provider'}. Sikemux sends it again when you're back online.` : state.error}
         </Text>
       </View>
       {network && failure?.details ? (

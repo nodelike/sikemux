@@ -576,7 +576,7 @@ export function IconHermes({ size, className }: IconProps) {
     );
 }
 
-const AGENT_ICONS: Record<AgentType, (props: IconProps) => ReactNode> = {
+const AGENT_ICONS: Partial<Record<AgentType, (props: IconProps) => ReactNode>> = {
     claude: IconClaude,
     codex: IconCodex,
     hermes: IconHermes,
@@ -589,7 +589,7 @@ const AGENT_ICONS: Record<AgentType, (props: IconProps) => ReactNode> = {
 
 export function AgentIcon({ type, size, className }: { type: AgentType; size?: number; className?: string }) {
     const Icon = AGENT_ICONS[type];
-    return <Icon size={size} className={className} />;
+    return Icon ? <Icon size={size} className={className} /> : null;
 }
 
 export function IconRundeck({ size = 14, className }: IconProps) {

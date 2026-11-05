@@ -3285,6 +3285,8 @@ export interface SharedChat {
     cwd: string | null;
     /** The home folder on the host, so a viewer can shorten its paths. */
     home: string | null;
+    /** The agents the host knows, so a viewer with no core of its own can name them. */
+    agents?: CatalogAgent[];
 }
 
 export type ChatAttachment =

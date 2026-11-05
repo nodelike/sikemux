@@ -363,6 +363,7 @@ fn snapshot(
             model: info.as_ref().and_then(|info| info.model.clone()),
             cwd: info.as_ref().map(|info| info.cwd.clone()),
             home: std::env::var_os("HOME").map(PathBuf::from),
+            agents: crate::server::catalog::view(),
         },
         attachment,
     }
