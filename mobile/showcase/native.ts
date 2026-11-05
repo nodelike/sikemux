@@ -3,6 +3,7 @@
  * showcase: one Mac is already paired and answers from the demo world instead
  * of the network.
  */
+import type { MdElement } from '@shared/markdown/types';
 import AGENT_CATALOG from '../../shared/agents/catalog.generated.json';
 import type { ChatMessage } from '@shared/chat/types';
 import type { CoreCalls } from '@shared/wire.generated';
@@ -219,7 +220,7 @@ function view() {
 async function withTrees(rows: ChatMessage[]): Promise<ChatMessage[]> {
   const parts = rows.flatMap((row) => row.parts.flatMap((part) => (part.kind === 'text' || part.kind === 'thought' ? [part] : [])));
   const response = await fetch('/showcase/markdown', { method: 'POST', body: JSON.stringify(parts.map((part) => part.text)) });
-  const trees = (await response.json()) as unknown[][];
+  const trees = (await response.json()) as MdElement[][];
   parts.forEach((part, index) => {
     part.md = { blocks: trees[index], n: part.text.length };
   });
