@@ -69,22 +69,9 @@ import { DiffBody } from "./DiffView";
 import { LiveSeconds } from "../transcript/LiveSeconds";
 import { Shimmer } from "../ui/Shimmer";
 import { useCutOff } from "../transcript/useCutOff";
-import {
-  toolDetail,
-  toolKind,
-  toolPath,
-  toolRunning,
-  toolTarget,
-  toolUrl,
-} from "@shared/chat/toolLabels";
+import { toolKind, toolRunning, toolUrl } from "@shared/chat/toolLabels";
 import { useToolDetail } from "@shared/chat/useToolDetail";
-import {
-  OUTPUT_FOLD_LINES,
-  toolElapsed,
-  toolIconName,
-  toolRowKind,
-  type ToolIconName,
-} from "@shared/chat/toolView";
+import { OUTPUT_FOLD_LINES, toolElapsed, toolIconName, type ToolIconName } from "@shared/chat/toolView";
 import { attachmentName } from "@shared/chat/transcript";
 import type { ChatPart, ToolCall, ToolOutput } from "@shared/chat/types";
 
@@ -261,13 +248,13 @@ export const ToolRow = memo(function ToolRow({
   );
   const targetRef = useRef<HTMLSpanElement>(null);
   const tool = part.tool;
-  const rowKind = toolRowKind(tool);
+  const rowKind = tool.row.action;
   const { diff, output, failure } = part;
   const status = tool.status ?? "pending";
   const running = toolRunning(tool);
-  const file = useFileRef(toolPath(tool));
-  const target = toolTarget(tool);
-  const detail = toolDetail(tool);
+  const file = useFileRef(tool.row.path);
+  const target = tool.row.target;
+  const detail = tool.row.detail;
   const linked = !file && toolUrl(target) !== null;
   const command = tool.kind === "execute" ? tool.title.trim() : null;
   /* The row holds one line of a command, so the whole of it is worth

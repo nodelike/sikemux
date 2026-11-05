@@ -1,0 +1,43 @@
+{
+  "fields": {
+    "DeviceView": "workspace chats sessions attentions inbox faceStyle",
+    "Workspace": "projects launchers",
+    "ProjectInfo": "id name path",
+    "LauncherInfo": "id provider label permissionMode model effort",
+    "ConfigPicker": "id current choices",
+    "ConfigChoice": "value label",
+    "ChatInfo": "agentId name provider cwd reconnecting",
+    "SessionInfo": "id project agentId agentName agentType",
+    "Attention": "id agentId choices",
+    "PermissionChoices": "allowOnce allowAlways reject command title",
+    "Inbox": "items working agents rollup",
+    "AgentShown": "agentId title group subagents tasks nextTrigger calledAt face",
+    "AgentFace": "pack shape color box",
+    "FaceStyle": "motion",
+    "AgentRollup": "subagents tasks",
+    "InboxItem": "id tier kind agentId name cli project title what detail at session card requestId questionId url",
+    "InboxCard": "title",
+    "RemoteStatus": "pending",
+    "PendingDevice": "id name platform expiresAt",
+    "AgentQuestion": "id text choices viaNote",
+    "QuestionChoice": "label",
+    "CatalogAgent": "type label",
+    "Preferences": "notch",
+    "Response.ChatBegun": "agentId",
+    "Event.Changed": "topic"
+  },
+  "roots": ["DeviceAccess"],
+  "requests": [
+    "WatchView",
+    "RemoteStatus",
+    "FocusAgent",
+    "AcpPrompt",
+    "AcpSteer",
+    "AcpPermissionReply",
+    "AnswerPairing",
+    "StartChat"
+  ],
+  "calls": ["preferences", "agentCatalog", "questions", "answerQuestion"],
+  "events": ["Changed", "Remote", "DeviceView"],
+  "declared": ["NotchSettings"]
+}

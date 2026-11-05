@@ -32,6 +32,14 @@ pub enum Op {
 /// The changes that turn one tree into the next, in order.
 pub type Patch = Vec<Op>;
 
+/// What the core sends with a piece of an answer: the answer's length once it is added, and the
+/// changes that bring the tree up to it.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Change {
+    pub n: usize,
+    pub o: Patch,
+}
+
 fn units(text: &str) -> usize {
     text.encode_utf16().count()
 }

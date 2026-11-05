@@ -9,7 +9,7 @@ pub mod paths;
 mod reference;
 mod url;
 
-pub use doc::{diff, Doc, Op, Patch};
+pub use doc::{diff, Change, Doc, Op, Patch};
 pub use reference::name as reference;
 
 use pulldown_cmark::{

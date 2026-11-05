@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { rowOf, toolKind, toolPath } from '@shared/chat/toolLabels';
+import { toolKind } from '@shared/chat/toolLabels';
 import type { PermissionAsk, ToolCall } from '@shared/chat/types';
 import { agentLabel } from '@shared/agents/catalog';
 import { haptics } from '@/ui/haptics';
@@ -21,7 +21,7 @@ export function asked(tool: ToolCall): string {
   const command = (tool.rawInput as { command?: unknown } | undefined)?.command;
   if (typeof command === 'string' && command.trim()) return command.trim();
   if (Array.isArray(command) && command.every((word) => typeof word === 'string')) return command.join(' ');
-  return toolPath(tool) ?? rowOf(tool).target;
+  return tool.row.path ?? tool.row.target;
 }
 
 /**

@@ -12,7 +12,7 @@ const remembered = new Map<
 >();
 
 function kindOf(options: MarkdownOptions): string {
-  return `${+options.gfm}${+options.htmlAsText}${+options.fileLinks}${+!!options.filePaths}${+!!options.references}`;
+  return `${+!!options.gfm}${+!!options.htmlAsText}${+!!options.fileLinks}${+!!options.filePaths}${+!!options.references}`;
 }
 
 function recall(

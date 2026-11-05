@@ -892,7 +892,6 @@ pub struct ToolCall {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// What its row shows, worked out from the rest.
-    #[serde(default)]
     pub row: Box<ToolRow>,
 }
 

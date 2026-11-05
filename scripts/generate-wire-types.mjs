@@ -16,6 +16,7 @@ const WIRE = "crates/sikemux-wire/src";
 const VIEW = "crates/sikemux-view/src";
 const CORE = "crates/sikemux-core/src";
 const PLUGIN_API = "crates/sikemux-plugin-api/src";
+const MARKDOWN = "crates/sikemux-markdown/src";
 const SOURCES = [
   `${WIRE}/protocol.rs`,
   `${WIRE}/protocol/ask.rs`,
@@ -100,6 +101,8 @@ const SOURCES = [
     "diff",
   ].map((file) => `${CORE}/git/${file}.rs`),
   `${PLUGIN_API}/ratelimit.rs`,
+  `${MARKDOWN}/lib.rs`,
+  `${MARKDOWN}/doc.rs`,
 ];
 
 /** Names the clients know a type by where the Rust one would clash or say too little. */
@@ -186,6 +189,13 @@ const RENAMES = {
   [`${CORE}/server/hosts/mod.rs`]: { LinkView: "LinkedHost" },
   [`${CORE}/releases.rs`]: { CommitAuthor: "ReleaseCommitAuthor" },
   [`${PLUGIN_API}/ratelimit.rs`]: { Budget: "RateLimit" },
+  [`${MARKDOWN}/lib.rs`]: {
+    Options: "MarkdownOptions",
+    Node: "MdNode",
+    Element: "MdElement",
+    Align: "MdAlign",
+  },
+  [`${MARKDOWN}/doc.rs`]: { Op: "MdOp", Change: "MdChange" },
 };
 
 /** Fields the Rust keeps as JSON so phones read changes over the air, and the type that JSON has. */
@@ -195,6 +205,8 @@ const JSON_FIELDS = {
   "SharedEvent.changes": "ChatChange[]",
   "ShareReply.page": "ChatPage",
   "DeviceView.updates": "UpdateStatus",
+  "PartTree.blocks": "MdElement[]",
+  "ChatChange.md": "MdChange",
   "Event.view": "DeviceView",
 };
 
@@ -232,63 +244,28 @@ const TS_ROOTS = [
   "ShareFrame",
   "ShareAsk",
   "ShareReply",
+  "MdChange",
+  "MarkdownOptions",
 ];
 
-/** The fields the notch reads of each type. Swift's decoder ignores the rest. */
-const SWIFT_FIELDS = {
-  DeviceView: "workspace chats sessions attentions inbox faceStyle",
-  Workspace: "projects launchers",
-  ProjectInfo: "id name path",
-  LauncherInfo: "id provider label permissionMode model effort",
-  ConfigPicker: "id current choices",
-  ConfigChoice: "value label",
-  ChatInfo: "agentId name provider cwd reconnecting",
-  SessionInfo: "id project agentId agentName agentType",
-  Attention: "id agentId choices",
-  PermissionChoices: "allowOnce allowAlways reject command title",
-  Inbox: "items working agents rollup",
-  AgentShown: "agentId title group subagents tasks nextTrigger calledAt face",
-  AgentFace: "pack shape color box",
-  FaceStyle: "motion",
-  AgentRollup: "subagents tasks",
-  InboxItem:
-    "id tier kind agentId name cli project title what detail at session card requestId questionId url",
-  InboxCard: "title",
-  RemoteStatus: "pending",
-  PendingDevice: "id name platform expiresAt",
-  AgentQuestion: "id text choices viaNote",
-  QuestionChoice: "label",
-  CatalogAgent: "type label",
-  Preferences: "notch",
-  "Response.ChatBegun": "agentId",
-  "Event.Changed": "topic",
-};
-const SWIFT_ROOTS = ["DeviceAccess"];
-/** The requests the notch sends, by their `ask` struct. */
-const SWIFT_REQUESTS = [
-  "WatchView",
-  "RemoteStatus",
-  "FocusAgent",
-  "AcpPrompt",
-  "AcpSteer",
-  "AcpPermissionReply",
-  "AnswerPairing",
-  "StartChat",
-];
-/** The core's calls the notch makes, by method. */
-const SWIFT_CALLS = [
-  "preferences",
-  "agentCatalog",
-  "questions",
-  "answerQuestion",
-];
-/** The events the notch reads; it ignores the rest. */
-const SWIFT_EVENTS = ["Changed", "Remote", "DeviceView"];
-/** Types the notch declares itself, from helpers/notch/settings.json. */
-const SWIFT_DECLARED = ["NotchSettings"];
+/**
+ * What the notch reads of the core, which it says itself: the fields of each type (Swift's
+ * decoder ignores the rest), the requests by their `ask` struct, the calls by method, the events,
+ * and the types it declares in helpers/notch/settings.json.
+ */
+const {
+  fields: SWIFT_FIELDS,
+  roots: SWIFT_ROOTS,
+  requests: SWIFT_REQUESTS,
+  calls: SWIFT_CALLS,
+  events: SWIFT_EVENTS,
+  declared: SWIFT_DECLARED,
+} = JSON.parse(
+  await readFile(resolve(root, "helpers/notch/wire.json"), "utf8"),
+);
 
 /** Types whose `Default` the app shows until the core has answered with its own values. */
-const DEFAULTS = ["Preferences", "ToolRow"];
+const DEFAULTS = ["Preferences"];
 
 /** Limits the clients check before they send, read from where the core enforces them. */
 const LIMITS = [
@@ -397,7 +374,7 @@ function serde(attrs, where) {
 }
 
 const KNOWN = {
-  container: ["rename_all", "default", "tag", "rename_all_fields"],
+  container: ["rename_all", "default", "tag", "rename_all_fields", "untagged"],
   field: [
     "rename",
     "default",
@@ -512,6 +489,9 @@ function lookup(file, name, modules = []) {
         item.file.endsWith(`/${path}.rs`) ||
         item.file.endsWith(`/${path}/mod.rs`),
     );
+  const crate = file.split("/src/")[0];
+  const inCrate = all.filter((item) => item.file.startsWith(`${crate}/`));
+  if (inCrate.length) all = inCrate;
   if (all.length > 1)
     fail(`${name} in ${file} could be any of ${all.map((i) => i.file)}`);
   return all[0] ?? own;
@@ -718,6 +698,23 @@ function parse(item, wanted) {
   }
   if (settings.rename_all_fields)
     fail(`${where} renames fields but has no tag`);
+  if (settings.untagged)
+    return {
+      name,
+      docs: item.docs,
+      kind: "untagged",
+      variants: splitTop(item.body.slice(1, -1)).map((member) => {
+        const { docs, rest } = readMember(member);
+        const held = /^\w+\s*\((.*)\)$/s.exec(rest);
+        if (held) return { docs, type: parseType(held[1], item.file) };
+        const fields = /^\w+\s*(\{[\s\S]*\})$/.exec(rest);
+        if (!fields) fail(`${where}::${rest} holds nothing to tell it apart`);
+        return {
+          docs,
+          fields: parseFields(fields[1], item.file, undefined, where),
+        };
+      }),
+    };
   const members = splitTop(item.body.slice(1, -1));
   // Every variant holding one value is serde's default tagging: an object keyed by the variant.
   if (
@@ -792,6 +789,11 @@ function closure(roots, fieldsOf = () => undefined, declared = []) {
         ? declaration.variants.flatMap((variant) => variant.fields)
         : []),
       ...(declaration.kind === "wrapped" ? declaration.variants : []),
+      ...(declaration.kind === "untagged"
+        ? declaration.variants.flatMap((variant) =>
+            variant.fields ? variant.fields : [variant],
+          )
+        : []),
     ]
       .flatMap((field) => named(field.type))
       .forEach(visit);
@@ -855,21 +857,31 @@ function typescript(roots, preamble) {
     `${tsDocs(d.docs)}export type ${d.name} =\n${d.variants
       .map((v) => `${tsDocs(v.docs, "  ")}  | { ${v.name}: ${tsType(v.type)} }`)
       .join("\n")};`;
+  const untagged = (d) =>
+    `${tsDocs(d.docs)}export type ${d.name} =\n${d.variants
+      .map((v) =>
+        v.fields
+          ? `${tsDocs(v.docs, "  ")}  | {\n${v.fields.map(field).join("\n")}\n}`
+          : `${tsDocs(v.docs, "  ")}  | ${tsType(v.type)}`,
+      )
+      .join("\n")};`;
   const declare = (d) =>
-    d.kind === "struct" && d.fields.length === 0
-      ? `${tsDocs(d.docs)}export type ${d.name} = Record<string, never>;`
-      : d.kind === "struct"
-        ? `${tsDocs(d.docs)}export interface ${d.name} {\n${d.fields.map(field).join("\n")}\n}`
-        : d.kind === "tagged"
-          ? tagged(d)
-          : d.kind === "wrapped"
-            ? wrapped(d)
-            : `${tsDocs(d.docs)}export type ${d.name} = ${[
-                ...d.variants
-                  .filter((v) => !v.other)
-                  .map((v) => JSON.stringify(v.name)),
-                ...(d.variants.some((v) => v.open) ? ["(string & {})"] : []),
-              ].join(" | ")};`;
+    d.kind === "untagged"
+      ? untagged(d)
+      : d.kind === "struct" && d.fields.length === 0
+        ? `${tsDocs(d.docs)}export type ${d.name} = Record<string, never>;`
+        : d.kind === "struct"
+          ? `${tsDocs(d.docs)}export interface ${d.name} {\n${d.fields.map(field).join("\n")}\n}`
+          : d.kind === "tagged"
+            ? tagged(d)
+            : d.kind === "wrapped"
+              ? wrapped(d)
+              : `${tsDocs(d.docs)}export type ${d.name} = ${[
+                  ...d.variants
+                    .filter((v) => !v.other)
+                    .map((v) => JSON.stringify(v.name)),
+                  ...(d.variants.some((v) => v.open) ? ["(string & {})"] : []),
+                ].join(" | ")};`;
   const calls = coreCalls();
   const callMap = `/** The core's calls that name what they take and answer, by method. */\nexport interface CoreCalls {\n${calls
     .map(

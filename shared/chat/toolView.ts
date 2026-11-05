@@ -1,14 +1,9 @@
 import { durationLabel, elapsedLabel } from "./durationLabel";
-import { rowOf, toolKind, toolRunning } from "./toolLabels";
+import { toolKind, toolRunning } from "./toolLabels";
 import type { ToolRowIcon } from "./toolRows";
 import type { ChatPart, ToolAction, ToolCall } from "./types";
 
 type ToolPart = Extract<ChatPart, { kind: "tool" }>;
-
-/** What the row's colour follows. */
-export function toolRowKind(tool: ToolCall): ToolAction {
-    return rowOf(tool).action;
-}
 
 export type ToolIconName = ToolRowIcon | "agent" | "command" | "file" | "move" | "pencil" | "plug" | "trash" | "warning" | "wrench";
 
@@ -26,7 +21,7 @@ const ACTION_ICONS: Partial<Record<ToolAction, ToolIconName>> = {
 /** The icon a call's row shows. Each side draws the name with its own icon. */
 export function toolIconName(tool: ToolCall): ToolIconName {
     if (tool.status === "failed") return "warning";
-    return (rowOf(tool).icon as ToolIconName | undefined) ?? ACTION_ICONS[rowOf(tool).action] ?? "agent";
+    return (tool.row.icon as ToolIconName | undefined) ?? ACTION_ICONS[tool.row.action] ?? "agent";
 }
 
 /* A call the turn cut off has a duration, but printing it would read as a call

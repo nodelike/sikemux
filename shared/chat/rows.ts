@@ -1,6 +1,6 @@
 import type { ChatChange, ChatHead, ChatMessage, ChatPage, ChatPart, ChatView, PartTree, PermissionMode } from "../wire.generated";
 import { applyPatch } from "../markdown/patch";
-import type { MdChange, MdElement } from "../markdown/types";
+import type { MdChange } from "../markdown/types";
 
 /** A chat as a client holds it: how it stands, its rows, and each subagent's own rows. */
 export interface ChatRows extends Omit<ChatHead, "setup" | "permissionMode"> {
@@ -60,7 +60,7 @@ function nextTree(tree: PartTree | undefined, change: MdChange | undefined, text
     const first = change.o[0];
     const whole = first !== undefined && first.p.length === 0 && first.at === 0 && "c" in first;
     if (!whole && !tree) return undefined;
-    const blocks = applyPatch(whole ? [] : ((tree?.blocks ?? []) as MdElement[]), change.o);
+    const blocks = applyPatch(whole ? [] : (tree?.blocks ?? []), change.o);
     return change.n === text.length ? { blocks, n: change.n } : undefined;
 }
 
@@ -127,7 +127,7 @@ function applyChange(state: ChatRows, change: ChatChange): ChatRows {
                     withPart(row, change.part, (part) => {
                         if (part.kind !== "text" && part.kind !== "thought") return part;
                         const text = part.text + change.text;
-                        return { ...part, text, md: nextTree(part.md, change.md as MdChange | undefined, text) };
+                        return { ...part, text, md: nextTree(part.md, change.md, text) };
                     }),
                 ),
             );

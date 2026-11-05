@@ -1,5 +1,5 @@
 import { tokenCount } from "./contextUsage";
-import { toolKind, toolTarget } from "./toolLabels";
+import { toolKind } from "./toolLabels";
 import { callCount } from "./toolView";
 import type { AsyncTask, ChatPart, SubagentCard, WorkflowAgent } from "./types";
 
@@ -90,7 +90,7 @@ export function subagentTask(task: string): string {
 /* What a subagent is up to: the call it made last says more than the prose it
    wrote before starting. */
 export function subagentActivity(subagent: SubagentCard): string {
-    if (subagent.lastTool) return `${toolKind(subagent.lastTool)} ${toolTarget(subagent.lastTool)}`.trim();
+    if (subagent.lastTool) return `${toolKind(subagent.lastTool)} ${subagent.lastTool.row.target}`.trim();
     return subagentTask(subagent.task);
 }
 

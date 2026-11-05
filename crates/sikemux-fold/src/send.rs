@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use serde_json::{json, Map, Value};
-use sikemux_markdown::{Doc, Op, Options};
+use sikemux_markdown::{Change, Doc, Op, Options, Patch};
 
 use sikemux_view::chat::{
     ChatChange, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView, PartTree, SubagentCard,
@@ -125,6 +125,10 @@ const OPTIONAL_HEAD: [&str; 12] = [
 
 /// A flush's changes and the rows they touched.
 pub type Flushed = Vec<ChatChange>;
+
+fn md_change(n: usize, o: Patch) -> Value {
+    serde_json::to_value(Change { n, o }).unwrap_or_default()
+}
 
 fn tree_of(patch: Vec<Op>, n: usize) -> PartTree {
     let blocks = patch
@@ -354,7 +358,7 @@ fn row_changes(
                 doc.push(text);
                 doc
             });
-            json!({ "n": doc.units(), "o": doc.patch() })
+            md_change(doc.units(), doc.patch())
         });
         side.sent = len;
         out.push(ChatChange::Text {
@@ -406,7 +410,7 @@ fn flush_transcript(
                     row: row.msg.id.clone(),
                     part: row.msg.parts[at].id().to_owned(),
                     text: String::new(),
-                    md: Some(json!({ "n": doc.units(), "o": patch })),
+                    md: Some(md_change(doc.units(), patch)),
                     within: within.clone(),
                 });
             }

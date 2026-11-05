@@ -3,7 +3,7 @@ import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 
 import { durationLabel } from '@shared/chat/durationLabel';
 import { useToolDetail } from '@shared/chat/useToolDetail';
-import { rowOf, toolDetail, toolKind, toolPath, toolRunning, toolTarget, toolUrl } from '@shared/chat/toolLabels';
+import { toolKind, toolRunning, toolUrl } from '@shared/chat/toolLabels';
 import { attachmentName } from '@shared/chat/transcript';
 import {
   callCount,
@@ -13,7 +13,6 @@ import {
   toolElapsed,
   toolGroupSummary,
   toolIconName,
-  toolRowKind,
   type ToolIconName,
 } from '@shared/chat/toolView';
 import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/chat/types';
@@ -129,10 +128,10 @@ const KIND_COLORS: Readonly<Record<string, keyof Palette>> = {
 
 /** The icon and colour of a call, as the Mac's tool rows draw them. */
 function look(tool: ToolCall, colors: Palette): { icon: IconName; color: string } {
-  const plugin = tool.status === 'failed' ? undefined : rowOf(tool).plugin;
+  const plugin = tool.status === 'failed' ? undefined : tool.row.plugin;
   const icon = (plugin && PLUGIN_MARKS[plugin]) || TOOL_ICONS[toolIconName(tool)];
   if (tool.status === 'failed') return { icon, color: colors.danger };
-  const kind = toolRowKind(tool);
+  const kind = tool.row.action;
   return { icon, color: colors[(kind && KIND_COLORS[kind]) || 'inkDim'] };
 }
 
@@ -246,7 +245,7 @@ function ToolDetail({ part, command, group }: { part: ToolPart; command: string 
 /** What a call acted on: a file as the Mac's file ref, a web address as a link, anything else as written. */
 function Target({ tool, target }: { tool: ToolCall; target: string }) {
   const styles = useStyles(makeStyles);
-  const file = toolPath(tool);
+  const file = tool.row.path;
   if (file) return <FileRef raw={file} label={target} look="plain" />;
   const link = toolUrl(target);
   if (!link) return target;
@@ -278,8 +277,8 @@ const ToolRow = memo(function ToolRow({
   const { icon, color } = look(tool, colors);
   const status = tool.status ?? 'pending';
   const running = toolRunning(tool);
-  const target = toolTarget(tool);
-  const detail = toolDetail(tool);
+  const target = tool.row.target;
+  const detail = tool.row.detail;
   const command = tool.kind === 'execute' ? tool.title.trim() : null;
   // The row holds one line of a command, so the whole of it is worth opening while it runs or when the row shortened it.
   const opens = Boolean(part.diff || part.output || part.failure) || (command !== null && (running || command !== target));

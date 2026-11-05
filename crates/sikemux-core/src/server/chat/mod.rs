@@ -963,9 +963,7 @@ impl Chat {
                     return Err("ACP permission option is invalid".into());
                 }
             }
-            permissions
-                .remove(request_id)
-                .ok_or_else(permission_gone)?
+            permissions.remove(request_id).ok_or_else(permission_gone)?
         };
         (request.answer)(option_id);
         drop(permissions);

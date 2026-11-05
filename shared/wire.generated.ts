@@ -1305,7 +1305,7 @@ export interface ToolCall {
     /** What the agent said a command is for. */
     description?: string;
     /** What its row shows, worked out from the rest. */
-    row?: ToolRow;
+    row: ToolRow;
 }
 
 /** How a tool call stands. */
@@ -1591,9 +1591,121 @@ export type ChatPart =
 
 /** The core's markdown tree of a part's text and how much of the text it covers. */
 export interface PartTree {
-    blocks: unknown;
+    blocks: MdElement[];
     n: number;
 }
+
+export type MdElement =
+    | {
+          t: "p";
+          c: MdNode[];
+      }
+    | {
+          t: "h";
+          l: number;
+          c: MdNode[];
+      }
+    | {
+          t: "quote";
+          c: MdNode[];
+      }
+    | {
+          t: "ul";
+          c: MdNode[];
+      }
+    | {
+          t: "ol";
+          start?: number;
+          c: MdNode[];
+      }
+    | {
+          t: "li";
+          checked?: boolean;
+          c: MdNode[];
+      }
+    | {
+          t: "pre";
+          lang?: string;
+          v: string;
+      }
+    | {
+          t: "hr";
+      }
+    | {
+          t: "table";
+          align: (MdAlign | null)[];
+          /** Missing when every heading cell is blank. */
+          head?: MdNode[][];
+          rows: MdNode[][][];
+      }
+    /** Footnotes are numbered in the order they are first mentioned. */
+    | {
+          t: "fndef";
+          n: number;
+          c: MdNode[];
+      }
+    | {
+          t: "em";
+          c: MdNode[];
+      }
+    | {
+          t: "strong";
+          c: MdNode[];
+      }
+    | {
+          t: "del";
+          c: MdNode[];
+      }
+    | {
+          t: "code";
+          v: string;
+      }
+    | {
+          t: "a";
+          href: string;
+          title?: string;
+          c: MdNode[];
+      }
+    | {
+          t: "img";
+          src: string;
+          alt: string;
+          title?: string;
+      }
+    | {
+          t: "br";
+      }
+    | {
+          t: "fnref";
+          n: number;
+      }
+    /**
+     * A name that could be a file, `:line` and all, holding the words as written, between
+     * backticks when `code` is set.
+     */
+    | {
+          t: "path";
+          href: string;
+          code?: boolean;
+          c: MdNode[];
+      }
+    /** Blocks embedded HTML lines up to one side, as `<div align="center">` does. */
+    | {
+          t: "div";
+          align: MdAlign;
+          c: MdNode[];
+      }
+    /** A `<details>` fold from embedded HTML, open or not as it was written. */
+    | {
+          t: "details";
+          summary: string;
+          open?: boolean;
+          c: MdNode[];
+      };
+
+export type MdNode = string | MdElement;
+
+export type MdAlign = "left" | "center" | "right";
 
 /** Something besides text in a message, as the agent's protocol (ACP) gives it. */
 export type ContentBlock =
@@ -1836,7 +1948,7 @@ export type ChatChange =
           row: string;
           part: string;
           text: string;
-          md?: unknown;
+          md?: MdChange;
           in?: string;
       }
     /** These fields of the row change; its parts stay. */
@@ -1860,6 +1972,35 @@ export type ChatChange =
     | {
           op: "view";
           view: ChatView;
+      };
+
+/**
+ * What the core sends with a piece of an answer: the answer's length once it is added, and the
+ * changes that bring the tree up to it.
+ */
+export interface MdChange {
+    n: number;
+    o: MdOp[];
+}
+
+/**
+ * One change to a tree a client holds. `p` is a path of indexes from the
+ * top-level blocks down through each element's children (`c`, or a table's
+ * `rows`, its cells and their contents). Positions in text count UTF-16
+ * units, as clients slice it.
+ */
+export type MdOp =
+    /** The list at `p` keeps its first `at` entries and gains `c`. */
+    | {
+          p: number[];
+          at: number;
+          c: unknown[];
+      }
+    /** The text at `p`, or a code block's `v` there, keeps its first `at` units and gains `s`. */
+    | {
+          p: number[];
+          at: number;
+          s: string;
       };
 
 /** What `chatToolDetail` answers: a call's change line by line and what it printed. */
@@ -3367,6 +3508,35 @@ export interface SharedFile {
     data: string;
 }
 
+export interface MarkdownOptions {
+    /** Tables, strikethrough, task lists, footnotes and bare addresses as links. */
+    gfm?: boolean;
+    /** Shows markup as the characters that were typed instead of dropping it. */
+    htmlAsText?: boolean;
+    /** Keeps `file://` and drive-letter links, which are dropped otherwise. */
+    fileLinks?: boolean;
+    /**
+     * Keeps the pictures in embedded `<img>` tags, which GitHub writes for an
+     * uploaded image, while the rest of the markup is still dropped.
+     */
+    htmlImages?: boolean;
+    /**
+     * Keeps what GitHub draws of embedded markup besides pictures: the alignment `<div>` and
+     * `<p>` give the blocks inside them, and `<h1>` to `<h6>` headings.
+     */
+    htmlLayout?: boolean;
+    /**
+     * Marks the names in prose and between backticks that could be files, for a reader to
+     * check and draw as files when they are.
+     */
+    filePaths?: boolean;
+    /**
+     * Writes a link that shows its own address, to a pull request or issue, as GitHub
+     * writes a reference to one, such as `owner/repo#12`.
+     */
+    references?: boolean;
+}
+
 export interface PromptChatParams {
     agentId: string;
     messageId?: string | null;
@@ -4565,6 +4735,3 @@ export const DEFAULT_PREFERENCES: Preferences = {
     windowView: "workbench",
     recentCommandKeys: [],
 };
-
-/** What the core's `ToolRow::default()` serializes to. */
-export const DEFAULT_TOOL_ROW: ToolRow = { action: "other", target: "" };
