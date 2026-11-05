@@ -187,7 +187,6 @@ function ToolTarget({ text }: { text: string }) {
   );
 }
 
-
 /* A command and what it printed, the way a terminal would have shown them. */
 function ToolTerminal({
   command,

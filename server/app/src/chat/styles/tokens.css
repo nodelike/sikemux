@@ -144,9 +144,7 @@
     11px * var(--ui-text-scale, 1)
   ); /* timestamps, shortcut hints, counts */
   --text-xs: calc(12px * var(--ui-text-scale, 1)); /* secondary rows, meta */
-  --text-sm: calc(
-    13px * var(--ui-text-scale, 1)
-  );
+  --text-sm: calc(13px * var(--ui-text-scale, 1));
 
   --tracking-label: 0.08em;
   --tracking-normal: -0.005em;

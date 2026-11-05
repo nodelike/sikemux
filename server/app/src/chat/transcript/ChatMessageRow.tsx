@@ -434,8 +434,7 @@ function TeammateLetter({ id, letter }: { id: string; letter: AgentLetter }) {
             )}
           </span>
           <span>
-            Message from{" "}
-            <span className="chat-letter-name">{letter.name}</span>
+            Message from <span className="chat-letter-name">{letter.name}</span>
           </span>
         </span>
       </div>

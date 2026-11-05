@@ -9,11 +9,7 @@ import {
 import { ChatActivity } from "./ChatActivity";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
-import {
-  copyText,
-  EARLIER_LOST,
-  rowTime,
-} from "@shared/chat/messageMeta";
+import { copyText, EARLIER_LOST, rowTime } from "@shared/chat/messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
 import { formatDetail, shownParts } from "@shared/chat/transcript";
 import type { ChatMessage, ChatRows } from "@shared/chat/types";

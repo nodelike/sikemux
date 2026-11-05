@@ -257,12 +257,7 @@
   border-radius: var(--radius-2);
   background: var(--chat-composer-fill);
   color: var(--ink-dim);
-  box-shadow: 0 6px 18px
-    color-mix(
-      in srgb,
-      var(--void) 52%,
-      transparent
-    );
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--void) 52%, transparent);
   transform: translateX(-50%);
 }
 
