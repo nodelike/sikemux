@@ -19,6 +19,7 @@ import { ChatTranscript } from "../chat/transcript/ChatTranscript";
 import { EarlierTurns } from "../chat/transcript/EarlierTurns";
 import { activityText } from "@shared/chat/chatStatus";
 import { PathRootsProvider } from "../chat/files/FileRef";
+import { ImageViewer } from "../chat/files/ImageViewer";
 import LiveStack from "../chat/transcript/LiveStack";
 import { newFoldMemory } from "@shared/chat/longText";
 import { RemoteOriginContext } from "../chat/transcript/origin";
@@ -221,6 +222,7 @@ export function SharedChat({
                       </div>
                     </div>
                   </div>
+                  <ImageViewer />
                 </section>
               </ToolDetailContext.Provider>
             </ReaderScrollContext.Provider>

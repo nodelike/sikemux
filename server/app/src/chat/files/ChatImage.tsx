@@ -1,8 +1,6 @@
 import { basename } from "@shared/lib/paths";
-import { showImage } from "./imageViewer";
+import { showImage } from "./ImageViewer";
 
-/* Every picture in a transcript is a thumbnail of itself: it opens at the size
-   the window allows, where it can also be saved. */
 export function ChatImage({
   src,
   path,

@@ -46,6 +46,77 @@
   outline-offset: 2px;
 }
 
+/* A picture from a transcript, opened: the card is only ever as big as what it
+   holds, and what it holds is only ever as big as the window allows. */
+.img-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: color-mix(in oklab, var(--surface-sunken) 68%, transparent);
+}
+
+/* Rows rather than a column of flex: the picture's row is what is left over,
+   which gives it a height to be a share of when it is taller than the window. */
+.img-sheet {
+  display: grid;
+  max-width: 100%;
+  max-height: 100%;
+  grid-template-rows: auto minmax(0, 1fr);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-4);
+  background: var(--surface-overlay);
+  box-shadow: var(--shadow-4);
+  overflow: hidden;
+}
+
+.img-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--ui);
+}
+
+.img-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.img-bar a,
+.img-bar button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  place-items: center;
+  border-radius: var(--radius-2);
+  color: var(--text-secondary);
+}
+
+.img-bar a:hover,
+.img-bar button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.img-full {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
 .chat-attachment-thumb {
   display: block;
   max-width: 260px;
