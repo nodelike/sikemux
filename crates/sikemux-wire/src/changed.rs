@@ -49,6 +49,8 @@ pub enum Topic {
     Memory,
     /// A goal's summary, or how writing the next one goes.
     GoalSummary,
+    /// What the `goals` call answers: its agents, their desks or what waits on the person.
+    Goals,
     /// The mods in the person's mods folder; `paths` names those whose files moved.
     Mods,
     /// The core is stopping on purpose, so its clients do not start it again.

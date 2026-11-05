@@ -16,9 +16,9 @@ use super::edits::{self, Edit, Filter, Owners};
 use super::names::{AgentName, ClosedAgent, NameTheme};
 use super::workspace;
 use super::{
-    agent_accounts, agent_sign_in, board, goal_summary, inbox, memory, messages, model_providers,
-    plugins, questions, remote, saved, saved_sessions, share, ship, skill_library, who_wrote, Core,
-    CoreError, CoreResult,
+    agent_accounts, agent_sign_in, board, goal_summary, goals, inbox, memory, messages,
+    model_providers, plugins, questions, remote, saved, saved_sessions, share, ship, skill_library,
+    who_wrote, Core, CoreError, CoreResult,
 };
 use crate::protocol::{AgentBuddy, Preferences, RemoteStatus};
 use sikemux_wire::catalog::CatalogAgent;
@@ -606,6 +606,8 @@ calls! { core, client, params;
     "goalSummary" GoalSummary (sikemux_wire::slice::GoalSummaryParams) -> sikemux_wire::slice::GoalSummaryView: Full => {
         goal_summary::read(&core, params).await?
     },
+    "goals" Goals (NoParams) -> sikemux_wire::goals::GoalsView: Watch, any_program => goals::view(&core),
+    "setDesks" SetDesks (sikemux_wire::goals::DesksParams) -> (): Person => goals::set_desks(&core, client.id, params),
     "boardAssert" BoardAssert (board::goal::AssertParams) -> board::BoardView: Full => {
         board::goal::person_assert(&core, params).await?
     },

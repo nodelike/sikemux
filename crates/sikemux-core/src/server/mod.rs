@@ -34,6 +34,7 @@ mod from_app;
 mod gestures;
 mod git;
 mod goal_summary;
+mod goals;
 mod handover;
 mod harness;
 mod hooks;
@@ -363,6 +364,7 @@ pub(crate) struct Core {
     pub(crate) names: names::Names,
     pub(crate) boards: board::Boards,
     pub(crate) goal_summaries: goal_summary::Summaries,
+    pub(crate) goals: goals::Goals,
     pub(crate) repo_events: repo_events::RepoEvents,
     pub(crate) memory: memory::Memory,
     pub(crate) triggers: triggers::Triggers,
@@ -490,6 +492,7 @@ impl Core {
             names,
             boards: board::Boards::new(data_dir),
             goal_summaries: goal_summary::Summaries::new(data_dir),
+            goals: goals::Goals::default(),
             repo_events: repo_events::RepoEvents::default(),
             memory: memory::Memory::new(data_dir),
             triggers: triggers::Triggers::new(data_dir),

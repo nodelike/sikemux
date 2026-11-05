@@ -32,6 +32,7 @@ const SOURCES = [
   `${WIRE}/theme.rs`,
   `${WIRE}/notch.rs`,
   `${WIRE}/slice.rs`,
+  `${WIRE}/goals.rs`,
   `${WIRE}/inbox.rs`,
   `${WIRE}/memory.rs`,
   `${WIRE}/start.rs`,

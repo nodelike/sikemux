@@ -267,6 +267,8 @@ enum CoreChangeTopic: String, Codable, Hashable {
     case memory
     /// A goal's summary, or how writing the next one goes.
     case goalSummary
+    /// What the `goals` call answers: its agents, their desks or what waits on the person.
+    case goals
     /// The mods in the person's mods folder; `paths` names those whose files moved.
     case mods
     /// The core is stopping on purpose, so its clients do not start it again.

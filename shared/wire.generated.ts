@@ -1924,6 +1924,7 @@ export type CoreChangeTopic =
     | "stash"
     | "memory"
     | "goalSummary"
+    | "goals"
     | "mods"
     | "stopping";
 
@@ -3964,6 +3965,148 @@ export interface LeftOut {
 
 export type LeftOutWhy = "otherVendor" | "noSession";
 
+/** What the `goals` call answers. */
+export interface GoalsView {
+    /** What needs the person first, then what moves, what waits and what is done, newest first. */
+    goals: GoalRow[];
+    /** How many goals finished before the oldest listed. */
+    doneEarlier: number;
+    /** Every open agent, whether or not it works a goal. */
+    agents: GoalAgent[];
+    /** The open agents working no goal still open, by id. */
+    noGoal: string[];
+    /** What waits on the person about no goal, as ids of the inbox's items, in its order. */
+    looseNeeds: string[];
+}
+
+export interface GoalRow {
+    /** Its project's folder, as boards name it. */
+    project: string;
+    card: number;
+    title: string;
+    /** `NeedsYou` also when only something an agent asked holds it up. */
+    state: SliceState;
+    next?: GoalNext;
+    clock?: GoalClock;
+    slices: GoalSlice[];
+    /** The agents working it, by id, its lead first. */
+    agents: string[];
+    /** What waits on the person about it, as ids of the inbox's items, in its order. */
+    needs: string[];
+    desk: DeskCounts;
+    /** The agent to open for a goal that is one slice worked by one agent. */
+    worker?: string;
+}
+
+/** The one thing a goal's row says comes next. */
+export type GoalNext =
+    /** What the first of its needs is for. */
+    | {
+          kind: "need";
+          need: InboxNeed;
+          what: string;
+      }
+    /** A slice's check failed, with nothing in the inbox about it yet. */
+    | {
+          kind: "failed";
+          slice: string;
+      }
+    /** The gate its slices reach next. */
+    | {
+          kind: "gate";
+          gate: NextGate;
+          slice: string;
+          owner: string | null;
+      }
+    /** One agent works a goal with no gates, by name. */
+    | {
+          kind: "working";
+          agent: string;
+      }
+    | {
+          kind: "done";
+      };
+
+/** The time a goal's row shows, in Unix milliseconds. Clients count from it themselves. */
+export type GoalClock =
+    /** How long it has waited on the person. */
+    | {
+          kind: "since";
+          at: number;
+      }
+    /** When it should be through. */
+    | {
+          kind: "until";
+          at: number;
+      }
+    /** When it was due, now it has no estimate left. */
+    | {
+          kind: "late";
+          at: number;
+      }
+    /** When it finished. */
+    | {
+          kind: "finished";
+          at: number;
+      };
+
+export interface GoalSlice {
+    card: number;
+    title: string;
+    state: SliceState;
+}
+
+/** How much is on the desks of a goal's agents. */
+export interface DeskCounts {
+    terminals: number;
+    pages: number;
+    simulators: number;
+    files: number;
+}
+
+export interface GoalAgent {
+    id: string;
+    name: string | null;
+    /** The CLI it runs, such as `claude`. */
+    cli: string;
+    face: AgentFace | null;
+    status: AgentStatus;
+    group: AgentGroup;
+    /** The slice it owns, else its chat's title. */
+    task: string;
+    /** Its project, by id. */
+    project: string | null;
+    desk: AgentDesk;
+}
+
+/** What an agent has out on its desk. */
+export interface AgentDesk {
+    pages: DeskPage[];
+    files: string[];
+    terminals: DeskTerminal[];
+    /** The device its simulator shows, once it has one. */
+    simulator?: string;
+}
+
+export interface DeskPage {
+    id: string;
+    title: string;
+    url: string;
+}
+
+export interface DeskTerminal {
+    session: number;
+    title: string;
+}
+
+/**
+ * What the `setDesks` call takes: every desk the window holds, by agent. The window owns the
+ * browser and the editors, so it tells the core what they hold.
+ */
+export interface DesksParams {
+    desks: Record<string, AgentDesk>;
+}
+
 export interface AssertParams {
     project: string;
     /** The goal's card. */
@@ -4316,6 +4459,8 @@ export interface CoreCalls {
     boardSettings: { params: BoardSettingsParams; answer: ProjectBoard };
     boardAnswerProposal: { params: BoardProposalParams; answer: ProjectBoard };
     goalSummary: { params: GoalSummaryParams; answer: GoalSummaryView };
+    goals: { params: NoParams; answer: GoalsView };
+    setDesks: { params: DesksParams; answer: null };
     boardAssert: { params: AssertParams; answer: ProjectBoard };
     boardDecide: { params: DecideParams; answer: ProjectBoard };
     triage: { params: TriageParams; answer: Triage };

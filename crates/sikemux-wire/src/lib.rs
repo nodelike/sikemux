@@ -6,6 +6,7 @@ pub mod accounts;
 pub mod catalog;
 pub mod changed;
 pub mod chat;
+pub mod goals;
 pub mod grid;
 pub mod inbox;
 pub mod memory;

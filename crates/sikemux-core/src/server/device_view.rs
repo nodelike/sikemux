@@ -9,7 +9,7 @@ use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
 use super::connection::ClientConn;
-use super::{access, display, inbox, layout, load, updates, workspace, Core};
+use super::{access, display, goals, inbox, layout, load, updates, workspace, Core};
 use crate::protocol::{encode_control, AgentGroup, DeviceView, Event, ServerMessage};
 
 /// How often what a paired device shows of this host is looked at again
@@ -214,6 +214,7 @@ impl Core {
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
         let recent = self.workspaces.recent(&chats);
         let inbox = inbox::view(self, &chats, &sessions);
+        goals::view_moved(self, &inbox);
         let workspace = self.workspace_view();
         let layout = Box::new(layout::view(self, &workspace, &sessions, device));
         let view = DeviceView {
