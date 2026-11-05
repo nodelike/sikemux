@@ -21,7 +21,9 @@ jobs:
         env:
           BODY: ${{ github.event.pull_request.body }}
         run: |
-          if printf '%s\n' "$BODY" | grep -iqE '^co-authored-by:.*(claude|anthropic\.com)|generated with \[?claude code'; then
+          # shellcheck source=/dev/null
+          source scripts/credit-pattern.sh
+          if printf '%s\n' "$BODY" | grep -iqE "$CLAUDE_CREDIT"; then
             echo "::error::The pull request's description credits Claude; remove the Co-Authored-By / Generated with Claude Code lines."
             exit 1
           fi
