@@ -15,6 +15,19 @@ const MAX_PROMPT_BYTES: usize = 2 * 1024 * 1024;
 pub const MAX_ATTACHMENTS: usize = 32;
 pub const MAX_CONTEXT_ITEMS: usize = 16;
 
+/// Whether a prompt is a slash command rather than words for the model. One
+/// only works as the whole prompt.
+pub(crate) fn is_command(text: &str) -> bool {
+    text.trim_start().starts_with('/')
+}
+
+/// A slash command's name and what follows it.
+pub(crate) fn command_parts(text: &str) -> Option<(&str, &str)> {
+    let text = text.trim().strip_prefix('/')?.trim_start();
+    let name = text.split_whitespace().next()?;
+    Some((name, text[name.len()..].trim()))
+}
+
 pub fn bounded_text(name: &str, value: &str, max: usize) -> Result<(), String> {
     if value.is_empty() || value.len() > max || value.contains(['\0', '\r', '\n']) {
         return Err(format!("{name} must be bounded non-blank text"));

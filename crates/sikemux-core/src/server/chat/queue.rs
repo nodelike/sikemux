@@ -58,7 +58,7 @@ impl Queued {
     }
 
     fn is_command(&self) -> bool {
-        self.text.starts_with('/')
+        super::prompt::is_command(&self.text)
     }
 }
 

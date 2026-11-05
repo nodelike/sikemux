@@ -778,7 +778,7 @@ impl<B: Backend> Running<'_, B> {
         // the next message. Kept on the replay, it goes again with the message.
         let carries = !B::INSTRUCTIONS
             && replay.context.len() < MAX_CONTEXT_ITEMS
-            && !replay.text.trim_start().starts_with('/');
+            && !crate::server::chat::prompt::is_command(&replay.text);
         if carries {
             replay
                 .context

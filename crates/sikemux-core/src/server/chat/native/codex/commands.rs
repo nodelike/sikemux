@@ -3,6 +3,10 @@
 
 use serde_json::{json, Value};
 
+use crate::server::chat::prompt::command_parts;
+
+use super::super::commands::{self, count, offered as command, window_left};
+
 #[derive(Debug, PartialEq)]
 pub(super) enum Command {
     Compact,
@@ -18,9 +22,7 @@ pub(super) enum Command {
 /// The command a prompt starts with, if it is one handled here. Anything
 /// else, `$skill` mentions included, goes to the model as written.
 pub(super) fn parse(text: &str) -> Option<Command> {
-    let text = text.trim().strip_prefix('/')?.trim();
-    let name = text.split_whitespace().next()?;
-    let rest = text[name.len()..].trim();
+    let (name, rest) = command_parts(text)?;
     let name = name.to_lowercase();
     let usage = |hint: &str| {
         Some(Command::Usage(format!(
@@ -55,13 +57,6 @@ pub(super) fn parse(text: &str) -> Option<Command> {
 /// The commands the chat offers: the ones handled here, then the skills
 /// `skills/list` found.
 pub(super) fn available(skills: &Value) -> Value {
-    let command = |name: &str, description: &str, hint: Option<&str>| {
-        json!({
-            "name": name,
-            "description": description,
-            "input": hint.map(|hint| json!({ "hint": hint })),
-        })
-    };
     let mut commands = vec![
         command(
             "mcp",
@@ -164,14 +159,6 @@ pub(super) fn servers_text(statuses: &[Value], own: &[String]) -> String {
     }
 }
 
-fn count(tokens: u64) -> String {
-    match tokens {
-        0..=999 => tokens.to_string(),
-        1_000..=999_999 => format!("{:.1}K", tokens as f64 / 1_000.0),
-        _ => format!("{:.2}M", tokens as f64 / 1_000_000.0),
-    }
-}
-
 pub(super) struct Status<'a> {
     pub model: &'a str,
     pub cwd: &'a str,
@@ -196,46 +183,32 @@ pub(super) fn status_text(status: &Status) -> String {
         Some(_) => "unknown".to_owned(),
     };
     let tokens = |usage: &Value, key: &str| usage[key].as_u64().unwrap_or(0);
-    let total = status.token_usage.map(|usage| &usage["total"]);
-    let used = total.map_or_else(
-        || "data not available yet".to_owned(),
-        |total| {
-            format!(
-                "{} total  ({} input + {} cached input, {} output)",
-                count(tokens(total, "totalTokens")),
-                count(tokens(total, "inputTokens")),
-                count(tokens(total, "cachedInputTokens")),
-                count(tokens(total, "outputTokens")),
-            )
-        },
-    );
-    let window = status
-        .token_usage
-        .and_then(|usage| {
-            let size = usage["modelContextWindow"]
-                .as_u64()
-                .filter(|size| *size > 0)?;
-            let used = usage["last"]["totalTokens"].as_u64()?;
-            let left = (size.saturating_sub(used) as f64 / size as f64 * 100.0).round();
-            Some(format!(
-                "{left}% left ({} used / {})",
-                count(used),
-                count(size)
-            ))
-        })
-        .unwrap_or_else(|| "data not available yet".to_owned());
-    [
-        format!("**Model:** {}", status.model),
-        format!("**Directory:** {}", status.cwd),
-        format!("**Approval:** {}", status.approval),
-        format!("**Sandbox:** {}", status.sandbox),
-        format!("**Account:** {account}"),
-        format!("**Session:** `{}`", status.session),
-        String::new(),
-        format!("**Token usage:** {used}"),
-        format!("**Context window:** {window}"),
-    ]
-    .join("  \n")
+    let used = status.token_usage.map(|usage| {
+        let total = &usage["total"];
+        format!(
+            "{} total  ({} input + {} cached input, {} output)",
+            count(tokens(total, "totalTokens")),
+            count(tokens(total, "inputTokens")),
+            count(tokens(total, "cachedInputTokens")),
+            count(tokens(total, "outputTokens")),
+        )
+    });
+    let window = status.token_usage.and_then(|usage| {
+        window_left(
+            usage["modelContextWindow"].as_u64()?,
+            usage["last"]["totalTokens"].as_u64()?,
+        )
+    });
+    commands::status_text(commands::Status {
+        model: status.model.to_owned(),
+        cwd: status.cwd,
+        approval: status.approval,
+        sandbox: status.sandbox,
+        account: Some(account),
+        session: status.session,
+        tokens: used,
+        window,
+    })
 }
 
 #[cfg(test)]

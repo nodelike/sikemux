@@ -6,6 +6,7 @@
 mod acp;
 mod claude;
 mod codex;
+mod commands;
 mod json;
 mod mcp_calls;
 mod models;

@@ -1,8 +1,11 @@
 //! The slash commands the chat answers for Muse rather than sending to the
 //! model, Muse's skills, and the list of both the chat offers.
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
+use crate::server::chat::prompt::command_parts;
+
+use super::super::commands::{self, count, offered as command, window_left};
 use super::notifications::{Totals, Window};
 
 #[derive(Debug, PartialEq)]
@@ -23,9 +26,7 @@ pub(super) enum Command {
 /// The command a prompt starts with, if it is one handled here. A skill is
 /// one when `skills` names it.
 pub(super) fn parse(text: &str, skills: &Value) -> Option<Command> {
-    let text = text.trim().strip_prefix('/')?.trim_start();
-    let name = text.split_whitespace().next()?;
-    let rest = text[name.len()..].trim();
+    let (name, rest) = command_parts(text)?;
     match name.to_lowercase().as_str() {
         "compact" => Some(Command::Compact),
         "rename" if rest.is_empty() => Some(Command::Hint(
@@ -53,13 +54,6 @@ fn skill_list(skills: &Value) -> impl Iterator<Item = &Value> {
 
 /// The commands the chat offers: the ones handled here, then Muse's skills.
 pub(super) fn available(skills: &Value) -> Value {
-    let command = |name: &str, description: &str, hint: Option<&str>| {
-        json!({
-            "name": name,
-            "description": description,
-            "input": hint.map(|hint| json!({ "hint": hint })),
-        })
-    };
     let mut commands = vec![
         command(
             "compact",
@@ -89,14 +83,6 @@ pub(super) fn available(skills: &Value) -> Value {
     Value::Array(commands)
 }
 
-fn count(tokens: u64) -> String {
-    match tokens {
-        0..=999 => tokens.to_string(),
-        1_000..=999_999 => format!("{:.1}K", tokens as f64 / 1_000.0),
-        _ => format!("{:.2}M", tokens as f64 / 1_000_000.0),
-    }
-}
-
 pub(super) struct Status<'a> {
     pub model: &'a str,
     pub effort: Option<&'a str>,
@@ -112,45 +98,31 @@ pub(super) struct Status<'a> {
 
 /// `/status`: the session's settings and what it has used.
 pub(super) fn status_text(status: &Status) -> String {
-    let used = status.totals.map_or_else(
-        || "data not available yet".to_owned(),
-        |totals| {
-            format!(
-                "{} total  ({} prompt, {} output)",
-                count(totals.total_tokens),
-                count(totals.prompt_tokens),
-                count(totals.output_tokens),
-            )
-        },
-    );
+    let used = status.totals.map(|totals| {
+        format!(
+            "{} total  ({} prompt, {} output)",
+            count(totals.total_tokens),
+            count(totals.prompt_tokens),
+            count(totals.output_tokens),
+        )
+    });
     let window = status
         .context
-        .and_then(|context| {
-            let size = context.window_tokens.filter(|size| *size > 0)?;
-            let used = context.used_tokens?;
-            let left = (size.saturating_sub(used) as f64 / size as f64 * 100.0).round();
-            Some(format!(
-                "{left}% left ({} used / {})",
-                count(used),
-                count(size)
-            ))
-        })
-        .unwrap_or_else(|| "data not available yet".to_owned());
+        .and_then(|context| window_left(context.window_tokens?, context.used_tokens?));
     let model = match status.effort {
         Some(effort) => format!("{} ({effort} effort)", status.model),
         None => status.model.to_owned(),
     };
-    [
-        format!("**Model:** {model}"),
-        format!("**Directory:** {}", status.cwd),
-        format!("**Approval:** {}", status.approval),
-        format!("**Sandbox:** {}", status.sandbox),
-        format!("**Session:** `{}`", status.session),
-        String::new(),
-        format!("**Token usage:** {used}"),
-        format!("**Context window:** {window}"),
-    ]
-    .join("  \n")
+    commands::status_text(commands::Status {
+        model,
+        cwd: status.cwd,
+        approval: status.approval,
+        sandbox: status.sandbox,
+        account: None,
+        session: status.session,
+        tokens: used,
+        window,
+    })
 }
 
 /// `/usage`: the plan's current window and week, as `usage/read` tells them.
