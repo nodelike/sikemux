@@ -23,7 +23,9 @@ use crate::server::inbox::Fault;
 
 use super::SessionEnd;
 use crate::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
+use sikemux_fold::update::turn_answer;
 use sikemux_fold::{ChatEventKind, UpdateKind};
+use sikemux_wire::chat::StopReason;
 
 use super::super::feed::{Earlier, Reach};
 use super::super::kept::Progress;
@@ -239,7 +241,7 @@ impl Sink {
     }
 
     /// The work nobody here asked for is over.
-    pub fn work_ended(&self, stop_reason: &str) {
+    pub fn work_ended(&self, stop_reason: StopReason) {
         self.chat.work_ended(stop_reason);
     }
 
@@ -281,7 +283,7 @@ impl Sink {
                 chat.turn_failing(&failure, Fault::Broke);
                 chat.emit(
                     ChatEventKind::TurnCompleted,
-                    response.unwrap_or_else(|| json!({ "stopReason": "end_turn" })),
+                    response.unwrap_or_else(|| turn_answer(StopReason::EndTurn)),
                 );
                 chat.emit(ChatEventKind::Error, failure);
             }
@@ -904,7 +906,7 @@ impl<B: Backend> Running<'_, B> {
             chat.stop_running();
             chat.emit(
                 ChatEventKind::TurnCompleted,
-                json!({ "stopReason": "cancelled" }),
+                turn_answer(StopReason::Cancelled),
             );
             return switching
                 .carry_out(chat, self.provider, self.launch)
@@ -915,7 +917,7 @@ impl<B: Backend> Running<'_, B> {
             chat.stop_running();
             chat.emit(
                 ChatEventKind::TurnCompleted,
-                json!({ "stopReason": "cancelled" }),
+                turn_answer(StopReason::Cancelled),
             );
         }
         let title = "This agent did not stop, so it was started again";
@@ -1361,7 +1363,7 @@ fn not_taken_over(chat: &Chat, launch: &ChatLaunch, error: &str) -> Outcome {
     if chat.stop_running() {
         chat.emit(
             ChatEventKind::TurnCompleted,
-            json!({ "stopReason": "cancelled" }),
+            turn_answer(StopReason::Cancelled),
         );
     }
     chat.cancel_permissions();

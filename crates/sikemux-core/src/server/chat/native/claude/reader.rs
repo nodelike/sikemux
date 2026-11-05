@@ -1,8 +1,9 @@
 //! Reads what Claude Code writes on its output and tells the chat, as the
 //! ACP session updates the app reads from every agent.
 
-use sikemux_fold::update::{agent_text, compaction, notice, text_content, thought};
+use sikemux_fold::update::{agent_text, compaction, notice, text_content, thought, turn_answer};
 use sikemux_fold::UpdateKind;
+use sikemux_wire::chat::StopReason;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -319,17 +320,17 @@ fn host_zone() -> Option<String> {
     Some(link.to_str()?.split_once("zoneinfo/")?.1.to_owned())
 }
 
-fn stop_reason(result: &TurnResult) -> &'static str {
+fn stop_reason(result: &TurnResult) -> StopReason {
     match (result.stop_reason.as_deref(), result.subtype.as_deref()) {
-        (Some("refusal"), _) => "refusal",
-        (Some("max_tokens"), _) => "max_tokens",
+        (Some("refusal"), _) => StopReason::Refusal,
+        (Some("max_tokens"), _) => StopReason::MaxTokens,
         (
             _,
             Some(
                 "error_max_turns" | "error_max_budget_usd" | "error_max_structured_output_retries",
             ),
-        ) => "max_turn_requests",
-        _ => "end_turn",
+        ) => StopReason::MaxTurnRequests,
+        _ => StopReason::EndTurn,
     }
 }
 
@@ -641,7 +642,7 @@ impl Reader {
             if let Some(title) = title {
                 self.sink.update(
                     &self.data.session_id,
-                    json!({ "sessionUpdate": UpdateKind::SessionInfoUpdate, "title": title }),
+                    sikemux_fold::update::session_title(&title),
                 );
             }
         }
@@ -940,7 +941,7 @@ impl Reader {
         }
         let used = self.data.used;
         if let Some(used) = used {
-            let mut update = json!({ "sessionUpdate": UpdateKind::UsageUpdate, "used": used, "size": self.data.size });
+            let mut update = sikemux_fold::update::usage(used, self.data.size);
             if let Some(cost) = result.total_cost_usd {
                 update["cost"] = json!({ "amount": cost, "currency": "USD" });
             }
@@ -962,7 +963,7 @@ impl Reader {
         };
         let Some(mut turn) = ended else {
             if !self.turn_running() {
-                self.sink.work_ended("end_turn");
+                self.sink.work_ended(StopReason::EndTurn);
             }
             return;
         };
@@ -974,11 +975,11 @@ impl Reader {
             }
         }
         let end = if turn.cancelled {
-            TurnEnd::Completed(json!({ "stopReason": "cancelled" }))
+            TurnEnd::Completed(turn_answer(StopReason::Cancelled))
         } else if let Some(failure) = turn.failure {
             TurnEnd::Failed {
                 failure: self.offline(failure),
-                response: Some(json!({ "stopReason": "end_turn" })),
+                response: Some(turn_answer(StopReason::EndTurn)),
             }
         } else if result.is_error {
             let said = result
@@ -1003,10 +1004,10 @@ impl Reader {
                     details: None,
                     resets_at: None,
                 }),
-                response: Some(json!({ "stopReason": "end_turn" })),
+                response: Some(turn_answer(StopReason::EndTurn)),
             }
         } else {
-            TurnEnd::Completed(json!({ "stopReason": stop_reason(result) }))
+            TurnEnd::Completed(turn_answer(stop_reason(result)))
         };
         self.data.offline_retries = false;
         self.sink.end_turn(turn.number, end);
@@ -1206,16 +1207,18 @@ impl Reader {
                 let end = match turn.failure {
                     Some(failure) if !turn.cancelled => TurnEnd::Failed {
                         failure: self.offline(failure),
-                        response: Some(json!({ "stopReason": "end_turn" })),
+                        response: Some(turn_answer(StopReason::EndTurn)),
                     },
-                    _ => TurnEnd::Completed(json!({
-                        "stopReason": if turn.cancelled { "cancelled" } else { "end_turn" },
+                    _ => TurnEnd::Completed(turn_answer(if turn.cancelled {
+                        StopReason::Cancelled
+                    } else {
+                        StopReason::EndTurn
                     })),
                 };
                 self.data.offline_retries = false;
                 self.sink.end_turn(turn.number, end);
             }
-            None => self.sink.work_ended("end_turn"),
+            None => self.sink.work_ended(StopReason::EndTurn),
         }
     }
 

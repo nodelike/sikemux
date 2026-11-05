@@ -1,7 +1,10 @@
 //! What Muse's view items look like in the chat: the ACP session updates the
 //! other agents send for the same kind of work, so the app reads them alike.
 
-use sikemux_fold::update::{agent_text, compaction, text_content, thought};
+use sikemux_fold::update::{
+    self, agent_text, compaction, diff_block, terminal_call, terminal_done, text_content, thought,
+    tool_update,
+};
 use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -46,11 +49,7 @@ fn command_of(args: &Value) -> Option<String> {
 }
 
 fn status(item: &Value) -> &'static str {
-    match text_or_empty(item, "status") {
-        "completed" => "completed",
-        "inProgress" | "" => "in_progress",
-        _ => "failed",
-    }
+    update::tool_status(text_or_empty(item, "status"))
 }
 
 fn settled(item: &Value) -> bool {
@@ -91,14 +90,9 @@ fn tool_call(item: &Value, cwd: &str) -> Value {
     let args = args(item);
     let path = pick(&args, &PATH_KEYS);
     let base = |kind: &str, title: String| {
-        json!({
-            "sessionUpdate": UpdateKind::ToolCall,
-            "toolCallId": id,
-            "kind": kind,
-            "title": title,
-            "status": status(item),
-            "rawInput": args,
-        })
+        let mut call = update::tool_call(id, kind, &title, status(item));
+        call["rawInput"] = args.clone();
+        call
     };
     let with_path = |mut call: Value| {
         if let Some(path) = path {
@@ -108,41 +102,26 @@ fn tool_call(item: &Value, cwd: &str) -> Value {
     };
     if let Some(rest) = tool.strip_prefix("mcp__") {
         let (server, name) = rest.split_once("__").unwrap_or((rest, ""));
-        return json!({
-            "sessionUpdate": UpdateKind::ToolCall,
-            "toolCallId": id,
-            "kind": "other",
-            "title": tool,
-            "status": status(item),
-            "rawInput": { "server": server, "tool": name, "arguments": args },
-            "_meta": { "is_mcp_tool_call": true },
-        });
+        return update::mcp_call(id, status(item), server, name, &args);
     }
     match tool {
         "bash" | "shell" => {
             let command = command_of(&args).unwrap_or_default();
             let cwd = pick(&args, &["cwd", "workdir", "directory"]).unwrap_or(cwd);
-            json!({
-                "sessionUpdate": UpdateKind::ToolCall,
-                "toolCallId": id,
-                "kind": "execute",
-                "title": command,
-                "status": status(item),
-                "content": [{ "type": "terminal", "terminalId": id }],
-                "rawInput": { "command": command, "cwd": cwd },
-                "_meta": { "terminal_info": { "cwd": cwd, "terminal_id": id } },
-            })
+            terminal_call(
+                id,
+                status(item),
+                &command,
+                json!({ "command": command, "cwd": cwd }),
+            )
         }
         "bash_input" => base("execute", "Send input to a running command".to_owned()),
-        "read_file" => with_path(base(
-            "read",
-            format!("Read file '{}'", path.unwrap_or_default()),
-        )),
+        "read_file" => with_path(base("read", update::read_title(path.unwrap_or_default()))),
         "write_file" | "edit_file" => {
             let mut call = with_path(base(
                 "edit",
                 path.map_or_else(
-                    || "Editing files".to_owned(),
+                    || update::EDITING_FILES.to_owned(),
                     |path| format!("Edit {}", file_name(path)),
                 ),
             ));
@@ -154,20 +133,11 @@ fn tool_call(item: &Value, cwd: &str) -> Value {
         }
         "search" => {
             let query = pick(&args, &["pattern", "query", "regex", "glob"]);
-            let title = match (query, path) {
-                (Some(query), Some(path)) => format!("Search for '{query}' in {path}"),
-                (Some(query), None) => format!("Search for '{query}'"),
-                (None, Some(path)) => format!("Search in '{path}'"),
-                (None, None) => "Search".to_owned(),
-            };
-            base("search", title)
+            base("search", update::search_title(query, path))
         }
         "web_search" => base(
             "search",
-            pick(&args, &["query", "q"]).map_or_else(
-                || "Web search".to_owned(),
-                |query| format!("Web search: {query}"),
-            ),
+            update::web_search_title(pick(&args, &["query", "q"])),
         ),
         "web_fetch" => base(
             "fetch",
@@ -201,17 +171,13 @@ fn argument_diff(tool: &str, args: &Value, path: Option<&str>, cwd: &str) -> Vec
     let path = absolute(path, cwd);
     if tool == "write_file" {
         return pick(args, &["content", "contents", "text"])
-            .map(|new| {
-                vec![json!({ "type": "diff", "path": path, "oldText": null, "newText": new })]
-            })
+            .map(|new| vec![diff_block(&path, None, new)])
             .unwrap_or_default();
     }
     let old = pick(args, &["old_string", "old_text", "old", "search"]);
     let new = pick(args, &["new_string", "new_text", "new", "replace"]);
     match (old, new) {
-        (Some(old), Some(new)) => {
-            vec![json!({ "type": "diff", "path": path, "oldText": old, "newText": new })]
-        }
+        (Some(old), Some(new)) => vec![diff_block(&path, Some(old), new)],
         _ => Vec::new(),
     }
 }
@@ -234,21 +200,9 @@ fn tool_done(item: &Value) -> Value {
     let tool = text_or_empty(item, "tool");
     let said = output(item);
     if matches!(tool, "bash" | "shell") {
-        return json!({
-            "sessionUpdate": UpdateKind::ToolCallUpdate,
-            "toolCallId": id,
-            "status": status(item),
-            "rawOutput": { "formatted_output": said, "exit_code": item["exitCode"] },
-            "_meta": {
-                "terminal_exit": { "exit_code": item["exitCode"], "signal": item["exitSignal"], "terminal_id": id },
-            },
-        });
+        return terminal_done(id, status(item), said);
     }
-    let mut update = json!({
-        "sessionUpdate": UpdateKind::ToolCallUpdate,
-        "toolCallId": id,
-        "status": status(item),
-    });
+    let mut update = tool_update(id, status(item));
     if tool.starts_with("mcp__") {
         let failed = status(item) == "failed";
         update["rawOutput"] = json!({
@@ -279,31 +233,11 @@ pub(super) fn patch_blocks(
     for file in patch_files(patch_text) {
         let path = absolute(&file.path, cwd);
         match file.change {
-            Change::Add => {
-                let new = file.lines('+');
-                blocks.push(json!({ "type": "diff", "path": path, "oldText": null, "newText": new, "_meta": { "kind": "add" } }));
-            }
-            Change::Delete => {
-                let old = file.lines('-');
-                blocks.push(json!({ "type": "diff", "path": path, "oldText": old, "newText": "", "_meta": { "kind": "delete" } }));
-            }
+            Change::Add => blocks.push(diff_block(&path, None, &file.lines('+'))),
+            Change::Delete => blocks.push(diff_block(&path, Some(&file.lines('-')), "")),
             Change::Update => {
-                let Some(current) = read(&path) else {
-                    continue;
-                };
                 let hunks = file.hunks.join("\n");
-                let block = match patch::revert(&current, &hunks) {
-                    Some(original) => {
-                        json!({ "type": "diff", "path": path, "oldText": original, "newText": current })
-                    }
-                    None => match patch::apply(&current, &hunks) {
-                        Some(patched) => {
-                            json!({ "type": "diff", "path": path, "oldText": current, "newText": patched })
-                        }
-                        None => continue,
-                    },
-                };
-                blocks.push(block);
+                blocks.extend(patch::diff_block(&path, None, &hunks, true, read));
             }
         }
     }
@@ -436,37 +370,26 @@ fn reasoning_text(item: &Value) -> Option<String> {
 fn user_shell(item: &Value, done: bool) -> Vec<Value> {
     let id = text_or_empty(item, "itemId");
     let command = text_or_empty(item, "commandText");
-    let mut updates = vec![json!({
-        "sessionUpdate": UpdateKind::ToolCall,
-        "toolCallId": id,
-        "kind": "execute",
-        "title": command,
-        "status": "in_progress",
-        "content": [{ "type": "terminal", "terminalId": id }],
-        "rawInput": { "command": command },
-        "_meta": { "terminal_info": { "terminal_id": id } },
-    })];
+    let mut updates = vec![terminal_call(
+        id,
+        "in_progress",
+        command,
+        json!({ "command": command }),
+    )];
     if done && settled(item) {
-        updates.push(json!({
-            "sessionUpdate": UpdateKind::ToolCallUpdate,
-            "toolCallId": id,
-            "status": status(item),
-            "rawOutput": { "formatted_output": output(item), "exit_code": item["exitCode"] },
-            "_meta": { "terminal_exit": { "exit_code": item["exitCode"], "signal": item["exitSignal"], "terminal_id": id } },
-        }));
+        updates.push(terminal_done(id, status(item), output(item)));
     }
     updates
 }
 
 fn web_search(item: &Value) -> Value {
     let query = pick(item, &["label", "text", "fallbackText"]);
-    json!({
-        "sessionUpdate": UpdateKind::ToolCall,
-        "toolCallId": item["itemId"],
-        "kind": "search",
-        "title": query.map_or_else(|| "Web search".to_owned(), |query| format!("Web search: {query}")),
-        "status": status(item),
-    })
+    update::tool_call(
+        text_or_empty(item, "itemId"),
+        "search",
+        &update::web_search_title(query),
+        status(item),
+    )
 }
 
 /// A subagent's card name, from the file that defines it, such as
@@ -708,9 +631,7 @@ impl Items {
             }
             "webSearch" => {
                 if self.shown.remove(&id) {
-                    at(vec![
-                        json!({ "sessionUpdate": UpdateKind::ToolCallUpdate, "toolCallId": id, "status": status(item) }),
-                    ])
+                    at(vec![tool_update(&id, status(item))])
                 } else {
                     at(vec![web_search(item)])
                 }

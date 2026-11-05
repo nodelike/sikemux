@@ -2,7 +2,6 @@
 //! the transcript its CLI saved tells every app how full the window was.
 
 use serde_json::{json, Value};
-use sikemux_fold::UpdateKind;
 
 use crate::agent_catalog::AgentKind;
 use crate::launch::named_account;
@@ -75,7 +74,7 @@ impl Chat {
                     ChatEventKind::SessionUpdate,
                     json!({
                         "sessionId": start.session_id,
-                        "update": { "sessionUpdate": UpdateKind::UsageUpdate, "used": saved.used, "size": size },
+                        "update": sikemux_fold::update::usage(saved.used, size),
                     }),
                 );
             }

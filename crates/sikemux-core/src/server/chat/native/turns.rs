@@ -6,7 +6,8 @@ use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sikemux_fold::UpdateKind;
+use sikemux_fold::update;
+use sikemux_wire::chat::StopReason;
 
 use crate::server::chat::failure::Failure;
 
@@ -254,7 +255,7 @@ impl Turns {
     pub fn title(&mut self, turn: &mut Prompted) -> Option<Value> {
         let title = turn.title.take().filter(|_| !self.titled)?;
         self.titled = true;
-        Some(json!({ "sessionUpdate": UpdateKind::SessionInfoUpdate, "title": title }))
+        Some(update::session_title(&title))
     }
 }
 
@@ -268,7 +269,7 @@ pub(super) fn prompted_end(
     match outcome {
         Outcome::Completed => (None, TurnEnd::Completed(payload)),
         Outcome::Stopped => {
-            payload["stopReason"] = json!("cancelled");
+            payload["stopReason"] = json!(StopReason::Cancelled);
             (Some(Subagent::Cancelled), TurnEnd::Completed(payload))
         }
         Outcome::Failed => (
@@ -283,10 +284,10 @@ pub(super) fn prompted_end(
 
 /// What a turn the agent began on its own ending as `outcome` ends its
 /// subagents still at work as, and why the chat's work stopped.
-pub(super) fn unprompted_end(outcome: Outcome) -> (Option<Subagent>, &'static str) {
+pub(super) fn unprompted_end(outcome: Outcome) -> (Option<Subagent>, StopReason) {
     match outcome {
-        Outcome::Completed => (None, "end_turn"),
-        Outcome::Stopped => (Some(Subagent::Cancelled), "cancelled"),
-        Outcome::Failed => (Some(Subagent::Failed), "end_turn"),
+        Outcome::Completed => (None, StopReason::EndTurn),
+        Outcome::Stopped => (Some(Subagent::Cancelled), StopReason::Cancelled),
+        Outcome::Failed => (Some(Subagent::Failed), StopReason::EndTurn),
     }
 }

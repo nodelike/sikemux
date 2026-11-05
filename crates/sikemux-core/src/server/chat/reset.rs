@@ -2,7 +2,7 @@
 //! send its stopped prompt again. Each waits on a timer of its own, and the
 //! list is kept on disk so a core that restarts goes on waiting.
 
-use sikemux_fold::UpdateKind;
+use sikemux_fold::update::notice;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -256,15 +256,13 @@ pub(super) fn take_due(chat: &Chat) -> Option<Replay> {
 pub(crate) fn cancel_by_person(core: &Core, agent_id: &str) {
     if core.chats.resets.cancel(agent_id) {
         if let Some(chat) = core.chats.get(agent_id) {
-            say(
-                &chat,
-                json!({
-                    "sessionUpdate": UpdateKind::Notice,
-                    "severity": "info",
-                    "title": "This chat will not resume when the limit resets",
-                    "resumesAt": null,
-                }),
+            let mut update = notice(
+                "info",
+                "This chat will not resume when the limit resets",
+                None,
             );
+            update["resumesAt"] = Value::Null;
+            say(&chat, update);
         }
     }
 }
@@ -332,13 +330,13 @@ fn resume_notice(provider: &str, at: u64) -> Value {
         .iter()
         .find(|agent| agent.kind == provider)
         .map_or(provider, |agent| agent.label);
-    json!({
-        "sessionUpdate": UpdateKind::Notice,
-        "severity": "info",
-        "title": format!("Resumes {} when your {agent} limit resets", when(at)),
-        "description": "Sikemux sends your last message again then. Sending anything to this chat first cancels it.",
-        "resumesAt": at,
-    })
+    let mut update = notice(
+        "info",
+        &format!("Resumes {} when your {agent} limit resets", when(at)),
+        Some("Sikemux sends your last message again then. Sending anything to this chat first cancels it."),
+    );
+    update["resumesAt"] = json!(at);
+    update
 }
 
 const MONTHS: [&str; 12] = [

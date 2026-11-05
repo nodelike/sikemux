@@ -10,7 +10,6 @@ mod reader;
 mod replay;
 mod tools;
 
-use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -121,12 +120,7 @@ pub(crate) fn replay_saved(
     session_id: &str,
     sink: &Sink,
 ) -> Result<(), String> {
-    let loaded = || {
-        sink.update(
-            session_id,
-            json!({ "sessionUpdate": UpdateKind::HistoryLoaded }),
-        )
-    };
+    let loaded = || sink.update(session_id, sikemux_fold::update::history_loaded());
     let Some(path) = transcript(launch, session_id) else {
         loaded();
         return Ok(());

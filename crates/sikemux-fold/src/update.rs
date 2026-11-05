@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
-use sikemux_wire::chat::GoalMarker;
+use sikemux_wire::chat::{GoalMarker, StopReason};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -127,6 +127,156 @@ impl UpdateKind {
     pub fn is_tool(self) -> bool {
         matches!(self, Self::ToolCall | Self::ToolCallUpdate)
     }
+}
+
+/// A tool call first shown.
+pub fn tool_call(id: &str, kind: &str, title: &str, status: &str) -> Value {
+    json!({
+        "sessionUpdate": UpdateKind::ToolCall,
+        "toolCallId": id,
+        "kind": kind,
+        "title": title,
+        "status": status,
+    })
+}
+
+/// A tool call shown already, brought to `status`.
+pub fn tool_update(id: &str, status: &str) -> Value {
+    json!({ "sessionUpdate": UpdateKind::ToolCallUpdate, "toolCallId": id, "status": status })
+}
+
+/// A status word as an agent writes it, as the chat reads one.
+pub fn tool_status(word: &str) -> &'static str {
+    match word {
+        "completed" => "completed",
+        "inProgress" | "in_progress" | "pending" | "" => "in_progress",
+        _ => "failed",
+    }
+}
+
+/// A command run in a terminal, with `input` saying what ran and where.
+pub fn terminal_call(id: &str, status: &str, title: &str, input: Value) -> Value {
+    let mut call = tool_call(id, "execute", title, status);
+    call["rawInput"] = input;
+    call
+}
+
+/// A command that finished, having printed `output`.
+pub fn terminal_done(id: &str, status: &str, output: &str) -> Value {
+    let mut update = tool_update(id, status);
+    update["rawOutput"] = json!({ "formatted_output": output });
+    update
+}
+
+/// How the chat names a tool server's tool, which it draws as one.
+pub fn mcp_title(server: &str, tool: &str) -> String {
+    format!("mcp__{server}__{tool}")
+}
+
+/// A call of a tool server's tool, with `arguments` as the model wrote them.
+pub fn mcp_call(id: &str, status: &str, server: &str, tool: &str, arguments: &Value) -> Value {
+    let mut call = tool_call(id, "other", &mcp_title(server, tool), status);
+    call["rawInput"] = mcp_input(server, tool, arguments);
+    call
+}
+
+/// What a tool server's tool was asked.
+pub fn mcp_input(server: &str, tool: &str, arguments: &Value) -> Value {
+    json!({ "server": server, "tool": tool, "arguments": arguments })
+}
+
+pub fn search_title(query: Option<&str>, path: Option<&str>) -> String {
+    match (
+        query.filter(|query| !query.is_empty()),
+        path.filter(|path| !path.is_empty()),
+    ) {
+        (Some(query), Some(path)) => format!("Search for '{query}' in {path}"),
+        (Some(query), None) => format!("Search for '{query}'"),
+        (None, Some(path)) => format!("Search in '{path}'"),
+        (None, None) => "Search".to_owned(),
+    }
+}
+
+pub fn read_title(path: &str) -> String {
+    format!("Read file '{path}'")
+}
+
+pub fn web_search_title(query: Option<&str>) -> String {
+    query.filter(|query| !query.is_empty()).map_or_else(
+        || "Web search".to_owned(),
+        |query| format!("Web search: {query}"),
+    )
+}
+
+/// The title of an edit that names no one file.
+pub const EDITING_FILES: &str = "Editing files";
+
+/// A file before and after an edit, with no `old` for a new file.
+pub fn diff_block(path: &str, old: Option<&str>, new: &str) -> Value {
+    json!({ "type": "diff", "path": path, "oldText": old, "newText": new })
+}
+
+/// The steps an agent says it is working through.
+pub fn plan(entries: Vec<Value>) -> Value {
+    json!({ "sessionUpdate": UpdateKind::Plan, "entries": entries })
+}
+
+/// One step of a plan, with its status as the agent writes it.
+pub fn plan_entry(content: &str, status: &str) -> Value {
+    let status = match status {
+        "inProgress" | "in_progress" => "in_progress",
+        "completed" | "cancelled" => "completed",
+        _ => "pending",
+    };
+    json!({ "content": content, "status": status, "priority": "medium" })
+}
+
+/// What the agent calls the session; null when it named it nothing after all.
+pub fn session_title(title: impl Serialize) -> Value {
+    json!({ "sessionUpdate": UpdateKind::SessionInfoUpdate, "title": title })
+}
+
+/// The session's saved history has all been told.
+pub fn history_loaded() -> Value {
+    json!({ "sessionUpdate": UpdateKind::HistoryLoaded })
+}
+
+/// How full the context window is.
+pub fn usage(used: u64, size: u64) -> Value {
+    json!({ "sessionUpdate": UpdateKind::UsageUpdate, "used": used, "size": size })
+}
+
+/// The tokens a turn used, as an agent counts them.
+pub struct TurnUsage {
+    pub total: u64,
+    /// Counting the ones read from the cache.
+    pub input: u64,
+    pub cached: u64,
+    pub output: u64,
+    pub thought: u64,
+}
+
+impl TurnUsage {
+    /// As a turn's answer holds it, under `usage`.
+    pub fn answer(&self) -> Value {
+        json!({
+            "totalTokens": self.total,
+            "inputTokens": self.input.saturating_sub(self.cached),
+            "cachedReadTokens": self.cached,
+            "outputTokens": self.output,
+            "thoughtTokens": self.thought,
+        })
+    }
+}
+
+/// A turn's answer, ending for `reason`.
+pub fn turn_answer(reason: StopReason) -> Value {
+    json!({ "stopReason": reason })
+}
+
+/// Why the turn with the answer `answer` ended.
+pub fn stop_reason(answer: &Value) -> Option<StopReason> {
+    StopReason::deserialize(answer.get("stopReason")?).ok()
 }
 
 /// The update that sets the card of the subagent in `session` to `state`.

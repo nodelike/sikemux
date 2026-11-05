@@ -359,10 +359,7 @@ impl Codex {
         } else {
             let turns = list_turns(rpc, thread_id).await?;
             if let Some(title) = history::thread_title(thread, &turns) {
-                sink.update(
-                    thread_id,
-                    json!({ "sessionUpdate": UpdateKind::SessionInfoUpdate, "title": title }),
-                );
+                sink.update(thread_id, sikemux_fold::update::session_title(&title));
                 self.driver.session.locked().turns.titled = true;
             }
             turns

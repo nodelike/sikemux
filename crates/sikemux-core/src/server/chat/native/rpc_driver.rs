@@ -9,7 +9,9 @@ use std::sync::{Arc, Mutex};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_fold::update::turn_answer;
 use sikemux_process::sync::Locked;
+use sikemux_wire::chat::StopReason;
 
 use crate::server::chat::failure::Failure;
 
@@ -28,7 +30,7 @@ pub(super) enum Effect<Own> {
     Update(String, Value),
     End(u64, TurnEnd),
     WorkStarted,
-    WorkEnded(&'static str),
+    WorkEnded(StopReason),
     /// Ask the agent to stop the turn with this id.
     Interrupt(String),
     Own(Own),
@@ -46,7 +48,7 @@ pub(super) trait RpcSession {
 
     /// What a turn's end tells the chat, unless the agent says more.
     fn payload(&self) -> Value {
-        json!({ "stopReason": "end_turn" })
+        turn_answer(StopReason::EndTurn)
     }
 
     /// The agent answered turn `number` with its id for it.
@@ -238,10 +240,8 @@ impl<S: RpcAgent> Driver<S> {
 
     /// Turn `turn` was a command answered without the model.
     pub fn answered(&self, turn: u64) {
-        self.sink.end_turn(
-            turn,
-            TurnEnd::Completed(json!({ "stopReason": "end_turn" })),
-        );
+        self.sink
+            .end_turn(turn, TurnEnd::Completed(turn_answer(StopReason::EndTurn)));
     }
 
     /// Sends a request that begins turn `turn`, under `id` when this side names it.

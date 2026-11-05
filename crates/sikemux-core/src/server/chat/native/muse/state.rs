@@ -2,8 +2,7 @@
 //! the prompt, which items are on screen, and its subagents. Each
 //! notification comes back as the effects it has on the chat.
 
-use sikemux_fold::update::{agent_text, notice};
-use sikemux_fold::UpdateKind;
+use sikemux_fold::update::{self, agent_text, notice};
 use std::collections::HashSet;
 
 use serde_json::{json, Value};
@@ -53,29 +52,24 @@ pub(super) fn failure(error: &Value) -> Failure {
 
 /// The tokens a turn used, as the chat reads a prompt's answer.
 fn turn_usage(usage: &TurnUsage) -> Value {
-    json!({
-        "totalTokens": usage.input_tokens + usage.output_tokens,
-        "inputTokens": usage.input_tokens.saturating_sub(usage.cached_tokens),
-        "cachedReadTokens": usage.cached_tokens,
-        "outputTokens": usage.output_tokens,
-        "thoughtTokens": usage.reasoning_tokens,
-    })
+    update::TurnUsage {
+        total: usage.input_tokens + usage.output_tokens,
+        input: usage.input_tokens,
+        cached: usage.cached_tokens,
+        output: usage.output_tokens,
+        thought: usage.reasoning_tokens,
+    }
+    .answer()
 }
 
 /// Muse's to-do list as the chat's plan.
 fn plan(todos: &[Todo]) -> Value {
-    let entries: Vec<Value> = todos
-        .iter()
-        .map(|todo| {
-            let status = match todo.status.as_str() {
-                "inProgress" => "in_progress",
-                "completed" | "cancelled" => "completed",
-                _ => "pending",
-            };
-            json!({ "content": todo.text, "status": status, "priority": "medium" })
-        })
-        .collect();
-    json!({ "sessionUpdate": UpdateKind::Plan, "entries": entries })
+    update::plan(
+        todos
+            .iter()
+            .map(|todo| update::plan_entry(&todo.text, &todo.status))
+            .collect(),
+    )
 }
 
 impl Session {
@@ -208,20 +202,14 @@ impl Session {
                 if let (Some(used), Some(size)) =
                     (usage.window.used_tokens, usage.window.window_tokens)
                 {
-                    effects.push(Effect::Update(
-                        session,
-                        json!({ "sessionUpdate": UpdateKind::UsageUpdate, "used": used, "size": size }),
-                    ));
+                    effects.push(Effect::Update(session, update::usage(used, size)));
                 }
                 self.context = Some(usage.window);
             }
             Notification::NameChanged(named) if root => {
                 if let Some(name) = named.name {
                     self.turns.titled = true;
-                    effects.push(Effect::Update(
-                        session,
-                        json!({ "sessionUpdate": UpdateKind::SessionInfoUpdate, "title": name }),
-                    ));
+                    effects.push(Effect::Update(session, update::session_title(&name)));
                 }
             }
             Notification::TodoListChanged(todos) => {

@@ -541,10 +541,9 @@ impl Muse {
         let driver = self.driver();
         let session_id = self.session_id();
         if let Some(title) = history::session_title(session) {
-            driver.sink.update(
-                &session_id,
-                json!({ "sessionUpdate": UpdateKind::SessionInfoUpdate, "title": title }),
-            );
+            driver
+                .sink
+                .update(&session_id, sikemux_fold::update::session_title(&title));
             driver.session.locked().turns.titled = true;
         }
         let children = subagent_histories(&driver.rpc, items).await;
@@ -554,10 +553,9 @@ impl Muse {
             driver.sink.update(&session, update);
         }
         driver.session.locked().turns.restore(history::turns(items));
-        driver.sink.update(
-            &session_id,
-            json!({ "sessionUpdate": UpdateKind::HistoryLoaded }),
-        );
+        driver
+            .sink
+            .update(&session_id, sikemux_fold::update::history_loaded());
     }
 
     async fn offer_commands(&mut self) {

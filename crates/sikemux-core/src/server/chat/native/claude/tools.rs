@@ -922,23 +922,14 @@ pub fn todo_plan(input: &Value) -> Option<Value> {
             plan_entry(content, todo.get("status"))
         })
         .collect();
-    Some(plan_update(entries))
+    Some(sikemux_fold::update::plan(entries))
 }
 
 fn plan_entry(content: Option<&Value>, status: Option<&Value>) -> Value {
-    let mut entry = Map::new();
-    if let Some(content) = content {
-        entry.insert("content".into(), content.clone());
-    }
-    if let Some(status) = status {
-        entry.insert("status".into(), status.clone());
-    }
-    entry.insert("priority".into(), "medium".into());
-    Value::Object(entry)
-}
-
-fn plan_update(entries: Vec<Value>) -> Value {
-    json!({ "sessionUpdate": UpdateKind::Plan, "entries": entries })
+    sikemux_fold::update::plan_entry(
+        content.and_then(Value::as_str).unwrap_or_default(),
+        status.and_then(Value::as_str).unwrap_or_default(),
+    )
 }
 
 /// §3.3 updates for one Anthropic content block (text/image/thinking) of role "assistant"|"user", with messageId; tool blocks are not handled here.
@@ -1082,7 +1073,7 @@ impl TaskPlan {
     }
 
     pub fn plan(&self) -> Value {
-        plan_update(
+        sikemux_fold::update::plan(
             self.tasks
                 .iter()
                 .map(|(_, task)| {

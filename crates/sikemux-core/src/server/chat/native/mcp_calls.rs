@@ -5,6 +5,7 @@
 //! are, so the chat shows it, and a page it shows, alike.
 
 use serde_json::{json, Value};
+use sikemux_fold::update::mcp_title;
 use sikemux_fold::UpdateKind;
 
 use crate::launch::tools::TOOLS_SERVER;
@@ -56,7 +57,7 @@ fn omp_write(update: &mut Value, servers: &[String]) -> bool {
             None => return false,
         },
     };
-    update["title"] = json!(format!("mcp__{server}__{tool}"));
+    update["title"] = json!(mcp_title(&server, &tool));
     update["kind"] = json!("other");
     if written.is_some() {
         let content = update["rawInput"]["content"].as_str().unwrap_or_default();
@@ -86,7 +87,7 @@ fn opencode_call(update: &mut Value, servers: &[String]) {
     else {
         return;
     };
-    update["title"] = json!(format!("mcp__{server}__{tool}"));
+    update["title"] = json!(mcp_title(&server, &tool));
 }
 
 /// `sikemux_tools_page_show` or `sikemux-tools_page_show` as the server

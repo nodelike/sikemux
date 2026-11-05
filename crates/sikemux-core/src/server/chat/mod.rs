@@ -21,7 +21,9 @@ mod states;
 mod turn;
 mod usage;
 
+use sikemux_fold::update::{notice, turn_answer};
 use sikemux_fold::UpdateKind;
+use sikemux_wire::chat::StopReason;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -294,7 +296,7 @@ impl Chat {
                 ChatEventKind::TurnStarted => Some(Activity::Started),
                 ChatEventKind::TurnCompleted => {
                     let cancelled =
-                        payload.get("stopReason").and_then(Value::as_str) == Some("cancelled");
+                        sikemux_fold::update::stop_reason(&payload) == Some(StopReason::Cancelled);
                     if !cancelled && self.feed.running_subagents() > 0 {
                         self.hold_for_subagents();
                         core.agents_changed();
@@ -565,7 +567,7 @@ impl Chat {
         if self.feed.in_turn() {
             self.feed.emit(
                 ChatEventKind::TurnCompleted,
-                serde_json::json!({ "stopReason": "cancelled" }),
+                turn_answer(StopReason::Cancelled),
             );
         }
     }
@@ -618,12 +620,9 @@ impl Chat {
     }
 
     /// The work nobody here asked for is over.
-    pub(crate) fn work_ended(&self, stop_reason: &str) {
+    pub(crate) fn work_ended(&self, stop_reason: StopReason) {
         if self.end_unprompted() {
-            self.emit(
-                ChatEventKind::TurnCompleted,
-                serde_json::json!({ "stopReason": stop_reason }),
-            );
+            self.emit(ChatEventKind::TurnCompleted, turn_answer(stop_reason));
         }
     }
 
@@ -642,7 +641,7 @@ impl Chat {
         if self.prompted() {
             stall_later(turn, stalled);
         } else {
-            self.work_ended("cancelled");
+            self.work_ended(StopReason::Cancelled);
         }
     }
 
@@ -1233,12 +1232,13 @@ pub(crate) enum HandOver {
 /// The notice a chat shows when an update started its agent again rather
 /// than carrying it over.
 pub(crate) fn update_notice(why: &str) -> Value {
-    serde_json::json!({
-        "sessionUpdate": UpdateKind::Notice,
-        "severity": "warning",
-        "title": "Sikemux restarted this agent while it updated",
-        "description": format!("The agent could not be carried over because {why}. Anything it was doing stopped."),
-    })
+    notice(
+        "warning",
+        "Sikemux restarted this agent while it updated",
+        Some(&format!(
+            "The agent could not be carried over because {why}. Anything it was doing stopped."
+        )),
+    )
 }
 
 /// Tells `stalled` of turn `turn` once it has had a while to stop.
@@ -1953,12 +1953,7 @@ pub(crate) fn carry_on_prompt(what: &str) -> rebind::Replay {
 }
 
 pub(crate) fn restart_notice(title: &str, description: &str) -> Value {
-    serde_json::json!({
-        "sessionUpdate": UpdateKind::Notice,
-        "severity": "warning",
-        "title": title,
-        "description": description,
-    })
+    notice("warning", title, Some(description))
 }
 
 const RESTARTED: &str = "Sikemux restarted while this agent was working";

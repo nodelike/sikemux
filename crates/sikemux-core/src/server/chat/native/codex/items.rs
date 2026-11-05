@@ -1,12 +1,15 @@
 //! What Codex's thread items look like in the chat: the ACP session updates
 //! Codex's ACP adapter sends for each, so the app reads them alike.
 
-use sikemux_fold::update::{agent_text, compaction, content, thought};
+use sikemux_fold::update::{
+    self, agent_text, compaction, content, diff_block, mcp_input, terminal_call, terminal_done,
+    thought, tool_call, tool_update, TurnUsage,
+};
 use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use super::super::file_link;
 use super::super::json::text_or_empty as text;
@@ -14,11 +17,7 @@ use super::super::patch;
 use super::notifications::PlanStep;
 
 fn status(item: &Value) -> &'static str {
-    match text(item, "status") {
-        "completed" => "completed",
-        "failed" | "declined" | "interrupted" => "failed",
-        _ => "in_progress",
-    }
+    update::tool_status(text(item, "status"))
 }
 
 /// Settled: completed, or failed for anything else.
@@ -70,37 +69,8 @@ fn phased_text(text: &str, message_id: Option<&str>, phase: Option<&Value>) -> V
     update
 }
 
-fn search_title(query: Option<&str>, path: Option<&str>) -> String {
-    match (
-        query.filter(|q| !q.is_empty()),
-        path.filter(|p| !p.is_empty()),
-    ) {
-        (Some(query), Some(path)) => format!("Search for '{query}' in {path}"),
-        (Some(query), None) => format!("Search for '{query}'"),
-        (None, Some(path)) => format!("Search in '{path}'"),
-        (None, None) => "Search".to_owned(),
-    }
-}
-
-/// Whether the command shows as a terminal rather than as a read, list or search.
-fn runs_in_terminal(item: &Value) -> bool {
-    match item["commandActions"].as_array().map(Vec::as_slice) {
-        Some([action]) => action["type"] == "unknown",
-        _ => true,
-    }
-}
-
-fn terminal_call(id: &str, status: &str, title: &str, command: &Value, cwd: &Value) -> Value {
-    json!({
-        "sessionUpdate": UpdateKind::ToolCall,
-        "toolCallId": id,
-        "kind": "execute",
-        "title": title,
-        "status": status,
-        "content": [{ "type": "terminal", "terminalId": id }],
-        "rawInput": { "command": command, "cwd": cwd },
-        "_meta": { "terminal_info": { "cwd": cwd, "terminal_id": id } },
-    })
+fn terminal(id: &str, status: &str, title: &str, command: &Value, cwd: &Value) -> Value {
+    terminal_call(id, status, title, json!({ "command": command, "cwd": cwd }))
 }
 
 fn command_call(item: &Value) -> Value {
@@ -109,67 +79,47 @@ fn command_call(item: &Value) -> Value {
     let cwd = &item["cwd"];
     if let Some([action]) = item["commandActions"].as_array().map(Vec::as_slice) {
         let path = action["path"].as_str();
-        let base = |kind: &str, title: String| {
-            json!({
-                "sessionUpdate": UpdateKind::ToolCall,
-                "toolCallId": id,
-                "status": status,
-                "kind": kind,
-                "title": title,
-            })
-        };
         match text(action, "type") {
             "read" => {
-                let mut call = base("read", format!("Read file '{}'", path.unwrap_or_default()));
+                let title = update::read_title(path.unwrap_or_default());
+                let mut call = tool_call(id, "read", &title, status);
                 call["locations"] = json!([{ "path": action["path"] }]);
                 return call;
             }
-            "search" => return base("search", search_title(action["query"].as_str(), path)),
+            "search" => {
+                let title = update::search_title(action["query"].as_str(), path);
+                return tool_call(id, "search", &title, status);
+            }
             "listFiles" => {
                 let title = path.filter(|path| !path.is_empty()).map_or_else(
                     || "List files".to_owned(),
                     |path| format!("List files in '{path}'"),
                 );
-                return base("read", title);
+                return tool_call(id, "read", &title, status);
             }
             _ => {
                 let command = text(action, "command");
-                return terminal_call(id, status, strip_shell(command), &action["command"], cwd);
+                return terminal(id, status, strip_shell(command), &action["command"], cwd);
             }
         }
     }
     let command = text(item, "command");
-    terminal_call(id, status, strip_shell(command), &item["command"], cwd)
+    terminal(id, status, strip_shell(command), &item["command"], cwd)
 }
 
 fn command_done(item: &Value) -> Option<Value> {
     if item["status"] == "inProgress" {
         return None;
     }
-    let id = text(item, "id");
-    let mut update = json!({
-        "sessionUpdate": UpdateKind::ToolCallUpdate,
-        "toolCallId": id,
-        "status": ended(item),
-        "rawOutput": {
-            "formatted_output": item["aggregatedOutput"].as_str().unwrap_or_default(),
-            "exit_code": item["exitCode"],
-        },
-    });
-    if runs_in_terminal(item) {
-        update["_meta"] = json!({
-            "terminal_exit": { "exit_code": item["exitCode"], "signal": null, "terminal_id": id },
-        });
-    }
-    Some(update)
+    Some(terminal_done(
+        text(item, "id"),
+        ended(item),
+        item["aggregatedOutput"].as_str().unwrap_or_default(),
+    ))
 }
 
 pub(super) fn read_file(path: &str) -> Option<String> {
     std::fs::read_to_string(path).ok()
-}
-
-fn diff_block(path: &str, old: Option<String>, new: String, kind: &str) -> Value {
-    json!({ "type": "diff", "path": path, "oldText": old, "newText": new, "_meta": { "kind": kind } })
 }
 
 /// One change of an edit as the file before and after. An update is worked out
@@ -179,31 +129,11 @@ fn change_block(change: &Value, read: &impl Fn(&str) -> Option<String>) -> Optio
     let path = text(change, "path");
     let diff = text(change, "diff");
     match change["kind"]["type"].as_str()? {
-        "add" => Some(diff_block(path, None, diff.to_owned(), "add")),
-        "delete" => Some(diff_block(
-            path,
-            Some(diff.to_owned()),
-            String::new(),
-            "delete",
-        )),
+        "add" => Some(diff_block(path, None, diff)),
+        "delete" => Some(diff_block(path, Some(diff), "")),
         "update" => {
             let moved_to = change["kind"]["move_path"].as_str();
-            if let Some(current) = read(path) {
-                if let Some(patched) = patch::apply(&current, diff) {
-                    return Some(diff_block(
-                        moved_to.unwrap_or(path),
-                        Some(current),
-                        patched,
-                        "update",
-                    ));
-                }
-                let original = patch::revert(&current, diff)?;
-                return Some(diff_block(path, Some(original), current, "update"));
-            }
-            let moved_to = moved_to?;
-            let current = read(moved_to)?;
-            let original = patch::revert(&current, diff)?;
-            Some(diff_block(moved_to, Some(original), current, "update"))
+            patch::diff_block(path, moved_to, diff, false, read)
         }
         _ => None,
     }
@@ -216,18 +146,9 @@ fn edit_call(item: &Value, status: &str, read: &impl Fn(&str) -> Option<String>)
         .flatten()
         .filter_map(|change| change_block(change, read))
         .collect();
-    json!({
-        "sessionUpdate": UpdateKind::ToolCall,
-        "toolCallId": item["id"],
-        "title": "Editing files",
-        "kind": "edit",
-        "status": status,
-        "content": blocks,
-    })
-}
-
-fn mcp_input(item: &Value) -> Value {
-    json!({ "server": item["server"], "tool": item["tool"], "arguments": item["arguments"] })
+    let mut call = tool_call(text(item, "id"), "edit", update::EDITING_FILES, status);
+    call["content"] = json!(blocks);
+    call
 }
 
 fn mcp_output(item: &Value) -> Option<Value> {
@@ -235,19 +156,14 @@ fn mcp_output(item: &Value) -> Option<Value> {
         .then(|| json!({ "result": item["result"], "error": item["error"] }))
 }
 
-/// Codex's adapter titles these `mcp.server.tool`. The chat names a tool server
-/// call `mcp__server__tool` and draws it as one, with Sikemux's own tools
-/// getting their own rows, so it is titled that way here.
 fn mcp_call(item: &Value) -> Value {
-    let mut call = json!({
-        "sessionUpdate": UpdateKind::ToolCall,
-        "toolCallId": item["id"],
-        "kind": "other",
-        "title": format!("mcp__{}__{}", text(item, "server"), text(item, "tool")),
-        "status": status(item),
-        "rawInput": mcp_input(item),
-        "_meta": { "is_mcp_tool_call": true },
-    });
+    let mut call = update::mcp_call(
+        text(item, "id"),
+        status(item),
+        text(item, "server"),
+        text(item, "tool"),
+        &item["arguments"],
+    );
     if let Some(output) = mcp_output(item) {
         call["rawOutput"] = output;
     }
@@ -255,12 +171,8 @@ fn mcp_call(item: &Value) -> Value {
 }
 
 fn mcp_done(item: &Value) -> Value {
-    let mut update = json!({
-        "sessionUpdate": UpdateKind::ToolCallUpdate,
-        "toolCallId": item["id"],
-        "status": ended(item),
-        "rawInput": mcp_input(item),
-    });
+    let mut update = tool_update(text(item, "id"), ended(item));
+    update["rawInput"] = mcp_input(text(item, "server"), text(item, "tool"), &item["arguments"]);
     if let Some(output) = mcp_output(item) {
         update["rawOutput"] = output;
     }
@@ -279,20 +191,14 @@ fn dynamic_call(item: &Value) -> Value {
 }
 
 fn status_update(item: &Value) -> Value {
-    json!({ "sessionUpdate": UpdateKind::ToolCallUpdate, "toolCallId": item["id"], "status": ended(item) })
+    tool_update(text(item, "id"), ended(item))
 }
 
 fn web_search_title(item: &Value) -> String {
-    let query = item["query"].as_str().filter(|query| !query.is_empty());
+    let query = item["query"].as_str();
     let action = &item["action"];
-    let searched = || {
-        query.map_or_else(
-            || "Web search".to_owned(),
-            |query| format!("Web search: {query}"),
-        )
-    };
     match action["type"].as_str() {
-        None => searched(),
+        None => update::web_search_title(query),
         Some("search") => {
             let queries: Vec<&str> = action["queries"]
                 .as_array()
@@ -302,13 +208,11 @@ fn web_search_title(item: &Value) -> String {
                 .filter(|query| !query.is_empty())
                 .collect();
             let joined = queries.join(", ");
-            let query = action["query"]
-                .as_str()
-                .or((!queries.is_empty()).then_some(joined.as_str()))
-                .or(query);
-            query.map_or_else(
-                || "Web search".to_owned(),
-                |query| format!("Web search: {query}"),
+            update::web_search_title(
+                action["query"]
+                    .as_str()
+                    .or((!queries.is_empty()).then_some(joined.as_str()))
+                    .or(query),
             )
         }
         Some("open_page" | "openPage") => action["url"]
@@ -325,7 +229,7 @@ fn web_search_title(item: &Value) -> String {
                 .unwrap_or_default();
             format!("Find in page{pattern}{url}").trim().to_owned()
         }
-        Some(_) => "Web search".to_owned(),
+        Some(_) => update::web_search_title(None),
     }
 }
 
@@ -647,43 +551,35 @@ impl Items {
 
 /// A turn's plan as the chat shows it.
 pub(super) fn plan(steps: &[PlanStep]) -> Value {
-    let entries: Vec<Value> = steps
-        .iter()
-        .map(|step| {
-            let status = match step.status.as_str() {
-                "inProgress" => "in_progress",
-                other => other,
-            };
-            json!({ "content": step.step, "status": status, "priority": "medium" })
-        })
-        .collect();
-    json!({ "sessionUpdate": UpdateKind::Plan, "entries": entries })
+    update::plan(
+        steps
+            .iter()
+            .map(|step| update::plan_entry(&step.step, &step.status))
+            .collect(),
+    )
 }
 
 /// The context window filling up, when Codex says how full it is.
 pub(super) fn usage(usage: &Value) -> Option<Value> {
     let used = usage["last"]["totalTokens"].as_u64()?;
     let size = usage["modelContextWindow"].as_u64()?;
-    Some(json!({ "sessionUpdate": UpdateKind::UsageUpdate, "used": used, "size": size }))
+    Some(update::usage(used, size))
 }
 
-/// The tokens a turn used, as Codex's adapter answers a prompt with them.
+/// The tokens a turn used.
 pub(super) fn turn_usage(token_usage: &Value) -> Option<Value> {
     let last = token_usage.get("last")?;
     let count = |key: &str| last[key].as_u64().unwrap_or(0);
-    let mut usage = Map::new();
-    usage.insert("totalTokens".into(), json!(count("totalTokens")));
-    usage.insert(
-        "inputTokens".into(),
-        json!(count("inputTokens").saturating_sub(count("cachedInputTokens"))),
-    );
-    usage.insert("cachedReadTokens".into(), json!(count("cachedInputTokens")));
-    usage.insert("outputTokens".into(), json!(count("outputTokens")));
-    usage.insert(
-        "thoughtTokens".into(),
-        json!(count("reasoningOutputTokens")),
-    );
-    Some(Value::Object(usage))
+    Some(
+        TurnUsage {
+            total: count("totalTokens"),
+            input: count("inputTokens"),
+            cached: count("cachedInputTokens"),
+            output: count("outputTokens"),
+            thought: count("reasoningOutputTokens"),
+        }
+        .answer(),
+    )
 }
 
 #[cfg(test)]
@@ -718,9 +614,7 @@ mod tests {
             json!({
                 "sessionUpdate": "tool_call", "toolCallId": "exec-1", "kind": "execute",
                 "title": "cargo test", "status": "in_progress",
-                "content": [{ "type": "terminal", "terminalId": "exec-1" }],
                 "rawInput": { "command": "cargo test", "cwd": "/work" },
-                "_meta": { "terminal_info": { "cwd": "/work", "terminal_id": "exec-1" } },
             })
         );
         item["status"] = json!("failed");
@@ -732,9 +626,8 @@ mod tests {
         assert_eq!(done[0]["status"], "failed");
         assert_eq!(
             done[0]["rawOutput"],
-            json!({ "formatted_output": "error[E0308]", "exit_code": 101 })
+            json!({ "formatted_output": "error[E0308]" })
         );
-        assert_eq!(done[0]["_meta"]["terminal_exit"]["exit_code"], 101);
     }
 
     #[test]
@@ -819,7 +712,6 @@ mod tests {
             blocks[1],
             json!({
                 "type": "diff", "path": "/w/new.txt", "oldText": null, "newText": "hello\n",
-                "_meta": { "kind": "add" },
             })
         );
         assert_eq!(blocks[2]["oldText"], "bye\n");

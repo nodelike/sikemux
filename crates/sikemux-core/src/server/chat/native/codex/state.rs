@@ -2,7 +2,7 @@
 //! prompt, which items are on screen, and its subagents. Each notification
 //! comes back as the effects it has on the chat.
 
-use sikemux_fold::update::{agent_text, notice, text_content, thought};
+use sikemux_fold::update::{agent_text, notice, session_title, text_content, thought};
 use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet};
 
@@ -395,10 +395,7 @@ impl Session {
             Notification::TokenUsage(usage) => {
                 items::usage(&usage.token_usage).into_iter().collect()
             }
-            Notification::ThreadNamed(named) => vec![json!({
-                "sessionUpdate": UpdateKind::SessionInfoUpdate,
-                "title": named.thread_name,
-            })],
+            Notification::ThreadNamed(named) => vec![session_title(&named.thread_name)],
             Notification::ModelRerouted(rerouted) => vec![thought(
                 &format!(
                     "Model rerouted from {} to {} ({}).\n\n",
@@ -534,6 +531,7 @@ impl RpcSession for Session {
 mod tests {
     use super::super::super::session::TurnEnd;
     use super::*;
+    use sikemux_wire::chat::StopReason;
 
     fn session() -> Session {
         Session::new("thread".into())
@@ -797,7 +795,7 @@ mod tests {
         );
         assert!(matches!(
             effects.as_slice(),
-            [Effect::WorkEnded("end_turn")]
+            [Effect::WorkEnded(StopReason::EndTurn)]
         ));
     }
 

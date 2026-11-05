@@ -812,9 +812,7 @@ impl Fold {
                 }
             }
             ChatEventKind::TurnCompleted => {
-                let stop = payload
-                    .get("stopReason")
-                    .and_then(|reason| StopReason::deserialize(reason).ok());
+                let stop = update::stop_reason(payload);
                 let at = payload.get("at").and_then(Value::as_u64).unwrap_or(at);
                 self.end_turn(stop, at);
             }

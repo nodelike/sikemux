@@ -2,6 +2,9 @@
 //! shows an edit as the file before and after, so these rebuild one side from
 //! the file on disk.
 
+use serde_json::Value;
+use sikemux_fold::update;
+
 struct Hunk {
     old_start: usize,
     new_start: usize,
@@ -116,6 +119,34 @@ pub(crate) fn apply(text: &str, diff: &str) -> Option<String> {
 /// `text` as it was before the edit, when it already has it.
 pub(crate) fn revert(text: &str, diff: &str) -> Option<String> {
     apply_hunks(text, &parse(clean(diff))?, true)
+}
+
+/// One file of an edit as before and after, from `read`, which gives it as it
+/// is now, with or without the edit. `edited` says which is likelier and so
+/// tried first. A file the edit moves shows under `moved_to`.
+pub(super) fn diff_block(
+    path: &str,
+    moved_to: Option<&str>,
+    diff: &str,
+    edited: bool,
+    read: &impl Fn(&str) -> Option<String>,
+) -> Option<Value> {
+    let Some(current) = read(path) else {
+        let moved_to = moved_to?;
+        let current = read(moved_to)?;
+        let old = revert(&current, diff)?;
+        return Some(update::diff_block(moved_to, Some(&old), &current));
+    };
+    let unmade = || {
+        apply(&current, diff)
+            .map(|new| update::diff_block(moved_to.unwrap_or(path), Some(&current), &new))
+    };
+    let made = || revert(&current, diff).map(|old| update::diff_block(path, Some(&old), &current));
+    if edited {
+        made().or_else(unmade)
+    } else {
+        unmade().or_else(made)
+    }
 }
 
 #[cfg(test)]

@@ -3,7 +3,6 @@
 //! standard input and output. Their session updates already have the shape
 //! the chat reads, so they pass through as they come.
 
-use sikemux_fold::UpdateKind;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -45,10 +44,7 @@ pub(super) fn replay_saved(launch: &ChatLaunch, session: &str, sink: &Sink) -> R
         mcp_calls::as_mcp_call(&mut update, &servers);
         sink.update(session, update);
     }
-    sink.update(
-        session,
-        json!({ "sessionUpdate": UpdateKind::HistoryLoaded }),
-    );
+    sink.update(session, sikemux_fold::update::history_loaded());
     Ok(())
 }
 
