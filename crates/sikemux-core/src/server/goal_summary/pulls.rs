@@ -20,8 +20,6 @@ const MAX_PULLS: usize = 8;
 const LOOKUP_TIME: Duration = Duration::from_secs(10);
 /// What comes before a pull request's number in what people write.
 const SAID: [&str; 4] = ["pr #", "pr ", "pull request #", "pull request "];
-/// What comes before its number in its address, after the repository.
-const ADDRESSES: [&str; 3] = ["/pull/", "/pull-requests/", "/merge_requests/"];
 
 fn digits_after(text: &str, at: usize) -> Option<u64> {
     let digits: String = text[at..]
@@ -42,7 +40,9 @@ fn named_in(text: &str, slug: Option<&str>) -> Vec<u64> {
         }
     }
     if let Some(slug) = slug {
-        for address in ADDRESSES.map(|address| format!("{}{address}", slug.to_lowercase())) {
+        for address in sikemux_view::chat::PULL_PATHS
+            .map(|address| format!("{}{address}", slug.to_lowercase()))
+        {
             for (at, _) in text.match_indices(&address) {
                 named.extend(digits_after(&text, at + address.len()));
             }

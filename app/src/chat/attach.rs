@@ -17,6 +17,9 @@ use gpui_kit::{
 };
 use gpui_transcript::FilePress;
 use sikemux_core::server::chat::prompt::MAX_ATTACHMENTS;
+use sikemux_view::chat::{
+    tracked_at, tracked_title, TrackedKind, AGENT_URI, ANSWER_URI, EARLIER_URI, STASH_URI,
+};
 use sikemux_view::chat::{ChatMessage, SentContext};
 use sikemux_wire::protocol::ChatContext;
 use sikemux_wire::protocol::MAX_ATTACHMENT_BYTES;
@@ -773,7 +776,7 @@ pub(crate) fn named(
             written: format!("@{name}"),
             id: format!("agent:{id}"),
             label: format!("@{name}"),
-            carried: format!("sikemux://agent/{id}"),
+            carried: format!("{AGENT_URI}{id}"),
         })
         .chain(commands.iter().map(|name| Mention {
             written: format!("/{name}"),
@@ -816,7 +819,7 @@ pub(crate) fn named(
         let named = item.title.starts_with('@');
         let mention = item
             .uri
-            .strip_prefix("sikemux://earlier/")
+            .strip_prefix(EARLIER_URI)
             .filter(|_| named)
             .map(|chat| format!("earlier:{chat}"));
         if let Some(id) = mention {
@@ -975,35 +978,16 @@ fn badge(number: usize, t: &Tokens, cx: &App) -> Div {
     )
 }
 
-/// An issue's or pull request's number in its link, when the link is to one.
-/// An issue's or pull request's title without the kind and number its context names it by.
-fn tracked_title<'a>(title: &'a str, number: &str) -> &'a str {
-    let bare = title.trim_start_matches("Issue ");
-    let bare = bare.trim_start_matches("Pull request ");
-    bare.strip_prefix(&format!("#{number}"))
-        .map_or(title, |rest| rest.trim_start_matches(':').trim_start())
-}
-
+/// The mark and number of the issue or pull request at `uri`, when it names one.
 fn tracked(uri: &str) -> Option<(Icon, &str)> {
-    let kinds = [
-        ("/issues/", Icon::Issue),
-        ("/pull/", Icon::PullRequest),
-        ("/pulls/", Icon::PullRequest),
-        ("/pull-requests/", Icon::PullRequest),
-        ("/merge_requests/", Icon::PullRequest),
-    ];
-    kinds.into_iter().find_map(|(kind, icon)| {
-        let (_, after) = uri.split_once(kind)?;
-        let end = after.find(['/', '?', '#']).unwrap_or(after.len());
-        let number = &after[..end];
-        (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
-            .then_some((icon, number))
+    tracked_at(uri).map(|(kind, number)| {
+        let icon = match kind {
+            TrackedKind::Issue => Icon::Issue,
+            TrackedKind::Pull => Icon::PullRequest,
+        };
+        (icon, number)
     })
 }
-
-/// What an answer the person gave to a question asked in an agent's reply goes by, when it
-/// went with a message of theirs.
-const ANSWER: &str = "sikemux://answer/";
 
 /// A context item's chip: `#12 Title` for an issue or pull request, its title for an
 /// earlier chat, an answer or anything else.
@@ -1022,9 +1006,9 @@ fn context_chip(
                 .trim_end()
                 .to_owned(),
         ),
-        None if uri.starts_with("sikemux://earlier/") => (Icon::Message, title.to_owned()),
-        None if uri.starts_with("sikemux://stash/") => (Icon::Text, title.to_owned()),
-        None if uri.starts_with(ANSWER) => (Icon::Message, title.to_owned()),
+        None if uri.starts_with(EARLIER_URI) => (Icon::Message, title.to_owned()),
+        None if uri.starts_with(STASH_URI) => (Icon::Text, title.to_owned()),
+        None if uri.starts_with(ANSWER_URI) => (Icon::Message, title.to_owned()),
         None if web => (
             Icon::Globe,
             if title.is_empty() { uri } else { title }.to_owned(),
@@ -1035,7 +1019,7 @@ fn context_chip(
     Attachment::new()
         .id(SharedString::from(id))
         .with_size(gpui_kit::component::Size::Small)
-        .tooltip(match uri.starts_with(ANSWER) {
+        .tooltip(match uri.starts_with(ANSWER_URI) {
             true => title.clone(),
             false => uri.to_owned(),
         })

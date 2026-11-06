@@ -2393,10 +2393,7 @@ mod prompt_context {
     const URI: &str = "https://github.com/o/r/issues/12";
 
     fn issue() -> SentContext {
-        SentContext {
-            uri: URI.into(),
-            title: "Login crashes".into(),
-        }
+        SentContext::new(URI.into(), "Login crashes".into())
     }
 
     #[test]
@@ -2415,10 +2412,10 @@ mod prompt_context {
             prompt::split_sent_context(&sent),
             (
                 "fix this".to_owned(),
-                vec![SentContext {
-                    uri: URI.into(),
-                    title: "Issue #12: Login crashes".into(),
-                }]
+                vec![SentContext::new(
+                    URI.into(),
+                    "Issue #12: Login crashes".into()
+                )]
             )
         );
     }

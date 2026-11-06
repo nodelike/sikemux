@@ -2,11 +2,7 @@
 //! letters from other agents, the context sent with it, and the notes an
 //! agent's harness writes to itself, which the person never sees.
 
-use sikemux_view::chat::{AgentLetter, LetterKind, SentContext};
-
-/// Where an `@` mention of another agent points; the message's own text
-/// already shows the mention.
-const MENTION_URI: &str = "sikemux://agent/";
+use sikemux_view::chat::{AgentLetter, LetterKind, SentContext, AGENT_URI};
 
 /// Tags Claude Code writes to itself. A finished background agent's notice
 /// carries its whole report, paragraphs and all, so these are recognised by
@@ -235,10 +231,10 @@ pub(super) fn split_sent_context(text: &str) -> (String, Vec<SentContext>) {
         let before = &remaining[..at];
         rest.push_str(before.strip_suffix('\n').unwrap_or(before));
         let body = &remaining[body_start..body_start + body_len];
-        context.push(SentContext {
-            uri: uri.to_owned(),
-            title: body.split('\n').next().unwrap_or_default().to_owned(),
-        });
+        context.push(SentContext::new(
+            uri.to_owned(),
+            body.split('\n').next().unwrap_or_default().to_owned(),
+        ));
         remaining = &remaining[body_start + body_len + "\n</context>".len()..];
     }
     rest.push_str(remaining);
@@ -271,7 +267,7 @@ fn headed_fences(text: &str, context: &mut Vec<SentContext>) -> String {
         match headed_fence(&text[head..]) {
             Some((uri, title, len)) => {
                 out.push_str(&text[at..cut]);
-                context.push(SentContext { uri, title });
+                context.push(SentContext::new(uri, title));
                 at = head + len;
             }
             None => {
@@ -313,5 +309,5 @@ fn headed_fence(text: &str) -> Option<(String, String, usize)> {
 }
 
 pub(super) fn is_mention(uri: &str) -> bool {
-    uri.starts_with(MENTION_URI)
+    uri.starts_with(AGENT_URI)
 }

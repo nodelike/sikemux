@@ -667,12 +667,86 @@ pub struct WorkFold {
     pub thought: bool,
 }
 
+/// Where an `@` mention of another agent points.
+pub const AGENT_URI: &str = "sikemux://agent/";
+/// An earlier chat of the project, as `<cli>/<session id>`.
+pub const EARLIER_URI: &str = "sikemux://earlier/";
+/// An agent a message woke up.
+pub const WOKEN_URI: &str = "sikemux://woken/";
+/// Something from the person's stash, by its id.
+pub const STASH_URI: &str = "sikemux://stash/";
+/// An answer the person gave to a question asked in an agent's reply.
+pub const ANSWER_URI: &str = "sikemux://answer/";
+
+/// What comes before an issue's number in an address, after the repository.
+const ISSUE_PATHS: [&str; 1] = ["/issues/"];
+/// What comes before a pull request's number in an address, after the repository.
+pub const PULL_PATHS: [&str; 4] = ["/pull/", "/pulls/", "/pull-requests/", "/merge_requests/"];
+
+/// Whether an address names an issue or a pull request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrackedKind {
+    Issue,
+    Pull,
+}
+
+/// The issue or pull request a context item is, read from its address.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tracked {
+    pub kind: TrackedKind,
+    pub number: String,
+    /// Its title, without the kind and number the context names it by.
+    pub title: String,
+}
+
+/// The issue or pull request at `uri`, when it names one, and its number.
+pub fn tracked_at(uri: &str) -> Option<(TrackedKind, &str)> {
+    let kinds = ISSUE_PATHS
+        .iter()
+        .map(|path| (*path, TrackedKind::Issue))
+        .chain(PULL_PATHS.iter().map(|path| (*path, TrackedKind::Pull)));
+    kinds.into_iter().find_map(|(path, kind)| {
+        let (_, after) = uri.split_once(path)?;
+        let end = after.find(['/', '?', '#']).unwrap_or(after.len());
+        let number = &after[..end];
+        (!number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
+            .then_some((kind, number))
+    })
+}
+
+/// An issue's or pull request's title without the kind and number its context names it by.
+pub fn tracked_title<'a>(title: &'a str, number: &str) -> &'a str {
+    let bare = title.trim_start_matches("Issue ");
+    let bare = bare.trim_start_matches("Pull request ");
+    bare.strip_prefix(&format!("#{number}"))
+        .map_or(title, |rest| rest.trim_start_matches(':').trim_start())
+}
+
 /// Something read elsewhere and sent with a message, named.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SentContext {
     pub uri: String,
     pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tracked: Option<Tracked>,
+}
+
+impl SentContext {
+    pub fn new(uri: String, title: String) -> Self {
+        let tracked = tracked_at(&uri).map(|(kind, number)| Tracked {
+            kind,
+            number: number.to_owned(),
+            title: tracked_title(&title, number).to_owned(),
+        });
+        Self {
+            uri,
+            title,
+            tracked,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

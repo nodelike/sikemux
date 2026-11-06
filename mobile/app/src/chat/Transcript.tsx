@@ -5,7 +5,7 @@ import { durationLabel } from '@shared/chat/durationLabel';
 import { basename } from '@shared/lib/paths';
 import { rateLabel, sentLabel } from '@shared/chat/messageMeta';
 import type { MdElement } from '@shared/markdown/types';
-import { sentChips } from '@shared/chat/sentChips';
+import { sentChips } from '@/chat/sentChips';
 import {
   attachmentName,
   groupParts,

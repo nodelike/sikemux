@@ -9,13 +9,8 @@ use serde_json::{json, Value};
 
 use crate::server::connection::blocking;
 use crate::server::{display, launching, saved, Core, CoreError, CoreResult};
+use sikemux_view::chat::{AGENT_URI, EARLIER_URI, WOKEN_URI};
 use sikemux_wire::protocol::{ChatContext, ChatState};
-
-const AGENT_URI: &str = "sikemux://agent/";
-/// An earlier chat of the project, as `<cli>/<session id>`, to open again for the message.
-const EARLIER_URI: &str = "sikemux://earlier/";
-/// An earlier chat opened again, by the id of the agent that now runs it.
-const WOKEN_URI: &str = "sikemux://woken/";
 
 /// Whether `context` names an earlier chat to open again before the message goes.
 pub(crate) fn wakes(context: &[ChatContext]) -> bool {

@@ -1,13 +1,14 @@
-import { isImagePath } from "../lib/imagePaths";
-import { contextChip } from "./promptContext";
-import type { SentContext } from "./types";
+import { isImagePath } from "@shared/lib/imagePaths";
+import { contextChip } from "@shared/chat/promptContext";
+import { AGENT_URI, EARLIER_URI, WOKEN_URI } from "@shared/wire.generated";
+import type { SentContext } from "@shared/chat/types";
 
 type SentChip = { kind: "agent" | "chat" | "file" | "image" | "issue" | "pull"; label: string };
 
 /** A sent message's text in order: its words, and the chips the draft wrote into it. */
 type SentSpan = string | { written: string; chip: SentChip };
 
-const AGENT_URIS = ["sikemux://agent/", "sikemux://woken/"];
+const AGENT_URIS = [AGENT_URI, WOKEN_URI];
 
 /**
  * The chips a sent message's text holds, as the draft wrote them: the agents of `agents` it names with `@`,
@@ -35,7 +36,7 @@ export function sentChips(
     });
     for (const item of context) {
         const chip = contextChip(item);
-        if (item.title.startsWith("@") && item.uri.startsWith("sikemux://earlier/")) {
+        if (item.title.startsWith("@") && item.uri.startsWith(EARLIER_URI)) {
             found.push({ written: item.title, chip: { kind: "chat", label: item.title }, uri: item.uri });
         } else if (chip.kind && chip.number) {
             const sign = chip.kind === "pull" ? "!" : "#";

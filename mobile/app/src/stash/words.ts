@@ -1,3 +1,4 @@
+import { STASH_URI } from '@shared/wire.generated';
 import { formatAge, formatBytes } from '@shared/lib/format';
 
 import type { StashItem } from './api';
@@ -68,7 +69,7 @@ export function contextChip(item: StashItem): ContextChip {
     const title = item.preview?.title || url;
     return { uri: url, title, text: [title, url, item.preview?.description].filter(Boolean).join('\n\n') };
   }
-  return { uri: `sikemux://stash/${item.id}`, title: itemTitle(item).slice(0, 80), text: item.text ?? '' };
+  return { uri: `${STASH_URI}${item.id}`, title: itemTitle(item).slice(0, 80), text: item.text ?? '' };
 }
 
 /** The chips a draft's `extra.context` holds, leaving out any it cannot read. */

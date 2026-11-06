@@ -1473,7 +1473,7 @@ pub(crate) fn held_answers(core: &Core, agent_id: &str) -> Vec<ChatContext> {
         .filter_map(|question| {
             let answered = format!("{}: {}", question.given?, question.text);
             Some(ChatContext {
-                uri: format!("sikemux://answer/{}", question.id),
+                uri: format!("{}{}", sikemux_view::chat::ANSWER_URI, question.id),
                 text: format!(
                     "{answered}\n\nThe person gave this answer to what you asked as your last turn ended, then wrote to you; go on with both."
                 ),

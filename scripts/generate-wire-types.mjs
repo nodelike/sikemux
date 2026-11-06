@@ -206,6 +206,15 @@ const LIMITS = [
   [`${CORE}/server/chat/prompt.rs`, "MAX_ATTACHMENTS"],
 ];
 
+/** Addresses clients write into what they send, read from the core's own. */
+const URIS = [
+  "AGENT_URI",
+  "EARLIER_URI",
+  "WOKEN_URI",
+  "STASH_URI",
+  "ANSWER_URI",
+];
+
 const OUTPUTS = {
   ts: "shared/wire.generated.ts",
   notch: "helpers/notch/Sources/NotchKit/Wire.generated.swift",
@@ -473,6 +482,18 @@ function byClientName(name) {
       `${name} is declared ${found.length} times: ${found.map((item) => item.file)}`,
     );
   return found[0];
+}
+
+async function uris() {
+  const text = await readFile(resolve(root, `${VIEW}/chat.rs`), "utf8");
+  return URIS.map((name) => {
+    const value = new RegExp(
+      `^pub const ${name}: &str = ("[^"]+");$`,
+      "m",
+    ).exec(text)?.[1];
+    if (!value) fail(`${VIEW}/chat.rs has no text constant ${name}`);
+    return `export const ${name} = ${value};`;
+  }).join("\n");
 }
 
 const PRIMITIVES = {
@@ -1449,7 +1470,7 @@ for (const [, variant, key] of gateKeys) {
 
 await emit(
   OUTPUTS.ts,
-  `${typescript(TS_ROOTS, `${limits}\n\n`)}\n${defaults}\n`,
+  `${typescript(TS_ROOTS, `${limits}\n${await uris()}\n\n`)}\n${defaults}\n`,
 );
 await emit(OUTPUTS.notch, swift());
 await emit(OUTPUTS.cardSwift, cardSwift());

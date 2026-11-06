@@ -1,3 +1,4 @@
+import { EARLIER_URI } from '@shared/wire.generated';
 import { useContext, useEffect, useMemo, useState } from 'react';
 
 import { formatAge } from '@shared/lib/format';
@@ -193,7 +194,7 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
         group: index === 0 ? 'Earlier chats' : undefined,
         mark: { agent: undefined, provider: chat.cli },
         take: () =>
-          write('', undefined, undefined, { uri: `sikemux://earlier/${chat.cli}/${chat.sessionId}`, title: chat.title, text: '' }),
+          write('', undefined, undefined, { uri: `${EARLIER_URI}${chat.cli}/${chat.sessionId}`, title: chat.title, text: '' }),
       }));
       const rows = [...mates, ...closedRows, ...earlierRows];
       return {

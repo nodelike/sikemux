@@ -677,10 +677,7 @@ fn said<'a>(shown: &'a ShownStashItem, agents: &[(String, String)]) -> Said<'a> 
         .filter_map(|file| file.name.clone())
         .collect();
     let context: Vec<SentContext> = (pages.iter())
-        .map(|page| SentContext {
-            uri: page.url.to_owned(),
-            title: String::new(),
-        })
+        .map(|page| SentContext::new(page.url.to_owned(), String::new()))
         .collect();
     let named = crate::chat::named(text, &names, &context, agents, &[]);
     let words = pieces(text, &named, &pages);

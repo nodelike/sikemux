@@ -565,7 +565,7 @@ fn context(item: &StashItem) -> Option<Value> {
             let text = item.text.as_deref()?.trim();
             let title = text.lines().next().unwrap_or(text);
             Some(json!({
-                "uri": format!("sikemux://stash/{}", item.id),
+                "uri": format!("{}{}", sikemux_view::chat::STASH_URI, item.id),
                 "title": title.chars().take(80).collect::<String>(),
                 "text": text,
             }))

@@ -29,6 +29,7 @@ use super::Composing;
 use crate::icons::Icon;
 use crate::ui::{self, DockMenu, DockRow, DockScope};
 use crate::workbench::Workbench;
+use sikemux_view::chat::{AGENT_URI, EARLIER_URI};
 
 const SHOWN: usize = 8;
 /// How many stash items the tray over the draft shows.
@@ -244,10 +245,10 @@ impl Composing {
             } else if let Some(uri) = token
                 .id()
                 .strip_prefix(AGENT)
-                .map(|agent| format!("sikemux://agent/{agent}"))
+                .map(|agent| format!("{AGENT_URI}{agent}"))
                 .or_else(|| {
                     let chat = token.id().strip_prefix(EARLIER)?;
-                    Some(format!("sikemux://earlier/{chat}"))
+                    Some(format!("{EARLIER_URI}{chat}"))
                 })
             {
                 if !context.iter().any(|item: &ChatContext| item.uri == uri) {
@@ -753,7 +754,7 @@ impl Workbench {
             ..
         } = &choice
         {
-            let uri = format!("sikemux://earlier/{cli}/{session}");
+            let uri = format!("{EARLIER_URI}{cli}/{session}");
             if !composing.context.iter().any(|held| held.uri == uri) {
                 composing.context.push(ChatContext {
                     uri,

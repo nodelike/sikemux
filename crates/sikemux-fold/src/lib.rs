@@ -514,10 +514,10 @@ fn queued_of(value: Option<&Value>) -> Vec<QueuedMessage> {
                     items
                         .iter()
                         .filter_map(|item| {
-                            Some(SentContext {
-                                uri: text_of(item.get("uri"))?.to_owned(),
-                                title: text_of(item.get("title"))?.to_owned(),
-                            })
+                            Some(SentContext::new(
+                                text_of(item.get("uri"))?.to_owned(),
+                                text_of(item.get("title"))?.to_owned(),
+                            ))
                         })
                         .collect()
                 })
@@ -924,10 +924,10 @@ impl Fold {
                 items
                     .iter()
                     .filter_map(|item| {
-                        Some(SentContext {
-                            uri: text_of(item.get("uri"))?.to_owned(),
-                            title: text_of(item.get("title"))?.to_owned(),
-                        })
+                        Some(SentContext::new(
+                            text_of(item.get("uri"))?.to_owned(),
+                            text_of(item.get("title"))?.to_owned(),
+                        ))
                     })
                     .collect()
             })
@@ -2197,10 +2197,7 @@ fn read_sent(row: &mut Row) {
                     .and_then(|text| text.split('\n').next())
                     .filter(|line| !line.is_empty())
                     .unwrap_or(&resource.uri);
-                context.push(SentContext {
-                    uri: resource.uri.clone(),
-                    title: first.to_owned(),
-                });
+                context.push(SentContext::new(resource.uri.clone(), first.to_owned()));
             }
             ChatPart::Text { text, .. } => {
                 let (rest, found) = prompt::split_sent_context(text);

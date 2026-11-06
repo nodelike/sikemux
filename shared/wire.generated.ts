@@ -9,6 +9,11 @@ export const MIN_TEXT_SCALE = 0.7;
 export const MAX_TEXT_SCALE = 2;
 export const MAX_PROJECT_DEPTH = 8;
 export const MAX_ATTACHMENTS = 32;
+export const AGENT_URI = "sikemux://agent/";
+export const EARLIER_URI = "sikemux://earlier/";
+export const WOKEN_URI = "sikemux://woken/";
+export const STASH_URI = "sikemux://stash/";
+export const ANSWER_URI = "sikemux://answer/";
 
 /** What the phone reads once it opens a sealed notification. */
 export interface NotificationCard {
@@ -1432,7 +1437,19 @@ export interface QueuedMessage {
 export interface SentContext {
     uri: string;
     title: string;
+    tracked?: Tracked;
 }
+
+/** The issue or pull request a context item is, read from its address. */
+export interface Tracked {
+    kind: TrackedKind;
+    number: string;
+    /** Its title, without the kind and number the context names it by. */
+    title: string;
+}
+
+/** Whether an address names an issue or a pull request. */
+export type TrackedKind = "issue" | "pull";
 
 /** A trigger that sends a chat a message when its time comes. */
 export interface ChatTrigger {
@@ -3818,8 +3835,6 @@ export interface TrackedContextParams {
     kind: TrackedKind;
     number: number;
 }
-
-export type TrackedKind = "issue" | "pull";
 
 /** What the core answers the window's `plugin` call with. */
 export type PluginOutcome = { value: unknown } | { failed: PluginFailure };

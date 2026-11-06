@@ -145,10 +145,7 @@ fn queued_view(queued: &[Queued]) -> Vec<QueuedMessage> {
                 .context
                 .iter()
                 .filter(|item| !item.for_agent_only())
-                .map(|item| SentContext {
-                    uri: item.uri.clone(),
-                    title: item.title.clone(),
-                })
+                .map(|item| SentContext::new(item.uri.clone(), item.title.clone()))
                 .collect(),
         })
         .collect()
