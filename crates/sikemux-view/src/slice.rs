@@ -20,7 +20,6 @@ pub enum Gate {
     Landed,
 }
 
-/// Who may pass a gate.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Passer {
@@ -31,7 +30,6 @@ pub enum Passer {
     Core,
 }
 
-/// Where a gate of a slice's ladder stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GateState {
@@ -42,7 +40,6 @@ pub enum GateState {
     Ahead,
 }
 
-/// A gate of a slice's ladder as clients draw it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GateView {
@@ -186,7 +183,6 @@ pub struct Note {
     pub at: u64,
 }
 
-/// A slice as clients draw it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SliceView {
@@ -356,11 +352,9 @@ pub enum SliceState {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NextGate {
-    /// The slice's card.
     pub card: u64,
     pub gate: Gate,
     pub passer: Passer,
-    /// What that gate waits on now.
     #[serde(default)]
     pub wait: Option<Wait>,
     /// The project's environment this step is, as `GateView` names it.

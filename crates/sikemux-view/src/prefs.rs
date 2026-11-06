@@ -17,7 +17,6 @@ pub const DEFAULT_THEME_ID: &str = "aura-noir";
 /// How many folders below a project root projects are looked for, at most.
 pub const MAX_PROJECT_DEPTH: u32 = 8;
 
-/// Where a custom command's output goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CustomCommandPlacement {
@@ -69,7 +68,6 @@ pub struct Preferences {
     pub editor_text_scale: f64,
     /// The theme the person picked, one of the curated, Ghostty or their own.
     pub theme_id: String,
-    /// The themes the person made.
     pub custom_themes: Vec<crate::theme::Theme>,
     /// The agent a new chat starts as when none is picked: the last one picked.
     pub last_agent_type: Option<String>,
@@ -82,7 +80,6 @@ pub struct Preferences {
     /// The desktop and phones say when a slice lands, a goal finishes or its
     /// ETA slips.
     pub goal_notifications: bool,
-    /// The folders the person keeps projects in.
     pub project_roots: Vec<ProjectRoot>,
     /// The repository a project's Git views open on, by the project's folder,
     /// for a project holding more than one.
@@ -90,7 +87,6 @@ pub struct Preferences {
     /// Whether a project's language servers may run, by its folder, once the
     /// person said.
     pub language_server_trust: BTreeMap<String, bool>,
-    /// The commands the person added to the command palette.
     pub custom_commands: Vec<CustomCommand>,
     /// The browser app single sign-on opens in, or none for the default one.
     pub cloud_browser: String,
@@ -175,7 +171,6 @@ pub enum WindowView {
     Goals,
 }
 
-/// The page the tab rail shows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TabRailPage {

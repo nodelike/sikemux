@@ -188,7 +188,6 @@ impl OpenTab {
         }
     }
 
-    /// The strip it opens in.
     pub fn at(&self) -> At {
         At {
             project: self.project.clone(),

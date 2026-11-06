@@ -78,7 +78,6 @@ impl TokenForm {
     }
 }
 
-/// A plugin as clients list it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Listed {

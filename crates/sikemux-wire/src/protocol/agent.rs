@@ -168,7 +168,6 @@ pub struct WorkspaceAgent {
     /// Stopped, and woken again on its saved conversation when opened.
     #[serde(default)]
     pub asleep: bool,
-    /// The git worktree it works in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<AgentWorktree>,
     /// The character drawn for it.

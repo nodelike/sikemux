@@ -175,7 +175,6 @@ enum Event: Decodable {
     }
 }
 
-/// What a paired device was approved to do.
 enum DeviceAccess: String, Codable, Hashable {
     /// Everything a person at the host can do in a session.
     case full
@@ -299,7 +298,6 @@ struct Workspace: Codable, Hashable {
     let launchers: [LauncherInfo]
 }
 
-/// A project on this host.
 struct ProjectInfo: Codable, Hashable {
     let id: String
     let name: String
@@ -543,14 +541,12 @@ struct Preferences: Codable, Hashable {
     let notch: NotchSettings
 }
 
-/// An agent in the catalog, as clients read it.
 struct CatalogAgent: Codable, Hashable {
     /// Its id, such as `claude`.
     let type: String
     let label: String
 }
 
-/// A question as the app, the notch and phones show it.
 struct AgentQuestion: Codable, Hashable {
     let id: String
     /// What the person is asked, which a lead that passed it on may have

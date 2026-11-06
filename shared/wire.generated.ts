@@ -113,7 +113,6 @@ export interface Workspace {
     backdrop: Backdrop;
 }
 
-/** A project on this host. */
 export interface ProjectInfo {
     id: string;
     name: string;
@@ -292,7 +291,6 @@ export interface WorkspaceAgent {
     keepAlive?: boolean;
     /** Stopped, and woken again on its saved conversation when opened. */
     asleep?: boolean;
-    /** The git worktree it works in. */
     worktree?: AgentWorktree;
     /** The character drawn for it. */
     buddy?: AgentBuddy;
@@ -1234,7 +1232,6 @@ export interface ChatFailure {
 
 export type FailureKind = "signIn" | "limit" | "network" | "other";
 
-/** Why the agent ended its turn. */
 export type StopReason = "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled";
 
 /** How full the session's context window is, as the agent last reported it. */
@@ -1255,7 +1252,6 @@ export interface Compactions {
     lastAt: number;
 }
 
-/** One step of the plan an agent keeps for its turn. */
 export interface PlanEntry {
     content: string;
     priority?: PlanPriority;
@@ -1266,7 +1262,6 @@ export type PlanPriority = "high" | "medium" | "low";
 
 export type PlanStatus = "pending" | "in_progress" | "completed";
 
-/** A slash command the agent offers. */
 export interface ChatCommandInfo {
     name: string;
     description: string;
@@ -1305,7 +1300,6 @@ export type SignInMethod =
           description: string | null;
       };
 
-/** A tool call waiting on the person's permission. */
 export interface PermissionAsk {
     requestId: string;
     sessionId: string;
@@ -1334,7 +1328,6 @@ export interface ToolCall {
     row: ToolRow;
 }
 
-/** How a tool call stands. */
 export type ToolStatus = "pending" | "in_progress" | "completed" | "failed" | "cancelled";
 
 /**
@@ -1458,7 +1451,6 @@ export interface Tracked {
     title: string;
 }
 
-/** Whether an address names an issue or a pull request. */
 export type TrackedKind = "issue" | "pull";
 
 /** A trigger that sends a chat a message when its time comes. */
@@ -1473,14 +1465,12 @@ export interface ChatTrigger {
     nextAt?: number;
 }
 
-/** When a trigger fires. */
 export type TriggerWhen =
     /** Once, at `at` in Unix milliseconds. */
     | {
           kind: "once";
           at: number;
       }
-    /** Every `seconds`. */
     | {
           kind: "every";
           seconds: number;
@@ -1561,7 +1551,6 @@ export interface ChatGoal {
 /** Where a slice stands as a whole, so clients mark it without working it out. */
 export type SliceState = "done" | "failed" | "needsYou" | "waiting" | "moving";
 
-/** One message of a chat. */
 export interface ChatMessage {
     id: string;
     role: ChatRole;
@@ -2150,7 +2139,6 @@ export interface Preferences {
     editorTextScale: number;
     /** The theme the person picked, one of the curated, Ghostty or their own. */
     themeId: string;
-    /** The themes the person made. */
     customThemes: Theme[];
     /** The agent a new chat starts as when none is picked: the last one picked. */
     lastAgentType: string | null;
@@ -2165,7 +2153,6 @@ export interface Preferences {
      * ETA slips.
      */
     goalNotifications: boolean;
-    /** The folders the person keeps projects in. */
     projectRoots: ProjectRoot[];
     /**
      * The repository a project's Git views open on, by the project's folder,
@@ -2177,7 +2164,6 @@ export interface Preferences {
      * person said.
      */
     languageServerTrust: Record<string, boolean>;
-    /** The commands the person added to the command palette. */
     customCommands: CustomCommand[];
     /** The browser app single sign-on opens in, or none for the default one. */
     cloudBrowser: string;
@@ -2353,7 +2339,6 @@ export interface CustomCommand {
     placement: CustomCommandPlacement;
 }
 
-/** Where a custom command's output goes. */
 export type CustomCommandPlacement = "background" | "terminal" | "split" | "popup" | "replace";
 
 /** The Notch section of the person's preferences, which the island reads. */
@@ -2392,7 +2377,6 @@ export type PaneCoverage = "band" | "full";
 
 export type RailDensity = "comfortable" | "compact";
 
-/** The page the tab rail shows. */
 export type TabRailPage = "agents" | "terminals" | "files";
 
 /** Whose agents the tab rail lists: the project in front's, or every project's. */
@@ -2635,7 +2619,6 @@ export interface CardPull {
     host: string;
 }
 
-/** A slice as clients draw it. */
 export interface SliceView {
     /** One sentence saying what it changes. */
     promise: string;
@@ -2658,7 +2641,6 @@ export interface SliceView {
     wait?: Wait | null;
 }
 
-/** A gate of a slice's ladder as clients draw it. */
 export interface GateView {
     gate: Gate;
     passer: Passer;
@@ -2682,10 +2664,8 @@ export interface GateView {
     why?: string;
 }
 
-/** Who may pass a gate. */
 export type Passer = "owner" | "person" | "core";
 
-/** Where a gate of a slice's ladder stands. */
 export type GateState = "passed" | "waiting" | "ahead";
 
 /** What a gate needs before it can pass, besides the gates before it. */
@@ -2767,11 +2747,9 @@ export type CheckRun =
 
 /** A gate one of a goal's slices waits at, as the goal lists what comes next. */
 export interface NextGate {
-    /** The slice's card. */
     card: number;
     gate: Gate;
     passer: Passer;
-    /** What that gate waits on now. */
     wait?: Wait | null;
     /** The project's environment this step is, as `GateView` names it. */
     environment?: string;
@@ -3090,7 +3068,6 @@ export interface DeviceInfo {
     lastSeen: number | null;
 }
 
-/** What a paired device was approved to do. */
 export type DeviceAccess = "full" | "watch";
 
 export interface PendingDevice {
@@ -3174,10 +3151,8 @@ export interface LinkedHost {
     agents: number;
 }
 
-/** What happened to this host's network. */
 export type NetworkChange = "online" | "offline" | "changed" | "woke";
 
-/** A question as the app, the notch and phones show it. */
 export interface AgentQuestion {
     id: string;
     agentId: string;
@@ -3227,10 +3202,8 @@ export interface QuestionChoice {
     recommended?: boolean;
 }
 
-/** Where a question stands for the person. */
 export type QuestionState = "lead" | "open" | "assumed" | "answered";
 
-/** An agent in the catalog, as clients read it. */
 export interface CatalogAgent {
     /** Its id, such as `claude`. */
     type: string;
@@ -3277,7 +3250,6 @@ export interface CatalogAgent {
     chat: ChatDriver | null;
 }
 
-/** Which of the core's chat drivers runs an agent. */
 export type ChatDriver = "claude" | "codex" | "muse" | "acp";
 
 export interface GitOverview {
@@ -4322,7 +4294,6 @@ export interface GoalAgent {
     desk: AgentDesk;
 }
 
-/** What an agent has out on its desk. */
 export interface AgentDesk {
     pages: DeskPage[];
     files: string[];

@@ -161,7 +161,6 @@ pub struct GoalAgent {
     pub desk: AgentDesk,
 }
 
-/// What an agent has out on its desk.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentDesk {

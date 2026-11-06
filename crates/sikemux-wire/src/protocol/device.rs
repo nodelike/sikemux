@@ -4,7 +4,6 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-/// What a paired device was approved to do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum DeviceAccess {
@@ -243,7 +242,6 @@ impl BuildIdentity {
     }
 }
 
-/// What happened to this host's network.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NetworkChange {

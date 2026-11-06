@@ -8,7 +8,6 @@ use serde_json::Value;
 
 use super::{PermissionMode, WorkspaceAgent};
 
-/// A project on this host.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectInfo {

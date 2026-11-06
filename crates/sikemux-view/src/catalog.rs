@@ -3,7 +3,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Which of the core's chat drivers runs an agent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ChatDriver {
@@ -13,7 +12,6 @@ pub enum ChatDriver {
     Acp,
 }
 
-/// An agent in the catalog, as clients read it.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogAgent {

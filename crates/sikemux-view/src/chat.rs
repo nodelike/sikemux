@@ -129,7 +129,6 @@ pub enum ChatActivity {
     Connecting,
 }
 
-/// Why the agent ended its turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StopReason {
@@ -143,7 +142,6 @@ pub enum StopReason {
     Unknown,
 }
 
-/// One step of the plan an agent keeps for its turn.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlanEntry {
@@ -176,7 +174,6 @@ pub enum PlanStatus {
     Unknown,
 }
 
-/// How a tool call stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolStatus {
@@ -191,7 +188,6 @@ pub enum ToolStatus {
 }
 
 impl ToolStatus {
-    /// The call has not finished yet.
     pub fn running(self) -> bool {
         !matches!(self, Self::Completed | Self::Failed | Self::Cancelled)
     }
@@ -418,7 +414,6 @@ pub struct UsageCost {
     pub currency: String,
 }
 
-/// A slash command the agent offers.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatCommandInfo {
@@ -428,7 +423,6 @@ pub struct ChatCommandInfo {
     pub hint: Option<String>,
 }
 
-/// A tool call waiting on the person's permission.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionAsk {
@@ -495,13 +489,11 @@ pub struct ChatTrigger {
     pub next_at: Option<u64>,
 }
 
-/// When a trigger fires.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TriggerWhen {
     /// Once, at `at` in Unix milliseconds.
     Once { at: u64 },
-    /// Every `seconds`.
     Every { seconds: u64 },
     /// Each day at `minute` past midnight on the host's clock, on `weekdays`
     /// counted from Sunday as 0, or on every day when there are none.
@@ -588,7 +580,6 @@ pub enum ChatRole {
     Assistant,
 }
 
-/// One message of a chat.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMessage {
@@ -683,7 +674,6 @@ const ISSUE_PATHS: [&str; 1] = ["/issues/"];
 /// What comes before a pull request's number in an address, after the repository.
 pub const PULL_PATHS: [&str; 4] = ["/pull/", "/pulls/", "/pull-requests/", "/merge_requests/"];
 
-/// Whether an address names an issue or a pull request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TrackedKind {

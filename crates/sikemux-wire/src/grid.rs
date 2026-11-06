@@ -283,7 +283,6 @@ impl FrameWriter {
         self.line(wrapped);
     }
 
-    /// Starts the next line of a page of history.
     pub fn line(&mut self, wrapped: bool) {
         self.body.push(if wrapped { ROW_WRAPPED } else { 0 });
     }
@@ -417,7 +416,6 @@ impl FrameWriter {
 pub struct Span {
     pub style: Arc<Style>,
     pub text: String,
-    /// The column the span starts in.
     pub col: u16,
     /// Columns the span covers.
     pub width: u16,

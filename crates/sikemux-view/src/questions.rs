@@ -13,7 +13,6 @@ pub struct QuestionChoice {
     pub recommended: bool,
 }
 
-/// Where a question stands for the person.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum QuestionState {
@@ -27,7 +26,6 @@ pub enum QuestionState {
     Answered,
 }
 
-/// A question as the app, the notch and phones show it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentQuestion {

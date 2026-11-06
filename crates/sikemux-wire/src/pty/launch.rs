@@ -33,7 +33,6 @@ pub struct PtyDirectCommand {
     pub profile: Option<PtyAgentProfile>,
 }
 
-/// What a terminal was opened for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum LaunchKind {
