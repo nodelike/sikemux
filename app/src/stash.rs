@@ -3,6 +3,7 @@
 //! a chat's draft from the pane, by dragging it onto the chat, from the chip over a composer when
 //! items are new, or with `&` in the draft. The chat's core puts it there.
 
+use crate::updates::bytes;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -811,7 +812,12 @@ fn tray_row(
         }
         (None, StashKind::File | StashKind::Video) => size(item).map(|size| {
             div().child(
-                ui::text(bytes(size), TEXT_2XS_H, FontWeight::NORMAL).text_color(t.text_tertiary),
+                ui::text(
+                    crate::ui::numbers::bytes(size),
+                    TEXT_2XS_H,
+                    FontWeight::NORMAL,
+                )
+                .text_color(t.text_tertiary),
             )
         }),
         _ => None,
@@ -1742,20 +1748,4 @@ pub fn takes_drops(pane: Div, agent: &str, this: WeakEntity<Workbench>) -> Div {
         })
         .ok();
     })
-}
-
-/// A size in bytes as people read one: 512 B, 1.4 KB, 3.0 MB.
-fn bytes(size: u64) -> String {
-    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
-    let mut value = size as f64;
-    let mut unit = 0;
-    while value >= 1024. && unit < UNITS.len() - 1 {
-        value /= 1024.;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{size} B")
-    } else {
-        format!("{value:.1} {}", UNITS[unit])
-    }
 }

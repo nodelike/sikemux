@@ -1076,7 +1076,7 @@ fn context_card(
         .font_features(theme::tabular())
         .child(
             ui::text(
-                crate::home::compact(usage.used),
+                crate::ui::numbers::compact(usage.used),
                 TEXT_2XS_H,
                 FontWeight::NORMAL,
             )
@@ -1084,7 +1084,7 @@ fn context_card(
         )
         .child(
             ui::text(
-                format!("/ {}", crate::home::compact(usage.size)),
+                format!("/ {}", crate::ui::numbers::compact(usage.size)),
                 TEXT_2XS_H,
                 FontWeight::NORMAL,
             )
@@ -1153,7 +1153,7 @@ fn context_card(
                     row(
                         "Session cost",
                         ui::text(
-                            crate::home::money(cost.amount),
+                            crate::ui::numbers::money(cost.amount),
                             TEXT_2XS_H,
                             FontWeight::NORMAL,
                         )

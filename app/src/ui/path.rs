@@ -20,3 +20,10 @@ pub fn tilde(path: &str, home: Option<&str>) -> String {
         _ => path.to_owned(),
     }
 }
+
+/// The last part of `path`, or all of it when it has none.
+pub fn file_name(path: &std::path::Path) -> String {
+    path.file_name()
+        .map_or_else(|| path.to_string_lossy(), |name| name.to_string_lossy())
+        .into_owned()
+}

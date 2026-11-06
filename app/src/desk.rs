@@ -1,15 +1,15 @@
 //! An agent's desk, beside it in its tab: the pages its browser holds, one in front.
 
 mod address;
+mod downloads;
 
+use crate::desk::downloads::downloaded;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
-use gpui_kit::component::notification::Notification;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Sizable, WindowExt};
 use gpui_kit::prelude::FluentBuilder;
@@ -21,8 +21,8 @@ use gpui_kit::{
 use gpui_native_view::{native_view, Frame, NativeSurface, Surface};
 use serde_json::{json, Value};
 use sikemux_browser::{
-    BrowserBounds, BrowserDownload, BrowserManager, BrowserShortcut, BrowserSnapshot,
-    DownloadState, Host, ParentView,
+    BrowserBounds, BrowserDownload, BrowserManager, BrowserShortcut, BrowserSnapshot, Host,
+    ParentView,
 };
 use sikemux_core::cli::protocol::{is_browser_method, is_sim_method, HarnessRequest};
 use sikemux_core::harness::runs::RunStatus;
@@ -1633,69 +1633,6 @@ impl Workbench {
             "sky": crate::ui::grain::drive_state(window, cx),
         })
     }
-}
-
-/// What a page's download says: it started, failed, or finished with a way to keep the file.
-fn downloaded(download: &BrowserDownload) -> Notification {
-    let held = PathBuf::from(&download.path);
-    let name = held.file_name().map_or_else(
-        || download.url.clone(),
-        |name| name.to_string_lossy().into_owned(),
-    );
-    match download.state {
-        DownloadState::Started => toast::info(format!("Downloading {name}")),
-        DownloadState::Failed => toast::error(format!("Download of {name} failed")).autohide(false),
-        DownloadState::Finished => {
-            toast::success(format!("Downloaded {name}")).action(move |_, _, cx| {
-                let (note, held) = (cx.entity(), held.clone());
-                Button::new("keep-download")
-                    .label("Keep in Downloads")
-                    .children(ui::spot(|| "keep-download".into()))
-                    .on_click(move |_, window, cx| {
-                        match keep_download(&held) {
-                            Ok(kept) => cx.reveal_path(&kept),
-                            Err(error) => window.push_notification(
-                                toast::error(format!("The download was not kept: {error}")),
-                                cx,
-                            ),
-                        }
-                        note.update(cx, |note, cx| note.dismiss(window, cx));
-                    })
-            })
-        }
-    }
-}
-
-/// Moves a file a page saved from the browser's own folder into Downloads, beside what is
-/// there. A link keeps the file as macOS marked it on download and never replaces another.
-fn keep_download(held: &Path) -> Result<PathBuf, String> {
-    let downloads = sikemux_process::paths::home()
-        .ok_or("this account has no home folder")?
-        .join("Downloads");
-    let name = held
-        .file_name()
-        .ok_or("the download has no name")?
-        .to_string_lossy()
-        .into_owned();
-    let (stem, extension) = match name.rfind('.') {
-        Some(dot) if dot > 0 => name.split_at(dot),
-        _ => (name.as_str(), ""),
-    };
-    for n in 1..=100 {
-        let kept = match n {
-            1 => downloads.join(&name),
-            n => downloads.join(format!("{stem} ({n}){extension}")),
-        };
-        match std::fs::hard_link(held, &kept) {
-            Ok(()) => {
-                let _ = std::fs::remove_file(held);
-                return Ok(kept);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-    Err(format!("Downloads already has 100 files named like {name}"))
 }
 
 /// What the address bar shows for a page: a local file as its path, a blank page as nothing.

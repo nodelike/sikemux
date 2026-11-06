@@ -12,6 +12,7 @@ pub mod grain;
 pub mod list_picker;
 mod lists;
 pub mod moving_face;
+pub mod numbers;
 mod pane;
 pub mod path;
 mod select;

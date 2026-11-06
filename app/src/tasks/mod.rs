@@ -2,6 +2,7 @@
 //! adding one.
 
 pub(crate) mod add_task;
+pub(crate) mod chip;
 pub(crate) mod ports;
 pub(crate) mod run_check;
 pub(crate) mod test_card;

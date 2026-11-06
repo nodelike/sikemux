@@ -60,7 +60,7 @@ pub fn render(
                 None => "Not checked yet this session.".into(),
                 Some((checked, at)) => {
                     let when = at.with_timezone(&chrono::Local).format("%-I:%M:%S %p");
-                    let channel = crate::screens::whats_new::channel_name(checked.channel);
+                    let channel = crate::updates::channel_name(checked.channel);
                     match &checked.error {
                         Some(error) => {
                             format!("Last {channel} check failed at {when} — {error}").into()
@@ -75,28 +75,24 @@ pub fn render(
                     .disabled(busy)
                     .on_click(move |_, _, cx| this.update(cx, check_now))
             };
-            let by_hand =
-                crate::screens::whats_new::by_installer(status).map(|(version, command)| {
-                    let this = this.clone();
-                    let about = format!("Run this in a terminal to install it: {command}");
-                    let copy = ui::Button::new(
-                        "update-copy-command",
-                        "Copy command",
-                        ui::Variant::Outline,
-                    )
-                    .on_click(move |_, _, cx| {
-                        this.update(cx, |bench, cx| {
-                            crate::screens::whats_new::copy_install_command(bench, &command, cx)
-                        })
-                    });
-                    rows::row_with(
-                        None,
-                        format!("Update v{version}"),
-                        Some(about.into()),
-                        copy,
-                        cx,
-                    )
-                });
+            let by_hand = crate::updates::by_installer(status).map(|(version, command)| {
+                let this = this.clone();
+                let about = format!("Run this in a terminal to install it: {command}");
+                let copy =
+                    ui::Button::new("update-copy-command", "Copy command", ui::Variant::Outline)
+                        .on_click(move |_, _, cx| {
+                            this.update(cx, |bench, cx| {
+                                crate::updates::copy_install_command(bench, &command, cx)
+                            })
+                        });
+                rows::row_with(
+                    None,
+                    format!("Update v{version}"),
+                    Some(about.into()),
+                    copy,
+                    cx,
+                )
+            });
             div()
                 .child(rows::row(
                     "Channel",

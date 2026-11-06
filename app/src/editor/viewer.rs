@@ -466,7 +466,7 @@ fn card(viewer: &Viewer, key: &FileKey, t: &Tokens) -> AnyElement {
     let about = viewer
         .about
         .as_ref()
-        .map(|about| format!("{} · {}", size(about.size), about.mime));
+        .map(|about| format!("{} · {}", crate::ui::numbers::bytes(about.size), about.mime));
     div()
         .size_full()
         .flex()
@@ -476,9 +476,13 @@ fn card(viewer: &Viewer, key: &FileKey, t: &Tokens) -> AnyElement {
         .gap(SPACE_1H)
         .child(ui::icon(Icon::File, 28.).text_color(t.text_tertiary))
         .child(
-            ui::text(name_of(&key.path), TEXT_SM, FontWeight::MEDIUM)
-                .mt(SPACE_1)
-                .text_color(t.text_primary),
+            ui::text(
+                crate::ui::path::file_name(&key.path),
+                TEXT_SM,
+                FontWeight::MEDIUM,
+            )
+            .mt(SPACE_1)
+            .text_color(t.text_primary),
         )
         .children(about.map(|about| {
             div()
@@ -506,13 +510,6 @@ fn openable(viewer: &Viewer, key: &FileKey) -> Option<PathBuf> {
         .local
         .clone()
         .or_else(|| (key.place == Host::This).then(|| key.path.clone()))
-}
-
-fn name_of(path: &Path) -> String {
-    path.file_name().map_or_else(
-        || path.display().to_string(),
-        |name| name.to_string_lossy().into_owned(),
-    )
 }
 
 fn message(text: SharedString, t: &Tokens) -> AnyElement {
@@ -577,7 +574,7 @@ fn bytes(bytes: Vec<u8>, t: &Tokens) -> AnyElement {
 fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let path = key.path.as_path();
-    let name = name_of(path);
+    let name = crate::ui::path::file_name(path);
     let about = viewer.about.as_ref();
     let zoom = |id: &'static str, label: &'static str, to: fn(Zoom) -> Zoom| {
         let (this, key) = (this.clone(), key.clone());
@@ -615,7 +612,11 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
         .text_size(crate::theme::ui_text(TEXT_XS))
         .child(ui::icon(Icon::File, 14.).text_color(t.text_tertiary))
         .child(div().text_color(t.text_primary).child(name))
-        .children(about.map(|about| div().text_color(t.text_tertiary).child(size(about.size))))
+        .children(about.map(|about| {
+            div()
+                .text_color(t.text_tertiary)
+                .child(crate::ui::numbers::bytes(about.size))
+        }))
         .children(about.map(|about| div().text_color(t.text_tertiary).child(about.mime.clone())))
         .child(div().flex_1())
         .when(image, |bar| {
@@ -648,19 +649,4 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
                 .small()
                 .on_click(move |_, _, cx| cx.reveal_path(&reveal))
         }))
-}
-
-/// A size in bytes as people read it.
-fn size(bytes: u64) -> String {
-    const UNITS: [&str; 4] = ["B", "KB", "MB", "GB"];
-    let mut value = bytes as f64;
-    let mut unit = 0;
-    while value >= 1024. && unit < UNITS.len() - 1 {
-        value /= 1024.;
-        unit += 1;
-    }
-    match unit {
-        0 => format!("{bytes} B"),
-        _ => format!("{value:.1} {}", UNITS[unit]),
-    }
 }

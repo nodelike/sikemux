@@ -127,7 +127,7 @@ pub struct Workbench {
     pub space: Option<String>,
     pub git: crate::git::GitTab,
     pub chats: crate::chat::Chats,
-    pub run_clock: Entity<crate::tabs::RunClock>,
+    pub run_clock: Entity<crate::tasks::chip::RunClock>,
     pub files: FileTree,
     /// The file tree's, which its arrow keys and F2 move and act in.
     pub files_focus: FocusHandle,
@@ -145,7 +145,7 @@ pub struct Workbench {
     /// The plan limits are to be read once the core lists its agents, as the app starts.
     usage_wanted: bool,
     pub pinch: Option<crate::pinch::Pinch>,
-    pub calendar: crate::home::Calendar,
+    pub calendar: crate::activity_view::Calendar,
     /// The rail's filter of recent chats, while it shows.
     pub filter: Option<crate::pickers::recent::Filter>,
     /// The front project's saved chats paged or searched to beyond the recent ones.
@@ -413,7 +413,7 @@ impl Workbench {
                 behind: false,
                 wanted_commit: None,
             },
-            run_clock: cx.new(|_| crate::tabs::RunClock::default()),
+            run_clock: cx.new(|_| crate::tasks::chip::RunClock::default()),
             files: FileTree::default(),
             files_focus: cx.focus_handle(),
             moving: None,
@@ -423,7 +423,7 @@ impl Workbench {
             launcher_choice: None,
             usage_wanted: false,
             pinch: None,
-            calendar: crate::home::Calendar::default(),
+            calendar: crate::activity_view::Calendar::default(),
             filter: None,
             older: None,
             asks,
@@ -1722,7 +1722,7 @@ impl Render for Workbench {
                     .children(crate::share::view(self, cx))
                     .children(crate::boot::reconnecting(self, cx))
                     .children(crate::boot::stopped(self, cx))
-                    .children(crate::screens::whats_new::required(self, cx))
+                    .children(crate::updates::required(self, cx))
                     .children(crate::boot::opening(self, cx))
                     .children(crate::boot::stuck(self, cx))
                     .when(self.overlays.in_layer(Layer::Finder), |above| {

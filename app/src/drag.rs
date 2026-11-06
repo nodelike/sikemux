@@ -106,15 +106,6 @@ pub(crate) fn ghost(label: SharedString, cx: &mut App) -> Entity<Ghost> {
     cx.new(|_| Ghost { label })
 }
 
-fn name_of(path: &Path) -> SharedString {
-    path.file_name()
-        .map_or_else(
-            || path.display().to_string(),
-            |name| name.to_string_lossy().into_owned(),
-        )
-        .into()
-}
-
 /// A strip's tab that can be dragged to another place in its strip. While a tab of
 /// its strip passes over, the tabs between slide aside to open the gap it drops into.
 pub fn tab(
@@ -270,7 +261,10 @@ pub fn tree_row(
     let draggable = div()
         .id(SharedString::from(format!("drag-file-{}", path.display())))
         .on_drag(dragged, |dragged: &DraggedPath, _: Point<Pixels>, _, cx| {
-            ghost(name_of(&dragged.path), cx)
+            ghost(
+                SharedString::from(crate::ui::path::file_name(&dragged.path)),
+                cx,
+            )
         })
         .child(row);
     let into = match folder {

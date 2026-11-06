@@ -246,8 +246,10 @@ fn tests_card(
                         })
                         .children(file.map(|file| {
                             let shown = match line {
-                                Some(line) => format!("{}:{line}", file_name(&file)),
-                                None => file_name(&file),
+                                Some(line) => {
+                                    format!("{}:{line}", crate::ui::path::file_name(&file))
+                                }
+                                None => crate::ui::path::file_name(&file),
                             };
                             div()
                                 .id(("run-card-file", ix))
@@ -412,15 +414,9 @@ fn short_class(class: &str) -> String {
         .iter()
         .any(|end| class.ends_with(end));
     if class.contains('/') || script {
-        return file_name(Path::new(class));
+        return crate::ui::path::file_name(Path::new(class));
     }
     class.rsplit('.').next().unwrap_or(class).to_owned()
-}
-
-fn file_name(path: &Path) -> String {
-    path.file_name()
-        .map_or_else(|| path.to_string_lossy(), |name| name.to_string_lossy())
-        .into_owned()
 }
 
 fn project_path(bench: &Workbench) -> String {
@@ -448,7 +444,7 @@ fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[TestFail
     let project = project_path(bench);
     let mut lines = vec![format!(
         "These tests fail in {} ({}):",
-        file_name(Path::new(&project)),
+        crate::ui::path::file_name(Path::new(&project)),
         finished.task.label
     )];
     lines.extend(failures.iter().map(|failure| {
@@ -481,7 +477,7 @@ fn failure_fix_request(bench: &Workbench, finished: &Finished) -> String {
         format!(
             "The process \"{}\" in {} stopped: {}.",
             task.label,
-            file_name(Path::new(&project_path(bench))),
+            crate::ui::path::file_name(Path::new(&project_path(bench))),
             finished.stopped().unwrap_or_default()
         ),
         format!("It runs `{}` in {}.", task.command, task.cwd),

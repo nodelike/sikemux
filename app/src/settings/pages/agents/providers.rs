@@ -11,12 +11,12 @@ use gpui_kit::{
 use serde_json::{json, Value};
 
 use crate::core;
-use crate::home::compact;
 use crate::settings::rows::{self, Choice};
 use crate::settings::Page;
 use crate::settings::Settings;
 use crate::theme::{Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM};
 use crate::ui;
+use crate::ui::numbers::compact;
 use crate::workbench::Workbench;
 
 pub struct Fields {

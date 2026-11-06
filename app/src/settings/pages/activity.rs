@@ -13,8 +13,8 @@ use sikemux_core::server::activity_log::ActivityShare;
 use sikemux_core::server::activity_log::ActivitySummary;
 use sikemux_core::server::activity_log::PriceOverride;
 
+use crate::activity_view::{self, Metric};
 use crate::core::{utc_offset_minutes, Ask, Target};
-use crate::home::{self, compact, money, plural, whole, Metric};
 use crate::icons::Icon;
 use crate::reads::Read;
 use crate::settings::rows;
@@ -24,6 +24,7 @@ use crate::theme::{
     TEXT_SM,
 };
 use crate::ui;
+use crate::ui::numbers::{compact, money, plural, whole};
 use crate::ui::time::total;
 use crate::workbench::Workbench;
 
@@ -540,20 +541,20 @@ pub fn render(
         .map(|at| SharedString::from(format!("since {}", at.format("%b %-d, %Y"))));
     let overview = match totals {
         _ if failed => rows::note("Activity could not be read.", cx),
-        Some(totals) if home::is_empty(totals) => rows::note(
+        Some(totals) if activity_view::is_empty(totals) => rows::note(
             "Nothing yet. Start an agent and its sessions, turns, tokens and commits collect here.",
             cx,
         ),
         Some(totals) => div()
             .p(SPACE_4)
-            .child(home::overview(totals, cx))
+            .child(activity_view::overview(totals, cx))
             .into_any_element(),
         None => rows::note("Reading activity…", cx),
     };
     let calendar = match summary {
         Some(summary) => div()
             .p(SPACE_4)
-            .child(home::calendar(summary, bench, this, None, cx))
+            .child(activity_view::calendar(summary, bench, this, None, cx))
             .into_any_element(),
         None => div().into_any_element(),
     };

@@ -2,6 +2,7 @@
 
 pub mod account_picker;
 mod accounts;
+mod activity_view;
 mod add_provider;
 mod agents;
 mod approvals;
@@ -84,6 +85,7 @@ mod thread_priority;
 pub mod toast;
 mod track;
 mod ui;
+mod updates;
 pub mod voice;
 pub mod workbench;
 

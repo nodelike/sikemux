@@ -37,7 +37,7 @@ pub fn total(ms: f64) -> String {
     }
     let hours = minutes / 60;
     if hours >= 100 {
-        return format!("{}h", crate::home::whole(hours as f64));
+        return format!("{}h", crate::ui::numbers::whole(hours as f64));
     }
     match minutes % 60 {
         0 => format!("{hours}h"),

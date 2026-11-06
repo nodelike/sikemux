@@ -761,7 +761,7 @@ pub(super) fn subagent(
     };
     let tokens = card
         .tokens
-        .map(|tokens| format!("{} tokens", crate::home::compact(tokens as f64)));
+        .map(|tokens| format!("{} tokens", crate::ui::numbers::compact(tokens as f64)));
     let calls = (card.calls > 0).then(|| {
         format!(
             "{} {}",

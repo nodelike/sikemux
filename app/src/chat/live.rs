@@ -253,7 +253,7 @@ fn task_row(
 fn tokens(tokens: Option<u64>) -> Option<String> {
     tokens
         .filter(|tokens| *tokens > 0)
-        .map(|tokens| format!("{} tokens", crate::home::compact(tokens as f64)))
+        .map(|tokens| format!("{} tokens", crate::ui::numbers::compact(tokens as f64)))
 }
 
 fn cost(parts: [Option<String>; 2]) -> Option<String> {
@@ -733,7 +733,7 @@ fn fires(trigger: &ChatTrigger) -> String {
         .next_at
         .and_then(|at| i64::try_from(at).ok())
         .and_then(chrono::DateTime::from_timestamp_millis)
-        .map(crate::agents::day_and_time)
+        .map(crate::agents::limits::day_and_time)
         .unwrap_or_default();
     match repeats(&trigger.when) {
         Some(repeats) => format!("{repeats} · next {next}"),

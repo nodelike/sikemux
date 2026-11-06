@@ -887,8 +887,12 @@ pub fn tiles(
             }
         });
         let name = match is_image(path) {
-            true => format!("#{} {}", index + 1, file_name(path)),
-            false => file_name(path).to_string(),
+            true => format!(
+                "#{} {}",
+                index + 1,
+                SharedString::from(crate::ui::path::file_name(path))
+            ),
+            false => SharedString::from(crate::ui::path::file_name(path)).to_string(),
         };
         Attachment::new()
             .id(SharedString::from(format!("attachment-{index}")))
@@ -917,13 +921,6 @@ pub fn tiles(
     )
 }
 
-fn file_name(path: &Path) -> SharedString {
-    path.file_name()
-        .map_or_else(|| path.to_string_lossy(), |name| name.to_string_lossy())
-        .into_owned()
-        .into()
-}
-
 /// A picture's preview, or the icon of a file's kind.
 /// A file's mark in a draft's chip: a picture's own thumbnail, else its kind's icon.
 fn chip_media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
@@ -931,7 +928,7 @@ fn chip_media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
         return AttachmentMedia::new()
             .src(crate::picture::Picture::File(path.to_path_buf()).source_at(px(48.)));
     }
-    let icon = crate::file_icons::icon(&file_name(path), cx)
+    let icon = crate::file_icons::icon(&SharedString::from(crate::ui::path::file_name(path)), cx)
         .map(|icon| gpui_kit::img(icon).size(px(14.)).into_any_element());
     AttachmentMedia::new().child(icon.unwrap_or_else(|| {
         ui::icon(Icon::File, 13.)
@@ -945,8 +942,9 @@ fn media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
         AttachmentMedia::new()
             .src(crate::picture::Picture::File(path.to_path_buf()).source_at(px(96.)))
     } else {
-        let icon = crate::file_icons::icon(&file_name(path), cx)
-            .map(|icon| gpui_kit::img(icon).size(px(28.)).into_any_element());
+        let icon =
+            crate::file_icons::icon(&SharedString::from(crate::ui::path::file_name(path)), cx)
+                .map(|icon| gpui_kit::img(icon).size(px(28.)).into_any_element());
         AttachmentMedia::new().child(icon.unwrap_or_else(|| {
             ui::icon(Icon::File, 26.)
                 .text_color(t.text_tertiary)
@@ -1135,9 +1133,9 @@ pub fn sent(
                         .with_size(gpui_kit::component::Size::Small)
                         .tooltip(path.to_string_lossy().into_owned())
                         .media(media(&path, &t, cx))
-                        .content(
-                            AttachmentContent::new().title(AttachmentTitle::new(file_name(&path))),
-                        ),
+                        .content(AttachmentContent::new().title(AttachmentTitle::new(
+                            SharedString::from(crate::ui::path::file_name(&path)),
+                        ))),
                 )
                 .into_any_element();
         }

@@ -141,7 +141,7 @@ fn facts(route: &Route, model: &str) -> Vec<String> {
     let check = &route.provider["checks"][name];
     let mut words = Vec::new();
     if let Some(context) = facts["context"].as_f64() {
-        words.push(format!("{} context", crate::home::compact(context)));
+        words.push(format!("{} context", crate::ui::numbers::compact(context)));
     }
     if let (Some(input), Some(output)) = (facts["input"].as_f64(), facts["output"].as_f64()) {
         words.push(format!("${input}/${output} per 1M"));

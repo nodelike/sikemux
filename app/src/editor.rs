@@ -1478,7 +1478,10 @@ pub fn close_unsaved(
     let (title, body) = match lost.as_slice() {
         [] => return close(bench, cx),
         [one] => (
-            format!("Close {} without saving?", name_of(&one.path)),
+            format!(
+                "Close {} without saving?",
+                crate::ui::path::file_name(&one.path)
+            ),
             "Its unsaved changes are lost.",
         ),
         many => (
@@ -1514,12 +1517,6 @@ pub fn files_of(place: &Host, pane: &Pane) -> Vec<FileKey> {
     let mut found = Vec::new();
     files_in(place, pane, &mut found);
     found
-}
-
-fn name_of(path: &Path) -> String {
-    path.file_name()
-        .map_or_else(|| path.to_string_lossy(), |name| name.to_string_lossy())
-        .into_owned()
 }
 
 /// Lets go of every file with no unsaved edits that no tab shows any more.
