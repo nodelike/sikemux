@@ -1,6 +1,7 @@
 //! The throwaway world a film runs in: a core, projects, chats and activity to show.
 
 use super::*;
+use sikemux_core::sessions::claude::claude_project_dir;
 
 /// The throwaway core the film talks to, started by this process so a dev core trusts it.
 pub(super) struct World {
@@ -271,7 +272,7 @@ impl World {
         {
             self.call("openSshTerminal", json!({ "host": host }))?;
         }
-        let transcripts = claude_project_dir(&self.claude, path);
+        let transcripts = claude_project_dir(&self.claude, &path.to_string_lossy());
         std::fs::create_dir_all(&transcripts)?;
         let mut pinned = Vec::new();
         for (at, chat) in world["recent"].as_array().into_iter().flatten().enumerate() {
@@ -510,17 +511,6 @@ impl World {
     }
 }
 
-/// Claude Code's own folder for a project's sessions: every character of its path that is not
-/// an ASCII letter or digit turned into `-`.
-pub(super) fn claude_project_dir(root: &Path, cwd: &Path) -> PathBuf {
-    let name: String = cwd
-        .to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    root.join("projects").join(name)
-}
-
 pub(super) fn session_id(seed: usize) -> String {
     let n = 0x5ee1_0000_0000_0000u64 + seed as u64;
     format!(
@@ -555,11 +545,20 @@ pub(super) fn usage(world: &Value) -> Value {
     usage
 }
 
-/// `value` with a leading `~/` in a string taken as the home folder.
+/// `value` with a leading `~/` in a string taken as the home folder. A world names files in
+/// one person's home, so a run elsewhere is told when one is not there.
 pub(super) fn expand_home(value: &Value) -> Value {
-    match value.as_str().and_then(|text| text.strip_prefix("~/")) {
-        Some(rest) => json!(sikemux_process::paths::home()
-            .map_or_else(|| PathBuf::from(rest), |home| home.join(rest))),
+    match value.as_str().filter(|text| text.starts_with("~/")) {
+        Some(text) => {
+            let path = sikemux_process::paths::expand_home(text);
+            if !path.exists() {
+                eprintln!(
+                    "film: {} is not on this machine, so it goes without",
+                    path.display()
+                );
+            }
+            json!(path)
+        }
         None => value.clone(),
     }
 }

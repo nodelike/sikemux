@@ -19,7 +19,7 @@ pub(crate) fn client_info() -> serde_json::Value {
 
 pub(crate) mod asked;
 pub mod carry;
-pub(crate) mod claude;
+pub mod claude;
 pub(crate) mod codex;
 pub mod context;
 pub mod delete;
