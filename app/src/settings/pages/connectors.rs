@@ -256,7 +256,7 @@ fn switch(bench: &Workbench, id: &str, on: bool) {
     if !on {
         off.push(id.to_owned());
     }
-    bench.call_typed::<call::PluginSetDisabled>(Disabled { ids: off });
+    Target::here(&bench.asks).call_typed::<call::PluginSetDisabled>(Disabled { ids: off });
 }
 
 /// The connector's mark, as the rest of the app draws it.

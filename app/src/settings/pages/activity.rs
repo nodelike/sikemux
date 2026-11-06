@@ -128,7 +128,7 @@ fn close_form(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 }
 
 fn set_price(bench: &Workbench, model: &str, price: Option<PriceOverride>) {
-    bench.call_typed::<call::SetActivityPrice>(ActivityPriceParams {
+    Target::here(&bench.asks).call_typed::<call::SetActivityPrice>(ActivityPriceParams {
         model: model.to_owned(),
         price,
     });

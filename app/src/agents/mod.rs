@@ -584,11 +584,13 @@ fn rename_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Work
         chat.title.clone(),
         move |bench, title, _, _| {
             if !title.trim().is_empty() {
-                bench.call_typed::<call::RenameRecent>(RecentRenamed {
-                    recent: recent.clone(),
-                    title: title.trim().to_owned(),
-                    cwd: Some(cwd.clone()),
-                });
+                bench
+                    .target()
+                    .call_typed::<call::RenameRecent>(RecentRenamed {
+                        recent: recent.clone(),
+                        title: title.trim().to_owned(),
+                        cwd: Some(cwd.clone()),
+                    });
                 bench.retitle_older(&recent, title.trim());
             }
         },
@@ -609,7 +611,7 @@ fn delete_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Work
         true,
         move |bench, yes, _, _| {
             if yes {
-                bench.call_typed::<call::DeleteRecent>(RecentChat {
+                bench.target().call_typed::<call::DeleteRecent>(RecentChat {
                     recent: recent.clone(),
                     cwd: Some(cwd.clone()),
                 });
@@ -631,7 +633,9 @@ fn pin_chat(this: &Entity<Workbench>, recent: &RecentInfo) -> (&'static str, Cli
             recent: id.clone(),
             pinned: !pinned,
         };
-        this.update(cx, |bench, _| bench.call_typed::<call::PinChat>(params));
+        this.update(cx, |bench, _| {
+            bench.target().call_typed::<call::PinChat>(params)
+        });
     };
     (label, Rc::new(pin))
 }

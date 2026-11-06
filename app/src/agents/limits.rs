@@ -15,6 +15,7 @@ use sikemux_core::agent_accounts::usage::{Usage, UsageWindow};
 use sikemux_core::agent_accounts::Profile;
 use sikemux_core::server::agent_accounts::AccountUsage;
 
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_0, SPACE_2, SPACE_2H, TEXT_2XS, TEXT_3XS, TEXT_3XS_H, TEXT_XS};
 use crate::ui::IconButton;
@@ -608,6 +609,6 @@ impl Workbench {
     /// sign-in, so it runs as the app starts, every few minutes while the Limits panel shows,
     /// and when the person asks.
     pub fn read_usage(&self) {
-        self.call_typed::<call::ReadAgentUsages>(NoParams {});
+        Target::here(&self.asks).call_typed::<call::ReadAgentUsages>(NoParams {});
     }
 }

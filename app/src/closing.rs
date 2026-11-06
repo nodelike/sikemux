@@ -18,7 +18,9 @@ impl Workbench {
         };
         self.ask_to_stop(agents.clone(), title, cx, move |bench, workers| {
             let agent_ids = agents.iter().chain(&workers).cloned().collect();
-            bench.call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids });
+            bench
+                .target()
+                .call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids });
         });
     }
 
@@ -48,7 +50,9 @@ impl Workbench {
             bench.ask_to_stop(agents.clone(), title.clone(), cx, move |bench, workers| {
                 bench.close_tabs(&strip, &tabs);
                 if !workers.is_empty() {
-                    bench.call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids: workers });
+                    bench
+                        .target()
+                        .call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids: workers });
                 }
             });
         };

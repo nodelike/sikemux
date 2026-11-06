@@ -869,20 +869,19 @@ fn project_menu(
     let (id, current) = (project.id.clone(), project.space.clone());
     let path = project.path.clone();
     let others = bench.other_hosts();
-    let spaces: Vec<(String, String, Option<Icon>)> =
-        bench.this_view().map_or(Vec::new(), |view| {
-            view.workspace
-                .spaces
-                .iter()
-                .map(|space| {
-                    (
-                        space.id.clone(),
-                        space.name.clone(),
-                        Icon::named(&space.icon),
-                    )
-                })
-                .collect()
-        });
+    let spaces: Vec<(String, String, Option<Icon>)> = bench.shown().map_or(Vec::new(), |view| {
+        view.workspace
+            .spaces
+            .iter()
+            .map(|space| {
+                (
+                    space.id.clone(),
+                    space.name.clone(),
+                    Icon::named(&space.icon),
+                )
+            })
+            .collect()
+    });
     move |popup, _, _| {
         let act = |work: Rc<dyn Fn(&mut Workbench)>| {
             let bench = bench_entity.clone();
@@ -893,10 +892,12 @@ fn project_menu(
         let move_to = |space: Option<String>| {
             let id = id.clone();
             act(Rc::new(move |bench: &mut Workbench| {
-                bench.call_typed::<call::UpdateProject>(UpdateProjectParams::space(
-                    id.clone(),
-                    space.clone(),
-                ))
+                bench
+                    .target()
+                    .call_typed::<call::UpdateProject>(UpdateProjectParams::space(
+                        id.clone(),
+                        space.clone(),
+                    ))
             }))
         };
         let settings = {
@@ -1100,7 +1101,7 @@ fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElemen
 fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let spaces = bench
-        .this_view()
+        .shown()
         .map_or(&[][..], |view| view.workspace.spaces.as_slice());
     if spaces.is_empty() {
         return div()

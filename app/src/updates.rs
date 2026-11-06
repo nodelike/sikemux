@@ -10,6 +10,7 @@ use sikemux_core::server::calls::NoParams;
 use sikemux_view::prefs::UpdateChannel;
 use sikemux_view::updates::{UpdateState, UpdateStatus};
 
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::screens::experience;
 use crate::screens::whats_new::RELEASES;
@@ -155,7 +156,7 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
         }
         None => ui::Button::new("required-check", "Check for updates", ui::Variant::Primary)
             .on_click(cx.listener(|bench, _, _, _| {
-                bench.call_typed::<call::UpdateCheck>(NoParams {});
+                Target::here(&bench.asks).call_typed::<call::UpdateCheck>(NoParams {});
             })),
     };
     Some(
@@ -218,7 +219,7 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
 }
 
 pub(crate) fn install(bench: &Workbench, force: bool) {
-    bench.call_typed::<call::UpdateInstall>(UpdateInstallParams { force });
+    Target::here(&bench.asks).call_typed::<call::UpdateInstall>(UpdateInstallParams { force });
 }
 
 /// `2048` as `2.0 KB`, `15728640` as `15 MB`.

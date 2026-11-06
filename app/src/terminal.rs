@@ -2110,14 +2110,16 @@ impl Workbench {
 
     pub fn new_loose_terminal(&self, cx: &mut App) {
         self.take_keys_when_shown(TakesKeys::Terminal, cx);
-        self.call_typed::<call::NewTerminal>(NewTerminal::loose());
+        self.target()
+            .call_typed::<call::NewTerminal>(NewTerminal::loose());
     }
 
     pub fn open_ssh_terminal(&self, alias: &str, cx: &mut App) {
         self.take_keys_when_shown(TakesKeys::Terminal, cx);
-        self.call_typed::<call::OpenSshTerminal>(SshParams {
-            host: alias.to_owned(),
-        });
+        self.target()
+            .call_typed::<call::OpenSshTerminal>(SshParams {
+                host: alias.to_owned(),
+            });
     }
 
     pub fn session(&self, id: &str) -> Option<&SessionInfo> {

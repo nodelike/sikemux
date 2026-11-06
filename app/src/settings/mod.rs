@@ -2,6 +2,7 @@
 //! chosen from the list on their left or found by searching. Every change
 //! goes to the core as it is made.
 
+use crate::core::Target;
 use crate::workbench::actions;
 use sikemux_core::server::call;
 use sikemux_view::prefs::PreferenceChange;
@@ -248,7 +249,7 @@ pub fn before_shortcut(
 pub use pages::{plugins_changed, providers_changed, remote_moved};
 
 pub(crate) fn set(bench: &Workbench, change: PreferenceChange) {
-    bench.call_typed::<call::SetPreference>(change);
+    Target::here(&bench.asks).call_typed::<call::SetPreference>(change);
 }
 
 /// Opens settings on `page` with `section` brought into view and lit, as a search hit is.

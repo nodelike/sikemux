@@ -1,5 +1,6 @@
 //! The mode agents start in, and how chats behave while they run and after.
 
+use crate::core::Target;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, AnyElement, App, Context, Entity, InteractiveElement, ParentElement, SharedString,
@@ -110,9 +111,9 @@ pub fn read_names(bench: &Workbench, window: &mut Window, cx: &mut Context<Workb
                 NAMES.iter().map(|(_, label)| *label).collect(),
                 chosen,
                 |bench, at, _| {
-                    bench.call_typed::<call::SetAgentNameTheme>(NameThemeParams {
-                        theme: NAMES[at].0,
-                    });
+                    Target::here(&bench.asks).call_typed::<call::SetAgentNameTheme>(
+                        NameThemeParams { theme: NAMES[at].0 },
+                    );
                 },
                 window,
                 cx,
@@ -241,9 +242,11 @@ pub fn boundary(
                 )
                 .on_click(move |_, _, cx| {
                     this.update(cx, |bench, _| {
-                        bench.call_typed::<call::SetAgentDefaults>(DefaultsParams {
-                            permission_mode: *mode,
-                        });
+                        Target::here(&bench.asks).call_typed::<call::SetAgentDefaults>(
+                            DefaultsParams {
+                                permission_mode: *mode,
+                            },
+                        );
                     })
                 })
         }));
@@ -277,7 +280,7 @@ pub fn render(
         ui::Button::new("sleep-idle", "Sleep now", ui::Variant::Outline).on_click(
             move |_, _, cx| {
                 this.update(cx, |bench, _| {
-                    bench.call_typed::<call::SleepIdleChats>(NoParams {});
+                    Target::here(&bench.asks).call_typed::<call::SleepIdleChats>(NoParams {});
                 })
             },
         )

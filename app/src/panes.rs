@@ -1,6 +1,5 @@
 //! A tab's views side by side, as the core's layout splits them.
 
-use crate::core::Target;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -745,12 +744,13 @@ impl Workbench {
         let Some(strip) = self.strip() else {
             return;
         };
-        self.call_typed::<call::ResizeSplit>(layout::ResizeSplit {
-            at: strip.at(),
-            tab,
-            split,
-            sizes,
-        });
+        self.target()
+            .call_typed::<call::ResizeSplit>(layout::ResizeSplit {
+                at: strip.at(),
+                tab,
+                split,
+                sizes,
+            });
     }
 
     /// The view in focus in the tab in front, else its first.
@@ -798,7 +798,7 @@ impl Workbench {
             SplitDir::Column => layout::Side::Bottom,
             SplitDir::Stack => layout::Side::Stack,
         };
-        let core = Target::here(&self.asks);
+        let core = self.target();
         cx.spawn(async move |bench, cx| {
             let session = match core.request_typed::<call::StripShell>(strip.at()).await {
                 Ok(session) => session,
@@ -905,12 +905,13 @@ impl Workbench {
         }
         sizes[at] += give;
         sizes[beyond] -= give;
-        self.call_typed::<call::ResizeSplit>(layout::ResizeSplit {
-            at: strip.at(),
-            tab: tab.id.clone(),
-            split,
-            sizes,
-        });
+        self.target()
+            .call_typed::<call::ResizeSplit>(layout::ResizeSplit {
+                at: strip.at(),
+                tab: tab.id.clone(),
+                split,
+                sizes,
+            });
     }
 
     /// Lets the view in focus fill its tab, or puts the tab's other views back.
@@ -935,16 +936,17 @@ impl Workbench {
         target: &str,
         keep_front: bool,
     ) {
-        self.call_typed::<call::SplitPane>(layout::SplitPane {
-            at: strip.at(),
-            tab: tab.to_owned(),
-            pane: pane.to_owned(),
-            side: layout::Side::Right,
-            kind: Some(kind),
-            target: Some(target.to_owned()),
-            from_tab: None,
-            keep_front,
-        });
+        self.target()
+            .call_typed::<call::SplitPane>(layout::SplitPane {
+                at: strip.at(),
+                tab: tab.to_owned(),
+                pane: pane.to_owned(),
+                side: layout::Side::Right,
+                kind: Some(kind),
+                target: Some(target.to_owned()),
+                from_tab: None,
+                keep_front,
+            });
     }
 
     /// Notes the side of the view `pane` of `tab` that a tab dragged over it would take: the
@@ -1009,25 +1011,27 @@ impl Workbench {
         else {
             return;
         };
-        self.call_typed::<call::SplitPane>(layout::SplitPane {
-            at: dropped.strip.at(),
-            tab: aimed.tab,
-            pane: aimed.pane,
-            side: aimed.side.in_core(),
-            kind: None,
-            target: None,
-            from_tab: Some(aimed.from),
-            keep_front: false,
-        });
+        self.target()
+            .call_typed::<call::SplitPane>(layout::SplitPane {
+                at: dropped.strip.at(),
+                tab: aimed.tab,
+                pane: aimed.pane,
+                side: aimed.side.in_core(),
+                kind: None,
+                target: None,
+                from_tab: Some(aimed.from),
+                keep_front: false,
+            });
         self.parts.redraw_stage(cx);
     }
 
     pub fn close_pane(&self, strip: &Strip, tab: &str, pane: &str) {
-        self.call_typed::<call::ClosePane>(layout::PaneParams {
-            at: strip.at(),
-            tab: tab.to_owned(),
-            pane: pane.to_owned(),
-        });
+        self.target()
+            .call_typed::<call::ClosePane>(layout::PaneParams {
+                at: strip.at(),
+                tab: tab.to_owned(),
+                pane: pane.to_owned(),
+            });
     }
 
     /// The view of a split `tab` its menu can move out into a tab of its own, as the Mac's
@@ -1060,10 +1064,11 @@ impl Workbench {
     }
 
     pub fn separate_pane(&self, strip: &Strip, tab: &str, pane: &str) {
-        self.call_typed::<call::SeparatePane>(layout::PaneParams {
-            at: strip.at(),
-            tab: tab.to_owned(),
-            pane: pane.to_owned(),
-        });
+        self.target()
+            .call_typed::<call::SeparatePane>(layout::PaneParams {
+                at: strip.at(),
+                tab: tab.to_owned(),
+                pane: pane.to_owned(),
+            });
     }
 }

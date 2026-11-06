@@ -519,10 +519,10 @@ impl Workbench {
 
     /// Ends a sign-in the browser has not finished, which settles the one waiting on it.
     pub fn cancel_sign_in(&self) {
-        self.call_typed::<call::AccountSignInCancel>(NoParams {});
+        Target::here(&self.asks).call_typed::<call::AccountSignInCancel>(NoParams {});
     }
 
     pub fn sign_out(&self) {
-        self.call_typed::<call::AccountSignOut>(NoParams {});
+        Target::here(&self.asks).call_typed::<call::AccountSignOut>(NoParams {});
     }
 }

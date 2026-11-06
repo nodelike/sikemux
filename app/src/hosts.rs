@@ -26,6 +26,7 @@ use sikemux_view::device::DeviceView;
 
 use crate::chat::Question;
 use crate::core;
+use crate::core::Target;
 use crate::hosts::install_pane::Words;
 use crate::icons::Icon;
 use crate::reads::Drafts;
@@ -167,18 +168,6 @@ impl Feeds {
         (self.front.as_ref())
             .and_then(|front| self.hosts.get(front))
             .unwrap_or(&self.this)
-    }
-
-    /// As [`in_front`](Self::in_front), to change it.
-    pub fn in_front_mut(&mut self) -> &mut Feed {
-        let front = self
-            .front
-            .as_ref()
-            .filter(|front| self.hosts.contains_key(*front));
-        match front {
-            Some(front) => self.hosts.get_mut(front).unwrap_or(&mut self.this),
-            None => &mut self.this,
-        }
     }
 
     /// Makes `host` the account host in front, letting go of what the last one's core answered.
@@ -517,10 +506,12 @@ impl Workbench {
             name.to_owned(),
             move |bench, typed, _, _| {
                 if !typed.trim().is_empty() {
-                    bench.call_typed::<call::RenameAccountDevice>(DeviceParams {
-                        key: key.clone(),
-                        name: Some(typed.trim().to_owned()),
-                    });
+                    Target::here(&bench.asks).call_typed::<call::RenameAccountDevice>(
+                        DeviceParams {
+                            key: key.clone(),
+                            name: Some(typed.trim().to_owned()),
+                        },
+                    );
                 }
             },
             cx,
@@ -537,7 +528,7 @@ impl Workbench {
             true,
             move |bench, yes, _, _| {
                 if yes {
-                    bench.call_typed::<call::RemoveAccountDevice>(DeviceParams {
+                    Target::here(&bench.asks).call_typed::<call::RemoveAccountDevice>(DeviceParams {
                         key: key.clone(),
                         name: None,
                     });
@@ -649,7 +640,7 @@ impl Workbench {
     /// Puts the person on `choice`, which the rail and the tab list then follow.
     pub fn choose_host(&mut self, choice: HostChoice, cx: &mut Context<Self>) {
         self.show_workbench(cx);
-        self.call_typed::<call::ChooseHost>(HostParams {
+        Target::here(&self.asks).call_typed::<call::ChooseHost>(HostParams {
             host: choice.key().to_string(),
         });
         cx.notify();

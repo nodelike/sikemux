@@ -218,9 +218,11 @@ fn sign_in(
         .kind(&provider)
         .is_some_and(|kind| kind.accounts)
     {
-        bench.call_typed::<call::SignInLauncher>(LauncherParams {
-            launcher: launcher.to_owned(),
-        });
+        bench
+            .target()
+            .call_typed::<call::SignInLauncher>(LauncherParams {
+                launcher: launcher.to_owned(),
+            });
         return;
     }
     bench.open_settings(crate::settings::Page::Installed, window, cx);

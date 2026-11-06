@@ -41,9 +41,7 @@ use crate::search::SearchPane;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
-use serde::Serialize;
 use sikemux_core::server::agent_accounts::AccountUsage;
-use sikemux_core::server::call::Call;
 use sikemux_core::server::layout::ActivateProjectParams;
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
@@ -505,13 +503,6 @@ impl Workbench {
             let _ = window.update(cx, |_, window, cx| window.remove_notification::<T>(cx));
         })
         .detach();
-    }
-
-    pub fn call_typed<C: Call>(&self, params: C::Params)
-    where
-        C::Params: Serialize,
-    {
-        Target::here(&self.asks).call_typed::<C>(params);
     }
 
     /// The view of the host in front: another host's own, while one on the account is chosen,

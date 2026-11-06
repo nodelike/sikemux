@@ -308,12 +308,12 @@ impl Workbench {
                 return;
             };
             if let Some(project) = key.strip_prefix(PROJECT) {
-                self.call_typed::<call::MoveAgentToProject>(MoveParams {
+                Target::here(&self.asks).call_typed::<call::MoveAgentToProject>(MoveParams {
                     agent_id: agent,
                     project: project.to_owned(),
                 });
             } else if let Some(path) = key.strip_prefix(FOLDER) {
-                self.call_typed::<call::MoveAgentToFolder>(MoveToFolder {
+                Target::here(&self.asks).call_typed::<call::MoveAgentToFolder>(MoveToFolder {
                     agent_id: agent,
                     path: path.into(),
                 });

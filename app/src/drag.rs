@@ -231,7 +231,9 @@ pub fn project(
                     return;
                 };
                 if id != target {
-                    bench.call_typed::<call::MoveProject>(MoveProjectParams { id, index });
+                    bench
+                        .target()
+                        .call_typed::<call::MoveProject>(MoveProjectParams { id, index });
                 }
             })
         })

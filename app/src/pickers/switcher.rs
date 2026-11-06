@@ -160,7 +160,7 @@ impl Workbench {
                     None => self.open_ssh_terminal(alias, cx),
                 }
             }
-            Strip::Terminals => self.call_typed::<call::ShowTerminals>(NoParams {}),
+            Strip::Terminals => self.target().call_typed::<call::ShowTerminals>(NoParams {}),
         }
     }
 }

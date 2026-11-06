@@ -111,7 +111,7 @@ commands! {
     ToggleYolo = "agent.permissions" acts |bench, _, _| bench.toggle_yolo_in_front();
     /// The tab rail's terminals.
     FocusTerminals = "session.command" opens |bench, _, _| {
-        bench.call_typed::<call::ShowTerminals>(NoParams {});
+        bench.target().call_typed::<call::ShowTerminals>(NoParams {});
     };
     FocusFiles = "window.files" opens |bench, _, cx| bench.focus_files(cx);
     FocusAgents = "window.agents" opens Workbench::focus_agents;

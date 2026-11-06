@@ -788,7 +788,7 @@ fn waiting(
         let this = this.clone();
         move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
             this.update(cx, |bench, _| {
-                bench.call_typed::<call::UpdateCancel>(NoParams {});
+                Target::here(&bench.asks).call_typed::<call::UpdateCancel>(NoParams {});
             })
         }
     };

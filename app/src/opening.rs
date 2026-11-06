@@ -543,7 +543,7 @@ impl Workbench {
                 .hosts()
                 .find_map(|(host, feed)| Some((host.clone(), project_on(feed.view.as_ref()?)?)))
             {
-                self.call_typed::<call::ChooseHost>(HostParams {
+                Target::here(&self.asks).call_typed::<call::ChooseHost>(HostParams {
                     host: format!("host:{host}"),
                 });
                 Target::new(&self.asks, Place::Account(host))

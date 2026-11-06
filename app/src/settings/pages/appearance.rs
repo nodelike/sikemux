@@ -1146,7 +1146,7 @@ pub fn render(
             .on_change(move |on: &bool, _, cx| {
                 let on = *on;
                 this.update(cx, |bench, _| {
-                    bench.call_typed::<call::SetFaceStyle>(change(on));
+                    Target::here(&bench.asks).call_typed::<call::SetFaceStyle>(change(on));
                 })
             })
     };
@@ -1161,7 +1161,7 @@ pub fn render(
                 ..FaceStyleChange::default()
             };
             this.update(cx, |bench, _| {
-                bench.call_typed::<call::SetFaceStyle>(change);
+                Target::here(&bench.asks).call_typed::<call::SetFaceStyle>(change);
             })
         }
     };

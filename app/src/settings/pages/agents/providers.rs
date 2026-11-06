@@ -19,6 +19,7 @@ use sikemux_core::server::model_providers::{
 };
 
 use crate::core;
+use crate::core::Target;
 use crate::settings::rows::{self, Choice};
 use crate::settings::Page;
 use crate::settings::Settings;
@@ -596,7 +597,7 @@ fn local_row(
 
 fn save_helper(bench: &mut Workbench, helper: Option<Helper>, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.helper = helper.clone());
-    bench.call_typed::<call::SetModelHelper>(HelperParams { helper });
+    Target::here(&bench.asks).call_typed::<call::SetModelHelper>(HelperParams { helper });
 }
 
 fn save_model(bench: &mut Workbench, model: String, cx: &mut Context<Workbench>) {

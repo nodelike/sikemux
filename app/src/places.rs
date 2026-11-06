@@ -88,7 +88,9 @@ impl Workbench {
             .count();
         let path = project.path.clone();
         let close = move |bench: &mut Workbench| {
-            bench.call_typed::<call::RemoveProject>(RemoveProjectParams { path: path.clone() })
+            bench
+                .target()
+                .call_typed::<call::RemoveProject>(RemoveProjectParams { path: path.clone() })
         };
         if working == 0 && unsaved == 0 {
             return close(self);
@@ -248,7 +250,9 @@ impl Workbench {
             return self.ask_to_stop(vec![target], title, cx, move |bench, workers| {
                 close(bench);
                 if !workers.is_empty() {
-                    bench.call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids: workers });
+                    bench
+                        .target()
+                        .call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids: workers });
                 }
             });
         }

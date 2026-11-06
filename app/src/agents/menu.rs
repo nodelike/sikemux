@@ -8,6 +8,7 @@ use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 use sikemux_view::workspace::{PinnedChat, WorkspaceAgent};
 use sikemux_wire::protocol::PermissionMode;
 
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::toast;
 use crate::workbench::Workbench;
@@ -119,10 +120,12 @@ impl AgentMenu {
                         name.clone(),
                         move |bench, typed, _, _| {
                             if !typed.is_empty() && typed != name {
-                                bench.call_typed::<call::RenameAgent>(RenameAgentParams {
-                                    agent_id: renamed.clone(),
-                                    name: typed.to_owned(),
-                                });
+                                Target::here(&bench.asks).call_typed::<call::RenameAgent>(
+                                    RenameAgentParams {
+                                        agent_id: renamed.clone(),
+                                        name: typed.to_owned(),
+                                    },
+                                );
                             }
                         },
                         cx,
@@ -155,14 +158,16 @@ impl AgentMenu {
                             title.clone(),
                             move |bench, typed, _, _| {
                                 if !typed.is_empty() && typed != title {
-                                    bench.call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
-                                        retitled.clone(),
-                                        AgentPatch {
-                                            title: Some(typed.to_owned()),
-                                            renamed: Some(true),
-                                            ..AgentPatch::default()
-                                        },
-                                    ));
+                                    Target::here(&bench.asks).call_typed::<call::UpdateAgent>(
+                                        UpdateAgentParams::new(
+                                            retitled.clone(),
+                                            AgentPatch {
+                                                title: Some(typed.to_owned()),
+                                                renamed: Some(true),
+                                                ..AgentPatch::default()
+                                            },
+                                        ),
+                                    );
                                 }
                             },
                             cx,
@@ -204,7 +209,7 @@ impl AgentMenu {
                 PopupMenuItem::new(if pinned { "Unpin" } else { "Pin" })
                     .icon(Icon::Pin)
                     .on_click(self.on_bench(move |bench, _| {
-                        bench.call_typed::<call::SetPinnedChats>(PinnedParams {
+                        Target::here(&bench.asks).call_typed::<call::SetPinnedChats>(PinnedParams {
                             chats: chats.clone(),
                         })
                     })),
@@ -225,9 +230,11 @@ impl AgentMenu {
                         .on_click(self.on_bench({
                             let id = id.clone();
                             move |bench, _| {
-                                bench.call_typed::<call::SleepAgent>(AgentParams {
-                                    agent_id: id.clone(),
-                                })
+                                Target::here(&bench.asks).call_typed::<call::SleepAgent>(
+                                    AgentParams {
+                                        agent_id: id.clone(),
+                                    },
+                                )
                             }
                         })),
                 )
@@ -241,13 +248,15 @@ impl AgentMenu {
                     .on_click({
                         let (id, keep_alive) = (id.clone(), !agent.keep_alive);
                         self.on_bench(move |bench, _| {
-                            bench.call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
-                                id.clone(),
-                                AgentPatch {
-                                    keep_alive: Some(keep_alive),
-                                    ..AgentPatch::default()
-                                },
-                            ))
+                            Target::here(&bench.asks).call_typed::<call::UpdateAgent>(
+                                UpdateAgentParams::new(
+                                    id.clone(),
+                                    AgentPatch {
+                                        keep_alive: Some(keep_alive),
+                                        ..AgentPatch::default()
+                                    },
+                                ),
+                            )
                         })
                     }),
                 );

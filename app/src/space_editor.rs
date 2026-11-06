@@ -137,7 +137,7 @@ impl Render for SpaceEditor {
             .upgrade()
             .and_then(|bench| {
                 let bench = bench.read(cx);
-                Some(bench.this_view()?.workspace.spaces.clone())
+                Some(bench.shown()?.workspace.spaces.clone())
             })
             .unwrap_or_default();
         self.names
@@ -376,16 +376,18 @@ impl Workbench {
                     .map_or(0, |since| since.as_nanos());
                 let id = format!("space-{made:x}");
                 let mut spaces = bench
-                    .this_view()
+                    .shown()
                     .map_or_else(Vec::new, |view| view.workspace.spaces.clone());
                 spaces.push(SpaceInfo {
                     id: id.clone(),
                     name,
                     icon: "folder".into(),
                 });
-                bench.call_typed::<call::SetSpaces>(SpacesParams { spaces });
+                bench
+                    .target()
+                    .call_typed::<call::SetSpaces>(SpacesParams { spaces });
                 match &into {
-                    Some(project) => bench.call_typed::<call::UpdateProject>(
+                    Some(project) => bench.target().call_typed::<call::UpdateProject>(
                         UpdateProjectParams::space(project.clone(), Some(id)),
                     ),
                     None => bench.show_space(Some(id), cx),
@@ -396,19 +398,20 @@ impl Workbench {
         cx.notify();
     }
 
-    /// Sets this host's spaces to what `edit` makes of them.
+    /// Sets the spaces of the host in front to what `edit` makes of them.
     pub(crate) fn edit_spaces(&self, edit: impl FnOnce(&mut Vec<SpaceInfo>)) {
         let mut spaces = self
-            .this_view()
+            .shown()
             .map_or_else(Vec::new, |view| view.workspace.spaces.clone());
         edit(&mut spaces);
-        self.call_typed::<call::SetSpaces>(SpacesParams { spaces });
+        self.target()
+            .call_typed::<call::SetSpaces>(SpacesParams { spaces });
     }
 
     /// Asks for the space's new name, as the Mac does.
     pub fn rename_space(&mut self, id: String, cx: &mut Context<Self>) {
         let current = self
-            .this_view()
+            .shown()
             .and_then(|view| view.workspace.spaces.iter().find(|space| space.id == id))
             .map(|space| space.name.clone())
             .unwrap_or_default();
@@ -433,7 +436,7 @@ impl Workbench {
     /// Deletes the space once the person agrees; its projects stay open and show under All.
     pub fn delete_space(&mut self, id: String, cx: &mut Context<Self>) {
         let name = self
-            .this_view()
+            .shown()
             .and_then(|view| view.workspace.spaces.iter().find(|space| space.id == id))
             .map(|space| space.name.clone())
             .unwrap_or_default();
@@ -448,7 +451,7 @@ impl Workbench {
                 }
                 bench.edit_spaces(|spaces| spaces.retain(|space| space.id != id));
                 let held: Vec<String> = bench
-                    .this_view()
+                    .shown()
                     .map(|view| {
                         view.workspace
                             .projects
@@ -459,9 +462,11 @@ impl Workbench {
                     })
                     .unwrap_or_default();
                 for project in held {
-                    bench.call_typed::<call::UpdateProject>(UpdateProjectParams::space(
-                        project, None,
-                    ));
+                    bench
+                        .target()
+                        .call_typed::<call::UpdateProject>(UpdateProjectParams::space(
+                            project, None,
+                        ));
                 }
                 if bench.space.as_ref() == Some(&id) {
                     bench.show_space(None, cx);

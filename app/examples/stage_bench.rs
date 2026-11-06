@@ -184,7 +184,8 @@ fn main() -> anyhow::Result<()> {
         frames: Vec::new(),
     };
     run.bench.update(&mut run.cx, |bench, _| {
-        bench.call_typed::<call::SetPreference>(PreferenceChange::OnboardingComplete(true))
+        sikemux_gpui::core::Target::here(&bench.asks)
+            .call_typed::<call::SetPreference>(PreferenceChange::OnboardingComplete(true))
     });
     if !run.until(600, |bench| bench.agent().is_some()) {
         anyhow::bail!("the core's tab in front holds no chat");
