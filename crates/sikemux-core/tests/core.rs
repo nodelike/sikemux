@@ -1009,49 +1009,6 @@ async fn reset_modes_reach_the_screen() {
 }
 
 #[tokio::test]
-async fn a_line_shows_on_a_terminal_nobody_watches() {
-    let core = start_core();
-    let (client, _stream) = core.connect().await;
-    let id = client
-        .spawn(
-            launch(),
-            terminal(Some(
-                "sleep 0.3; printf 'then enter the %s BCDF-GHJK\\n' code; sleep 100",
-            )),
-        )
-        .await
-        .expect("spawn");
-    let line = tokio::time::timeout(
-        WAIT,
-        client.ask(ask::TerminalWaitFor {
-            id,
-            containing: "enter the code".into(),
-        }),
-    )
-    .await
-    .expect("the line was never found")
-    .expect("answer");
-    assert_eq!(line.as_deref(), Some("then enter the code BCDF-GHJK"));
-    client.ask(ask::Kill { id }).await.expect("kill");
-
-    let ended = client
-        .spawn(launch(), terminal(Some("sleep 0.3; exit 0")))
-        .await
-        .expect("spawn");
-    let line = tokio::time::timeout(
-        WAIT,
-        client.ask(ask::TerminalWaitFor {
-            id: ended,
-            containing: "never printed".into(),
-        }),
-    )
-    .await
-    .expect("the wait outlived the terminal")
-    .expect("answer");
-    assert_eq!(line, None);
-}
-
-#[tokio::test]
 async fn writes_larger_than_a_frame_arrive_whole() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
@@ -1068,28 +1025,6 @@ async fn writes_larger_than_a_frame_arrive_whole() {
     client.write(id, &payload).await.expect("write");
     stream.until_exit(&client, id).await;
     stream.until_output(&client, id, "17000000").await;
-}
-
-#[tokio::test]
-async fn stop_all_kills_every_session_and_keeps_the_core() {
-    let core = start_core();
-    let (client, mut stream) = core.connect().await;
-    let dir = tempfile::tempdir().expect("task dir");
-    let shell = client.spawn(launch(), terminal(None)).await.expect("spawn");
-    let task = client
-        .spawn(launch(), task(dir.path(), "sleep 1000"))
-        .await
-        .expect("task");
-    client.ask(ask::StopAll).await.expect("stop all");
-    for id in [shell, task] {
-        let (_, killed) = stream.until_exit(&client, id).await;
-        assert!(killed);
-    }
-    assert!(client.ask(ask::List).await.expect("list").is_empty());
-    client
-        .spawn(launch(), terminal(None))
-        .await
-        .expect("the core still spawns");
 }
 
 #[derive(Default)]

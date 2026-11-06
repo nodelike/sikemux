@@ -315,12 +315,6 @@ pub enum Response {
     Remote {
         status: Box<RemoteStatus>,
     },
-    Workspace {
-        workspace: Workspace,
-    },
-    Attentions {
-        attentions: Vec<Attention>,
-    },
     ChatBegun {
         agent_id: String,
         start: ChatStart,

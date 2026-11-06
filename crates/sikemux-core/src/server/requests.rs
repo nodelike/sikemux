@@ -516,9 +516,6 @@ pub(super) async fn run(
                     client.answer::<ask::Host>(request_id, host);
                 });
             }
-            Request::Workspace => {
-                client.answer::<ask::Workspace>(request_id, Ok(core.workspace_view()));
-            }
             Request::StartChat(ask::StartChat {
                 launcher,
                 project,
