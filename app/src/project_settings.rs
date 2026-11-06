@@ -564,7 +564,8 @@ fn tasks(
 ) -> Vec<AnyElement> {
     let t = Tokens::get(cx).clone();
     let listed = bench
-        .reads
+        .feeds
+        .in_front()
         .tasks
         .as_ref()
         .filter(|read| read.project.as_os_str() == folder)

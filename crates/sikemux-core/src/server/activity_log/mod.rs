@@ -999,12 +999,12 @@ pub struct CommandUsed {
     pub id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ActivitySummaryParams {
+pub struct ActivitySummaryParams {
     /// Minutes the person's clock is ahead of UTC, which places each event on their own day.
-    utc_offset_minutes: i64,
-    project: Option<String>,
+    pub utc_offset_minutes: i64,
+    pub project: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]

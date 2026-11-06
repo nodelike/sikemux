@@ -445,9 +445,9 @@ pub(crate) fn in_use(port: u16) -> bool {
 }
 
 /// What listens now, for a check before a task starts.
-#[derive(Deserialize)]
-pub(crate) struct PortsParams {
-    pub(crate) project: Option<String>,
+#[derive(Serialize, Deserialize)]
+pub struct PortsParams {
+    pub project: Option<String>,
 }
 
 impl crate::server::part::Part for Ports {

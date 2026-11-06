@@ -959,7 +959,7 @@ impl Workbench {
             title: String,
             stopped: bool,
         }
-        let runs: Vec<AgentRun> = (self.reads.runs.iter())
+        let runs: Vec<AgentRun> = (self.feeds.in_front().runs.iter())
             .filter_map(|listed| {
                 let run = &listed.run;
                 Some(AgentRun {
@@ -972,7 +972,7 @@ impl Workbench {
                 })
             })
             .collect();
-        let finished = (self.reads.runs.iter())
+        let finished = (self.feeds.in_front().runs.iter())
             .filter(|listed| matches!(listed.run.status, RunStatus::Completed | RunStatus::Failed))
             .filter_map(|listed| listed.run.pty_id)
             .collect();

@@ -27,7 +27,6 @@ use gpui_kit::{
     ParentElement, Pixels, Render, SharedString, StyleRefinement, Styled, Subscription, Task,
     WeakEntity, Window,
 };
-use serde_json::json;
 use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::layout::{PaneKind, ProjectLayout, Tab};
 use sikemux_view::prefs::{Preferences, TabRailPage, WindowView};
@@ -289,7 +288,7 @@ impl Workbench {
         .detach();
         let here = Target::here(&asks);
         for read in Read::FROM_THE_START {
-            here.watch(read, json!({}));
+            here.watch_plain(read);
         }
         cx.spawn(async move |this, cx| loop {
             cx.background_executor()
@@ -1447,10 +1446,7 @@ impl Workbench {
 
     pub fn sign_in(&mut self) {
         self.signing_in = true;
-        let _ = self.asks.send(Ask::Answer {
-            read: Read::SignIn,
-            params: json!({}),
-        });
+        Target::here(&self.asks).answer::<call::AccountSignIn>(Read::SignIn, NoParams {});
     }
 
     /// Ends a sign-in the browser has not finished, which settles the one waiting on it.

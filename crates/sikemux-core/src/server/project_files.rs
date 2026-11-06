@@ -136,24 +136,24 @@ fn project_cache(repo: &str) -> Result<Arc<ProjectCache>, String> {
 
 /// The answer to `projectFiles`: the whole list, only what changed since the
 /// client's scan, or neither when nothing did.
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProjectFiles {
-    scan_id: u64,
+pub struct ProjectFiles {
+    pub scan_id: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    files: Option<Vec<String>>,
+    pub files: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    added: Option<Vec<String>>,
+    pub added: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    removed: Option<Vec<String>>,
+    pub removed: Option<Vec<String>>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ProjectFilesParams {
-    project: String,
+pub struct ProjectFilesParams {
+    pub project: String,
     #[serde(default)]
-    since: Option<u64>,
+    pub since: Option<u64>,
 }
 
 #[derive(Deserialize)]

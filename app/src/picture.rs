@@ -1,6 +1,7 @@
 //! A picture shown properly: over the whole window, as large as the window lets it
 //! be, with a way to keep a copy in Downloads.
 
+use sikemux_core::server::account::AccountPictureParams;
 use sikemux_core::server::remote_image::{ImageParams, PictureData};
 use sikemux_core::server::stash::StashItemParams;
 use std::future::Future;
@@ -17,7 +18,6 @@ use gpui_kit::{
     ObjectFit, ParentElement, Pixels, RenderImage, SharedString, Size, StatefulInteractiveElement,
     Styled, StyledImage, WeakEntity, Window,
 };
-use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::core::{Ask, Target};
@@ -257,16 +257,17 @@ impl AccountPicture {
         }
         self.image = None;
         if let Some(hash) = &hash {
-            Target::here(asks).watch(Read::Picture, json!({ "hash": hash }));
+            Target::here(asks).watch::<call::AccountPicture>(
+                Read::Picture,
+                AccountPictureParams { hash: hash.clone() },
+            );
         }
         self.hash = hash;
     }
 
-    /// Keeps the picture `accountPicture` answered with: its type, and its bytes in base64.
-    pub fn read(&mut self, value: &Value) {
-        self.image = (value["mime"].as_str())
-            .zip(value["data"].as_str())
-            .and_then(|(mime, data)| decode(mime, data));
+    /// Keeps the picture `accountPicture` answered with.
+    pub fn read(&mut self, picture: Option<PictureData>) {
+        self.image = picture.and_then(|picture| decode(&picture.mime, &picture.data));
     }
 }
 

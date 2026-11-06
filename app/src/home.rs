@@ -330,7 +330,7 @@ impl Render for Activity {
 }
 
 fn welcome_calendar(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
-    let Some(summary) = bench.reads.activity.as_ref() else {
+    let Some(summary) = bench.feeds.in_front().activity.as_ref() else {
         return div().into_any_element();
     };
     let t = Tokens::get(cx).clone();

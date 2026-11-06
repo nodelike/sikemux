@@ -119,19 +119,20 @@ impl Workbench {
         if self.runs_to_show.is_empty() {
             return;
         }
-        let runs: Vec<(String, Option<u64>, bool, String, String)> = (self.reads.runs.iter())
-            .map(|listed| &listed.run)
-            .filter(|run| self.runs_to_show.contains(&run.execution_id))
-            .map(|run| {
-                (
-                    run.execution_id.clone(),
-                    run.pty_id,
-                    matches!(run.status, RunStatus::AwaitingTrust | RunStatus::Starting),
-                    run.label.clone().unwrap_or_else(|| run.task_id.clone()),
-                    run.project.clone(),
-                )
-            })
-            .collect();
+        let runs: Vec<(String, Option<u64>, bool, String, String)> =
+            (self.feeds.in_front().runs.iter())
+                .map(|listed| &listed.run)
+                .filter(|run| self.runs_to_show.contains(&run.execution_id))
+                .map(|run| {
+                    (
+                        run.execution_id.clone(),
+                        run.pty_id,
+                        matches!(run.status, RunStatus::AwaitingTrust | RunStatus::Starting),
+                        run.label.clone().unwrap_or_else(|| run.task_id.clone()),
+                        run.project.clone(),
+                    )
+                })
+                .collect();
         for (execution, session, waiting, label, project) in runs {
             let project = (self.projects().iter())
                 .find(|open| open.path.as_os_str() == project.as_str())
@@ -166,7 +167,7 @@ impl Workbench {
     }
 
     fn task_label(&self, task: &str) -> String {
-        (self.reads.tasks.as_ref())
+        (self.feeds.in_front().tasks.as_ref())
             .and_then(|read| read.tasks.iter().find(|listed| listed.id == task))
             .map_or(task, |listed| listed.label.as_str())
             .to_owned()

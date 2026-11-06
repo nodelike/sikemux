@@ -23,7 +23,7 @@ impl Workbench {
         let Some(path) = self.watched_project.as_deref() else {
             return (None, None);
         };
-        let mine: Vec<&RunView> = (self.reads.runs.iter())
+        let mine: Vec<&RunView> = (self.feeds.in_front().runs.iter())
             .filter(|run| run.run.project == path && run.agent_id.is_none())
             .collect();
         (
@@ -37,7 +37,7 @@ impl Workbench {
 
     /// The port the task run `execution` listens on, when it listens on one.
     pub fn port_of_run(&self, execution: &str) -> Option<&ProjectPort> {
-        self.reads.ports.iter().find(|port| {
+        self.feeds.in_front().ports.iter().find(|port| {
             matches!(&port.listening.owner, PortOwner::Task { execution_id, .. } if execution_id == execution)
         })
     }

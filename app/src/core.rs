@@ -49,9 +49,9 @@ pub enum Update {
     /// The view of the core at the place.
     View(Place, Box<DeviceView>),
     /// A read's latest answer.
-    Read(Read, Value),
+    Read(Place, Read, Value),
     /// The core turned down a read.
-    Refused(Read, String),
+    Refused(Place, Read, String),
     /// Show this agent and come to the front, as the notch or a request held while no window
     /// was open asks.
     FocusAgent(String),
@@ -246,7 +246,7 @@ pub enum Detection {
 pub enum Ask {
     /// Keeps `read` answered as `watch` asks, in place of whatever it watched before.
     Watch(Read, Watch),
-    /// Stops answering `read`, wherever it was watched, dropping an answer still on its way.
+    /// Stops answering `read`, dropping an answer still on its way.
     Unwatch(Read),
     /// One of the core's methods, for something the person did. What it changes
     /// comes back with the next view.
@@ -260,7 +260,7 @@ pub enum Ask {
     /// what asked, such as one file's diff.
     Request(Method, oneshot::Sender<Result<Value, CallError>>),
     /// A watch, stream, call or answer for another host's core, by the host's key, as this
-    /// host's would be. A read is watched in one place at a time.
+    /// host's would be.
     On(String, Box<Ask>),
     /// A call whose answer arrives in parts, as `Stream` events under `stream`.
     Stream {
@@ -767,7 +767,7 @@ fn follow_links(linked: &Option<Arc<Linked>>, client: &Arc<CoreClient>) {
     });
 }
 
-/// What the window keeps each core answering. A read is watched in one place at a time.
+/// What the window keeps each core answering.
 #[derive(Default)]
 struct Watches {
     here: HashMap<Read, Watch>,
@@ -776,10 +776,9 @@ struct Watches {
 }
 
 impl Watches {
-    /// Watches `read` on `host`, or here with none, in place of wherever it was watched.
+    /// Watches `read` on `host`, or here with none, in place of what it was watching there.
     fn set(&mut self, host: Option<&str>, read: Read, mut watch: Watch) -> &Watch {
-        self.remove(read);
-        watch.generation = self.next_generation(read);
+        watch.generation = self.next_generation(host, read);
         match host {
             Some(host) => self.hosts.entry(host.to_owned()).or_default(),
             None => &mut self.here,
@@ -789,19 +788,26 @@ impl Watches {
         .into_mut()
     }
 
-    /// Stops watching `read`, wherever it was watched, dropping an answer still on its way.
-    fn remove(&mut self, read: Read) {
-        self.next_generation(read);
-        self.here.remove(&read);
-        for table in self.hosts.values_mut() {
-            table.remove(&read);
+    /// Stops watching `read` on `host`, or here with none, dropping an answer still on its way.
+    fn remove(&mut self, host: Option<&str>, read: Read) {
+        self.next_generation(host, read);
+        match host {
+            Some(host) => {
+                if let Some(table) = self.hosts.get_mut(host) {
+                    table.remove(&read);
+                }
+            }
+            None => {
+                self.here.remove(&read);
+            }
         }
     }
 
-    fn next_generation(&self, read: Read) -> u64 {
+    fn next_generation(&self, host: Option<&str>, read: Read) -> u64 {
         let mut current = self.generations.lock().expect("watch generations");
-        let next = current.get(&read).map_or(0, |generation| generation + 1);
-        current.insert(read, next);
+        let key = (host.map(str::to_owned), read);
+        let next = current.get(&key).map_or(0, |generation| generation + 1);
+        current.insert(key, next);
         next
     }
 }
@@ -838,6 +844,7 @@ fn read_on(
     tokio::spawn(async move {
         let answer = call_linked(&linked, &host, key.method(), watch.params).await;
         send_read(
+            Some(host),
             key,
             watch.generation,
             answer.map_err(String::from),
@@ -982,20 +989,40 @@ impl Target {
         }
     }
 
-    /// Keeps the core answering `read`, here or on the place's host, wherever it was watched
-    /// before.
-    pub fn watch(&self, read: Read, params: Value) {
-        self.ask(Ask::Watch(read, Watch::new(params, None)));
+    /// Keeps the place's core answering `read`, whose call is `C`, in place of what it was
+    /// watching there.
+    pub fn watch<C: Call>(&self, read: Read, params: C::Params)
+    where
+        C::Params: Serialize,
+    {
+        self.watch_with::<C>(read, params, None);
     }
 
     /// Keeps the core answering `read`, whose git and code host changes are `folder`'s.
-    pub fn watch_folder(&self, read: Read, params: Value, folder: String) {
-        self.ask(Ask::Watch(read, Watch::new(params, Some(folder))));
+    pub fn watch_folder<C: Call>(&self, read: Read, params: C::Params, folder: String)
+    where
+        C::Params: Serialize,
+    {
+        self.watch_with::<C>(read, params, Some(folder));
     }
 
-    /// Stops the core answering `read`, here or on any host.
+    fn watch_with<C: Call>(&self, read: Read, params: C::Params, folder: Option<String>)
+    where
+        C::Params: Serialize,
+    {
+        debug_assert_eq!(read.method(), C::METHOD);
+        let params = Method::of::<C>(params).params;
+        self.ask(Ask::Watch(read, Watch::new(params, folder)));
+    }
+
+    /// Keeps the core answering `read`, which takes nothing.
+    pub fn watch_plain(&self, read: Read) {
+        self.ask(Ask::Watch(read, Watch::new(json!({}), None)));
+    }
+
+    /// Stops the place's core answering `read`.
     pub fn unwatch(&self, read: Read) {
-        let _ = self.asks.send(Ask::Unwatch(read));
+        self.ask(Ask::Unwatch(read));
     }
 
     /// Sends the call `C` without waiting for its answer.
@@ -1023,8 +1050,13 @@ impl Target {
         }));
     }
 
-    /// Asks `read` once, the answer arriving as any other read's.
-    pub fn answer(&self, read: Read, params: Value) {
+    /// Asks `read`, whose call is `C`, once, the answer arriving as any other read's.
+    pub fn answer<C: Call>(&self, read: Read, params: C::Params)
+    where
+        C::Params: Serialize,
+    {
+        debug_assert_eq!(read.method(), C::METHOD);
+        let params = Method::of::<C>(params).params;
         self.ask(Ask::Answer { read, params });
     }
 
@@ -1299,7 +1331,7 @@ async fn run(
                             }
                             Some(Happened::Lost(host)) => {
                                 for &key in watches.hosts.get(&host).into_iter().flat_map(HashMap::keys) {
-                                    let _ = updates.send(Update::Refused(key, format!("{host} is out of reach")));
+                                    let _ = updates.send(Update::Refused(Place::Account(host.clone()), key, format!("{host} is out of reach")));
                                 }
                                 host_streams.remove(&host);
                                 waiting_terminals.remove(&host);
@@ -1352,7 +1384,7 @@ async fn run(
                                 let watch = watches.set(None, key, watch);
                                 read(&client, key, watch, (&current, &failed), &updates);
                             }
-                            Some(Ask::Unwatch(key)) => watches.remove(key),
+                            Some(Ask::Unwatch(key)) => watches.remove(None, key),
                             Some(Ask::RegisterWindow) => {
                                 let client = client.clone();
                                 tokio::spawn(async move {
@@ -1373,8 +1405,8 @@ async fn run(
                                 let (client, updates) = (client.clone(), updates.clone());
                                 tokio::spawn(async move {
                                     let _ = updates.send(match client.call(read.method(), params).await {
-                                        Ok(value) => Update::Read(read, value),
-                                        Err(error) => Update::Refused(read, error.to_string()),
+                                        Ok(value) => Update::Read(Place::This, read, value),
+                                        Err(error) => Update::Refused(Place::This, read, error.to_string()),
                                     });
                                 });
                             }
@@ -1383,6 +1415,7 @@ async fn run(
                                     let watch = watches.set(Some(&host), key, watch);
                                     read_on(&linked, &host, key, watch, &current, &updates);
                                 }
+                                Ask::Unwatch(key) => watches.remove(Some(&host), key),
                                 Ask::Stream { stream, method, parts } => {
                                     streamed.insert(stream, parts.clone());
                                     let linked = linked.clone();
@@ -1404,9 +1437,11 @@ async fn run(
                                 Ask::Answer { read, params } => {
                                     let (linked, updates) = (linked.clone(), updates.clone());
                                     tokio::spawn(async move {
-                                        let _ = updates.send(match call_linked(&linked, &host, read.method(), params).await {
-                                            Ok(value) => Update::Read(read, value),
-                                            Err(error) => Update::Refused(read, error.into()),
+                                        let answer = call_linked(&linked, &host, read.method(), params).await;
+                                        let place = Place::Account(host);
+                                        let _ = updates.send(match answer {
+                                            Ok(value) => Update::Read(place, read, value),
+                                            Err(error) => Update::Refused(place, read, error.into()),
                                         });
                                     });
                                 }
@@ -1631,7 +1666,14 @@ async fn wait_to_start(
                 Some(Ask::Watch(key, watch)) => {
                     watches.set(None, key, watch);
                 }
-                Some(Ask::Unwatch(key)) => watches.remove(key),
+                Some(Ask::Unwatch(key)) => watches.remove(None, key),
+                Some(Ask::On(host, ask)) => match *ask {
+                    Ask::Watch(key, watch) => {
+                        watches.set(Some(&host), key, watch);
+                    }
+                    Ask::Unwatch(key) => watches.remove(Some(&host), key),
+                    _ => {}
+                },
                 Some(_) => {}
                 None => return false,
             },
@@ -2162,7 +2204,7 @@ impl Streams {
     }
 }
 
-type WatchGenerations = Arc<Mutex<HashMap<Read, u64>>>;
+type WatchGenerations = Arc<Mutex<HashMap<(Option<String>, Read), u64>>>;
 type FailedWatches = Arc<Mutex<HashSet<Read>>>;
 
 /// Reads `read`'s watch, noting in `failed` when it was refused, so it is read again once the
@@ -2190,26 +2232,30 @@ fn read(
             false => failed.insert(key),
         };
         drop(failed);
-        send_read(key, watch.generation, answer, &current, &updates);
+        send_read(None, key, watch.generation, answer, &current, &updates);
     });
 }
 
 /// Sends what `key`'s watch was answered, unless another watch has replaced it.
 fn send_read(
+    host: Option<String>,
     key: Read,
     generation: u64,
     answer: Result<Value, String>,
     current: &WatchGenerations,
     updates: &mpsc::UnboundedSender<Update>,
 ) {
-    if current.lock().expect("watch generations").get(&key) != Some(&generation) {
+    let watched = (host, key);
+    if current.lock().expect("watch generations").get(&watched) != Some(&generation) {
         return;
     }
+    let (host, key) = watched;
+    let place = host.map_or(Place::This, Place::Account);
     #[cfg(feature = "drive")]
     crate::drive::trace(format_args!("link read {key:?}"));
     let _ = updates.send(match answer {
-        Ok(value) => Update::Read(key, value),
-        Err(error) => Update::Refused(key, error),
+        Ok(value) => Update::Read(place, key, value),
+        Err(error) => Update::Refused(place, key, error),
     });
 }
 

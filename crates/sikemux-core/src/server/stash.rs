@@ -38,9 +38,9 @@ const MAX_ITEM_BYTES: u64 = 25 * 1024 * 1024;
 /// The largest picture fetched only to be shown small.
 const MAX_PICTURE_BYTES: u64 = 8 * 1024 * 1024;
 
-#[derive(Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ListParams {
+pub struct ListParams {
     #[serde(default)]
     taken: Option<StashTaken>,
     #[serde(default)]

@@ -14,7 +14,7 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, SharedString,
     StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern};
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
@@ -278,7 +278,7 @@ fn slider(
 }
 
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    Target::here(&bench.asks).watch(Read::Themes, json!({}));
+    Target::here(&bench.asks).watch_plain(Read::Themes);
     let preferences = bench.preferences();
     let search = cx.new(|cx| InputState::new(window, cx).placeholder("Search themes"));
     let typing = cx.subscribe(&search, |bench, search, event: &InputEvent, cx| {

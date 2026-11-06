@@ -12,6 +12,7 @@ use serde_json::{json, Map, Value};
 use sikemux_core::server::activity_log::ActivityPriceParams;
 use sikemux_core::server::activity_log::ActivityShare;
 use sikemux_core::server::activity_log::ActivitySummary;
+use sikemux_core::server::activity_log::ActivitySummaryParams;
 use sikemux_core::server::activity_log::PriceOverride;
 use sikemux_core::server::call;
 
@@ -56,9 +57,12 @@ const PRICES: [(&str, &str, bool); 4] = [
 ];
 
 pub(super) fn make(bench: &mut Workbench, _: &mut Window, cx: &mut Context<Workbench>) {
-    Target::here(&bench.asks).watch(
+    Target::here(&bench.asks).watch::<call::ActivitySummary>(
         Read::ActivityEverywhere,
-        json!({ "utcOffsetMinutes": utc_offset_minutes(), "project": null }),
+        ActivitySummaryParams {
+            utc_offset_minutes: i64::from(utc_offset_minutes()),
+            project: None,
+        },
     );
     let fields = Fields {
         model: None,

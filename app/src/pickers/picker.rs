@@ -1,13 +1,13 @@
 //! ⌘O, ⌘⇧S and ⌘⇧O: the projects with the folders under the person's project
 //! roots, the SSH hosts, or both.
 
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::project_roots::ScanParams;
 use std::path::Path;
 
 use gpui_kit::{Context, PathPromptOptions, Window};
-use serde_json::json;
 use sikemux_core::server::ssh::SshHost;
 
-use crate::core::Ask;
 use crate::core::Target;
 use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
@@ -109,10 +109,12 @@ impl Workbench {
     pub(crate) fn read_project_folders(&self) {
         let roots = &self.preferences().project_roots;
         if !roots.is_empty() {
-            let _ = self.asks.send(Ask::Answer {
-                read: Read::PickerFolders,
-                params: json!({ "roots": roots }),
-            });
+            Target::here(&self.asks).answer::<call::ProjectRoots>(
+                Read::PickerFolders,
+                ScanParams {
+                    roots: roots.clone(),
+                },
+            );
         }
     }
 
@@ -148,10 +150,7 @@ impl Workbench {
             self.read_project_folders();
         }
         if picking.hosts() {
-            let _ = self.asks.send(Ask::Answer {
-                read: Read::SshHosts,
-                params: json!({}),
-            });
+            Target::here(&self.asks).answer::<call::SshHosts>(Read::SshHosts, NoParams {});
         }
         let moved = self.moving.as_deref().and_then(|agent| {
             let held = self

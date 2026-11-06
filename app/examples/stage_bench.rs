@@ -374,7 +374,17 @@ fn main() -> anyhow::Result<()> {
         let task = run
             .bench
             .read_with(&run.cx, |bench, _| {
-                Some(bench.reads.tasks.as_ref()?.tasks.first()?.id.clone())
+                Some(
+                    bench
+                        .feeds
+                        .in_front()
+                        .tasks
+                        .as_ref()?
+                        .tasks
+                        .first()?
+                        .id
+                        .clone(),
+                )
             })
             .ok_or_else(|| anyhow::anyhow!("the project lists no task"))?;
         run.bench

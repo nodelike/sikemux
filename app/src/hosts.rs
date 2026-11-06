@@ -10,11 +10,18 @@ use std::path::Path;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::{App, Context, SharedString};
+use sikemux_core::git::log::GitOverview;
+use sikemux_core::git::status::ProjectRepo;
+use sikemux_core::server::activity_log::ActivitySummary;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::hosts::HostRow;
+use sikemux_core::server::mods::ModList;
+use sikemux_core::server::ports::ProjectPort;
 use sikemux_core::server::remote::ApprovalSetting;
 use sikemux_core::server::tasks::TrustQuestion;
+use sikemux_core::server::tasks::{RunView, TaskList};
+use sikemux_plugin_api::codehost::PullList;
 use sikemux_view::device::DeviceView;
 
 use crate::chat::Question;
@@ -64,19 +71,48 @@ pub enum Place {
 }
 
 /// What one core has told this window. An account host's trust, drafts and questions are kept
-/// while it is in front, as only then are they watched.
+/// while it is in front, as only then are they watched, and so is what the project in front
+/// holds, on either kind of core.
 #[derive(Default)]
 pub struct Feed {
     pub view: Option<DeviceView>,
     pub trust: Vec<TrustQuestion>,
     pub drafts: Option<Drafts>,
     pub questions: Vec<Question>,
+    pub tasks: Option<TaskList>,
+    pub runs: Vec<RunView>,
+    pub ports: Vec<ProjectPort>,
+    pub activity: Option<ActivitySummary>,
+    pub mods: Option<ModList>,
+    pub git_project_repo: Option<ProjectRepo>,
+    /// The repository's status, branches and log, or why they did not read.
+    pub git_overview: Option<Result<GitOverview, String>>,
+    pub git_draft: Option<Drafts>,
+    /// The worktree in front's pull requests, and whether its branch is merged.
+    pub worktree_pulls: Option<PullList>,
+    pub worktree_merged: Option<bool>,
     /// Whether it asks the person before a new device joins, once it has said.
     pub approval: Option<bool>,
     /// Whether this app is connected to it now, for an account host.
     pub reached: bool,
     /// Its home folder, once an account host has said.
     pub home: Option<String>,
+}
+
+impl Feed {
+    /// Lets go of what the project in front held, as this core stops being in front.
+    pub fn leave(&mut self) {
+        self.tasks = None;
+        self.runs.clear();
+        self.ports.clear();
+        self.activity = None;
+        self.mods = None;
+        self.git_project_repo = None;
+        self.git_overview = None;
+        self.git_draft = None;
+        self.worktree_pulls = None;
+        self.worktree_merged = None;
+    }
 }
 
 /// What each core has told this window: this host's and those of the account's other hosts.
@@ -124,6 +160,25 @@ impl Feeds {
     pub fn front_mut(&mut self) -> Option<&mut Feed> {
         let front = self.front.as_ref()?;
         self.hosts.get_mut(front)
+    }
+
+    /// The feed of the core in front: the account host chosen, else this host's.
+    pub fn in_front(&self) -> &Feed {
+        (self.front.as_ref())
+            .and_then(|front| self.hosts.get(front))
+            .unwrap_or(&self.this)
+    }
+
+    /// As [`in_front`](Self::in_front), to change it.
+    pub fn in_front_mut(&mut self) -> &mut Feed {
+        let front = self
+            .front
+            .as_ref()
+            .filter(|front| self.hosts.contains_key(*front));
+        match front {
+            Some(front) => self.hosts.get_mut(front).unwrap_or(&mut self.this),
+            None => &mut self.this,
+        }
     }
 
     /// Makes `host` the account host in front, letting go of what the last one's core answered.

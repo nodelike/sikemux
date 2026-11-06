@@ -27,7 +27,7 @@ use crate::workbench::Workbench;
 /// Runs the project's task, or stops the run going, and says how the last one went.
 pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
-    let tasks = &bench.reads.tasks.as_ref()?.tasks;
+    let tasks = &bench.feeds.in_front().tasks.as_ref()?.tasks;
     let project = bench.watched_project.as_deref()?;
     let (running, last) = bench.person_runs();
     let task_of = |run: &RunView| tasks.iter().find(|task| task.id == run.run.task_id);
@@ -120,7 +120,7 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
         output: output.clone(),
         groups: task_groups(tasks, project),
         selected: id.clone(),
-        others: (bench.reads.ports.iter())
+        others: (bench.feeds.in_front().ports.iter())
             .filter(|other| {
                 !matches!(other.listening.owner, PortOwner::Terminal { .. }) && Some(*other) != port
             })

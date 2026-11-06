@@ -45,7 +45,12 @@ impl Workbench {
                     .mark(Mark::Icon(icon(shown)))
             })
             .collect();
-        let examples = self.reads.mods.iter().flat_map(|list| &list.examples);
+        let examples = self
+            .feeds
+            .in_front()
+            .mods
+            .iter()
+            .flat_map(|list| &list.examples);
         rows.extend(examples.filter(|example| !example.added).map(|example| {
             Row::new(format!("{EXAMPLE}{}", example.id), example.name.clone())
                 .meta("An example to copy and change")
@@ -80,7 +85,8 @@ impl Workbench {
         let project = self
             .project()
             .map(|project| project.path.to_string_lossy().into_owned());
-        self.reads
+        self.feeds
+            .in_front()
             .mods
             .iter()
             .flat_map(|list| list.mods.iter())
@@ -184,7 +190,8 @@ impl Workbench {
             return self.toggle_agent_palette(window, cx);
         };
         let folder = self
-            .reads
+            .feeds
+            .in_front()
             .mods
             .as_ref()
             .map(|list| list.folder.display().to_string())

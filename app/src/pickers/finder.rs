@@ -1,5 +1,8 @@
 //! ⌘P: every file in the project in front, ranked by name as the person types.
 
+use sikemux_core::server::call;
+use sikemux_core::server::project_files::ProjectFiles as ScannedFiles;
+use sikemux_core::server::project_files::ProjectFilesParams;
 use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -11,7 +14,6 @@ use gpui_kit::{
     InteractiveElement, IntoElement, MouseButton, ParentElement, ScrollStrategy,
     StatefulInteractiveElement, Styled, Subscription, Task, UniformListScrollHandle, Window,
 };
-use serde_json::{json, Value};
 
 use crate::core::Target;
 use crate::icons::Icon;
@@ -50,8 +52,13 @@ impl ProjectFiles {
             };
         }
         self.asked = Some(project.to_owned());
-        let params = json!({ "project": project, "since": self.scan });
-        core.answer(crate::reads::Read::ProjectFiles, params);
+        core.answer::<call::ProjectFiles>(
+            crate::reads::Read::ProjectFiles,
+            ProjectFilesParams {
+                project: project.to_owned(),
+                since: self.scan,
+            },
+        );
     }
 
     /// Whether the core has listed the project's files, even as none.
@@ -60,19 +67,14 @@ impl ProjectFiles {
     }
 
     /// Takes the core's answer in, telling whether the list changed.
-    pub fn answered(&mut self, answer: &Value) -> bool {
+    pub fn answered(&mut self, answer: ScannedFiles) -> bool {
         if self.asked.take() != self.project {
             return false;
         }
-        let Some(scan) = answer["scanId"].as_u64() else {
-            return false;
-        };
-        let paths =
-            |key: &str| -> Option<Vec<String>> { serde_json::from_value(answer[key].clone()).ok() };
-        self.scan = Some(scan);
-        if let Some(files) = paths("files") {
+        self.scan = Some(answer.scan_id);
+        if let Some(files) = answer.files {
             self.files = Arc::new(files);
-        } else if let (Some(added), Some(removed)) = (paths("added"), paths("removed")) {
+        } else if let (Some(added), Some(removed)) = (answer.added, answer.removed) {
             self.files = Arc::new(merged(&self.files, &added, &removed));
         } else {
             return false;

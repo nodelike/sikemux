@@ -1,3 +1,4 @@
+use sikemux_core::files::FileListParams;
 use sikemux_core::server::call;
 use sikemux_view::layout::OpenTab;
 use std::cell::{Cell, RefCell};
@@ -459,11 +460,13 @@ fn list(core: &Target, dirs: &[PathBuf], from: Option<usize>) {
         .map(|dir| dir.to_string_lossy().into_owned())
         .collect();
     for batch in dirs.chunks(512) {
-        let params = match from {
-            Some(from) => json!({ "dirs": batch, "from": from }),
-            None => json!({ "dirs": batch }),
-        };
-        core.answer(crate::reads::Read::FilesList, params);
+        core.answer::<call::FilesList>(
+            crate::reads::Read::FilesList,
+            FileListParams {
+                dirs: batch.to_vec(),
+                from: from.unwrap_or(0),
+            },
+        );
     }
 }
 

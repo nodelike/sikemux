@@ -284,7 +284,7 @@ pub(crate) enum Which {
 impl Workbench {
     /// What is wrong with the project's `sikemux.json`, each as where in the file and why.
     fn config_errors(&self) -> Vec<String> {
-        (self.reads.tasks.as_ref())
+        (self.feeds.in_front().tasks.as_ref())
             .filter(|read| read.config_status == ConfigStatus::Invalid)
             .and_then(|read| read.config_errors.as_ref())
             .into_iter()
@@ -295,7 +295,7 @@ impl Workbench {
 
     /// The project's tasks to run, and the one running to restart or stop.
     fn task_rows(&self) -> Vec<Row> {
-        let Some(read) = self.reads.tasks.as_ref() else {
+        let Some(read) = self.feeds.in_front().tasks.as_ref() else {
             return Vec::new();
         };
         let mut rows = Vec::new();

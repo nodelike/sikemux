@@ -3,7 +3,6 @@
 //! the first two are due.
 
 use gpui_kit::{div, AnyElement, Context, IntoElement, Window};
-use serde_json::Value;
 use sikemux_view::prefs::Preferences;
 
 use crate::screens::{diagnostics, welcome, whats_new};
@@ -44,8 +43,8 @@ pub fn preferences_read(
 }
 
 /// A release the person has not read the notes of opens them, once the welcome is done.
-pub fn whats_new_read(bench: &mut Workbench, value: &Value, cx: &mut Context<Workbench>) {
-    if value["unseen"] != true || bench.shown.news || bench.overlays.experience.is_some() {
+pub fn whats_new_read(bench: &mut Workbench, unseen: bool, cx: &mut Context<Workbench>) {
+    if !unseen || bench.shown.news || bench.overlays.experience.is_some() {
         return;
     }
     bench.shown.news = true;

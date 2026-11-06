@@ -68,7 +68,7 @@ pub mod plugins;
 pub mod ports;
 pub mod preferences;
 mod prepare;
-mod project_files;
+pub mod project_files;
 pub mod project_roots;
 mod prompt_draft;
 pub mod questions;

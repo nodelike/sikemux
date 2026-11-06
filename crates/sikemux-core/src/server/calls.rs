@@ -146,7 +146,7 @@ calls! { core, client, method, params;
         super::launching::start_saved(&core, &params.agent_id, params.waits_for_person).await?
     },
     "resumeSession" ResumeSession (super::workspace::SessionChoice) -> super::launching::SessionTaken: Full, counted => super::launching::resume_session(&core, params).await?,
-    "activitySummary": Watch, any_program => answer(super::activity_log::summary_for(&core, parse(params)?).await?),
+    "activitySummary" ActivitySummary (super::activity_log::ActivitySummaryParams) -> super::activity_log::ActivitySummary: Watch, any_program => super::activity_log::summary_for(&core, params).await?,
     "setActivityPrice" SetActivityPrice (super::activity_log::ActivityPriceParams) -> (): Owner => super::activity_log::set_price_for(&core, params)?,
     "steerQueued" SteerQueued (chat_calls::QueuedParams) -> (): Full, counted => {
         super::chat::queue::steer(&core, &params.agent_id, params.ids, params.message).await?
@@ -182,7 +182,7 @@ calls! { core, client, method, params;
         answer(super::agent::explain_of(core, parse::<AgentParams>(params)?.agent_id).await?)
     },
     "runCommand": NoDevice => answer(super::custom_command::run(parse(params)?).await?),
-    "updateStatus": Watch, any_program => answer(core.updates.status()),
+    "updateStatus" UpdateStatus (NoParams) -> sikemux_view::updates::UpdateStatus: Watch, any_program => core.updates.status(),
     "updateCheck" UpdateCheck (NoParams) -> sikemux_view::updates::UpdateStatus: Owner => super::updates::check(&core).await?,
     "updateInstall" UpdateInstall (super::updates::UpdateInstallParams) -> sikemux_view::updates::UpdateStatus: Owner, counted => super::updates::install(&core, params)?,
     "updateCancel" UpdateCancel (NoParams) -> sikemux_view::updates::UpdateStatus: Owner => super::updates::cancel(&core),
@@ -252,7 +252,7 @@ calls! { core, client, method, params;
         agent_accounts::account_status(&core, params).await?
     },
     "agentUsage": Full, any_program => answer(agent_accounts::usage(&core, parse(params)?).await?),
-    "agentUsages": Watch, any_program => answer(agent_accounts::usages(&core).await),
+    "agentUsages" AgentUsages (NoParams) -> Vec<agent_accounts::AccountUsage>: Watch, any_program => agent_accounts::usages(&core).await,
     "readAgentUsages" ReadAgentUsages (NoParams) -> Vec<agent_accounts::AccountUsage>: Full, any_program => agent_accounts::read_usages(&core).await,
     "openTab" OpenTab (sikemux_view::layout::OpenTab) -> String: Full => super::layout::open_tab(&core, params)?,
     "keepTab" KeepTab (super::layout::TabParams) -> (): Full => super::layout::keep_tab(&core, params)?,
@@ -271,9 +271,9 @@ calls! { core, client, method, params;
     "resizeSplit" ResizeSplit (super::layout::ResizeSplit) -> (): Full => super::layout::resize_split(&core, params)?,
     "account": Watch => answer(core.account.shown()),
     "remoteImage" RemoteImage (super::remote_image::ImageParams) -> super::remote_image::PictureData: Watch => super::remote_image::fetch(&core.remote_images, params).await?,
-    "accountPicture": Watch => answer(super::account::picture(&core, &parse::<super::account::AccountPictureParams>(params)?.hash).await),
-    "accountSignIn": Owner => answer(super::account::sign_in(&core, client.peer.clone()).await?),
-    "accountSignInFinish": Owner => answer(super::account::sign_in_finished(&core).await?),
+    "accountPicture" AccountPicture (super::account::AccountPictureParams) -> Option<super::remote_image::PictureData>: Watch => super::account::picture(&core, &params.hash).await,
+    "accountSignIn" AccountSignIn (NoParams) -> super::account::SignInPage: Owner => super::account::sign_in(&core, client.peer.clone()).await?,
+    "accountSignInFinish" AccountSignInFinish (NoParams) -> sikemux_view::device::AccountInfo: Owner => super::account::sign_in_finished(&core).await?,
     "accountSignInCancel" AccountSignInCancel (NoParams) -> (): Owner => super::account::cancel_sign_in(&core),
     "accountSignOut" AccountSignOut (NoParams) -> (): Owner => super::account::sign_out(&core, &client.peer).await?,
     "sshHosts" SshHosts (NoParams) -> Vec<super::ssh::SshHost>: Watch, any_program => {
@@ -309,7 +309,7 @@ calls! { core, client, method, params;
     },
     "shareChat" ShareChat (share::ShareChatParams) -> share::ShareView: Owner, counted => share::share_chat_for(&core, params)?,
     "stopShare" StopShare (share::StopShareParams) -> (): Owner => share::stop(&core, &params.id)?,
-    "shares": Full, any_program => answer(share::list(&core)),
+    "shares" Shares (NoParams) -> Vec<share::ShareView>: Full, any_program => share::list(&core),
     "pairing" RemotePairing (NoParams) -> remote::RemotePairing: Owner, any_program => remote::pairing(&core),
     "deviceChallenge": Owner => answer(super::account::devices::device_challenge(&core).await?),
     "approveHostSignIn": Owner => {
@@ -322,9 +322,8 @@ calls! { core, client, method, params;
     "signShareViewer": NoDevice => core.remote.share_viewer_signature(parse(params)?),
     "answerPairing" AnswerPairing (remote::PairingAnswer) -> remote::RemotePairing: Owner, counted => remote::answer_pairing(&core, params)?,
     "changeDevice" ChangeDevice (remote::DeviceChange) -> remote::RemotePairing: Owner => remote::change_device(&core, params)?,
-    "projectFiles": Full => {
-        let params = parse(params)?;
-        answer(blocking(move || super::project_files::read(params).map_err(CoreError::from)).await?)
+    "projectFiles" ProjectFiles (super::project_files::ProjectFilesParams) -> super::project_files::ProjectFiles: Full => {
+        blocking(move || super::project_files::read(params).map_err(CoreError::from)).await?
     },
     "projectEntries" ProjectEntries (super::project_files::ProjectEntriesParams) -> Vec<crate::fuzzy::ProjectEntry>: Full => {
         blocking(move || super::project_files::entries(params).map_err(CoreError::from)).await?
@@ -337,9 +336,8 @@ calls! { core, client, method, params;
         blocking(move || super::search::window(params).map_err(CoreError::from)).await?
     },
     "streamCancel" StreamCancel (super::streams::StreamParams) -> (): Watch => core.streams.cancel(client.id, params.stream),
-    "projectRoots": Full => {
-        let params = parse(params)?;
-        answer(blocking(move || super::project_roots::scan(params).map_err(CoreError::from)).await?)
+    "projectRoots" ProjectRoots (super::project_roots::ScanParams) -> Vec<super::project_roots::RootEntry>: Full => {
+        blocking(move || super::project_roots::scan(params).map_err(CoreError::from)).await?
     },
     "resolvePath" ResolvePath (super::project_roots::ResolveParams) -> super::project_roots::Resolved: Full => {
         blocking(move || Ok(super::project_roots::resolve(params))).await?
@@ -348,7 +346,7 @@ calls! { core, client, method, params;
     "faceStyle": Watch => answer(core.faces.style()),
     "setFaceStyle" SetFaceStyle (super::faces::FaceStyleChange) -> sikemux_view::device::FaceStyle: Owner, counted => super::faces::set_style_shown(&core, params)?,
     "preferences" Preferences (NoParams) -> Preferences: Watch => core.preferences.get(),
-    "mods": Watch => answer(super::mods::list(&core).await?),
+    "mods" Mods (NoParams) -> super::mods::ModList: Watch => super::mods::list(&core).await?,
     "modPage" ModPage (super::mods::ModParams) -> super::mods::ModPage: Watch => super::mods::page(&core, params).await?,
     "modRead" ModRead (super::mods::BridgeParams) -> Value: Owner => super::mods::read(&core, client, params).await?,
     "modWrite" ModWrite (super::mods::BridgeParams) -> super::mods::BridgeWrite: Owner => super::mods::write(&core, client, params).await?,
@@ -358,7 +356,7 @@ calls! { core, client, method, params;
     "turnModOff" TurnModOff (super::mods::OffParams) -> (): Owner => super::mods::turn_off(&core, params)?,
     "removeMod" RemoveMod (super::mods::ModParams) -> (): Owner => super::mods::remove(&core, params).await?,
     "addExampleMod" AddExampleMod (super::mods::ModParams) -> (): Owner => super::mods::add_example(&core, params).await?,
-    "stash": Owner => answer(super::stash::list(&core, parse_or_default(params)?).await?),
+    "stash" Stash (Option<super::stash::ListParams>) -> super::stash::ShownStash: Owner => super::stash::list(&core, params.unwrap_or_default()).await?,
     "stashPrompt" StashPrompt (super::stash::StashPromptParams) -> super::stash::StashedPrompt: Owner, counted => {
         super::stash::stash_prompt(&core, params).await?
     },
@@ -369,7 +367,7 @@ calls! { core, client, method, params;
         super::stash::attach(&core, params).await?
     },
     "removeStash" RemoveStash (super::stash::StashItemParams) -> (): Owner => super::stash::remove(&core, params).await?,
-    "drafts": Watch => answer(core.drafts.get(parse_or_default::<super::drafts::DraftsParams>(params)?.keys.as_deref())),
+    "drafts" Drafts (Option<super::drafts::DraftsParams>) -> std::collections::BTreeMap<String, super::drafts::Draft>: Watch => core.drafts.get(params.unwrap_or_default().keys.as_deref()),
     "setDraft" SetDraft (super::drafts::SetDraftParams) -> (): Owner => super::drafts::set(&core, params)?,
     "diagramLayout" DiagramLayout (super::diagrams::DiagramParams) -> super::diagrams::DiagramLayout: Owner => super::diagrams::layout(&core, params),
     "setDiagramLayout" SetDiagramLayout (super::diagrams::DiagramParams) -> Value: Owner => super::diagrams::set_layout(&core, params)?,
@@ -395,7 +393,7 @@ calls! { core, client, method, params;
     "codeHostTracked" CodeHostTracked (super::codehost::CodeHostProjectParams) -> plugins::PluginOutcome: Watch => {
         super::codehost::tracked(&core, client.id, params).await
     },
-    "hosts": Watch => answer(super::hosts::rows(&core)),
+    "hosts" Hosts (NoParams) -> Vec<super::hosts::HostRow>: Watch => super::hosts::rows(&core),
     "hostInstalledFrom": Owner => answer(super::hosts::installed_from(&core, parse(params)?)?),
     "installHost" InstallHost (super::hosts::install::InstallParams) -> Value: Owner => super::hosts::install::install_host(&core, params).await?,
     "hostSetup": Owner => answer(super::hosts::install::host_setup(&core, parse(params)?).await?),
@@ -471,13 +469,13 @@ calls! { core, client, method, params;
     "commitLines" CommitLines (sikemux_view::owners::CommitParams) -> sikemux_view::owners::CommitLines: Watch, any_program, counted => who_wrote::lines(&core, params).await?,
     "inbox": Watch, any_program => answer(inbox::read(&core).await?),
     "digest" Digest (inbox::DigestParams) -> sikemux_view::inbox::InboxDigest: Watch, any_program => inbox::read_digest(&core, params).await?,
-    "ports": Owner => answer(super::ports::project_ports(&core, client.id, parse::<super::ports::PortsParams>(params)?.project).await?),
+    "ports" Ports (super::ports::PortsParams) -> Vec<super::ports::ProjectPort>: Owner => super::ports::project_ports(&core, client.id, params.project).await?,
     "testResults": Owner => answer(super::tasks::module_tests(&core, parse::<super::tasks::ProjectParams>(params)?.project).await?),
     "projectConfig" ProjectConfig (super::tasks::ProjectParams) -> super::tasks::ProjectConfigRead: Owner => super::tasks::project_config(&core, params.project).await?,
     "startPreview" StartPreview (super::tasks::ProjectParams) -> String: Owner, counted => super::tasks::start_preview(&core, params.project).await?,
     "trustProject" TrustProject (super::tasks::TrustProjectParams) -> (): Owner => super::tasks::trust_project_for(&core, &client.peer, params).await?,
-    "tasks": Owner => answer(super::tasks::list(&core, parse::<super::tasks::ProjectParams>(params)?.project).await?),
-    "taskRuns": Owner => answer(super::tasks::runs(&core)),
+    "tasks" Tasks (super::tasks::ProjectParams) -> super::tasks::TaskList: Owner => super::tasks::list(&core, params.project).await?,
+    "taskRuns" TaskRuns (NoParams) -> Vec<super::tasks::RunView>: Owner => super::tasks::runs(&core),
     "taskStart" TaskStart (super::tasks::TaskStartParams) -> Value: Owner, counted => super::tasks::start(&core, params).await?,
     "taskRerunFailed" TaskRerunFailed (super::tasks::RerunParams) -> Value: Owner, counted => super::tasks::rerun_failed(&core, params).await?,
     "taskStop" TaskStop (super::harness::RunSelector) -> (): Owner => super::harness::stop_runs(&core, params).await,
@@ -499,7 +497,7 @@ calls! { core, client, method, params;
     "removeAccountDevice" RemoveAccountDevice (super::account::devices::DeviceParams) -> (): Owner => super::account::devices::remove_device(&core, params).await?,
     "accountPhones" AccountPhones (NoParams) -> Vec<crate::accounts::protocol::Device>: Owner => super::account::devices::phones(&core).await?,
     "showFiles" ShowFiles (super::open_files::ShowFiles) -> (): Watch => super::open_files::show(&core, client.id, params)?,
-    "plugins": Watch => answer(plugins::listed(&core).await),
+    "plugins" Plugins (NoParams) -> Vec<sikemux_view::plugins::Listed>: Watch => plugins::listed(&core).await,
     "pluginSetDisabled" PluginSetDisabled (plugins::Disabled) -> (): Owner => plugins::set_disabled(&core, params),
     "pluginStream" PluginStream (plugins::StreamCall) -> Value: Owner => plugins::stream(&core, super::connection::connection_of(&core, client)?, params)?,
     "pluginSignIn": Owner, any_program => {
@@ -542,14 +540,6 @@ calls! { core, client, method, params;
 pub(super) fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
     serde_json::from_value(params)
         .map_err(|error| CoreError::from(format!("the call's params do not fit: {error}")))
-}
-
-/// Params a client may leave out, which then read as the defaults.
-fn parse_or_default<T: for<'de> Deserialize<'de> + Default>(params: Value) -> CoreResult<T> {
-    match params {
-        Value::Null => Ok(T::default()),
-        params => parse(params),
-    }
 }
 
 /// A field the params name, null or not, as against one they leave out.

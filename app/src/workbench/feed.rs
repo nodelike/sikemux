@@ -1,10 +1,14 @@
 //! What a core sent: one path per update, whichever core it came from, and what follows it.
 
+use sikemux_core::server::activity_log::ActivitySummaryParams;
 use sikemux_core::server::call;
+use sikemux_core::server::drafts::DraftsParams;
+use sikemux_core::server::git::call as git_call;
+use sikemux_core::server::ports::PortsParams;
+use sikemux_core::server::tasks::ProjectParams;
 use std::path::PathBuf;
 
 use gpui_kit::Context;
-use serde_json::json;
 use sikemux_view::changed::Topic;
 use sikemux_view::device::DeviceView;
 
@@ -19,7 +23,7 @@ use sikemux_core::server::layout::HostParams;
 impl Workbench {
     pub(crate) fn apply(&mut self, update: Update, cx: &mut Context<Self>) {
         #[cfg(feature = "drive")]
-        if let Update::Read(key, _) = &update {
+        if let Update::Read(_, key, _) = &update {
             crate::drive::trace(format_args!("main read {key:?}"));
         }
         match update {
@@ -80,8 +84,8 @@ impl Workbench {
             Update::Failed(error) => {
                 return self.notify(toast::error(error).autohide(false), cx);
             }
-            Update::Read(read, value) => return self.read_answered(read, value, cx),
-            Update::Refused(read, error) => self.read_refused(read, error, cx),
+            Update::Read(place, read, value) => return self.read_answered(place, read, value, cx),
+            Update::Refused(place, read, error) => self.read_refused(place, read, error, cx),
             Update::Terminal(place, session, screenful) => {
                 let key = self.terminals.key(&place, session);
                 self.terminals.apply(key, screenful, cx);
@@ -310,44 +314,40 @@ impl Workbench {
             return;
         }
         if place != self.watched_place {
-            for read in [
-                Read::Activity,
-                Read::Tasks,
-                Read::Runs,
-                Read::Ports,
-                Read::Mods,
-            ] {
-                self.reads.forget(read);
-            }
+            self.leave_place(&place);
         }
         let target = Target::new(&self.asks, place.clone());
-        let activity = json!({ "utcOffsetMinutes": utc_offset_minutes(), "project": path });
-        target.watch(Read::Activity, activity);
-        target.watch(Read::Mods, json!({}));
-        match &place {
-            Place::Account(host) if self.feeds.front() != Some(host) => {
-                self.feeds.set_front(Some(host.clone()));
-                target.watch(Read::HostTrust, json!({}));
-                target.watch(Read::HostQuestions, json!({}));
-            }
-            Place::This if self.feeds.front().is_some() => {
-                target.unwatch(Read::HostTrust);
-                target.unwatch(Read::HostQuestions);
-                self.feeds.set_front(None);
-            }
-            _ => {}
-        }
-        self.reads.forget(Read::GitProjectRepo);
+        target.watch::<call::ActivitySummary>(
+            Read::Activity,
+            ActivitySummaryParams {
+                utc_offset_minutes: i64::from(utc_offset_minutes()),
+                project: path.clone(),
+            },
+        );
+        target.watch_plain(Read::Mods);
+        let feed = self.feeds.at_mut(&place);
+        feed.git_project_repo = None;
+        feed.git_draft = None;
         self.git.listing = false;
         match &path {
             Some(path) => {
-                target.watch(Read::Tasks, json!({ "project": path }));
-                target.watch(Read::Runs, json!({}));
-                target.watch(Read::ProjectConfig, json!({ "project": path }));
-                target.watch(Read::Ports, json!({ "project": path }));
-                target.watch_folder(
+                let of_project = || ProjectParams {
+                    project: path.clone(),
+                };
+                target.watch::<call::Tasks>(Read::Tasks, of_project());
+                target.watch_plain(Read::Runs);
+                target.watch::<call::ProjectConfig>(Read::ProjectConfig, of_project());
+                target.watch::<call::Ports>(
+                    Read::Ports,
+                    PortsParams {
+                        project: Some(path.clone()),
+                    },
+                );
+                target.watch_folder::<git_call::ProjectRepo>(
                     Read::GitProjectRepo,
-                    json!({ "project": path }),
+                    git_call::ProjectRepo {
+                        project: path.clone(),
+                    },
                     path.clone(),
                 );
             }
@@ -360,15 +360,41 @@ impl Workbench {
                     Read::GitProjectRepo,
                 ] {
                     target.unwatch(read);
-                    self.reads.forget(read);
                 }
+                let feed = self.feeds.at_mut(&place);
+                feed.tasks = None;
+                feed.runs.clear();
+                feed.ports.clear();
             }
         }
-        self.reads.forget(Read::GitDraft);
         self.files.show(path.clone().map(PathBuf::from), &target);
         self.watched_project = path;
         self.watched_place = place;
         self.watch_drafts();
+    }
+
+    /// Stops the core the window watched for the project in front, as `place` takes over, and
+    /// starts on what an account host in front is watched for.
+    fn leave_place(&mut self, place: &Place) {
+        let left = Target::new(&self.asks, self.watched_place.clone());
+        for read in Read::OF_THE_PROJECT_IN_FRONT {
+            left.unwatch(read);
+        }
+        self.feeds.at_mut(&self.watched_place).leave();
+        if self.watched_place != Place::This {
+            for read in Read::OF_THE_HOST_IN_FRONT {
+                left.unwatch(read);
+            }
+        }
+        match place {
+            Place::Account(host) => {
+                self.feeds.set_front(Some(host.clone()));
+                let target = Target::new(&self.asks, place.clone());
+                target.watch_plain(Read::Trust);
+                target.watch_plain(Read::Questions);
+            }
+            Place::This => self.feeds.set_front(None),
+        }
     }
 
     /// Keeps the core answering the drafts on show: the commit message of the project in
@@ -388,13 +414,16 @@ impl Workbench {
                 .map(|_| START);
             chats.chain(start).map(crate::chat::draft_key).collect()
         };
-        Target::here(&self.asks).watch(Read::Drafts, json!({ "keys": keys(false) }));
+        let of_keys = |keys: Vec<String>| Some(DraftsParams { keys: Some(keys) });
+        Target::here(&self.asks).watch::<call::Drafts>(Read::Drafts, of_keys(keys(false)));
         let there = keys(true);
         let place = self.place();
-        if there.is_empty() || place == crate::hosts::Place::This {
-            Target::here(&self.asks).unwatch(Read::HostDrafts);
-        } else {
-            Target::new(&self.asks, place).watch(Read::HostDrafts, json!({ "keys": there }));
+        if place != Place::This {
+            let target = Target::new(&self.asks, place);
+            match there.is_empty() {
+                true => target.unwatch(Read::Drafts),
+                false => target.watch::<call::Drafts>(Read::Drafts, of_keys(there)),
+            }
         }
     }
 

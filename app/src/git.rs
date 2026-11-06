@@ -1,6 +1,8 @@
 //! Git as the window shows it: a file's diff, and what an editor's text changed since
 //! a revision.
 
+use sikemux_core::server::call;
+use sikemux_core::server::drafts::DraftsParams;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::HashMap;
@@ -15,7 +17,6 @@ use gpui_kit::{
     IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled,
     StyledText, Task, Window,
 };
-use serde_json::json;
 use sikemux_core::git::diff::{changes, DiffRow, ROW_ADDED, ROW_DELETED, ROW_HIDDEN};
 use sikemux_core::git::log::GitOverview;
 use sikemux_core::git::status::DiscoveredRepo;
@@ -607,7 +608,7 @@ impl Workbench {
                 return Some(repo.clone());
             }
         }
-        let found = self.reads.git_project_repo.as_ref()?;
+        let found = self.feeds.in_front().git_project_repo.as_ref()?;
         match &found.repo {
             Some(repo) => Some(repo.clone()),
             None if found.repos.is_some() => None,
@@ -617,7 +618,12 @@ impl Workbench {
 
     /// The repositories directly inside the project folder, while it is not one itself.
     pub(crate) fn git_repos(&self) -> Option<&Vec<DiscoveredRepo>> {
-        self.reads.git_project_repo.as_ref()?.repos.as_ref()
+        self.feeds
+            .in_front()
+            .git_project_repo
+            .as_ref()?
+            .repos
+            .as_ref()
     }
 
     /// Opens `repo` in the project's Git views until the project changes.
@@ -639,12 +645,21 @@ impl Workbench {
     pub(crate) fn follow_git_repo(&mut self, was: Option<String>, cx: &mut Context<Self>) {
         let repo = self.git_repo();
         if let Some(repo) = repo.as_ref().filter(|repo| {
-            Some(*repo) != was.as_ref() || self.reads.git_overview.as_ref().is_none()
+            Some(*repo) != was.as_ref() || self.feeds.in_front().git_overview.as_ref().is_none()
         }) {
             let target = self.target();
-            target.watch_folder(Read::GitOverview, json!({ "repo": repo }), repo.clone());
+            target.watch_folder::<git_call::Overview>(
+                Read::GitOverview,
+                git_call::Overview { repo: repo.clone() },
+                repo.clone(),
+            );
             let draft = draft_key(repo);
-            target.watch(Read::GitDraft, json!({ "keys": [draft] }));
+            target.watch::<call::Drafts>(
+                Read::GitDraft,
+                Some(DraftsParams {
+                    keys: Some(vec![draft]),
+                }),
+            );
         }
         self.parts.redraw_stage(cx);
     }
@@ -672,7 +687,7 @@ impl Workbench {
             pane.repo == repo && pane.place() == target.place()
         }) {
             if std::mem::take(&mut self.git.behind) {
-                let overview = self.reads.git_overview.as_ref();
+                let overview = self.feeds.in_front().git_overview.as_ref();
                 pane.update(cx, |pane, cx| {
                     if let Some(overview) = overview {
                         pane.overview(overview, cx);
@@ -691,14 +706,14 @@ impl Workbench {
             pane.set_out_of_reach(away, cx);
             pane.set_code_host(host, cx);
         });
-        if let Some(overview) = self.reads.git_overview.as_ref() {
+        if let Some(overview) = self.feeds.in_front().git_overview.as_ref() {
             pane.update(cx, |pane, cx| pane.overview(overview, cx));
         }
         if !self.reads.catalog.is_empty() {
             let catalog = &self.reads.catalog;
             pane.update(cx, |pane, cx| pane.catalog(catalog, cx));
         }
-        if let Some(drafts) = self.reads.git_draft.as_ref() {
+        if let Some(drafts) = self.feeds.in_front().git_draft.as_ref() {
             pane.update(cx, |pane, cx| pane.drafts(drafts, cx));
         }
         if let Some(sha) = self.git.wanted_commit.take() {

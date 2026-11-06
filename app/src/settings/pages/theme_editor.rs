@@ -214,7 +214,7 @@ fn preview(bench: &Workbench, cx: &mut Context<Workbench>) {
 
 /// Wears the picked theme again, ending a preview.
 pub fn wear_picked(bench: &Workbench) {
-    Target::here(&bench.asks).watch(Read::Theme, json!({}));
+    Target::here(&bench.asks).watch_plain(Read::Theme);
 }
 
 /// Makes the fields of group `group` for the draft as it is now.

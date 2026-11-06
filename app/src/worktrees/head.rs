@@ -6,9 +6,12 @@ use gpui_kit::{
     div, px, AnyElement, Context, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use serde_json::json;
+use sikemux_core::server::call;
+use sikemux_core::server::codehost::PullsParams;
+use sikemux_core::server::worktree::removal::WorktreeParams;
 use sikemux_plugin_api::codehost::{Pull, PullState};
 
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::reads::Read;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, TEXT_XS};
@@ -32,31 +35,34 @@ impl Workbench {
         if watched == self.watched_worktree {
             return;
         }
-        let target = self.target();
-        for read in [Read::WorktreePulls, Read::WorktreeMerged] {
-            self.reads.forget(read);
-        }
-        match &watched {
-            Some((agent, folder, _)) => {
-                target.watch_folder(
-                    Read::WorktreePulls,
-                    json!({ "project": folder, "state": "all" }),
-                    folder.clone(),
-                );
-                let merged = json!({ "agentId": agent });
-                match self.project() {
-                    Some(project) => target.watch_folder(
-                        Read::WorktreeMerged,
-                        merged,
-                        project.path.to_string_lossy().into_owned(),
-                    ),
-                    None => target.watch(Read::WorktreeMerged, merged),
-                }
+        if let Some((_, _, was)) = &self.watched_worktree {
+            let left = Target::new(&self.asks, was.clone());
+            for read in [Read::WorktreePulls, Read::WorktreeMerged] {
+                left.unwatch(read);
             }
-            None => {
-                for read in [Read::WorktreePulls, Read::WorktreeMerged] {
-                    target.unwatch(read);
-                }
+            let feed = self.feeds.at_mut(was);
+            (feed.worktree_pulls, feed.worktree_merged) = (None, None);
+        }
+        let target = self.target();
+        if let Some((agent, folder, _)) = &watched {
+            target.watch_folder::<call::CodeHostPulls>(
+                Read::WorktreePulls,
+                PullsParams {
+                    project: folder.clone(),
+                    state: Some("all".to_owned()),
+                },
+                folder.clone(),
+            );
+            let merged = WorktreeParams {
+                agent_id: agent.clone(),
+            };
+            match self.project() {
+                Some(project) => target.watch_folder::<call::WorktreeMerged>(
+                    Read::WorktreeMerged,
+                    merged,
+                    project.path.to_string_lossy().into_owned(),
+                ),
+                None => target.watch::<call::WorktreeMerged>(Read::WorktreeMerged, merged),
             }
         }
         self.watched_worktree = watched;
@@ -65,7 +71,7 @@ impl Workbench {
 
 /// The branch's pull request: the open one when there is one, else the newest it had.
 fn pull<'a>(bench: &'a Workbench, branch: &str) -> Option<&'a Pull> {
-    let own: Vec<&Pull> = (bench.reads.worktree_pulls.as_ref()?.pulls.iter())
+    let own: Vec<&Pull> = (bench.feeds.in_front().worktree_pulls.as_ref()?.pulls.iter())
         .filter(|listed| listed.own_branch && listed.pull.head.as_deref() == Some(branch))
         .map(|listed| &listed.pull)
         .collect();
@@ -98,7 +104,8 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
     let at_rest = bench
         .agent_by_id(agent)
         .is_none_or(|row| !row.busy && !row.background);
-    let can_remove = at_rest && (pull_merged || bench.reads.worktree_merged == Some(true));
+    let can_remove =
+        at_rest && (pull_merged || bench.feeds.in_front().worktree_merged == Some(true));
     let chip = |id: &'static str| {
         div()
             .id(id)

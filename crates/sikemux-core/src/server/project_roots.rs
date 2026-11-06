@@ -139,9 +139,9 @@ fn walk(
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub(crate) struct ScanParams {
-    roots: Vec<ProjectRoot>,
+#[derive(Serialize, Deserialize)]
+pub struct ScanParams {
+    pub roots: Vec<ProjectRoot>,
 }
 
 /// Runs on a blocking thread.

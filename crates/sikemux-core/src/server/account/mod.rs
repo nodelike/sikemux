@@ -20,7 +20,6 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use sikemux_loopback::{challenge, Callback, Finish, LoopbackError};
 use sikemux_process::sync::Locked;
 use tokio::sync::{oneshot, watch};
@@ -33,6 +32,7 @@ use self::api::as_host;
 use super::access::Peer;
 use super::changed::Topic;
 use super::join::NAME_LIMIT;
+use super::remote_image::PictureData;
 use super::{remote, Core, CoreError, CoreResult};
 use crate::accounts::client;
 
@@ -258,9 +258,12 @@ async fn refresh_profile(core: &Core) {
 }
 
 /// The account's picture, while `hash` names the one cached.
-pub(crate) async fn picture(core: &Core, hash: &str) -> Option<Value> {
+pub(crate) async fn picture(core: &Core, hash: &str) -> Option<PictureData> {
     let (mime, bytes) = profile::picture(&folder(core)?, hash).await?;
-    Some(json!({ "mime": mime, "data": STANDARD.encode(bytes) }))
+    Some(PictureData {
+        mime: mime.to_string(),
+        data: STANDARD.encode(bytes),
+    })
 }
 
 #[derive(Deserialize)]
@@ -285,7 +288,7 @@ fn authorize_url(redirect: &str, state: &str, challenge: &str) -> String {
 /// Starts a browser sign-in, in place of any under way, and answers with the
 /// address the person signs in at, which the client opens in their browser.
 /// The browser must run on this host, since it hands back to a listener here.
-pub(crate) async fn sign_in(core: &Arc<Core>, peer: Peer) -> CoreResult<Value> {
+pub(crate) async fn sign_in(core: &Arc<Core>, peer: Peer) -> CoreResult<SignInPage> {
     let refused = |error: LoopbackError| CoreError::from(error.0);
     let signed_in = format!("{}/signed-in", crate::accounts::app_base());
     let callback = Callback::bind_any(
@@ -317,7 +320,7 @@ pub(crate) async fn sign_in(core: &Arc<Core>, peer: Peer) -> CoreResult<Value> {
         };
         let _ = done.send(Some(result));
     });
-    Ok(json!({ "url": url }))
+    Ok(SignInPage { url })
 }
 
 /// Waits for the browser sign-in under way, and answers with the account it
@@ -514,9 +517,15 @@ async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<S
     Ok(user_id)
 }
 
-#[derive(Deserialize)]
-pub(crate) struct AccountPictureParams {
-    pub(crate) hash: String,
+#[derive(Serialize, Deserialize)]
+pub struct AccountPictureParams {
+    pub hash: String,
+}
+
+/// Where the browser goes to sign in.
+#[derive(Serialize, Deserialize)]
+pub struct SignInPage {
+    pub url: String,
 }
 
 /// This host as `user_id`'s account is to register it, signed for the challenge `nonce`, when

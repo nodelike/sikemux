@@ -312,9 +312,9 @@ impl super::part::Part for Drafts {
 }
 
 /// The drafts to read: those under `keys`, else every one.
-#[derive(Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct DraftsParams {
-    pub(crate) keys: Option<Vec<String>>,
+    pub keys: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]

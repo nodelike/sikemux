@@ -106,7 +106,7 @@ pub fn render(
     cx: &App,
 ) -> Vec<AnyElement> {
     let ink = Tokens::get(cx).text_secondary;
-    let list = bench.reads.mods.as_ref();
+    let list = bench.feeds.in_front().mods.as_ref();
     let mods = list.map(|list| list.mods.as_slice()).unwrap_or_default();
     let body = match mods.is_empty() {
         true => rows::note(
