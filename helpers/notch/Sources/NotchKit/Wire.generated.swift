@@ -554,6 +554,10 @@ struct QuestionChoice: Codable, Hashable {
 struct AnswerParams: Codable, Hashable {
     let id: String
     var answer: String?
+    /// Files attached to `answer`, by where the host keeps them.
+    var paths: [String]?
+    /// What was sent with `answer`.
+    var context: [ChatContext]?
     var choice: Int?
     /// The choices picked on a question that takes several.
     var choices: [Int]?

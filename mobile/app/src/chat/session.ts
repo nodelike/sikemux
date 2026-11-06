@@ -1,7 +1,6 @@
 import { ChatAttachment, type ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
-import { answerText } from '@/chat/answerText';
 import { applyChanges, type ChatRows } from '@shared/chat/rows';
 import type { ChatChange, ChatView, PermissionAsk, ToolDetail } from '@shared/chat/types';
 import type { ChatInfo, FindAnswer, FindParams } from '@shared/wire.generated';
@@ -13,11 +12,12 @@ import { Draft } from './draft';
 import { Feed } from './feed';
 import { Folds } from './folds';
 import type { ChatStore, DraftStore } from './kept';
+import type { WrittenAnswer } from './questions';
 import type { DraftToken } from './mentions';
 import { Outbox, type Unsent } from './outbox';
 import { pathsOf, type Attachment } from './uploads';
 import type { StashItem } from '@/stash/api';
-import { withContext, type ContextChip } from '@/stash/words';
+import type { ContextChip } from '@/stash/words';
 
 export type Attached = 'attaching' | 'live' | 'missing';
 
@@ -285,12 +285,12 @@ export class ChatSession {
    * Answers a question with `text` and the files picked for it, named in the answer once they are all on the
    * host. The files stay in the composer when the answer did not go out.
    */
-  answerWith = async (text: string, answer: (text: string) => Promise<boolean>): Promise<boolean> => {
+  answerWith = async (text: string, answer: (written: WrittenAnswer) => Promise<boolean>): Promise<boolean> => {
     this.notice = null;
     const draft = this.draft;
     const attachments = draft.attachments.length ? await this.upload() : [];
     if (!attachments) return false;
-    if (await answer(answerText(withContext(text, draft.chips), pathsOf(attachments)))) {
+    if (await answer({ answer: text, paths: pathsOf(attachments), context: draft.chips })) {
       draft.chips = [];
       return true;
     }

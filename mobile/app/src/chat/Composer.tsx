@@ -20,6 +20,7 @@ import { StashButton } from '@/stash/StashButton';
 import { StashChip } from '@/stash/StashChip';
 import { usePromptStash } from '@/stash/usePromptStash';
 import { stashQuery, withoutQuery, type ContextChip } from '@/stash/words';
+import type { WrittenAnswer } from './questions';
 import type { ChatSession } from './session';
 import type { Attachment } from './uploads';
 import { useDraft, useDraftTokens } from './useChat';
@@ -59,7 +60,7 @@ type ComposerQuestion = {
   cli: string;
   text: string;
   onRemove: () => void;
-  onAnswer: (text: string) => Promise<boolean>;
+  onAnswer: (written: WrittenAnswer) => Promise<boolean>;
 };
 
 function AnsweringChip({ question }: { question: ComposerQuestion }) {

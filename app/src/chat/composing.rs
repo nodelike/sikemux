@@ -831,13 +831,19 @@ impl Chat {
             .current(open)
             .filter(|question| !question.secret && !self.is_folded(open));
         if let Some(id) = answering.map(|question| question.id.clone()) {
-            let answer = answer_text(&text, &paths, &context);
+            let shown = (text.is_empty())
+                .then(|| paths.join(", "))
+                .unwrap_or_else(|| text.clone());
             return self
                 .pick(
                     &id,
                     Pick {
-                        answer: Answer::Text(answer.clone()),
-                        shown: answer,
+                        answer: Answer::Text {
+                            text,
+                            paths,
+                            context,
+                        },
+                        shown,
                     },
                     open,
                 )

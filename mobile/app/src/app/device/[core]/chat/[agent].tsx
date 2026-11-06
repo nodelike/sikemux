@@ -396,7 +396,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                       cli: composing.cli,
                       text: composing.text,
                       onRemove: questions.stopComposing,
-                      onAnswer: (text) => questions.hold(composing, text, () => session.setDraft(text)),
+                      onAnswer: (written) => questions.hold(composing, written, () => session.setDraft(written.answer)),
                     }
                   }
                 />

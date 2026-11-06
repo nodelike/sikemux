@@ -316,7 +316,11 @@ impl Chat {
         self.pick(
             &id,
             Pick {
-                answer: Answer::Text(text),
+                answer: Answer::Text {
+                    text,
+                    paths: Vec::new(),
+                    context: Vec::new(),
+                },
                 shown: String::new(),
             },
             open,

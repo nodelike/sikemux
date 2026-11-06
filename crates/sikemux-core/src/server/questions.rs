@@ -1223,6 +1223,12 @@ pub struct AnswerParams {
     pub id: String,
     #[serde(default)]
     pub answer: Option<String>,
+    /// Files attached to `answer`, by where the host keeps them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+    /// What was sent with `answer`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context: Vec<ChatContext>,
     #[serde(default)]
     pub choice: Option<usize>,
     /// The choices picked on a question that takes several.
@@ -1250,10 +1256,39 @@ pub struct AnswersParams {
     pub answers: Vec<AnswerParams>,
 }
 
+impl AnswerParams {
+    /// Writes the files and context into `answer`: what was typed, the files, then the context,
+    /// so the agent reads the same text whichever client answered.
+    fn written_out(&mut self) {
+        let paths = std::mem::take(&mut self.paths);
+        let context = std::mem::take(&mut self.context);
+        if paths.is_empty() && context.is_empty() {
+            return;
+        }
+        let attached = (!paths.is_empty()).then(|| {
+            let listed: Vec<String> = paths.iter().map(|path| format!("- {path}")).collect();
+            format!("Attached:\n{}", listed.join("\n"))
+        });
+        let context = (context.iter()).map(|item| match item.text.is_empty() {
+            true => item.title.clone(),
+            false => format!("{}:\n{}", item.title, item.text),
+        });
+        let parts = (self.answer.take().into_iter())
+            .chain(attached)
+            .chain(context)
+            .filter(|part| !part.is_empty());
+        self.answer = Some(parts.collect::<Vec<_>>().join("\n\n"));
+    }
+}
+
 /// The person's answers to questions asked together. Each asker gets all of
 /// its answers in one message, so the first does not start a turn before the
 /// rest arrive.
-pub(crate) async fn answer_all(core: &Arc<Core>, params: AnswersParams) -> Result<(), String> {
+pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> Result<(), String> {
+    params
+        .answers
+        .iter_mut()
+        .for_each(AnswerParams::written_out);
     let (reply_questions, answers): (Vec<AnswerParams>, Vec<AnswerParams>) = {
         let state = core.harness.questions.state.locked();
         (params.answers.into_iter()).partition(|given| {

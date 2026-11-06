@@ -91,7 +91,11 @@ impl Question {
 pub(super) enum Answer {
     Choice(usize),
     Choices(Vec<usize>),
-    Text(String),
+    Text {
+        text: String,
+        paths: Vec<String>,
+        context: Vec<ChatContext>,
+    },
 }
 
 /// An answer picked for an open question, and what the dock shows was picked; empty for a secret.
@@ -543,7 +547,7 @@ pub(super) fn asking(
         })
         .collect();
     if let Some(Pick {
-        answer: Answer::Text(_),
+        answer: Answer::Text { .. },
         shown,
     }) = picked.filter(|_| !current.secret)
     {
@@ -674,23 +678,6 @@ pub(super) fn tick(on: bool, t: &Tokens) -> AnyElement {
         }),
     }
     .into_any_element()
-}
-
-/// An answer to a question as one text: what was typed, the files attached to it, then any context.
-pub(super) fn answer_text(text: &str, paths: &[String], context: &[ChatContext]) -> String {
-    let attached = (!paths.is_empty()).then(|| {
-        let listed: Vec<String> = paths.iter().map(|path| format!("- {path}")).collect();
-        format!("Attached:\n{}", listed.join("\n"))
-    });
-    let context = context
-        .iter()
-        .map(|item| format!("{}:\n{}", item.title, item.text));
-    std::iter::once(text.to_owned())
-        .chain(attached)
-        .chain(context)
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
 }
 
 /// A question as it reads once answered: who asked, when not the chat's own agent, its words,
@@ -988,9 +975,15 @@ impl Chat {
                         choices: Some(choices.clone()),
                         ..AnswerParams::default()
                     },
-                    Answer::Text(answer) => AnswerParams {
+                    Answer::Text {
+                        text,
+                        paths,
+                        context,
+                    } => AnswerParams {
                         id,
-                        answer: Some(answer.clone()),
+                        answer: Some(text.clone()),
+                        paths: paths.clone(),
+                        context: context.clone(),
                         ..AnswerParams::default()
                     },
                 })

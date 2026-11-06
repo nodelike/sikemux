@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ConnectionLike } from '@sikemux/native';
 
-import type { AgentQuestion } from '@shared/wire.generated';
+import type { AgentQuestion, ChatContext } from '@shared/wire.generated';
 
 import { callHost, useHostCall } from '@/core/hostCalls';
 import { problem } from '@/core/problem';
 
-type QuestionAnswer = { readonly answer: string } | { readonly choice: number } | { readonly choices: number[] } | { readonly fine: true };
+/** What the person wrote for a question and what they sent with it, which the host writes out as one text. */
+export type WrittenAnswer = { readonly answer: string; readonly paths?: string[]; readonly context?: ChatContext[] };
+type QuestionAnswer = WrittenAnswer | { readonly choice: number } | { readonly choices: number[] } | { readonly fine: true };
 
 const NONE: AgentQuestion[] = [];
 const NO_IDS: ReadonlySet<string> = new Set();
@@ -38,7 +40,7 @@ export type ChatQuestions = {
   /** Picks a choice, or on a question that takes several, ticks or unticks it. */
   choose: (question: AgentQuestion, choice: number) => void;
   /** Holds a written answer for an open question, or answers an assumed one at once. `undo` puts it back where it was written when the host did not take it. */
-  hold: (question: AgentQuestion, text: string, undo?: () => void) => Promise<boolean>;
+  hold: (question: AgentQuestion, written: WrittenAnswer, undo?: () => void) => Promise<boolean>;
   sendAll: () => void;
   /** Answers one question at once, which shows answered straight away. */
   answer: (question: AgentQuestion, given: QuestionAnswer, undo?: () => void) => Promise<boolean>;
@@ -160,9 +162,10 @@ export function useQuestions(
   );
 
   const hold = useCallback(
-    async (question: AgentQuestion, text: string, undo?: () => void) => {
-      if (question.state === 'assumed') return answer(question, { answer: text }, undo);
-      pick(question, { given: { answer: text }, shown: question.secret ? '' : text });
+    async (question: AgentQuestion, written: WrittenAnswer, undo?: () => void) => {
+      if (question.state === 'assumed') return answer(question, written, undo);
+      const words = written.answer || (written.paths ?? []).join(', ');
+      pick(question, { given: written, shown: question.secret ? '' : words });
       return true;
     },
     [answer, pick],

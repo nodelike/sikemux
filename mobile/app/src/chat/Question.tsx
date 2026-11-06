@@ -304,7 +304,7 @@ export function QuestionDock({
         picked ? (
           <Private text="Answer kept, sent with the rest" />
         ) : (
-          <SecretAnswer question={current} onKeep={(text) => questions.hold(current, text)} />
+          <SecretAnswer question={current} onKeep={(answer) => questions.hold(current, { answer })} />
         )
       ) : null}
       {canAnswer && sends ? (

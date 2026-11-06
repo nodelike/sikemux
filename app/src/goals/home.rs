@@ -95,10 +95,8 @@ impl GoalsPane {
         let answered = crate::core::Target::here(&self.asks).request_typed::<call::AnswerQuestion>(
             AnswerParams {
                 id: question,
-                answer: None,
                 choice: Some(choice),
-                choices: None,
-                fine: false,
+                ..AnswerParams::default()
             },
         );
         cx.spawn(async move |pane, cx| {

@@ -3431,11 +3431,22 @@ export interface PairingAnswer {
 export interface AnswerParams {
     id: string;
     answer?: string | null;
+    /** Files attached to `answer`, by where the host keeps them. */
+    paths?: string[];
+    /** What was sent with `answer`. */
+    context?: ChatContext[];
     choice?: number | null;
     /** The choices picked on a question that takes several. */
     choices?: number[];
     /** The assumption the agent went on is right. */
     fine?: boolean;
+}
+
+/** Something read elsewhere and handed to the agent whole, such as an issue. */
+export interface ChatContext {
+    uri: string;
+    title: string;
+    text: string;
 }
 
 export interface AnswersParams {
@@ -3638,13 +3649,6 @@ export interface QueuedMessageParams {
     text: string;
     paths?: string[];
     context?: ChatContext[];
-}
-
-/** Something read elsewhere and handed to the agent whole, such as an issue. */
-export interface ChatContext {
-    uri: string;
-    title: string;
-    text: string;
 }
 
 export interface EditParams {
