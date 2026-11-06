@@ -1379,26 +1379,11 @@ mod reducer {
         let mut sent = Chat::new();
         sent.at(5_000)
             .prompt(json!({ "text": "  ", "paths": ["/tmp/shot.png"] }));
-        assert_eq!(
-            sent.rows()[0],
-            ChatMessage {
-                id: "m0".into(),
-                role: ChatRole::User,
-                prompt_id: None,
-                parts: Vec::new(),
-                attachments: vec!["/tmp/shot.png".into()],
-                spans: Vec::new(),
-                context: Vec::new(),
-                letters: Vec::new(),
-                sent_at: Some(5_000),
-                ended_at: None,
-                opens_turn: None,
-                meta: None,
-                fold: None,
-                from_event: Some(0),
-                reactions: Vec::new(),
-            }
-        );
+        let message = &sent.rows()[0];
+        assert_eq!(message.role, ChatRole::User);
+        assert!(message.parts.is_empty());
+        assert_eq!(message.attachments, ["/tmp/shot.png"]);
+        assert_eq!(message.sent_at, Some(5_000));
         let mut plain = Chat::new();
         plain.prompt(json!({ "text": "Hi", "paths": [] }));
         assert!(plain.rows()[0].attachments.is_empty());

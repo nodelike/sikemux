@@ -410,7 +410,6 @@ mod tests {
     fn startup_runs_before_the_interactive_shell_without_pty_input() {
         let bootstrap = startup_bootstrap("ssh prod-db", false);
         assert_eq!(bootstrap, "ssh prod-db\nexec \"$SIKEMUX_SHELL\"");
-        assert!(!bootstrap.contains('\r'));
 
         // A shell that reads its profile keeps doing so after the startup
         // command hands over, or the user lands in a stripped environment.

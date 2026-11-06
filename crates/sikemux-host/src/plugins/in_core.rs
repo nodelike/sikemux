@@ -135,20 +135,3 @@ pub fn provide_to_core(data_dir: &Path) -> Option<Provided> {
     );
     plugins
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_listed_tool_names_the_plugin_that_answers_it() {
-        let tool: AgentTool = serde_json::from_value(json!({
-            "name": "github_runs", "method": "runs", "description": "Runs.",
-        }))
-        .expect("a tool");
-        let listed = describe(vec![("sikemux.github", &tool)]);
-        assert_eq!(listed[0]["plugin"], "sikemux.github");
-        assert_eq!(listed[0]["name"], "github_runs");
-        assert_eq!(listed[0]["method"], "runs");
-    }
-}

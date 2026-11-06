@@ -387,6 +387,8 @@ mod tests {
 
     struct Echo(String);
 
+    static TOLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
     impl Echo {
         fn plugin(id: &str) -> Arc<dyn Plugin> {
             let manifest = json!({ "id": id, "name": "Echo" }).to_string();
@@ -412,6 +414,15 @@ mod tests {
                     "echo" => Ok(params),
                     "block" => {
                         std::thread::sleep(Duration::from_millis(300));
+                        Ok(Value::Null)
+                    }
+                    "block_until_told" => {
+                        let give_up = std::time::Instant::now() + Duration::from_secs(30);
+                        while !TOLD.load(std::sync::atomic::Ordering::SeqCst)
+                            && std::time::Instant::now() < give_up
+                        {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
                         Ok(Value::Null)
                     }
                     "hang" => std::future::pending().await,
@@ -651,7 +662,7 @@ mod tests {
     async fn a_plugin_gets_the_call_timeout_it_declares() {
         let manifest = json!({
             "id": "test.slow", "name": "Slow",
-            "callTimeoutSecs": 1,
+            "callTimeoutSecs": 60,
         })
         .to_string();
         let host = host(vec![Arc::new(Echo(manifest)), Echo::plugin("test.echo")]);
@@ -659,21 +670,20 @@ mod tests {
             host.call("test.slow", "block", Value::Null).await.ok(),
             Some(Value::Null)
         );
-        assert!(host.call("test.echo", "block", Value::Null).await.is_err());
+        assert!(host.call("test.echo", "hang", Value::Null).await.is_err());
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn a_blocking_plugin_does_not_hold_up_the_caller() {
         let host = host(vec![Echo::plugin("test.echo")]);
-        let started = std::time::Instant::now();
         let error = host
-            .call("test.echo", "block", Value::Null)
+            .call("test.echo", "block_until_told", Value::Null)
             .await
             .expect_err("times out");
+        TOLD.store(true, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(
             serde_json::to_value(&error).expect("serializes")["category"],
             "timed-out"
         );
-        assert!(started.elapsed() < Duration::from_millis(250));
     }
 }

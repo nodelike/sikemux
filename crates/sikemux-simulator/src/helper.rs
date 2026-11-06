@@ -722,6 +722,13 @@ mod tests {
             Arc::clone(&read),
             channel,
         ));
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while received.lock().unwrap().len() < UNREAD_FRAMES as usize {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("frames up to the limit arrive");
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(received.lock().unwrap().len(), UNREAD_FRAMES as usize);
         read.report(UNREAD_FRAMES);

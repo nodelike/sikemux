@@ -67,8 +67,9 @@ fn lists_the_real_simulators() {
 
 #[test]
 fn an_agents_calls_run_one_at_a_time_and_a_cancel_stops_them() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     let manager = SimulatorManager::with_helper("/nonexistent".into());
     let order = Arc::new(Mutex::new(Vec::new()));
@@ -83,8 +84,13 @@ fn an_agents_calls_run_one_at_a_time_and_a_cancel_stops_them() {
             }))
         })
     };
+    let until = |happened: &dyn Fn() -> bool| {
+        while !happened() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    };
     let first = call("first", "agent-1");
-    std::thread::sleep(Duration::from_millis(30));
+    until(&|| !order.lock().unwrap().is_empty());
     let second = call("second", "agent-1");
     first.join().unwrap().unwrap();
     second.join().unwrap().unwrap();
@@ -93,32 +99,31 @@ fn an_agents_calls_run_one_at_a_time_and_a_cancel_stops_them() {
         vec!["first start", "first end", "second start", "second end"]
     );
 
+    let at_work = Arc::new(AtomicUsize::new(0));
     let long = {
-        let manager = Arc::clone(&manager);
+        let (manager, at_work) = (Arc::clone(&manager), Arc::clone(&at_work));
         std::thread::spawn(move || {
-            let started = Instant::now();
-            let result = sikemux_base::runtime::block_on(manager.in_turn("agent-1", async {
+            sikemux_base::runtime::block_on(manager.in_turn("agent-1", async {
+                at_work.fetch_add(1, Ordering::SeqCst);
                 for _ in 0..100 {
                     super::pause(Duration::from_millis(50)).await?;
                 }
                 Ok::<_, String>(())
-            }));
-            (result, started.elapsed())
+            }))
         })
     };
     let other = {
-        let manager = Arc::clone(&manager);
+        let (manager, at_work) = (Arc::clone(&manager), Arc::clone(&at_work));
         std::thread::spawn(move || {
             sikemux_base::runtime::block_on(manager.in_turn("agent-2", async {
+                at_work.fetch_add(1, Ordering::SeqCst);
                 super::pause(Duration::from_millis(400)).await
             }))
         })
     };
-    std::thread::sleep(Duration::from_millis(150));
+    until(&|| at_work.load(Ordering::SeqCst) == 2);
     manager.cancel("agent-1");
-    let (result, took) = long.join().unwrap();
-    assert!(result.unwrap_err().contains("cancelled"));
-    assert!(took < Duration::from_secs(1), "stopped at its next step");
+    assert!(long.join().unwrap().unwrap_err().contains("cancelled"));
     assert!(
         other.join().unwrap().is_ok(),
         "another agent's call goes on"

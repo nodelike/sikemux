@@ -155,29 +155,34 @@ mod tests {
 
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
-    fn at_prompt_after(args: &[&str]) -> bool {
+    /// Whether `/bin/sh args` comes to read as `at_prompt`, however long the shell takes to start.
+    fn comes_to_read_as(at_prompt: bool, args: &[&str]) -> bool {
         let pair = native_pty_system()
             .openpty(PtySize::default())
             .expect("open pty");
         let mut command = CommandBuilder::new("/bin/sh");
         command.args(args);
         let mut child = pair.slave.spawn_command(command).expect("spawn shell");
-        std::thread::sleep(Duration::from_millis(300));
         let pid = child.process_id().expect("shell pid");
         let terminal = pair.master.as_raw_fd().expect("master fd");
-        let at_prompt = super::shell_at_prompt(terminal, pid);
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        let mut read_so = super::shell_at_prompt(terminal, pid) == at_prompt;
+        while !read_so && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            read_so = super::shell_at_prompt(terminal, pid) == at_prompt;
+        }
         drop(pair);
         let _ = super::kill_and_reap_child(&mut child, Some(pid));
-        at_prompt
+        read_so
     }
 
     #[test]
     fn an_interactive_shell_waiting_for_input_is_at_its_prompt() {
-        assert!(at_prompt_after(&["-i"]));
+        assert!(comes_to_read_as(true, &["-i"]));
     }
 
     #[test]
     fn a_shell_running_a_command_is_not_at_its_prompt() {
-        assert!(!at_prompt_after(&["-c", "sleep 5; true"]));
+        assert!(comes_to_read_as(false, &["-c", "sleep 60; true"]));
     }
 }

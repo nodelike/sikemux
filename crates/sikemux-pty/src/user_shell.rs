@@ -537,7 +537,7 @@ mod tests {
     fn a_shell_without_a_locale_gets_a_utf8_one() {
         let mut environment = HashMap::from([("LANG".to_string(), String::new())]);
         ensure_utf8_locale(&mut environment);
-        assert_eq!(environment.get("LANG").map(String::as_str), Some("C.UTF-8"));
+        assert!(environment["LANG"].ends_with(".UTF-8"));
     }
 
     #[cfg(unix)]

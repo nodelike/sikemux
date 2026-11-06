@@ -94,3 +94,16 @@ pub fn app_bundle_of_core(core: &Path) -> Option<&Path> {
     core.ancestors()
         .nth(Path::new(BUNDLED_CORE).components().count())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tilde_is_the_home_folder() {
+        let home = home().unwrap();
+        assert_eq!(expand_home("~/a.db"), home.join("a.db"));
+        assert_eq!(expand_home("~"), home);
+        assert_eq!(expand_home("/tmp/a.db"), PathBuf::from("/tmp/a.db"));
+    }
+}
