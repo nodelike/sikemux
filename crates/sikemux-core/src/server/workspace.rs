@@ -623,7 +623,7 @@ impl Workspaces {
     /// names it.
     pub(crate) fn put_agent(&self, mut draft: Map<String, Value>) -> CoreResult<WorkspaceAgent> {
         if !draft.contains_key("id") {
-            let id = format!("agent-{}", uuid::Uuid::new_v4().simple());
+            let id = crate::server::names::new_agent_id();
             draft.insert("id".into(), Value::String(id));
         }
         if !draft.contains_key("createdAt") {

@@ -510,7 +510,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
             }
             let settings = board.settings.clone();
             for id in picks {
-                let agent = format!("agent-{}", uuid::Uuid::new_v4().simple());
+                let agent = crate::server::names::new_agent_id();
                 if let Ok(card) = board.card_mut(id) {
                     card.hold(Owner::starting(&agent));
                     card.team = None;

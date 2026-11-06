@@ -160,6 +160,11 @@ pub(crate) fn lead_of(
 /// Names a worker for its lead, one spawn at a time.
 pub(crate) fn hire(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
     let _one_at_a_time = core.harness.spawning.one_at_a_time();
+    hire_held(core, worker)
+}
+
+/// Names a worker for its lead while this spawn already holds its turn.
+fn hire_held(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
     let lead = worker.lead.to_owned();
     let named = core.names.hire(worker, open(core))?;
     super::board::chat_goal::hired(core, &lead);
@@ -309,7 +314,7 @@ fn start(
         .map(|saved| saved.cli.clone())
         .or(cli)
         .or_else(|| helper.as_ref().map(|helper| helper.agent.clone()))
-        .or_else(|| (!lead.provider.is_empty()).then(|| lead.provider.clone()))
+        .or_else(|| lead.cli().map(str::to_owned))
         .ok_or("cli must name the agent to start, such as claude or codex")?;
     let (model, paid) = match (helper, named_provider) {
         (_, Some(id)) => (model, Paid::By(Some(id))),
@@ -341,8 +346,9 @@ fn start(
             (hired.agent_id.clone(), named)
         }
         None => {
-            let agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
-            let named = core.names.hire(
+            let agent_id = crate::server::names::new_agent_id();
+            let named = hire_held(
+                core,
                 Worker {
                     agent_id: &agent_id,
                     lead: &lead_id,
@@ -351,9 +357,7 @@ fn start(
                     session: resume.map(|saved| saved.session_id.as_str()),
                     reports,
                 },
-                open(core),
             )?;
-            super::board::chat_goal::hired(core, &lead_id);
             (agent_id, named)
         }
     };
@@ -382,11 +386,7 @@ fn start(
         model,
         paid_by,
         lead_name,
-        lead_cli: if lead.provider.is_empty() {
-            "agent".to_owned()
-        } else {
-            lead.provider
-        },
+        lead_cli: lead.cli_word().to_owned(),
         reports,
         chat,
         checkout: checkout.0.take().map(Box::new),
@@ -646,8 +646,9 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
             .filter(|_| same)
             .and_then(|launch| launch.model.clone())
     });
-    let agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
-    let named = core.names.hire(
+    let agent_id = crate::server::names::new_agent_id();
+    let named = hire_held(
+        core,
         Worker {
             agent_id: &agent_id,
             lead: &lead_id,
@@ -656,9 +657,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
             session: None,
             reports,
         },
-        open(core),
     )?;
-    super::board::chat_goal::hired(core, &lead_id);
     core.harness.spawning.opening().insert(agent_id.clone());
     let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
     Ok(Opening {
@@ -666,12 +665,8 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
         name: named.name,
         model,
         permission_mode,
+        lead_cli: lead.cli_word().to_owned(),
         launcher: lead.launcher.filter(|_| same),
-        lead_cli: if lead.provider.is_empty() {
-            "agent".to_owned()
-        } else {
-            lead.provider
-        },
         provider,
         lead_id,
         lead_name,
@@ -711,10 +706,15 @@ async fn open_terminal(core: &Arc<Core>, opening: &Opening) -> Result<(), String
     core.workspaces
         .put_agent(agent)
         .map_err(|error| error.to_string())?;
-    super::launching::start_terminal(core, &opening.agent_id, (100, 30), None)
-        .await
-        .map(drop)
-        .map_err(|error| error.to_string())
+    super::launching::start_terminal(
+        core,
+        &opening.agent_id,
+        super::spare::opening_size(core),
+        None,
+    )
+    .await
+    .map(drop)
+    .map_err(|error| error.to_string())
 }
 
 async fn spawn_terminal(

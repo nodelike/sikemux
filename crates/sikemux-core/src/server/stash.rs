@@ -753,7 +753,7 @@ async fn new_chat(core: &Arc<Core>, folder: &str) -> CoreResult<Option<String>> 
     let Some(launcher) = project.launcher.clone() else {
         return Ok(None);
     };
-    let agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
+    let agent_id = crate::server::names::new_agent_id();
     let chosen = super::launching::Launch {
         agent_id: agent_id.clone(),
         launcher,

@@ -168,7 +168,7 @@ async fn start_worker(
     place: impl FnOnce(&Arc<Core>, &str, &str) -> Result<u64, String> + Send + 'static,
 ) -> Result<(String, Started), String> {
     workspace::launchers_known(core).await;
-    let agent = format!("agent-{}", uuid::Uuid::new_v4().simple());
+    let agent = crate::server::names::new_agent_id();
     let started = {
         let (core, agent) = (core.clone(), agent.clone());
         blocking(move || {

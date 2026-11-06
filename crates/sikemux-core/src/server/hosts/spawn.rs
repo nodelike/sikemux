@@ -64,14 +64,14 @@ pub(crate) async fn spawn(
     let link = find(core, host)?;
     let model = text(params, "model").map(str::to_owned);
     let reports = !matches!(params.get("report"), Some(Value::Bool(false)));
-    let agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
+    let agent_id = crate::server::names::new_agent_id();
     let (lead, cwd, named, provider) = {
         let (core, request, agent_id) = (core.clone(), request.clone(), agent_id.clone());
         let cli = text(params, "cli").map(str::to_lowercase);
         blocking(move || {
             let (lead, cwd) = local::lead_of(&core, &lead_id, &request.project)?;
             let provider = cli
-                .or_else(|| (!lead.provider.is_empty()).then(|| lead.provider.clone()))
+                .or_else(|| lead.cli().map(str::to_owned))
                 .ok_or("cli must name the agent to start, such as claude or codex")?;
             let named = local::hire(
                 &core,
@@ -430,7 +430,7 @@ pub(crate) async fn hire_elsewhere(
     let Some(host) = super::route::lead_host(core, lead) else {
         return Ok(None);
     };
-    let agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
+    let agent_id = crate::server::names::new_agent_id();
     let name = super::route::hire(core, &host, &agent_id, lead, provider, reports).await?;
     Ok(Some(Hired {
         host,

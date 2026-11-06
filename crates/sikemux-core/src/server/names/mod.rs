@@ -24,6 +24,11 @@ use sikemux_wire::protocol::AgentBuddy;
 use words::{ANIME, NATURE};
 
 const FILE: &str = "agent-names.json";
+
+/// The id a new agent goes by.
+pub(crate) fn new_agent_id() -> String {
+    format!("agent-{}", uuid::Uuid::new_v4().simple())
+}
 /// How long a name given to an agent that has not yet been seen open is kept,
 /// so one still starting keeps it.
 const STARTING_MS: u64 = 10 * 60 * 1000;

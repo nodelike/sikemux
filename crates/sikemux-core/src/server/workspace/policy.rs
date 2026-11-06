@@ -16,6 +16,16 @@ pub(crate) struct Lead {
 }
 
 impl Lead {
+    /// The CLI it runs under, for a lead the core knows of.
+    pub(crate) fn cli(&self) -> Option<&str> {
+        Some(self.provider.as_str()).filter(|provider| !provider.is_empty())
+    }
+
+    /// Its CLI as a worker is told of it.
+    pub(crate) fn cli_word(&self) -> &str {
+        self.cli().unwrap_or("agent")
+    }
+
     /// The permission mode a worker of the lead takes: the lead's own, or
     /// Normal when the lead's is unknown.
     pub(crate) fn worker_mode(&self) -> PermissionMode {

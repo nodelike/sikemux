@@ -443,26 +443,16 @@ pub(crate) async fn setup_shell(
     host: &str,
     startup: String,
 ) -> CoreResult<SessionId> {
-    let context = PtyContext {
-        session_id: format!("ssh:{host}"),
-        session_name: host.to_owned(),
-        session_kind: LaunchKind::Setup,
-        project: None,
-        window_id: Some(format!("win-{}", uuid::Uuid::new_v4().simple())),
-        pane_id: Some(format!("pane-{}", uuid::Uuid::new_v4().simple())),
-        agent_id: None,
-        agent_type: None,
-        initial_prompt_submitted: false,
-        shell_integration: false,
-    };
+    let context = to_host(host, LaunchKind::Setup);
     terminal(core, opening_size(core), None, context, Some(startup)).await
 }
 
-async fn ssh_shell(core: &Arc<Core>, host: &str) -> CoreResult<SessionId> {
-    let context = PtyContext {
+/// A terminal on `host` over ssh, in a window and pane of its own.
+fn to_host(host: &str, session_kind: LaunchKind) -> PtyContext {
+    PtyContext {
         session_id: format!("ssh:{host}"),
         session_name: host.to_owned(),
-        session_kind: LaunchKind::Ssh,
+        session_kind,
         project: None,
         window_id: Some(format!("win-{}", uuid::Uuid::new_v4().simple())),
         pane_id: Some(format!("pane-{}", uuid::Uuid::new_v4().simple())),
@@ -470,7 +460,11 @@ async fn ssh_shell(core: &Arc<Core>, host: &str) -> CoreResult<SessionId> {
         agent_type: None,
         initial_prompt_submitted: false,
         shell_integration: false,
-    };
+    }
+}
+
+async fn ssh_shell(core: &Arc<Core>, host: &str) -> CoreResult<SessionId> {
+    let context = to_host(host, LaunchKind::Ssh);
     terminal(core, opening_size(core), None, context, None).await
 }
 

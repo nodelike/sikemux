@@ -423,7 +423,7 @@ async fn start_new(
     client: Option<&Arc<ClientConn>>,
     choice: ChatChoice,
 ) -> CoreResult<(String, ChatStart)> {
-    let agent_id = format!("agent-{}", uuid::Uuid::new_v4().simple());
+    let agent_id = crate::server::names::new_agent_id();
     let kind = choice
         .launcher
         .split(':')

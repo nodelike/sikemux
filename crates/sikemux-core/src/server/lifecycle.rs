@@ -237,8 +237,13 @@ pub(crate) fn terminal_exited(
         note: format!("— Resuming {label} —"),
     };
     tokio::spawn(async move {
-        if let Err(error) =
-            launching::start_terminal(&core, &agent_id, (80, 24), Some(continues)).await
+        if let Err(error) = launching::start_terminal(
+            &core,
+            &agent_id,
+            super::spare::opening_size(&core),
+            Some(continues),
+        )
+        .await
         {
             eprintln!("sikemux core: {agent_id} did not start again: {error}");
         }

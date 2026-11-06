@@ -138,7 +138,7 @@ fn task(card: &Card, cwd: &Path, head: &str, from: &str, diff: &str, cut: bool) 
 /// Has a reviewer look at `head` before it merges. With no agent on another
 /// CLI to start, the pull request waits for the person.
 pub(super) async fn begin(core: &Arc<Core>, step: &Step, head: &str) {
-    let agent = format!("agent-{}", uuid::Uuid::new_v4().simple());
+    let agent = crate::server::names::new_agent_id();
     let placed = change_run(core, &step.project, step.id, step.agent(), |_, run| {
         run.stage = Stage::Reviewing;
         run.verdict = None;
