@@ -39,7 +39,7 @@
 .chat-activity-elapsed {
   color: color-mix(in srgb, var(--ink-faint) 68%, transparent);
   font-family: var(--mono);
-  font-size: calc(9.5px * var(--chat-text-em, 1));
+  font-size: 9.5px;
 }
 
 .chat-activity-mark {
@@ -190,7 +190,7 @@
   border-radius: var(--radius-control);
   background: var(--rail-2);
   color: var(--ink-dim);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
 }
 
 .chat-connection-state button:hover,

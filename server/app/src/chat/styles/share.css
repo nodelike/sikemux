@@ -7,7 +7,7 @@
   padding: 0 8px;
   color: var(--ink-faint);
   font-family: var(--ui);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
 }
 
 .shared-chat-foot {

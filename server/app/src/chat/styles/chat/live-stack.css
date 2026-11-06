@@ -67,7 +67,7 @@
   overflow: hidden;
   color: var(--ink-dim);
   font-family: var(--mono);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   letter-spacing: 0;
   text-overflow: ellipsis;
   text-transform: none;
@@ -126,7 +126,7 @@
   margin-left: auto;
   color: var(--ink-faint);
   font-family: var(--mono);
-  font-size: calc(10px * var(--chat-text-em, 1));
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -199,7 +199,7 @@
   overflow: hidden;
   color: var(--ink);
   font-family: var(--mono);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -209,7 +209,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--ink-faint);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -254,14 +254,14 @@
   overflow: hidden;
   color: var(--ink);
   font-family: var(--mono);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .chat-notice-state {
   flex: none;
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
 }
 
 .chat-notice.state-failed .chat-notice-state {
@@ -284,7 +284,7 @@
 .chat-notice-summary {
   min-width: 0;
   overflow: hidden;
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

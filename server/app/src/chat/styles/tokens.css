@@ -128,14 +128,10 @@
      * an IDE is small, and the tracking tightens as the size grows because
      * Figtree sets loose at display sizes.
      */
-  --text-3xs: calc(
-    10px * var(--ui-text-scale, 1)
-  ); /* tracked-out section labels */
-  --text-2xs: calc(
-    11px * var(--ui-text-scale, 1)
-  ); /* timestamps, shortcut hints, counts */
-  --text-xs: calc(12px * var(--ui-text-scale, 1)); /* secondary rows, meta */
-  --text-sm: calc(13px * var(--ui-text-scale, 1));
+  --text-3xs: 10px; /* tracked-out section labels */
+  --text-2xs: 11px; /* timestamps, shortcut hints, counts */
+  --text-xs: 12px; /* secondary rows, meta */
+  --text-sm: 13px;
 
   --tracking-label: 0.08em;
   --tracking-normal: -0.005em;

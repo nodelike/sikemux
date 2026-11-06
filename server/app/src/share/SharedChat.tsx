@@ -147,7 +147,7 @@ export function SharedChat({
           <ChatSubagentsContext.Provider value={subagents}>
             <ReaderScrollContext.Provider value={scrollByReader}>
               <ToolDetailContext.Provider value={toolDetail}>
-                <section className="agent-surface shared-chat" data-view="gui">
+                <section className="agent-surface shared-chat">
                   <header className="agent-surface-header">
                     <div className="agent-surface-name">
                       <span
@@ -168,7 +168,6 @@ export function SharedChat({
                       <div className="agent-view-switch">
                         <button
                           type="button"
-                          aria-pressed="false"
                           onClick={() => location.assign(appShareLink(link))}
                         >
                           Open in Sikemux
@@ -177,7 +176,7 @@ export function SharedChat({
                     </div>
                   </header>
                   <div className="agent-surface-body">
-                    <div className="agent-gui-layer visible">
+                    <div className="agent-gui-layer">
                       <div className="agent-chat-pane">
                         <ChatTranscript
                           state={state}

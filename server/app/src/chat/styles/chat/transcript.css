@@ -1,10 +1,4 @@
 .agent-chat-pane {
-  /* Not multiplied by the app-wide text scale, so ⌘0 always returns the
-       transcript to exactly its designed size. */
-  --chat-text-em: var(--chat-text-scale, 1);
-  --text-3xs: calc(10px * var(--chat-text-em));
-  --text-2xs: calc(11px * var(--chat-text-em));
-  --text-xs: calc(12px * var(--chat-text-em));
   position: relative;
   display: grid;
   /* Without a column of its own the grid widens to the longest unbreakable
@@ -78,7 +72,7 @@
   border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   border-radius: var(--radius-3);
   background: color-mix(in srgb, var(--rail-2) 72%, transparent);
-  font-size: calc(13.5px * var(--chat-text-em, 1));
+  font-size: 13.5px;
 }
 
 .chat-message.agent-letter {
@@ -95,7 +89,7 @@
 
 .chat-letter-top {
   margin-bottom: 8px;
-  font-size: calc(12.5px * var(--chat-text-em, 1));
+  font-size: 12.5px;
 }
 
 .chat-letter-top::after {
@@ -161,7 +155,7 @@
   flex: 1 1 auto;
   min-width: 0;
   color: var(--ink);
-  font-size: calc(14px * var(--chat-text-em, 1));
+  font-size: 14px;
   line-height: 1.65;
   user-select: text;
   cursor: auto;
@@ -209,7 +203,7 @@
 }
 
 .chat-message-time {
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   font-variant-numeric: tabular-nums;
   color: var(--ink-dim);
 }
@@ -217,7 +211,7 @@
 .chat-message-rate {
   margin-left: auto;
   font-family: var(--mono);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   font-style: italic;
   letter-spacing: 0.02em;
   color: var(--ink-dim);
@@ -272,7 +266,6 @@
 }
 
 .chat-markdown pre,
-.chat-plan pre,
 .chat-unknown-part {
   overflow: auto;
   max-height: 420px;
@@ -282,7 +275,7 @@
   background: color-mix(in srgb, var(--void) 72%, transparent);
   color: var(--ink-dim);
   font-family: var(--mono);
-  font-size: calc(12px * var(--chat-text-em, 1));
+  font-size: 12px;
   line-height: 1.55;
   white-space: pre-wrap;
 }
@@ -381,7 +374,7 @@
 .chat-table table {
   border-collapse: collapse;
   width: 100%;
-  font-size: calc(13.5px * var(--chat-text-em, 1));
+  font-size: 13.5px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -482,7 +475,7 @@
 .chat-thought {
   margin: 9px 0;
   color: var(--ink-faint);
-  font-size: calc(12.5px * var(--chat-text-em, 1));
+  font-size: 12.5px;
   font-style: italic;
 }
 
@@ -490,7 +483,7 @@
   width: min(100%, 800px);
   margin: 8px auto 4px;
   padding: 0 22px;
-  font-size: calc(12.5px * var(--chat-text-em, 1));
+  font-size: 12.5px;
 }
 
 .chat-work::after {
@@ -528,6 +521,21 @@
 
 .chat-plan[open] summary {
   margin-bottom: 8px;
+}
+
+.chat-plan-steps {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.chat-plan-steps li[data-status="in_progress"] {
+  color: var(--ink);
+}
+
+.chat-plan-steps li[data-status="completed"] {
+  color: var(--ink-faint);
 }
 
 .chat-earlier {

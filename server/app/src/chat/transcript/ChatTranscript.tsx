@@ -11,7 +11,6 @@ import { ChatMessageRow } from "./ChatMessageRow";
 import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
 import { copyText, EARLIER_LOST, rowTime } from "@shared/chat/messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
-import { formatDetail } from "@shared/chat/transcript";
 import type { ChatMessage, ChatRows } from "@shared/chat/types";
 import { WorkSummary } from "./WorkSummary";
 
@@ -96,10 +95,6 @@ export function ChatTranscript({
       if (!next.delete(id)) next.add(id);
       return next;
     });
-  const plan = useMemo(
-    () => (state.plan === undefined ? null : formatDetail(state.plan)),
-    [state.plan],
-  );
 
   return (
     <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
@@ -160,10 +155,16 @@ export function ChatTranscript({
               <span className="chat-activity-label">{activity}</span>
             </div>
           ))}
-        {plan !== null && (
+        {state.plan && state.plan.length > 0 && (
           <details className="chat-plan">
             <summary>Plan</summary>
-            <pre>{plan}</pre>
+            <ul className="chat-plan-steps">
+              {state.plan.map((entry, index) => (
+                <li key={index} data-status={entry.status}>
+                  {entry.content}
+                </li>
+              ))}
+            </ul>
           </details>
         )}
         {state.permissions.map((request) => (

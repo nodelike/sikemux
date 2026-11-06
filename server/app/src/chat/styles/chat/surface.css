@@ -98,25 +98,15 @@
   padding: 0 8px;
   color: var(--ink-faint);
   font-family: var(--ui);
-  font-size: calc(10.5px * var(--chat-text-em, 1));
+  font-size: 10.5px;
   transition:
     color 100ms,
     background 100ms;
   border-radius: var(--radius-full);
 }
 
-.agent-view-switch button:hover:not(:disabled) {
+.agent-view-switch button:hover {
   color: var(--ink);
-}
-
-.agent-view-switch button[aria-pressed="true"] {
-  color: var(--ink);
-  background: var(--surface-active);
-}
-
-.agent-view-switch button:disabled {
-  cursor: default;
-  opacity: 0.42;
 }
 
 .agent-surface-body,
@@ -130,18 +120,6 @@
 .agent-gui-layer {
   position: absolute;
   inset: 0;
-}
-
-/* Hides by absence of `.visible`, never by declaring `visibility: visible`:
-   that would also un-hide this layer when the whole tab is hidden. */
-.agent-gui-layer:not(.visible) {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-/* A terminal draws to its top row, so it starts below the pills instead of under them. */
-.agent-surface[data-view="tui"] .agent-surface-body {
-  padding-top: calc(var(--agent-pill-h) + 8px);
 }
 
 .agent-surface .chat-scroll {

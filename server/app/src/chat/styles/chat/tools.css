@@ -299,7 +299,7 @@ button.chat-tool:hover > .chat-tool-line::after,
 .chat-tool-elapsed {
   color: color-mix(in srgb, var(--ink-faint) 68%, transparent);
   font-family: var(--mono);
-  font-size: calc(9.5px * var(--chat-text-em, 1));
+  font-size: 9.5px;
 }
 
 .chat-tool-detail {
