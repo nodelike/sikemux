@@ -10,8 +10,7 @@ use gpui_kit::{
     div, px, AnyElement, Context, Div, InteractiveElement, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
-use serde_json::json;
-use sikemux_core::server::agent_accounts::ChatAccountsParams;
+use sikemux_core::server::agent_accounts::{Authenticate, ChatAccountsParams};
 use sikemux_core::server::call::{self, Call};
 use sikemux_view::chat::{ChatActivity, ChatConnection, FailureKind, ToolAction};
 
@@ -223,10 +222,10 @@ impl Workbench {
     /// Signs the chat's agent in the way it offered, then sends its failed turn again.
     fn authenticate_chat(&self, agent: &str, method: &str) {
         let target = self.chat_target(agent);
-        let signed = target.request(
-            "authenticateChat",
-            json!({ "agentId": agent, "methodId": method }),
-        );
+        let signed = target.request_typed::<call::AuthenticateChat>(Authenticate {
+            agent_id: agent.to_owned(),
+            method_id: method.to_owned(),
+        });
         let agent = agent.to_owned();
         crate::desk::spawn(async move {
             match signed.await {

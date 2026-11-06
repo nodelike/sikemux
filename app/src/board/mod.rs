@@ -13,7 +13,6 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window,
 };
 use serde::Serialize;
-use serde_json::json;
 use sikemux_core::server::board::BoardAddParams;
 use sikemux_core::server::board::BoardCard;
 use sikemux_core::server::board::BoardColumn;
@@ -26,6 +25,7 @@ use sikemux_core::server::board::ProjectBoard;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::messages::log::MessageRow;
 use sikemux_core::server::messages::AgentMessagesParams;
+use sikemux_core::server::triggers::TriggerParams;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::core::{self, Ask};
@@ -731,8 +731,8 @@ fn triggers(pane: &BoardPane, cx: &mut Context<BoardPane>) -> Option<AnyElement>
                 trigger,
                 &t,
                 cx.listener(move |pane, _, _, cx| {
-                    let asked =
-                        core::request(&pane.asks, "removeTrigger", json!({ "trigger": id }));
+                    let asked = core::Target::here(&pane.asks)
+                        .request_typed::<call::RemoveTrigger>(TriggerParams { trigger: id });
                     cx.spawn(async move |_, _| drop(asked.await)).detach();
                 }),
             )

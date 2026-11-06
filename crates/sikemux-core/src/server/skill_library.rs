@@ -10,7 +10,6 @@ use std::time::Duration;
 
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sikemux_process::sync::Locked;
 
 use super::changed::Topic;
@@ -23,32 +22,32 @@ use super::{Core, CoreError, CoreResult};
 /// The most global skills kept as newly added until the person answers.
 const MAX_ADDED: usize = 64;
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct OwnSkills {
-    agent: &'static str,
-    folder: PathBuf,
-    skills: Vec<Skill>,
+pub struct OwnSkills {
+    pub agent: String,
+    pub folder: PathBuf,
+    pub skills: Vec<Skill>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SkillsOverview {
-    library: PathBuf,
-    skills: Vec<Skill>,
-    own: Vec<OwnSkills>,
+pub struct SkillsOverview {
+    pub library: PathBuf,
+    pub skills: Vec<Skill>,
+    pub own: Vec<OwnSkills>,
     /// Names in the library that one of the person's own skills also uses.
-    clashes: Vec<String>,
+    pub clashes: Vec<String>,
 }
 
 /// A skill that appeared in an agent's own global folder while the core ran,
 /// most likely written there by that agent's own skill maker.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct GlobalSkillAdded {
-    agent: &'static str,
-    name: String,
-    path: PathBuf,
+pub struct GlobalSkillAdded {
+    pub agent: String,
+    pub name: String,
+    pub path: PathBuf,
 }
 
 /// The global skills that appeared since the core started, until moved in.
@@ -83,7 +82,7 @@ fn library_overview(data_dir: &Path, folders: Vec<(&'static str, PathBuf)>) -> S
     let own: Vec<OwnSkills> = folders
         .into_iter()
         .map(|(agent, folder)| OwnSkills {
-            agent,
+            agent: agent.to_owned(),
             skills: skills::list_in(&folder),
             folder,
         })
@@ -131,54 +130,54 @@ fn adopt_global(
     Ok(skill)
 }
 
-#[derive(Deserialize)]
-pub(super) struct NewSkill {
-    name: String,
-    description: String,
-    body: String,
+#[derive(Serialize, Deserialize)]
+pub struct NewSkill {
+    pub name: String,
+    pub description: String,
+    pub body: String,
 }
 
-#[derive(Deserialize)]
-pub(super) struct Source {
-    source: String,
-    subfolder: Option<String>,
+#[derive(Serialize, Deserialize)]
+pub struct Source {
+    pub source: String,
+    pub subfolder: Option<String>,
 }
 
-#[derive(Deserialize)]
-pub(super) struct Named {
-    name: String,
+#[derive(Serialize, Deserialize)]
+pub struct Named {
+    pub name: String,
 }
 
-#[derive(Deserialize)]
-pub(super) struct Located {
-    path: PathBuf,
+#[derive(Serialize, Deserialize)]
+pub struct Located {
+    pub path: PathBuf,
 }
 
 /// Runs `work` on the library in the data folder, off the async threads.
-async fn on_library<T: Serialize + Send + 'static>(
+async fn on_library<T: Send + 'static>(
     core: &Core,
     work: impl FnOnce(&Path) -> CoreResult<T> + Send + 'static,
-) -> CoreResult<Value> {
+) -> CoreResult<T> {
     let data_dir = core
         .config
         .data_dir
         .clone()
         .ok_or_else(|| CoreError::from("this host keeps no skills"))?;
-    blocking(move || Ok(serde_json::to_value(work(&data_dir)?)?)).await
+    blocking(move || work(&data_dir)).await
 }
 
-pub(super) async fn overview(core: &Core) -> CoreResult<Value> {
+pub(super) async fn overview(core: &Core) -> CoreResult<SkillsOverview> {
     on_library(core, |data_dir| {
         Ok(library_overview(data_dir, global_folders()))
     })
     .await
 }
 
-pub(super) async fn added(core: &Core) -> CoreResult<Value> {
+pub(super) async fn added(core: &Core) -> CoreResult<Vec<GlobalSkillAdded>> {
     on_library(core, |_| Ok(newly_added().clone())).await
 }
 
-pub(super) async fn create(core: &Core, skill: NewSkill) -> CoreResult<Value> {
+pub(super) async fn create(core: &Core, skill: NewSkill) -> CoreResult<Skill> {
     on_library(core, move |data_dir| {
         Ok(skills::create(
             data_dir,
@@ -190,7 +189,7 @@ pub(super) async fn create(core: &Core, skill: NewSkill) -> CoreResult<Value> {
     .await
 }
 
-pub(super) async fn install(core: &Core, from: Source) -> CoreResult<Value> {
+pub(super) async fn install(core: &Core, from: Source) -> CoreResult<Skill> {
     on_library(core, move |data_dir| {
         let source = from.source.trim();
         Ok(if source.starts_with('/') {
@@ -207,14 +206,14 @@ pub(super) async fn install(core: &Core, from: Source) -> CoreResult<Value> {
     .await
 }
 
-pub(super) async fn remove(core: &Core, named: Named) -> CoreResult<Value> {
+pub(super) async fn remove(core: &Core, named: Named) -> CoreResult<()> {
     on_library(core, move |data_dir| {
         Ok(skills::remove(data_dir, &named.name)?)
     })
     .await
 }
 
-pub(super) async fn adopt(core: &Core, located: Located) -> CoreResult<Value> {
+pub(super) async fn adopt(core: &Core, located: Located) -> CoreResult<Skill> {
     on_library(core, move |data_dir| {
         let skill = adopt_global(data_dir, &global_folders(), &located.path)?;
         newly_added().retain(|added| added.path != located.path);
@@ -232,7 +231,7 @@ fn added_skills(
         for skill in skills::list_in(folder) {
             if known.insert(skill.path.clone()) {
                 added.push(GlobalSkillAdded {
-                    agent,
+                    agent: (*agent).to_owned(),
                     name: skill.name,
                     path: skill.path,
                 });
@@ -380,7 +379,7 @@ mod tests {
         assert_eq!(
             added,
             vec![GlobalSkillAdded {
-                agent: "Claude",
+                agent: "Claude".to_owned(),
                 name: "deploy".into(),
                 path: claude.join("deploy"),
             }]

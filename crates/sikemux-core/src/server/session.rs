@@ -1,5 +1,5 @@
 use crate::server::changed::What;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs::File;
@@ -1436,9 +1436,9 @@ pub(crate) fn trim_if_idle(session: &Session, now: u64, idle: Duration) {
 
 const NOT_HERE: &str = "that terminal is not on this host";
 
-#[derive(Deserialize)]
-pub(crate) struct SessionParams {
-    id: sikemux_wire::protocol::SessionId,
+#[derive(Serialize, Deserialize)]
+pub struct SessionParams {
+    pub id: sikemux_wire::protocol::SessionId,
 }
 
 /// A draft to paste into a terminal once it is ready, left at the prompt for

@@ -8,7 +8,9 @@ use gpui_kit::component::Disableable;
 use gpui_kit::{
     div, px, Anchor, AnyElement, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
+use sikemux_core::agent_accounts::status::AccountStatus;
 use sikemux_core::agent_accounts::{chat_account, Profile};
+use sikemux_core::server::workspace::AgentPatch;
 
 use crate::accounts;
 use crate::core::Ask;
@@ -64,7 +66,7 @@ pub fn picker(
             .cloned()
     };
     let sessions = signed_in(&current).and_then(|status| status.sessions);
-    let movable: Vec<(Profile, accounts::Status)> = bench
+    let movable: Vec<(Profile, AccountStatus)> = bench
         .accounts
         .of(provider)
         .into_iter()
@@ -74,9 +76,8 @@ pub fn picker(
     if !movable.iter().any(|(profile, _)| profile.id != current.id) {
         return None;
     }
-    let name = |profile: &Profile, status: Option<&accounts::Status>| {
-        accounts::name(bench, profile, status)
-    };
+    let name =
+        |profile: &Profile, status: Option<&AccountStatus>| accounts::name(bench, profile, status);
     let label = name(&current, signed_in(&current).as_ref());
     let about = match running {
         true => "Moving stops this turn and carries it on in the other account".to_owned(),
@@ -140,7 +141,10 @@ pub fn picker(
                                 true => move_chat(bench, &agent, &chosen),
                                 false => bench.start_as(
                                     &agent,
-                                    serde_json::json!({ "profileId": chosen.id }),
+                                    AgentPatch {
+                                        profile_id: Some(Some(chosen.id.clone())),
+                                        ..AgentPatch::default()
+                                    },
                                     &chosen.name,
                                 ),
                             });

@@ -5,7 +5,6 @@ use gpui_kit::component::WindowExt;
 use gpui_kit::{App, ClickEvent, ClipboardItem, Context, WeakEntity, Window};
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 
-use serde_json::{json, Value};
 use sikemux_view::workspace::{PinnedChat, WorkspaceAgent};
 use sikemux_wire::protocol::PermissionMode;
 
@@ -13,6 +12,7 @@ use crate::icons::Icon;
 use crate::toast;
 use crate::workbench::Workbench;
 use sikemux_core::server::call;
+use sikemux_core::server::calls::AgentParams;
 use sikemux_core::server::names::RenameAgentParams;
 use sikemux_core::server::workspace::{AgentPatch, PinnedParams, UpdateAgentParams};
 
@@ -222,7 +222,14 @@ impl AgentMenu {
                 .item(
                     PopupMenuItem::new("Sleep")
                         .icon(Icon::Power)
-                        .on_click(self.call("sleepAgent", json!({ "agentId": id }))),
+                        .on_click(self.on_bench({
+                            let id = id.clone();
+                            move |bench, _| {
+                                bench.call_typed::<call::SleepAgent>(AgentParams {
+                                    agent_id: id.clone(),
+                                })
+                            }
+                        })),
                 )
                 .item(
                     PopupMenuItem::new(if agent.keep_alive {
@@ -347,19 +354,6 @@ impl AgentMenu {
         let bench = self.bench.clone();
         move |_, _, cx| {
             let _ = bench.update(cx, |bench, cx| work(bench, cx));
-        }
-    }
-
-    /// A menu item's click that makes a core call.
-    fn call(
-        &self,
-        method: &'static str,
-        params: Value,
-    ) -> impl Fn(&ClickEvent, &mut Window, &mut App) + Clone + 'static {
-        let bench = self.bench.clone();
-        move |_, _, cx| {
-            let params = params.clone();
-            let _ = bench.update(cx, |bench, _| bench.call(method, params));
         }
     }
 }

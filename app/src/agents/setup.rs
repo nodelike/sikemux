@@ -7,12 +7,14 @@ use gpui_kit::{
     anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Entity, Hsla,
     InteractiveElement, IntoElement, ParentElement, Styled, Window,
 };
-use serde_json::json;
 use sikemux_core::agent_accounts::status::AgentStatus;
+use sikemux_core::server::agent_accounts::{Account, Forget};
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
 use sikemux_wire::protocol::{SessionId, TerminalSpawn};
 use tokio::sync::oneshot;
 
-use crate::core::{self, Ask, TerminalAsk};
+use crate::core::{Ask, Target, TerminalAsk};
 use crate::theme::{
     self, Tokens, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM, TEXT_XS,
 };
@@ -101,40 +103,42 @@ async fn availability(
     kind: &str,
     config: Option<String>,
 ) -> (AgentStatus, Option<String>) {
-    let asked = json!({ "provider": kind, "configPath": config });
-    let answer = core::request(asks, "agentAvailability", asked)
-        .await
-        .unwrap_or_default();
-    let status = serde_json::from_value(answer["status"].clone()).unwrap_or(AgentStatus::Missing);
-    (status, answer["program"].as_str().map(str::to_owned))
+    let asked = Target::here(asks).request_typed::<call::AgentAvailability>(Account {
+        provider: kind.to_owned(),
+        config_path: config,
+    });
+    match asked.await {
+        Ok(found) => (
+            found.status,
+            found
+                .program
+                .map(|program| program.to_string_lossy().into_owned()),
+        ),
+        Err(_) => (AgentStatus::Missing, None),
+    }
 }
 
 /// Asks the core which agents are here, with those it can install that are not.
 pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let listed = core::request(&asks, "agentSetup", json!({}))
+        let listed = Target::here(&asks)
+            .request_typed::<call::AgentSetup>(NoParams {})
             .await
             .unwrap_or_default();
         let _ = bench.update(cx, |bench, cx| {
             let found = listed
-                .as_array()
-                .map_or(&[][..], Vec::as_slice)
-                .iter()
+                .into_iter()
                 .map(|agent| {
-                    let kind = agent["type"].as_str().unwrap_or_default().to_owned();
-                    let entry = bench.reads.catalog.kind(&kind);
+                    let entry = bench.reads.catalog.kind(&agent.kind);
                     Found {
-                        label: agent["label"].as_str().unwrap_or_default().to_owned(),
                         about: entry.map(|entry| entry.about.clone()).unwrap_or_default(),
                         install: entry.and_then(|entry| entry.install.clone()),
                         login: entry.and_then(|entry| entry.login.clone()),
-                        program: (agent["available"] == true)
-                            .then(|| agent["command"].as_str().map(str::to_owned))
-                            .flatten(),
-                        status: serde_json::from_value(agent["status"].clone())
-                            .unwrap_or(AgentStatus::Missing),
-                        kind,
+                        program: agent.available.then_some(agent.command),
+                        status: agent.status,
+                        label: agent.label,
+                        kind: agent.kind,
                     }
                 })
                 .collect();
@@ -368,7 +372,9 @@ fn ended(
         .and_then(|profile| profile.config_path.clone());
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let _ = core::request(&asks, "forgetAgentStatus", json!({})).await;
+        let forgot =
+            Target::here(&asks).request_typed::<call::ForgetAgentStatus>(Forget::default());
+        let _ = forgot.await;
         let (status, _) = availability(&asks, &kind, config).await;
         let _ = bench.update(cx, |bench, cx| {
             let found = !matches!(status, AgentStatus::Missing);

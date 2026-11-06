@@ -13,9 +13,9 @@ use super::chat::calls as chat_calls;
 use super::connection::{blocking, ClientConn};
 use super::workspace;
 use super::{
-    agent_accounts, agent_sign_in, attachments, board, edits, goal_summary, goals, inbox, memory,
-    messages, model_providers, names, plugins, questions, remote, saved, saved_sessions, share,
-    ship, skill_library, who_wrote, Core, CoreError, CoreResult,
+    agent_accounts, agent_sign_in, attachments, board, edits, goal_summary, goals, inbox, lsp,
+    memory, messages, model_providers, names, plugins, questions, remote, saved, saved_sessions,
+    share, ship, skill_library, who_wrote, Core, CoreError, CoreResult,
 };
 use sikemux_view::catalog::CatalogAgent;
 use sikemux_view::chat::ToolDetail;
@@ -124,7 +124,7 @@ macro_rules! calls {
 
 calls! { core, client, method, params;
     "chatFile": Watch, any_program => answer(attachments::chat_file(&core, &client.peer, parse(params)?).await?),
-    "keepPasted": Full => answer(attachments::keep_pasted(&core, parse(params)?).await?),
+    "keepPasted" KeepPasted (attachments::KeepPastedParams) -> attachments::Kept: Full => attachments::keep_pasted(&core, params).await?,
     "page" ReadPage (super::harness::pages::PageParams) -> super::harness::pages::PageHtml: Watch, any_program => super::harness::read_page(&core, params).await?,
     "nameAgent": NoDevice => answer(names::name_agent(&core, parse(params)?).await?),
     "renameAgent" RenameAgent (names::RenameAgentParams) -> names::AgentName: Full, counted => names::rename_agent(&core, params).await?,
@@ -132,37 +132,29 @@ calls! { core, client, method, params;
     "closedAgents" ClosedAgents (names::ClosedAgentsParams) -> Vec<names::ClosedAgent>: Full => names::closed_agents(&core, params).await?,
     "agentNames": Watch, any_program => answer(names::agent_names(&core).await?),
     "agentCatalog" AgentCatalog (NoParams) -> Vec<CatalogAgent>: Watch, any_program => super::catalog::view(),
-    "agentNameTheme": Full => answer(names::name_theme(&core)),
-    "setAgentNameTheme": Owner, counted => answer(names::set_name_theme(&core, parse(params)?)),
+    "agentNameTheme" AgentNameTheme (NoParams) -> names::NameThemeParams: Full => names::name_theme(&core),
+    "setAgentNameTheme" SetAgentNameTheme (names::NameThemeParams) -> names::NameThemeParams: Owner, counted => names::set_name_theme(&core, params),
     "hostLoad": Watch, any_program => answer(super::load::now()),
     "stopChatIfIdle": NoDevice => answer(json!({ "stopped": super::lifecycle::sleep(&core, &parse::<AgentParams>(params)?.agent_id) })),
     "switchAgentView" SwitchAgentView (super::agent_view::AgentViewParams) -> Value: Owner => super::agent_view::switch(&core, params).await?,
-    "sleepAgent": Owner, counted => answer(super::lifecycle::sleep_agent(&core, &parse::<AgentParams>(params)?.agent_id)?),
-    "sleepIdleChats": NoDevice => answer(json!({ "slept": super::lifecycle::sleep_idle(&core) })),
+    "sleepAgent" SleepAgent (AgentParams) -> (): Owner, counted => super::lifecycle::sleep_agent(&core, &params.agent_id)?,
+    "sleepIdleChats" SleepIdleChats (NoParams) -> Value: NoDevice => json!({ "slept": super::lifecycle::sleep_idle(&core) }),
     "startTerminalAgent": NoDevice, counted => super::launching::start_terminal_at(&core, parse(params)?).await,
-    "commandUsed": NoDevice => {
-        core.activity_log.command_used(&parse::<super::activity_log::CommandUsed>(params)?.id);
-        answer(())
-    },
-    "composing": Owner => {
-        super::chat::composing(&core, &parse::<AgentParams>(params)?.agent_id);
-        answer(())
-    },
-    "startChat": NoDevice, counted => {
-        let params: super::launching::StartParams = parse(params)?;
-        answer(super::launching::start_saved(&core, &params.agent_id, params.waits_for_person).await?)
+    "commandUsed" CommandUsed (super::activity_log::CommandUsed) -> (): NoDevice => core.activity_log.command_used(&params.id),
+    "composing" Composing (AgentParams) -> (): Owner => super::chat::composing(&core, &params.agent_id),
+    "startChat" StartChat (super::launching::StartParams) -> (): NoDevice, counted => {
+        super::launching::start_saved(&core, &params.agent_id, params.waits_for_person).await?
     },
     "resumeSession" ResumeSession (super::workspace::SessionChoice) -> super::launching::SessionTaken: Full, counted => super::launching::resume_session(&core, params).await?,
     "activitySummary": Watch, any_program => answer(super::activity_log::summary_for(&core, parse(params)?).await?),
-    "setActivityPrice": Owner => answer(super::activity_log::set_price_for(&core, parse(params)?)?),
+    "setActivityPrice" SetActivityPrice (super::activity_log::ActivityPriceParams) -> (): Owner => super::activity_log::set_price_for(&core, params)?,
     "steerQueued" SteerQueued (chat_calls::QueuedParams) -> (): Full, counted => {
         super::chat::queue::steer(&core, &params.agent_id, params.ids, params.message).await?
     },
     "editMessage" EditMessage (chat_calls::EditParams) -> (): Full, counted => chat_calls::edit_message(&core, params).await?,
-    "chatPage": Watch, any_program => {
-        let params: chat_calls::ChatPageParams = parse(params)?;
+    "chatPage" ChatPage (chat_calls::ChatPageParams) -> sikemux_view::chat::ChatPage: Watch, any_program => {
         let reading = core.clone();
-        answer(blocking(move || super::chat::page(&reading, params)).await?)
+        blocking(move || super::chat::page(&reading, params)).await?
     },
     "chatFind" ChatFind (super::chat::find::FindParams) -> super::chat::find::FindAnswer: Watch, any_program, counted => {
         let (reading, client) = (core.clone(), client.id);
@@ -191,9 +183,9 @@ calls! { core, client, method, params;
     },
     "runCommand": NoDevice => answer(super::custom_command::run(parse(params)?).await?),
     "updateStatus": Watch, any_program => answer(core.updates.status()),
-    "updateCheck": Owner => answer(super::updates::check(&core).await?),
+    "updateCheck" UpdateCheck (NoParams) -> super::updates::UpdateStatus: Owner => super::updates::check(&core).await?,
     "updateInstall" UpdateInstall (super::updates::UpdateInstallParams) -> super::updates::UpdateStatus: Owner, counted => super::updates::install(&core, params)?,
-    "updateCancel": Owner => answer(super::updates::cancel(&core)),
+    "updateCancel" UpdateCancel (NoParams) -> super::updates::UpdateStatus: Owner => super::updates::cancel(&core),
     "updateHost": NoDevice, any_program => answer(super::updates::update_host(&core).await?),
     "setHostUpdates" SetHostUpdates (super::updates::HostUpdatesParams) -> super::updates::UpdateStatus: Owner => super::updates::set_automatic(&core, params).await?,
     "runCustomCommand" RunCustomCommand (super::custom_command::RunCustomParams) -> super::custom_command::CommandRan: Owner, counted => super::custom_command::run_custom(&core, params).await?,
@@ -227,21 +219,18 @@ calls! { core, client, method, params;
     "renameRecent" RenameRecent (saved_sessions::RecentRenamed) -> (): Owner => saved_sessions::rename_recent(&core, params).await?,
     "deleteRecent" DeleteRecent (saved_sessions::RecentChat) -> (): Owner => saved_sessions::delete_recent(&core, params).await?,
     "relocateSession": Owner => answer(saved_sessions::relocate(parse(params)?).await?),
-    "skillsOverview": Full, any_program => skill_library::overview(&core).await,
-    "skillsAdded": Full, any_program => skill_library::added(&core).await,
-    "createSkill": Owner, counted => skill_library::create(&core, parse(params)?).await,
-    "installSkill": Owner, counted => skill_library::install(&core, parse(params)?).await,
-    "removeSkill": Owner => skill_library::remove(&core, parse(params)?).await,
-    "adoptSkill": Owner, counted => skill_library::adopt(&core, parse(params)?).await,
-    "agentSignIns": Full, any_program => answer(agent_sign_in::pages()),
-    "agentSignIn": Owner, counted => answer(agent_sign_in::sign_in(&core, parse(params)?).await?),
-    "signInLauncher": Owner => answer(agent_sign_in::sign_in_launcher(&core, parse(params)?).await?),
-    "agentSignInCode": Owner => answer(agent_sign_in::sign_in_code(parse(params)?).await?),
-    "cancelAgentSignIn": Owner => {
-        agent_sign_in::cancel(parse(params)?);
-        answer(())
-    },
-    "agentSignOut": Owner => answer(agent_sign_in::sign_out(parse(params)?).await?),
+    "skillsOverview" SkillsOverview (NoParams) -> skill_library::SkillsOverview: Full, any_program => skill_library::overview(&core).await?,
+    "skillsAdded" SkillsAdded (NoParams) -> Vec<skill_library::GlobalSkillAdded>: Full, any_program => skill_library::added(&core).await?,
+    "createSkill" CreateSkill (skill_library::NewSkill) -> crate::skills::Skill: Owner, counted => skill_library::create(&core, params).await?,
+    "installSkill" InstallSkill (skill_library::Source) -> crate::skills::Skill: Owner, counted => skill_library::install(&core, params).await?,
+    "removeSkill" RemoveSkill (skill_library::Named) -> (): Owner => skill_library::remove(&core, params).await?,
+    "adoptSkill" AdoptSkill (skill_library::Located) -> crate::skills::Skill: Owner, counted => skill_library::adopt(&core, params).await?,
+    "agentSignIns" AgentSignIns (NoParams) -> Vec<agent_sign_in::Page>: Full, any_program => agent_sign_in::pages(),
+    "agentSignIn" AgentSignIn (agent_sign_in::Account) -> (): Owner, counted => agent_sign_in::sign_in(&core, params).await?,
+    "signInLauncher" SignInLauncher (agent_sign_in::LauncherParams) -> (): Owner => agent_sign_in::sign_in_launcher(&core, params).await?,
+    "agentSignInCode" AgentSignInCode (agent_sign_in::Code) -> (): Owner => agent_sign_in::sign_in_code(params).await?,
+    "cancelAgentSignIn" CancelAgentSignIn (agent_sign_in::Account) -> (): Owner => agent_sign_in::cancel(params),
+    "agentSignOut" AgentSignOut (agent_sign_in::Account) -> (): Owner => agent_sign_in::sign_out(params).await?,
     "modelProviders" ModelProviders (NoParams) -> Vec<model_providers::ModelProvider>: Full, any_program => model_providers::list(&core).await?,
     "modelProviderModels" ModelProviderModels (model_providers::ProviderParams) -> model_providers::ServedModels: Full, any_program => model_providers::models(&core, params).await?,
     "modelHelper" ModelHelper (NoParams) -> Option<crate::launch::providers::Helper>: Full, any_program => model_providers::helper(&core).await?,
@@ -252,19 +241,19 @@ calls! { core, client, method, params;
     "modelProviderAdd" ModelProviderAdd (model_providers::adding::Entered) -> model_providers::ModelProvider: Owner => model_providers::add(&core, params).await?,
     "modelProviderRemove" ModelProviderRemove (model_providers::ProviderParams) -> (): Owner => model_providers::remove(&core, params).await?,
     "setModelHelper" SetModelHelper (model_providers::HelperParams) -> (): Owner => model_providers::set_helper(&core, params).await?,
-    "agentAccounts": Full, any_program => answer(core.workspaces.accounts().unwrap_or_default().with_built_ins()),
+    "agentAccounts" AgentAccounts (NoParams) -> crate::agent_accounts::Book: Full, any_program => core.workspaces.accounts().unwrap_or_default().with_built_ins(),
     "agentStatus": Full, any_program => answer(agent_accounts::status(&core, parse(params)?).await?),
     "installedAgents": Full, any_program => answer(agent_accounts::installed(&core).await?),
-    "agentSetup": Full, any_program => answer(agent_accounts::setup(&core).await?),
-    "agentAvailability": Full, any_program => {
-        answer(agent_accounts::availability(&core, parse(params)?).await?)
+    "agentSetup" AgentSetup (NoParams) -> Vec<agent_accounts::Installed>: Full, any_program => agent_accounts::setup(&core).await?,
+    "agentAvailability" AgentAvailability (agent_accounts::Account) -> agent_accounts::Availability: Full, any_program => {
+        agent_accounts::availability(&core, params).await?
     },
-    "agentAccountStatus": Full, any_program => {
-        answer(agent_accounts::account_status(&core, parse(params)?).await?)
+    "agentAccountStatus" AgentAccountStatus (agent_accounts::Account) -> crate::agent_accounts::status::AccountStatus: Full, any_program => {
+        agent_accounts::account_status(&core, params).await?
     },
     "agentUsage": Full, any_program => answer(agent_accounts::usage(&core, parse(params)?).await?),
     "agentUsages": Watch, any_program => answer(agent_accounts::usages(&core).await),
-    "readAgentUsages": Full, any_program => answer(agent_accounts::read_usages(&core).await),
+    "readAgentUsages" ReadAgentUsages (NoParams) -> Vec<agent_accounts::AccountUsage>: Full, any_program => agent_accounts::read_usages(&core).await,
     "openTab" OpenTab (sikemux_view::layout::OpenTab) -> String: Full => super::layout::open_tab(&core, params)?,
     "keepTab" KeepTab (super::layout::TabParams) -> (): Full => super::layout::keep_tab(&core, params)?,
     "closeTab" CloseTab (super::layout::TabParams) -> (): Full => super::layout::close_tab(&core, params)?,
@@ -285,35 +274,29 @@ calls! { core, client, method, params;
     "accountPicture": Watch => answer(super::account::picture(&core, &parse::<super::account::AccountPictureParams>(params)?.hash).await),
     "accountSignIn": Owner => answer(super::account::sign_in(&core, client.peer.clone()).await?),
     "accountSignInFinish": Owner => answer(super::account::sign_in_finished(&core).await?),
-    "accountSignInCancel": Owner => {
-        super::account::cancel_sign_in(&core);
-        answer(Value::Null)
-    },
-    "accountSignOut": Owner => answer(super::account::sign_out(&core, &client.peer).await?),
+    "accountSignInCancel" AccountSignInCancel (NoParams) -> (): Owner => super::account::cancel_sign_in(&core),
+    "accountSignOut" AccountSignOut (NoParams) -> (): Owner => super::account::sign_out(&core, &client.peer).await?,
     "sshHosts": Watch, any_program => {
         let reading = core.clone();
         answer(blocking(move || Ok(super::ssh::hosts(&reading))).await?)
     },
-    "removeTrigger": Full => answer(super::triggers::remove(&core, parse::<super::triggers::TriggerParams>(params)?.trigger)),
+    "removeTrigger" RemoveTrigger (super::triggers::TriggerParams) -> bool: Full => super::triggers::remove(&core, params.trigger),
     "cancelResume" CancelResume (agent_accounts::ChatAccountsParams) -> (): Full => super::chat::reset::cancel_by_person(&core, &params.agent_id),
     "setAgentAccounts": Owner => {
         agent_accounts::set(&core, parse(params)?).await?;
         answer(())
     },
-    "addAgentAccount": Owner, counted => answer(agent_accounts::add(parse(params)?).await?),
-    "forgetAgentStatus": Owner => {
-        agent_accounts::forget(&core, parse(params)?);
-        answer(())
-    },
+    "addAgentAccount" AddAgentAccount (agent_accounts::Adding) -> String: Owner, counted => agent_accounts::add(params).await?,
+    "forgetAgentStatus" ForgetAgentStatus (agent_accounts::Forget) -> (): Owner => agent_accounts::forget(&core, params),
     "markAgentSignedOut": Owner => {
         agent_accounts::mark_signed_out(&core, parse(params)?);
         answer(())
     },
-    "saveAgentAccount": NoDevice => answer(agent_accounts::save(&core, parse(params)?).await?),
-    "removeAgentAccount": NoDevice => answer(agent_accounts::remove(&core, parse(params)?).await?),
-    "selectAgentAccount": NoDevice, counted => answer(agent_accounts::select(&core, parse(params)?).await?),
-    "setAccountAutoSwitch": NoDevice, counted => {
-        answer(agent_accounts::set_auto_switch(&core, parse(params)?).await?)
+    "saveAgentAccount" SaveAgentAccount (agent_accounts::Saving) -> crate::agent_accounts::Book: NoDevice => agent_accounts::save(&core, params).await?,
+    "removeAgentAccount" RemoveAgentAccount (agent_accounts::Removing) -> crate::agent_accounts::Book: NoDevice => agent_accounts::remove(&core, params).await?,
+    "selectAgentAccount" SelectAgentAccount (agent_accounts::Choosing) -> crate::agent_accounts::Book: NoDevice, counted => agent_accounts::select(&core, params).await?,
+    "setAccountAutoSwitch" SetAccountAutoSwitch (agent_accounts::Switching) -> crate::agent_accounts::Book: NoDevice, counted => {
+        agent_accounts::set_auto_switch(&core, params).await?
     },
     "retryFailed" RetryFailed (agent_accounts::ChatAccountsParams) -> (): Full => agent_accounts::retry_failed(&core, params)?,
     "discardFailed" DiscardFailed (agent_accounts::ChatAccountsParams) -> (): Full => agent_accounts::discard_failed(&core, params)?,
@@ -321,10 +304,8 @@ calls! { core, client, method, params;
         agent_accounts::chat_accounts(&core, params)?
     },
     "moveChatAccount" MoveChatAccount (agent_accounts::MoveChatParams) -> (): Full => super::chat::move_to_account(&core, &params.agent_id, &params.account_id)?,
-    "authenticateChat": NoDevice => {
-        let params: agent_accounts::Authenticate = parse(params)?;
-        super::chat::authenticate(&core, &params.agent_id, params.method_id).await?;
-        answer(())
+    "authenticateChat" AuthenticateChat (agent_accounts::Authenticate) -> (): NoDevice => {
+        super::chat::authenticate(&core, &params.agent_id, params.method_id).await?
     },
     "shareChat" ShareChat (share::ShareChatParams) -> share::ShareView: Owner, counted => share::share_chat_for(&core, params)?,
     "stopShare": Owner => answer(share::stop(&core, &parse::<share::StopShareParams>(params)?.id)?),
@@ -348,30 +329,24 @@ calls! { core, client, method, params;
     "projectEntries" ProjectEntries (super::project_files::ProjectEntriesParams) -> Vec<crate::fuzzy::ProjectEntry>: Full => {
         blocking(move || super::project_files::entries(params).map_err(CoreError::from)).await?
     },
-    "searchStream": Full, counted => answer(super::streams::search_stream(&core, client, parse(params)?)?),
-    "searchReplace": Full, counted => {
-        let params = parse(params)?;
-        answer(blocking(move || super::search::replace(params).map_err(CoreError::from)).await?)
+    "searchStream" SearchStream (super::streams::SearchStreamParams) -> Value: Full, counted => super::streams::search_stream(&core, client, params)?,
+    "searchReplace" SearchReplace (super::search::ReplaceParams) -> super::search::ReplaceResults: Full, counted => {
+        blocking(move || super::search::replace(params).map_err(CoreError::from)).await?
     },
-    "fileWindow": Full => {
-        let params = parse(params)?;
-        answer(blocking(move || super::search::window(params).map_err(CoreError::from)).await?)
+    "fileWindow" FileWindow (super::search::WindowParams) -> super::search::FileWindow: Full => {
+        blocking(move || super::search::window(params).map_err(CoreError::from)).await?
     },
-    "streamCancel": Watch => {
-        core.streams.cancel(client.id, parse::<super::streams::StreamParams>(params)?.stream);
-        answer(Value::Null)
-    },
+    "streamCancel" StreamCancel (super::streams::StreamParams) -> (): Watch => core.streams.cancel(client.id, params.stream),
     "projectRoots": Full => {
         let params = parse(params)?;
         answer(blocking(move || super::project_roots::scan(params).map_err(CoreError::from)).await?)
     },
-    "resolvePath": Full => {
-        let params = parse(params)?;
-        answer(blocking(move || Ok(super::project_roots::resolve(params))).await?)
+    "resolvePath" ResolvePath (super::project_roots::ResolveParams) -> super::project_roots::Resolved: Full => {
+        blocking(move || Ok(super::project_roots::resolve(params))).await?
     },
     "sshConfigFile": Full => answer(blocking(|| super::ssh::config_file().map_err(CoreError::from)).await?),
     "faceStyle": Watch => answer(core.faces.style()),
-    "setFaceStyle": Owner, counted => answer(super::faces::set_style_shown(&core, parse(params)?)?),
+    "setFaceStyle" SetFaceStyle (super::faces::FaceStyleChange) -> sikemux_view::device::FaceStyle: Owner, counted => super::faces::set_style_shown(&core, params)?,
     "preferences" Preferences (NoParams) -> Preferences: Watch => core.preferences.get(),
     "mods": Watch => answer(super::mods::list(&core).await?),
     "modPage" ModPage (super::mods::ModParams) -> super::mods::ModPage: Watch => super::mods::page(&core, params).await?,
@@ -398,15 +373,12 @@ calls! { core, client, method, params;
     "setDraft" SetDraft (super::drafts::SetDraftParams) -> (): Owner => super::drafts::set(&core, params)?,
     "diagramLayout": Owner => answer(super::diagrams::layout(&core, parse(params)?)),
     "setDiagramLayout": Owner => super::diagrams::set_layout(&core, parse(params)?),
-    "setPreference": Owner => {
-        let params: super::preferences::SetPreferenceParams = parse(params)?;
-        answer(super::preferences::set(&core, &params.key, params.value)?)
-    },
+    "setPreference" SetPreference (super::preferences::SetPreferenceParams) -> Preferences: Owner => super::preferences::set(&core, &params.key, params.value)?,
     "setWorktreeDefault" SetWorktreeDefault (super::preferences::WorktreeDefaultParams) -> (): Owner => super::preferences::set_worktree_default(&core, params)?,
     "theme": Watch, any_program => answer(super::themes::palette_for(&core, parse_or_default(params)?)),
     "typeWhenReady": Full => super::session::type_when_asked(&core, client, parse(params)?),
     "promptDraft": Full => super::session::draft_at_prompt(&core, parse(params)?),
-    "reconnectSsh": Full => super::session::reconnect(&core, parse(params)?).await,
+    "reconnectSsh" ReconnectSsh (super::session::SessionParams) -> Value: Full => super::session::reconnect(&core, params).await?,
     "newTerminal" NewTerminal (super::spare::NewTerminal) -> String: Full => super::spare::new_terminal(&core, params).await?,
     "showTerminals" ShowTerminals (NoParams) -> (): Full => super::spare::show_terminals(&core).await?,
     "stripShell" StripShell (sikemux_view::layout::At) -> sikemux_wire::protocol::SessionId: Full => super::spare::strip_shell(&core, params).await?,
@@ -518,27 +490,21 @@ calls! { core, client, method, params;
     "removeTask" RemoveTask (super::tasks::RemoveTaskParams) -> Value: Owner => super::tasks::remove(&core, params).await?,
     "setCheck" SetCheck (super::tasks::SetCheckParams) -> Value: Owner => super::tasks::set_check(&core, params).await?,
     "agentModels": NoDevice => answer(super::chat::models_of(&core, &parse::<super::chat::AgentModelsParams>(params)?.agent)),
-    "plugin": Owner, counted_by("plugin") => answer(plugins::window_call(&core, parse(params)?).await),
+    "plugin" Plugin (plugins::PluginCall) -> plugins::PluginOutcome: Owner, counted_by("plugin") => plugins::window_call(&core, params).await,
     "pluginManifests": Owner => answer(plugins::manifests(&core)),
-    "releaseNotes": Watch => answer(super::about::release_notes(parse(params)?).await?),
-    "releaseAvatars": Watch => answer(super::about::release_avatars(parse(params)?).await),
-    "hostTools": Watch => answer(super::about::tools().await?),
-    "whatsNew": Watch => answer(super::about::whats_new(&core)),
-    "cliInstall": Watch => answer(super::cli_install::status().await?),
-    "installCli": Owner, counted => answer(super::cli_install::install().await?),
+    "releaseNotes" ReleaseNotes (super::about::NotesParams) -> crate::releases::ReleaseNotes: Watch => super::about::release_notes(params).await?,
+    "releaseAvatars" ReleaseAvatars (super::about::AvatarsParams) -> std::collections::HashMap<String, String>: Watch => super::about::release_avatars(params).await,
+    "hostTools" HostTools (NoParams) -> super::about::Tools: Watch => super::about::tools().await?,
+    "whatsNew" WhatsNew (NoParams) -> super::about::WhatsNew: Watch => super::about::whats_new(&core),
+    "cliInstall" CliInstall (NoParams) -> super::cli_install::CliInstallStatus: Watch => super::cli_install::status().await?,
+    "installCli" InstallCli (NoParams) -> super::cli_install::CliInstallStatus: Owner, counted => super::cli_install::install().await?,
     "renameAccountDevice" RenameAccountDevice (super::account::devices::DeviceParams) -> (): Owner => super::account::devices::rename_device(&core, params).await?,
     "removeAccountDevice" RemoveAccountDevice (super::account::devices::DeviceParams) -> (): Owner => super::account::devices::remove_device(&core, params).await?,
-    "accountPhones": Owner => answer(super::account::devices::phones(&core).await?),
-    "showFiles": Watch => {
-        super::open_files::show(&core, client.id, parse(params)?)?;
-        answer(())
-    },
+    "accountPhones" AccountPhones (NoParams) -> Vec<crate::accounts::protocol::Device>: Owner => super::account::devices::phones(&core).await?,
+    "showFiles" ShowFiles (super::open_files::ShowFiles) -> (): Watch => super::open_files::show(&core, client.id, params)?,
     "plugins": Watch => answer(plugins::listed(&core).await),
-    "pluginSetDisabled": Owner => {
-        plugins::set_disabled(&core, parse(params)?);
-        answer(())
-    },
-    "pluginStream": Owner => answer(plugins::stream(&core, super::connection::connection_of(&core, client)?, parse(params)?)?),
+    "pluginSetDisabled" PluginSetDisabled (plugins::Disabled) -> (): Owner => plugins::set_disabled(&core, params),
+    "pluginStream" PluginStream (plugins::StreamCall) -> Value: Owner => plugins::stream(&core, super::connection::connection_of(&core, client)?, params)?,
     "pluginSignIn": Owner, any_program => {
         plugins::not_an_agent(client).await?;
         answer(plugins::sign_in(&core, super::connection::connection_of(&core, client)?, parse(params)?)?)
@@ -559,20 +525,20 @@ calls! { core, client, method, params;
     "files.preview" FilesPreview (crate::files::FilePreviewParams) -> crate::files::FilePreview: Full => edits::on_disk(move || crate::files::preview(params)).await?,
     "files.bytes" FilesBytes (crate::files::FileBytesParams) -> crate::files::FileBytes: Full => edits::on_disk(move || crate::files::bytes(params)).await?,
     "files.write" FilesWrite (crate::files::FileWriteParams) -> crate::files::FileWritten: Full => edits::write_file(&core, params).await?,
-    "lsp.release": Full => super::lsp::release_all(client.id),
-    "lsp.claim": Full => super::lsp::claim(client.id, parse(params)?),
-    "lsp.languages": Full => super::lsp::languages().await,
-    "lsp.install": Full => super::lsp::install(parse(params)?).await,
-    "lsp.start": Full => super::lsp::start(&core, parse(params)?).await,
-    "lsp.stop": Full => super::lsp::stop(parse(params)?).await,
-    "lsp.open": Full => super::lsp::open(client.id, parse(params)?).await,
-    "lsp.change": Full => super::lsp::change(parse(params)?).await,
-    "lsp.changeIncremental": Full => super::lsp::change_incremental(parse(params)?).await,
-    "lsp.save": Full => super::lsp::save(parse(params)?).await,
-    "lsp.close": Full => super::lsp::close(client.id, parse(params)?).await,
-    "lsp.locations": Full, counted => super::lsp::locations(parse(params)?).await,
-    "lsp.symbols": Full => super::lsp::symbols(parse(params)?).await,
-    "lsp.diagnostics": Full => super::lsp::diagnostics_of(parse(params)?),
+    "lsp.release" LspRelease (NoParams) -> (): Full => super::lsp::release(client.id),
+    "lsp.claim" LspClaim (lsp::LspClaim) -> Vec<String>: Full => lsp::claim(client.id, params),
+    "lsp.languages" LspLanguages (NoParams) -> Vec<String>: Full => lsp::languages().await?,
+    "lsp.install" LspInstall (lsp::LspLanguage) -> String: Full => lsp::install(params).await?,
+    "lsp.start" LspStart (lsp::LspServer) -> (): Full => lsp::start(&core, params).await?,
+    "lsp.stop" LspStop (lsp::LspProject) -> (): Full => lsp::stop(params).await?,
+    "lsp.open" LspOpen (lsp::LspOpen) -> lsp::LspOpened: Full => lsp::open(client.id, params).await?,
+    "lsp.change" LspChange (lsp::LspChange) -> (): Full => lsp::change(params).await?,
+    "lsp.changeIncremental" LspChangeIncremental (lsp::LspIncrementalChange) -> (): Full => lsp::change_incremental(params).await?,
+    "lsp.save" LspSave (lsp::LspSave) -> (): Full => lsp::save(params).await?,
+    "lsp.close" LspClose (lsp::LspDocument) -> (): Full => lsp::close(client.id, params).await?,
+    "lsp.locations" LspLocations (lsp::LspLocations) -> Vec<lsp::LspLocation>: Full, counted => lsp::locations(params).await?,
+    "lsp.symbols" LspSymbols (lsp::LspDocument) -> Vec<lsp::LspDocumentSymbol>: Full => lsp::symbols(params).await?,
+    "lsp.diagnostics" LspDiagnostics (lsp::LspPath) -> Vec<lsp::LspDiagnosticsPayload>: Full => lsp::diagnostics_of(params),
     "git.pullRequestUrl": Watch, any_program => answer(super::git::pull_request_url(&core, &client.peer, parse(params)?).await?),
 }
 
@@ -618,8 +584,8 @@ struct ManifestFolder {
     manifest_dir: Option<std::path::PathBuf>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentParams {
-    pub(super) agent_id: String,
+    pub agent_id: String,
 }

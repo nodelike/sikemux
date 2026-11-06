@@ -22,6 +22,9 @@ use gpui_kit::{
 use gpui_terminal_grid::{
     Cursor, CursorShape, Grid, Highlight, Layout, Look, Marked, Metrics, Span, Underline,
 };
+use sikemux_core::server::attachments::KeepPastedParams;
+use sikemux_core::server::call;
+use sikemux_core::server::session::SessionParams;
 
 use sikemux_grid::{Color, Row, Screen};
 use sikemux_wire::protocol::{SessionId, SessionInfo};
@@ -31,7 +34,7 @@ use sikemux_wire::terminal::{
 };
 use tokio::sync::{mpsc, oneshot};
 
-use crate::core::{Ask, Screenful, TerminalAsk};
+use crate::core::{Ask, Screenful, Target, TerminalAsk};
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::keyboard::TakesKeys;
@@ -94,29 +97,6 @@ fn routed(places: &RefCell<Vec<Place>>, key: TermKey, ask: TerminalAsk) -> Ask {
     match places.borrow().get(usize::from(key.place)) {
         Some(Place::Account(host)) => Ask::On(host.clone(), Box::new(ask)),
         _ => ask,
-    }
-}
-
-/// A call to the core of the host terminal `key` runs on, answered on `reply`.
-fn requested(
-    places: &RefCell<Vec<Place>>,
-    key: TermKey,
-    method: &'static str,
-    params: serde_json::Value,
-    reply: oneshot::Sender<Result<serde_json::Value, crate::core::CallError>>,
-) -> Ask {
-    match places.borrow().get(usize::from(key.place)) {
-        Some(Place::Account(host)) => Ask::HostRequest {
-            host: host.clone(),
-            method,
-            params,
-            reply,
-        },
-        _ => Ask::Request {
-            method,
-            params,
-            reply,
-        },
     }
 }
 
@@ -401,6 +381,12 @@ impl Terminal {
 }
 
 impl Terminals {
+    /// Where calls about the terminal `key` go: the core of the host it runs on.
+    fn target(&self, key: TermKey, asks: &mpsc::UnboundedSender<Ask>) -> Target {
+        let place = self.places.borrow().get(usize::from(key.place)).cloned();
+        Target::new(asks, place.unwrap_or_default())
+    }
+
     pub fn open_count(&self) -> usize {
         self.open.len()
     }
@@ -1797,35 +1783,34 @@ fn paste_picture(id: TermKey, image: Image, window: &mut Window, cx: &mut Contex
     cx.spawn_in(window, async move |this, cx| {
         use base64::Engine;
         let image = readable.await;
-        let params = serde_json::json!({
-            "name": format!("{stamp}.{}", image.format.extension()),
-            "mime": image.format.mime_type(),
-            "data": base64::engine::general_purpose::STANDARD.encode(&image.bytes),
-        });
-        let (reply, answer) = oneshot::channel();
-        this.update(cx, |bench, _| {
-            let ask = requested(&bench.terminals.places, id, "keepPasted", params, reply);
-            let _ = bench.asks.send(ask);
-        })
-        .ok();
-        let kept = match answer.await {
-            Ok(Ok(kept)) => kept,
-            Ok(Err(error)) => {
+        let params = KeepPastedParams {
+            name: format!("{stamp}.{}", image.format.extension()),
+            mime: image.format.mime_type().to_owned(),
+            data: base64::engine::general_purpose::STANDARD.encode(&image.bytes),
+        };
+        let Ok(asked) = this.update(cx, |bench, _| {
+            bench
+                .terminals
+                .target(id, &bench.asks)
+                .request_typed::<call::KeepPasted>(params)
+        }) else {
+            return;
+        };
+        let kept = match asked.await {
+            Ok(kept) => kept,
+            Err(error) => {
                 let note = format!("The pasted picture was not kept: {error}");
                 cx.update(|window, cx| window.push_notification(note, cx))
                     .ok();
                 return;
             }
-            Err(_) => return,
         };
-        if let Some(path) = kept["path"].as_str() {
-            let paths = vec![path.to_owned()];
-            this.update(cx, |bench, cx| {
-                send(bench, id, TerminalInput::Paths { paths });
-                bench.terminals.redraw(id, cx);
-            })
-            .ok();
-        }
+        let paths = vec![kept.path.to_string_lossy().into_owned()];
+        this.update(cx, |bench, cx| {
+            send(bench, id, TerminalInput::Paths { paths });
+            bench.terminals.redraw(id, cx);
+        })
+        .ok();
     })
     .detach();
 }
@@ -2049,10 +2034,8 @@ fn focus_changed(bench: &mut Workbench, id: TermKey, focused: bool, cx: &mut Con
         .session(&id.session.to_string())
         .is_some_and(|session| session.ssh_alias.is_some());
     if focused && ssh {
-        let _ = bench.asks.send(Ask::Call {
-            method: "reconnectSsh",
-            params: serde_json::json!({ "id": id.session }),
-        });
+        (bench.terminals.target(id, &bench.asks))
+            .call_typed::<call::ReconnectSsh>(SessionParams { id: id.session });
     }
     if focused {
         bench.terminals.focused = Some(id);

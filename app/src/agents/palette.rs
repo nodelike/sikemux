@@ -5,7 +5,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use gpui_kit::{Context, SharedString, Window};
-use serde_json::json;
+use sikemux_core::server::agent_sign_in::LauncherParams;
+use sikemux_core::server::call;
 use sikemux_view::workspace::LauncherInfo;
 use sikemux_wire::protocol::{AgentStatus, PermissionMode};
 
@@ -215,7 +216,9 @@ fn sign_in(
         return;
     };
     if SIGNS_IN.contains(&provider.as_str()) {
-        bench.call("signInLauncher", json!({ "launcher": launcher }));
+        bench.call_typed::<call::SignInLauncher>(LauncherParams {
+            launcher: launcher.to_owned(),
+        });
         return;
     }
     bench.open_settings(crate::settings::Page::Installed, window, cx);

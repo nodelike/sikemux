@@ -5,7 +5,7 @@
 //! rather than anything piling up or being dropped.
 
 use super::Core;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -168,17 +168,17 @@ async fn flush_while_open(stream: Arc<Stream>) {
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct StreamParams {
+#[derive(Serialize, Deserialize)]
+pub struct StreamParams {
     /// None stops every stream on the connection, as a reloaded page does.
-    pub(crate) stream: Option<u64>,
+    pub stream: Option<u64>,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SearchStreamParams {
-    stream: u64,
+#[derive(Serialize, Deserialize)]
+pub struct SearchStreamParams {
+    pub stream: u64,
     #[serde(flatten)]
-    search: crate::server::search::SearchParams,
+    pub search: crate::server::search::SearchParams,
 }
 
 pub(crate) fn search_stream(

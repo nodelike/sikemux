@@ -5,11 +5,11 @@ use gpui_kit::{
     div, AnyElement, App, Context, Entity, InteractiveElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
-use serde_json::json;
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::names::{NameTheme, NameThemeParams};
 use sikemux_view::prefs::{MidTurnSend, RailDensity};
 use sikemux_wire::protocol::PermissionMode;
 
-use crate::core::Ask;
 use crate::settings::rows::{self, Choice};
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM};
 use crate::ui;
@@ -25,30 +25,31 @@ pub struct Fields {
 }
 
 /// The themes new agents' names come from: the core's word, and how the menu shows it.
-const NAMES: [(&str, &str); 2] = [
-    ("nature", "Nature: Otter, Maple, Flint"),
-    ("anime", "Anime: Luffy, Gojo, Frieren"),
+const NAMES: [(NameTheme, &str); 2] = [
+    (NameTheme::Nature, "Nature: Otter, Maple, Flint"),
+    (NameTheme::Anime, "Anime: Luffy, Gojo, Frieren"),
 ];
 
 /// Asks the core what new agents are called, and offers the themes once it says.
 pub fn read_names(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn_in(window, async move |bench, cx| {
-        let Ok(answer) = crate::core::request(&asks, "agentNameTheme", json!({})).await else {
+        let asked =
+            crate::core::Target::here(&asks).request_typed::<call::AgentNameTheme>(NoParams {});
+        let Ok(answer) = asked.await else {
             return;
         };
         let chosen = NAMES
             .iter()
-            .position(|(theme, _)| answer["theme"] == *theme)
+            .position(|(theme, _)| answer.theme == *theme)
             .unwrap_or(0);
         let _ = bench.update_in(cx, |bench, window, cx| {
             let names = Choice::new(
                 NAMES.iter().map(|(_, label)| *label).collect(),
                 chosen,
                 |bench, at, _| {
-                    let _ = bench.asks.send(Ask::Call {
-                        method: "setAgentNameTheme",
-                        params: json!({ "theme": NAMES[at].0 }),
+                    bench.call_typed::<call::SetAgentNameTheme>(NameThemeParams {
+                        theme: NAMES[at].0,
                     });
                 },
                 window,
@@ -204,10 +205,7 @@ pub fn render(
         ui::Button::new("sleep-idle", "Sleep now", ui::Variant::Outline).on_click(
             move |_, _, cx| {
                 this.update(cx, |bench, _| {
-                    let _ = bench.asks.send(Ask::Call {
-                        method: "sleepIdleChats",
-                        params: json!({}),
-                    });
+                    bench.call_typed::<call::SleepIdleChats>(NoParams {});
                 })
             },
         )

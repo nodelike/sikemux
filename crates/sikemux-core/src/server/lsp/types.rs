@@ -26,7 +26,7 @@ pub struct LspTextChange {
     pub text: String,
 }
 
-#[derive(Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum LspDiagnosticSeverity {
     Error,
@@ -35,7 +35,7 @@ pub enum LspDiagnosticSeverity {
     Hint,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LspDiagnostic {
     pub range: LspRange,
@@ -45,7 +45,7 @@ pub struct LspDiagnostic {
     pub message: String,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LspDiagnosticsPayload {
     pub project: String,
@@ -55,7 +55,7 @@ pub struct LspDiagnosticsPayload {
     pub diagnostics: Vec<LspDiagnostic>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct LspDocumentSymbol {
     pub name: String,
@@ -66,7 +66,7 @@ pub struct LspDocumentSymbol {
     pub children: Vec<LspDocumentSymbol>,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 #[serde(rename_all = "camelCase")]
 pub enum LspKind {
     Definition,
@@ -74,4 +74,85 @@ pub enum LspKind {
     TypeDefinition,
     Implementation,
     References,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LspServer {
+    pub project: String,
+    pub language: String,
+}
+
+/// A file open with a language server, named as the core keeps it.
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LspDocument {
+    pub project: String,
+    pub language: String,
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LspOpen {
+    #[serde(flatten)]
+    pub document: LspDocument,
+    pub content: String,
+    pub language_id: Option<String>,
+}
+
+/// What a window knows its hold on an open file by, to claim it back after reconnecting.
+#[derive(Serialize, Deserialize)]
+pub struct LspOpened {
+    pub handle: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LspChange {
+    #[serde(flatten)]
+    pub document: LspDocument,
+    pub content: String,
+    pub version: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LspIncrementalChange {
+    #[serde(flatten)]
+    pub document: LspDocument,
+    pub changes: Vec<LspTextChange>,
+    pub version: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LspSave {
+    #[serde(flatten)]
+    pub document: LspDocument,
+    pub content: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LspLocations {
+    #[serde(flatten)]
+    pub document: LspDocument,
+    pub line: u32,
+    pub character: u32,
+    pub kind: LspKind,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LspLanguage {
+    pub language: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LspProject {
+    pub project: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LspPath {
+    pub path: String,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct LspClaim {
+    pub handles: Vec<String>,
 }

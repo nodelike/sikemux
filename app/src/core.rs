@@ -1,7 +1,10 @@
 use sikemux_core::server::call;
-use sikemux_core::server::chat::calls::ToolDetailParams;
+use sikemux_core::server::chat::calls::{ChatPageParams, ToolDetailParams};
 use sikemux_core::server::chat::find::FindAnswer;
 use sikemux_core::server::chat::find::FindParams;
+use sikemux_core::server::launching::StartParams;
+use sikemux_core::server::streams::StreamParams;
+use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
 use sikemux_view::changed::Topic;
 use sikemux_view::chat::{ChatPage, ToolDetail};
 use sikemux_view::device::HostInfo;
@@ -114,11 +117,11 @@ pub enum ChatNews {
     /// Earlier rows, or none when the core's answer did not read.
     Page(Option<ChatPage>),
     /// Later rows, with `newer_after`, or none when the answer did not read.
-    Later(Option<ChatPage>),
+    Later(ChatPage),
     /// The rows around a place found.
-    Around(Option<ChatPage>),
+    Around(ChatPage),
     /// The chat's latest rows.
-    Latest(Option<ChatPage>),
+    Latest(ChatPage),
     /// What `chatFind` answered the ask numbered `asked`.
     Found {
         asked: u64,
@@ -361,7 +364,7 @@ pub enum ChatAsk {
     /// stops, the core changes the agent by `patch`, and a session starts on what it is now.
     Move {
         agent: String,
-        patch: Value,
+        patch: AgentPatch,
     },
     Detach {
         agent: String,
@@ -971,15 +974,10 @@ pub struct Streaming {
 
 impl Drop for Streaming {
     fn drop(&mut self) {
-        self.target
-            .call("streamCancel", json!({ "stream": self.stream }));
+        self.target.call_typed::<call::StreamCancel>(StreamParams {
+            stream: Some(self.stream),
+        });
     }
-}
-
-/// Asks the core one of its methods whose answer streams, adding the stream's number to
-/// `params`.
-pub fn stream(asks: &mpsc::UnboundedSender<Ask>, method: &'static str, params: Value) -> Streaming {
-    Target::here(asks).stream(method, params)
 }
 
 /// Where a pane's calls go: this host's core, or the core of the account host its project
@@ -1070,7 +1068,9 @@ impl Target {
         async move {
             let answer = asked?.await?;
             serde_json::from_value(answer).map_err(|error| {
-                format!("the core's answer to {} did not read: {error}", C::METHOD).into()
+                let said = format!("the core's answer to {} did not read: {error}", C::METHOD);
+                eprintln!("sikemux: {said}");
+                said.into()
             })
         }
     }
@@ -1126,18 +1126,18 @@ impl Target {
         self.ask(Ask::Answer { read, params });
     }
 
-    /// Asks a method whose answer streams, adding the stream's number to `params`.
-    pub fn stream(&self, method: &'static str, mut params: Value) -> Streaming {
+    /// Asks the call `C`, whose answer streams, with `params` made from the stream's number.
+    pub fn stream<C: Call>(&self, params: impl FnOnce(u64) -> C::Params) -> Streaming
+    where
+        C::Params: Serialize,
+    {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let stream = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if let Some(params) = params.as_object_mut() {
-            params.insert("stream".into(), stream.into());
-        }
         let (sender, parts) = mpsc::unbounded_channel();
         self.ask(Ask::Stream {
             stream,
-            method,
-            params,
+            method: C::METHOD,
+            params: serde_json::to_value(params(stream)).unwrap_or(Value::Null),
             parts: sender,
         });
         Streaming {
@@ -1771,9 +1771,9 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
                     })
                     .await,
             );
-            let changed = client
-                .call("updateAgent", json!({ "agentId": agent, "patch": patch }))
-                .await;
+            let changed =
+                called::<call::UpdateAgent>(client, UpdateAgentParams::new(agent.clone(), patch))
+                    .await;
             if let Err(error) = changed {
                 return eprintln!("sikemux: the core did not move chat {agent}: {error}");
             }
@@ -1806,16 +1806,22 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             Err(error) => return eprintln!("sikemux: the core gave no earlier page: {error}"),
         },
         ChatAsk::Later { agent, feed, after } => {
-            let asked = json!({ "agentId": agent, "feed": feed, "after": after });
-            match client.call("chatPage", asked).await {
-                Ok(page) => (agent, ChatNews::Later(page_of(page))),
+            let asked = ChatPageParams {
+                after: Some(after),
+                ..ChatPageParams::new(&agent, feed)
+            };
+            match called::<call::ChatPage>(client, asked).await {
+                Ok(page) => (agent, ChatNews::Later(page)),
                 Err(error) => return eprintln!("sikemux: the core gave no later page: {error}"),
             }
         }
         ChatAsk::Latest { agent, feed } => {
-            let asked = json!({ "agentId": agent, "feed": feed, "before": u64::MAX });
-            match client.call("chatPage", asked).await {
-                Ok(page) => (agent, ChatNews::Latest(page_of(page))),
+            let asked = ChatPageParams {
+                before: Some(u64::MAX),
+                ..ChatPageParams::new(&agent, feed)
+            };
+            match called::<call::ChatPage>(client, asked).await {
+                Ok(page) => (agent, ChatNews::Latest(page)),
                 Err(error) => return eprintln!("sikemux: the core gave no latest page: {error}"),
             }
         }
@@ -1824,9 +1830,12 @@ async fn chat(client: &CoreClient, ask: ChatAsk, updates: &mpsc::UnboundedSender
             feed,
             around,
         } => {
-            let asked = json!({ "agentId": agent, "feed": feed, "around": around });
-            match client.call("chatPage", asked).await {
-                Ok(page) => (agent, ChatNews::Around(page_of(page))),
+            let asked = ChatPageParams {
+                around: Some(around),
+                ..ChatPageParams::new(&agent, feed)
+            };
+            match called::<call::ChatPage>(client, asked).await {
+                Ok(page) => (agent, ChatNews::Around(page)),
                 Err(error) => return eprintln!("sikemux: the core gave no page there: {error}"),
             }
         }
@@ -2015,12 +2024,14 @@ where
 
 /// Starts `agent` again and attaches to it; one `held` waits for the person before its agent starts.
 async fn restarted(client: &CoreClient, agent: String, held: bool) -> Option<(String, ChatNews)> {
-    let started = client
-        .call(
-            "startChat",
-            json!({ "agentId": agent, "waitsForPerson": held }),
-        )
-        .await;
+    let started = called::<call::StartChat>(
+        client,
+        StartParams {
+            agent_id: agent.clone(),
+            waits_for_person: held,
+        },
+    )
+    .await;
     if let Err(error) = started {
         eprintln!("sikemux: the core did not start chat {agent} again: {error}");
         return None;

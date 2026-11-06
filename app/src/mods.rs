@@ -2,7 +2,6 @@
 //! it off, remove it, or ask an agent to make or change one.
 
 use gpui_kit::{Context, Window};
-use serde_json::json;
 use sikemux_core::server::mods::ModInfo;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
@@ -12,6 +11,7 @@ use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
 use crate::workbench::{Strip, Workbench};
 use sikemux_core::server::call;
+use sikemux_core::server::chat::calls::PromptChatParams;
 use sikemux_core::server::mods::{change_prompt, make_prompt};
 use sikemux_core::server::mods::{ModParams, OffParams, PinModParams};
 
@@ -198,7 +198,7 @@ impl Workbench {
         target.start_chat(launcher, project, None, Some(started));
         cx.spawn(async move |_, _| {
             if let Ok(agent) = agent.await {
-                target.call("promptChat", json!({ "agentId": agent, "text": prompt }));
+                target.call_typed::<call::PromptChat>(PromptChatParams::new(agent, prompt));
             }
         })
         .detach();

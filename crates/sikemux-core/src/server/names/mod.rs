@@ -112,7 +112,7 @@ struct Book {
 /// The list of words new agents are named from, picked in settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum NameTheme {
+pub enum NameTheme {
     Nature,
     #[default]
     Anime,
@@ -977,8 +977,8 @@ fn valid_name(name: &str) -> Result<String, String> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct NameThemeParams {
-    theme: NameTheme,
+pub struct NameThemeParams {
+    pub theme: NameTheme,
 }
 
 #[derive(Deserialize)]

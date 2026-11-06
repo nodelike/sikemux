@@ -17,18 +17,19 @@ use crate::flights::{shared, Flights};
 use crate::launch::discovery;
 use sikemux_wire::protocol::ChatAccount;
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Account {
-    provider: String,
-    config_path: Option<String>,
+pub struct Account {
+    pub provider: String,
+    pub config_path: Option<String>,
 }
 
-#[derive(Deserialize)]
+/// Which account's sign-in to look at afresh; every account's without a provider.
+#[derive(Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Forget {
-    provider: Option<String>,
-    config_path: Option<String>,
+pub struct Forget {
+    pub provider: Option<String>,
+    pub config_path: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -58,39 +59,39 @@ pub(super) struct NamedAccount {
     label: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Authenticate {
-    pub(super) agent_id: String,
-    pub(super) method_id: String,
+pub struct Authenticate {
+    pub agent_id: String,
+    pub method_id: String,
 }
 
-#[derive(Deserialize)]
-pub(super) struct Saving {
-    profile: Profile,
+#[derive(Serialize, Deserialize)]
+pub struct Saving {
+    pub profile: Profile,
 }
 
-#[derive(Deserialize)]
-pub(super) struct Removing {
-    id: String,
+#[derive(Serialize, Deserialize)]
+pub struct Removing {
+    pub id: String,
 }
 
-#[derive(Deserialize)]
-pub(super) struct Choosing {
-    provider: String,
-    id: String,
+#[derive(Serialize, Deserialize)]
+pub struct Choosing {
+    pub provider: String,
+    pub id: String,
 }
 
-#[derive(Deserialize)]
-pub(super) struct Switching {
-    provider: String,
-    on: bool,
+#[derive(Serialize, Deserialize)]
+pub struct Switching {
+    pub provider: String,
+    pub on: bool,
 }
 
-#[derive(Deserialize)]
-pub(super) struct Adding {
-    provider: String,
-    name: String,
+#[derive(Serialize, Deserialize)]
+pub struct Adding {
+    pub provider: String,
+    pub name: String,
 }
 
 /// The program the account's agent runs as, found afresh.
@@ -196,12 +197,12 @@ pub(super) async fn add(adding: Adding) -> CoreResult<String> {
 /// Where an account's agent program is, what was tried and failed on the
 /// way, and whether it is signed in. The program comes from the person's own
 /// profile, never from the caller.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Availability {
-    program: Option<PathBuf>,
-    failures: Vec<String>,
-    status: status::AgentStatus,
+pub struct Availability {
+    pub program: Option<PathBuf>,
+    pub failures: Vec<String>,
+    pub status: status::AgentStatus,
 }
 
 /// Asks an account again, once however many ask together, and tells every
@@ -448,22 +449,22 @@ async fn usages_read(core: &Arc<Core>, ask: bool) -> Vec<AccountUsage> {
 }
 
 /// An agent Sikemux can run, as this host has it on the account the person chose for it.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Installed {
+pub struct Installed {
     #[serde(rename = "type")]
-    kind: &'static str,
-    label: &'static str,
-    command: String,
-    available: bool,
-    error: Option<String>,
+    pub kind: String,
+    pub label: String,
+    pub command: String,
+    pub available: bool,
+    pub error: Option<String>,
     /// The programs passed over on the way to the one found.
-    warning: Option<String>,
-    profile_id: Option<String>,
-    config_path: Option<String>,
-    default_model: Option<String>,
-    default_effort: Option<String>,
-    status: status::AgentStatus,
+    pub warning: Option<String>,
+    pub profile_id: Option<String>,
+    pub config_path: Option<String>,
+    pub default_model: Option<String>,
+    pub default_effort: Option<String>,
+    pub status: status::AgentStatus,
 }
 
 /// The agents found on this host, each on the account chosen for it. An agent that
@@ -504,8 +505,8 @@ pub(super) async fn installed(core: &Arc<Core>) -> CoreResult<Vec<Installed>> {
             false => failures.join("; "),
         });
         Ok(Installed {
-            kind: def.kind,
-            label: def.label,
+            kind: def.kind.to_owned(),
+            label: def.label.to_owned(),
             command: program
                 .as_ref()
                 .map(|path| path.to_string_lossy().into_owned())
@@ -538,8 +539,8 @@ fn setup_list(mut agents: Vec<Installed>) -> Vec<Installed> {
         .filter(|def| def.install.is_some() && !agents.iter().any(|agent| agent.kind == def.kind))
         .collect();
     agents.extend(missing.into_iter().map(|def| Installed {
-        kind: def.kind,
-        label: def.label,
+        kind: def.kind.to_owned(),
+        label: def.label.to_owned(),
         command: def.command.to_owned(),
         available: false,
         error: None,
@@ -565,8 +566,8 @@ mod tests {
 
     fn agent(kind: &'static str, status: status::AgentStatus, available: bool) -> Installed {
         Installed {
-            kind,
-            label: kind,
+            kind: kind.to_owned(),
+            label: kind.to_owned(),
             command: kind.to_owned(),
             available,
             error: None,
@@ -583,7 +584,7 @@ mod tests {
     fn setup_adds_every_agent_it_can_install_but_did_not_find() {
         let ready = status::AgentStatus::Ready { account: None };
         let all = setup_list(vec![agent("claude", ready, true)]);
-        let kinds: Vec<&str> = all.iter().map(|agent| agent.kind).collect();
+        let kinds: Vec<&str> = all.iter().map(|agent| agent.kind.as_str()).collect();
         assert_eq!(
             kinds,
             ["claude", "codex", "hermes", "pi", "opencode", "omp", "grok"]
@@ -611,7 +612,7 @@ mod tests {
         let given = ["grok", "codex", "opencode", "hermes", "claude"];
         let kinds: Vec<&str> = ordered
             .iter()
-            .map(|agent| agent.kind)
+            .map(|agent| agent.kind.as_str())
             .filter(|kind| given.contains(kind))
             .collect();
         assert_eq!(kinds, ["opencode", "claude", "codex", "hermes", "grok"]);

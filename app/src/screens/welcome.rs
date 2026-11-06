@@ -9,11 +9,11 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, MouseButton, MouseDownEvent,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window, WindowControlArea,
 };
-use serde_json::json;
 use sikemux_core::agent_accounts::status::AgentStatus;
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
 
 use crate::agents::setup::{self, Found};
-use crate::core;
 use crate::icons::Icon;
 use crate::keymap;
 use crate::screens::experience::{self, Experience};
@@ -84,10 +84,12 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     setup::read(bench, cx);
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let tools = core::request(&asks, "hostTools", json!({})).await;
+        let tools = crate::core::Target::here(&asks)
+            .request_typed::<call::HostTools>(NoParams {})
+            .await;
         let _ = bench.update(cx, |bench, cx| {
             if let (Some(welcome), Ok(tools)) = (welcome_of(bench), tools) {
-                welcome.git_missing = tools["git"] == false;
+                welcome.git_missing = !tools.git;
             }
             bench.parts.redraw(&bench.parts.over, cx);
         });

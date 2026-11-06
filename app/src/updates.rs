@@ -6,11 +6,10 @@ use gpui_kit::{
     div, px, AnyElement, ClipboardItem, Context, FontWeight, Hsla, InteractiveElement, IntoElement,
     ParentElement, Styled,
 };
-use serde_json::json;
+use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::updates::{UpdateState, UpdateStatus};
 use sikemux_view::prefs::UpdateChannel;
 
-use crate::core::Ask;
 use crate::icons::Icon;
 use crate::screens::experience;
 use crate::screens::whats_new::RELEASES;
@@ -156,10 +155,7 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
         }
         None => ui::Button::new("required-check", "Check for updates", ui::Variant::Primary)
             .on_click(cx.listener(|bench, _, _, _| {
-                let _ = bench.asks.send(Ask::Call {
-                    method: "updateCheck",
-                    params: json!({}),
-                });
+                bench.call_typed::<call::UpdateCheck>(NoParams {});
             })),
     };
     Some(

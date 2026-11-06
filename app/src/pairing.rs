@@ -13,8 +13,8 @@ use gpui_kit::{
     IntoElement, KeyBinding, ParentElement, SharedString, StatefulInteractiveElement, Styled,
     Window,
 };
-use serde_json::json;
 use serde_json::Value;
+use sikemux_core::accounts::protocol::Device;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_wire::protocol::{AllowedDevice, DeviceAccess, PendingDevice};
@@ -207,20 +207,21 @@ impl Workbench {
 /// Right after signing in, reads the phones already on the account that this host has not
 /// paired, to ask about them all at once.
 pub fn offer_account_phones(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let asked = crate::core::request(&bench.asks, "accountPhones", json!({}));
+    let asked = Target::here(&bench.asks).request_typed::<call::AccountPhones>(NoParams {});
     cx.spawn(async move |bench, cx| {
         let Ok(found) = asked.await else {
             return;
         };
-        let text = |phone: &Value, key: &str| phone[key].as_str().unwrap_or_default().to_owned();
+        let platform_word = |phone: &Device| match serde_json::to_value(phone.platform) {
+            Ok(Value::String(word)) => word,
+            _ => String::new(),
+        };
         let phones: Vec<AllowedDevice> = found
-            .as_array()
             .into_iter()
-            .flatten()
             .map(|phone| AllowedDevice {
-                id: text(phone, "key"),
-                name: text(phone, "name"),
-                platform: text(phone, "platform"),
+                platform: platform_word(&phone),
+                id: phone.key.to_string(),
+                name: phone.name,
                 access: DeviceAccess::Full,
             })
             .filter(|phone| !phone.id.is_empty())

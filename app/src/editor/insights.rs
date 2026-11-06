@@ -10,10 +10,11 @@ use gpui_kit::{
     div, px, AnyElement, App, ClipboardItem, Context, Entity, Hsla, InteractiveElement,
     IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
-use serde_json::{json, Value};
+use sikemux_core::server::call;
+use sikemux_core::server::lsp::{LspDiagnostic, LspDiagnosticSeverity, LspDocumentSymbol, LspPath};
 
 use super::{go, OpenAt};
-use crate::core;
+use crate::core::Target;
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::send_to;
@@ -80,21 +81,15 @@ pub(super) fn diagnostics_changed(
     for path in paths {
         let (asks, path, editors) = (bench.asks.clone(), path.clone(), bench.editors.downgrade());
         cx.spawn(async move |_, cx| {
-            let Ok(read) = core::request(&asks, "lsp.diagnostics", json!({ "path": path })).await
-            else {
+            let asked = Target::here(&asks)
+                .request_typed::<call::LspDiagnostics>(LspPath { path: path.clone() });
+            let Ok(read) = asked.await else {
                 return;
             };
             let problems: Vec<Problem> = read
-                .as_array()
-                .into_iter()
-                .flatten()
-                .flat_map(|payload| {
-                    payload["diagnostics"]
-                        .as_array()
-                        .cloned()
-                        .unwrap_or_default()
-                })
-                .map(|diagnostic| problem(&diagnostic))
+                .iter()
+                .flat_map(|payload| &payload.diagnostics)
+                .map(problem)
                 .collect();
             let _ = editors.update(cx, |editors, cx| {
                 let insights = &mut editors.insights;
@@ -109,32 +104,23 @@ pub(super) fn diagnostics_changed(
     }
 }
 
-fn problem(diagnostic: &Value) -> Problem {
-    let start = &diagnostic["range"]["start"];
-    let (severity, kind) = match diagnostic["severity"].as_str() {
-        Some("error") => (0, "error"),
-        Some("warning") => (1, "warning"),
-        Some("information") => (2, "information"),
-        Some("hint") => (3, "hint"),
-        _ => (3, "problem"),
-    };
-    let text = |value: &Value| match value {
-        Value::String(text) => Some(text.clone().into()),
-        Value::Number(number) => Some(number.to_string().into()),
-        _ => None,
+fn problem(diagnostic: &LspDiagnostic) -> Problem {
+    let start = &diagnostic.range.start;
+    let (severity, kind) = match diagnostic.severity {
+        Some(LspDiagnosticSeverity::Error) => (0, "error"),
+        Some(LspDiagnosticSeverity::Warning) => (1, "warning"),
+        Some(LspDiagnosticSeverity::Information) => (2, "information"),
+        Some(LspDiagnosticSeverity::Hint) => (3, "hint"),
+        None => (3, "problem"),
     };
     Problem {
-        line: start["line"].as_u64().unwrap_or(0) as u32,
-        character: start["character"].as_u64().unwrap_or(0) as u32,
+        line: start.line,
+        character: start.character,
         severity,
         kind,
-        message: diagnostic["message"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned()
-            .into(),
-        code: text(&diagnostic["code"]),
-        source: text(&diagnostic["source"]),
+        message: diagnostic.message.clone().into(),
+        code: diagnostic.code.clone().map(SharedString::from),
+        source: diagnostic.source.clone().map(SharedString::from),
     }
 }
 
@@ -163,7 +149,9 @@ fn read_outline(bench: &mut Workbench, path: &Path, cx: &mut App) {
         bench.editors.downgrade(),
     );
     cx.spawn(async move |cx| {
-        let read = core::request(&asks, "lsp.symbols", params).await;
+        let read = Target::here(&asks)
+            .request_typed::<call::LspSymbols>(params)
+            .await;
         let _ = editors.update(cx, |editors, cx| {
             let outline = &mut editors.insights.outline;
             if !matches!(outline, Outline::Loading(asked) if *asked == path) {
@@ -183,29 +171,23 @@ fn read_outline(bench: &mut Workbench, path: &Path, cx: &mut App) {
     .detach();
 }
 
-fn flatten(symbols: &Value, depth: usize, flat: &mut Vec<Symbol>) {
-    for symbol in symbols.as_array().into_iter().flatten() {
-        let start = &symbol["selectionRange"]["start"];
+fn flatten(symbols: &[LspDocumentSymbol], depth: usize, flat: &mut Vec<Symbol>) {
+    for symbol in symbols {
+        let start = &symbol.selection_range.start;
         flat.push(Symbol {
             depth: depth.min(MAX_DEPTH),
-            name: symbol["name"]
-                .as_str()
-                .unwrap_or_default()
-                .to_owned()
-                .into(),
-            detail: symbol["detail"]
-                .as_str()
-                .map(|detail| detail.to_owned().into()),
-            kind: kind_word(symbol["kind"].as_u64().unwrap_or(0)),
-            line: start["line"].as_u64().unwrap_or(0) as u32,
-            character: start["character"].as_u64().unwrap_or(0) as u32,
+            name: symbol.name.clone().into(),
+            detail: symbol.detail.clone().map(SharedString::from),
+            kind: kind_word(symbol.kind),
+            line: start.line,
+            character: start.character,
         });
-        flatten(&symbol["children"], depth + 1, flat);
+        flatten(&symbol.children, depth + 1, flat);
     }
 }
 
 /// A symbol's kind as the protocol numbers them, in a word.
-fn kind_word(kind: u64) -> &'static str {
+fn kind_word(kind: u32) -> &'static str {
     match kind {
         1 => "file",
         2 => "module",

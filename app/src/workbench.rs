@@ -4,6 +4,7 @@ use crate::rail::DraggedRail;
 use crate::rail::Edge;
 use crate::trust::Trust;
 use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::workspace::SessionChoice;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
@@ -184,7 +185,7 @@ pub struct Workbench {
     pub watched_worktree: Option<(String, String, crate::hosts::Place)>,
     pub(crate) trust: Trust,
     /// The skills agents saved in their own folders that the person was told of, by path.
-    pub(crate) skills_offered: HashSet<String>,
+    pub(crate) skills_offered: HashSet<PathBuf>,
     /// The window the store draws, for what is said in it from outside a draw.
     pub(crate) window: AnyWindowHandle,
     pub parts: Parts,
@@ -443,7 +444,7 @@ impl Workbench {
     /// sign-in, so it runs as the app starts, every few minutes while the Limits panel shows,
     /// and when the person asks.
     pub fn read_usage(&self) {
-        self.call("readAgentUsages", json!({}));
+        self.call_typed::<call::ReadAgentUsages>(NoParams {});
     }
 
     /// The core the panes of the project in front ask: this host's, or the chosen account
@@ -1463,11 +1464,11 @@ impl Workbench {
 
     /// Ends a sign-in the browser has not finished, which settles the one waiting on it.
     pub fn cancel_sign_in(&self) {
-        self.call("accountSignInCancel", json!({}));
+        self.call_typed::<call::AccountSignInCancel>(NoParams {});
     }
 
     pub fn sign_out(&self) {
-        self.call("accountSignOut", json!({}));
+        self.call_typed::<call::AccountSignOut>(NoParams {});
     }
 
     pub fn toggle_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {

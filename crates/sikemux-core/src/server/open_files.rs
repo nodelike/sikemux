@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::changed::Topic;
@@ -38,9 +38,9 @@ struct State {
 }
 
 /// The files a connection has open now, by absolute path; none when it shows none.
-#[derive(Deserialize)]
-pub(crate) struct ShowFiles {
-    paths: Vec<String>,
+#[derive(Serialize, Deserialize)]
+pub struct ShowFiles {
+    pub paths: Vec<String>,
 }
 
 /// The path the disk reports for `path`: its folder with links resolved.

@@ -9,12 +9,14 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::{json, Map, Value};
+use sikemux_core::server::activity_log::ActivityPriceParams;
 use sikemux_core::server::activity_log::ActivityShare;
 use sikemux_core::server::activity_log::ActivitySummary;
 use sikemux_core::server::activity_log::PriceOverride;
+use sikemux_core::server::call;
 
 use crate::activity_view::{self, Metric};
-use crate::core::{utc_offset_minutes, Ask, Target};
+use crate::core::{utc_offset_minutes, Target};
 use crate::icons::Icon;
 use crate::reads::Read;
 use crate::settings::index::Page::Usage;
@@ -121,15 +123,15 @@ fn close_form(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     });
 }
 
-fn set_price(bench: &Workbench, model: &str, price: Value) {
-    let _ = bench.asks.send(Ask::Call {
-        method: "setActivityPrice",
-        params: json!({ "model": model, "price": price }),
+fn set_price(bench: &Workbench, model: &str, price: Option<PriceOverride>) {
+    bench.call_typed::<call::SetActivityPrice>(ActivityPriceParams {
+        model: model.to_owned(),
+        price,
     });
 }
 
 /// The prices typed, or none while one is missing or not a price.
-fn typed_price(prices: &[Entity<InputState>], cx: &App) -> Option<Value> {
+fn typed_price(prices: &[Entity<InputState>], cx: &App) -> Option<PriceOverride> {
     let mut price = Map::new();
     for ((key, _, optional), input) in PRICES.iter().zip(prices) {
         let text = input.read(cx).value().trim().to_owned();
@@ -145,7 +147,7 @@ fn typed_price(prices: &[Entity<InputState>], cx: &App) -> Option<Value> {
             .filter(|value: &f64| value.is_finite() && *value >= 0.)?;
         price.insert((*key).to_owned(), json!(value));
     }
-    Some(Value::Object(price))
+    serde_json::from_value(Value::Object(price)).ok()
 }
 
 /// `claude-opus-5-5` reads as Opus 5.5 and `gpt-5.6-sol` as GPT-5.6 Sol; anything else keeps its id.
@@ -405,7 +407,7 @@ fn price_form(
                         )
                         .on_click(move |_, _, cx| {
                             revert.update(cx, |bench, cx| {
-                                set_price(bench, &model_revert, Value::Null);
+                                set_price(bench, &model_revert, None);
                                 close_form(bench, cx);
                             })
                         }),
@@ -424,7 +426,7 @@ fn price_form(
                                     .and_then(|pages| pages.activity.as_ref())
                                     .and_then(|fields| typed_price(&fields.prices, cx));
                                 if let Some(price) = price {
-                                    set_price(bench, &model_save, price);
+                                    set_price(bench, &model_save, Some(price));
                                     close_form(bench, cx);
                                 }
                             })

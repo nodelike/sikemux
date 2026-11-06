@@ -10,6 +10,7 @@ use gpui_kit::base::input::{InlineToken, InputContent};
 use gpui_kit::{App, Context, Window};
 use serde_json::{json, Value};
 use sikemux_core::server::call;
+use sikemux_core::server::calls::AgentParams;
 use sikemux_core::server::drafts::SetDraftParams;
 
 use super::{Composing, Sent};
@@ -171,7 +172,9 @@ impl Workbench {
     pub fn began_writing(&self, agent: &str) {
         drop(
             self.chat_target(agent)
-                .request("composing", json!({ "agentId": agent })),
+                .request_typed::<call::Composing>(AgentParams {
+                    agent_id: agent.to_owned(),
+                }),
         );
     }
 

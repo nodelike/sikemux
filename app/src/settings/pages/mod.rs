@@ -2,7 +2,6 @@
 
 use gpui_kit::component::input::InputEvent;
 use gpui_kit::{AnyElement, App, Context, Entity, EventEmitter, Subscription, Window};
-use serde_json::Value;
 
 pub use appearance::install;
 
@@ -39,8 +38,8 @@ pub struct State {
     pub keybindings: Option<keybindings::Fields>,
     /// The command a search found, which the shortcuts page opens filtered to.
     pub shortcut: Option<&'static str>,
-    /// The command line's install, as the core last said.
-    pub cli: Option<Value>,
+    /// The command line's install, once the page has asked, and none until the core says.
+    pub cli: Option<Option<sikemux_core::server::cli_install::CliInstallStatus>>,
     pub cli_busy: bool,
 }
 
@@ -105,7 +104,7 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
         Page::SignOn if pages.cloud.is_none() => cx.defer_in(window, cloud::make),
         Page::Actions if pages.actions.is_none() => cx.defer_in(window, actions::make),
         Page::Cli if pages.cli.is_none() => {
-            cx.defer_in(window, |bench, _, cx| cli::ask(bench, "cliInstall", cx))
+            cx.defer_in(window, |bench, _, cx| cli::read(bench, cx))
         }
         Page::Usage if pages.activity.is_none() => cx.defer_in(window, activity::make),
         Page::Notifications

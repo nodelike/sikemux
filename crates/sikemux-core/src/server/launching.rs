@@ -4,7 +4,7 @@
 //! [`own_tools`].
 
 use crate::server::changed::What;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -537,12 +537,12 @@ pub(crate) fn resume_chat(
 }
 
 /// A saved agent to start; one moved to another agent before it ran waits for the person.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct StartParams {
-    pub(crate) agent_id: String,
+pub struct StartParams {
+    pub agent_id: String,
     #[serde(default)]
-    pub(crate) waits_for_person: bool,
+    pub waits_for_person: bool,
 }
 
 #[derive(Deserialize)]

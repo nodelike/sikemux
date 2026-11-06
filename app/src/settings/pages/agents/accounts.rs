@@ -12,7 +12,7 @@ use gpui_kit::{
 };
 use sikemux_core::agent_accounts::Profile;
 
-use crate::accounts::{self, SignIn, Status};
+use crate::accounts::{self, SignIn};
 use crate::icons::Icon;
 use crate::settings::rows;
 use crate::theme::{
@@ -21,11 +21,12 @@ use crate::theme::{
 };
 use crate::ui::{self, dialog, sign_in};
 use crate::workbench::Workbench;
+use sikemux_core::agent_accounts::status::AccountStatus;
 use sikemux_core::agent_accounts::BUILT_IN;
 
 /// What the account is called: a built-in one still under its agent's name goes by
 /// the name on the account instead.
-fn name(bench: &Workbench, profile: &Profile, status: Option<&Status>) -> String {
+fn name(bench: &Workbench, profile: &Profile, status: Option<&AccountStatus>) -> String {
     let unnamed =
         profile.id.starts_with(BUILT_IN) && profile.name == bench.agent_name(&profile.provider);
     status

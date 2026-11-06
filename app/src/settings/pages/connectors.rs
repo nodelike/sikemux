@@ -13,9 +13,11 @@ use gpui_kit::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
+use sikemux_core::server::call;
+use sikemux_core::server::plugins::{Disabled, PluginCall, StreamCall};
 use sikemux_view::plugins::Listed;
 
-use crate::core::{outcome, Ask, Target};
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::settings::index::Page::Connectors;
 use crate::settings::index::{section, Entry};
@@ -125,11 +127,18 @@ fn ask<T: serde::de::DeserializeOwned + 'static>(
     method: &str,
     params: Value,
 ) -> impl std::future::Future<Output = Result<T, SharedString>> + use<T> {
-    let asked = Target::here(&bench.asks).request(
-        "plugin",
-        json!({ "plugin": plugin, "method": method, "params": params }),
-    );
-    async move { outcome(&asked.await.map_err(SharedString::from)?) }
+    let asked = Target::here(&bench.asks).request_typed::<call::Plugin>(PluginCall {
+        plugin: plugin.to_owned(),
+        method: method.to_owned(),
+        params,
+    });
+    async move {
+        asked
+            .await
+            .map_err(SharedString::from)?
+            .read()
+            .map_err(SharedString::from)
+    }
 }
 
 /// Reads what the connectors with settings of their own say now.
@@ -247,10 +256,7 @@ fn switch(bench: &Workbench, id: &str, on: bool) {
     if !on {
         off.push(id.to_owned());
     }
-    let _ = bench.asks.send(Ask::Call {
-        method: "pluginSetDisabled",
-        params: json!({ "ids": off }),
-    });
+    bench.call_typed::<call::PluginSetDisabled>(Disabled { ids: off });
 }
 
 /// The connector's mark, as the rest of the app draws it.
@@ -817,10 +823,13 @@ fn sign_in_with_browser(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             preferences.cloud_browser_shortcut.clone(),
         )
     });
-    let mut streaming = Target::here(&bench.asks).stream(
-        "pluginStream",
-        json!({ "plugin": plugin, "method": method, "params": params }),
-    );
+    let call = PluginCall {
+        plugin: plugin.to_owned(),
+        method: method.to_owned(),
+        params,
+    };
+    let mut streaming = Target::here(&bench.asks)
+        .stream::<call::PluginStream>(|stream| StreamCall { stream, call });
     let waiting = cx.spawn(async move |bench, cx| {
         let mut failed = None;
         while let Some(part) = streaming.parts.recv().await {

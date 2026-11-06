@@ -994,9 +994,9 @@ fn streaks(days: &[ActivityDay], today: i64) -> ActivityStreaks {
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct CommandUsed {
-    pub(crate) id: String,
+#[derive(Serialize, Deserialize)]
+pub struct CommandUsed {
+    pub id: String,
 }
 
 #[derive(Deserialize)]

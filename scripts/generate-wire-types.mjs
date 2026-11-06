@@ -35,6 +35,33 @@ const SOURCES = (
 /** What a type is called in TypeScript when the name in Rust says too little there. */
 const RENAMES = {
   [`${VIEW}/changed.rs`]: { Topic: "CoreChangeTopic" },
+  [`${CORE}/server/attachments.rs`]: { Kept: "PastedKept" },
+  [`${CORE}/server/agent_accounts.rs`]: {
+    Account: "AgentAccountKey",
+    Forget: "ForgetAgentStatusParams",
+    Saving: "SaveAgentAccountParams",
+    Removing: "RemoveAgentAccountParams",
+    Choosing: "SelectAgentAccountParams",
+    Switching: "AccountAutoSwitchParams",
+    Adding: "AddAgentAccountParams",
+    Authenticate: "AuthenticateChatParams",
+    Installed: "InstalledAgent",
+  },
+  [`${CORE}/server/agent_sign_in.rs`]: {
+    Account: "AgentSignInAccount",
+    Page: "AgentSignInPage",
+    Code: "AgentSignInCode",
+    LauncherParams: "SignInLauncherParams",
+  },
+  [`${CORE}/server/skill_library.rs`]: {
+    Source: "SkillSource",
+    Named: "NamedSkill",
+    Located: "LocatedSkill",
+  },
+  [`${CORE}/server/about.rs`]: { Tools: "HostTools" },
+  [`${CORE}/server/project_roots.rs`]: { Resolved: "ResolvedPath" },
+  [`${CORE}/agent_accounts/mod.rs`]: { Profile: "AgentProfile" },
+  [`${CORE}/agent_accounts/status.rs`]: { AccountStatus: "AgentAccountStatus" },
   [`${CORE}/launch/providers.rs`]: {
     Kind: "ProviderKind",
     Helper: "ModelHelper",

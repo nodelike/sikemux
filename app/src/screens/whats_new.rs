@@ -1,6 +1,10 @@
 //! What's New: the notes of the release running here, who made it and how much went
 //! into it, beside a sky in the release's colours.
 
+use sikemux_core::releases::{Contributor, ReleaseNotes as Notes};
+use sikemux_core::server::about::{AvatarsParams, NotesParams};
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -13,10 +17,9 @@ use gpui_kit::{
 };
 use gpui_transcript::{Markdown, Pen, Style};
 use serde::Deserialize;
-use serde_json::json;
 use sikemux_core::server::updates::{UpdateRelease, UpdateState, UpdateStatus};
 
-use crate::core::Ask;
+use crate::core::Target;
 use crate::screens::experience;
 use crate::screens::experience::Experience;
 use crate::theme::{
@@ -27,7 +30,7 @@ use crate::updates::{
     by_installer, copy_install_command, install, install_button, pending, waiting_label,
 };
 use crate::workbench::Workbench;
-use crate::{core, theme, ui};
+use crate::{theme, ui};
 
 /// Contributors shown with their names; the rest are faces in a wall.
 const FEATURED: usize = 3;
@@ -64,25 +67,6 @@ impl WhatsNew {
     }
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Notes {
-    notes: Option<String>,
-    date: Option<String>,
-    commits: Option<u32>,
-    compare: Option<String>,
-    #[serde(default)]
-    contributors: Vec<Contributor>,
-}
-
-#[derive(Clone, Deserialize)]
-struct Contributor {
-    login: String,
-    name: String,
-    commits: u32,
-    avatar: String,
-}
-
 fn news_of(bench: &mut Workbench) -> Option<&mut WhatsNew> {
     match bench.overlays.experience.as_mut()? {
         Experience::WhatsNew(news) => Some(news),
@@ -94,11 +78,9 @@ fn news_of(bench: &mut Workbench) -> Option<&mut WhatsNew> {
 pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let running = core::request(&asks, "whatsNew", json!({})).await;
-        let Some(version) = running
-            .ok()
-            .and_then(|news| news["version"].as_str().map(str::to_owned))
-        else {
+        let here = Target::here(&asks);
+        let running = here.request_typed::<call::WhatsNew>(NoParams {}).await;
+        let Ok(version) = running.map(|news| news.version) else {
             return;
         };
         let Ok((version, complete)) = bench.update(cx, |bench, cx| {
@@ -122,11 +104,9 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         if complete {
             return;
         }
-        let notes = core::request(&asks, "releaseNotes", json!({ "version": version }))
-            .await
-            .and_then(|notes| {
-                serde_json::from_value::<Notes>(notes).map_err(|error| error.to_string())
-            });
+        let notes = here
+            .request_typed::<call::ReleaseNotes>(NotesParams { version })
+            .await;
         let urls: Vec<String> = notes
             .as_ref()
             .map(|notes| {
@@ -149,14 +129,15 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         if urls.is_empty() {
             return;
         }
-        let faces = core::request(&asks, "releaseAvatars", json!({ "urls": urls }))
+        let faces = here
+            .request_typed::<call::ReleaseAvatars>(AvatarsParams { urls })
             .await
             .unwrap_or_default();
         let _ = bench.update(cx, |bench, cx| {
             if let Some(news) = news_of(bench) {
-                let faces = faces.as_object().into_iter().flatten();
                 news.avatars = faces
-                    .filter_map(|(url, data)| Some((url.clone(), data_image(data.as_str()?)?)))
+                    .into_iter()
+                    .filter_map(|(url, data)| Some((url, data_image(&data)?)))
                     .collect();
             }
             bench.parts.redraw(&bench.parts.over, cx);
@@ -207,6 +188,7 @@ impl Bundled {
         };
         Some(Self {
             notes: Notes {
+                version: release.version.clone(),
                 notes: release.notes.clone(),
                 date: release.date.clone(),
                 commits,
@@ -805,10 +787,7 @@ fn waiting(
         let this = this.clone();
         move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut App| {
             this.update(cx, |bench, _| {
-                let _ = bench.asks.send(Ask::Call {
-                    method: "updateCancel",
-                    params: json!({}),
-                });
+                bench.call_typed::<call::UpdateCancel>(NoParams {});
             })
         }
     };

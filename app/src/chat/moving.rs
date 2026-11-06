@@ -1,6 +1,7 @@
 //! Moving a chat that has not started to another agent, account, model or permission mode.
 
 use super::*;
+use sikemux_core::server::workspace::AgentPatch;
 
 impl Workbench {
     /// Moves a chat that has not started to another agent, account or provider. The model and
@@ -14,13 +15,14 @@ impl Workbench {
             .as_deref()
             .and_then(|id| self.accounts.profile(id));
         let title = account.map_or(to.provider.as_str(), |account| &account.name);
-        let patch = json!({
-            "provider": to.provider,
-            "profileId": to.profile,
-            "model": to.model,
-            "modelProvider": to.model_provider,
-            "effort": null,
-        });
+        let patch = AgentPatch {
+            provider: Some(to.provider.clone()),
+            profile_id: Some(to.profile.clone()),
+            model: Some(to.model),
+            model_provider: Some(to.model_provider),
+            effort: Some(None),
+            ..AgentPatch::default()
+        };
         self.start_as(agent, patch, title);
     }
 
@@ -73,16 +75,16 @@ impl Workbench {
 
     /// Starts `agent`, which has not started yet, again as `patch` changes it, titled `title`
     /// unless the person named it.
-    pub fn start_as(&self, agent: &str, mut patch: Value, title: &str) {
+    pub fn start_as(&self, agent: &str, mut patch: AgentPatch, title: &str) {
         let renamed = self.shown().is_some_and(|view| {
             view.workspace
                 .agents
                 .iter()
                 .any(|saved| saved.id == agent && saved.renamed)
         });
-        patch["resumeId"] = Value::Null;
+        patch.resume_id = Some(None);
         if !renamed {
-            patch["title"] = title.into();
+            patch.title = Some(title.to_owned());
         }
         self.ask_chat(ChatAsk::Move {
             agent: agent.to_owned(),

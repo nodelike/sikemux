@@ -51,22 +51,22 @@ fn is_repo(dir: &Path) -> bool {
 }
 
 /// What is at a path as the person typed it, `~` and all.
-#[derive(Serialize)]
-pub(crate) struct Resolved {
-    path: String,
-    kind: Option<&'static str>,
+#[derive(Serialize, Deserialize)]
+pub struct Resolved {
+    pub path: String,
+    pub kind: Option<String>,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct ResolveParams {
-    path: String,
+#[derive(Serialize, Deserialize)]
+pub struct ResolveParams {
+    pub path: String,
 }
 
 pub(crate) fn resolve(params: ResolveParams) -> Resolved {
     let path = expand_home(&params.path);
     let kind = fs::metadata(&path)
         .ok()
-        .map(|meta| if meta.is_dir() { "dir" } else { "file" });
+        .map(|meta| if meta.is_dir() { "dir" } else { "file" }.to_owned());
     Resolved {
         path: path.to_string_lossy().into_owned(),
         kind,

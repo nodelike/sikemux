@@ -1089,9 +1089,8 @@ impl Chat {
 
     /// A later page, whose `newer_after` is none once it reached the live
     /// rows; the chat then attaches again from its mark, which it answers.
-    fn later_page(&mut self, agent: &str, page: Option<ChatPage>, cx: &mut App) -> Option<ChatAsk> {
+    fn later_page(&mut self, agent: &str, page: ChatPage, cx: &mut App) -> Option<ChatAsk> {
         self.asked_later = false;
-        let page = page?;
         let newer_after = page.newer_after;
         self.newer_after = newer_after;
         let rows = page.rows.into_iter().map(ChatRow::new).collect();
@@ -1106,10 +1105,7 @@ impl Chat {
 
     /// The rows around a place found, which take the place of those held; the chat follows only
     /// its head until the reader pages back down to its live rows.
-    fn around_page(&mut self, page: Option<ChatPage>, cx: &mut App) {
-        let Some(page) = page else {
-            return;
-        };
+    fn around_page(&mut self, page: ChatPage, cx: &mut App) {
         self.older_before = page.older_before;
         self.newer_after = page.newer_after;
         (self.detached, self.asked_earlier, self.asked_later) = (true, false, false);
@@ -1120,10 +1116,7 @@ impl Chat {
     }
 
     /// The chat's latest rows, which take the place of those held.
-    fn latest_page(&mut self, page: Option<ChatPage>, cx: &mut App) {
-        let Some(page) = page else {
-            return;
-        };
+    fn latest_page(&mut self, page: ChatPage, cx: &mut App) {
         self.older_before = page.older_before;
         (self.detached, self.newer_after) = (false, None);
         (self.asked_earlier, self.asked_later) = (false, false);

@@ -8,9 +8,9 @@ use gpui_kit::{
     div, px, AnyElement, Context, Div, Hsla, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::chat::calls::QueuedParams;
+use sikemux_core::server::triggers::TriggerParams;
 use sikemux_view::chat::{
     AsyncTask, ChatTrigger, QueuedMessage, SubagentCard, TaskState, TriggerWhen, WorkflowAgent,
     WorkflowAgentState,
@@ -773,7 +773,7 @@ pub fn triggers(agent: &str, chat: &Chat, cx: &mut Context<Workbench>) -> Option
                 cx.listener(move |bench, _, _, _| {
                     bench
                         .chat_target(&agent)
-                        .call("removeTrigger", json!({ "trigger": id }));
+                        .call_typed::<call::RemoveTrigger>(TriggerParams { trigger: id });
                 }),
             )
         })

@@ -1,10 +1,12 @@
 //! Which releases updates come from and when they were last checked, and whether anonymous
 //! usage is shared.
 
+use crate::core::Target;
 use gpui_kit::{
     div, px, AnyElement, App, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
 };
-use serde_json::json;
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::updates::UpdateState;
 use sikemux_view::prefs::UpdateChannel;
 
@@ -240,17 +242,20 @@ pub fn render(
 
 /// A check the person asked for, which says how it went, as on the Mac.
 fn check_now(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let checked = crate::core::request(&bench.asks, "updateCheck", json!({}));
+    let checked = Target::here(&bench.asks).request_typed::<call::UpdateCheck>(NoParams {});
     cx.spawn(async move |bench, cx| {
         let note = match checked.await {
             Ok(status) => {
-                let channel = status["checked"]["channel"].as_str().unwrap_or("stable");
-                match status["available"]["version"].as_str() {
+                let channel = match status.checked.as_ref().map(|checked| checked.channel) {
+                    Some(UpdateChannel::Nightly) => "nightly",
+                    _ => "stable",
+                };
+                match status.available.as_ref().map(|release| &release.version) {
                     None => toast::info(format!("Sikemux is up to date on the {channel} channel.")),
-                    Some(version) if status["installCommand"].is_string() => toast::success(
+                    Some(version) if status.install_command.is_some() => toast::success(
                         format!("Update v{version} is out. Settings → About has the command that installs it."),
                     ),
-                    Some(version) if status["state"] == "idle" => {
+                    Some(version) if status.state == UpdateState::Idle => {
                         toast::success(format!("Update v{version} is ready to install."))
                     }
                     Some(_) => return,

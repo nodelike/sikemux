@@ -7,33 +7,33 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::connection::blocking;
 use super::{CoreError, CoreResult};
 
 type Installed<T> = Result<T, String>;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum CliInstallState {
+pub enum CliInstallState {
     Unavailable,
     NotInstalled,
     Installed,
-    #[cfg(windows)]
+    /// Only on Windows, where the command is a copy that a newer build replaces.
     Outdated,
     Conflict,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct CliInstallStatus {
-    state: CliInstallState,
-    install_dir: String,
-    cli_path: String,
-    executable: Option<String>,
-    path_configured: bool,
-    message: String,
+pub struct CliInstallStatus {
+    pub state: CliInstallState,
+    pub install_dir: String,
+    pub cli_path: String,
+    pub executable: Option<String>,
+    pub path_configured: bool,
+    pub message: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,7 +98,6 @@ fn status_for(executable: Option<PathBuf>) -> CliInstallStatus {
         CliInstallState::Installed => {
             "Installed. Add the shown directory to PATH, then restart your shell."
         }
-        #[cfg(windows)]
         CliInstallState::Outdated => {
             "A previous managed CLI is installed and can be updated safely."
         }

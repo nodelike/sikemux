@@ -2,6 +2,8 @@
 //! chosen from the list on their left or found by searching. Every change
 //! goes to the core as it is made.
 
+use sikemux_core::server::call;
+use sikemux_core::server::preferences::SetPreferenceParams;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -11,9 +13,8 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 
-use crate::core::Ask;
 use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_2XS_H,
@@ -243,9 +244,9 @@ pub fn before_shortcut(
 pub use pages::{plugins_changed, providers_changed, remote_moved};
 
 pub(crate) fn set(bench: &Workbench, key: &str, value: impl Into<Value>) {
-    let _ = bench.asks.send(Ask::Call {
-        method: "setPreference",
-        params: json!({ "key": key, "value": value.into() }),
+    bench.call_typed::<call::SetPreference>(SetPreferenceParams {
+        key: key.to_owned(),
+        value: value.into(),
     });
 }
 

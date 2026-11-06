@@ -11,9 +11,9 @@ use super::connection::blocking;
 use super::{Core, CoreError, CoreResult};
 use crate::releases;
 
-#[derive(Deserialize)]
-pub(crate) struct NotesParams {
-    version: String,
+#[derive(Serialize, Deserialize)]
+pub struct NotesParams {
+    pub version: String,
 }
 
 pub(crate) async fn release_notes(params: NotesParams) -> CoreResult<releases::ReleaseNotes> {
@@ -22,9 +22,9 @@ pub(crate) async fn release_notes(params: NotesParams) -> CoreResult<releases::R
         .map_err(CoreError::from)
 }
 
-#[derive(Deserialize)]
-pub(crate) struct AvatarsParams {
-    urls: Vec<String>,
+#[derive(Serialize, Deserialize)]
+pub struct AvatarsParams {
+    pub urls: Vec<String>,
 }
 
 /// Contributors' pictures as `data:` addresses, by the address GitHub gave.
@@ -33,13 +33,13 @@ pub(crate) async fn release_avatars(params: AvatarsParams) -> HashMap<String, St
 }
 
 /// The release running here, and whether the person has yet to read its notes.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WhatsNew {
-    version: String,
+pub struct WhatsNew {
+    pub version: String,
     /// Shown once the introduction is done, for a release the person has not
     /// marked seen by setting `lastSeenVersion` to it.
-    unseen: bool,
+    pub unseen: bool,
 }
 
 pub(crate) fn whats_new(core: &Core) -> WhatsNew {
@@ -64,14 +64,14 @@ pub(crate) fn introduced(core: &Core) -> CoreResult<()> {
 
 /// The person's shell, and whether git, Homebrew and the plugins' own
 /// command-line tools are on the host.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Tools {
-    shell: String,
-    git: bool,
-    brew: bool,
-    aws: bool,
-    rnd: bool,
+pub struct Tools {
+    pub shell: String,
+    pub git: bool,
+    pub brew: bool,
+    pub aws: bool,
+    pub rnd: bool,
 }
 
 pub(crate) async fn tools() -> CoreResult<Tools> {

@@ -25,12 +25,12 @@ const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const SIGN_IN_TAIL: usize = 12;
 const MAX_PATH_CHARS: usize = 4_096;
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Account {
-    agent: AgentKind,
-    executable_path: Option<String>,
-    config_path: Option<String>,
+pub struct Account {
+    pub agent: AgentKind,
+    pub executable_path: Option<String>,
+    pub config_path: Option<String>,
 }
 
 impl Account {
@@ -67,12 +67,12 @@ impl Account {
 }
 
 /// The page a running sign-in opened, for a client to open where no browser did.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Page {
-    agent: &'static str,
-    config_path: Option<String>,
-    url: String,
+pub struct Page {
+    pub agent: String,
+    pub config_path: Option<String>,
+    pub url: String,
 }
 
 /// A sign-in running for one account, which the person can answer or stop.
@@ -107,10 +107,10 @@ fn pages_changed(core: &Core) {
     core.changed(What::Read(Topic::AgentSignIn));
 }
 
-#[derive(Deserialize)]
-pub(super) struct LauncherParams {
+#[derive(Serialize, Deserialize)]
+pub struct LauncherParams {
     /// The launcher whose account to sign in to, such as `claude:work`.
-    launcher: String,
+    pub launcher: String,
 }
 
 /// Signs the person in to the account a launcher starts agents on, as
@@ -201,7 +201,7 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
                             shown_url = true;
                             if let Some(running) = sign_ins().get_mut(&key) {
                                 running.page = Some(Page {
-                                    agent: account.agent.as_str(),
+                                    agent: account.agent.as_str().to_owned(),
                                     config_path: account.config_path.clone(),
                                     url: url.to_owned(),
                                 });
@@ -237,12 +237,12 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Code {
+pub struct Code {
     #[serde(flatten)]
-    account: Account,
-    code: String,
+    pub account: Account,
+    pub code: String,
 }
 
 /// Hands a running sign-in the code its page showed, for a CLI that asks

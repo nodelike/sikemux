@@ -388,13 +388,13 @@ fn repo_relative(repo: &str, path: &Path) -> Option<String> {
 
 // ---- search command (streaming) ----------------------------------------
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SearchParams {
-    project: String,
-    query: String,
+pub struct SearchParams {
+    pub project: String,
+    pub query: String,
     #[serde(default)]
-    options: SearchOptions,
+    pub options: SearchOptions,
 }
 
 /// Searches the project, handing each matching file to `on_file` as the
@@ -601,16 +601,16 @@ fn run_search(
 // atomically via tempfile. dry_run skips step 2's write/rename so the UI
 // can preview the destructive op.
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ReplaceParams {
-    project: String,
-    query: String,
-    replace: String,
+pub struct ReplaceParams {
+    pub project: String,
+    pub query: String,
+    pub replace: String,
     #[serde(default)]
-    options: SearchOptions,
+    pub options: SearchOptions,
     #[serde(default)]
-    dry_run: bool,
+    pub dry_run: bool,
 }
 
 /// Replaces every match in the project, or with `dry_run` only says where it
@@ -909,12 +909,12 @@ pub struct FileWindow {
 }
 
 /// Where `fileWindow` looks: `before` and `after` lines around `line`.
-#[derive(Deserialize)]
-pub(crate) struct WindowParams {
-    path: String,
-    line: u32,
-    before: u32,
-    after: u32,
+#[derive(Serialize, Deserialize)]
+pub struct WindowParams {
+    pub path: String,
+    pub line: u32,
+    pub before: u32,
+    pub after: u32,
 }
 
 /// The lines around one line of a file, for a search result's preview. Runs

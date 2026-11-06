@@ -61,18 +61,20 @@ impl AgentStatus {
     }
 }
 
-#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+/// Who one account is signed in as, in its agent's own words.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountStatus {
-    signed_in: bool,
+    pub signed_in: bool,
     /// The person's own name on the account, where the agent keeps one.
-    name: Option<String>,
-    email: Option<String>,
-    plan: Option<String>,
-    organization: Option<String>,
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub plan: Option<String>,
+    pub organization: Option<String>,
     /// `subscription`, `apiKey`, or what else the CLI says it signs in with.
-    method: Option<String>,
-    sessions: Option<String>,
+    pub method: Option<String>,
+    /// Where the account keeps its chats: accounts that share it can take over each other's chats.
+    pub sessions: Option<String>,
 }
 
 /// Long enough for a CLI that starts slowly; a check that takes longer answers `Unknown`.

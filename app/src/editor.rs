@@ -16,7 +16,6 @@ use gpui_kit::{
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity,
     Window,
 };
-use serde_json::json;
 use sikemux_view::layout::{Pane, PaneKind};
 
 use crate::core::{Ask, CallError, Target};
@@ -30,6 +29,7 @@ use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeRese
 use crate::workbench::{Strip, Workbench};
 use sikemux_core::files::{FileReadParams, FileWriteParams};
 use sikemux_core::server::call;
+use sikemux_core::server::open_files::ShowFiles;
 use sikemux_wire::protocol::ErrorKind;
 
 mod blame;
@@ -1198,10 +1198,9 @@ pub fn renamed(
 
 /// Tells the core of `place` which files to watch: every one of its files open in an editor.
 fn show_files(bench: &Workbench, place: &Place, cx: &App) {
-    Target::new(&bench.asks, place.clone()).call(
-        "showFiles",
-        json!({ "paths": bench.editors.read(cx).watched(place) }),
-    );
+    Target::new(&bench.asks, place.clone()).call_typed::<call::ShowFiles>(ShowFiles {
+        paths: bench.editors.read(cx).watched(place),
+    });
 }
 
 /// Tells the cores again which files to watch and claims back the files open with language

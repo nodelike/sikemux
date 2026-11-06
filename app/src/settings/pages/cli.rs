@@ -2,9 +2,11 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{div, px, AnyElement, App, Context, Entity, ParentElement, SharedString, Styled};
-use serde_json::{json, Value};
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::cli_install::{CliInstallState, CliInstallStatus};
 
-use crate::core;
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::settings::index::Page::Cli;
 use crate::settings::index::{section, Entry};
@@ -19,33 +21,57 @@ pub(in crate::settings) const ENTRIES: &[Entry] = &[
     section(Cli, "Usage", "editor git commit open"),
 ];
 
-/// Asks the core how the command is installed, or installs it.
-pub(super) fn ask(bench: &mut Workbench, method: &'static str, cx: &mut Context<Workbench>) {
+/// Asks the core how the command is installed.
+pub(super) fn read(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let asked = super::change_pages(bench, cx, |pages, _| {
-        pages.cli.get_or_insert(Value::Null);
-        pages.cli_busy = method == "installCli";
+        pages.cli.get_or_insert(None);
+        pages.cli_busy = false;
     });
     if asked.is_none() {
         return;
     }
-    let asks = bench.asks.clone();
+    let asked = Target::here(&bench.asks).request_typed::<call::CliInstall>(NoParams {});
     cx.spawn(async move |bench, cx| {
-        let answer = core::request(&asks, method, json!({})).await;
-        let answer = match (answer, method) {
-            (Ok(answer), _) => answer,
-            (Err(_), "installCli") => core::request(&asks, "cliInstall", json!({}))
-                .await
-                .unwrap_or_default(),
-            (Err(_), _) => Value::Null,
-        };
-        let _ = bench.update(cx, |bench, cx| {
-            super::change_pages(bench, cx, |pages, _| {
-                pages.cli = Some(answer);
-                pages.cli_busy = false;
-            });
-        });
+        let answer = asked.await.ok();
+        told(bench, answer, cx);
     })
     .detach();
+}
+
+/// Installs the command, then says how it stands; when that failed, as the core now reads it.
+fn install(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let asked = super::change_pages(bench, cx, |pages, _| {
+        pages.cli.get_or_insert(None);
+        pages.cli_busy = true;
+    });
+    if asked.is_none() {
+        return;
+    }
+    let here = Target::here(&bench.asks);
+    cx.spawn(async move |bench, cx| {
+        let answer = match here.request_typed::<call::InstallCli>(NoParams {}).await {
+            Ok(answer) => Some(answer),
+            Err(_) => here
+                .request_typed::<call::CliInstall>(NoParams {})
+                .await
+                .ok(),
+        };
+        told(bench, answer, cx);
+    })
+    .detach();
+}
+
+fn told(
+    bench: gpui_kit::WeakEntity<Workbench>,
+    answer: Option<CliInstallStatus>,
+    cx: &mut gpui_kit::AsyncApp,
+) {
+    let _ = bench.update(cx, |bench, cx| {
+        super::change_pages(bench, cx, |pages, _| {
+            pages.cli = Some(answer);
+            pages.cli_busy = false;
+        });
+    });
 }
 
 pub fn render(
@@ -59,34 +85,41 @@ pub fn render(
     let Some(status) = &pages.cli else {
         return Vec::new();
     };
-    let state = status["state"].as_str().unwrap_or("checking");
-    let label: SharedString = state
-        .chars()
-        .flat_map(|letter| match letter.is_uppercase() {
-            true => vec![' ', letter.to_ascii_lowercase()],
-            false => vec![letter],
-        })
-        .collect::<String>()
-        .into();
-    let message: SharedString = status["message"]
-        .as_str()
-        .unwrap_or("Checking the packaged command-line integration…")
+    let status = status.as_ref();
+    let state = status.map(|status| status.state);
+    let label: SharedString = match state {
+        None => "checking",
+        Some(CliInstallState::Unavailable) => "unavailable",
+        Some(CliInstallState::NotInstalled) => "not installed",
+        Some(CliInstallState::Installed) => "installed",
+        Some(CliInstallState::Outdated) => "outdated",
+        Some(CliInstallState::Conflict) => "conflict",
+    }
+    .into();
+    let message: SharedString = status
+        .map_or(
+            "Checking the packaged command-line integration…",
+            |status| status.message.as_str(),
+        )
         .to_owned()
         .into();
-    let install_dir = status["installDir"]
-        .as_str()
+    let install_dir = status
+        .map(|status| status.install_dir.as_str())
         .filter(|dir| !dir.is_empty())
         .unwrap_or("—")
         .to_owned();
     let busy = pages.cli_busy;
     let button = match (busy, state) {
         (true, _) => "Installing…",
-        (_, "outdated") => "Update CLI",
-        (_, "installed") => "Installed",
+        (_, Some(CliInstallState::Outdated)) => "Update CLI",
+        (_, Some(CliInstallState::Installed)) => "Installed",
         _ => "Install CLI",
     };
-    let can_install =
-        !busy && !matches!(state, "installed" | "unavailable" | "conflict" | "checking");
+    let can_install = !busy
+        && matches!(
+            state,
+            Some(CliInstallState::NotInstalled | CliInstallState::Outdated)
+        );
     let code = |text: String| {
         div()
             .px(SPACE_1H)
@@ -110,7 +143,7 @@ pub fn render(
             )
             .child(code(value))
     };
-    let (refresh, install) = (this.clone(), this.clone());
+    let (refresh, this_install) = (this.clone(), this.clone());
     let integration = div()
         .flex()
         .flex_col()
@@ -126,32 +159,31 @@ pub fn render(
                 .child(
                     ui::Button::new("cli-refresh", "Refresh", ui::Variant::Outline)
                         .icon(Icon::Refresh)
-                        .on_click(move |_, _, cx| {
-                            refresh.update(cx, |bench, cx| ask(bench, "cliInstall", cx))
-                        }),
+                        .on_click(move |_, _, cx| refresh.update(cx, read)),
                 )
                 .child(
                     ui::Button::new("cli-install", button, ui::Variant::Primary)
-                        .when(state == "installed", |button| button.icon(Icon::Check))
+                        .when(state == Some(CliInstallState::Installed), |button| {
+                            button.icon(Icon::Check)
+                        })
                         .disabled(!can_install)
-                        .on_click(move |_, _, cx| {
-                            install.update(cx, |bench, cx| ask(bench, "installCli", cx))
-                        }),
+                        .on_click(move |_, _, cx| this_install.update(cx, install)),
                 ),
         )
-        .when(state == "conflict", |section| {
+        .when(state == Some(CliInstallState::Conflict), |section| {
             section.child(
                 div()
                     .text_size(crate::theme::ui_text(TEXT_XS))
                     .text_color(t.danger)
                     .child(format!(
                     "Sikemux will not overwrite {}. Move the existing file yourself, then refresh.",
-                    status["cliPath"].as_str().unwrap_or_default()
+                    status.map_or("", |status| status.cli_path.as_str())
                 )),
             )
         })
         .when(
-            state == "installed" && status["pathConfigured"].as_bool() == Some(false),
+            state == Some(CliInstallState::Installed)
+                && status.is_some_and(|status| !status.path_configured),
             |section| {
                 section.child(
                     div()

@@ -2,7 +2,7 @@
 //! the app data folder and handed to every agent Sikemux launches. Nothing here
 //! writes into an agent's own folders such as `~/.claude/skills`.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -16,7 +16,7 @@ const DESCRIPTION_MAX: usize = 1024;
 const BODY_MAX: usize = 200_000;
 const CLONE_LIMIT: std::time::Duration = std::time::Duration::from_secs(120);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Skill {
     pub name: String,

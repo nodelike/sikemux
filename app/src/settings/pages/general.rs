@@ -7,7 +7,8 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement,
     PathPromptOptions, SharedString, Styled, Subscription, Window,
 };
-use serde_json::json;
+use sikemux_core::server::call;
+use sikemux_core::server::project_roots::ResolveParams;
 use sikemux_view::prefs::{ProjectRoot, MAX_PROJECT_DEPTH};
 
 use crate::core;
@@ -146,16 +147,15 @@ fn add_typed(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
     }
     let asks = bench.asks.clone();
     cx.spawn_in(window, async move |bench, cx| {
-        let Ok(resolved) = core::request(&asks, "resolvePath", json!({ "path": typed })).await
-        else {
+        let asked = core::Target::here(&asks)
+            .request_typed::<call::ResolvePath>(ResolveParams { path: typed });
+        let Ok(resolved) = asked.await else {
             return;
         };
-        if resolved["kind"].as_str() != Some("dir") {
+        if resolved.kind.as_deref() != Some("dir") {
             return;
         }
-        let Some(path) = resolved["path"].as_str().map(str::to_owned) else {
-            return;
-        };
+        let path = resolved.path;
         let _ = bench.update_in(cx, |bench, window, cx| add(bench, path, window, cx));
     })
     .detach();

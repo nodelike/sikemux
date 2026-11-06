@@ -13,12 +13,17 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::input::{DefinitionProvider, Rope, RopeExt};
 use gpui_kit::{App, AppContext, Context, Task, Window};
 use lsp_types::{LocationLink, Position, Range, ShowDocumentParams, Uri};
-use serde_json::{json, Value};
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::lsp::{
+    LspChange, LspClaim, LspDocument, LspKind, LspLanguage, LspLocation, LspLocations, LspOpen,
+    LspPos, LspProject, LspSave, LspServer,
+};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::FileKey;
 use super::{Document, Notice, OpenAt};
-use crate::core::{self, Ask, CallError};
+use crate::core::{typed_call, Ask, CallError, Target};
 use crate::hosts::Place;
 use crate::toast;
 use crate::workbench::Workbench;
@@ -27,11 +32,11 @@ use sikemux_wire::protocol::ErrorKind;
 /// How long typing pauses before the server is sent the text.
 const CHANGE_DEBOUNCE: Duration = Duration::from_millis(120);
 /// What a symbol can lead to, asked in turn until one answers.
-const KINDS: [&str; 4] = [
-    "definition",
-    "declaration",
-    "typeDefinition",
-    "implementation",
+const KINDS: [LspKind; 4] = [
+    LspKind::Definition,
+    LspKind::Declaration,
+    LspKind::TypeDefinition,
+    LspKind::Implementation,
 ];
 
 /// A file open with a language server, named as the core keeps it.
@@ -50,8 +55,12 @@ pub(super) struct Served {
 }
 
 impl Served {
-    pub(super) fn document(&self) -> Value {
-        json!({ "project": self.project, "language": self.language, "path": self.path })
+    pub(super) fn document(&self) -> LspDocument {
+        LspDocument {
+            project: self.project.clone(),
+            language: self.language.clone(),
+            path: self.path.clone(),
+        }
     }
 }
 
@@ -110,12 +119,9 @@ fn attach_trusted(
     };
     let asks = bench.asks.clone();
     cx.spawn_in(window, async move |bench, cx| {
-        let served = core::request(&asks, "lsp.languages", json!({}))
-            .await
-            .unwrap_or_default();
-        let served = served
-            .as_array()
-            .is_some_and(|served| served.iter().any(|name| name.as_str() == Some(&language)));
+        let here = Target::here(&asks);
+        let served = (here.request_typed::<call::LspLanguages>(NoParams {}).await)
+            .is_ok_and(|served| served.contains(&language));
         match trust {
             _ if !served => return,
             Some(false) => return,
@@ -130,8 +136,11 @@ fn attach_trusted(
             }
             Some(true) => {}
         }
-        let started = json!({ "project": project, "language": language });
-        if let Err(error) = core::try_request(&asks, "lsp.start", started).await {
+        let started = here.try_request_typed::<call::LspStart>(LspServer {
+            project: project.clone(),
+            language: language.clone(),
+        });
+        if let Err(error) = started.await {
             let _ = bench.update(cx, |bench, cx| report(bench, &language, error, path, cx));
             return;
         }
@@ -143,15 +152,17 @@ fn attach_trusted(
             return;
         };
         let name = path.to_string_lossy().into_owned();
-        let opened = json!({
-            "project": project,
-            "language": language,
-            "path": name,
-            "content": content,
-            "languageId": language_id,
+        let opened = here.try_request_typed::<call::LspOpen>(LspOpen {
+            document: LspDocument {
+                project: project.clone(),
+                language: language.clone(),
+                path: name.clone(),
+            },
+            content,
+            language_id: Some(language_id),
         });
-        let handle = match core::try_request(&asks, "lsp.open", opened).await {
-            Ok(opened) => opened["handle"].as_str().unwrap_or_default().to_owned(),
+        let handle = match opened.await {
+            Ok(opened) => opened.handle,
             Err(error) => {
                 let _ = bench.update(cx, |bench, cx| report(bench, &language, error, path, cx));
                 return;
@@ -246,8 +257,8 @@ fn report(
     }
     let (asks, language) = (bench.asks.clone(), language.to_owned());
     cx.spawn(async move |bench, cx| {
-        let tools = core::request(&asks, "hostTools", json!({})).await;
-        let brew = tools.is_ok_and(|tools| tools["brew"] == true);
+        let tools = Target::here(&asks).request_typed::<call::HostTools>(NoParams {});
+        let brew = tools.await.is_ok_and(|tools| tools.brew);
         let _ = bench.update(cx, |bench, cx| match brew {
             true => offer_install(bench, &language, &bin, &label, path, cx),
             false => bench.notify(
@@ -312,7 +323,9 @@ fn install(
         return;
     }
     bench.notify(toast::info(format!("Installing {bin}…")), cx);
-    let asked = core::request(&bench.asks, "lsp.install", json!({ "language": language }));
+    let asked = Target::here(&bench.asks).request_typed::<call::LspInstall>(LspLanguage {
+        language: language.clone(),
+    });
     cx.spawn_in(window, async move |bench, cx| {
         let installed = asked.await;
         let _ = bench.update_in(cx, |bench, window, cx| {
@@ -325,11 +338,7 @@ fn install(
             });
             match installed {
                 Ok(at) => {
-                    let at = at
-                        .as_str()
-                        .map(|at| format!(" at {at}"))
-                        .unwrap_or_default();
-                    bench.notify(toast::success(format!("Installed {bin}{at}")), cx);
+                    bench.notify(toast::success(format!("Installed {bin} at {at}")), cx);
                     attach(bench, path, window, cx);
                 }
                 Err(error) => {
@@ -352,11 +361,8 @@ pub(super) fn claim(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     }
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let claimed = core::request(&asks, "lsp.claim", json!({ "handles": handles })).await;
-        let claimed: Vec<String> = claimed
-            .ok()
-            .and_then(|claimed| serde_json::from_value(claimed).ok())
-            .unwrap_or_default();
+        let claimed = Target::here(&asks).request_typed::<call::LspClaim>(LspClaim { handles });
+        let claimed = claimed.await.unwrap_or_default();
         let _ = bench.update(cx, |bench, cx| {
             let (lost, window) = bench.editors.update(cx, |editors, _| {
                 let mut lost = Vec::new();
@@ -394,35 +400,33 @@ pub(super) fn changed(document: &mut Document, asks: &UnboundedSender<Ask>, cx: 
         return;
     };
     served.version += 1;
-    let mut params = served.document();
-    params["version"] = served.version.into();
+    let (document_of, version) = (served.document(), served.version);
     let (asks, state) = (asks.clone(), document.state.clone());
     served.sync = cx.spawn(async move |cx| {
         cx.background_executor().timer(CHANGE_DEBOUNCE).await;
         let content = state.read_with(cx, |state, _| state.value().to_string());
-        params["content"] = content.into();
-        let _ = core::request(&asks, "lsp.change", params).await;
+        let asked = Target::here(&asks).request_typed::<call::LspChange>(LspChange {
+            document: document_of,
+            content,
+            version,
+        });
+        let _ = asked.await;
     });
 }
 
 pub(super) fn saved(document: &Document, content: &str, asks: &UnboundedSender<Ask>) {
     if let Some(served) = &document.served {
-        let mut params = served.document();
-        params["content"] = content.into();
-        let _ = asks.send(Ask::Call {
-            method: "lsp.save",
-            params,
-        });
+        let _ = asks.send(typed_call::<call::LspSave>(LspSave {
+            document: served.document(),
+            content: Some(content.to_owned()),
+        }));
     }
 }
 
 /// Lets the server go of a file no editor holds any more.
 pub(super) fn closed(document: &Document, asks: &UnboundedSender<Ask>) {
     if let Some(served) = &document.served {
-        let _ = asks.send(Ask::Call {
-            method: "lsp.close",
-            params: served.document(),
-        });
+        let _ = asks.send(typed_call::<call::LspClose>(served.document()));
     }
 }
 
@@ -451,7 +455,7 @@ pub(super) fn trust(
 fn remember_trust(bench: &Workbench, project: String, allowed: bool) {
     let mut trusted = bench.preferences().language_server_trust.clone();
     trusted.insert(project, allowed);
-    crate::settings::set(bench, "languageServerTrust", json!(trusted));
+    crate::settings::set(bench, "languageServerTrust", serde_json::json!(trusted));
 }
 
 /// Whether the person let `project`'s language servers run.
@@ -467,10 +471,9 @@ pub(crate) fn allowed(bench: &Workbench, project: &str) -> bool {
 /// keeps them stopped.
 pub(crate) fn allow(bench: &Workbench, project: String, allowed: bool) {
     if !allowed {
-        let _ = bench.asks.send(Ask::Call {
-            method: "lsp.stop",
-            params: json!({ "project": project }),
-        });
+        let _ = bench.asks.send(typed_call::<call::LspStop>(LspProject {
+            project: project.clone(),
+        }));
     }
     remember_trust(bench, project, allowed);
 }
@@ -533,7 +536,7 @@ fn file_path(uri: &Uri) -> Option<PathBuf> {
 /// last found are kept, since the editor jumps to the first of them alone.
 struct Definitions {
     asks: UnboundedSender<Ask>,
-    document: Value,
+    document: LspDocument,
     found: Rc<RefCell<Vec<LocationLink>>>,
     hovered: Rc<Cell<Option<Position>>>,
 }
@@ -551,19 +554,16 @@ impl DefinitionProvider for Definitions {
         let (asks, document) = (self.asks.clone(), self.document.clone());
         let asked = cx.background_spawn(async move {
             for kind in KINDS {
-                let mut params = document.clone();
-                params["line"] = position.line.into();
-                params["character"] = position.character.into();
-                params["kind"] = kind.into();
-                let found = core::request(&asks, "lsp.locations", params)
+                let found = (Target::here(&asks))
+                    .request_typed::<call::LspLocations>(LspLocations {
+                        document: document.clone(),
+                        line: position.line,
+                        character: position.character,
+                        kind,
+                    })
                     .await
                     .map_err(anyhow::Error::msg)?;
-                let links: Vec<LocationLink> = found
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(link)
-                    .collect();
+                let links: Vec<LocationLink> = found.iter().filter_map(link).collect();
                 if !links.is_empty() {
                     return Ok(links);
                 }
@@ -595,29 +595,28 @@ pub(super) fn navigate(
     let Some(position) = served.hovered.get() else {
         return false;
     };
-    let kind = if references {
-        "references"
+    let (kind, word) = if references {
+        (LspKind::References, "references")
     } else {
-        "implementation"
+        (LspKind::Implementation, "implementation")
     };
-    let mut params = served.document();
-    params["line"] = position.line.into();
-    params["character"] = position.character.into();
-    params["kind"] = kind.into();
-    let asked = core::request(&bench.asks, "lsp.locations", params);
+    let asked = Target::here(&bench.asks).request_typed::<call::LspLocations>(LspLocations {
+        document: served.document(),
+        line: position.line,
+        character: position.character,
+        kind,
+    });
     let key = key.clone();
     cx.spawn(async move |bench, cx| {
         let found = asked.await.unwrap_or_default();
         let mut places: Vec<OpenAt> = found
-            .as_array()
-            .into_iter()
-            .flatten()
+            .iter()
             .filter_map(link)
             .filter_map(|link| place(&link))
             .collect();
         places.dedup_by(|a, b| a.path == b.path && a.line == b.line && a.column == b.column);
         let _ = bench.update(cx, |bench, cx| match (references, places.len()) {
-            (_, 0) => bench.notify(toast::info(format!("No {kind} found")), cx),
+            (_, 0) => bench.notify(toast::info(format!("No {word} found")), cx),
             (false, 1) => super::go(bench, places.remove(0), cx),
             (true, _) => super::peek(bench, &key, "References", places, cx),
             (false, _) => super::peek(bench, &key, "Implementations", places, cx),
@@ -627,9 +626,13 @@ pub(super) fn navigate(
     true
 }
 
-fn link(location: &Value) -> Option<LocationLink> {
-    let target_uri = Uri::from_str(location["uri"].as_str()?).ok()?;
-    let range: Range = serde_json::from_value(location["range"].clone()).ok()?;
+fn link(location: &LspLocation) -> Option<LocationLink> {
+    let target_uri = Uri::from_str(&location.uri).ok()?;
+    let position = |at: &LspPos| Position::new(at.line, at.character);
+    let range = Range::new(
+        position(&location.range.start),
+        position(&location.range.end),
+    );
     Some(LocationLink {
         origin_selection_range: None,
         target_uri,

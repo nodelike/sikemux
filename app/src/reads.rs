@@ -339,7 +339,12 @@ impl Workbench {
                 }
                 self.feeds.keep_linked(&self.reads.hosts);
             }
-            Read::SkillsAdded => return self.offer_skills(&value, cx),
+            Read::SkillsAdded => {
+                if let Some(added) = decoded(value, "skills added") {
+                    self.offer_skills(added, cx);
+                }
+                return;
+            }
             Read::Plugins => {
                 if !keep_decoded(&mut self.reads.plugins.0, value, "plugins") {
                     return;

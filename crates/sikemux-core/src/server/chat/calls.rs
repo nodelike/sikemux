@@ -8,9 +8,9 @@ use crate::server::{Core, CoreResult};
 use sikemux_wire::protocol::ChatContext;
 
 /// A page of a chat's rows: those before or after an event, or around the row holding one.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ChatPageParams {
+pub struct ChatPageParams {
     pub agent_id: String,
     pub feed: String,
     pub before: Option<u64>,
@@ -19,6 +19,21 @@ pub(crate) struct ChatPageParams {
     /// A subagent's rows rather than the chat's own.
     pub session: Option<String>,
     pub turns: Option<u32>,
+}
+
+impl ChatPageParams {
+    /// The page of `feed` nothing narrows yet.
+    pub fn new(agent_id: &str, feed: String) -> Self {
+        Self {
+            agent_id: agent_id.to_owned(),
+            feed,
+            before: None,
+            after: None,
+            around: None,
+            session: None,
+            turns: None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -80,7 +95,7 @@ pub(crate) async fn steer_chat(
     Ok(steered.word().to_owned())
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PromptChatParams {
     pub(crate) agent_id: String,
@@ -91,6 +106,19 @@ pub struct PromptChatParams {
     pub(crate) paths: Vec<String>,
     #[serde(default)]
     pub(crate) context: Vec<ChatContext>,
+}
+
+impl PromptChatParams {
+    /// Plain words for `agent_id`, with nothing attached.
+    pub fn new(agent_id: String, text: String) -> Self {
+        Self {
+            agent_id,
+            message_id: None,
+            text,
+            paths: Vec::new(),
+            context: Vec::new(),
+        }
+    }
 }
 
 /// Whether the message must wait for its chat, or a chat it names, to wake, rather than going

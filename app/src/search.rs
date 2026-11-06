@@ -2,6 +2,9 @@
 //! listed as they arrive, the chosen one previewed in place, and every match replaced
 //! once the person has seen how many.
 
+use sikemux_core::server::call;
+use sikemux_core::server::search::{ReplaceParams, SearchParams, WindowParams};
+use sikemux_core::server::streams::SearchStreamParams;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
@@ -18,7 +21,7 @@ use gpui_kit::{
     KeyDownEvent, ListAlignment, ListState, ParentElement, Render, SharedString,
     StatefulInteractiveElement, Styled, StyledText, Subscription, Task, WeakEntity, Window,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 use sikemux_core::server::search::{
     FileWindow, ReplaceResults, SearchFile, SearchHit, SearchOptions, SearchSummary,
 };
@@ -271,9 +274,13 @@ impl SearchPane {
         self.status = Status::Searching;
         self.relist();
         cx.notify();
-        let params =
-            json!({ "project": self.project, "query": self.query, "options": self.options });
-        self.core.stream("searchStream", params)
+        let search = SearchParams {
+            project: self.project.clone(),
+            query: self.query.clone(),
+            options: self.options.clone(),
+        };
+        self.core
+            .stream::<call::SearchStream>(|stream| SearchStreamParams { stream, search })
     }
 
     fn found(&mut self, items: Vec<Value>, cx: &mut Context<Self>) {
@@ -372,12 +379,14 @@ impl SearchPane {
             .join(&path)
             .to_string_lossy()
             .into_owned();
-        let params = json!({ "path": full, "line": line, "before": BEFORE, "after": AFTER });
-        let answer = self.core.request("fileWindow", params);
+        let answer = self.core.request_typed::<call::FileWindow>(WindowParams {
+            path: full,
+            line,
+            before: BEFORE,
+            after: AFTER,
+        });
         self._reading = cx.spawn(async move |pane, cx| {
-            let window = answer.await.and_then(|window| {
-                serde_json::from_value::<FileWindow>(window).map_err(|error| error.to_string())
-            });
+            let window = answer.await;
             pane.update(cx, |pane, cx| {
                 match window {
                     Ok(window) => {
@@ -460,12 +469,17 @@ impl SearchPane {
             }
         }
         self.replacing = true;
-        let params = json!({ "project": self.project, "query": self.query, "replace": self.replace, "options": self.options, "dryRun": dry_run });
-        let answer = self.core.request("searchReplace", params);
-        cx.spawn_in(window, async move |pane, cx| {
-            let results = answer.await.and_then(|results| {
-                serde_json::from_value::<ReplaceResults>(results).map_err(|error| error.to_string())
+        let answer = self
+            .core
+            .request_typed::<call::SearchReplace>(ReplaceParams {
+                project: self.project.clone(),
+                query: self.query.clone(),
+                replace: self.replace.clone(),
+                options: self.options.clone(),
+                dry_run,
             });
+        cx.spawn_in(window, async move |pane, cx| {
+            let results = answer.await;
             pane.update_in(cx, |pane, window, cx| {
                 pane.replacing = false;
                 match results {

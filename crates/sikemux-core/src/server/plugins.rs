@@ -64,6 +64,18 @@ pub enum PluginOutcome {
     Failed(PluginFailure),
 }
 
+impl PluginOutcome {
+    /// The value inside the answer, read as a `T`, or what its failure said.
+    pub fn read<T: serde::de::DeserializeOwned>(self) -> Result<T, String> {
+        match self {
+            PluginOutcome::Value(value) => {
+                serde_json::from_value(value).map_err(|error| error.to_string())
+            }
+            PluginOutcome::Failed(failure) => Err(failure.message),
+        }
+    }
+}
+
 /// One line of a plugin stream on the tool endpoint.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
@@ -166,17 +178,18 @@ pub(crate) async fn call_on(
     present(plugins, plugin)?.call(plugin, method, params).await
 }
 
-#[derive(Deserialize)]
-pub(crate) struct WindowCall {
-    plugin: String,
-    method: String,
+/// A plugin's own method and what it takes, which only the plugin knows the shape of.
+#[derive(Serialize, Deserialize)]
+pub struct PluginCall {
+    pub plugin: String,
+    pub method: String,
     #[serde(default)]
-    params: Value,
+    pub params: Value,
 }
 
 /// A call from a plugin's pane. A pane signing in or out changes what its
 /// plugin offers agents, so they are told to list their tools again.
-pub(crate) async fn window_call(core: &Core, call: WindowCall) -> PluginOutcome {
+pub(crate) async fn window_call(core: &Core, call: PluginCall) -> PluginOutcome {
     let outcome = match plugins(core, &call.plugin) {
         Ok(plugins) => {
             plugins
@@ -230,9 +243,9 @@ pub(crate) fn wrote(core: &Arc<Core>, plugin: &str, method: &str, params: &Value
     super::codehost::wrote(core, plugin, params);
 }
 
-#[derive(Deserialize)]
-pub(crate) struct Disabled {
-    ids: Vec<String>,
+#[derive(Serialize, Deserialize)]
+pub struct Disabled {
+    pub ids: Vec<String>,
 }
 
 pub(crate) fn set_disabled(core: &Core, disabled: Disabled) {
@@ -261,7 +274,7 @@ pub(crate) fn sign_in(
         connection,
         StreamCall {
             stream: sign_in.stream,
-            call: WindowCall {
+            call: PluginCall {
                 plugin: sign_in.plugin,
                 method: "signInWithBrowser".into(),
                 params: Value::Null,
@@ -361,12 +374,12 @@ pub(crate) fn disabled_in(plugins: Option<Provided>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-#[derive(Deserialize)]
-pub(crate) struct StreamCall {
+#[derive(Serialize, Deserialize)]
+pub struct StreamCall {
     /// The client's number for the stream its items arrive as.
-    stream: u64,
+    pub stream: u64,
     #[serde(flatten)]
-    call: WindowCall,
+    pub call: PluginCall,
 }
 
 /// Runs a plugin's stream, its items arriving as the client's stream on
@@ -379,7 +392,7 @@ pub(crate) fn stream(
 ) -> CoreResult<Value> {
     let StreamCall {
         stream: id,
-        call: WindowCall {
+        call: PluginCall {
             plugin,
             method,
             params,

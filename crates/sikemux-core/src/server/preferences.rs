@@ -184,10 +184,10 @@ fn commands_within_limits(commands: Vec<CustomCommand>) -> Vec<CustomCommand> {
         .collect()
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SetPreferenceParams {
-    pub(crate) key: String,
-    pub(crate) value: Value,
+#[derive(Serialize, Deserialize)]
+pub struct SetPreferenceParams {
+    pub key: String,
+    pub value: Value,
 }
 
 /// Whether a new chat in the project at the folder `project` starts in a worktree of its own.

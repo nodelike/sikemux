@@ -705,10 +705,10 @@ fn fired_request(delivery: HookDelivery) -> FiredRequest {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TriggerParams {
-    pub(crate) trigger: u64,
+pub struct TriggerParams {
+    pub trigger: u64,
 }
 
 impl super::part::Part for Triggers {

@@ -29,21 +29,21 @@ const MAX_AVATARS: usize = 64;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Contributor {
-    login: String,
-    name: String,
-    commits: u32,
-    avatar: String,
+    pub login: String,
+    pub name: String,
+    pub commits: u32,
+    pub avatar: String,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReleaseNotes {
-    version: String,
-    notes: Option<String>,
-    date: Option<String>,
-    commits: Option<u32>,
-    compare: Option<String>,
-    contributors: Vec<Contributor>,
+    pub version: String,
+    pub notes: Option<String>,
+    pub date: Option<String>,
+    pub commits: Option<u32>,
+    pub compare: Option<String>,
+    pub contributors: Vec<Contributor>,
 }
 
 #[derive(Deserialize)]
