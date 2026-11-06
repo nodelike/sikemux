@@ -8,7 +8,10 @@ pub(crate) mod test_card;
 
 use gpui_kit::{Context, Window};
 use serde_json::json;
-use sikemux_core::server::{PortOwner, ProjectPort, RunView, TaskView};
+use sikemux_core::server::ports::PortOwner;
+use sikemux_core::server::ports::ProjectPort;
+use sikemux_core::server::tasks::RunView;
+use sikemux_core::server::tasks::TaskView;
 
 use crate::workbench::Workbench;
 
