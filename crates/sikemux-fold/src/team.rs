@@ -280,8 +280,8 @@ fn read(rows: &mut [Row], from: usize, running: bool, needs: &mut Needs) -> Vec<
         }
         if !agent_turn {
             run.close(rows, &mut out);
-            for index in at..=end {
-                put(&mut rows[index], None, 0, index, &mut out.touched);
+            for (index, row) in rows.iter_mut().enumerate().take(end + 1).skip(at) {
+                put(row, None, 0, index, &mut out.touched);
             }
             at = end + 1;
             continue;
