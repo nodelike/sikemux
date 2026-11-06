@@ -1,8 +1,44 @@
 //! The pane's keys, and the cheatsheet that lists them.
 
+use super::branches::BranchEntry;
 use super::*;
 
 impl GitPane {
+    /// The Branches page's keys; false for one it leaves to the pane.
+    pub(super) fn branch_key(&mut self, typed: &str, cx: &mut Context<Self>) -> bool {
+        let chosen = self.chosen_branch();
+        match (typed, chosen) {
+            ("j" | "down", _) => self.step_branch(1, cx),
+            ("k" | "up", _) => self.step_branch(-1, cx),
+            ("enter" | "space" | " ", _) => self.activate_branch(cx),
+            ("n", entry) => {
+                let start = entry.as_ref().and_then(BranchEntry::rev).map(str::to_owned);
+                self.new_branch(start, cx)
+            }
+            ("N", _) => self.new_branch(None, cx),
+            ("c", _) => self.checkout_by_name(cx),
+            ("M", Some(entry)) if entry.rev().is_some() => {
+                let reference = entry.rev().unwrap_or_default().to_owned();
+                self.merge_menu(reference, cx)
+            }
+            ("d", Some(BranchEntry::Branch(branch))) => self.delete_menu(&branch, cx),
+            ("d", Some(BranchEntry::RemoteBranch { remote, branch })) => {
+                self.delete_remote_branch(remote, &branch, cx)
+            }
+            ("R", Some(BranchEntry::Branch(branch))) => self.rename_branch(&branch, cx),
+            ("u", Some(BranchEntry::RemoteBranch { branch, .. })) => self.set_upstream(&branch, cx),
+            ("f", Some(BranchEntry::Remote { remote, .. })) => {
+                self.fetch_remote(Some(remote.name), cx)
+            }
+            ("f", Some(BranchEntry::RemoteBranch { remote, .. })) => {
+                self.fetch_remote(Some(remote), cx)
+            }
+            ("f", _) => self.fetch_remote(None, cx),
+            _ => return false,
+        }
+        true
+    }
+
     pub(crate) fn key(
         &mut self,
         event: &KeyDownEvent,

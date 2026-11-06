@@ -5,6 +5,7 @@
 //! mentions that go with it. Hand off and Plan first also add a card that tracks the work, held by
 //! that agent; a Chat adds none.
 
+use crate::board::ChangesBoards;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;

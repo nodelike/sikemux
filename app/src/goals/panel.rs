@@ -611,7 +611,7 @@ fn actions(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> V
                 gate,
                 environment: environment.clone(),
             };
-            pane.ask::<call::BoardPass>(params, |_| {}, cx);
+            pane.ask_moved::<call::BoardPass>(params, |_| {}, cx);
         }))
         .into_any_element()];
     }

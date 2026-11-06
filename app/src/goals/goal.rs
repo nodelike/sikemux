@@ -248,7 +248,7 @@ fn landing(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> Option<AnyElement> 
                 ..BoardSettingsParams::default()
             };
             entity.update(cx, |pane, cx| {
-                pane.ask::<call::BoardSettings>(params, |_| {}, cx)
+                pane.ask_moved::<call::BoardSettings>(params, |_| {}, cx)
             })
         },
         cx,

@@ -8,10 +8,11 @@ use gpui_kit::component::theme::Theme as KitTheme;
 use gpui_kit::component::{h_flex, Icon, IconName, WindowExt};
 use gpui_kit::{
     canvas, div, px, relative, App, EntityId, Global, InteractiveElement, IntoElement,
-    ParentElement, Pixels, SharedString, StyleRefinement, Styled, TextRun, Window,
+    ParentElement, Pixels, SharedString, StyleRefinement, Styled, TextRun, WeakEntity, Window,
 };
 
 use crate::theme::{self, Tokens, SPACE_1H};
+use crate::workbench::Workbench;
 
 const TEXT: f32 = 12.5;
 const MARK: Pixels = px(14.);
@@ -23,6 +24,11 @@ const BORDER: Pixels = px(1.);
 const WIDEST: Pixels = px(520.);
 /// What a window keeps clear on each side of its toasts.
 const MARGIN: Pixels = px(16.);
+
+/// Puts `note` up from something that holds the workbench only weakly.
+pub fn show(bench: &WeakEntity<Workbench>, note: Notification, cx: &mut App) {
+    let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+}
 
 pub fn info(text: impl Into<SharedString>) -> Notification {
     toast(Kind::Info, text.into())

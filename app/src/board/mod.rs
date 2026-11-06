@@ -119,6 +119,67 @@ pub struct BoardTab {
     pub(crate) card: Option<(String, u64)>,
 }
 
+/// What the board and the goals share: they change boards through the core, and say what failed.
+pub(crate) trait ChangesBoards: Sized + 'static {
+    fn asks(&self) -> &UnboundedSender<Ask>;
+    fn bench(&self) -> &WeakEntity<Workbench>;
+    fn set_busy(&mut self, busy: bool);
+    /// Shows the board the core answered a change with.
+    fn take_answer(&mut self, board: ProjectBoard);
+
+    fn said(&self, error: &str, cx: &mut Context<Self>) {
+        let note = toast::error(error.to_owned()).autohide(false);
+        toast::show(self.bench(), note, cx);
+    }
+
+    /// Asks the core to change a board, then shows the board it answers.
+    fn ask<C: Call<Answer = ProjectBoard> + 'static>(
+        &mut self,
+        params: C::Params,
+        then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) where
+        C::Params: Serialize,
+    {
+        let asked = core::Target::here(self.asks()).request_typed::<C>(params);
+        self.set_busy(true);
+        cx.notify();
+        cx.spawn(async move |pane, cx| {
+            let answer = asked.await;
+            let _ = pane.update(cx, |pane, cx| {
+                pane.set_busy(false);
+                match answer {
+                    Ok(board) => {
+                        pane.take_answer(board);
+                        then(pane, cx);
+                    }
+                    Err(error) => pane.said(&error, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+}
+
+impl ChangesBoards for BoardPane {
+    fn asks(&self) -> &UnboundedSender<Ask> {
+        &self.asks
+    }
+
+    fn bench(&self) -> &WeakEntity<Workbench> {
+        &self.bench
+    }
+
+    fn set_busy(&mut self, busy: bool) {
+        self.busy = busy;
+    }
+
+    fn take_answer(&mut self, board: ProjectBoard) {
+        self.take(board);
+    }
+}
+
 pub struct BoardPane {
     asks: UnboundedSender<Ask>,
     /// The project's folder, which the core's board calls take.
@@ -222,40 +283,6 @@ impl BoardPane {
             }
         }
         self.board = Some(board);
-    }
-
-    pub(crate) fn said(&self, error: &str, cx: &mut Context<Self>) {
-        let note = toast::error(error.to_owned()).autohide(false);
-        let _ = self.bench.update(cx, |bench, cx| bench.notify(note, cx));
-    }
-
-    /// Asks the core to change the board, then shows the board it answers.
-    pub(crate) fn ask<C: Call<Answer = ProjectBoard> + 'static>(
-        &mut self,
-        params: C::Params,
-        then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
-        cx: &mut Context<Self>,
-    ) where
-        C::Params: Serialize,
-    {
-        let asked = core::Target::here(&self.asks).request_typed::<C>(params);
-        self.busy = true;
-        cx.notify();
-        cx.spawn(async move |pane, cx| {
-            let answer = asked.await;
-            let _ = pane.update(cx, |pane, cx| {
-                pane.busy = false;
-                match answer {
-                    Ok(board) => {
-                        pane.take(board);
-                        then(pane, cx);
-                    }
-                    Err(error) => pane.said(&error, cx),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
     }
 
     fn move_card(&mut self, id: u64, to: CardStatus, cx: &mut Context<Self>) {

@@ -256,7 +256,7 @@ impl GitPane {
         self.branches.entries.get(self.branches.chosen).cloned()
     }
 
-    fn step_branch(&mut self, step: isize, cx: &mut Context<Self>) {
+    pub(super) fn step_branch(&mut self, step: isize, cx: &mut Context<Self>) {
         let count = self.branches.entries.len() as isize;
         if count == 0 {
             return;
@@ -305,7 +305,7 @@ impl GitPane {
         }
     }
 
-    fn merge_menu(&mut self, reference: String, cx: &mut Context<Self>) {
+    pub(super) fn merge_menu(&mut self, reference: String, cx: &mut Context<Self>) {
         let into = self.current_branch();
         let (regular, squash) = (reference.clone(), reference.clone());
         self.menu(
@@ -365,7 +365,7 @@ impl GitPane {
         );
     }
 
-    fn rename_branch(&mut self, branch: &GitBranch, cx: &mut Context<Self>) {
+    pub(super) fn rename_branch(&mut self, branch: &GitBranch, cx: &mut Context<Self>) {
         let old = branch.name.clone();
         self.prompt(
             format!("Rename branch · {old}"),
@@ -388,7 +388,7 @@ impl GitPane {
         );
     }
 
-    fn delete_menu(&mut self, branch: &GitBranch, cx: &mut Context<Self>) {
+    pub(super) fn delete_menu(&mut self, branch: &GitBranch, cx: &mut Context<Self>) {
         let delete = |force: bool| {
             let name = branch.name.clone();
             move |pane: &mut GitPane, cx: &mut Context<GitPane>| {
@@ -455,7 +455,7 @@ impl GitPane {
         );
     }
 
-    fn set_upstream(&mut self, branch: &GitRemoteBranch, cx: &mut Context<Self>) {
+    pub(super) fn set_upstream(&mut self, branch: &GitRemoteBranch, cx: &mut Context<Self>) {
         let current = self.current_branch();
         if current.is_empty() {
             return;
@@ -471,7 +471,7 @@ impl GitPane {
         );
     }
 
-    fn delete_remote_branch(
+    pub(super) fn delete_remote_branch(
         &mut self,
         remote: String,
         branch: &GitRemoteBranch,
@@ -574,7 +574,7 @@ impl GitPane {
         );
     }
 
-    fn fetch_remote(&mut self, remote: Option<String>, cx: &mut Context<Self>) {
+    pub(super) fn fetch_remote(&mut self, remote: Option<String>, cx: &mut Context<Self>) {
         let label = match &remote {
             Some(remote) => format!("fetching {remote}…"),
             None => "fetching all remotes…".to_owned(),
@@ -590,7 +590,7 @@ impl GitPane {
     }
 
     /// Does what Enter does on the entry: checks a branch out, or opens a remote.
-    fn activate_branch(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn activate_branch(&mut self, cx: &mut Context<Self>) {
         match self.chosen_branch() {
             Some(BranchEntry::Branch(branch)) if !branch.current => self.checkout(branch.name, cx),
             Some(BranchEntry::Remote { remote, .. }) => self.toggle_remote(&remote.name, cx),
@@ -604,41 +604,6 @@ impl GitPane {
             }
             _ => {}
         }
-    }
-
-    /// The Branches page's keys; false for one it leaves to the pane.
-    pub(super) fn branch_key(&mut self, typed: &str, cx: &mut Context<Self>) -> bool {
-        let chosen = self.chosen_branch();
-        match (typed, chosen) {
-            ("j" | "down", _) => self.step_branch(1, cx),
-            ("k" | "up", _) => self.step_branch(-1, cx),
-            ("enter" | "space" | " ", _) => self.activate_branch(cx),
-            ("n", entry) => {
-                let start = entry.as_ref().and_then(BranchEntry::rev).map(str::to_owned);
-                self.new_branch(start, cx)
-            }
-            ("N", _) => self.new_branch(None, cx),
-            ("c", _) => self.checkout_by_name(cx),
-            ("M", Some(entry)) if entry.rev().is_some() => {
-                let reference = entry.rev().unwrap_or_default().to_owned();
-                self.merge_menu(reference, cx)
-            }
-            ("d", Some(BranchEntry::Branch(branch))) => self.delete_menu(&branch, cx),
-            ("d", Some(BranchEntry::RemoteBranch { remote, branch })) => {
-                self.delete_remote_branch(remote, &branch, cx)
-            }
-            ("R", Some(BranchEntry::Branch(branch))) => self.rename_branch(&branch, cx),
-            ("u", Some(BranchEntry::RemoteBranch { branch, .. })) => self.set_upstream(&branch, cx),
-            ("f", Some(BranchEntry::Remote { remote, .. })) => {
-                self.fetch_remote(Some(remote.name), cx)
-            }
-            ("f", Some(BranchEntry::RemoteBranch { remote, .. })) => {
-                self.fetch_remote(Some(remote), cx)
-            }
-            ("f", _) => self.fetch_remote(None, cx),
-            _ => return false,
-        }
-        true
     }
 }
 

@@ -38,10 +38,10 @@ use sikemux_wire::protocol::NoticeGoal;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::agents::menu::AgentMenu;
+use crate::board::ChangesBoards;
 use crate::chat::Chats;
 use crate::core::{self, Ask};
 use crate::theme::{Tokens, SPACE_1H, TEXT_SM};
-use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
 use sikemux_core::server::inbox::DigestParams;
@@ -119,6 +119,24 @@ struct OpenChat {
 pub struct GoalsTab {
     pub pane: Option<Entity<GoalsPane>>,
     pub(crate) moved: Option<gpui_kit::Subscription>,
+}
+
+impl ChangesBoards for GoalsPane {
+    fn asks(&self) -> &UnboundedSender<Ask> {
+        &self.asks
+    }
+
+    fn bench(&self) -> &WeakEntity<Workbench> {
+        &self.bench
+    }
+
+    fn set_busy(&mut self, busy: bool) {
+        self.busy = busy;
+    }
+
+    fn take_answer(&mut self, board: ProjectBoard) {
+        self.take_one(board);
+    }
 }
 
 pub struct GoalsPane {
@@ -286,13 +304,8 @@ impl GoalsPane {
         self.take(boards);
     }
 
-    fn said(&self, error: &str, cx: &mut Context<Self>) {
-        let note = toast::error(error.to_owned()).autohide(false);
-        let _ = self.bench.update(cx, |bench, cx| bench.notify(note, cx));
-    }
-
-    /// Asks the core to change the board, then shows the board it answers.
-    fn ask<C: Call<Answer = ProjectBoard> + 'static>(
+    /// [`ChangesBoards::ask`], telling the workbench once it has been shown.
+    fn ask_moved<C: Call<Answer = ProjectBoard> + 'static>(
         &mut self,
         params: C::Params,
         then: impl FnOnce(&mut Self) + 'static,
@@ -300,25 +313,14 @@ impl GoalsPane {
     ) where
         C::Params: Serialize,
     {
-        let asked = core::Target::here(&self.asks).request_typed::<C>(params);
-        self.busy = true;
-        cx.notify();
-        cx.spawn(async move |pane, cx| {
-            let answer = asked.await;
-            let _ = pane.update(cx, |pane, cx| {
-                pane.busy = false;
-                match answer {
-                    Ok(board) => {
-                        pane.take_one(board);
-                        then(pane);
-                        cx.emit(Moved);
-                    }
-                    Err(error) => pane.said(&error, cx),
-                }
-                cx.notify();
-            });
-        })
-        .detach();
+        self.ask::<C>(
+            params,
+            move |pane, cx| {
+                then(pane);
+                cx.emit(Moved);
+            },
+            cx,
+        );
     }
 
     /// Every project's board, as read last.
@@ -561,7 +563,7 @@ impl GoalsPane {
             why: None,
             retire: false,
         };
-        self.ask::<call::BoardDecide>(params, |_| {}, cx);
+        self.ask_moved::<call::BoardDecide>(params, |_| {}, cx);
     }
 
     /// Passes the gate slice `card` waits at, as the person.
@@ -578,7 +580,7 @@ impl GoalsPane {
             gate,
             environment,
         };
-        self.ask::<call::BoardPass>(params, |_| {}, cx);
+        self.ask_moved::<call::BoardPass>(params, |_| {}, cx);
     }
 
     /// Opens a line to say what needs work, pinned to the evidence in front.
@@ -617,7 +619,7 @@ impl GoalsPane {
             text,
             evidence,
         };
-        self.ask::<call::BoardNote>(params, |pane| pane.note = None, cx);
+        self.ask_moved::<call::BoardNote>(params, |pane| pane.note = None, cx);
     }
 
     /// Moves rule `id` into the AGENTS.md of the repository it is kept for, as the person.
@@ -894,12 +896,21 @@ impl GoalsPane {
         .detach();
     }
 
-    /// Opens the Git pane of the project the view shows at commit `sha`.
-    fn open_commit(&self, sha: &str, cx: &mut Context<Self>) {
+    /// Does `then` with the workbench in place of the goals.
+    fn on_workbench(
+        &self,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Workbench, &mut Context<Workbench>),
+    ) {
         let _ = self.bench.update(cx, |bench, cx| {
             bench.show_workbench(cx);
-            bench.open_commit(sha, cx)
+            then(bench, cx)
         });
+    }
+
+    /// Opens the Git pane of the project the view shows at commit `sha`.
+    fn open_commit(&self, sha: &str, cx: &mut Context<Self>) {
+        self.on_workbench(cx, |bench, cx| bench.open_commit(sha, cx));
     }
 
     /// Opens card `card` of the project the view shows beside its board, where all of it can
@@ -912,19 +923,13 @@ impl GoalsPane {
 
     /// Opens the Git pane of the project the view shows.
     fn open_git(&self, cx: &mut Context<Self>) {
-        let _ = self.bench.update(cx, |bench, cx| {
-            bench.show_workbench(cx);
-            bench.open_git(cx)
-        });
+        self.on_workbench(cx, |bench, cx| bench.open_git(cx));
     }
 
     /// Opens a file in its tab, with the workbench in place of the goals.
     fn open_file(&self, path: &str, cx: &mut Context<Self>) {
         let path = std::path::PathBuf::from(path);
-        let _ = self.bench.update(cx, |bench, cx| {
-            bench.show_workbench(cx);
-            bench.open_file(&path, cx)
-        });
+        self.on_workbench(cx, |bench, cx| bench.open_file(&path, cx));
     }
 
     /// Opens a file of the project the view shows, named from its folder.

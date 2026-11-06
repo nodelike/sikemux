@@ -249,7 +249,7 @@ impl GoalsPane {
             environments: Some(environments),
             ..BoardSettingsParams::default()
         };
-        self.ask::<call::BoardSettings>(params, |pane| pane.environments = None, cx);
+        self.ask_moved::<call::BoardSettings>(params, |pane| pane.environments = None, cx);
     }
 
     fn answer_proposal(&mut self, accept: bool, cx: &mut Context<Self>) {
@@ -257,7 +257,7 @@ impl GoalsPane {
             return;
         };
         let params = BoardProposalParams { project, accept };
-        self.ask::<call::BoardAnswerProposal>(params, |_| {}, cx);
+        self.ask_moved::<call::BoardAnswerProposal>(params, |_| {}, cx);
     }
 }
 

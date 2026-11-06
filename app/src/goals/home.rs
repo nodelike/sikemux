@@ -3,6 +3,7 @@
 //! away, by goal. The core ranks, sorts and counts them; the pane only groups them under the goal
 //! each item is on.
 
+use crate::board::ChangesBoards;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -290,7 +291,7 @@ pub(super) fn stall_buttons(item: &InboxItem, cx: &mut Context<GoalsPane>) -> Op
                             to,
                             launcher,
                         };
-                        pane.ask::<call::BoardHandOn>(params, |_| {}, cx)
+                        pane.ask_moved::<call::BoardHandOn>(params, |_| {}, cx)
                     });
                 }));
             }
@@ -314,7 +315,7 @@ pub(super) fn stall_buttons(item: &InboxItem, cx: &mut Context<GoalsPane>) -> Op
                             project: project.clone(),
                             id,
                         };
-                        pane.ask::<call::BoardResumeOwner>(params, |_| {}, cx)
+                        pane.ask_moved::<call::BoardResumeOwner>(params, |_| {}, cx)
                     })),
                 )
             })

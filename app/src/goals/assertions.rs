@@ -3,6 +3,7 @@
 //! it fulfils as their evidence comes in, and each piece of evidence says which it serves. Each is
 //! known by its number in the goal's list.
 
+use crate::board::ChangesBoards;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -189,7 +190,7 @@ impl GoalsPane {
             evidence: None,
             retire: true,
         };
-        self.ask::<call::BoardAssert>(params, |_| {}, cx);
+        self.ask_moved::<call::BoardAssert>(params, |_| {}, cx);
     }
 }
 

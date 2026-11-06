@@ -1,6 +1,7 @@
 //! What opens beside a board: one card to read and change or a new one to add,
 //! Auto's settings, and the messages between the project's agents.
 
+use crate::board::ChangesBoards;
 use std::rc::Rc;
 
 use gpui_kit::component::input::{Input, Textarea};

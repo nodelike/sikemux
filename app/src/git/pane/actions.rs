@@ -140,9 +140,7 @@ impl GitPane {
     }
 
     pub(crate) fn say(&self, note: Notification, cx: &mut Context<Self>) {
-        self.bench
-            .update(cx, |bench, cx| bench.notify(note, cx))
-            .ok();
+        crate::toast::show(&self.bench, note, cx);
     }
 
     pub(crate) fn copy(&self, text: String, what: String, cx: &mut Context<Self>) {
