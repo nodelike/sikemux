@@ -3757,6 +3757,24 @@ export interface MadeAgentWorktree {
     setupError: string | null;
 }
 
+/** Brings forward the tab of `at` showing `target`, opening one when none does. */
+export interface OpenTab {
+    /** The project whose strip it opens in, unless `host` or `terminals` names another. */
+    project?: string;
+    host?: string;
+    terminals?: boolean;
+    kind: PaneKind;
+    target: string;
+    title?: string;
+    /** Opens it to look at, in place of the strip's tab opened that way. */
+    preview?: boolean;
+    /**
+     * Leaves what the person sees as it is: the strip in front stays in front, and so does
+     * its tab. In a strip out of sight the tab still comes first.
+     */
+    behind?: boolean;
+}
+
 export interface ChatAccountsParams {
     agentId: string;
 }
@@ -4682,6 +4700,7 @@ export interface CoreCalls {
     agentSessions: { params: SessionSearchParams; answer: SessionMatch[] };
     closeChat: { params: AgentParams; answer: null };
     createAgentWorktree: { params: AgentWorktreeParams; answer: MadeAgentWorktree };
+    openTab: { params: OpenTab; answer: string };
     cancelResume: { params: ChatAccountsParams; answer: null };
     retryFailed: { params: ChatAccountsParams; answer: null };
     discardFailed: { params: ChatAccountsParams; answer: null };

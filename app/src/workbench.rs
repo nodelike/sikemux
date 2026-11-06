@@ -3,6 +3,9 @@ use crate::keyboard::TakesKeys;
 use crate::rail::DraggedRail;
 use crate::rail::Edge;
 use crate::trust::Trust;
+use sikemux_core::server::call;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use sikemux_wire::changed::Topic;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
@@ -201,6 +204,16 @@ pub enum Strip {
     Project(String),
     Host(String),
     Terminals,
+}
+
+impl From<Strip> for At {
+    fn from(strip: Strip) -> Self {
+        match strip {
+            Strip::Project(project) => At::project(&project),
+            Strip::Host(alias) => At::host(&alias),
+            Strip::Terminals => At::terminals(),
+        }
+    }
 }
 
 impl Strip {
@@ -535,12 +548,24 @@ impl Workbench {
     }
 
     /// Brings forward the project's tab showing `target`, opening one when none does.
-    pub fn show(&self, kind: &str, target: &str, title: Option<&str>) {
+    pub fn show(&self, kind: PaneKind, target: &str, title: Option<&str>) {
         if let Some(project) = self.project() {
-            let tab =
-                json!({ "project": project.id, "kind": kind, "target": target, "title": title });
-            self.call_in_front("openTab", tab);
+            let tab = OpenTab::new(At::project(&project.id), kind, target);
+            self.open_in_front(OpenTab {
+                title: title.map(str::to_owned),
+                ..tab
+            });
         }
+    }
+
+    /// Brings forward or opens a tab on the host in front.
+    pub fn open_in_front(&self, tab: OpenTab) {
+        self.target().call_typed::<call::OpenTab>(tab);
+    }
+
+    /// Brings forward or opens a tab on this host.
+    pub fn open_here(&self, tab: OpenTab) {
+        Target::here(&self.asks).call_typed::<call::OpenTab>(tab);
     }
 
     /// The path of the project whose tasks, runs and ports the store watches.
@@ -728,14 +753,13 @@ impl Workbench {
 
     fn show_file(&self, path: &Path, preview: bool) {
         if let Some(project) = self.project() {
-            self.call_in_front(
-                "openTab",
-                json!({
-                    "project": project.id,
-                    "kind": "files",
-                    "target": path.to_string_lossy(),
-                    "preview": preview,
-                }),
+            self.open_in_front(
+                OpenTab::new(
+                    At::project(&project.id),
+                    PaneKind::Files,
+                    path.to_string_lossy(),
+                )
+                .preview(preview),
             );
         }
     }
@@ -953,8 +977,11 @@ impl Workbench {
         let taken = target.request("resumeSession", asked);
         cx.spawn(async move |bench, cx| match taken.await {
             Ok(taken) => {
-                let tab = json!({ "project": taken["project"], "kind": "agent", "target": taken["agentId"] });
-                target.call("openTab", tab);
+                target.call_typed::<call::OpenTab>(OpenTab::new(
+                    At::project(taken["project"].as_str().unwrap_or_default()),
+                    PaneKind::Agent,
+                    taken["agentId"].as_str().unwrap_or_default(),
+                ));
             }
             Err(error) => {
                 let note = toast::error(format!("The chat did not open: {error}"));
@@ -1064,10 +1091,11 @@ impl Workbench {
         let Some(project) = self.project() else {
             return;
         };
-        self.call_in_front(
-            "openTab",
-            json!({ "project": project.id, "kind": "search", "target": project.path.to_string_lossy() }),
-        );
+        self.open_in_front(OpenTab::new(
+            At::project(&project.id),
+            PaneKind::Search,
+            project.path.to_string_lossy(),
+        ));
         let seed = self.selection(window, cx);
         self.search_pane(cx);
         if let Some(search) = self.search.clone() {
@@ -1274,11 +1302,11 @@ impl Workbench {
                 .find(|agent| agent.id == id)
                 .map(|agent| agent.project.clone())
         };
-        let tab = |project: String| json!({ "project": project, "kind": "agent", "target": id });
+        let tab = |project: String| OpenTab::new(At::project(&project), PaneKind::Agent, id);
         let Some(project) = self.shown().and_then(project_on) else {
             // Opening a tab on a host's layout brings that host forward there.
             if let Some(project) = self.this_view().and_then(project_on) {
-                return self.call("openTab", tab(project));
+                return self.open_here(tab(project));
             }
             if let Some((host, project)) = self
                 .feeds
@@ -1286,11 +1314,8 @@ impl Workbench {
                 .find_map(|(host, feed)| Some((host.clone(), project_on(feed.view.as_ref()?)?)))
             {
                 self.call("chooseHost", json!({ "host": format!("host:{host}") }));
-                let open = Ask::Call {
-                    method: "openTab",
-                    params: tab(project),
-                };
-                let _ = self.asks.send(Ask::On(host, Box::new(open)));
+                Target::new(&self.asks, Place::Account(host))
+                    .call_typed::<call::OpenTab>(tab(project));
             }
             return;
         };
@@ -1303,7 +1328,7 @@ impl Workbench {
                 self.activate_project(&project);
                 self.activate_tab(&strip, &shown);
             }
-            None => self.call_in_front("openTab", tab(project)),
+            None => self.open_in_front(tab(project)),
         }
     }
 

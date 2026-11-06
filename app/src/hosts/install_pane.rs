@@ -5,6 +5,9 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, IntoElement, ParentElement, SharedString, Styled,
 };
 use sikemux_core::server::hosts::HostRow;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_2H, TEXT_MD, TEXT_XS};
@@ -101,13 +104,11 @@ impl Workbench {
 
     /// Opens the Install Sikemux pane in the SSH host's strip, or brings it forward.
     pub fn open_install_pane(&self, alias: &str) {
-        self.call(
-            "openTab",
-            crate::workbench::Strip::Host(alias.to_owned()).with(serde_json::json!({
-                "kind": "installSikemux",
-                "target": alias,
-            })),
-        );
+        self.open_here(OpenTab::new(
+            At::host(alias),
+            PaneKind::InstallSikemux,
+            alias,
+        ));
     }
 }
 

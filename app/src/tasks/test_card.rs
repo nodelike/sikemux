@@ -1,6 +1,7 @@
 //! The Run chip's cards: the tests the task's last run failed, or why it stopped, each with
 //! its output and an agent one click away, as the Mac's run button shows them.
 
+use sikemux_view::layout::PaneKind;
 use std::path::{Path, PathBuf};
 
 use gpui_kit::prelude::FluentBuilder;
@@ -340,7 +341,7 @@ fn actions(output: Option<(u64, String)>, cx: &mut Context<Workbench>) -> gpui_k
                 .icon(Icon::Terminal)
                 .on_click(cx.listener(move |bench, _, _, cx| {
                     bench.close_run_card();
-                    bench.show("terminal", &session.to_string(), Some(&label));
+                    bench.show(PaneKind::Terminal, &session.to_string(), Some(&label));
                     cx.notify();
                 }))
         }))

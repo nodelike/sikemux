@@ -3,6 +3,9 @@ use sikemux_core::server::chat::calls::ToolDetailParams;
 use sikemux_core::server::chat::find::FindAnswer;
 use sikemux_core::server::chat::find::FindParams;
 use sikemux_view::chat::{ChatPage, ToolDetail};
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 use sikemux_wire::changed::Topic;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -615,8 +618,11 @@ async fn open_chat_on(client: Arc<CoreClient>, ask: Ask, begun: Option<oneshot::
 }
 
 async fn open_tab(client: &CoreClient, project: &str, agent: &str) {
-    let tab = json!({ "project": project, "kind": "agent", "target": agent });
-    let _ = client.call("openTab", tab).await;
+    let _ = called::<call::OpenTab>(
+        client,
+        OpenTab::new(At::project(project), PaneKind::Agent, agent),
+    )
+    .await;
 }
 
 /// Asks another host's core one of its methods, by the host's key, and waits for the answer.

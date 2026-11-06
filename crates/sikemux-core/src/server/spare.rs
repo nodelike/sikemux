@@ -12,9 +12,9 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::{SessionId, SpawnTarget, TerminalSpawn};
 use sikemux_wire::pty::launch::{LaunchKind, PtyContext};
 
-use super::layout::At;
 use super::wake::Wake;
 use super::{session, Core, CoreError, CoreResult};
+use sikemux_view::layout::At;
 
 /// How long the front project and the terminal size stay put before a shell
 /// starts, so a burst of changes starts one.

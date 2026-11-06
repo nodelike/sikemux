@@ -1,3 +1,6 @@
+use sikemux_core::server::call;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
@@ -1149,13 +1152,12 @@ impl Workbench {
         let core = self.target();
         cx.spawn(async move |_, _| {
             for (at, old, path) in moved {
-                let opened = core
-                    .request(
-                        "openTab",
-                        strip.with(json!({ "kind": "files", "target": path.to_string_lossy() })),
-                    )
-                    .await;
-                let Ok(Value::String(tab)) = opened else {
+                let tab = OpenTab::new(
+                    At::from(strip.clone()),
+                    PaneKind::Files,
+                    path.to_string_lossy(),
+                );
+                let Ok(tab) = core.request_typed::<call::OpenTab>(tab).await else {
                     continue;
                 };
                 let _ = core

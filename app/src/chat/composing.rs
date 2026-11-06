@@ -1,6 +1,8 @@
 //! The chat's composer: what is being written and sent, its keys, the strip docked on it,
 //! and the prompts and steering it sends.
 
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use std::cell::Cell;
 use std::collections::HashMap;
 
@@ -1062,10 +1064,7 @@ impl Workbench {
             Some(saved.project.clone())
         });
         if let Some(project) = project {
-            self.call(
-                "openTab",
-                json!({ "project": project, "kind": "agent", "target": agent }),
-            );
+            self.open_here(OpenTab::new(At::project(&project), PaneKind::Agent, agent));
         }
         if let Some((place, session)) = self.agent_terminal(agent) {
             let key = self.terminals.key(&place, session);

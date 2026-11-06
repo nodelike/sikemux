@@ -1,6 +1,7 @@
 //! The editor's tab: a file read and saved through the core, edited on Kit's
 //! code editor, and opened from anywhere at a line.
 
+use sikemux_view::layout::OpenTab;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -574,10 +575,7 @@ pub fn go_in(
 ) {
     remember_here(bench, cx);
     let target = to.path.to_string_lossy().into_owned();
-    bench.call(
-        "openTab",
-        strip.with(json!({ "kind": "files", "target": target, "title": title })),
-    );
+    bench.open_here(OpenTab::new(strip.clone().into(), PaneKind::Files, target).titled(title));
     bench.editors.update(cx, |editors, cx| {
         editors.reveal = Some(to);
         cx.notify();

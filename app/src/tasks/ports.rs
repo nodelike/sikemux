@@ -21,7 +21,7 @@ pub struct PortRow {
     /// A task's, agent's or terminal's name.
     label: String,
     /// The tab that shows who listens, by its kind and target.
-    reveal: Option<(&'static str, String)>,
+    reveal: Option<(PaneKind, String)>,
     /// The task run listening, which stopping it ends.
     pub execution: Option<String>,
 }
@@ -43,7 +43,7 @@ impl PortRow {
             } => (
                 Owner::Agent,
                 label.clone(),
-                agent_named(agent_id).map(|agent| ("agent", agent.id.clone())),
+                agent_named(agent_id).map(|agent| (PaneKind::Agent, agent.id.clone())),
             ),
             PortOwner::Task {
                 agent_id,
@@ -54,12 +54,12 @@ impl PortRow {
                 Some(agent) => (
                     Owner::Agent,
                     agent.title.clone(),
-                    Some(("agent", agent.id.clone())),
+                    Some((PaneKind::Agent, agent.id.clone())),
                 ),
                 None => (
                     Owner::Task,
                     label.clone(),
-                    Some(("terminal", session_id.to_string())),
+                    Some((PaneKind::Terminal, session_id.to_string())),
                 ),
             },
             PortOwner::Terminal { session_id, .. } => {
@@ -75,7 +75,7 @@ impl PortRow {
                         || "terminal".to_owned(),
                         |tab| crate::tabs::label(bench, tab).to_string(),
                     ),
-                    tab.map(|_| ("terminal", session.clone())),
+                    tab.map(|_| (PaneKind::Terminal, session.clone())),
                 )
             }
         };
@@ -151,7 +151,7 @@ impl PortRow {
         let (bench, reveal) = (bench.clone(), self.reveal.clone());
         move |_, _, cx| {
             if let Some((kind, target)) = &reveal {
-                let _ = bench.update(cx, |bench, _| bench.show(kind, target, None));
+                let _ = bench.update(cx, |bench, _| bench.show(*kind, target, None));
             }
         }
     }

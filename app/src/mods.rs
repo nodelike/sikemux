@@ -4,6 +4,7 @@
 use gpui_kit::{Context, Window};
 use serde_json::json;
 use sikemux_core::server::mods::ModInfo;
+use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
 use tokio::sync::oneshot;
 
@@ -92,8 +93,7 @@ impl Workbench {
     /// Opens the mod `id` in a tab of the strip in front, or brings the tab holding it forward.
     pub fn open_mod(&self, id: &str, name: &str) {
         if let Some(strip) = self.strip() {
-            let params = json!({ "kind": PaneKind::Mod, "target": id, "title": name });
-            self.call_in_front("openTab", strip.with(params));
+            self.open_in_front(OpenTab::new(strip.into(), PaneKind::Mod, id).titled(name));
         }
     }
 

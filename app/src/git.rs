@@ -1,6 +1,8 @@
 //! Git as the window shows it: a file's diff, and what an editor's text changed since
 //! a revision.
 
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::future::Future;
@@ -895,10 +897,11 @@ impl Workbench {
     pub fn open_git(&mut self, cx: &mut App) {
         self.take_keys_when_shown(TakesKeys::Git, cx);
         if let Some(project) = self.project() {
-            self.call_in_front(
-                "openTab",
-                json!({ "project": project.id, "kind": "git", "target": project.path.to_string_lossy() }),
-            );
+            self.open_in_front(OpenTab::new(
+                At::project(&project.id),
+                PaneKind::Git,
+                project.path.to_string_lossy(),
+            ));
         }
     }
 

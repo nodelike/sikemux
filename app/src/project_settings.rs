@@ -1,6 +1,8 @@
 //! A project's own settings in a tab of its own: what Sikemux keeps for it, its processes and
 //! check command, the repository its Git views use, and its sikemux.json.
 
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -69,14 +71,11 @@ impl Workbench {
         let Some(project) = self.projects().iter().find(|project| project.id == id) else {
             return;
         };
-        self.call_in_front(
-            "openTab",
-            json!({
-                "project": project.id,
-                "kind": PaneKind::ProjectSettings,
-                "target": project.path.to_string_lossy(),
-            }),
-        );
+        self.open_in_front(OpenTab::new(
+            At::project(&project.id),
+            PaneKind::ProjectSettings,
+            project.path.to_string_lossy(),
+        ));
     }
 
     fn project_at(&self, folder: &str) -> Option<&ProjectInfo> {

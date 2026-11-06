@@ -5,6 +5,8 @@
 
 use gpui_kit::{App, Context, Window};
 use serde_json::json;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::{Pane, PaneKind};
 use sikemux_wire::protocol::ProjectInfo;
 
@@ -165,10 +167,11 @@ impl Workbench {
 
     fn open_board(&self, project: &ProjectInfo, cx: &mut App) {
         self.take_keys_when_shown(crate::keyboard::TakesKeys::Board, cx);
-        self.call_in_front(
-            "openTab",
-            json!({ "project": project.id, "kind": "board", "target": project.path.to_string_lossy() }),
-        );
+        self.open_in_front(OpenTab::new(
+            At::project(&project.id),
+            PaneKind::Board,
+            project.path.to_string_lossy(),
+        ));
     }
 
     /// Opens card `card` beside the board of the project at `folder`, with the workbench in

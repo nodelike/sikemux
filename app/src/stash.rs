@@ -4,6 +4,7 @@
 //! items are new, or with `&` in the draft. The chat's core puts it there.
 
 use crate::updates::bytes;
+use sikemux_view::layout::OpenTab;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -439,8 +440,7 @@ impl Workbench {
     /// Opens the Stash's pane in the strip in front, and marks the stash seen.
     pub fn open_stash(&mut self) {
         if let Some(strip) = self.strip() {
-            let params = json!({ "kind": PaneKind::Stash, "target": "stash" });
-            self.call_in_front("openTab", strip.with(params));
+            self.open_in_front(OpenTab::new(strip.into(), PaneKind::Stash, "stash"));
         }
         self.see_stash();
     }

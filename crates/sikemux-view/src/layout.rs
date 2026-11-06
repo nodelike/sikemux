@@ -115,3 +115,100 @@ pub enum SplitDir {
     /// In the same place, one in front and the rest reached by a strip of tabs over them.
     Stack,
 }
+
+/// The strip a call names: the terminals of no project, an SSH host's, or a project's.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct At {
+    #[serde(default)]
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub terminals: bool,
+}
+
+impl At {
+    pub fn project(project: &str) -> Self {
+        Self {
+            project: project.to_owned(),
+            ..Self::default()
+        }
+    }
+
+    pub fn host(alias: &str) -> Self {
+        Self {
+            host: Some(alias.to_owned()),
+            ..Self::default()
+        }
+    }
+
+    pub fn terminals() -> Self {
+        Self {
+            terminals: true,
+            ..Self::default()
+        }
+    }
+}
+
+/// Brings forward the tab of `at` showing `target`, opening one when none does.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenTab {
+    /// The project whose strip it opens in, unless `host` or `terminals` names another.
+    #[serde(default)]
+    pub project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub terminals: bool,
+    pub kind: PaneKind,
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Opens it to look at, in place of the strip's tab opened that way.
+    #[serde(default)]
+    pub preview: bool,
+    /// Leaves what the person sees as it is: the strip in front stays in front, and so does
+    /// its tab. In a strip out of sight the tab still comes first.
+    #[serde(default)]
+    pub behind: bool,
+}
+
+impl OpenTab {
+    pub fn new(at: At, kind: PaneKind, target: impl Into<String>) -> Self {
+        Self {
+            project: at.project,
+            host: at.host,
+            terminals: at.terminals,
+            kind,
+            target: target.into(),
+            title: None,
+            preview: false,
+            behind: false,
+        }
+    }
+
+    /// The strip it opens in.
+    pub fn at(&self) -> At {
+        At {
+            project: self.project.clone(),
+            host: self.host.clone(),
+            terminals: self.terminals,
+        }
+    }
+
+    pub fn titled(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    pub fn preview(mut self, preview: bool) -> Self {
+        self.preview = preview;
+        self
+    }
+
+    pub fn behind(mut self, behind: bool) -> Self {
+        self.behind = behind;
+        self
+    }
+}

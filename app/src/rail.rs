@@ -1,3 +1,5 @@
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -660,8 +662,11 @@ fn terminals(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> 
             .chosen(!bench.settings.read(cx).is_open() && front.as_ref() == Some(&id))
             .on_click(cx.listener(move |bench, _, _, cx| {
                 bench.show_workbench(cx);
-                let params = json!({ "kind": PaneKind::Terminal, "target": id });
-                bench.call("openTab", Strip::Terminals.with(params));
+                bench.open_here(OpenTab::new(
+                    At::terminals(),
+                    PaneKind::Terminal,
+                    id.clone(),
+                ));
             }))
             .mark(16., ui::icon(Icon::Terminal, 13.).text_color(live))
             .quiet()

@@ -10,9 +10,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use super::connection::blocking;
-use super::layout::At;
 use super::{Core, CoreError, CoreResult};
 use crate::tasks::config::{self, ActionPlacement, ConfigLoad};
+use sikemux_view::layout::At;
 use sikemux_view::prefs::{CustomCommand, CustomCommandPlacement};
 use sikemux_wire::protocol::SessionId;
 

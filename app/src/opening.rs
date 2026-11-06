@@ -2,6 +2,10 @@
 //! path's project and opens its tab; the window comes forward to show it, and tells the core
 //! when a waiting `open`'s tabs have all closed.
 
+use sikemux_core::server::call;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -187,15 +191,21 @@ impl Workbench {
                 let Some(project) = self.project_here(&request.project) else {
                     return answer(Err("That project is not open in Sikemux".into()));
                 };
+                let at = At::project(&project);
                 let tab = if kind == "diff" {
-                    json!({ "project": project, "kind": "git", "target": request.project, "behind": !focus })
+                    OpenTab::new(at, PaneKind::Git, request.project)
                 } else {
                     let Some(session) = params["session"].as_u64() else {
                         return answer(Err("The process's terminal is no longer open".into()));
                     };
-                    json!({ "project": project, "kind": "terminal", "target": session.to_string(), "title": params["title"], "behind": !focus })
+                    let tab = OpenTab::new(at, PaneKind::Terminal, session.to_string());
+                    OpenTab {
+                        title: params["title"].as_str().map(str::to_owned),
+                        ..tab
+                    }
                 };
-                let opened = crate::core::request(&self.asks, "openTab", tab);
+                let opened = crate::core::Target::here(&self.asks)
+                    .request_typed::<call::OpenTab>(tab.behind(!focus));
                 cx.background_spawn(async move {
                     answer(
                         opened
@@ -209,14 +219,17 @@ impl Workbench {
                 let Some(project) = self.project_here(&request.project) else {
                     return answer(Err("That project is not open in Sikemux".into()));
                 };
-                let tab = json!({
-                    "project": project,
-                    "kind": sikemux_view::layout::PaneKind::Mod,
-                    "target": params["mod"],
-                    "title": params["title"],
-                    "behind": !focus,
-                });
-                let opened = crate::core::request(&self.asks, "openTab", tab);
+                let tab = OpenTab::new(
+                    At::project(&project),
+                    PaneKind::Mod,
+                    params["mod"].as_str().unwrap_or_default(),
+                );
+                let tab = OpenTab {
+                    title: params["title"].as_str().map(str::to_owned),
+                    ..tab
+                };
+                let opened = crate::core::Target::here(&self.asks)
+                    .request_typed::<call::OpenTab>(tab.behind(!focus));
                 cx.background_spawn(async move {
                     answer(
                         opened

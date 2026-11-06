@@ -1,6 +1,10 @@
 //! A branch's history: its commits newest first, each on a lane of the graph that shows
 //! where it branched and merged, and the card that heads a commit's review.
 
+use sikemux_core::server::call;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 
@@ -719,13 +723,15 @@ impl CommitOwner {
         window
             .spawn(cx, async move |cx| match answer.await {
                 Ok(started) => {
-                    let tab = json!({ "project": started["project"], "kind": "agent", "target": started["agentId"] });
-                    core.call("openTab", tab);
+                    core.call_typed::<call::OpenTab>(OpenTab::new(
+                        At::project(started["project"].as_str().unwrap_or_default()),
+                        PaneKind::Agent,
+                        started["agentId"].as_str().unwrap_or_default(),
+                    ));
                 }
                 Err(error) => {
-                    let _ = cx.update(|window, cx| {
-                        window.push_notification(toast::error(error), cx)
-                    });
+                    let _ =
+                        cx.update(|window, cx| window.push_notification(toast::error(error), cx));
                 }
             })
             .detach();

@@ -5,6 +5,9 @@
 //! mentions that go with it. Hand off and Plan first also add a card that tracks the work, held by
 //! that agent; a Chat adds none.
 
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -316,10 +319,11 @@ impl GoalsPane {
                 }
                 pane.emptied(text.clone(), window, cx);
                 let _ = pane.bench.update(cx, |bench, _| {
-                    bench.call(
-                        "openTab",
-                        json!({ "project": project.id, "kind": "agent", "target": agent }),
-                    );
+                    bench.open_here(OpenTab::new(
+                        At::project(&project.id),
+                        PaneKind::Agent,
+                        agent.clone(),
+                    ));
                     bench.ask_chat(ChatAsk::Prompt {
                         agent: agent.clone(),
                         text,

@@ -9,6 +9,9 @@ use gpui_kit::{
 };
 use serde_json::{json, Value};
 use sikemux_core::harness::runs::RunStatus;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, TEXT_2XS_H, TEXT_XS};
@@ -139,9 +142,13 @@ impl Workbench {
                 .find(|open| open.path.as_os_str() == project.as_str())
                 .map(|open| open.id.clone());
             match (session, project) {
-                (Some(session), Some(project)) => self.call_in_front(
-                    "openTab",
-                    json!({ "project": project, "kind": "terminal", "target": session.to_string(), "title": label }),
+                (Some(session), Some(project)) => self.open_in_front(
+                    OpenTab::new(
+                        At::project(&project),
+                        PaneKind::Terminal,
+                        session.to_string(),
+                    )
+                    .titled(label),
                 ),
                 (None, _) if waiting => continue,
                 _ => {}

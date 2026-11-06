@@ -3,6 +3,8 @@
 //! end of its project's strip, and a tab goes once nothing it shows is left.
 
 use crate::server::changed::What;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::path::Path;
@@ -524,30 +526,14 @@ fn strip<'a>(
         .ok_or_else(|| CoreError::from("that project is not on this host"))
 }
 
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct OpenTab {
-    #[serde(flatten)]
-    at: At,
-    kind: PaneKind,
-    target: String,
-    title: Option<String>,
-    /// Opens it to look at, in place of the strip's tab opened that way.
-    #[serde(default)]
-    preview: bool,
-    /// Leaves what the person sees as it is: the strip in front stays in front, and so does
-    /// its tab. In a strip out of sight the tab still comes first.
-    #[serde(default)]
-    behind: bool,
-}
-
 /// Brings the tab showing `target` to the front, opening one at the end of
 /// the strip when none does, or in place of the strip's preview when it
 /// opens to look at. A tab brought forward to keep is kept. Answers its id.
 pub(crate) fn open_tab(core: &Core, params: OpenTab) -> CoreResult<String> {
+    let at = params.at();
     edit(core, |layout| {
-        let in_sight = in_front(layout, &params.at);
-        let strip = strip_at(layout, &params.at)?;
+        let in_sight = in_front(layout, &at);
+        let strip = strip_at(layout, &at)?;
         let shown = strip
             .tabs
             .iter()
@@ -590,36 +576,10 @@ pub(crate) fn open_tab(core: &Core, params: OpenTab) -> CoreResult<String> {
             strip.active = Some(id.clone());
         }
         if !params.behind {
-            bring_forward(layout, &params.at);
+            bring_forward(layout, &at);
         }
         Ok(id)
     })
-}
-
-/// The strip a call names: the terminals of no project, an SSH host's, or a project's.
-#[derive(Clone, Default, Deserialize)]
-pub(crate) struct At {
-    #[serde(default)]
-    pub(crate) project: String,
-    pub(crate) host: Option<String>,
-    #[serde(default)]
-    pub(crate) terminals: bool,
-}
-
-impl At {
-    pub(crate) fn project(project: &str) -> Self {
-        Self {
-            project: project.to_owned(),
-            ..Self::default()
-        }
-    }
-
-    pub(crate) fn terminals() -> Self {
-        Self {
-            terminals: true,
-            ..Self::default()
-        }
-    }
 }
 
 fn strip_at<'a>(
@@ -721,7 +681,9 @@ pub(crate) fn show_terminal(
     open_tab(
         core,
         OpenTab {
-            at,
+            project: at.project,
+            host: at.host,
+            terminals: at.terminals,
             kind: PaneKind::Terminal,
             target: id.to_string(),
             title,
@@ -1128,7 +1090,9 @@ async fn open_path(
             let tab = open_tab(
                 core,
                 OpenTab {
-                    at: At::project(&project),
+                    project: project.clone(),
+                    host: None,
+                    terminals: false,
                     kind: PaneKind::Files,
                     target: target.path.clone(),
                     title: None,

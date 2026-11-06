@@ -27,6 +27,8 @@ use sikemux_core::server::memory::KeepSeededParams;
 use sikemux_core::server::memory::MemoryEntryParams;
 use sikemux_core::server::memory::MemoryParams;
 use sikemux_view::inbox::{InboxCard, InboxDigest, InboxItem, InboxKind};
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 use sikemux_view::memory::{MemoryView, Seeding};
 use sikemux_view::slice::{
     CheckRun, Gate, GateState, GateView, GoalEta, GoalSummaryParams, GoalSummaryView, Need, Passer,
@@ -887,12 +889,13 @@ impl GoalsPane {
             let _ = pane.update(cx, |pane, cx| match taken {
                 Ok(taken) => {
                     let agent = taken["agentId"].as_str().unwrap_or_default().to_owned();
-                    let tab = serde_json::json!({
-                        "project": taken["project"],
-                        "kind": "agent",
-                        "target": agent,
-                    });
-                    target.call("openTab", tab);
+                    target.call_typed::<call::OpenTab>(OpenTab::new(
+                        sikemux_view::layout::At::project(
+                            taken["project"].as_str().unwrap_or_default(),
+                        ),
+                        PaneKind::Agent,
+                        agent.clone(),
+                    ));
                     pane.expect_chat(agent, cx);
                 }
                 Err(error) => pane.said(&format!("The chat did not open: {error}"), cx),

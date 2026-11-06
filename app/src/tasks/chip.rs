@@ -1,6 +1,7 @@
 //! The Run chip in the top bar: the task going, its clock, and the menu of
 //! tasks.
 
+use sikemux_view::layout::PaneKind;
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
 use std::rc::Rc;
@@ -277,7 +278,7 @@ impl RunMenu {
                 PopupMenuItem::new("Show output")
                     .icon(Icon::Terminal)
                     .on_click(on_bench(&self.bench, move |bench, _| {
-                        bench.show("terminal", &session, Some(&label))
+                        bench.show(PaneKind::Terminal, &session, Some(&label))
                     })),
             );
         }
