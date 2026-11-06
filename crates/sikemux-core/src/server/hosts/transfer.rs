@@ -17,6 +17,7 @@ use serde_json::{json, Map, Value};
 
 use super::super::connection::blocking;
 use super::super::{layout, workspace, Core, CoreError, CoreResult};
+use super::calls::{self as asks, params_of, HostAsk};
 use super::code::Scratch;
 use super::link::{Answer, Received};
 use super::{ask, find, open};
@@ -59,9 +60,9 @@ struct Carried {
     files: Vec<(String, u64)>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Take {
+pub(super) struct Take {
     project: String,
     from: String,
     chats: Vec<Carried>,
@@ -122,11 +123,16 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
             resume: chat.resume_id.clone(),
         })
         .collect();
-    let request = json!({ "project": there, "from": from, "chats": chats, "tabs": tabs });
+    let request = params_of::<asks::TakeSession>(&Take {
+        project: there.clone(),
+        from,
+        chats,
+        tabs,
+    });
     let answer = ask(
         core,
         &link.id,
-        "takeSession",
+        asks::TakeSession::METHOD,
         request,
         Some(body.path()),
         TAKE_WAIT,
@@ -275,9 +281,8 @@ async fn close_here(core: &Arc<Core>, sent: &[Sent]) -> bool {
 
 /// A linked host sends this one a project's session: its chats' files in `body`, filed here
 /// and added stopped, and its tabs, laid out again.
-pub(super) async fn take_here(core: &Arc<Core>, params: Value, body: Option<Received>) -> Answer {
-    let take: Take =
-        serde_json::from_value(params).map_err(|error| format!("unreadable session: {error}"))?;
+pub(super) async fn take_here(core: &Arc<Core>, params: Take, body: Option<Received>) -> Answer {
+    let take = params;
     let project = core
         .workspaces
         .project_info(&take.project)

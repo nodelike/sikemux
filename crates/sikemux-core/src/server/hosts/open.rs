@@ -7,12 +7,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::super::connection::blocking;
 use super::super::workspace::{self, AddProjectParams};
 use super::super::{Core, CoreResult};
+use super::calls::{self as asks, params_of, HostAsk};
 use super::code::{self, Code, Opened};
 use super::link::{Answer, Received};
 use super::{ask, find, LinkedHost};
@@ -45,12 +46,17 @@ pub(crate) async fn open_there(
 ) -> CoreResult<Value> {
     let packed = blocking(move || code::package(&path).map_err(Into::into)).await?;
     let patch = packed.code.patch.clone().filter(|_| uncommitted);
-    let request = json!({ "code": Code { patch, ..packed.code.clone() } });
+    let request = params_of::<asks::OpenProject>(&OpenParams {
+        code: Code {
+            patch,
+            ..packed.code.clone()
+        },
+    });
     let asked = |body| {
         ask(
             core,
             &link.id,
-            "openProject",
+            asks::OpenProject::METHOD,
             request.clone(),
             body,
             OPEN_WAIT,
@@ -82,15 +88,18 @@ pub(crate) async fn open_there(
     Ok(answer)
 }
 
-#[derive(Deserialize)]
-struct OpenParams {
+#[derive(Serialize, Deserialize)]
+pub(super) struct OpenParams {
     code: Code,
 }
 
 /// A linked host asks this one to open the person's project here.
-pub(super) async fn open_here(core: &Arc<Core>, params: Value, body: Option<Received>) -> Answer {
-    let OpenParams { code } =
-        serde_json::from_value(params).map_err(|error| format!("unreadable project: {error}"))?;
+pub(super) async fn open_here(
+    core: &Arc<Core>,
+    params: OpenParams,
+    body: Option<Received>,
+) -> Answer {
+    let OpenParams { code } = params;
     let opened = {
         let (core, code) = (core.clone(), code.clone());
         blocking(move || {

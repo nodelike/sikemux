@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 
@@ -21,6 +21,7 @@ use super::super::messages::{self, Carried, Kind};
 use super::super::names::Worker;
 use super::super::roster::{self, Reach};
 use super::super::{questions, Core, CoreResult};
+use super::calls::{self as asks, params_of, HostAsk};
 use super::team::{Foreign, Role};
 use super::{ask, goes_now, name_of, post, Failed, Sending};
 
@@ -99,11 +100,11 @@ pub(crate) fn happened(core: &Core, agent_id: &str, happened: Happened) {
             core,
             &host,
             Sending {
-                method: "happened",
-                params: json!({
-                    "agentId": agent_id,
-                    "kind": happened.kind(),
-                    "status": status_of(happened),
+                method: asks::Happened::METHOD,
+                params: params_of::<asks::Happened>(&HappenedParams {
+                    agent_id: agent_id.to_owned(),
+                    kind: happened.kind().to_owned(),
+                    status: status_of(happened),
                 }),
                 key: Some(format!("happened:{agent_id}")),
                 body: None,
@@ -145,16 +146,15 @@ fn local_gone(core: &Core, agent_id: &str) {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct HappenedParams {
+pub(super) struct HappenedParams {
     agent_id: String,
     kind: String,
     status: AgentStatus,
 }
 
-pub(super) fn happened_here(core: &Core, host: &str, params: Value) -> CoreResult<Value> {
-    let params: HappenedParams = serde_json::from_value(params)?;
+pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> CoreResult<Value> {
     let Some(foreign) = core
         .hosts
         .team
@@ -218,7 +218,7 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
                 ),
             }
         }
-        let agents: Vec<Value> = watched
+        let agents: Vec<Standing> = watched
             .iter()
             .filter_map(|agent_id| {
                 let status = match listed.iter().find(|local| &local.agent_id == agent_id) {
@@ -228,15 +228,18 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
                         AgentStatus::Asleep
                     }
                 };
-                Some(json!({ "agentId": agent_id, "status": status }))
+                Some(Standing {
+                    agent_id: agent_id.clone(),
+                    status,
+                })
             })
             .collect();
         post(
             &core,
             &host,
             Sending {
-                method: "team",
-                params: json!({ "agents": agents }),
+                method: asks::Team::METHOD,
+                params: params_of::<asks::Team>(&TeamParams { agents }),
                 key: Some("team".into()),
                 body: None,
                 keep: false,
@@ -245,22 +248,21 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
     });
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Standing {
+pub(super) struct Standing {
     agent_id: String,
     status: AgentStatus,
 }
 
-#[derive(Deserialize)]
-struct TeamParams {
+#[derive(Serialize, Deserialize)]
+pub(super) struct TeamParams {
     agents: Vec<Standing>,
 }
 
 /// What `host` says its agents of shared teams are doing. Those it no longer
 /// lists have stopped running there.
-pub(super) fn team_here(core: &Core, host: &str, params: Value) -> CoreResult<Value> {
-    let params: TeamParams = serde_json::from_value(params)?;
+pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResult<Value> {
     let present: HashMap<String, AgentStatus> = params
         .agents
         .into_iter()
@@ -486,23 +488,34 @@ pub(crate) async fn read(
         .team
         .get(agent_id)
         .ok_or("Sikemux no longer knows which host that agent runs on")?;
-    let params = json!({ "caller": caller, "agentId": agent_id, "cursor": cursor });
-    let mut answer = ask(core, &foreign.host, "read", params, None, ASK_WAIT)
-        .await
-        .map_err(|error| match error {
-            Failed::Unreachable(why) => {
-                format!("{} cannot be read now: {why}", shown(&foreign, core))
-            }
-            Failed::Refused(why) => why,
-        })?;
+    let params = params_of::<asks::Read>(&ReadParams {
+        caller: caller.to_owned(),
+        agent_id: agent_id.to_owned(),
+        cursor,
+    });
+    let mut answer = ask(
+        core,
+        &foreign.host,
+        asks::Read::METHOD,
+        params,
+        None,
+        ASK_WAIT,
+    )
+    .await
+    .map_err(|error| match error {
+        Failed::Unreachable(why) => {
+            format!("{} cannot be read now: {why}", shown(&foreign, core))
+        }
+        Failed::Refused(why) => why,
+    })?;
     answer["name"] = shown(&foreign, core).into();
     answer["host"] = name_of(core, &foreign.host).into();
     Ok(answer)
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ReadParams {
+pub(super) struct ReadParams {
     caller: String,
     agent_id: String,
     cursor: Option<String>,
@@ -511,9 +524,8 @@ struct ReadParams {
 pub(super) async fn read_here(
     core: &Arc<Core>,
     host: &str,
-    params: Value,
+    params: ReadParams,
 ) -> Result<Value, String> {
-    let params: ReadParams = serde_json::from_value(params).map_err(|error| error.to_string())?;
     if core
         .hosts
         .team
@@ -537,9 +549,13 @@ pub(crate) async fn hire(
     provider: &str,
     reports: bool,
 ) -> Result<String, String> {
-    let params =
-        json!({ "agentId": agent_id, "lead": lead, "provider": provider, "reports": reports });
-    let answer = ask(core, host, "hire", params, None, ASK_WAIT)
+    let params = params_of::<asks::Hire>(&HireParams {
+        agent_id: agent_id.to_owned(),
+        lead: lead.to_owned(),
+        provider: provider.to_owned(),
+        reports,
+    });
+    let answer = ask(core, host, asks::Hire::METHOD, params, None, ASK_WAIT)
         .await
         .map_err(|error| match error {
             Failed::Unreachable(_) => format!("{}, where your team's lead runs, is out of reach, and Sikemux counts your team there; try again once it is back", name_of(core, host)),
@@ -551,17 +567,16 @@ pub(crate) async fn hire(
         .ok_or_else(|| "the lead's host named no worker".into())
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct HireParams {
+pub(super) struct HireParams {
     agent_id: String,
     lead: String,
     provider: String,
     reports: bool,
 }
 
-pub(super) fn hire_here(core: &Core, host: &str, params: Value) -> CoreResult<Value> {
-    let params: HireParams = serde_json::from_value(params)?;
+pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResult<Value> {
     let lead = core
         .hosts
         .team
@@ -600,9 +615,16 @@ pub(super) fn hire_here(core: &Core, host: &str, params: Value) -> CoreResult<Va
     Ok(json!({ "name": named.name }))
 }
 
+/// Which agent an ask is about.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct AgentParams {
+    pub(super) agent_id: String,
+}
+
 /// A worker this host named for another host never started there.
-pub(super) fn forget_here(core: &Core, host: &str, params: Value) -> CoreResult<Value> {
-    let agent_id = params["agentId"].as_str().unwrap_or_default();
+pub(super) fn forget_here(core: &Core, host: &str, params: AgentParams) -> CoreResult<Value> {
+    let agent_id = params.agent_id.as_str();
     if core
         .hosts
         .team
@@ -628,8 +650,10 @@ pub(crate) fn worked(core: &Core, agent_id: &str) {
             core,
             &host,
             Sending {
-                method: "worked",
-                params: json!({ "agentId": agent_id }),
+                method: asks::Worked::METHOD,
+                params: params_of::<asks::Worked>(&AgentParams {
+                    agent_id: agent_id.to_owned(),
+                }),
                 key: Some(format!("worked:{agent_id}")),
                 body: None,
                 keep: false,
@@ -638,8 +662,8 @@ pub(crate) fn worked(core: &Core, agent_id: &str) {
     }
 }
 
-pub(super) fn worked_here(core: &Core, host: &str, params: Value) -> CoreResult<Value> {
-    let agent_id = params["agentId"].as_str().unwrap_or_default();
+pub(super) fn worked_here(core: &Core, host: &str, params: AgentParams) -> CoreResult<Value> {
+    let agent_id = params.agent_id.as_str();
     if core
         .hosts
         .team
@@ -682,14 +706,19 @@ pub(crate) fn relay_answer(core: &Core, host: &str, answer: Value) {
     );
 }
 
+#[derive(Serialize, Deserialize)]
+pub(super) struct ClosedParams {
+    pub(super) id: String,
+}
+
 /// A question put to the person elsewhere no longer waits.
 pub(crate) fn relay_closed(core: &Core, host: &str, id: &str) {
     post(
         core,
         host,
         Sending {
-            method: "questionClosed",
-            params: json!({ "id": id }),
+            method: asks::QuestionClosed::METHOD,
+            params: params_of::<asks::QuestionClosed>(&ClosedParams { id: id.to_owned() }),
             key: None,
             body: None,
             keep: false,
@@ -706,15 +735,34 @@ pub(crate) async fn pass_on(
     text: String,
     choices: Value,
 ) -> Result<Value, String> {
-    let params =
-        json!({ "lead": lead, "worker": worker.agent_id, "text": text, "choices": choices });
-    ask(core, &worker.host, "passOn", params, None, ASK_WAIT)
-        .await
-        .map_err(|error| error.to_string())
+    let params = params_of::<asks::PassOn>(&PassOnParams {
+        lead: lead.to_owned(),
+        worker: worker.agent_id.clone(),
+        text,
+        choices,
+    });
+    ask(
+        core,
+        &worker.host,
+        asks::PassOn::METHOD,
+        params,
+        None,
+        ASK_WAIT,
+    )
+    .await
+    .map_err(|error| error.to_string())
 }
 
-pub(super) fn pass_on_here(core: &Core, host: &str, params: Value) -> Result<Value, String> {
-    let lead = params["lead"].as_str().unwrap_or_default();
+#[derive(Serialize, Deserialize)]
+pub(super) struct PassOnParams {
+    lead: String,
+    worker: String,
+    text: String,
+    choices: Value,
+}
+
+pub(super) fn pass_on_here(core: &Core, host: &str, params: PassOnParams) -> Result<Value, String> {
+    let lead = params.lead.as_str();
     if core
         .hosts
         .team
@@ -723,5 +771,5 @@ pub(super) fn pass_on_here(core: &Core, host: &str, params: Value) -> Result<Val
     {
         return Err("that lead is not one of a team this host shares with yours".into());
     }
-    questions::pass_on_from(core, lead, &params)
+    questions::pass_on_from(core, lead, &params.worker, &params.text, &params.choices)
 }

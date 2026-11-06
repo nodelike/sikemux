@@ -118,8 +118,7 @@ pub(crate) async fn answer_relayed(
 }
 
 /// A question an agent on a linked host asked no longer waits on the person.
-pub(crate) fn closed_elsewhere(core: &Core, host: &str, params: Value) -> Result<Value, String> {
-    let id = params["id"].as_str().unwrap_or_default();
+pub(crate) fn closed_elsewhere(core: &Core, host: &str, id: &str) -> Result<Value, String> {
     let mut state = core.harness.questions.state.locked();
     let before = state.open.len();
     state

@@ -981,11 +981,16 @@ fn foreign_worker(core: &Core, lead: &str, worker: &str) -> Option<super::hosts:
 
 /// A lead on a linked host passes on to the person a question its worker
 /// here asked it.
-pub(crate) fn pass_on_from(core: &Core, lead: &str, params: &Value) -> Result<Value, String> {
-    let worker = params["worker"].as_str().unwrap_or_default();
-    let text = text_param(params, "text", MAX_QUESTION_BYTES)?
+pub(crate) fn pass_on_from(
+    core: &Core,
+    lead: &str,
+    worker: &str,
+    text: &str,
+    choices: &Value,
+) -> Result<Value, String> {
+    let text = text_param(&json!({ "text": text }), "text", MAX_QUESTION_BYTES)?
         .ok_or("the question must be nonempty text")?;
-    let choices = choices(params.get("choices"))?;
+    let choices = self::choices(Some(choices))?;
     pass_on(core, lead, worker, text, choices)
 }
 

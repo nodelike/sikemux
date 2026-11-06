@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 
@@ -19,6 +19,7 @@ use super::super::names::{Adopted, Worker};
 use super::super::spawn::{self as local, ForHost};
 use super::super::worktree;
 use super::super::Core;
+use super::calls::{self as asks, params_of, HostAsk};
 use super::code::{self, Checked, Code};
 use super::link::Received;
 use super::route::pin;
@@ -115,24 +116,33 @@ pub(crate) async fn spawn(
     });
     pin(core);
     let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
-    let task = json!({
-        "agentId": agent_id,
-        "name": named.name,
-        "lead": {
-            "agentId": lead_id,
-            "name": lead_name,
-            "cli": lead.provider,
-            "mode": lead.permission_mode,
-            "depth": core.names.depth(&lead_id),
+    let task = params_of::<asks::Spawn>(&SpawnParams {
+        agent_id: agent_id.clone(),
+        name: named.name.clone(),
+        lead: LeadParams {
+            agent_id: lead_id.clone(),
+            name: lead_name,
+            cli: lead.provider.clone(),
+            mode: lead.permission_mode.map(|mode| mode.as_str().to_owned()),
+            depth: core.names.depth(&lead_id),
         },
-        "cli": provider,
-        "model": model,
-        "reports": reports,
-        "prompt": prompt,
-        "branch": text(params, "branch"),
-        "code": packed.code,
+        cli: provider.clone(),
+        model: model.clone(),
+        reports,
+        prompt: prompt.clone(),
+        branch: text(params, "branch").map(str::to_owned),
+        code: packed.code.clone(),
     });
-    let started = match ask(core, &link.id, "spawn", task.clone(), None, SPAWN_WAIT).await {
+    let started = match ask(
+        core,
+        &link.id,
+        asks::Spawn::METHOD,
+        task.clone(),
+        None,
+        SPAWN_WAIT,
+    )
+    .await
+    {
         Ok(answer) if answer["needs"] == "bundle" => {
             let tips: Vec<String> = answer["tips"]
                 .as_array()
@@ -147,7 +157,7 @@ pub(crate) async fn spawn(
                     match ask(
                         core,
                         &link.id,
-                        "spawn",
+                        asks::Spawn::METHOD,
                         task,
                         Some(bundle.path()),
                         SPAWN_WAIT,
@@ -204,7 +214,7 @@ pub(crate) async fn spawn(
     }))
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct LeadParams {
     agent_id: String,
@@ -216,9 +226,9 @@ struct LeadParams {
     depth: usize,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SpawnParams {
+pub(super) struct SpawnParams {
     agent_id: String,
     name: String,
     lead: LeadParams,
@@ -235,11 +245,9 @@ struct SpawnParams {
 pub(super) async fn start_here(
     core: &Arc<Core>,
     host: &str,
-    params: Value,
+    params: SpawnParams,
     body: Option<Received>,
 ) -> Result<Value, String> {
-    let params: SpawnParams =
-        serde_json::from_value(params).map_err(|error| format!("unreadable spawn: {error}"))?;
     if !is_tool_agent_id(&params.agent_id) || !is_tool_agent_id(&params.lead.agent_id) {
         return Err("that is not an agent id".into());
     }
@@ -382,8 +390,12 @@ pub(crate) async fn send_commits(core: &Arc<Core>, worker: &str) {
                 core,
                 &host,
                 Sending {
-                    method: "commits",
-                    params: json!({ "agentId": worker, "head": head, "count": count }),
+                    method: asks::Commits::METHOD,
+                    params: params_of::<asks::Commits>(&code::Landing {
+                        agent_id: worker.to_owned(),
+                        head: head.clone(),
+                        count,
+                    }),
                     key: Some(format!("commits:{worker}")),
                     body: Some(into),
                     keep: true,
@@ -434,8 +446,10 @@ pub(crate) fn never_started(core: &Core, hired: &Hired) {
         core,
         host,
         Sending {
-            method: "forget",
-            params: json!({ "agentId": agent_id }),
+            method: asks::Forget::METHOD,
+            params: params_of::<asks::Forget>(&super::route::AgentParams {
+                agent_id: agent_id.clone(),
+            }),
             key: None,
             body: None,
             keep: false,

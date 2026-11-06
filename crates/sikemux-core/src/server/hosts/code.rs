@@ -554,11 +554,13 @@ pub(crate) fn commits(tree: &Tree, into: &Path) -> Result<Option<(String, usize)
     Ok(Some((head, count)))
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Landing {
-    agent_id: String,
-    count: usize,
+pub(super) struct Landing {
+    pub(super) agent_id: String,
+    #[serde(default)]
+    pub(super) head: String,
+    pub(super) count: usize,
 }
 
 /// A worker on `host` sent its commits: they go onto a branch named for it
@@ -566,10 +568,10 @@ struct Landing {
 pub(crate) async fn land(
     core: &Arc<Core>,
     host: &str,
-    params: Value,
+    params: Landing,
     body: Option<Received>,
 ) -> Result<Value, String> {
-    let landing: Landing = serde_json::from_value(params).map_err(|error| error.to_string())?;
+    let landing = params;
     let worker = core
         .hosts
         .team
