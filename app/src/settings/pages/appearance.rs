@@ -3,6 +3,7 @@
 
 use sikemux_core::server::call;
 use sikemux_core::server::faces::FaceStyleChange;
+use sikemux_view::prefs::PreferenceChange;
 use std::rc::Rc;
 
 use gpui_kit::component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
@@ -14,7 +15,6 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, ParentElement, PathPromptOptions, SharedString,
     StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use serde_json::Value;
 use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern};
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
@@ -248,11 +248,15 @@ enum Tone {
     Light,
 }
 
+/// A slider's value, rounded as the settings keep it.
+fn hundredths(value: f32) -> f64 {
+    (value as f64 * 100.).round() / 100.
+}
+
 fn slider(
-    key: &'static str,
+    change: fn(f32) -> PreferenceChange,
     range: (f32, f32, f32),
     value: f32,
-    round: bool,
     cx: &mut Context<Workbench>,
 ) -> (Entity<SliderState>, Subscription) {
     let (min, max, step) = range;
@@ -267,12 +271,7 @@ fn slider(
         let SliderEvent::Change(value) = event else {
             return;
         };
-        let value = value.start();
-        let value: Value = match round {
-            true => (value.round() as i64).into(),
-            false => ((value as f64 * 100.).round() / 100.).into(),
-        };
-        crate::settings::set(bench, key, value);
+        crate::settings::set(bench, change(value.start()));
     });
     (state, moved)
 }
@@ -288,45 +287,39 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
         }
     });
     let (strength, moved_strength) = slider(
-        "paneStrength",
+        |value| PreferenceChange::PaneStrength(hundredths(value)),
         (0., 2., 0.05),
         preferences.pane_strength as f32,
-        false,
         cx,
     );
     let (dot_size, moved_dot_size) = slider(
-        "paneDotSize",
+        |value| PreferenceChange::PaneDotSize(value.round() as u32),
         (1., 6., 1.),
         preferences.pane_dot_size as f32,
-        true,
         cx,
     );
     let (contrast, moved_contrast) = slider(
-        "paneContrast",
+        |value| PreferenceChange::PaneContrast(hundredths(value)),
         (-1., 1., 0.05),
         preferences.pane_contrast as f32,
-        false,
         cx,
     );
     let (brightness, moved_brightness) = slider(
-        "paneBrightness",
+        |value| PreferenceChange::PaneBrightness(hundredths(value)),
         (-1., 1., 0.05),
         preferences.pane_brightness as f32,
-        false,
         cx,
     );
     let (glow, moved_glow) = slider(
-        "paneGlow",
+        |value| PreferenceChange::PaneGlow(hundredths(value)),
         (0., 1., 0.05),
         preferences.pane_glow as f32,
-        false,
         cx,
     );
     let (glow_size, moved_glow_size) = slider(
-        "paneGlowSize",
+        |value| PreferenceChange::PaneGlowSize(hundredths(value)),
         (0., 1., 0.05),
         preferences.pane_glow_size as f32,
-        false,
         cx,
     );
     let mut watching = vec![
@@ -355,24 +348,22 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
                     if let Some(ink) = inks.get_mut(at) {
                         *ink = super::theme_editor::hex(*color);
                     }
-                    crate::settings::set(bench, "paneInks", inks);
+                    crate::settings::set(bench, PreferenceChange::PaneInks(inks));
                 },
             ));
             picker
         })
         .collect();
     let (opacity, moved_opacity) = slider(
-        "windowOpacity",
+        |value| PreferenceChange::WindowOpacity(hundredths(value)),
         (0., 1., 0.01),
         preferences.window_opacity as f32,
-        false,
         cx,
     );
     let (blur, moved_blur) = slider(
-        "windowBlur",
+        |value| PreferenceChange::WindowBlur(value.round().into()),
         (0., 60., 1.),
         preferences.window_blur.min(60.) as f32,
-        true,
         cx,
     );
     let fields = Fields {
@@ -409,9 +400,8 @@ fn picture_rows(
 ) -> impl IntoElement {
     let t = Tokens::get(cx);
     let words = |id: &'static str,
-                 key: &'static str,
                  labels: &[&'static str],
-                 values: Vec<Value>,
+                 changes: Vec<PreferenceChange>,
                  chosen: usize| {
         let this = this.clone();
         ui::Segmented::words(
@@ -423,15 +413,18 @@ fn picture_rows(
             chosen,
         )
         .on_select(move |at, _, cx| {
-            let value = values[*at].clone();
-            this.update(cx, |bench, _| crate::settings::set(bench, key, value))
+            let change = changes[*at].clone();
+            this.update(cx, |bench, _| crate::settings::set(bench, change))
         })
     };
     let colours = words(
         "pane-colours",
-        "paneColours",
         &["Theme", "Picture", "Custom"],
-        vec!["theme".into(), "picture".into(), "custom".into()],
+        vec![
+            PreferenceChange::PaneColours(PaneColours::Theme),
+            PreferenceChange::PaneColours(PaneColours::Picture),
+            PreferenceChange::PaneColours(PaneColours::Custom),
+        ],
         match preferences.pane_colours {
             PaneColours::Theme => 0,
             PaneColours::Picture => 1,
@@ -440,13 +433,12 @@ fn picture_rows(
     );
     let pattern = words(
         "pane-pattern",
-        "panePattern",
         &["2×2", "4×4", "8×8", "Noise"],
         vec![
-            "bayer2".into(),
-            "bayer4".into(),
-            "bayer8".into(),
-            "noise".into(),
+            PreferenceChange::PanePattern(PanePattern::Bayer2),
+            PreferenceChange::PanePattern(PanePattern::Bayer4),
+            PreferenceChange::PanePattern(PanePattern::Bayer8),
+            PreferenceChange::PanePattern(PanePattern::Noise),
         ],
         match preferences.pane_pattern {
             PanePattern::Bayer2 => 0,
@@ -457,9 +449,11 @@ fn picture_rows(
     );
     let coverage = words(
         "pane-coverage",
-        "paneCoverage",
         &["Top", "Whole pane"],
-        vec!["band".into(), "full".into()],
+        vec![
+            PreferenceChange::PaneCoverage(PaneCoverage::Band),
+            PreferenceChange::PaneCoverage(PaneCoverage::Full),
+        ],
         match preferences.pane_coverage {
             PaneCoverage::Band => 0,
             PaneCoverage::Full => 1,
@@ -554,7 +548,7 @@ fn step(bench: &Workbench, by: isize, cx: &App) {
         None if by > 0 => 0,
         None => last,
     };
-    crate::settings::set(bench, "themeId", listed[next].clone());
+    crate::settings::set(bench, PreferenceChange::ThemeId(listed[next].clone()));
 }
 
 /// The themes the library shows as searched and filtered: yours, then Sikemux's, then Ghostty's.
@@ -815,7 +809,7 @@ pub fn render(
                             .on_click(move |_, _, cx| {
                                 let id = id.clone();
                                 pick.update(cx, |bench, _| {
-                                    crate::settings::set(bench, "themeId", id)
+                                    crate::settings::set(bench, PreferenceChange::ThemeId(id))
                                 })
                             })
                             .child(preview(summary, 58., false))
@@ -1032,7 +1026,7 @@ pub fn render(
         .on_select(move |chosen, _, cx| {
             let scale = [1., 1.1, 1.25][*chosen];
             this.update(cx, |bench, _| {
-                crate::settings::set(bench, "uiTextScale", scale)
+                crate::settings::set(bench, PreferenceChange::UiTextScale(scale))
             })
         })
     };
@@ -1046,7 +1040,7 @@ pub fn render(
                     ui::Button::new("pane-image-remove", "Remove", ui::Variant::Outline).on_click(
                         move |_, _, cx| {
                             remove.update(cx, |bench, _| {
-                                crate::settings::set(bench, "paneImage", Value::Null)
+                                crate::settings::set(bench, PreferenceChange::PaneImage(None))
                             })
                         },
                     ),
@@ -1075,7 +1069,10 @@ pub fn render(
                                 if let Some(path) = paths.first() {
                                     let path = path.to_string_lossy().into_owned();
                                     let _ = bench.update(cx, |bench, _| {
-                                        crate::settings::set(bench, "paneImage", path)
+                                        crate::settings::set(
+                                            bench,
+                                            PreferenceChange::PaneImage(Some(path)),
+                                        )
                                     });
                                 }
                             }
@@ -1111,7 +1108,12 @@ pub fn render(
         .child(rows::row(
             "Pane texture",
             Some("The dithered grain behind each pane."),
-            rows::switch("pane-texture", "paneShader", preferences.pane_shader, this),
+            rows::switch(
+                "pane-texture",
+                PreferenceChange::PaneShader,
+                preferences.pane_shader,
+                this,
+            ),
             cx,
         ))
         .child(rows::row(

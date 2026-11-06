@@ -2,6 +2,7 @@
 //! finished or a goal moved: a system notification that brings it forward when clicked, and
 //! the Dock or launcher icon's bounce and badge.
 
+use sikemux_view::prefs::PreferenceChange;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -284,7 +285,7 @@ pub fn introduce(bench: &Workbench, cx: &mut Context<Workbench>) {
     if !preferences.agent_notifications || preferences.notifications_introduced {
         return;
     }
-    crate::settings::set(bench, "notificationsIntroduced", true);
+    crate::settings::set(bench, PreferenceChange::NotificationsIntroduced(true));
     test(cx);
 }
 
@@ -327,7 +328,7 @@ pub fn kept_running(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     if !unshown || kept == 0 {
         return;
     }
-    crate::settings::set(bench, "keptRunningNoticeShown", true);
+    crate::settings::set(bench, PreferenceChange::KeptRunningNoticeShown(true));
     bench.notify_for::<KeptRunning>(
         toast::info(format!(
             "Your terminals and agents kept running while Sikemux was closed. Use Quit and Stop Everything ({STOP_EVERYTHING_KEYS}) to stop them."

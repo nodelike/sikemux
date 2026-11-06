@@ -6,6 +6,7 @@ use gpui_kit::{Context, SharedString, Window};
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::themes::ThemeParams;
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
 use crate::palette::{Row, Spec};
@@ -40,7 +41,7 @@ impl Workbench {
     pub fn toggle_theme_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let current: SharedString = self.preferences().theme_id.clone().into();
         let spec = Spec::new(ID, "pick a theme…", Vec::new(), |row, bench, _, _| {
-            crate::settings::set(bench, "themeId", row.key.to_string());
+            crate::settings::set(bench, PreferenceChange::ThemeId(row.key.to_string()));
         })
         .start(current)
         .empty("reading themes…")

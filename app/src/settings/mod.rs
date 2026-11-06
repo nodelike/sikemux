@@ -4,7 +4,7 @@
 
 use crate::workbench::actions;
 use sikemux_core::server::call;
-use sikemux_core::server::preferences::SetPreferenceParams;
+use sikemux_view::prefs::PreferenceChange;
 use std::cell::Cell;
 use std::time::{Duration, Instant};
 
@@ -15,7 +15,6 @@ use gpui_kit::{
     InteractiveElement, IntoElement, KeyBinding, MouseButton, MouseDownEvent, ParentElement,
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use serde_json::Value;
 
 use crate::icons::Icon;
 use crate::theme::{
@@ -248,11 +247,8 @@ pub fn before_shortcut(
 
 pub use pages::{plugins_changed, providers_changed, remote_moved};
 
-pub(crate) fn set(bench: &Workbench, key: &str, value: impl Into<Value>) {
-    bench.call_typed::<call::SetPreference>(SetPreferenceParams {
-        key: key.to_owned(),
-        value: value.into(),
-    });
+pub(crate) fn set(bench: &Workbench, change: PreferenceChange) {
+    bench.call_typed::<call::SetPreference>(change);
 }
 
 /// Opens settings on `page` with `section` brought into view and lit, as a search hit is.

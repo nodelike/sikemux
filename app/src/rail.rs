@@ -1,6 +1,7 @@
 use crate::workbench::actions;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
+use sikemux_view::prefs::PreferenceChange;
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Duration;
@@ -13,7 +14,6 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement, StyleRefinement, Styled, WeakEntity, Window,
 };
-use serde_json::json;
 use sikemux_core::server::hosts::HostFound;
 use sikemux_core::server::hosts::HostReach;
 use sikemux_view::device::AccountInfo;
@@ -1611,29 +1611,26 @@ impl Workbench {
         } else {
             TabRailScope::Project
         };
-        let recent: Vec<&str> = self
+        let recent: Vec<String> = self
             .recent_commands
             .iter()
-            .map(|key| key.as_ref())
+            .map(ToString::to_string)
             .collect();
         let now = [
-            ("sideRailOpen", json!(self.rails.side_open)),
-            ("sideRailWidth", json!(self.rails.side_width)),
-            ("tabRailOpen", json!(self.rails.tab_open)),
-            ("tabRailWidth", json!(self.rails.tab_width)),
-            ("tabRailPage", json!(page)),
-            ("tabRailScope", json!(scope)),
-            ("tabRailAllAgents", json!(self.rails.all_harnesses)),
-            ("windowView", json!(self.window_view)),
-            ("recentCommandKeys", json!(recent)),
+            PreferenceChange::SideRailOpen(self.rails.side_open),
+            PreferenceChange::SideRailWidth(self.rails.side_width.into()),
+            PreferenceChange::TabRailOpen(self.rails.tab_open),
+            PreferenceChange::TabRailWidth(self.rails.tab_width.into()),
+            PreferenceChange::TabRailPage(page),
+            PreferenceChange::TabRailScope(scope),
+            PreferenceChange::TabRailAllAgents(self.rails.all_harnesses),
+            PreferenceChange::WindowView(self.window_view),
+            PreferenceChange::RecentCommandKeys(recent),
         ];
-        let kept = self
-            .preferences
-            .as_ref()
-            .and_then(|kept| serde_json::to_value(kept).ok());
-        for (key, value) in now {
-            if kept.as_ref().and_then(|kept| kept.get(key)) != Some(&value) {
-                crate::settings::set(self, key, value);
+        let kept = self.preferences.as_ref();
+        for change in now {
+            if !kept.is_some_and(|kept| change.is_in(kept)) {
+                crate::settings::set(self, change);
             }
         }
     }

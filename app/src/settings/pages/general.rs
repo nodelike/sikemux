@@ -9,6 +9,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::project_roots::ResolveParams;
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::{ProjectRoot, MAX_PROJECT_DEPTH};
 
 use crate::core;
@@ -96,11 +97,7 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
 fn change(bench: &Workbench, edit: impl FnOnce(&mut Vec<ProjectRoot>)) {
     let mut roots = bench.preferences().project_roots.clone();
     edit(&mut roots);
-    crate::settings::set(
-        bench,
-        "projectRoots",
-        serde_json::to_value(roots).unwrap_or_default(),
-    );
+    crate::settings::set(bench, PreferenceChange::ProjectRoots(roots));
 }
 
 /// Changes the add row and the project's move, and draws the pages again.
@@ -419,7 +416,7 @@ pub fn render(
                 Some("Resumable tabs come back asleep and start only when selected."),
                 rows::switch(
                     "restore-agent-tabs",
-                    "restoreAgentTabs",
+                    PreferenceChange::RestoreAgentTabs,
                     bench.preferences().restore_agent_tabs,
                     this,
                 ),

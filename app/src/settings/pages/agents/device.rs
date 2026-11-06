@@ -5,7 +5,9 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::component::Disableable;
 use gpui_kit::{div, AnyElement, App, Context, Div, Entity, ParentElement, SharedString, Window};
 use serde_json::Value;
+use sikemux_view::notch::NotchSettings;
 use sikemux_view::notch::{NotchDisplays, NotchFullScreen, NotchOpenWith, NotchPeeks};
+use sikemux_view::prefs::PreferenceChange;
 
 use crate::settings::rows::{self, Choice};
 use crate::settings::Page;
@@ -171,25 +173,24 @@ fn xcode(path: Option<&str>) -> String {
 }
 
 /// Changes one of the island's settings, keeping the rest.
-fn set_notch(bench: &Workbench, key: &str, value: impl Into<Value>) {
-    let mut notch = serde_json::to_value(&bench.preferences().notch).unwrap_or_default();
-    notch[key] = value.into();
-    crate::settings::set(bench, "notch", notch);
+fn set_notch(bench: &Workbench, edit: impl FnOnce(&mut NotchSettings)) {
+    let mut notch = bench.preferences().notch.clone();
+    edit(&mut notch);
+    crate::settings::set(bench, PreferenceChange::Notch(notch));
 }
 
 impl Fields {
     pub fn new(bench: &Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> Self {
         let notch = bench.preferences().notch.clone();
         let choice = |labels: Vec<&'static str>,
-                      words: &'static [&'static str],
                       chosen: usize,
-                      key: &'static str,
+                      pick: fn(&mut NotchSettings, usize),
                       window: &mut Window,
                       cx: &mut Context<Workbench>| {
             Choice::new(
                 labels,
                 chosen,
-                move |bench, at, _| set_notch(bench, key, words[at]),
+                move |bench, at, _| set_notch(bench, |notch| pick(notch, at)),
                 window,
                 cx,
             )
@@ -203,24 +204,28 @@ impl Fields {
                     "Built-in display only",
                     "The display under the pointer",
                 ],
-                &["all", "builtIn", "pointer"],
                 match notch.displays {
                     NotchDisplays::All => 0,
                     NotchDisplays::BuiltIn => 1,
                     NotchDisplays::Pointer => 2,
                 },
-                "displays",
+                |notch, at| {
+                    notch.displays = [
+                        NotchDisplays::All,
+                        NotchDisplays::BuiltIn,
+                        NotchDisplays::Pointer,
+                    ][at]
+                },
                 window,
                 cx,
             ),
             open_with: choice(
                 vec!["Resting the pointer", "Clicking"],
-                &["hover", "click"],
                 match notch.open_with {
                     NotchOpenWith::Hover => 0,
                     NotchOpenWith::Click => 1,
                 },
-                "openWith",
+                |notch, at| notch.open_with = [NotchOpenWith::Hover, NotchOpenWith::Click][at],
                 window,
                 cx,
             ),
@@ -230,13 +235,18 @@ impl Fields {
                     "Always show",
                     "Always hide",
                 ],
-                &["needsYou", "always", "never"],
                 match notch.full_screen {
                     NotchFullScreen::NeedsYou => 0,
                     NotchFullScreen::Always => 1,
                     NotchFullScreen::Never => 2,
                 },
-                "fullScreen",
+                |notch, at| {
+                    notch.full_screen = [
+                        NotchFullScreen::NeedsYou,
+                        NotchFullScreen::Always,
+                        NotchFullScreen::Never,
+                    ][at]
+                },
                 window,
                 cx,
             ),
@@ -246,13 +256,14 @@ impl Fields {
                     "An agent needs you",
                     "Never",
                 ],
-                &["all", "needsYou", "never"],
                 match notch.peeks {
                     NotchPeeks::All => 0,
                     NotchPeeks::NeedsYou => 1,
                     NotchPeeks::Never => 2,
                 },
-                "peeks",
+                |notch, at| {
+                    notch.peeks = [NotchPeeks::All, NotchPeeks::NeedsYou, NotchPeeks::Never][at]
+                },
                 window,
                 cx,
             ),
@@ -263,7 +274,7 @@ impl Fields {
 /// A switch for one of the island's settings, off while the island is.
 fn notch_switch(
     id: &'static str,
-    key: &'static str,
+    set: fn(&mut NotchSettings, bool),
     on: bool,
     enabled: bool,
     this: &Entity<Workbench>,
@@ -272,7 +283,7 @@ fn notch_switch(
     Switch::new(id).checked(on).disabled(!enabled).on_change(
         move |on: &bool, _: &mut Window, cx: &mut App| {
             let on = *on;
-            this.update(cx, |bench, _| set_notch(bench, key, on))
+            this.update(cx, |bench, _| set_notch(bench, |notch| set(notch, on)))
         },
     )
 }
@@ -373,7 +384,7 @@ pub fn render(
         .child(rows::row(
             "Dictate with right Option",
             Some("Hold right ⌥ and speak. Letting go types what you said into the focused agent or terminal."),
-            rows::switch("voice-dictation", "voiceDictation", dictating, this)
+            rows::switch("voice-dictation", PreferenceChange::VoiceDictation, dictating, this)
                 .disabled(phase == Phase::Unsupported),
             cx,
         ))
@@ -386,7 +397,7 @@ pub fn render(
         .child(rows::row(
             "Show the island",
             Some("It keeps running after Sikemux quits, as your agents do."),
-            notch_switch("notch-enabled", "enabled", on, true, this),
+            notch_switch("notch-enabled", |notch, on| notch.enabled = on, on, true, this),
             cx,
         ))
         .child(rows::row(
@@ -411,25 +422,25 @@ pub fn render(
         .child(rows::row(
             "Answer permissions in the notch",
             Some("Otherwise a request offers Open in Sikemux instead of Deny and Allow."),
-            notch_switch("notch-answer", "answerInNotch", notch.answer_in_notch, on, this),
+            notch_switch("notch-answer", |notch, on| notch.answer_in_notch = on, notch.answer_in_notch, on, this),
             cx,
         ))
         .child(rows::row(
             "Sound when an agent needs you",
             None,
-            notch_switch("notch-sound", "sound", notch.sound, on, this),
+            notch_switch("notch-sound", |notch, on| notch.sound = on, notch.sound, on, this),
             cx,
         ))
         .child(rows::row(
             "Haptic feedback",
             Some("A tick on a Force Touch trackpad as the pointer reaches the island, a swipe opens or closes it, or an agent needs you."),
-            notch_switch("notch-haptics", "haptics", notch.haptics, on, this),
+            notch_switch("notch-haptics", |notch, on| notch.haptics = on, notch.haptics, on, this),
             cx,
         ))
         .child(rows::row(
             "Step aside for Sikemux Dev",
             Some("While a dev build runs, its island takes the notch."),
-            notch_switch("notch-yield", "yieldToDev", notch.yield_to_dev, on, this),
+            notch_switch("notch-yield", |notch, on| notch.yield_to_dev = on, notch.yield_to_dev, on, this),
             cx,
         ));
 
@@ -437,13 +448,13 @@ pub fn render(
         .child(rows::row(
             "Let agents drive the iOS Simulator",
             Some("Agents tap, type and read simulators without asking, as they do browser tabs, and their screenshots go to the agent's provider. Applies to agents started after a change."),
-            rows::switch("ios-simulator", "iosSimulator", preferences.ios_simulator, this),
+            rows::switch("ios-simulator", PreferenceChange::IosSimulator, preferences.ios_simulator, this),
             cx,
         ))
         .child(rows::row(
             "Show the device's frame",
             Some("Draws the phone's bezel and side buttons around its screen, as Simulator does. Without it the screen gets a little more room."),
-            rows::switch("simulator-frame", "simulatorFrame", preferences.simulator_frame, this),
+            rows::switch("simulator-frame", PreferenceChange::SimulatorFrame, preferences.simulator_frame, this),
             cx,
         ))
         .children(simulator_rows(fields, cx));

@@ -2,6 +2,7 @@
 //! over one of them all move it here.
 
 use gpui::{PinchEvent, TouchPhase};
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::{
     DEFAULT_TERMINAL_FONT_SIZE, DEFAULT_TEXT_SCALE, MAX_TERMINAL_FONT_SIZE, MAX_TEXT_SCALE,
     MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE,
@@ -17,13 +18,11 @@ pub enum Surface {
 }
 
 impl Surface {
-    /// The preference it reads its size from, the bounds of that size, and the step it moves by.
-    fn preference(self) -> (&'static str, f64, f64, f64) {
+    /// The bounds of its size, and the step it moves by.
+    fn bounds(self) -> (f64, f64, f64) {
         match self {
-            Surface::Chat => ("chatTextScale", MIN_TEXT_SCALE, MAX_TEXT_SCALE, 0.05),
-            Surface::Editor => ("editorTextScale", MIN_TEXT_SCALE, MAX_TEXT_SCALE, 0.05),
+            Surface::Chat | Surface::Editor => (MIN_TEXT_SCALE, MAX_TEXT_SCALE, 0.05),
             Surface::Terminal => (
-                "terminalFontSize",
                 MIN_TERMINAL_FONT_SIZE.into(),
                 MAX_TERMINAL_FONT_SIZE.into(),
                 1.,
@@ -40,13 +39,17 @@ impl Surface {
     }
 
     fn set(self, bench: &Workbench, size: f64) {
-        let (key, min, max, _) = self.preference();
+        let (min, max, _) = self.bounds();
         let size = size.clamp(min, max);
-        let value = match self {
-            Surface::Terminal => serde_json::Value::from(size as u32),
-            _ => serde_json::Value::from((size * 100.).round() / 100.),
-        };
-        crate::settings::set(bench, key, value);
+        let scale = (size * 100.).round() / 100.;
+        crate::settings::set(
+            bench,
+            match self {
+                Surface::Terminal => PreferenceChange::TerminalFontSize(size as u32),
+                Surface::Chat => PreferenceChange::ChatTextScale(scale),
+                Surface::Editor => PreferenceChange::EditorTextScale(scale),
+            },
+        );
     }
 
     /// Makes its text a step bigger or smaller, or with none back to its default size.
@@ -91,7 +94,7 @@ pub fn resize(bench: &mut Workbench, surface: Surface, event: &PinchEvent) {
         }
     };
     pinch.factor *= 1. + f64::from(event.delta);
-    let (_, min, max, step) = surface.preference();
+    let (min, max, step) = surface.bounds();
     let size = ((pinch.base * pinch.factor / step).round() * step).clamp(min, max);
     if size != pinch.sent {
         pinch.sent = size;

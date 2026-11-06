@@ -5,6 +5,7 @@ use sikemux_core::server::tasks::{ProjectConfigRead, ProjectParams, TrustProject
 use sikemux_core::tasks::config::{ConfigError, ConfigLoad, ProjectCheck, Stated};
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
+use sikemux_view::prefs::PreferenceChange;
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -191,9 +192,9 @@ impl Workbench {
         );
     }
 
-    fn set_project_map<T: serde::Serialize>(
+    fn set_project_map<T>(
         &self,
-        key: &str,
+        change: fn(BTreeMap<String, T>) -> PreferenceChange,
         mut map: BTreeMap<String, T>,
         folder: &str,
         value: Option<T>,
@@ -202,7 +203,7 @@ impl Workbench {
             Some(value) => map.insert(folder.to_owned(), value),
             None => map.remove(folder),
         };
-        settings::set(self, key, serde_json::to_value(map).unwrap_or_default());
+        settings::set(self, change(map));
     }
 }
 
@@ -492,7 +493,7 @@ fn general(
                     let defaults = defaults.clone();
                     on_worktree.update(cx, |bench, _| {
                         bench.set_project_map(
-                            "agentWorktreeDefaults",
+                            PreferenceChange::AgentWorktreeDefaults,
                             defaults,
                             &worktree_folder,
                             on.then_some(true),
@@ -886,7 +887,12 @@ fn git(
                     .on_click(move |_, _, cx| {
                         let (repos, pick) = (repos.clone(), pick.clone());
                         this.update(cx, |bench, _| {
-                            bench.set_project_map("defaultGitRepos", repos, &folder, pick)
+                            bench.set_project_map(
+                                PreferenceChange::DefaultGitRepos,
+                                repos,
+                                &folder,
+                                pick,
+                            )
                         })
                     })
                     .into_any_element()

@@ -3,6 +3,7 @@
 //! the first two are due.
 
 use gpui_kit::{div, AnyElement, Context, IntoElement, Window};
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::Preferences;
 
 use crate::screens::{diagnostics, welcome, whats_new};
@@ -82,11 +83,11 @@ pub fn close(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let sky = shown.has_sky();
     match shown {
         Experience::Welcome(_) => {
-            crate::settings::set(bench, "onboardingComplete", true);
+            crate::settings::set(bench, PreferenceChange::OnboardingComplete(true));
         }
         Experience::WhatsNew(news) => {
             if let Some(version) = news.running() {
-                crate::settings::set(bench, "lastSeenVersion", version);
+                crate::settings::set(bench, PreferenceChange::LastSeenVersion(version));
             }
         }
         Experience::Diagnostics(_) => {}

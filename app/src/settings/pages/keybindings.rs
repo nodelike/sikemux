@@ -1,5 +1,6 @@
 //! Every command's keys, and recording new ones.
 
+use sikemux_view::prefs::PreferenceChange;
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -85,11 +86,7 @@ fn change_fields<R>(
 fn change(bench: &Workbench, edit: impl FnOnce(&mut BTreeMap<String, Option<String>>)) {
     let mut overrides = bench.preferences().keybinding_overrides.clone();
     edit(&mut overrides);
-    crate::settings::set(
-        bench,
-        "keybindingOverrides",
-        serde_json::to_value(overrides).unwrap_or_default(),
-    );
+    crate::settings::set(bench, PreferenceChange::KeybindingOverrides(overrides));
 }
 
 fn say(bench: &mut Workbench, message: String, cx: &mut Context<Workbench>) {

@@ -1,6 +1,7 @@
 //! What every settings page is made of: sections under a heading, and rows
 //! with a name, a line about them, and the control that changes them.
 
+use sikemux_view::prefs::PreferenceChange;
 use std::cell::RefCell;
 
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
@@ -206,14 +207,19 @@ pub fn row_with(
         .child(div().flex_none().child(control))
 }
 
-/// A switch that sets the boolean preference `key`.
-pub fn switch(id: &'static str, key: &'static str, on: bool, this: &Entity<Workbench>) -> Switch {
+/// A switch that sets a boolean preference, as `change` says.
+pub fn switch(
+    id: &'static str,
+    change: fn(bool) -> PreferenceChange,
+    on: bool,
+    this: &Entity<Workbench>,
+) -> Switch {
     let this = this.clone();
     Switch::new(id)
         .checked(on)
         .on_change(move |on: &bool, _: &mut Window, cx: &mut App| {
             let on = *on;
-            this.update(cx, |bench, _| super::set(bench, key, on))
+            this.update(cx, |bench, _| super::set(bench, change(on)))
         })
 }
 

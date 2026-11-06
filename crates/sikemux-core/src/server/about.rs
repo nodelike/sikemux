@@ -2,6 +2,7 @@
 //! release's notes and who made it, and which of the tools Sikemux works with
 //! the host has.
 
+use sikemux_view::prefs::PreferenceChange;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -56,8 +57,9 @@ pub(crate) fn whats_new(core: &Core) -> WhatsNew {
 pub(crate) fn introduced(core: &Core) -> CoreResult<()> {
     let preferences = core.preferences.get();
     if preferences.onboarding_complete && preferences.last_seen_version.is_empty() {
-        core.preferences
-            .store("lastSeenVersion", core.config.build.version.clone().into())?;
+        core.preferences.change(PreferenceChange::LastSeenVersion(
+            core.config.build.version.clone(),
+        ));
     }
     Ok(())
 }

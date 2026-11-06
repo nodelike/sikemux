@@ -7,6 +7,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::names::{NameTheme, NameThemeParams};
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::{MidTurnSend, RailDensity};
 use sikemux_wire::protocol::PermissionMode;
 
@@ -134,7 +135,12 @@ impl Fields {
                 MidTurnSend::Steer => 0,
                 MidTurnSend::Queue => 1,
             },
-            |bench, at, _| crate::settings::set(bench, "midTurnSend", ["steer", "queue"][at]),
+            |bench, at, _| {
+                crate::settings::set(
+                    bench,
+                    PreferenceChange::MidTurnSend([MidTurnSend::Steer, MidTurnSend::Queue][at]),
+                )
+            },
             window,
             cx,
         );
@@ -145,7 +151,12 @@ impl Fields {
                 RailDensity::Compact => 1,
             },
             |bench, at, _| {
-                crate::settings::set(bench, "railDensity", ["comfortable", "compact"][at])
+                crate::settings::set(
+                    bench,
+                    PreferenceChange::RailDensity(
+                        [RailDensity::Comfortable, RailDensity::Compact][at],
+                    ),
+                )
             },
             window,
             cx,
@@ -320,7 +331,7 @@ pub fn notifications(
             Some("While Sikemux is in the background, a notification says when an agent asks for input or finishes."),
             rows::switch(
                 "agent-notifications",
-                "agentNotifications",
+                PreferenceChange::AgentNotifications,
                 preferences.agent_notifications,
                 this,
             ),
@@ -331,7 +342,7 @@ pub fn notifications(
             Some("A short notification when slices land, a goal finishes or its ETA slips, and never for what you're looking at. What needs you always notifies."),
             rows::switch(
                 "goal-notifications",
-                "goalNotifications",
+                PreferenceChange::GoalNotifications,
                 preferences.goal_notifications,
                 this,
             ),

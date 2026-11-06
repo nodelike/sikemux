@@ -14,8 +14,8 @@ use sikemux_process::sync::Locked;
 use super::kept::Kept;
 use super::{Core, CoreError, CoreResult};
 use sikemux_view::prefs::{
-    CustomCommand, Preferences, MAX_PROJECT_DEPTH, MAX_TERMINAL_FONT_SIZE, MAX_TEXT_SCALE,
-    MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE, UI_TEXT_SCALES,
+    CustomCommand, PreferenceChange, Preferences, MAX_PROJECT_DEPTH, MAX_TERMINAL_FONT_SIZE,
+    MAX_TEXT_SCALE, MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE, UI_TEXT_SCALES,
 };
 
 const FILE: &str = "preferences.json";
@@ -43,13 +43,24 @@ impl Prefs {
         read(&self.values.locked())
     }
 
-    /// Keeps the preference `key`, refusing a key there is none of or a value it cannot hold.
-    /// A running core goes through [`set`], for what follows from it.
-    pub(super) fn store(&self, key: &str, value: Value) -> CoreResult<Preferences> {
+    /// Keeps what an older app's settings file says of the preference `key`, refusing a key
+    /// there is none of or a value it cannot hold.
+    pub(super) fn carry(&self, key: &str, value: Value) -> CoreResult<Preferences> {
         let mut values = self.values.locked();
         let preferences = put(&mut values, key, value)?;
         self.kept.save_soon(&*values);
         Ok(preferences)
+    }
+
+    /// Keeps the change. A running core goes through [`set`], for what follows from it.
+    pub(super) fn change(&self, change: PreferenceChange) {
+        let mut values = self.values.locked();
+        let mut preferences = read(&values);
+        change.apply(&mut preferences);
+        if let Ok(Value::Object(fields)) = serde_json::to_value(within_limits(preferences)) {
+            *values = fields;
+        }
+        self.kept.save_soon(&*values);
     }
 }
 
@@ -184,12 +195,6 @@ fn commands_within_limits(commands: Vec<CustomCommand>) -> Vec<CustomCommand> {
         .collect()
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct SetPreferenceParams {
-    pub key: String,
-    pub value: Value,
-}
-
 /// Whether a new chat in the project at the folder `project` starts in a worktree of its own.
 #[derive(Serialize, Deserialize)]
 pub struct WorktreeDefaultParams {
@@ -198,13 +203,15 @@ pub struct WorktreeDefaultParams {
 }
 
 /// The only way a running core changes a preference: sets it and does what follows from it.
-pub(crate) fn set(core: &Core, key: &str, value: Value) -> CoreResult<Preferences> {
-    core.preferences.store(key, value)?;
-    match key {
-        "notch" => super::notch::follow(core),
-        "updateChannel" => core.updates.check_soon(),
-        "paneShader" | "paneImage" => super::backdrop::follow(core),
-        "onboardingComplete" => super::about::introduced(core)?,
+pub(crate) fn set(core: &Core, change: PreferenceChange) -> CoreResult<Preferences> {
+    core.preferences.change(change.clone());
+    match change {
+        PreferenceChange::Notch(_) => super::notch::follow(core),
+        PreferenceChange::UpdateChannel(_) => core.updates.check_soon(),
+        PreferenceChange::PaneShader(_) | PreferenceChange::PaneImage(_) => {
+            super::backdrop::follow(core)
+        }
+        PreferenceChange::OnboardingComplete(_) => super::about::introduced(core)?,
         _ => {}
     }
     core.theme_changed();
@@ -218,10 +225,6 @@ pub(crate) fn set_worktree_default(core: &Core, params: WorktreeDefaultParams) -
         true => defaults.insert(params.project, true),
         false => defaults.remove(&params.project),
     };
-    set(
-        core,
-        "agentWorktreeDefaults",
-        serde_json::to_value(defaults)?,
-    )?;
+    set(core, PreferenceChange::AgentWorktreeDefaults(defaults))?;
     Ok(())
 }

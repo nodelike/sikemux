@@ -5,6 +5,7 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, ParentElement, Styled, Subscription,
     Window,
 };
+use sikemux_view::prefs::PreferenceChange;
 
 use crate::settings::index::Page::SignOn;
 use crate::settings::index::{row, section, Entry};
@@ -37,7 +38,7 @@ pub struct Fields {
 }
 
 fn field(
-    key: &'static str,
+    change: fn(String) -> PreferenceChange,
     value: String,
     placeholder: &'static str,
     window: &mut Window,
@@ -50,7 +51,7 @@ fn field(
     });
     let typing = cx.subscribe(&input, move |bench, input, event: &InputEvent, cx| {
         if matches!(event, InputEvent::Change) {
-            crate::settings::set(bench, key, input.read(cx).value().to_string());
+            crate::settings::set(bench, change(input.read(cx).value().to_string()));
         }
     });
     (input, typing)
@@ -59,14 +60,14 @@ fn field(
 pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let preferences = bench.preferences();
     let (browser, typed_browser) = field(
-        "cloudBrowser",
+        PreferenceChange::CloudBrowser,
         preferences.cloud_browser.clone(),
         "Zen, Arc, Safari · empty = system default",
         window,
         cx,
     );
     let (shortcut, typed_shortcut) = field(
-        "cloudBrowserShortcut",
+        PreferenceChange::CloudBrowserShortcut,
         preferences.cloud_browser_shortcut.clone(),
         "ctrl+3 · empty = no switch",
         window,

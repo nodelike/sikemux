@@ -27,13 +27,13 @@ use sikemux_core::harness::runs::RunStatus;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::layout::{Side, SplitPane};
-use sikemux_core::server::preferences::SetPreferenceParams;
 use sikemux_core::server::spare::NewTerminal;
 use sikemux_core::server::tasks::TrustAnswerParams;
 use sikemux_gpui::hosts::Place;
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{core, icons, terminal, theme, WINDOW_SIZE};
 use sikemux_view::layout::{At, Pane, PaneKind};
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_wire::protocol::SessionId;
 
 const FRAME: Duration = Duration::from_micros(8_333);
@@ -184,10 +184,7 @@ fn main() -> anyhow::Result<()> {
         frames: Vec::new(),
     };
     run.bench.update(&mut run.cx, |bench, _| {
-        bench.call_typed::<call::SetPreference>(SetPreferenceParams {
-            key: "onboardingComplete".to_owned(),
-            value: true.into(),
-        })
+        bench.call_typed::<call::SetPreference>(PreferenceChange::OnboardingComplete(true))
     });
     if !run.until(600, |bench| bench.agent().is_some()) {
         anyhow::bail!("the core's tab in front holds no chat");

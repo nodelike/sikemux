@@ -5,6 +5,7 @@
 
 use crate::server::changed::What;
 use serde::{Deserialize, Serialize};
+use sikemux_view::prefs::PreferenceChange;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -518,7 +519,9 @@ fn remember_kind(core: &Core, kind: &str) {
     if core.preferences.get().last_agent_type.as_deref() == Some(kind) {
         return;
     }
-    if let Err(error) = super::preferences::set(core, "lastAgentType", kind.into()) {
+    if let Err(error) =
+        super::preferences::set(core, PreferenceChange::LastAgentType(Some(kind.into())))
+    {
         eprintln!("sikemux core: the kind of agent last started was not kept: {error}");
     }
 }

@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use sikemux_core::server::call;
 use sikemux_core::server::themes::{ThemePaletteParams, ThemeParams};
 use sikemux_core::server::wallpaper::PixelsParams;
+use sikemux_view::prefs::PreferenceChange;
 
 use crate::core::Target;
 use crate::icons::Icon;
@@ -446,13 +447,9 @@ pub fn delete(bench: &Workbench, id: &str) {
         .into_iter()
         .filter(|theme| theme.id != id)
         .collect();
-    crate::settings::set(
-        bench,
-        "customThemes",
-        serde_json::to_value(kept).unwrap_or_default(),
-    );
+    crate::settings::set(bench, PreferenceChange::CustomThemes(kept));
     if preferences.theme_id == id {
-        crate::settings::set(bench, "themeId", "aura-noir");
+        crate::settings::set(bench, PreferenceChange::ThemeId("aura-noir".to_owned()));
     }
 }
 
@@ -474,19 +471,18 @@ fn save(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         .to_owned();
     draft["name"] = json!(named);
     let id = draft["id"].as_str().unwrap_or_default().to_owned();
-    let mut themes: Vec<Value> = bench
-        .preferences()
-        .custom_themes
-        .clone()
-        .into_iter()
-        .filter_map(|theme| serde_json::to_value(theme).ok())
-        .collect();
-    match themes.iter_mut().find(|theme| theme["id"] == id.as_str()) {
-        Some(theme) => *theme = draft,
-        None => themes.push(draft),
+    let mut themes = bench.preferences().custom_themes.clone();
+    match serde_json::from_value(draft) {
+        Ok(draft) => {
+            match themes.iter_mut().find(|theme| theme.id == id) {
+                Some(theme) => *theme = draft,
+                None => themes.push(draft),
+            }
+            crate::settings::set(bench, PreferenceChange::CustomThemes(themes));
+            crate::settings::set(bench, PreferenceChange::ThemeId(id));
+        }
+        Err(error) => eprintln!("sikemux: the theme being edited is not a theme: {error}"),
     }
-    crate::settings::set(bench, "customThemes", Value::Array(themes));
-    crate::settings::set(bench, "themeId", id);
     change_appearance(bench, cx, |appearance, _| appearance.editor = None);
 }
 

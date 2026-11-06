@@ -3,6 +3,7 @@
 //! step as it is edited, and answers where a symbol is defined, implemented
 //! and used.
 
+use sikemux_view::prefs::PreferenceChange;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -455,7 +456,7 @@ pub(super) fn trust(
 fn remember_trust(bench: &Workbench, project: String, allowed: bool) {
     let mut trusted = bench.preferences().language_server_trust.clone();
     trusted.insert(project, allowed);
-    crate::settings::set(bench, "languageServerTrust", serde_json::json!(trusted));
+    crate::settings::set(bench, PreferenceChange::LanguageServerTrust(trusted));
 }
 
 /// Whether the person let `project`'s language servers run.

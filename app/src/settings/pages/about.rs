@@ -7,6 +7,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::UpdateChannel;
 use sikemux_view::updates::UpdateState;
 
@@ -67,9 +68,13 @@ pub fn render(
             chosen,
         )
         .on_select(move |chosen, _, cx| {
-            let channel = if *chosen == 0 { "stable" } else { "nightly" };
+            let channel = if *chosen == 0 {
+                UpdateChannel::Stable
+            } else {
+                UpdateChannel::Nightly
+            };
             this.update(cx, |bench, _| {
-                crate::settings::set(bench, "updateChannel", channel)
+                crate::settings::set(bench, PreferenceChange::UpdateChannel(channel))
             })
         })
     };
@@ -148,7 +153,7 @@ pub fn render(
     let privacy = rows::row(
         "Share anonymous usage",
         Some("Once a day, sends a random install ID and a one-way hash of your account with the app version, update channel and system version, and the day before's totals: tokens by agent and model, turns, sessions, commits and how often each feature was used. Never your files, prompts, commands or projects."),
-        rows::switch("share-usage", "shareUsageData", preferences.share_usage_data, this),
+        rows::switch("share-usage", PreferenceChange::ShareUsageData, preferences.share_usage_data, this),
         cx,
     );
     let help = {

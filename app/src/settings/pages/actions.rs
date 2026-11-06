@@ -7,6 +7,7 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_view::prefs::{CustomCommand, CustomCommandPlacement};
 
 use crate::icons::Icon;
@@ -135,11 +136,7 @@ fn load(
 fn change(bench: &Workbench, edit: impl FnOnce(&mut Vec<CustomCommand>)) {
     let mut commands = bench.preferences().custom_commands.clone();
     edit(&mut commands);
-    crate::settings::set(
-        bench,
-        "customCommands",
-        serde_json::to_value(commands).unwrap_or_default(),
-    );
+    crate::settings::set(bench, PreferenceChange::CustomCommands(commands));
 }
 
 fn save(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {

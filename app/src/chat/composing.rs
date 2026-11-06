@@ -3,6 +3,7 @@
 
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
+use sikemux_view::prefs::PreferenceChange;
 use std::cell::Cell;
 use std::collections::HashMap;
 
@@ -166,7 +167,7 @@ pub fn dictate(agent: &str, this: WeakEntity<Workbench>) -> crate::voice::Act {
         this.update(cx, |bench, cx| {
             let off = bench.voice.update(cx, |voice, cx| voice.toggle(&agent, cx));
             if off {
-                crate::settings::set(bench, "voiceDictation", true);
+                crate::settings::set(bench, PreferenceChange::VoiceDictation(true));
                 window.push_notification(
                     "Dictation is on. The speech model downloads once, about 600 MB, then click the microphone again.",
                     cx,

@@ -160,6 +160,94 @@ pub struct Preferences {
     pub recent_command_keys: Vec<String>,
 }
 
+/// Declares `PreferenceChange`, a row for each field of `Preferences`. The compiler refuses a field
+/// with no row and a row whose type is not its field's.
+macro_rules! preference_changes {
+    ($($variant:ident $field:ident: $type:ty,)*) => {
+        /// One preference and its new value, `{ "key": "themeId", "value": "dracula" }` on the wire.
+        #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+        #[serde(tag = "key", content = "value", rename_all = "camelCase")]
+        pub enum PreferenceChange {
+            $($variant($type),)*
+        }
+
+        impl PreferenceChange {
+            pub fn apply(self, preferences: &mut Preferences) {
+                match self {
+                    $(Self::$variant(value) => preferences.$field = value,)*
+                }
+            }
+
+            /// Whether `preferences` already say this.
+            pub fn is_in(&self, preferences: &Preferences) -> bool {
+                match self {
+                    $(Self::$variant(value) => *value == preferences.$field,)*
+                }
+            }
+        }
+
+        const _: fn(&Preferences) = |preferences| {
+            let Preferences { $($field: _,)* } = preferences;
+        };
+    };
+}
+
+preference_changes! {
+    MidTurnSend mid_turn_send: MidTurnSend,
+    UiTextScale ui_text_scale: f64,
+    TerminalFontSize terminal_font_size: u32,
+    ChatTextScale chat_text_scale: f64,
+    EditorTextScale editor_text_scale: f64,
+    ThemeId theme_id: String,
+    CustomThemes custom_themes: Vec<crate::theme::Theme>,
+    LastAgentType last_agent_type: Option<String>,
+    AgentWorktreeDefaults agent_worktree_defaults: BTreeMap<String, bool>,
+    RestoreAgentTabs restore_agent_tabs: bool,
+    AgentNotifications agent_notifications: bool,
+    GoalNotifications goal_notifications: bool,
+    ProjectRoots project_roots: Vec<ProjectRoot>,
+    DefaultGitRepos default_git_repos: BTreeMap<String, String>,
+    LanguageServerTrust language_server_trust: BTreeMap<String, bool>,
+    CustomCommands custom_commands: Vec<CustomCommand>,
+    CloudBrowser cloud_browser: String,
+    CloudBrowserShortcut cloud_browser_shortcut: String,
+    IosSimulator ios_simulator: bool,
+    Notch notch: crate::notch::NotchSettings,
+    VoiceDictation voice_dictation: bool,
+    UpdateChannel update_channel: UpdateChannel,
+    ShareUsageData share_usage_data: bool,
+    OnboardingComplete onboarding_complete: bool,
+    LastSeenVersion last_seen_version: String,
+    NotificationsIntroduced notifications_introduced: bool,
+    KeptRunningNoticeShown kept_running_notice_shown: bool,
+    PaneShader pane_shader: bool,
+    PaneImage pane_image: Option<String>,
+    PaneStrength pane_strength: f64,
+    PaneColours pane_colours: PaneColours,
+    PaneInks pane_inks: Vec<String>,
+    PanePattern pane_pattern: PanePattern,
+    PaneDotSize pane_dot_size: u32,
+    PaneContrast pane_contrast: f64,
+    PaneBrightness pane_brightness: f64,
+    PaneGlow pane_glow: f64,
+    PaneGlowSize pane_glow_size: f64,
+    PaneCoverage pane_coverage: PaneCoverage,
+    WindowOpacity window_opacity: f64,
+    WindowBlur window_blur: f64,
+    RailDensity rail_density: RailDensity,
+    SimulatorFrame simulator_frame: bool,
+    KeybindingOverrides keybinding_overrides: BTreeMap<String, Option<String>>,
+    SideRailOpen side_rail_open: bool,
+    SideRailWidth side_rail_width: f64,
+    TabRailOpen tab_rail_open: bool,
+    TabRailWidth tab_rail_width: f64,
+    TabRailPage tab_rail_page: TabRailPage,
+    TabRailScope tab_rail_scope: TabRailScope,
+    TabRailAllAgents tab_rail_all_agents: bool,
+    WindowView window_view: WindowView,
+    RecentCommandKeys recent_command_keys: Vec<String>,
+}
+
 /// What the window shows in place of the other.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -6,7 +6,7 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use serde_json::json;
+use sikemux_view::prefs::PreferenceChange;
 
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_XS_H};
@@ -24,7 +24,7 @@ fn set_default(bench: &Workbench, folder: &str, repo: Option<&str>) {
             chosen.remove(folder);
         }
     }
-    crate::settings::set(bench, "defaultGitRepos", json!(chosen));
+    crate::settings::set(bench, PreferenceChange::DefaultGitRepos(chosen));
 }
 
 pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {

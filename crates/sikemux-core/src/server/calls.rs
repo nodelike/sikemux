@@ -371,7 +371,7 @@ calls! { core, client, method, params;
     "setDraft" SetDraft (super::drafts::SetDraftParams) -> (): Owner => super::drafts::set(&core, params)?,
     "diagramLayout" DiagramLayout (super::diagrams::DiagramParams) -> super::diagrams::DiagramLayout: Owner => super::diagrams::layout(&core, params),
     "setDiagramLayout" SetDiagramLayout (super::diagrams::DiagramParams) -> Value: Owner => super::diagrams::set_layout(&core, params)?,
-    "setPreference" SetPreference (super::preferences::SetPreferenceParams) -> Preferences: Owner => super::preferences::set(&core, &params.key, params.value)?,
+    "setPreference" SetPreference (sikemux_view::prefs::PreferenceChange) -> Preferences: Owner => super::preferences::set(&core, params)?,
     "setWorktreeDefault" SetWorktreeDefault (super::preferences::WorktreeDefaultParams) -> (): Owner => super::preferences::set_worktree_default(&core, params)?,
     "theme" Theme (Option<super::themes::ThemeParams>) -> sikemux_view::theme::Palette: Watch, any_program => super::themes::palette_for(&core, params.unwrap_or_default()),
     "typeWhenReady": Full => super::session::type_when_asked(&core, client, parse(params)?),
