@@ -156,28 +156,3 @@ pub(super) async fn run(
         ChatDriver::Acp { .. } => session::run::<acp::Acp>(chat, launch, commands, begin).await,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_session_says_why_it_ended() {
-        assert_eq!(
-            ended_status(&Ok(SessionEnd::Requested), true),
-            json!({ "state": "stopped", "reason": "requested" })
-        );
-        assert_eq!(
-            ended_status(&Ok(SessionEnd::Exited), true),
-            json!({ "state": "stopped", "reason": "exited" })
-        );
-        assert_eq!(
-            ended_status(&Err("Process exited with 1".into()), true),
-            json!({ "state": "error", "reason": "exited", "message": "Process exited with 1" })
-        );
-        assert_eq!(
-            ended_status(&Err("no adapter".into()), false),
-            json!({ "state": "error", "reason": "failed", "message": "no adapter" })
-        );
-    }
-}

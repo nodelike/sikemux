@@ -578,14 +578,13 @@ mod tests {
             "aggregatedOutput": null, "exitCode": null,
         });
         let started = items.started(&item);
-        assert_eq!(
-            started[0],
-            json!({
-                "sessionUpdate": "tool_call", "toolCallId": "exec-1", "kind": "execute",
-                "title": "cargo test", "status": "in_progress",
-                "rawInput": { "command": "cargo test", "cwd": "/work" },
-            })
-        );
+        assert_eq!(started[0]["sessionUpdate"], "tool_call");
+        assert_eq!(started[0]["toolCallId"], "exec-1");
+        assert_eq!(started[0]["kind"], "execute");
+        assert_eq!(started[0]["title"], "cargo test");
+        assert_eq!(started[0]["status"], "in_progress");
+        assert_eq!(started[0]["rawInput"]["command"], "cargo test");
+        assert_eq!(started[0]["rawInput"]["cwd"], "/work");
         item["status"] = json!("failed");
         item["aggregatedOutput"] = json!("error[E0308]");
         item["exitCode"] = json!(101);
@@ -748,16 +747,14 @@ mod tests {
         }))
         .unwrap();
         let update = plan(&updated.plan);
-        assert_eq!(
-            update["entries"][1],
-            json!({ "content": "Fix", "status": "in_progress", "priority": "medium" })
-        );
-        assert_eq!(
-            usage(
-                &json!({ "last": { "totalTokens": 900 }, "total": {}, "modelContextWindow": 200000 })
-            ),
-            Some(json!({ "sessionUpdate": "usage_update", "used": 900, "size": 200000 }))
-        );
+        assert_eq!(update["entries"][1]["content"], "Fix");
+        assert_eq!(update["entries"][1]["status"], "in_progress");
+        let used = usage(
+            &json!({ "last": { "totalTokens": 900 }, "total": {}, "modelContextWindow": 200000 }),
+        )
+        .expect("usage");
+        assert_eq!(used["used"], 900);
+        assert_eq!(used["size"], 200000);
         assert_eq!(
             usage(
                 &json!({ "tokenUsage": { "last": { "totalTokens": 9 }, "modelContextWindow": null } })

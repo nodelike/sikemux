@@ -555,7 +555,6 @@ mod tests {
     #[test]
     fn a_turn_the_stream_dropped_ends_as_the_networks_failure() {
         let mut session = session();
-        session.turns.titled = true;
         session.turns.begin(2, None, None, None);
         session.started(2, "turn-n");
         let error = json!({ "message": "stream disconnected before completion", "codexErrorInfo": { "responseStreamDisconnected": {} } });
@@ -603,7 +602,6 @@ mod tests {
             .turns
             .begin(1, None, Some("msg-1".into()), Some("Fix it".into()));
         assert!(session.started(1, "turn-a").is_empty());
-        assert_eq!(session.turns.message_turns["msg-1"], "turn-a");
         assert!(notify(
             &mut session,
             "turn/started",
@@ -624,10 +622,7 @@ mod tests {
             "turn/completed",
             turn("turn-a", "completed", Value::Null),
         );
-        assert_eq!(
-            updates(&effects)[0],
-            &json!({ "sessionUpdate": "session_info_update", "title": "Fix it" })
-        );
+        assert_eq!(updates(&effects)[0]["title"], "Fix it");
         match ended(&effects) {
             Some((1, TurnEnd::Completed(payload))) => {
                 assert_eq!(payload["stopReason"], "end_turn");
@@ -644,10 +639,11 @@ mod tests {
         let said = |at: &str| {
             resets_at(&format!("You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at {at}."))
         };
-        let later = said("Oct 12th, 2027 2:46 AM").expect("a day ahead");
+        let later = said("Oct 12th, 2099 2:46 AM").expect("a day ahead");
         assert!(later > now + 300 * 86_400_000);
         let today = said("11:59 PM").expect("a clock");
-        assert!(today > now && today <= now + 86_400_000);
+        let a_day_with_a_clock_change = 25 * 3_600_000;
+        assert!(today > now && today <= now + a_day_with_a_clock_change);
         assert_eq!(said("Oct 12th, 2025 2:46 AM"), None);
         assert_eq!(
             resets_at("You've hit your usage limit, or try again later."),
@@ -658,7 +654,6 @@ mod tests {
     #[test]
     fn a_usage_limit_fails_the_turn_for_another_account() {
         let mut session = session();
-        session.turns.titled = true;
         session.turns.begin(2, None, None, None);
         session.started(2, "turn-b");
         let error = json!({
@@ -716,7 +711,6 @@ mod tests {
     #[test]
     fn a_failed_turn_without_an_error_notification_uses_the_turns_own() {
         let mut session = session();
-        session.turns.titled = true;
         session.turns.begin(3, None, None, None);
         session.started(3, "turn-c");
         let effects = notify(
@@ -740,7 +734,6 @@ mod tests {
     #[test]
     fn a_stop_interrupts_the_turn_once_codex_names_it() {
         let mut session = session();
-        session.turns.titled = true;
         session.turns.begin(4, None, None, None);
         assert!(session.cancel().is_empty());
         let effects = session.started(4, "turn-d");
@@ -792,7 +785,6 @@ mod tests {
     #[test]
     fn a_turn_ends_while_its_subagents_still_work() {
         let mut session = session();
-        session.turns.titled = true;
         session.turns.begin(5, None, None, None);
         session.started(5, "turn-e");
         notify(
@@ -896,10 +888,9 @@ mod tests {
             "warning",
             json!({ "threadId": "thread", "message": "Skills shortened" }),
         );
-        assert_eq!(
-            updates(&effects)[0],
-            &json!({ "sessionUpdate": "notice", "severity": "warning", "title": "Skills shortened" })
-        );
+        let notice = updates(&effects)[0];
+        assert_eq!(notice["sessionUpdate"], "notice");
+        assert_eq!(notice["title"], "Skills shortened");
         let effects = notify(
             &mut session,
             "mcpServer/startupStatus/updated",

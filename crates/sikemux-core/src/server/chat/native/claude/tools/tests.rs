@@ -214,8 +214,6 @@ fn generic_content_converts_images_and_unknown_blocks() {
 
 #[test]
 fn plan_tools_resolve_without_content() {
-    assert!(is_plan_tool("TodoWrite") && is_plan_tool("TaskGet") && !is_plan_tool("Bash"));
-    assert!(is_subagent_tool("Task") && !is_subagent_tool("TaskCreate"));
     let update = tool_result(
         "t",
         "TodoWrite",

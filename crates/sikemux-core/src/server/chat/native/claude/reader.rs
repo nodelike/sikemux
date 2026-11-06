@@ -1652,17 +1652,26 @@ mod tests {
 
         let text = |text: &str| resets(text, Value::Null);
         assert_eq!(
-            text("You've hit your weekly limit · resets Oct 17, 2027, 3:30pm (UTC)"),
-            Some(1_823_787_000_000)
+            text("You've hit your weekly limit · resets Oct 17, 2099, 3:30pm (UTC)"),
+            Some(4_095_934_200_000)
         );
-        let three = now - now % 86_400 + 15 * 3600;
-        let next_three = if three > now { three } else { three + 86_400 };
-        assert_eq!(
-            text("You've hit your session limit · resets 3pm (UTC)"),
-            Some(next_three * 1000)
+        let next_three = |now: u64| {
+            let three = now - now % 86_400 + 15 * 3600;
+            if three > now {
+                three
+            } else {
+                three + 86_400
+            }
+        };
+        let utc = text("You've hit your session limit · resets 3pm (UTC)");
+        let later = sikemux_process::clock::epoch_secs();
+        assert!(
+            utc == Some(next_three(now) * 1000) || utc == Some(next_three(later) * 1000),
+            "{utc:?}"
         );
         let local = text("You've hit your limit · resets 3pm").unwrap();
-        assert!(local > now * 1000 && local <= (now + 86_400) * 1000);
+        let a_day_with_a_clock_change = 25 * 3600;
+        assert!(local > now * 1000 && local <= (later + a_day_with_a_clock_change) * 1000);
         assert_eq!(
             text("Claude AI usage limit reached|1823787000"),
             Some(1_823_787_000_000)

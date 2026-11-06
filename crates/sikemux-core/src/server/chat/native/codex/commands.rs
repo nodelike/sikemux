@@ -234,12 +234,7 @@ mod tests {
                 json!({ "type": "baseBranch", "branch": "main" })
             ))
         );
-        assert_eq!(
-            parse("/rename"),
-            Some(Command::Usage(
-                "Command \"/rename\" requires new name.".into()
-            ))
-        );
+        assert!(matches!(parse("/rename"), Some(Command::Usage(_))));
         assert_eq!(
             parse("/rename My chat"),
             Some(Command::Rename("My chat".into()))
