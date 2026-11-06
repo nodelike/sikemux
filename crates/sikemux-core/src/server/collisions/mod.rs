@@ -25,6 +25,7 @@ use super::edits::{self, authors, before, changed, line_count, replaced, Change,
 use super::wake::{sooner, Wake};
 use super::Core;
 
+/// Files bigger than this are not kept.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 /// What all the kept copies may add up to.
 const MAX_KEPT_BYTES: usize = 32 * 1024 * 1024;

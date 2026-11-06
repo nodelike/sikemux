@@ -92,6 +92,7 @@ struct Driver {
     rpc: Rpc,
     sink: Sink,
     turns: Arc<Mutex<Turns>>,
+    /// The names of the tool servers the chat handed its agent.
     servers: Arc<[String]>,
 }
 

@@ -106,6 +106,7 @@ struct Checks {
     checked: HashMap<String, Vec<String>>,
     /// The broken projects the person was told of.
     shown: HashSet<String>,
+    /// Each project's CI check that waits, by project.
     ci: HashMap<String, CiWait>,
 }
 

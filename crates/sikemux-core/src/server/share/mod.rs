@@ -35,6 +35,7 @@ use seal::Seal;
 /// The shortest and longest a share may stay open.
 const MIN_LIFETIME_MS: u64 = 60_000;
 const MAX_LIFETIME_MS: u64 = 7 * 24 * 60 * 60_000;
+/// How many turns one older page holds.
 const PAGE_TURNS: u32 = 20;
 /// The largest pasted picture a viewer is sent.
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;

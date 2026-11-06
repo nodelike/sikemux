@@ -402,6 +402,7 @@ pub(crate) struct Core {
     /// The files clients have open, watched wherever they are.
     pub(crate) open_files: open_files::OpenFiles,
     pub(crate) layouts: layout::Layouts,
+    /// Who this host is signed in to Sikemux as.
     pub(crate) account: account::Account,
     /// The rail numbers running loose terminals have.
     rail_numbers: Mutex<BTreeSet<u32>>,

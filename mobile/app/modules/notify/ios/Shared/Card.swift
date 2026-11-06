@@ -4,6 +4,7 @@ typealias Card = NotificationCard
 
 extension NotificationCard {
   static let version = 1
+  /// The category whose cards carry Reject and Allow.
   static let answerCategory = NotificationCategory.permission.rawValue
 
   var answerable: Bool {

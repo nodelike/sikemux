@@ -279,6 +279,7 @@ fn declarations(manifest: &Manifest, plugins: &[Tool]) -> Vec<Value> {
     tools
 }
 
+/// One request to the app: a harness method and its params.
 type Relay<'a> = dyn Fn(&str, &Value) -> Result<Value, String> + Send + Sync + 'a;
 
 /// A tool call waits for Sikemux to come back from a restart. Anything that

@@ -84,6 +84,7 @@ pub(crate) enum Change {
     Text { old: Option<String>, new: String },
 }
 
+/// Each file a tool call changed, by path.
 pub(crate) type Changes = Vec<(String, Change)>;
 
 /// The edits of a chat's tool calls that have not finished yet.

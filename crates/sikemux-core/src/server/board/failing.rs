@@ -56,6 +56,7 @@ impl Failure {
 pub(super) struct Broke {
     pub(super) failures: Vec<Failure>,
     pub(super) sha: String,
+    /// What the failing jobs printed.
     pub(super) output: String,
 }
 

@@ -20,6 +20,7 @@ pub enum Mouse {
 const UNUSED_KEYVAL: u32 = 0xffffff;
 
 thread_local! {
+    /// Set while an event of the agent's is on its way to a page.
     static SENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 

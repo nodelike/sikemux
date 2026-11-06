@@ -56,6 +56,7 @@ pub struct ReviewerChoice {
 #[serde(rename_all = "camelCase", default)]
 pub struct BoardSettings {
     pub auto: bool,
+    /// How many of Auto's agents work at once.
     pub slots: u32,
     /// The app's launcher Auto's agents start with; none for the first that works.
     pub launcher: Option<String>,

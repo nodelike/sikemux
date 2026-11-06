@@ -211,6 +211,7 @@ where
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredLink {
+    /// Its key.
     pub id: String,
     /// What this host calls it, which agents address it by.
     pub name: String,

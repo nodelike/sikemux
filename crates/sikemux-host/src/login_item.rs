@@ -51,6 +51,7 @@ pub fn label(identifier: &str) -> String {
     format!("{identifier}.core")
 }
 
+/// The app's identifier, with `.dev` for dev builds.
 pub const IDENTIFIER: &str = sikemux_process::names::APP_IDENTIFIER;
 
 /// What the core is started with after its socket, by the app or a login item.

@@ -33,6 +33,7 @@ const MAX_PATH_CHARS: usize = 1024;
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Reviewer {
     pub agent: String,
+    /// The commit it reviews.
     pub head: String,
     pub repo: String,
     /// Its read-only checkout, once made.

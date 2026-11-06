@@ -333,6 +333,7 @@ function ListView({
   fading,
 }: {
   items: readonly MdNode[];
+  /** The first item's number, for a numbered list. */
   first?: number;
   style: StyleProp<TextStyle>;
   styles: Styles;

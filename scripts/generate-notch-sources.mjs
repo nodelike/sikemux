@@ -27,6 +27,7 @@ const buddiesSwiftPath = resolve(
   "helpers/notch/Sources/NotchKit/Buddies.generated.swift",
 );
 
+/** The helper's colour names and the palette variable each one is. */
 const COLOURS = {
   ink: "--ink",
   inkDim: "--ink-dim",

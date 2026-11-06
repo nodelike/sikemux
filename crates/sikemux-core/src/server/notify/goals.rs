@@ -29,6 +29,7 @@ pub(crate) struct GoalMoved {
     pub project: String,
     pub goal: u64,
     pub title: String,
+    /// The titles of the slices that landed.
     pub landed: Vec<String>,
     pub finished: bool,
     pub slip: Option<Slip>,

@@ -33,10 +33,12 @@ pub(crate) enum What<'a> {
     /// Something the messages waiting for agents, their questions and the board depend on: an
     /// agent came to rest, started, went away, or the window opened or closed.
     Agents,
+    /// What clients read through a `Call` under this topic.
     Read(Topic),
     /// What clients read under this topic, for one project or all of them; `paths` names what
     /// moved inside it, and none means anything may have.
     ReadIn(Topic, Option<&'a str>, Option<Vec<String>>),
+    /// Something clients are told of as it happens.
     Event(&'a Event),
     /// A chat's state, for the apps. Its permission requests already notify, so it stays out
     /// of the notices.

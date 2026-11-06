@@ -285,6 +285,7 @@ export function Message({
   kept?: readonly number[] | null;
   /** Writes this message again; absent when the chat cannot take it back. */
   onEdit?: (message: ChatMessage) => void;
+  /** This message is being written again. */
   editing?: Editing;
 }) {
   const colors = useColors();

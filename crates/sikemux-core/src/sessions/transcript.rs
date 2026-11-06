@@ -41,6 +41,7 @@ pub(super) fn written(path: PathBuf) -> Option<PathBuf> {
 pub(crate) enum Said {
     /// What the agent was sent: by the person, or another agent's message.
     Asked(String),
+    /// Text the agent wrote.
     Message(String),
     Tool {
         id: String,

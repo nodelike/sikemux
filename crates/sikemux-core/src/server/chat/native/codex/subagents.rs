@@ -62,6 +62,7 @@ struct Pending {
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Route {
+    /// To the chat session with this id.
     Session(String),
     /// Nowhere further: it was about a subagent, and said all it had to.
     Taken,

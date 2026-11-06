@@ -74,6 +74,7 @@ pub(crate) struct ChatRoute<'a> {
     pub(crate) model: &'a str,
     /// The model as the agent names it.
     pub(crate) agent_model: String,
+    /// Whether the model reads pictures.
     pub(crate) images: bool,
     /// Where the extension that tells OMP of the provider is kept.
     pub(crate) omp_extension: &'a Path,

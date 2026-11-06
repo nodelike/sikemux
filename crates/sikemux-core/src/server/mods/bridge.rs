@@ -27,6 +27,7 @@ enum Reach {
     Load,
     Repo,
     Git(String),
+    /// A method of a connector's plugin.
     Plugin {
         plugin: String,
         method: String,

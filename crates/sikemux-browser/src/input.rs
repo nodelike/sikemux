@@ -37,7 +37,9 @@ static ORIGINAL_RESIGN_FIRST_RESPONDER: OnceLock<Imp> = OnceLock::new();
 thread_local! {
     static SENT_KEYS: RefCell<Vec<SentKey>> = const { RefCell::new(Vec::new()) };
     static LAST_INPUT: Cell<LastInput> = const { Cell::new(LastInput::NONE) };
+    /// The view under the person's latest click.
     static PERSON_CLICKED: RefCell<Option<Weak<NSView>>> = const { RefCell::new(None) };
+    /// Set while an agent key borrows the keyboard.
     static LENDING_KEYBOARD: Cell<bool> = const { Cell::new(false) };
 }
 

@@ -1373,6 +1373,7 @@ impl Later {
 /// Where a slice got to once its ladder moved on as far as it goes now.
 pub(super) struct Moved {
     pub passed: Vec<Step>,
+    /// Its last gate passed, so the card is done.
     pub done: bool,
     pub later: Later,
 }
