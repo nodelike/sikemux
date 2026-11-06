@@ -35,6 +35,9 @@ const REPO_HOOKS: &str = "SIKEMUX_REPO_HOOKS";
 /// to put back so no git their hooks run takes our hooks too.
 const CONFIG_COUNT: &str = "SIKEMUX_CONFIG_COUNT";
 const AMEND: &str = "SIKEMUX_COMMIT_AMEND";
+/// Set on a git whose commits are others made again, which is no new work to
+/// tell the core of.
+const REMAKING: &str = "SIKEMUX_COMMITS_REMADE";
 /// Where the note for the commit being made waits for it to be made.
 const NOTE_FILE: &str = "SIKEMUX_NOTE_FILE";
 const OURS: [&str; 5] = [
@@ -60,25 +63,18 @@ pub(super) fn prepare(
     options: &[String],
     args: &[String],
 ) {
-    let Some((theirs, note_file)) = repo_paths(git, options) else {
-        return;
-    };
-    let Ok(ours) = hooks_for(folder, &theirs) else {
-        return;
-    };
     let amend = args
         .iter()
         .take_while(|arg| *arg != "--")
         .any(|arg| arg == "--amend");
-    let count = config_count();
-    rewrite_notes(command);
-    command
-        .env("GIT_CONFIG_COUNT", (count + 2).to_string())
-        .env(format!("GIT_CONFIG_KEY_{}", count + 1), "core.hooksPath")
-        .env(format!("GIT_CONFIG_VALUE_{}", count + 1), ours)
-        .env(CONFIG_COUNT, count.to_string())
-        .env(REPO_HOOKS, theirs)
-        .env(NOTE_FILE, note_file);
+    let settings = [
+        ("notes.rewriteRef", trailers::NOTES_REF),
+        ("core.hooksPath", ""),
+    ];
+    if !use_hooks(command, folder, git, options, &settings) {
+        return;
+    }
+    command.env_remove(REMAKING);
     if amend {
         command.env(AMEND, "1");
     } else {
@@ -86,14 +82,52 @@ pub(super) fn prepare(
     }
 }
 
-/// Has `command`, a git that may amend or rebase commits, carry their notes
-/// saying whose lines they hold over to the commits that replace them.
-pub(super) fn rewrite_notes(command: &mut Command) {
+/// Has `command`, a git about to rebase or cherry-pick commits, sign each one
+/// it makes again through our hooks. Git's own copy of a note would stay signed
+/// for the commit it came from, so the hooks carry the notes instead.
+pub(super) fn prepare_remaking(
+    command: &mut Command,
+    folder: &Path,
+    git: &Path,
+    options: &[String],
+) {
+    if use_hooks(command, folder, git, options, &[("core.hooksPath", "")]) {
+        command.env(REMAKING, "1").env_remove(AMEND);
+    }
+}
+
+/// Has `command` run our hooks, linked in `folder`, in front of the
+/// repository's, with `settings` added to its git config. An empty value is
+/// the folder of those hooks. Whether it will.
+fn use_hooks(
+    command: &mut Command,
+    folder: &Path,
+    git: &Path,
+    options: &[String],
+    settings: &[(&str, &str)],
+) -> bool {
+    let Some((theirs, note_file)) = repo_paths(git, options) else {
+        return false;
+    };
+    let Ok(ours) = hooks_for(folder, &theirs) else {
+        return false;
+    };
     let count = config_count();
+    for (at, (key, value)) in settings.iter().enumerate() {
+        let value = match value.is_empty() {
+            true => ours.as_os_str(),
+            false => std::ffi::OsStr::new(value),
+        };
+        command
+            .env(format!("GIT_CONFIG_KEY_{}", count + at), key)
+            .env(format!("GIT_CONFIG_VALUE_{}", count + at), value);
+    }
     command
-        .env("GIT_CONFIG_COUNT", (count + 1).to_string())
-        .env(format!("GIT_CONFIG_KEY_{count}"), "notes.rewriteRef")
-        .env(format!("GIT_CONFIG_VALUE_{count}"), trailers::NOTES_REF);
+        .env("GIT_CONFIG_COUNT", (count + settings.len()).to_string())
+        .env(CONFIG_COUNT, count.to_string())
+        .env(REPO_HOOKS, theirs)
+        .env(NOTE_FILE, note_file);
+    true
 }
 
 fn config_count() -> usize {
@@ -201,7 +235,7 @@ pub(super) fn run(args: Vec<OsString>) -> i32 {
         [hook, ..] if hook == "post-commit" || hook == "post-merge" => {
             if std::env::var_os(AMEND).is_none() {
                 note_file.as_deref().map(put_note);
-                if hook == "post-commit" {
+                if hook == "post-commit" && std::env::var_os(REMAKING).is_none() {
                     tell_made();
                 }
             }
@@ -244,8 +278,10 @@ fn sign(hook: &OsString, file: &OsString, note_file: Option<&Path>) {
         }
         return;
     };
-    if let Some(signed) = trailers::into_message_file(&text, &footer) {
-        let _ = std::fs::write(file, signed);
+    if !footer.is_empty() {
+        if let Some(signed) = trailers::into_message_file(&text, &footer) {
+            let _ = std::fs::write(file, signed);
+        }
     }
     if let (Some(note_file), Some(note)) = (note_file, note) {
         if let Ok(note) = serde_json::to_vec(&note) {
@@ -282,33 +318,39 @@ fn put_note(note_file: &Path) {
     if tree != Some(pending.tree.as_str()) || parents != pending.parents {
         return;
     }
-    let notes = format!("--ref={}", trailers::NOTES_REF);
-    let put = || match &pending.note {
-        Some(note) => git()
-            .args(["notes", &notes, "add", "-f", "-F", "-", "HEAD"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .and_then(|mut child| {
-                if let Some(mut stdin) = child.stdin.take() {
-                    stdin.write_all(note.as_bytes())?;
-                }
-                child.wait()
-            }),
-        None => git()
-            .args(["notes", &notes, "remove", "--ignore-missing", "HEAD"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status(),
-    };
-    // Another commit's hooks may be putting a note on at the same moment,
-    // holding the lock on the notes.
-    for _ in 0..NOTE_ATTEMPTS {
-        if put().is_ok_and(|status| status.success()) {
-            return;
+    let put = |notes: &str, note: Option<&str>| {
+        let notes = format!("--ref={notes}");
+        let put = || match note {
+            Some(note) => git()
+                .args(["notes", &notes, "add", "-f", "-F", "-", "HEAD"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .and_then(|mut child| {
+                    if let Some(mut stdin) = child.stdin.take() {
+                        stdin.write_all(note.as_bytes())?;
+                    }
+                    child.wait()
+                }),
+            None => git()
+                .args(["notes", &notes, "remove", "--ignore-missing", "HEAD"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status(),
+        };
+        // Another commit's hooks may be putting a note on at the same moment,
+        // holding the lock on the notes.
+        for _ in 0..NOTE_ATTEMPTS {
+            if put().is_ok_and(|status| status.success()) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
         }
-        std::thread::sleep(Duration::from_millis(50));
+    };
+    put(trailers::NOTES_REF, pending.note.as_deref());
+    if let Some(committer) = &pending.committer {
+        put(trailers::COMMITTERS_REF, Some(committer));
     }
 }
 
@@ -360,5 +402,5 @@ fn ask() -> Option<Answer> {
     .ok()?;
     serde_json::from_value::<Answer>(answer)
         .ok()
-        .filter(|answer| !answer.footer.is_empty())
+        .filter(|answer| !answer.footer.is_empty() || answer.note.is_some())
 }

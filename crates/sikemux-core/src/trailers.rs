@@ -33,16 +33,20 @@ const SCISSORS: &str = " ------------------------ >8 ------------------------";
 /// Where the notes saying which lines of a commit each of its agents wrote
 /// are kept, for commits no one writer has all the lines of.
 pub const NOTES_REF: &str = "refs/notes/agents";
+/// Where a commit naming no agent, in a repository that turned that off, keeps
+/// who made it.
+pub const COMMITTERS_REF: &str = "refs/notes/committers";
 
 /// What a commit's hooks put on it once git has made it, if it is the commit
 /// of `tree` and `parents`: `note`, as [`signed_note`] makes it, or, with
 /// none, no note at all, taking away one an amend copied from the commit it
-/// replaced.
+/// replaced, and `committer`, carried from the commit it was made again from.
 #[derive(Serialize, Deserialize)]
 pub struct PendingNote {
     pub tree: String,
     pub parents: Vec<String>,
     pub note: Option<String>,
+    pub committer: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

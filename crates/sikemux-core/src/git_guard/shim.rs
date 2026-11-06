@@ -438,21 +438,18 @@ fn run(args: Vec<OsString>) -> i32 {
     }
     let mut command = sikemux_process::user_environment::command(&git);
     let subcommand = super::git_args(&words);
-    match subcommand.first().map(String::as_str) {
-        Some("commit" | "merge") => {
-            if let Some(folder) = std::env::var_os(footer::HOOKS) {
-                let options = &words[..words.len() - subcommand.len()];
-                footer::prepare(
-                    &mut command,
-                    Path::new(&folder),
-                    &git,
-                    options,
-                    &subcommand[1..],
-                );
+    if let Some(folder) = std::env::var_os(footer::HOOKS) {
+        let options = &words[..words.len() - subcommand.len()];
+        let folder = Path::new(&folder);
+        match subcommand.first().map(String::as_str) {
+            Some("commit" | "merge") => {
+                footer::prepare(&mut command, folder, &git, options, &subcommand[1..]);
             }
+            Some("rebase" | "cherry-pick" | "pull") => {
+                footer::prepare_remaking(&mut command, folder, &git, options);
+            }
+            _ => {}
         }
-        Some("rebase") => footer::rewrite_notes(&mut command),
-        _ => {}
     }
     let error = command.args(&args).exec();
     eprintln!("git: {}: {error}", git.display());

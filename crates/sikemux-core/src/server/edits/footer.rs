@@ -12,8 +12,10 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::note;
+use super::committer::Committer;
+use super::note::{self, Note};
 use super::owners::{git, latest, run, staged_in, Author};
+use super::push::{note_again, Signing};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::callers::{self, CommitGrant};
 use crate::server::connection::blocking;
@@ -102,6 +104,120 @@ fn footer(
         tree,
         parents,
         note,
+        committer: None,
+    });
+    Ok((footer, pending))
+}
+
+/// The commit a rebase or cherry-pick is making again, which still carries a
+/// footer and notes signed for where that commit stood.
+struct Remaking {
+    from: String,
+    /// A fixup or squash folds it into `HEAD` rather than adding a commit.
+    into_head: bool,
+}
+
+fn remaking(dir: &Path) -> Option<Remaking> {
+    let done = git(
+        dir,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--git-path",
+            "rebase-merge/done",
+        ],
+    )
+    .ok()?;
+    let Ok(done) = std::fs::read_to_string(done.trim()) else {
+        let from = git(
+            dir,
+            &["rev-parse", "--verify", "--quiet", "CHERRY_PICK_HEAD"],
+        )
+        .ok()?;
+        return Some(Remaking {
+            from: from.trim().to_owned(),
+            into_head: false,
+        });
+    };
+    let mut step = done.lines().last()?.split_whitespace();
+    let into_head = match step.next()? {
+        "pick" | "p" | "reword" | "r" => false,
+        "fixup" | "f" | "squash" | "s" => true,
+        _ => return None,
+    };
+    let from = step.find(|word| !word.starts_with('-'))?.to_owned();
+    Some(Remaking { from, into_head })
+}
+
+/// The footer and notes for the commit `remaking` makes: the agents and notes
+/// of the commit it comes from, whoever is rebasing, signed for where it now
+/// stands. A commit with no footer of this host's stays as it was, so this can
+/// never put a name on one.
+fn remade(
+    core: &Core,
+    dir: &Path,
+    index: Option<&Path>,
+    remaking: &Remaking,
+) -> Result<(Vec<String>, Option<PendingNote>), String> {
+    let signing = Signing::of(core);
+    let Some(key) = signing.key.as_ref() else {
+        return Ok((Vec::new(), None));
+    };
+    let (tree, parents) = made_of(dir, index, remaking.into_head)?;
+    let made = Commit {
+        tree: &tree,
+        parents: &parents,
+    };
+    let (from_tree, from_parents, message) = read_commit(dir, &remaking.from)?;
+    let was = Commit {
+        tree: &from_tree,
+        parents: &from_parents,
+    };
+    let mut agents = Vec::new();
+    if remaking.into_head {
+        let (head_tree, head_parents, head_message) = read_commit(dir, "HEAD")?;
+        let head = Commit {
+            tree: &head_tree,
+            parents: &head_parents,
+        };
+        agents.extend(signing.agents_of(&head_message, &head).unwrap_or_default());
+    }
+    for agent in signing.agents_of(&message, &was).unwrap_or_default() {
+        if !agents.iter().any(|kept: &Agent| kept.key() == agent.key()) {
+            agents.push(agent);
+        }
+    }
+    let footer = match attributed(dir) {
+        true => trailers::footer(&agents, &made, Some(key)),
+        false => Vec::new(),
+    };
+    let note = (!footer.is_empty())
+        .then(|| {
+            note_again::<Note>(
+                dir,
+                trailers::NOTES_REF,
+                &remaking.from,
+                &was,
+                &made,
+                key,
+                &signing.hosts,
+            )
+        })
+        .flatten();
+    let committer = note_again::<Committer>(
+        dir,
+        trailers::COMMITTERS_REF,
+        &remaking.from,
+        &was,
+        &made,
+        key,
+        &signing.hosts,
+    );
+    let pending = (note.is_some() || committer.is_some()).then_some(PendingNote {
+        tree,
+        parents,
+        note,
+        committer,
     });
     Ok((footer, pending))
 }
@@ -186,6 +302,23 @@ pub(super) fn known(core: &Core, dir: &Path, agent_id: &str) -> Option<Agent> {
 /// naming only agents this host knows: a session one of its CLIs keeps, or a
 /// chat it recorded. Anything else is text anyone could have written.
 pub(crate) fn verified(core: &Core, dir: &Path, commit: &str) -> Result<Vec<Agent>, String> {
+    let (tree, parents, message) = read_commit(dir, commit)?;
+    let commit = Commit {
+        tree: &tree,
+        parents: &parents,
+    };
+    let Some((_, agents)) = trailers::verify(&message, &commit, &core.remote.host_keys()) else {
+        return Ok(Vec::new());
+    };
+    let project = core.workspaces.project_of(dir);
+    Ok(agents
+        .into_iter()
+        .filter(|agent| recorded(core, &project, agent))
+        .collect())
+}
+
+/// `commit`'s tree, parents and message.
+fn read_commit(dir: &Path, commit: &str) -> Result<(String, Vec<String>, String), String> {
     let object = git(dir, &["cat-file", "commit", commit])?;
     let (header, message) = object.split_once("\n\n").unwrap_or((&object, ""));
     let mut tree = String::new();
@@ -197,18 +330,7 @@ pub(crate) fn verified(core: &Core, dir: &Path, commit: &str) -> Result<Vec<Agen
             _ => {}
         }
     }
-    let commit = Commit {
-        tree: &tree,
-        parents: &parents,
-    };
-    let Some((_, agents)) = trailers::verify(message, &commit, &core.remote.host_keys()) else {
-        return Ok(Vec::new());
-    };
-    let project = core.workspaces.project_of(dir);
-    Ok(agents
-        .into_iter()
-        .filter(|agent| recorded(core, &project, agent))
-        .collect())
+    Ok((tree, parents, message.to_owned()))
 }
 
 fn recorded(core: &Core, project: &str, agent: &Agent) -> bool {
@@ -260,6 +382,9 @@ pub(crate) async fn call(
         serde_json::from_value(request.params.clone()).map_err(|error| error.to_string())?;
     let (core, dir) = (core.clone(), PathBuf::from(&request.project));
     let (footer, note) = blocking(move || {
+        if let Some(remaking) = (!pending.amend).then(|| remaking(&dir)).flatten() {
+            return Ok(remade(&core, &dir, pending.index.as_deref(), &remaking)?);
+        }
         if !attributed(&dir) {
             return Ok((Vec::new(), None));
         }

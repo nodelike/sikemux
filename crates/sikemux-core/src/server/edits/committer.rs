@@ -9,9 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::owners::{git, run};
 use crate::server::Core;
-use crate::trailers::{self, Agent, Commit};
+use crate::trailers::{self, Agent, Commit, COMMITTERS_REF as NOTES_REF};
 
-pub(super) const NOTES_REF: &str = "refs/notes/committers";
 const NOTE_ATTEMPTS: usize = 3;
 
 #[derive(Deserialize, Serialize)]

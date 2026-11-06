@@ -16,7 +16,7 @@ use super::footer::verified;
 use super::note;
 use super::owners::{git, run};
 use crate::server::Core;
-use crate::trailers::{self, Commit, NOTES_REF};
+use crate::trailers::{self, Agent, Commit, COMMITTERS_REF, NOTES_REF};
 
 const ATTEMPTS: usize = 4;
 const PUSH_WAIT: Duration = Duration::from_secs(5 * 60);
@@ -55,6 +55,13 @@ impl Signing {
             key: core.remote.host_key(),
             hosts: core.remote.host_keys(),
         }
+    }
+
+    /// The agents `message`'s footer names, when this host signed it for `was`.
+    /// A host signs only for itself, so a linked host's footer is not signed again.
+    pub(super) fn agents_of(&self, message: &str, was: &Commit) -> Option<Vec<Agent>> {
+        let (host, agents) = trailers::verify(message, was, &self.hosts)?;
+        (self.key.as_ref()?.public() == host).then_some(agents)
     }
 }
 
@@ -370,12 +377,11 @@ pub(super) fn replay(
             tree: &line(git(top, &["rev-parse", &format!("{id}^{{tree}}")])?),
             parents: &old_parents,
         };
-        let ours = |host: &iroh::PublicKey| key.as_ref().is_some_and(|key| key.public() == *host);
-        let message = match (trailers::verify(message, &was, hosts), key) {
-            (Some((host, agents)), Some(key)) if ours(&host) => {
-                trailers::append(message, &trailers::footer(&agents, &made_of, Some(key)))
+        let message = match signing.agents_of(message, &was) {
+            Some(agents) => {
+                trailers::append(message, &trailers::footer(&agents, &made_of, key.as_ref()))
             }
-            _ => message.to_owned(),
+            None => message.to_owned(),
         };
         let mut command = sikemux_process::user_environment::command("git");
         command
@@ -445,7 +451,7 @@ pub(super) fn replay(
         );
         carry_note::<committer::Committer>(
             top,
-            committer::NOTES_REF,
+            COMMITTERS_REF,
             id,
             &was,
             &made,
@@ -470,24 +476,34 @@ fn carry_note<Holds: DeserializeOwned>(
     key: Option<&iroh::SecretKey>,
     hosts: &[iroh::PublicKey],
 ) {
-    let Some(key) = key else { return };
+    let Some(signed) =
+        key.and_then(|key| note_again::<Holds>(top, notes, from, was, made_of, key, hosts))
+    else {
+        return;
+    };
     let notes = format!("--ref={notes}");
-    let Ok(blob) = git(top, &["notes", &notes, "show", from]) else {
-        return;
-    };
-    let Some(text) = trailers::verify_note(&blob, was, hosts) else {
-        return;
-    };
-    if serde_json::from_str::<Holds>(text).is_err() {
-        return;
-    }
-    let signed = trailers::signed_note(text, made_of, key);
     let _ = run(
         top,
         &["notes", &notes, "add", "-f", "-F", "-", to],
         None,
         Some(signed.as_bytes()),
     );
+}
+
+/// `from`'s note under `notes`, when it checks out, signed for `made_of`.
+pub(super) fn note_again<Holds: DeserializeOwned>(
+    top: &Path,
+    notes: &str,
+    from: &str,
+    was: &Commit,
+    made_of: &Commit,
+    key: &iroh::SecretKey,
+    hosts: &[iroh::PublicKey],
+) -> Option<String> {
+    let blob = git(top, &["notes", &format!("--ref={notes}"), "show", from]).ok()?;
+    let text = trailers::verify_note(&blob, was, hosts)?;
+    serde_json::from_str::<Holds>(text).ok()?;
+    Some(trailers::signed_note(text, made_of, key))
 }
 
 fn tree(top: &Path, commit: &str) -> Result<String, String> {
