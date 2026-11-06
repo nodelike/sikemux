@@ -847,6 +847,11 @@ export interface ShipHold {
     environment?: string;
     /** Why it waits, in the core's words, in a project with environments. */
     why?: string;
+    /**
+     * What the person can let go without asking from now on, such as `dev/*`, in place of
+     * allowing this once. Only what reads as no production offers it.
+     */
+    letGo?: string;
 }
 
 /** What an agent's action does once it leaves this machine. */
@@ -3066,6 +3071,8 @@ export interface Environment {
     recognise: Recognise[];
     /** An address that answers once a deploy there is healthy. */
     health?: string;
+    /** It only lets deploys go, and gives the project's slices no step. */
+    noStep?: boolean;
 }
 
 /** Who a deploy to an environment waits on. */

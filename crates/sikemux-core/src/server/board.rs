@@ -3014,6 +3014,40 @@ pub(crate) fn judge_ship(
     environments::judged(known, ship)
 }
 
+/// What the person could let go without asking from now on, of a deploy of `project` that holds.
+pub(crate) fn unasked_offer(
+    core: &Core,
+    project: &str,
+    ship: &crate::ship::Ship,
+) -> Option<String> {
+    let state = core.boards.state.locked();
+    let none = Vec::new();
+    let known = state
+        .boards
+        .get(project)
+        .map_or(&none, |board| &board.settings.environments);
+    environments::unasked_pattern(known, ship)
+}
+
+/// The person lets what the held `ship` lands in go without asking from now on, which
+/// no agent can do: agents only propose environments. What now goes, as it reads.
+pub(crate) fn let_go_unasked(
+    core: &Core,
+    project: &str,
+    ship: &crate::ship::Ship,
+) -> Result<String, String> {
+    let mut state = core.boards.state.locked();
+    let board = state
+        .boards
+        .entry(project.to_owned())
+        .or_insert_with(|| Board::empty(project));
+    let path = environments::unasked_pattern(&board.settings.environments, ship);
+    board.settings.environments =
+        environments::letting_go(board.settings.environments.clone(), ship)?;
+    core.boards.save(&mut state, project);
+    Ok(path.unwrap_or_default())
+}
+
 /// The address a deploy to `environment` of `project` is read healthy at.
 pub(crate) fn health_of(core: &Core, project: &str, environment: &str) -> Option<String> {
     let state = core.boards.state.locked();

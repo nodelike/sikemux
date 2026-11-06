@@ -634,7 +634,7 @@ fn actions(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> V
     if let Some(hold) = &item.hold {
         let here = crate::core::Target::here(&pane.asks);
         return vec![crate::approvals::ship_buttons(
-            &hold.id,
+            hold,
             false,
             here,
             pane.bench.clone(),

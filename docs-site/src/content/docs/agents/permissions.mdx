@@ -24,6 +24,7 @@ The same two buttons show on the agent's own chat, above its composer, and besid
 
 - **Allow once** lets exactly that command or call run one time. The agent hears it may and runs it again; the approval ends with the agent's turn, used or not.
 - **Refuse** tells the agent not to run it.
+- **Let `dev/*` go unasked** shows on a Rundeck deploy whose folder says it isn't production, such as `dev/backend/deploy-api`, when no environment covers it yet. It lets that whole folder go without asking from now on, and any deploy held for there goes.
 
 A deploy to an environment you marked safe in a project's [environments](/agents/goals/#environments) goes without asking. Production, what Sikemux can't recognise, publishes and production databases always wait.
 

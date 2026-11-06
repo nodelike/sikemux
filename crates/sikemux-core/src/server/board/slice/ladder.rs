@@ -12,7 +12,7 @@ pub(crate) const AUTO_MERGES: [Gate; 2] = [Gate::Built, Gate::Landed];
 /// Looks right, and its environments, when it has them, take the place of
 /// what follows Built.
 pub(crate) fn ladder_of(settings: &BoardSettings, auto_merges: bool) -> Vec<Step> {
-    if !settings.environments.is_empty() {
+    if (settings.environments.iter()).any(|environment| !environment.no_step) {
         return ladder_steps(settings.landing == Landing::Person, &settings.environments);
     }
     let gates: &[Gate] = if auto_merges { &AUTO_MERGES } else { &LADDER };

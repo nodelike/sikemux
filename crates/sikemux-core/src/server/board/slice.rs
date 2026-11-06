@@ -2036,6 +2036,7 @@ mod tests {
         let environment = |name: &str, passes| Environment {
             name: name.to_owned(),
             passes,
+            no_step: false,
             recognise: vec![Recognise::RundeckJob {
                 path: format!("{name}/*"),
             }],

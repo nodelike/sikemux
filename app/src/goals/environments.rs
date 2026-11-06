@@ -71,6 +71,8 @@ struct Row {
     health: Entity<InputState>,
     /// More it is recognised by than this page writes, as an agent may have proposed; kept.
     others: Vec<EnvironmentRecognise>,
+    /// Let go from a held deploy, so it gives slices no step; kept.
+    no_step: bool,
 }
 
 /// The project's environments while the person changes them.
@@ -174,6 +176,7 @@ impl GoalsPane {
                     cx,
                 ),
                 others,
+                no_step: environment.no_step,
             }
         });
         let rows = rows.collect();
@@ -201,6 +204,7 @@ impl GoalsPane {
             value: field(words, "dev/*", window, cx),
             health: field("", "Health address (optional)", window, cx),
             others: Vec::new(),
+            no_step: false,
         };
         self.environments
             .get_or_insert_with(Editing::default)
@@ -241,6 +245,7 @@ impl GoalsPane {
                     passes: row.passes,
                     recognise,
                     health: (!health.is_empty()).then_some(health),
+                    no_step: row.no_step,
                 }
             })
             .collect();
@@ -365,7 +370,13 @@ fn listing(kept: &[Environment], busy: bool, cx: &mut Context<GoalsPane>) -> Any
                         .text_color(t.text_primary)
                         .child(environment.name.clone()),
                 )
-                .child(ui::meta(passes_words(environment.passes), cx))
+                .child(ui::meta(
+                    match environment.no_step {
+                        true => format!("{}, no step", passes_words(environment.passes)),
+                        false => passes_words(environment.passes).to_owned(),
+                    },
+                    cx,
+                ))
                 .child(div().flex_1())
                 .child(ui::meta(facts.join(", "), cx).truncate())
         }))

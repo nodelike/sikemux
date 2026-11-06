@@ -149,9 +149,7 @@ pub(super) fn approval(
                 row.child(ui::icon(Icon::Shield, 14.).flex_none().text_color(t.warn))
                     .child(said)
                     .child(div().flex_1())
-                    .child(crate::approvals::ship_buttons(
-                        &hold.id, busy, target, bench,
-                    )),
+                    .child(crate::approvals::ship_buttons(hold, busy, target, bench)),
             )
             .child(
                 ui::mono(hold.what.clone(), TEXT_XS, cx)

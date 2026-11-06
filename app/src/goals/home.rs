@@ -239,7 +239,7 @@ fn needs_row(
     let does = row_does()
         .children(item.hold.as_ref().map(|hold| {
             let here = crate::core::Target::here(&pane.asks);
-            crate::approvals::ship_buttons(&hold.id, false, here, pane.bench.clone())
+            crate::approvals::ship_buttons(hold, false, here, pane.bench.clone())
         }))
         .children(stall_buttons(item, cx))
         .child(ui::meta(ui::time::age(item.at), cx));

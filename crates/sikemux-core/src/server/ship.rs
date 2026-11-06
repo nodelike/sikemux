@@ -20,6 +20,7 @@ use sikemux_view::inbox::{ShipHold, ShipKind};
 use sikemux_view::slice::Verdict;
 
 use super::board::{self, auto::Landing, environments::Goes, DeployRan};
+use super::connection::blocking;
 use super::plugins::Provided;
 use super::repo_events::RepoEvent;
 use super::{messages, plugins, Core, CoreResult};
@@ -91,6 +92,8 @@ struct Hold {
     /// The environment it lands in and why it waits, in a project with environments.
     environment: Option<String>,
     why: Option<String>,
+    /// What the person could let go without asking from now on.
+    let_go: Option<String>,
 }
 
 /// An action the person allowed the agent to take once.
@@ -132,6 +135,7 @@ impl Ships {
                     what: hold.ship.what.clone(),
                     environment: hold.environment.clone(),
                     why: hold.why.clone(),
+                    let_go: hold.let_go.clone(),
                 },
                 agent_id: hold.agent_id.clone(),
                 project: hold.project.clone(),
@@ -231,6 +235,7 @@ pub(crate) fn check(
         said = format!("{said} {why}");
     }
     let let_go = deploy(true);
+    let unasked = board::unasked_offer(core, &project, &ship);
     {
         let mut state = core.ship.state.locked();
         let same =
@@ -284,6 +289,7 @@ pub(crate) fn check(
             at: epoch_ms(),
             environment: judged.environment,
             why: judged.why,
+            let_go: unasked,
             ship,
         });
     }
@@ -693,6 +699,38 @@ pub(crate) async fn permit_environment(
         "The person passed {environment}. Deploy there now if you haven't; one deploy may run, until this turn ends."
     );
     permitted(core, agent.to_owned(), permit, text).await;
+}
+
+/// The person lets what the held action lands in go without asking from now on. Each
+/// deploy held for there goes, and its agent is told to run it again.
+pub(crate) async fn let_go(core: &Arc<Core>, params: HoldParams) -> CoreResult<()> {
+    let (project, ship) = {
+        let state = core.ship.state.locked();
+        let hold = (state.holds.iter())
+            .find(|hold| hold.id.to_string() == params.hold)
+            .ok_or("that action no longer waits on you")?;
+        (hold.project.clone(), hold.ship.clone())
+    };
+    let (letting, there) = (core.clone(), project.clone());
+    let path = blocking(move || Ok(board::let_go_unasked(&letting, &there, &ship)?)).await?;
+    let held: Vec<(u64, Ship)> = (core.ship.state.locked().holds.iter())
+        .filter(|hold| hold.project == project)
+        .map(|hold| (hold.id, hold.ship.clone()))
+        .collect();
+    for (id, ship) in held {
+        if board::judge_ship(core, &project, &ship).goes != Goes::Freely {
+            continue;
+        }
+        if let Ok(hold) = take(core, &id.to_string()) {
+            core.ship.remember(&hold, true);
+            let text = format!(
+                "The person let `{path}` go without asking. Run `{}` again now.",
+                hold.ship.what
+            );
+            let _ = messages::for_person(core, hold.agent_id, text).await;
+        }
+    }
+    Ok(())
 }
 
 /// The person refuses the held action, and the agent is told not to take it.

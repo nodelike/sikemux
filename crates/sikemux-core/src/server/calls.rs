@@ -411,6 +411,7 @@ calls! { core, client, method, params;
     "answerQuestions" AnswerQuestions (questions::AnswersParams) -> (): Full, counted => questions::answer_all(&core, params).await?,
     "allowShip" AllowShip (ship::HoldParams) -> (): Full => ship::allow(&core, params).await?,
     "refuseShip" RefuseShip (ship::HoldParams) -> (): Full => ship::refuse(&core, params).await?,
+    "letShipGo" LetShipGo (ship::HoldParams) -> (): Full => ship::let_go(&core, params).await?,
     "agentMessages": Watch, any_program => answer(messages::agent_messages(&core, parse(params)?).await?),
     "agentMessageRows" AgentMessageRows (messages::AgentMessagesParams) -> messages::AgentMessageRows: Watch, any_program => {
         messages::agent_message_rows(&core, params).await?

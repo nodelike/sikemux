@@ -22,6 +22,22 @@ const MAX_VALUE_CHARS: usize = 200;
 const MAX_WHY_CHARS: usize = 500;
 /// Words in a name that say it is production, which never goes unasked.
 const PRODUCTION_WORDS: [&str; 4] = ["prod", "production", "prd", "live"];
+/// Words in a Rundeck folder's name that say it is clearly not production.
+const NOT_PRODUCTION_WORDS: [&str; 13] = [
+    "dev",
+    "develop",
+    "development",
+    "staging",
+    "stage",
+    "stg",
+    "qa",
+    "uat",
+    "test",
+    "testing",
+    "sandbox",
+    "preview",
+    "demo",
+];
 
 /// Who a deploy to an environment waits on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -78,6 +94,9 @@ pub struct Environment {
     /// An address that answers once a deploy there is healthy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub health: Option<String>,
+    /// It only lets deploys go, and gives the project's slices no step.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub no_step: bool,
 }
 
 /// Environments an agent proposed, for the person to accept or turn down.
@@ -181,12 +200,58 @@ fn matches_path(pattern: &str, path: &str) -> bool {
 }
 
 fn says_production(name: &str) -> bool {
+    has_word(name, &PRODUCTION_WORDS)
+}
+
+fn has_word(name: &str, words: &[&str]) -> bool {
     name.split(|c: char| !c.is_ascii_alphanumeric())
-        .any(|word| {
-            PRODUCTION_WORDS
-                .iter()
-                .any(|said| word.eq_ignore_ascii_case(said))
-        })
+        .any(|word| words.iter().any(|said| word.eq_ignore_ascii_case(said)))
+}
+
+/// What a held deploy could be let go by from now on, such as `dev/*`: a Rundeck job
+/// in a folder that says it isn't production, with nothing in its path saying it is,
+/// where no environment of the project has a say yet.
+pub(crate) fn unasked_pattern(environments: &[Environment], ship: &Ship) -> Option<String> {
+    let Some(Target::RundeckJob {
+        path,
+        production: false,
+    }) = ship
+        .target
+        .as_ref()
+        .filter(|_| ship.kind == ShipKind::Deploy)
+    else {
+        return None;
+    };
+    let (folder, _) = path.split_once('/')?;
+    let free = !says_production(path)
+        && has_word(folder, &NOT_PRODUCTION_WORDS)
+        && folder.chars().count() <= MAX_NAME_CHARS
+        && environments.len() < MAX_ENVIRONMENTS
+        && !environments.iter().any(|environment| {
+            environment.recognises(ship) || environment.name.eq_ignore_ascii_case(folder)
+        });
+    free.then(|| format!("{folder}/*"))
+}
+
+/// `environments` with what `ship` lands in going without asking. It takes no step, so
+/// letting one go from a hold leaves the project's slices climbing what they climbed.
+pub(super) fn letting_go(
+    mut environments: Vec<Environment>,
+    ship: &Ship,
+) -> Result<Vec<Environment>, String> {
+    let path = unasked_pattern(&environments, ship)
+        .ok_or("this deploy can't be let go without asking any more")?;
+    let folder = path.trim_end_matches("/*");
+    let mut letters = folder.chars();
+    let first = letters.next().map(|letter| letter.to_ascii_uppercase());
+    environments.push(Environment {
+        name: first.into_iter().chain(letters).collect(),
+        passes: Passes::Nobody,
+        recognise: vec![Recognise::RundeckJob { path }],
+        health: None,
+        no_step: true,
+    });
+    checked(environments)
 }
 
 /// What the person or an agent gave as a project's environments, tidied and
@@ -305,7 +370,11 @@ pub(crate) fn judged(environments: &[Environment], ship: &Ship) -> Judged {
         );
     };
     let words = environment.passes_words();
-    if ship.target.as_ref().is_some_and(Target::production) {
+    let lands_in_production = ship.target.as_ref().is_some_and(|target| {
+        target.production()
+            || matches!(target, Target::RundeckJob { path, .. } if says_production(path))
+    });
+    if lands_in_production {
         let why = format!(
             "{} lands in production, which always waits for a person.",
             environment.name
@@ -361,6 +430,7 @@ pub(super) fn ladder_steps(person_lands: bool, environments: &[Environment]) -> 
     steps.extend(
         environments
             .iter()
+            .filter(|environment| !environment.no_step)
             .map(|environment| Step::Environment(environment.name.clone())),
     );
     steps
@@ -474,6 +544,7 @@ mod tests {
             passes,
             recognise,
             health: None,
+            no_step: false,
         }
     }
 
@@ -665,6 +736,49 @@ mod tests {
         assert_eq!(waiting.len(), 1);
         assert_eq!(waiting[0].hold.environment, None);
         assert_eq!(waiting[0].hold.why, None);
+    }
+
+    /// 47 `rundeck_run` holds on `dev/backend/*` in a project with no environments since 2026-11-03,
+    /// one after the person said "deploy on dev, I'm out", each answerable only by Allow once.
+    #[test]
+    fn a_dev_folder_can_be_let_go_from_its_hold_and_production_cannot() {
+        let core = core_set(Vec::new());
+        let dev = at("dev/backend/deploy-api", false);
+        assert!(try_ship(&core, dev.clone()).is_err());
+        let waiting = core.ship.waiting();
+        assert_eq!(waiting[0].hold.let_go.as_deref(), Some("dev/*"));
+        let ship = deploy(dev.clone());
+        crate::server::board::let_go_unasked(&core, PROJECT, &ship).unwrap();
+
+        assert_eq!(try_ship(&core, dev), Ok(true));
+        assert_eq!(
+            try_ship(&core, at("dev/backend/reprocess", false)),
+            Ok(true)
+        );
+        assert_eq!(
+            try_ship(&core, at("dev/backend/product-api", false)),
+            Ok(true)
+        );
+        let state = core.boards.state.locked();
+        let board = state.boards.get(PROJECT).unwrap();
+        let ladder = super::super::slice::ladder_of(&board.settings, false);
+        assert!(ladder.iter().all(|step| step.environment().is_none()));
+        drop(state);
+
+        for still_waits in [
+            at("dev/backend/promote-to-prod", false),
+            at("dev/backend/deploy-api", true),
+            at("prod/deploy", false),
+            at("backend/deploy-api", false),
+            None,
+        ] {
+            assert!(
+                try_ship(&core, still_waits.clone()).is_err(),
+                "{still_waits:?}"
+            );
+            let offered = unasked_pattern(&[], &deploy(still_waits));
+            assert_eq!(offered, None);
+        }
     }
 
     /// An agent's proposal changes nothing until the person accepts it.

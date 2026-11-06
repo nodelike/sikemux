@@ -2,6 +2,7 @@
 //! it shows: an action that leaves this machine, and a gate only the person passes. The core keeps
 //! the list and clears it, so an answer from anywhere clears every place that shows it.
 
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, AnyElement, App, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, WeakEntity,
@@ -11,7 +12,7 @@ use serde::Serialize;
 use sikemux_core::server::board::BoardPassParams;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::ship::HoldParams;
-use sikemux_view::inbox::{InboxItem, InboxKind};
+use sikemux_view::inbox::{InboxItem, InboxKind, ShipHold};
 
 use crate::core::Target;
 use crate::theme::{SPACE_1, TEXT_XS};
@@ -36,10 +37,12 @@ impl Workbench {
     }
 }
 
-/// Asks the core to answer, saying so when it could not.
+/// Asks the core to answer, saying so when it could not, and `done` when it could and there is
+/// more to say than the item leaving.
 fn answer<C: Call + 'static>(
     target: &Target,
     params: C::Params,
+    done: Option<String>,
     bench: WeakEntity<Workbench>,
     cx: &mut App,
 ) where
@@ -48,8 +51,11 @@ fn answer<C: Call + 'static>(
 {
     let asked = target.request_typed::<C>(params);
     cx.spawn(async move |cx| {
-        if let Err(error) = asked.await {
-            let note = toast::error(error).autohide(false);
+        let note = match asked.await {
+            Err(error) => Some(toast::error(error).autohide(false)),
+            Ok(_) => done.map(toast::success),
+        };
+        if let Some(note) = note {
             let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
         }
     })
@@ -70,23 +76,25 @@ pub fn held_action(id: &str, what: &str, cx: &App) -> AnyElement {
         .into_any_element()
 }
 
-/// Allows a held action once, or refuses it, without opening anything.
+/// Allows a held action once, or refuses it, without opening anything; where the core offers it,
+/// lets all of what the action lands in go from now on.
 pub fn ship_buttons(
-    hold: &str,
+    hold: &ShipHold,
     busy: bool,
     target: Target,
     bench: WeakEntity<Workbench>,
 ) -> AnyElement {
-    let button = |label: &'static str, id: String, allow: bool| {
-        let (hold, target, bench) = (hold.to_owned(), target.clone(), bench.clone());
-        Button::new(SharedString::from(id), label, Variant::Outline)
+    let id = hold.id.as_str();
+    let button = |label: &'static str, key: String, allow: bool| {
+        let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
+        Button::new(SharedString::from(key), label, Variant::Outline)
             .disabled(busy)
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 let params = HoldParams { hold: hold.clone() };
                 match allow {
-                    true => answer::<call::AllowShip>(&target, params, bench.clone(), cx),
-                    false => answer::<call::RefuseShip>(&target, params, bench.clone(), cx),
+                    true => answer::<call::AllowShip>(&target, params, None, bench.clone(), cx),
+                    false => answer::<call::RefuseShip>(&target, params, None, bench.clone(), cx),
                 }
             })
     };
@@ -94,8 +102,26 @@ pub fn ship_buttons(
         .flex()
         .flex_none()
         .gap(SPACE_1)
-        .child(button("Allow once", format!("ship-allow-{hold}"), true))
-        .child(button("Refuse", format!("ship-refuse-{hold}"), false))
+        .when_some(hold.let_go.clone(), |row, covers| {
+            let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
+            row.child(
+                Button::new(
+                    SharedString::from(format!("ship-let-go-{hold}")),
+                    format!("Let {covers} go unasked"),
+                    Variant::Outline,
+                )
+                .tooltip("Deploys there stop asking you. Production still waits. Change it under Environments.")
+                .disabled(busy)
+                .on_click(move |_, _, cx| {
+                    cx.stop_propagation();
+                    let params = HoldParams { hold: hold.clone() };
+                    let done = format!("{covers} goes unasked now. Change it under Environments.");
+                    answer::<call::LetShipGo>(&target, params, Some(done), bench.clone(), cx);
+                }),
+            )
+        })
+        .child(button("Allow once", format!("ship-allow-{id}"), true))
+        .child(button("Refuse", format!("ship-refuse-{id}"), false))
         .into_any_element()
 }
 
@@ -124,7 +150,7 @@ pub fn pass_button(
                     gate,
                     environment: environment.clone(),
                 };
-                answer::<call::BoardPass>(&target, params, bench.clone(), cx);
+                answer::<call::BoardPass>(&target, params, None, bench.clone(), cx);
             })
             .into_any_element(),
     )
