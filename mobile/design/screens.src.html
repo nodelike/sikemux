@@ -195,6 +195,18 @@
   .letter-from::before, .letter-from::after { content: ""; flex: 1; height: 1px; background: var(--line); }
   .letter-from b { color: var(--ink); font-weight: 600; }
   .letter-from svg { flex: none; }
+  .team-fold { display: flex; align-items: center; gap: 6px; height: 28px; margin: 6px -6px 2px; padding: 0 6px; border-radius: 6px; font-size: 12.5px; color: var(--ink-dim); }
+  .team-fold > svg { flex: none; }
+  .team-fold.open > svg { transform: rotate(90deg); }
+  .team-fold .marks { flex: none; display: inline-flex; align-items: center; gap: 2px; }
+  .team-fold .marks .more { margin-left: 2px; font-size: 11px; }
+  .team-fold b { flex: none; color: var(--ink); font-weight: 600; }
+  .team-fold .last { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .team-fold .last.wants { color: var(--danger); }
+  .team-fold .took { flex: none; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .team-earlier { align-self: flex-start; margin: 4px 0 0 12px; padding: 0 6px; height: 24px; display: inline-flex; align-items: center; font-size: 12px; color: var(--ink-dim); }
+  .asked-strip { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 18px; border-bottom: 1px solid var(--border); background: var(--surface-raised); font-size: 12px; color: var(--ink-dim); }
+  .asked-strip span:last-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
   .ask-who { display: flex; align-items: center; gap: 7px; margin: 14px 0 2px; color: var(--ink-dim); font-size: 11.5px; line-height: 1.4; }
   .ask-who b { color: var(--ink); font-weight: 600; }
   .ask-who svg { flex: none; }
@@ -2438,7 +2450,7 @@
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Fix the flaky PTY replay test</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat" style="justify-content:flex-start">
           <div class="prose">All 214 terminal tests pass. The fix keeps channel output back until the snapshot is written, then lets it through in order.</div>
-          <div class="letter-from"><span class="claude">{{IconClaude:13}}</span><span>Message from <b>Otter</b></span></div>
+          <div class="letter-from"><span class="claude">{{IconClaude:13}}</span><span>Message from <b>@Otter</b></span></div>
           <div class="prose">I'm changing the attach handshake in <code class="chip">core/session.rs</code>. Hold off on committing the replay fix until I push, so we don't both touch the snapshot code.</div>
           <div class="work"><span class="work-sum"><span class="codex">{{IconCodex:17}}</span>Worked for 6s <span class="calls">· 1 tool call</span>{{IconChevron:10}}</span></div>
           <div class="prose">Holding the commit. I told Otter the fix only touches the reader, and asked it to send word once its change is in.</div>
@@ -2460,6 +2472,40 @@
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>A message from another agent</b><div class="note">Another agent on the host sent this chat a message with agent_send. It reads as prose under a centred line with the sender's mark and name, as on the Mac, never in the person's bubble, so it is not taken for something the person wrote. Several sent together each get their own line. A tap shows its copy button and the time it came.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Flint</b><i>·</i><em>Ship the nightly</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="asked-strip"><span>You asked</span><span>Fix the grouping and ship a nightly.</span></div>
+        <div class="chat" style="justify-content:flex-start">
+          <div class="team-fold">{{IconChevron:10}}<span class="marks"><span class="claude">{{IconClaude:16}}</span><span class="codex">{{IconCodex:16}}</span></span><b>12 messages</b><span class="last">@Otter: Key changed on the phone side.</span><span class="took">14m</span></div>
+          <div class="prose">The grouping is fixed on both. Starting the nightly now.</div>
+          <div class="team-fold">{{IconChevron:10}}<span class="marks"><span class="claude">{{IconClaude:16}}</span><span class="codex">{{IconCodex:16}}</span><span class="claude">{{IconClaude:16}}</span><span class="codex">{{IconCodex:16}}</span><span class="more">+3</span></span><b>23 messages</b><span class="last wants">@Otter asks: revert the phone fix or hold the release?</span><span class="took">41m</span></div>
+          <div class="team-fold open">{{IconChevron:10}}<span class="marks"><span class="claude">{{IconClaude:16}}</span><span class="codex">{{IconCodex:16}}</span></span><b>7 messages</b><span class="last">@Maple: iOS job passed on the second run.</span><span class="took">19m</span></div>
+          <div class="team-earlier">Show 2 earlier</div>
+          <div class="letter-from"><span class="claude">{{IconClaude:13}}</span><span>Message from <b>@Maple</b></span></div>
+          <div class="prose">iOS job passed on the second run.</div>
+          <div class="prose">Nightly is out.</div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Ask about this project, or type / for commands</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo on">{{IconShieldBolt:13}}<b>yolo</b></span>
+              <span class="picker model"><span class="codex">{{IconCodex:16}}</span>GPT-5.5<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker">Medium<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="ring"><i class="ctx codex" style="--p:46"></i></span>
+              <span class="spacer"></span>
+              <span class="send off">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Messages between agents</b><div class="note">What agents send each other folds to one line where it happened: its senders' marks, the count, the latest message and how long it went on, always one line. A turn another agent started folds but its last message, and whatever stays in view ends the line. A tap opens it in place on its last five messages, with the rest behind Show N earlier, and what is on screen holds still. Someone needing the person takes over the line in the danger colour until that is settled. Once the person's last message scrolls off, a strip over the transcript says what they asked; a tap goes back to it and lights it.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -2499,7 +2545,7 @@
       <div class="screen">
         <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="codex">{{IconCodex:17}}</span><span class="named"><b>@Maple</b><i>·</i><em>Move the ledger import</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
         <div class="chat" style="justify-content:flex-start">
-          <div class="letter-from"><span class="claude">{{IconClaude:13}}</span><span>Message from <b>Otter</b></span></div>
+          <div class="letter-from"><span class="claude">{{IconClaude:13}}</span><span>Message from <b>@Otter</b></span></div>
           <div class="prose">Take PROJ-12: move the ledger import onto the new amounts table. Ask me if anything about the data is unclear.</div>
           <div class="work"><span class="work-sum"><span class="codex">{{IconCodex:17}}</span>Worked for 41s <span class="calls">· 6 tool calls</span>{{IconChevron:10}}</span></div>
           <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>Maple</b> asks you · @Otter raised this</span><span class="ticket">PROJ-12</span><span class="fold">{{IconChevron:10}}</span></div>

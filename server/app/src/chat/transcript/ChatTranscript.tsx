@@ -14,6 +14,8 @@ import { PermissionRequest } from "./PermissionRequest";
 import type { ChatMessage } from "@shared/wire.generated";
 import type { ChatRows } from "@shared/chat/rows";
 import { WorkSummary } from "./WorkSummary";
+import { TeamFold } from "./TeamFold";
+import { teamRows, type RunOpen } from "@shared/chat/team";
 
 /* A long transcript mounts its newest rows first and the older ones above
    them a slice at a time. Laid out from the bottom, rows added above the view
@@ -96,6 +98,13 @@ export function ChatTranscript({
       if (!next.delete(id)) next.add(id);
       return next;
     });
+  const runs = useMemo(
+    () =>
+      teamRows(state.messages, (id): RunOpen =>
+        openWork.has(`team-all/${id}`) ? "all" : openWork.has(`team/${id}`) ? "open" : "closed",
+      ),
+    [state.messages, openWork],
+  );
 
   return (
     <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
@@ -109,6 +118,37 @@ export function ChatTranscript({
         <FoldMemoryContext value={foldMemory}>
           {state.messages.slice(firstRow).map((message, offset) => {
             const index = firstRow + offset;
+            const run = runs.get(message.id);
+            const head = run?.head && (
+              <TeamFold
+                line={run.head}
+                open={openWork.has(`team/${run.id}`)}
+                all={openWork.has(`team-all/${run.id}`)}
+                onToggle={() => toggleWork(`team/${run.id}`)}
+                onAll={() => toggleWork(`team-all/${run.id}`)}
+              />
+            );
+            if (run?.hidden)
+              return (
+                <div key={message.id} data-index={index} className="chat-row">
+                  {head}
+                </div>
+              );
+            if (run)
+              return (
+                <div key={message.id} data-index={index} className="chat-row">
+                  {head}
+                  <ChatMessageRow
+                    kept={run.shown}
+                    message={message}
+                    live={state.running && index === state.messages.length - 1}
+                    copyable={copyText(state.messages, index)}
+                    rate={message.meta?.rate ?? null}
+                    at={rowTime(message)}
+                    took={message.meta?.took ?? null}
+                  />
+                </div>
+              );
             const meta = message.meta;
             const span = spans.get(index);
             const fold = span && message.fold;

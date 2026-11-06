@@ -21,6 +21,7 @@ export function useChatFind(session: ChatSession, rows: ChatMessage[], workOpen:
     const { shown: kept } = rowFold(row, workOpen);
     const tucked = !shownParts(row.parts, kept).some((held) => held.id === hit.part);
     if (row.fold && tucked) session.folds.set(`work/${row.fold.id}`, true);
+    if (row.team) session.folds.set(`team-all/${row.team.id}`, true);
     setShown({ row: hit.row });
   };
   const showing = useRef(showHit);

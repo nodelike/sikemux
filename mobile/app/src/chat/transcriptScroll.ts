@@ -64,6 +64,12 @@ export function useTranscriptScroll<T>(list: RefObject<FlashListRef<T> | null>, 
     requestAnimationFrame(() => list.current?.scrollToEnd({ animated: true }));
   };
 
+  /** Stops following the end, so rows growing below the top of the view leave what the reader sees where it is. */
+  const hold = () => {
+    awayRef.current = true;
+    setAway(true);
+  };
+
   /** Brings row `index` into view, `at` 0 at the top of the transcript and 1 at its bottom. */
   const reveal = (index: number, at: number) => {
     requestAnimationFrame(() => list.current?.scrollToIndex({ index, animated: true, viewPosition: at }));
@@ -72,6 +78,7 @@ export function useTranscriptScroll<T>(list: RefObject<FlashListRef<T> | null>, 
   return {
     away,
     toEnd,
+    hold,
     reveal,
     listProps: {
       maintainVisibleContentPosition: { startRenderingFromBottom: true },

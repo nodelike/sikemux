@@ -15,8 +15,9 @@ import {
   subagentTask,
   type SubagentMark,
 } from '@shared/chat/transcript';
+import { teamCount, teamTook, teamWords } from '@shared/chat/team';
 import { callsLabel, workedLabel } from '@shared/chat/toolView';
-import type { ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice as Notice } from '@shared/wire.generated';
+import type { ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice as Notice, TeamLine } from '@shared/wire.generated';
 import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
 import { AgentFace } from '@/devices/Buddy';
@@ -270,6 +271,7 @@ export function Message({
   kept = null,
   onEdit,
   editing,
+  lit = false,
 }: {
   message: ChatMessage;
   live?: boolean;
@@ -286,6 +288,8 @@ export function Message({
   onEdit?: (message: ChatMessage) => void;
   /** This message is being written again. */
   editing?: Editing;
+  /** The person just jumped here. */
+  lit?: boolean;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -320,7 +324,7 @@ export function Message({
                 <View style={styles.letterRule} />
                 <AgentFace agentId={letter.agentId} provider={letter.cli} size={13} />
                 <Text style={styles.letterLabel}>
-                  Message from <Text style={styles.letterName}>{letter.name}</Text>
+                  Message from <Text style={styles.letterName}>@{letter.name}</Text>
                 </Text>
                 <View style={styles.letterRule} />
               </View>
@@ -348,7 +352,7 @@ export function Message({
           <Pressable
             onPress={tap}
             onLongPress={keepLongPress}
-            style={[styles.bubble, unsent?.state === 'sending' && { opacity: 0.7 }, failed && styles.failedBubble]}
+            style={[styles.bubble, lit && styles.litBubble, unsent?.state === 'sending' && { opacity: 0.7 }, failed && styles.failedBubble]}
             accessibilityHint={tap ? 'Tap for copy and the time it was sent' : undefined}>
             <Text style={styles.userText} selectable>
               {finding ? (
@@ -428,6 +432,84 @@ function Grow({ id, live, children }: { id: string; live: boolean; children: Rea
     <Animated.View style={growing ? { height, overflow: 'hidden' } : undefined}>
       <View onLayout={onLayout}>{children}</View>
     </Animated.View>
+  );
+}
+
+/** The one line a run of messages between agents folds to, as on the Mac: a tap opens it where it is. */
+export function TeamFold({
+  line,
+  open,
+  all,
+  onToggle,
+  onAll,
+}: {
+  line: TeamLine;
+  open: boolean;
+  all: boolean;
+  onToggle: () => void;
+  onAll: () => void;
+}) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const { words, wanting } = teamWords(line);
+  const count = teamCount(line.messages);
+  return (
+    <View style={styles.team}>
+      <Pressable
+        onPress={() => {
+          haptics.select();
+          onToggle();
+        }}
+        style={({ pressed }) => [styles.teamRow, pressed && styles.workPressed]}
+        hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel={`${count}. ${words}`}
+        accessibilityState={{ expanded: open }}>
+        <View style={[styles.workChevron, open && { transform: [{ rotate: '90deg' }] }]}>
+          <Icon name="IconChevron" size={10} color={mixed(colors.ink, colors.inkDim, 0.6)} />
+        </View>
+        <View style={styles.teamMarks}>
+          {line.agents.map((agent) => (
+            <AgentFace key={agent.agentId ?? agent.cli} agentId={agent.agentId} provider={agent.cli} size={16} />
+          ))}
+          {line.more > 0 ? <Text style={styles.teamMore}>+{line.more}</Text> : null}
+        </View>
+        <Text style={styles.teamCount}>{count}</Text>
+        <Text style={[styles.teamWords, wanting && { color: colors.danger }]} numberOfLines={1}>
+          {words}
+        </Text>
+        {line.took !== undefined ? <Text style={styles.teamTook}>{teamTook(line.took)}</Text> : null}
+      </Pressable>
+      {open && !all && line.earlier > 0 ? (
+        <Pressable
+          onPress={onAll}
+          style={({ pressed }) => [styles.teamEarlier, pressed && styles.workPressed]}
+          hitSlop={6}
+          accessibilityRole="button">
+          <Text style={styles.teamEarlierText}>Show {line.earlier} earlier</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/** What the person last asked, kept in reach over the top of the transcript once it scrolls off. */
+export function AskedStrip({ text, onPress }: { text: string; onPress: () => void }) {
+  const styles = useStyles(makeStyles);
+  return (
+    <Pressable
+      onPress={() => {
+        haptics.select();
+        onPress();
+      }}
+      style={({ pressed }) => [styles.asked, pressed && styles.askedPressed]}
+      accessibilityRole="button"
+      accessibilityLabel={`You asked: ${text}. Go to it`}>
+      <Text style={styles.askedLabel}>You asked</Text>
+      <Text style={styles.askedText} numberOfLines={1}>
+        {text}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -515,6 +597,49 @@ const makeStyles = (colors: Palette) => {
     },
     resourceText: { flexShrink: 1, fontFamily: fonts.mono, fontSize: 12, color: colors.ink },
     queuedLabel: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkFaint, marginTop: 4 },
+    team: { marginTop: 6, marginBottom: 2 },
+    teamRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      height: 28,
+      marginHorizontal: -6,
+      paddingHorizontal: 6,
+      borderRadius: 6,
+    },
+    teamMarks: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+    teamMore: { fontFamily: fonts.ui, fontSize: 11, color: colors.inkDim, marginLeft: 2 },
+    teamCount: { fontFamily: fonts.uiSemibold, fontSize: 12.5, color: colors.ink },
+    teamWords: { flex: 1, minWidth: 0, fontFamily: fonts.ui, fontSize: 12.5, color: colors.inkDim },
+    teamTook: { fontFamily: fonts.ui, fontSize: 12, fontVariant: ['tabular-nums'], color: colors.inkDim },
+    teamEarlier: {
+      alignSelf: 'flex-start',
+      marginTop: 4,
+      marginLeft: 12,
+      paddingHorizontal: 6,
+      height: 24,
+      justifyContent: 'center',
+      borderRadius: 6,
+    },
+    teamEarlierText: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
+    asked: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      height: 32,
+      paddingHorizontal: 18,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.raised,
+    },
+    askedPressed: { backgroundColor: colors.active },
+    askedLabel: { fontFamily: fonts.ui, fontSize: 12, color: colors.inkDim },
+    askedText: { flex: 1, minWidth: 0, fontFamily: fonts.ui, fontSize: 12, color: colors.ink },
+    litBubble: { backgroundColor: mixed(colors.ink, colors.raised, 0.12) },
     work: { marginTop: 8, marginBottom: 4 },
     workSum: {
       flexDirection: 'row',

@@ -13,11 +13,11 @@ import { shareUrl } from '@shared/account/live';
 import { parseShareLink, type ShareLink } from '@shared/share/link';
 import { sharedChatTitle, ShareSession, type ShareSnapshot } from '@shared/share/session';
 import { apiUrl } from '@/account/config';
-import { Folds, FoldsContext, rowFold, shownRows } from '@/chat/folds';
+import { Folds, FoldsContext, rowFold, runsOf, shownRows } from '@/chat/folds';
 import { SharedFilesContext } from '@/chat/hostFiles';
 import { ToolDetailContext } from '@/chat/Tools';
 import { useTranscriptScroll } from '@/chat/transcriptScroll';
-import { Message, WorkSummary } from '@/chat/Transcript';
+import { Message, TeamFold, WorkSummary } from '@/chat/Transcript';
 import { Activity } from '@/chat/Activity';
 import { Earlier, EarlierLost } from '@/chat/TranscriptEdges';
 import { ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
@@ -120,7 +120,10 @@ function SharedChat({ session }: { session: ShareSession }) {
   const [openWork, setOpenWork] = useState<ReadonlySet<string>>(() => new Set());
   const workOpen = (id: string) => openWork.has(id);
   const subagents = useMemo(() => subagentsOf(state.messages, state.subagentRows), [state.messages, state.subagentRows]);
-  const rows = useMemo(() => shownRows(state.messages, (id) => openWork.has(id)), [state.messages, openWork]);
+  const { rows, runs } = useMemo(() => {
+    const runs = runsOf(state.messages, (key) => openWork.has(key));
+    return { rows: shownRows(state.messages, (id) => openWork.has(id), runs), runs };
+  }, [state.messages, openWork]);
   const toggleWork = (id: string) =>
     setOpenWork((shown) => {
       const next = new Set(shown);
@@ -183,10 +186,20 @@ function SharedChat({ session }: { session: ShareSession }) {
                       showsVerticalScrollIndicator={false}
                       data={rows}
                       keyExtractor={(message) => message.id}
-                      getItemType={(message) => (rowFold(message, workOpen).hidden ? 'folded' : message.role)}
+                      getItemType={(message) => (rowFold(message, workOpen, runs.get(message.id)).hidden ? 'folded' : message.role)}
                       extraData={marks}
                       renderItem={({ item }) => {
-                        const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen);
+                        const run = runs.get(item.id);
+                        const { summary: fold, hidden, shown: kept } = rowFold(item, workOpen, run);
+                        const head = run?.head ? (
+                          <TeamFold
+                            line={run.head}
+                            open={openWork.has(`team/${run.id}`)}
+                            all={openWork.has(`team-all/${run.id}`)}
+                            onToggle={() => toggleWork(`team/${run.id}`)}
+                            onAll={() => toggleWork(`team-all/${run.id}`)}
+                          />
+                        ) : null;
                         const summary = fold ? (
                           <WorkSummary
                             took={fold.took}
@@ -196,9 +209,18 @@ function SharedChat({ session }: { session: ShareSession }) {
                             onToggle={() => toggleWork(fold.id)}
                           />
                         ) : null;
-                        if (hidden) return summary ?? <View />;
+                        if (hidden)
+                          return head || summary ? (
+                            <>
+                              {head}
+                              {summary}
+                            </>
+                          ) : (
+                            <View />
+                          );
                         return (
                           <>
+                            {head}
                             {summary}
                             <Message
                               message={item}

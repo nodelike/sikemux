@@ -1,5 +1,6 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 
+import { teamRows, type RunOpen, type TeamRow } from '@shared/chat/team';
 import type { ChatMessage } from '@shared/wire.generated';
 
 /**
@@ -58,8 +59,9 @@ type RowFold = {
 
 const UNFOLDED: RowFold = { summary: null, hidden: false, shown: null };
 
-/** `open` says whether the person opened the fold's work, by the fold's id. */
-export function rowFold(row: ChatMessage, open: (id: string) => boolean): RowFold {
+/** `open` says whether the person opened the fold's work, by the fold's id; `run` is how the row shows in a run of messages between agents, when it is in one. */
+export function rowFold(row: ChatMessage, open: (id: string) => boolean, run?: TeamRow): RowFold {
+  if (run) return { summary: null, hidden: run.hidden, shown: run.shown };
   const fold = row.fold;
   if (!fold) return UNFOLDED;
   const summary = row.id === fold.id ? fold : null;
@@ -71,9 +73,15 @@ export function rowFold(row: ChatMessage, open: (id: string) => boolean): RowFol
  * The rows a transcript draws. A folded row that draws nothing stays out of the list: each one the list
  * has to measure moves the scroll, and a long folded turn moved it until React gave up.
  */
-export function shownRows(rows: ChatMessage[], open: (id: string) => boolean): ChatMessage[] {
+export function shownRows(rows: ChatMessage[], open: (id: string) => boolean, runs: ReadonlyMap<string, TeamRow>): ChatMessage[] {
   return rows.filter((row) => {
-    const { summary, hidden } = rowFold(row, open);
-    return !hidden || summary !== null;
+    const run = runs.get(row.id);
+    const { summary, hidden } = rowFold(row, open, run);
+    return !hidden || summary !== null || !!run?.head;
   });
+}
+
+/** How far the person opened each run, kept as the folds `team/<run>` and `team-all/<run>`. */
+export function runsOf(rows: readonly ChatMessage[], open: (key: string) => boolean): Map<string, TeamRow> {
+  return teamRows(rows, (id): RunOpen => (open(`team-all/${id}`) ? 'all' : open(`team/${id}`) ? 'open' : 'closed'));
 }
