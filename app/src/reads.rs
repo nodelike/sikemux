@@ -1,6 +1,6 @@
 //! What the window waits on from the core, each read named once: what answers it and moves it,
-//! the field it is kept in, what follows an answer, and what clears it. Adding one is a row here,
-//! and the compiler asks for the rest.
+//! the field it is kept in, what follows an answer, and what clears it. For a new one the compiler
+//! asks for its source and what follows its answer, not for its field or the site that watches it.
 
 use crate::core::Target;
 use sikemux_core::server::about::WhatsNew;

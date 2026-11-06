@@ -58,6 +58,7 @@ impl Workbench {
                 self.terminals.reattach(&self.asks);
                 self.files.relist_shown(&self.target());
                 crate::editor::reconnected(self, cx);
+                self.boards_moved(cx);
             }
             Update::View(place, view) => return self.view_arrived(place, *view, cx),
             Update::HostReach(host, reached) => {
@@ -240,11 +241,9 @@ impl Workbench {
             return;
         }
         if topic == Topic::Boards {
-            if let Some(board) = &self.board.pane {
-                board.update(cx, |board, cx| board.changed(cx));
-            }
+            self.boards_moved(cx);
         }
-        if matches!(topic, Topic::Boards | Topic::Memory) {
+        if topic == Topic::Memory {
             if let Some(goals) = &self.goals.pane {
                 goals.update(cx, |goals, cx| goals.changed(cx));
             }
@@ -254,12 +253,8 @@ impl Workbench {
                 goals.update(cx, |goals, cx| goals.summary_moved(cx));
             }
         }
-        if matches!(topic, Topic::Boards | Topic::Goals) {
-            if let Some(goals) = &self.goals.pane {
-                let on_screen = self.showing_goals();
-                let focused = self.rails.goal_focus.is_some();
-                goals.update(cx, |goals, cx| goals.goals_moved(on_screen, focused, cx));
-            }
+        if topic == Topic::Goals {
+            self.goals_moved(cx);
         }
         if topic == Topic::Lsp {
             crate::editor::diagnostics_changed(self, paths.as_deref().unwrap_or_default(), cx);
@@ -272,6 +267,25 @@ impl Workbench {
         }
         if topic == Topic::AgentStatus {
             crate::accounts::statuses_moved(self, cx);
+        }
+    }
+
+    /// Has the board and the goals read what the core holds again.
+    fn boards_moved(&mut self, cx: &mut Context<Self>) {
+        if let Some(board) = &self.board.pane {
+            board.update(cx, |board, cx| board.changed(cx));
+        }
+        if let Some(goals) = &self.goals.pane {
+            goals.update(cx, |goals, cx| goals.changed(cx));
+        }
+        self.goals_moved(cx);
+    }
+
+    fn goals_moved(&mut self, cx: &mut Context<Self>) {
+        if let Some(goals) = &self.goals.pane {
+            let on_screen = self.showing_goals();
+            let focused = self.rails.goal_focus.is_some();
+            goals.update(cx, |goals, cx| goals.goals_moved(on_screen, focused, cx));
         }
     }
 
