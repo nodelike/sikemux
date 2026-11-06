@@ -493,13 +493,22 @@ pub struct ChatTrigger {
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TriggerWhen {
     /// Once, at `at` in Unix milliseconds.
-    Once { at: u64 },
-    Every { seconds: u64 },
+    Once {
+        at: u64,
+    },
+    Every {
+        seconds: u64,
+    },
     /// Each day at `minute` past midnight on the host's clock, on `weekdays`
     /// counted from Sunday as 0, or on every day when there are none.
-    Daily { minute: u32, weekdays: Vec<u8> },
+    Daily {
+        minute: u32,
+        weekdays: Vec<u8>,
+    },
     /// On each request to `url`, the address senders post to.
-    Webhook { url: String },
+    Webhook {
+        url: String,
+    },
 }
 
 /// Work the agent left running in the background.
