@@ -12,6 +12,8 @@ use crate::client;
 use crate::error::{BitbucketError, BitbucketResult};
 
 pub const HOST: &str = "bitbucket.org";
+/// Where Bitbucket takes SSH connections from November 2026: the same repositories as on `HOST`.
+const SSH_HOST: &str = "ssh.bitbucket.org";
 
 fn valid_slug(slug: &str) -> bool {
     answers::valid_name(slug, 128)
@@ -111,7 +113,10 @@ pub fn from_remote(remote: &str) -> Option<Repo> {
         return None;
     }
     Some(Repo {
-        host,
+        host: match host.as_str() {
+            SSH_HOST => HOST.to_string(),
+            _ => host,
+        },
         owner: owner.to_string(),
         name: name.to_string(),
     })
@@ -205,6 +210,8 @@ mod tests {
     fn reads_every_way_a_bitbucket_remote_is_written() {
         for remote in [
             "git@bitbucket.org:swishx/api-docs.git",
+            "git@ssh.bitbucket.org:swishx/api-docs.git",
+            "ssh://git@ssh.bitbucket.org/swishx/api-docs.git",
             "https://nodelike@bitbucket.org/swishx/api-docs.git",
             "https://bitbucket.org/swishx/api-docs",
             "ssh://git@bitbucket.org/swishx/api-docs.git",

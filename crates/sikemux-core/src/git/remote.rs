@@ -21,7 +21,11 @@ pub fn normalized_remote(url: &str) -> String {
         }
         _ => rest.to_owned(),
     };
-    rest.to_lowercase()
+    let rest = rest.to_lowercase();
+    match rest.strip_prefix("ssh.bitbucket.org/") {
+        Some(path) => format!("bitbucket.org/{path}"),
+        None => rest,
+    }
 }
 
 /// What a project is known by on every host (ADR 0017): its remote,
@@ -526,6 +530,14 @@ fn ssh_hostname(host: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_repository_on_bitbucket_is_the_same_project_over_its_new_ssh_host() {
+        assert_eq!(
+            super::normalized_remote("git@ssh.bitbucket.org:team/repo.git"),
+            super::normalized_remote("git@bitbucket.org:team/repo.git"),
+        );
+    }
+
     #[test]
     fn a_fetched_ref_part_cannot_smuggle_an_option_or_a_second_refspec() {
         for good in ["origin", "pull/12/head", "pr-12", "feat/thing"] {
