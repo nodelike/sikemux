@@ -1709,7 +1709,7 @@
       "name": "ask",
       "row": {"verb": "ask", "kind": "think", "icon": "message", "target": ["the person for {for}", "{question}"]},
       "method": "agent.ask",
-      "description": "Ask your lead, or the person if you have none. A lead decides; see the agents guide.",
+      "description": "Ask your lead or the person.",
       "properties": {
         "question": {
           "type": "string",
