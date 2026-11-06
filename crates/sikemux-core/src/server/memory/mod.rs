@@ -631,7 +631,7 @@ fn params<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, String> {
     deny_unknown_fields
 )]
 enum ToolAdd {
-    MemoryRule {
+    Rule {
         text: String,
         #[serde(default)]
         goal: bool,
@@ -684,7 +684,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
     let core = core.clone();
     run(move || {
         let new = match adding {
-            ToolAdd::MemoryRule {
+            ToolAdd::Rule {
                 text,
                 goal,
                 sensitive,
@@ -873,4 +873,25 @@ pub(crate) async fn person_update(
         Ok(view(&core, &project, &peer))
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_kind_memory_add_offers_is_one_it_reads() {
+        let tools: Value = serde_json::from_str(crate::cli::manifest::TOOLS).unwrap();
+        let add = tools["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|tool| tool["name"] == "memory_add")
+            .unwrap();
+        let kinds = add["properties"]["kind"]["enum"].as_array().unwrap();
+        assert!(!kinds.is_empty());
+        for kind in kinds {
+            params::<ToolAdd>(json!({ "kind": kind, "text": "kept" })).unwrap();
+        }
+    }
 }
