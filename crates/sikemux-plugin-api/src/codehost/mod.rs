@@ -6,31 +6,13 @@
 
 use std::collections::BTreeMap;
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 pub mod answers;
 pub mod asks;
 mod host;
 
 pub use host::{dispatch, reads, work, writes, CodeHost};
-
-/// An id the shapes below carry as text, for a host whose API takes it as a number.
-pub fn numeric_id<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
-    let text = String::deserialize(deserializer)?;
-    text.parse()
-        .map_err(|_| serde::de::Error::custom(format!("`{text}` is not an id")))
-}
-
-pub fn numeric_id_if_any<'de, D: Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<u64>, D::Error> {
-    Option::<String>::deserialize(deserializer)?
-        .map(|text| {
-            text.parse()
-                .map_err(|_| serde::de::Error::custom(format!("`{text}` is not an id")))
-        })
-        .transpose()
-}
 
 /// Where the token a code host's plugin uses came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
