@@ -37,7 +37,7 @@ use super::{session, Core};
 use crate::skills;
 
 mod inspect;
-mod pages;
+pub mod pages;
 mod processes;
 mod skills_tool;
 mod tally;

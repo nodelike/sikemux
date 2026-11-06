@@ -237,9 +237,9 @@ pub(crate) async fn remove(core: &Core, params: StashItemParams) -> CoreResult<(
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SeeParams {
-    at: String,
+#[derive(Deserialize, Serialize)]
+pub struct SeeParams {
+    pub at: String,
 }
 
 /// The person has seen the stash as it stood at `at`, the newest item they saw, on every device.
@@ -250,18 +250,18 @@ pub(crate) async fn see(core: &Core, params: SeeParams) -> CoreResult<StashSeen>
     Ok(seen)
 }
 
-#[derive(Serialize)]
-pub(crate) struct Kept {
-    path: PathBuf,
+#[derive(Serialize, Deserialize)]
+pub struct StashKept {
+    pub path: PathBuf,
 }
 
 /// The item's file, kept on this host for the person to open.
-pub(crate) async fn keep(core: &Core, params: StashItemParams) -> CoreResult<Kept> {
+pub(crate) async fn keep(core: &Core, params: StashItemParams) -> CoreResult<StashKept> {
     let item = item(core, &params.id).await?;
     if !has_file(&item) {
         return Err(CoreError::from("that item has no file"));
     }
-    Ok(Kept {
+    Ok(StashKept {
         path: download(core, &item).await?,
     })
 }

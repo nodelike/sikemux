@@ -40,7 +40,7 @@ pub(crate) use test_results::module_tests;
 use test_results::*;
 use trust::*;
 pub(crate) use trust::{answer_trust, asks, config_needs, config_trusted};
-pub(crate) use writing::*;
+pub use writing::*;
 
 const TRUST_FILE: &str = "task-trust.json";
 const MAX_TRUSTED: usize = 256;
@@ -877,18 +877,18 @@ pub(crate) async fn launch(
     Ok(preview_url)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct StartParams {
-    project: String,
-    task_id: String,
+pub struct TaskStartParams {
+    pub project: String,
+    pub task_id: String,
     /// Start whatever the checks found.
     #[serde(default)]
-    force: bool,
+    pub force: bool,
     /// Install what the checks found missing and move the app off a taken
     /// port first.
     #[serde(default)]
-    fix: bool,
+    pub fix: bool,
 }
 
 fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Result<(), String> {
@@ -940,7 +940,7 @@ fn install_dependencies(cwd: &Path, install: &str) -> Result<(), String> {
 
 /// The person starts a task: it replaces the one their project is running.
 /// Answers the checks that stopped it, or the run it started.
-pub(crate) async fn start(core: &Arc<Core>, params: StartParams) -> CoreResult<Value> {
+pub(crate) async fn start(core: &Arc<Core>, params: TaskStartParams) -> CoreResult<Value> {
     let project = PathBuf::from(&params.project);
     if !params.force {
         let (core, project, task_id, fixing) = (
@@ -966,10 +966,10 @@ pub(crate) async fn start(core: &Arc<Core>, params: StartParams) -> CoreResult<V
     Ok(json!({ "executionId": execution_id }))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RerunParams {
-    execution_id: String,
+pub struct RerunParams {
+    pub execution_id: String,
 }
 
 /// Adds a task that runs only the tests a finished run failed, and starts it.

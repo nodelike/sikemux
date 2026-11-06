@@ -21,11 +21,11 @@ use super::{ask, find, StoredLink};
 /// Long enough to clone a large repository, or to take one from a bundle.
 const OPEN_WAIT: Duration = Duration::from_secs(10 * 60);
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct OpenOnParams {
-    path: PathBuf,
-    host: String,
+pub struct OpenOnParams {
+    pub path: PathBuf,
+    pub host: String,
 }
 
 /// Opens the project at `path` on the linked host `host`, and answers with

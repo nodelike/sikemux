@@ -1,6 +1,7 @@
 //! Writing tasks and the check into a project's `sikemux.json`, as the person asks.
 
 use super::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,16 +64,16 @@ pub(crate) async fn add(
     .await
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct CheckParams {
-    project: String,
-    command: String,
+pub struct SetCheckParams {
+    pub project: String,
+    pub command: String,
 }
 
 /// Names the project's check command in its `sikemux.json`. A file the person
 /// trusted stays trusted, since they wrote this change themselves.
-pub(crate) async fn set_check(core: &Arc<Core>, params: CheckParams) -> CoreResult<Value> {
+pub(crate) async fn set_check(core: &Arc<Core>, params: SetCheckParams) -> CoreResult<Value> {
     let core = core.clone();
     blocking(move || {
         let project = PathBuf::from(&params.project);
@@ -99,14 +100,14 @@ pub(crate) async fn set_check(core: &Arc<Core>, params: CheckParams) -> CoreResu
     .await
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RemoveParams {
-    project: String,
-    task_id: String,
+pub struct RemoveTaskParams {
+    pub project: String,
+    pub task_id: String,
 }
 
-pub(crate) async fn remove(core: &Arc<Core>, params: RemoveParams) -> CoreResult<Value> {
+pub(crate) async fn remove(core: &Arc<Core>, params: RemoveTaskParams) -> CoreResult<Value> {
     let core = core.clone();
     blocking(move || {
         detect::remove_saved(Path::new(&params.project), &params.task_id)?;

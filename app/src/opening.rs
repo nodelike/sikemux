@@ -2,6 +2,7 @@
 //! path's project and opens its tab; the window comes forward to show it, and tells the core
 //! when a waiting `open`'s tabs have all closed.
 
+use crate::core::Target;
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,7 @@ use sikemux_wire::protocol::{CallId, WindowAnswer, WindowCall};
 use crate::core::Ask;
 use crate::editor::OpenAt;
 use crate::workbench::Workbench;
+use sikemux_core::server::harness::pages::PageParams;
 use sikemux_core::server::layout::OpenPaths;
 
 pub type Answer = Box<dyn FnOnce(Result<Value, String>) + Send>;
@@ -417,8 +419,9 @@ impl Workbench {
         if !sikemux_core::pages::is_page_id(&id) {
             return answer(Err("that is not a page the core keeps".into()));
         }
-        let page = (request.params["desk"] == true)
-            .then(|| crate::core::request(&self.asks, "page", json!({ "id": id })));
+        let page = (request.params["desk"] == true).then(|| {
+            Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() })
+        });
         let files = self.desks.read(cx).page_files.clone();
         crate::desk::spawn(async move {
             let Some(page) = page else {
@@ -426,8 +429,8 @@ impl Workbench {
             };
             let shown = async {
                 let page = page.await?;
-                let html = page["html"].as_str().ok_or("that page is gone")?;
-                let url = files.url(&id, html)?;
+                let html = page.html;
+                let url = files.url(&id, &html)?;
                 files
                     .engine()?
                     .open_tab(&agent, Some(&url))

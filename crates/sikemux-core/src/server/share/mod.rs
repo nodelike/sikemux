@@ -514,12 +514,12 @@ async fn pasted_picture(core: &Core, path: PathBuf) -> CoreResult<String> {
     .await
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ShareChatParams {
-    agent_id: String,
-    lifetime_ms: u64,
-    title: Option<String>,
+pub struct ShareChatParams {
+    pub agent_id: String,
+    pub lifetime_ms: u64,
+    pub title: Option<String>,
 }
 
 #[derive(Deserialize)]

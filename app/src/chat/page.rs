@@ -10,12 +10,13 @@ use gpui_kit::{
     div, px, AnyElement, App, Global, IntoElement, ParentElement, SharedString, Styled, Window,
 };
 use gpui_native_view::{native_view, NativeSurface};
-use serde_json::json;
 use sikemux_view::chat::PageRef;
 
 use super::Looks;
 use crate::page_view::{self, PageEvent, Room};
 use crate::theme::{self, Tokens};
+use sikemux_core::server::call;
+use sikemux_core::server::harness::pages::PageParams;
 
 /// A page's height before it reports its own, when the agent gave none.
 const DEFAULT_HEIGHT: f32 = 320.;
@@ -78,7 +79,9 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
     else {
         return;
     };
-    let answer = target.request("page", json!({ "id": page.id }));
+    let answer = target.request_typed::<call::ReadPage>(PageParams {
+        id: page.id.clone(),
+    });
     let theme = theme::page_rule(Tokens::get(cx), opaque_ground(Tokens::get(cx)));
     let (id, reader) = (page.id.clone(), looks.reader.clone());
     let (bench, agent) = (looks.bench.clone(), looks.agent.clone());
@@ -87,10 +90,7 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
             let Ok(answer) = answer.await else {
                 return;
             };
-            let Some(html) = answer["html"].as_str() else {
-                return;
-            };
-            let html = sikemux_core::pages::themed(html, &theme, None);
+            let html = sikemux_core::pages::themed(&answer.html, &theme, None);
             let (events, mut heard) = tokio::sync::mpsc::unbounded_channel();
             let _ = cx.update(|window, cx| {
                 let surface = page_view::open(&html, Room::Grows, events, window, cx)

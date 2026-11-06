@@ -13,7 +13,6 @@ use gpui_kit::{
     ParentElement, PromptLevel, SharedString, StatefulInteractiveElement, Styled, Subscription,
     Window,
 };
-use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::hosts::LinkedHost as HostLink;
@@ -37,6 +36,7 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_core::server::account::devices::DeviceParams;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ACCOUNT: &[Entry] = &[section(
@@ -431,12 +431,12 @@ fn rename(
         if !name.is_empty() && !unchanged {
             let asks = bench.asks.clone();
             cx.spawn(async move |bench, cx| {
-                let _ = core::request(
-                    &asks,
-                    "renameAccountDevice",
-                    json!({ "key": id, "name": name }),
-                )
-                .await;
+                let _ = core::Target::here(&asks)
+                    .request_typed::<call::RenameAccountDevice>(DeviceParams {
+                        key: id,
+                        name: Some(name),
+                    })
+                    .await;
                 let _ = bench.update(cx, |bench, cx| read_links(bench, cx));
             })
             .detach();
@@ -471,7 +471,12 @@ fn remove_host(
         if answer.await != Ok(0) {
             return;
         }
-        let _ = core::request(&asks, "removeAccountDevice", json!({ "key": id })).await;
+        let _ = core::Target::here(&asks)
+            .request_typed::<call::RemoveAccountDevice>(DeviceParams {
+                key: id,
+                name: None,
+            })
+            .await;
         let _ = bench.update(cx, |bench, cx| read_links(bench, cx));
     })
     .detach();

@@ -44,6 +44,8 @@ use crate::theme::{Tokens, SPACE_1H, TEXT_SM};
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_core::server::inbox::DigestParams;
+use sikemux_core::server::workspace::SessionChoice;
 
 mod assertions;
 mod environments;
@@ -219,7 +221,10 @@ impl GoalsPane {
     pub fn changed(&mut self, cx: &mut Context<Self>) {
         let here = core::Target::here(&self.asks);
         let boards = here.request_typed::<call::Boards>(NoParams {});
-        let digest = here.request("digest", serde_json::json!({}));
+        let digest = here.request_typed::<call::Digest>(DigestParams {
+            since: None,
+            project: None,
+        });
         let memory = self
             .here
             .clone()
@@ -240,9 +245,7 @@ impl GoalsPane {
                     Some(Err(error)) => pane.said(&format!("Couldn't read the rules: {error}"), cx),
                     None => pane.memory = None,
                 }
-                match digest.and_then(|digest| {
-                    serde_json::from_value(digest).map_err(|error| error.to_string())
-                }) {
+                match digest {
                     Ok(digest) => pane.digest = Some(digest),
                     Err(error) => pane.said(&format!("Couldn't read what happened: {error}"), cx),
                 }
@@ -874,25 +877,20 @@ impl GoalsPane {
             return;
         };
         let target = core::Target::here(&self.asks);
-        let taken = target.request(
-            "resumeSession",
-            serde_json::json!({
-                "provider": saved.provider,
-                "sessionId": saved.session,
-                "project": project,
-                "cwd": project,
-                "title": "",
-            }),
-        );
+        let taken = target.request_typed::<call::ResumeSession>(SessionChoice {
+            provider: saved.provider.clone(),
+            session_id: saved.session.clone(),
+            project: project.clone().into(),
+            cwd: Some(project.clone().into()),
+            title: Some(String::new()),
+        });
         cx.spawn(async move |pane, cx| {
             let taken = taken.await;
             let _ = pane.update(cx, |pane, cx| match taken {
                 Ok(taken) => {
-                    let agent = taken["agentId"].as_str().unwrap_or_default().to_owned();
+                    let agent = taken.agent_id;
                     target.call_typed::<call::OpenTab>(OpenTab::new(
-                        sikemux_view::layout::At::project(
-                            taken["project"].as_str().unwrap_or_default(),
-                        ),
+                        sikemux_view::layout::At::project(&taken.project),
                         PaneKind::Agent,
                         agent.clone(),
                     ));

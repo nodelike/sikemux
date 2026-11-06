@@ -248,16 +248,16 @@ pub(crate) async fn chat_file(
     .await
 }
 
-#[derive(Deserialize)]
-pub(crate) struct KeepPastedParams {
-    name: String,
-    mime: String,
-    data: String,
+#[derive(Deserialize, Serialize)]
+pub struct KeepPastedParams {
+    pub name: String,
+    pub mime: String,
+    pub data: String,
 }
 
-#[derive(Serialize)]
-pub(crate) struct Kept {
-    path: PathBuf,
+#[derive(Serialize, Deserialize)]
+pub struct Kept {
+    pub path: PathBuf,
 }
 
 /// A file pasted into a terminal, kept where pictures pasted into chats are, so the

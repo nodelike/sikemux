@@ -8,7 +8,7 @@
 //! with no browser signs in by a code approved elsewhere, and keeps no record.
 
 pub(crate) mod api;
-pub(crate) mod devices;
+pub mod devices;
 mod profile;
 
 use crate::server::changed::What;

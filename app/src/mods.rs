@@ -11,7 +11,9 @@ use tokio::sync::oneshot;
 use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::call;
 use sikemux_core::server::mods::{change_prompt, make_prompt};
+use sikemux_core::server::mods::{ModParams, OffParams, PinModParams};
 
 /// The palette's row that asks an agent for a new mod.
 const MAKE: &str = "mods:make";
@@ -100,7 +102,9 @@ impl Workbench {
 
     /// Copies the example `id` into the mods folder and opens it.
     pub fn add_example_mod(&self, id: &str, name: &str, cx: &mut Context<Self>) {
-        let added = self.target().request("addExampleMod", json!({ "id": id }));
+        let added = self
+            .target()
+            .request_typed::<call::AddExampleMod>(ModParams { id: id.to_owned() });
         let (id, name) = (id.to_owned(), name.to_owned());
         self.report(
             added,
@@ -116,13 +120,17 @@ impl Workbench {
             .then(|| self.project())
             .flatten()
             .map(|project| project.path.to_string_lossy().into_owned());
-        self.target()
-            .call("pinMod", json!({ "id": id, "project": project }));
+        self.target().call_typed::<call::PinMod>(PinModParams {
+            id: id.to_owned(),
+            project,
+        });
     }
 
     pub fn turn_mod_off(&self, id: &str, off: bool) {
-        self.target()
-            .call("turnModOff", json!({ "id": id, "off": off }));
+        self.target().call_typed::<call::TurnModOff>(OffParams {
+            id: id.to_owned(),
+            off,
+        });
     }
 
     pub fn remove_mod(&mut self, shown: &ModInfo, cx: &mut Context<Self>) {
@@ -134,7 +142,9 @@ impl Workbench {
             true,
             move |bench, yes, _, _| {
                 if yes {
-                    bench.target().call("removeMod", json!({ "id": id }));
+                    bench
+                        .target()
+                        .call_typed::<call::RemoveMod>(ModParams { id: id.clone() });
                 }
             },
             cx,

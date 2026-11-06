@@ -295,8 +295,7 @@ async fn bring_back(core: &Arc<Core>, stalled: &Stalled) -> Result<String, Strin
     )
     .await
     .map_err(|error| format!("@{}'s session did not start again: {error}", stalled.name))?;
-    let resumed = (started["agentId"].as_str().map(str::to_owned))
-        .ok_or_else(|| "The session started with no agent".to_owned())?;
+    let resumed = started.agent_id;
     let (owner, kept, name) = (core.clone(), resumed.clone(), stalled.name.clone());
     let _ = blocking(move || {
         // Only a name the person chose comes back by itself; another agent may have this one now.

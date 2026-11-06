@@ -6,12 +6,13 @@
 use std::path::PathBuf;
 
 use gpui_kit::{App, Context, Entity, Window};
-use serde_json::json;
 use url::Url;
 
 use crate::core;
 use crate::toast;
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::SessionChoice;
 
 /// An agent's chat a link asks to take up again.
 struct Resume {
@@ -159,17 +160,18 @@ fn take_up(bench: &mut Workbench, resume: Resume, add: bool, cx: &mut Context<Wo
                 return;
             }
         }
-        let asked = json!({
-            "provider": resume.provider,
-            "sessionId": resume.session,
-            "project": path,
-        });
-        let taken = core::request(&asks, "resumeSession", asked).await;
+        let taken = core::Target::here(&asks)
+            .request_typed::<call::ResumeSession>(SessionChoice {
+                provider: resume.provider.clone(),
+                session_id: resume.session.clone(),
+                project: path.clone().into(),
+                cwd: None,
+                title: None,
+            })
+            .await;
         let _ = bench.update(cx, |bench, cx| match taken {
             Ok(taken) => {
-                if let Some(agent) = taken["agentId"].as_str() {
-                    bench.open_agent(agent, cx);
-                }
+                bench.open_agent(&taken.agent_id, cx);
             }
             Err(error) => bench.notify(toast::error(format!("The chat did not open: {error}")), cx),
         });

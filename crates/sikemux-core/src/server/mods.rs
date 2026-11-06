@@ -317,11 +317,11 @@ fn settled_changed(core: &Core) {
     core.changed(What::ReadIn(Topic::Mods, None, Some(Vec::new())));
 }
 
-#[derive(Deserialize)]
-pub(super) struct AllowParams {
-    id: String,
+#[derive(Deserialize, Serialize)]
+pub struct AllowParams {
+    pub id: String,
     /// The writes the person was shown and allowed, or none to take the approval back.
-    writes: Option<Vec<String>>,
+    pub writes: Option<Vec<String>>,
 }
 
 /// Keeps what the person decided about a mod's writes. An approval holds only for the writes
@@ -349,10 +349,10 @@ pub(super) async fn allow(core: &Arc<Core>, params: AllowParams) -> CoreResult<(
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub(super) struct BadgeParams {
-    id: String,
-    badge: Option<String>,
+#[derive(Deserialize, Serialize)]
+pub struct BadgeParams {
+    pub id: String,
+    pub badge: Option<String>,
 }
 
 /// Keeps the few words a mod shows beside its name until the core stops.
@@ -385,14 +385,14 @@ pub(super) fn set_badge(core: &Core, params: BadgeParams) -> CoreResult<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub(super) struct ModParams {
-    id: String,
+#[derive(Deserialize, Serialize)]
+pub struct ModParams {
+    pub id: String,
 }
 
-#[derive(Serialize)]
-pub(super) struct ModPage {
-    html: String,
+#[derive(Serialize, Deserialize)]
+pub struct ModPage {
+    pub html: String,
 }
 
 /// A mod's page with every local picture and font it names inlined, so a client on another
@@ -440,14 +440,14 @@ fn shown_folder(core: &Core, id: &str) -> CoreResult<PathBuf> {
     }
 }
 
-#[derive(Deserialize)]
-pub(super) struct PinParams {
-    id: String,
+#[derive(Deserialize, Serialize)]
+pub struct PinModParams {
+    pub id: String,
     /// The project folder it shows in alone, or none to show it in every project.
-    project: Option<String>,
+    pub project: Option<String>,
 }
 
-pub(super) fn pin(core: &Core, params: PinParams) -> CoreResult<()> {
+pub(super) fn pin(core: &Core, params: PinModParams) -> CoreResult<()> {
     mod_folder(core, &params.id)?;
     core.mods.settle(|settled| match params.project {
         Some(project) => {
@@ -461,10 +461,10 @@ pub(super) fn pin(core: &Core, params: PinParams) -> CoreResult<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub(super) struct OffParams {
-    id: String,
-    off: bool,
+#[derive(Deserialize, Serialize)]
+pub struct OffParams {
+    pub id: String,
+    pub off: bool,
 }
 
 pub(super) fn turn_off(core: &Core, params: OffParams) -> CoreResult<()> {

@@ -382,13 +382,24 @@ pub(crate) fn start_chat(
 
 /// Takes up an agent's session again in the project it ran in, recent or not, and
 /// answers the agent that holds it once its session is ready.
-pub(crate) async fn resume_session(core: &Arc<Core>, session: SessionChoice) -> CoreResult<Value> {
+/// The agent a saved session came back as, and the project it is in.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTaken {
+    pub agent_id: String,
+    pub project: String,
+}
+
+pub(crate) async fn resume_session(
+    core: &Arc<Core>,
+    session: SessionChoice,
+) -> CoreResult<SessionTaken> {
     let choice = core
         .workspaces
         .session_choice(session, &core.chats.list())?;
     let project = choice.project.clone();
     let (agent_id, _) = start_new(core, None, choice).await?;
-    Ok(json!({ "agentId": agent_id, "project": project }))
+    Ok(SessionTaken { agent_id, project })
 }
 
 /// The provider a saved session of `kind` last ran on, and its model unless `model` is

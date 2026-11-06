@@ -6,9 +6,9 @@ use crate::server::changed::What;
 use serde::{Deserialize, Serialize};
 
 /// An agent's session a client takes up again, named by its agent and the project it ran in.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SessionChoice {
+pub struct SessionChoice {
     pub provider: String,
     pub session_id: String,
     pub project: PathBuf,

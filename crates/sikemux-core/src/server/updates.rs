@@ -284,7 +284,7 @@ async fn update_host_when_quiet(core: &Arc<Core>) {
             return;
         }
     }
-    let _ = install(core, InstallParams { force: false });
+    let _ = install(core, UpdateInstallParams { force: false });
 }
 
 /// Looks for a release newer than this one on the person's channel. One feed
@@ -353,16 +353,16 @@ pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct InstallParams {
+#[derive(Deserialize, Serialize)]
+pub struct UpdateInstallParams {
     /// Stop the chats an update would wait on rather than wait.
     #[serde(default)]
-    force: bool,
+    pub force: bool,
 }
 
 /// Downloads and puts in place the release `check` found, in the background;
 /// clients follow it in the status.
-pub(crate) fn install(core: &Arc<Core>, params: InstallParams) -> CoreResult<UpdateStatus> {
+pub(crate) fn install(core: &Arc<Core>, params: UpdateInstallParams) -> CoreResult<UpdateStatus> {
     let status = core.updates.status();
     if matches!(
         status.state,
@@ -505,15 +505,15 @@ pub(crate) async fn update_host(core: &Arc<Core>) -> CoreResult<HostUpdate> {
     })
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SwitchParams {
-    on: bool,
+#[derive(Deserialize, Serialize)]
+pub struct HostUpdatesParams {
+    pub on: bool,
 }
 
 /// Turns a host's own updates on or off, for the person this core runs as.
 pub(crate) async fn set_automatic(
     core: &Arc<Core>,
-    params: SwitchParams,
+    params: HostUpdatesParams,
 ) -> CoreResult<UpdateStatus> {
     if !is_host() {
         return Err("only a host's core updates itself by itself".into());

@@ -29,17 +29,17 @@ use sikemux_wire::protocol::{AgentBuddy, WorkspaceAgent};
 /// Long enough to send a project's chats over a slow link.
 const TAKE_WAIT: Duration = Duration::from_secs(10 * 60);
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SendParams {
+pub struct SendParams {
     /// The project, by id.
-    project: String,
-    host: String,
+    pub project: String,
+    pub host: String,
     #[serde(default)]
-    uncommitted: bool,
+    pub uncommitted: bool,
     /// Moves rather than copies.
     #[serde(default, rename = "move")]
-    moving: bool,
+    pub moving: bool,
 }
 
 /// A chat on its way, as the other host is told it.

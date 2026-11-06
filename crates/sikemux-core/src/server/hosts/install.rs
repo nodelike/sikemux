@@ -30,7 +30,7 @@ const CODE_SETTLE_TRIES: usize = 10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub enum Work {
+pub enum SetUpWork {
     Install,
     /// Updates a host that runs an older release, then restarts its core; a host signed out
     /// signs in on the way.
@@ -43,7 +43,7 @@ pub enum Work {
 /// What is being done to an SSH host from here, kept until the next set-up of that host so a
 /// caller that asks late still hears how it ended.
 pub(crate) struct Setup {
-    work: Work,
+    work: SetUpWork,
     /// Which set-up of the host this is, so a late end never settles a newer one.
     run: u64,
     ended: watch::Sender<Option<Result<(), String>>>,
@@ -53,7 +53,7 @@ pub(crate) struct Setup {
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SetupRow {
-    pub work: Work,
+    pub work: SetUpWork,
     pub problem: Option<String>,
 }
 
@@ -67,10 +67,10 @@ impl SetupRow {
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct InstallParams {
-    alias: String,
-    work: Work,
+#[derive(Deserialize, Serialize)]
+pub struct InstallParams {
+    pub alias: String,
+    pub work: SetUpWork,
 }
 
 #[derive(Deserialize)]
@@ -96,7 +96,7 @@ fn checked_alias(alias: &str) -> CoreResult<&str> {
 /// terminal. `hostSetup` waits for the end, and the host's row says how it went.
 pub(crate) async fn install_host(core: &Arc<Core>, params: InstallParams) -> CoreResult<Value> {
     let alias = checked_alias(&params.alias)?.to_owned();
-    let needs_code = matches!(params.work, Work::Install | Work::SignIn);
+    let needs_code = matches!(params.work, SetUpWork::Install | SetUpWork::SignIn);
     if needs_code && core.remote.owner().is_none() {
         return Err(format!(
             "this host is not signed in to your Sikemux account, so it cannot add {alias} to it"
@@ -124,10 +124,10 @@ pub(crate) async fn install_host(core: &Arc<Core>, params: InstallParams) -> Cor
     };
     core.changed(What::Read(Topic::Hosts));
     let remote = match params.work {
-        Work::Install => installer(),
-        Work::Update => format!("{} && {}", installer(), over_ssh("restart")),
-        Work::SignIn => over_ssh("login"),
-        Work::Start => over_ssh("start"),
+        SetUpWork::Install => installer(),
+        SetUpWork::Update => format!("{} && {}", installer(), over_ssh("restart")),
+        SetUpWork::SignIn => over_ssh("login"),
+        SetUpWork::Start => over_ssh("start"),
     };
     let startup = format!("ssh -t -- {alias} {}", single_quoted(&remote));
     let started = async {

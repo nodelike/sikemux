@@ -17,6 +17,8 @@ use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_SM, TEXT_XS};
 use crate::ui::{self, dialog, Button, Variant};
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::share::ShareChatParams;
 
 const HOUR_MS: u64 = 60 * 60 * 1000;
 const LIFETIMES: [(&str, u64); 3] = [
@@ -82,26 +84,27 @@ impl Workbench {
         let Some(sharing) = self.overlays.sharing.as_mut() else {
             return;
         };
-        let asked = json!({ "agentId": sharing.agent, "lifetimeMs": LIFETIMES[sharing.lifetime].1, "title": title });
-        let started = crate::core::request(&self.asks, "shareChat", asked);
+        let started = crate::core::Target::here(&self.asks).request_typed::<call::ShareChat>(
+            ShareChatParams {
+                agent_id: sharing.agent.clone(),
+                lifetime_ms: LIFETIMES[sharing.lifetime].1,
+                title: Some(title),
+            },
+        );
         (sharing.working, sharing.problem) = (true, None);
         cx.notify();
         cx.spawn_in(window, async move |bench, cx| {
             let answer = started.await;
             bench
                 .update_in(cx, |bench, window, cx| {
-                    let url = answer.map(|share| share["url"].as_str().map(str::to_owned));
-                    if let Ok(Some(url)) = &url {
+                    let url = answer.map(|share| share.url);
+                    if let Ok(url) = &url {
                         cx.write_to_clipboard(ClipboardItem::new_string(url.clone()));
                         window.push_notification("Copied the share link", cx);
                     }
                     if let Some(sharing) = bench.overlays.sharing.as_mut() {
                         sharing.working = false;
-                        sharing.problem = match url {
-                            Ok(Some(_)) => None,
-                            Ok(None) => Some("The core answered without a link".to_owned()),
-                            Err(error) => Some(error),
-                        };
+                        sharing.problem = url.err();
                     }
                     cx.notify();
                 })

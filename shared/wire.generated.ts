@@ -3574,6 +3574,14 @@ export interface MarkdownOptions {
     references?: boolean;
 }
 
+export interface PageParams {
+    id: string;
+}
+
+export interface PageHtml {
+    html: string;
+}
+
 export interface RenameAgentParams {
     agentId: string;
     name: string;
@@ -3624,6 +3632,26 @@ export interface AgentViewParams {
 }
 
 export type AgentViewKind = "chat" | "terminal";
+
+/** An agent's session a client takes up again, named by its agent and the project it ran in. */
+export interface SessionChoice {
+    provider: string;
+    sessionId: string;
+    project: string;
+    /** The worktree of `project` it ran in, when it ran in one. */
+    cwd?: string | null;
+    title?: string | null;
+}
+
+/**
+ * Takes up an agent's session again in the project it ran in, recent or not, and
+ * answers the agent that holds it once its session is ready.
+ * The agent a saved session came back as, and the project it is in.
+ */
+export interface SessionTaken {
+    agentId: string;
+    project: string;
+}
 
 export interface QueuedParams {
     agentId: string;
@@ -3719,6 +3747,15 @@ export interface SessionMatch {
     activeAt: number;
     /** Lines of the conversation the words were found in. */
     snippets: string[];
+}
+
+export interface UpdateInstallParams {
+    /** Stop the chats an update would wait on rather than wait. */
+    force?: boolean;
+}
+
+export interface HostUpdatesParams {
+    on: boolean;
 }
 
 export interface RunCustomParams {
@@ -4068,6 +4105,26 @@ export interface MoveChatParams {
     accountId: string;
 }
 
+export interface ShareChatParams {
+    agentId: string;
+    lifetimeMs: number;
+    title: string | null;
+}
+
+export interface ShareView {
+    id: string;
+    agentId: string;
+    url: string;
+    /** Milliseconds since the Unix epoch. */
+    expiresAt: number;
+    viewers: number;
+    state: ShareState;
+    /** Why the server would not open it. */
+    problem?: string;
+}
+
+export type ShareState = "connecting" | "open" | "refused";
+
 export interface PairingAnswer {
     id: string;
     allow: boolean;
@@ -4091,12 +4148,59 @@ export interface ProjectEntry {
     folder: boolean;
 }
 
+export interface ModParams {
+    id: string;
+}
+
+export interface ModPage {
+    html: string;
+}
+
+export interface AllowParams {
+    id: string;
+    /** The writes the person was shown and allowed, or none to take the approval back. */
+    writes: string[] | null;
+}
+
+export interface BadgeParams {
+    id: string;
+    badge: string | null;
+}
+
+export interface PinModParams {
+    id: string;
+    /** The project folder it shows in alone, or none to show it in every project. */
+    project: string | null;
+}
+
+export interface OffParams {
+    id: string;
+    off: boolean;
+}
+
 export interface StashPromptParams {
     agentId: string;
 }
 
 export interface StashedPrompt {
     id: string;
+}
+
+export interface SeeParams {
+    at: string;
+}
+
+/** When the person last looked at the stash. Setting it only ever moves it forward, and never past the server's clock. */
+export interface StashSeen {
+    at: string;
+}
+
+export interface StashItemParams {
+    id: string;
+}
+
+export interface StashKept {
+    path: string;
 }
 
 export interface AttachStashParams {
@@ -4115,10 +4219,6 @@ export interface AttachedStash {
     path?: string;
     /** Where each of the item's files was kept: its own, or a prompt's. */
     paths: string[];
-}
-
-export interface StashItemParams {
-    id: string;
 }
 
 export interface SetDraftParams {
@@ -4200,6 +4300,27 @@ export type FailureCategory =
 
 export interface CodeHostProjectParams {
     project: string;
+}
+
+export interface InstallParams {
+    alias: string;
+    work: SetUpWork;
+}
+
+export type SetUpWork = "install" | "update" | "signIn" | "start";
+
+export interface OpenOnParams {
+    path: string;
+    host: string;
+}
+
+export interface SendParams {
+    /** The project, by id. */
+    project: string;
+    host: string;
+    uncommitted?: boolean;
+    /** Moves rather than copies. */
+    move?: boolean;
 }
 
 export interface ApprovalSetting {
@@ -5074,19 +5195,73 @@ export interface LineNamed {
     name: string;
 }
 
+export interface DigestParams {
+    since: number | null;
+    /** Only what is about this project, by its path. */
+    project: string | null;
+}
+
+/** What happened while the person was away. */
+export interface InboxDigest {
+    /**
+     * When they left. None when they never have, which lists nothing as
+     * finished or failed.
+     */
+    since: number | null;
+    away: boolean;
+    finished: InboxItem[];
+    failed: InboxItem[];
+    waiting: InboxItem[];
+}
+
+export interface TaskStartParams {
+    project: string;
+    taskId: string;
+    /** Start whatever the checks found. */
+    force?: boolean;
+    /**
+     * Install what the checks found missing and move the app off a taken
+     * port first.
+     */
+    fix?: boolean;
+}
+
+export interface RerunParams {
+    executionId: string;
+}
+
+export interface RemoveTaskParams {
+    project: string;
+    taskId: string;
+}
+
+export interface SetCheckParams {
+    project: string;
+    command: string;
+}
+
+export interface DeviceParams {
+    key: string;
+    name?: string | null;
+}
+
 /** The core's calls that name what they take and answer, by method. */
 export interface CoreCalls {
+    page: { params: PageParams; answer: PageHtml };
     renameAgent: { params: RenameAgentParams; answer: AgentName };
     promptChat: { params: PromptChatParams; answer: null };
     closedAgents: { params: ClosedAgentsParams; answer: ClosedAgent[] };
     agentCatalog: { params: NoParams; answer: CatalogAgent[] };
     switchAgentView: { params: AgentViewParams; answer: unknown };
+    resumeSession: { params: SessionChoice; answer: SessionTaken };
     steerQueued: { params: QueuedParams; answer: null };
     editMessage: { params: EditParams; answer: null };
     chatFind: { params: FindParams; answer: FindAnswer };
     chatToolDetail: { params: ToolDetailParams; answer: ToolDetail };
     dropQueued: { params: QueuedParams; answer: null };
     agentSessions: { params: SessionSearchParams; answer: SessionMatch[] };
+    updateInstall: { params: UpdateInstallParams; answer: UpdateStatus };
+    setHostUpdates: { params: HostUpdatesParams; answer: UpdateStatus };
     runCustomCommand: { params: RunCustomParams; answer: CommandRan };
     addProject: { params: AddProjectParams; answer: ProjectInfo };
     removeProject: { params: RemoveProjectParams; answer: null };
@@ -5129,12 +5304,22 @@ export interface CoreCalls {
     discardFailed: { params: ChatAccountsParams; answer: null };
     chatAccounts: { params: ChatAccountsParams; answer: ChatAccounts };
     moveChatAccount: { params: MoveChatParams; answer: null };
+    shareChat: { params: ShareChatParams; answer: ShareView };
     pairing: { params: NoParams; answer: RemotePairing };
     answerPairing: { params: PairingAnswer; answer: RemotePairing };
     changeDevice: { params: DeviceChange; answer: RemotePairing };
     projectEntries: { params: ProjectEntriesParams; answer: ProjectEntry[] };
     preferences: { params: NoParams; answer: Preferences };
+    modPage: { params: ModParams; answer: ModPage };
+    allowMod: { params: AllowParams; answer: null };
+    setModBadge: { params: BadgeParams; answer: null };
+    pinMod: { params: PinModParams; answer: null };
+    turnModOff: { params: OffParams; answer: null };
+    removeMod: { params: ModParams; answer: null };
+    addExampleMod: { params: ModParams; answer: null };
     stashPrompt: { params: StashPromptParams; answer: StashedPrompt };
+    seeStash: { params: SeeParams; answer: StashSeen };
+    stashFile: { params: StashItemParams; answer: StashKept };
     attachStash: { params: AttachStashParams; answer: AttachedStash };
     removeStash: { params: StashItemParams; answer: null };
     setDraft: { params: SetDraftParams; answer: null };
@@ -5145,6 +5330,9 @@ export interface CoreCalls {
     openSshTerminal: { params: SshParams; answer: string };
     codeHostTrackedContext: { params: TrackedContextParams; answer: PluginOutcome };
     codeHostTracked: { params: CodeHostProjectParams; answer: PluginOutcome };
+    installHost: { params: InstallParams; answer: unknown };
+    openOnHost: { params: OpenOnParams; answer: unknown };
+    sendSession: { params: SendParams; answer: unknown };
     requireApproval: { params: NoParams; answer: ApprovalSetting };
     setRequireApproval: { params: ApprovalSetting; answer: RemoteStatus };
     questions: { params: NoParams; answer: AgentQuestion[] };
@@ -5185,6 +5373,13 @@ export interface CoreCalls {
     changeOwners: { params: CheckoutParams; answer: Owners };
     commitOwners: { params: CommitsParams; answer: Record<string, AgentOwner[]> };
     commitLines: { params: CommitParams; answer: CommitLines };
+    digest: { params: DigestParams; answer: InboxDigest };
+    taskStart: { params: TaskStartParams; answer: unknown };
+    taskRerunFailed: { params: RerunParams; answer: unknown };
+    removeTask: { params: RemoveTaskParams; answer: unknown };
+    setCheck: { params: SetCheckParams; answer: unknown };
+    renameAccountDevice: { params: DeviceParams; answer: null };
+    removeAccountDevice: { params: DeviceParams; answer: null };
 }
 
 /** What the core's `Preferences::default()` serializes to. */

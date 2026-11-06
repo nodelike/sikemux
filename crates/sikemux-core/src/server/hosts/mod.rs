@@ -11,17 +11,17 @@
 pub(crate) mod account;
 mod calls;
 mod code;
-pub(crate) mod install;
+pub mod install;
 mod join;
 mod link;
 mod listed;
-pub(crate) mod open;
+pub mod open;
 mod outbox;
 pub(crate) mod probe;
 pub(crate) mod route;
 pub(crate) mod spawn;
 pub(crate) mod team;
-pub(crate) mod transfer;
+pub mod transfer;
 
 use crate::server::changed::What;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -46,7 +46,7 @@ use super::wake::{sooner, Wake};
 use super::{Core, CoreError, CoreResult};
 use crate::backoff::Backoff;
 
-pub use install::{SetupRow, Work as SetUpWork};
+pub use install::{SetUpWork, SetupRow};
 pub(crate) use join::link_host;
 pub(crate) use link::{Failed, LINK_ALPN};
 pub(crate) use listed::{installed_from, rows};

@@ -4,6 +4,7 @@ use crate::rail::DraggedRail;
 use crate::rail::Edge;
 use crate::trust::Trust;
 use sikemux_core::server::call;
+use sikemux_core::server::workspace::SessionChoice;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_wire::changed::Topic;
@@ -988,21 +989,21 @@ impl Workbench {
             .id
             .strip_prefix(&format!("{}:", recent.provider))
             .unwrap_or(&recent.id);
-        let asked = json!({
-            "provider": recent.provider,
-            "sessionId": session,
-            "project": project.path,
-            "cwd": recent.cwd,
-            "title": recent.title,
-        });
+        let asked = SessionChoice {
+            provider: recent.provider.clone(),
+            session_id: session.to_owned(),
+            project: project.path.clone(),
+            cwd: Some(recent.cwd.clone()),
+            title: Some(recent.title.clone()),
+        };
         let target = self.target();
-        let taken = target.request("resumeSession", asked);
+        let taken = target.request_typed::<call::ResumeSession>(asked);
         cx.spawn(async move |bench, cx| match taken.await {
             Ok(taken) => {
                 target.call_typed::<call::OpenTab>(OpenTab::new(
-                    At::project(taken["project"].as_str().unwrap_or_default()),
+                    At::project(&taken.project),
                     PaneKind::Agent,
-                    taken["agentId"].as_str().unwrap_or_default(),
+                    taken.agent_id,
                 ));
             }
             Err(error) => {

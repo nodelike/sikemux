@@ -20,8 +20,8 @@ use sikemux_core::server::call;
 use sikemux_core::server::stash::AttachStashParams;
 use sikemux_core::server::stash::ShownStashItem;
 use sikemux_core::server::stash::ShownStashLink;
-use sikemux_core::server::stash::StashItemParams;
 use sikemux_core::server::stash::StashPromptParams;
+use sikemux_core::server::stash::{SeeParams, StashItemParams};
 
 use crate::core::Target;
 use crate::icons::Icon;
@@ -366,13 +366,14 @@ impl Workbench {
                 self.notify(crate::toast::success("Copied"), cx);
             }
             _ => {
-                let asked = crate::core::request(&self.asks, "stashFile", json!({ "id": item.id }));
+                let asked = crate::core::Target::here(&self.asks).request_typed::<call::StashFile>(
+                    StashItemParams {
+                        id: item.id.clone(),
+                    },
+                );
                 cx.spawn(async move |bench, cx| match asked.await {
                     Ok(kept) => {
-                        if let Some(path) = kept["path"].as_str() {
-                            let path = std::path::PathBuf::from(path);
-                            cx.update(|cx| cx.open_with_system(&path));
-                        }
+                        cx.update(|cx| cx.open_with_system(&kept.path));
                     }
                     Err(error) => {
                         bench
@@ -395,11 +396,10 @@ impl Workbench {
         };
         self.seen_stash_at(&at);
         // The ask is sent at once; the future only waits for an answer nobody needs.
-        drop(crate::core::request(
-            &self.asks,
-            "seeStash",
-            json!({ "at": at }),
-        ));
+        drop(
+            crate::core::Target::here(&self.asks)
+                .request_typed::<call::SeeStash>(SeeParams { at: at.clone() }),
+        );
     }
 
     /// Opens the Stash's pane in the strip in front, and marks the stash seen.

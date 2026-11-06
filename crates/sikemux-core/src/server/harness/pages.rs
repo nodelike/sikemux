@@ -1,6 +1,7 @@
 //! Pages an agent shows: writing one down, where it shows, and reading it back.
 
 use super::*;
+use serde::{Deserialize, Serialize};
 
 pub(super) const PAGE_IN_REPLY: &str = "The person sees the page in your reply, above the text you write next. Do not describe or restate it; write only what it does not already say.";
 pub(super) const PAGE_ON_DESK: &str =
@@ -51,14 +52,14 @@ pub(super) async fn show_page(
     Ok(json!({ "page": page, "note": note }))
 }
 
-#[derive(Deserialize)]
-pub(crate) struct PageParams {
-    id: String,
+#[derive(Deserialize, Serialize)]
+pub struct PageParams {
+    pub id: String,
 }
 
-#[derive(Serialize)]
-pub(crate) struct PageHtml {
-    html: String,
+#[derive(Serialize, Deserialize)]
+pub struct PageHtml {
+    pub html: String,
 }
 
 /// A page an agent showed with `page_show`, as a chat shows it in the reply.

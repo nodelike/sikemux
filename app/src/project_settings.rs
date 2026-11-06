@@ -31,6 +31,7 @@ use crate::workbench::Workbench;
 use sikemux_core::git::status::DiscoveredRepo;
 use sikemux_core::server::call;
 use sikemux_core::server::git::call as git_call;
+use sikemux_core::server::tasks::{RemoveTaskParams, SetCheckParams};
 use sikemux_core::server::workspace::UpdateProjectParams;
 
 #[derive(Clone, Copy, Default, PartialEq)]
@@ -123,7 +124,10 @@ impl Workbench {
         }
         let saving = self
             .target()
-            .request("setCheck", json!({ "project": folder, "command": typed }));
+            .request_typed::<call::SetCheck>(SetCheckParams {
+                project: folder.to_owned(),
+                command: typed.to_owned(),
+            });
         let folder = folder.to_owned();
         self.report(
             saving,
@@ -172,7 +176,10 @@ impl Workbench {
                 if yes {
                     bench
                         .target()
-                        .call("removeTask", json!({ "project": folder, "taskId": id }));
+                        .call_typed::<call::RemoveTask>(RemoveTaskParams {
+                            project: folder.clone(),
+                            task_id: id.clone(),
+                        });
                 }
             },
             cx,

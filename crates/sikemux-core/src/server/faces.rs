@@ -8,7 +8,7 @@ use crate::server::changed::What;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::kept::Kept;
@@ -111,13 +111,13 @@ fn face(style: &FaceStyle, agent: &WorkspaceAgent) -> Option<AgentFace> {
 }
 
 /// A change to the face style; a field left out stays as it is.
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct FaceStyleChange {
-    on: Option<bool>,
-    pack: Option<String>,
-    shape: Option<String>,
-    motion: Option<bool>,
+pub struct FaceStyleChange {
+    pub on: Option<bool>,
+    pub pack: Option<String>,
+    pub shape: Option<String>,
+    pub motion: Option<bool>,
 }
 
 pub(crate) struct Faces {

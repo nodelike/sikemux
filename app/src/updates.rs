@@ -17,6 +17,8 @@ use crate::screens::whats_new::RELEASES;
 use crate::theme::{Tokens, SPACE_2, SPACE_2H, SPACE_3, TEXT_SM};
 use crate::workbench::Workbench;
 use crate::{theme, ui};
+use sikemux_core::server::call;
+use sikemux_core::server::updates::UpdateInstallParams;
 
 /// The update the core found for this app, while one is there to install.
 pub(crate) fn pending(bench: &Workbench) -> Option<&UpdateStatus> {
@@ -220,10 +222,7 @@ pub fn required(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyEle
 }
 
 pub(crate) fn install(bench: &Workbench, force: bool) {
-    let _ = bench.asks.send(Ask::Call {
-        method: "updateInstall",
-        params: json!({ "force": force }),
-    });
+    bench.call_typed::<call::UpdateInstall>(UpdateInstallParams { force });
 }
 
 /// `2048` as `2.0 KB`, `15728640` as `15 MB`.

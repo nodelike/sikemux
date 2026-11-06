@@ -1007,10 +1007,10 @@ pub(crate) struct ActivitySummaryParams {
     project: Option<String>,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct ActivityPriceParams {
-    model: String,
-    price: Option<PriceOverride>,
+#[derive(Deserialize, Serialize)]
+pub struct ActivityPriceParams {
+    pub model: String,
+    pub price: Option<PriceOverride>,
 }
 
 pub(crate) async fn summary_for(

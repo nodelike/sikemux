@@ -42,7 +42,7 @@ pub struct HostRow {
     pub found: Option<super::probe::Found>,
     /// What setting its SSH host up takes: installing where nothing has said Sikemux is there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub set_up: Option<super::install::Work>,
+    pub set_up: Option<super::install::SetUpWork>,
 }
 
 /// Linked hosts in the order they were linked, then the SSH hosts a terminal
@@ -107,7 +107,7 @@ pub(crate) fn rows(core: &Core) -> Vec<HostRow> {
             reach,
             setup: setups.remove(&alias),
             set_up: found.map_or(
-                Some(super::install::Work::Install),
+                Some(super::install::SetUpWork::Install),
                 super::probe::Found::set_up,
             ),
             found,

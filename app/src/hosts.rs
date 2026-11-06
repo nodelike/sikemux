@@ -25,8 +25,13 @@ use crate::icons::Icon;
 use crate::reads::Drafts;
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::account::devices::DeviceParams;
+use sikemux_core::server::hosts::install::InstallParams;
+use sikemux_core::server::hosts::open::OpenOnParams;
+use sikemux_core::server::hosts::transfer::SendParams;
 use sikemux_core::server::layout::{ActivateProjectParams, HostParams};
 use sikemux_core::server::spare::NewTerminal;
+use sikemux_core::server::updates::HostUpdatesParams;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub enum HostChoice {
@@ -254,9 +259,12 @@ impl Workbench {
         after: HostChoice,
         cx: &mut Context<Self>,
     ) {
-        let params = json!({ "path": path, "host": host });
+        let params = OpenOnParams {
+            path: path.to_owned(),
+            host: host.to_owned(),
+        };
         // The project's own host sends it, so the call goes to the host in front.
-        let opening = self.target().request("openOnHost", params);
+        let opening = self.target().request_typed::<call::OpenOnHost>(params);
         self.notify(toast::info(format!("Opening {name} on {label}…")), cx);
         cx.spawn(async move |bench, cx| {
             let opened = opening.await;
@@ -288,14 +296,14 @@ impl Workbench {
     /// when asked, its uncommitted changes. A move then removes the chats here, once that host
     /// has every one. The person is then on that host, in that project.
     pub fn send_session(&mut self, sending: Sending, cx: &mut Context<Self>) {
-        let params = json!({
-            "project": sending.project,
-            "host": sending.host,
-            "move": sending.moving,
-            "uncommitted": sending.uncommitted,
-        });
+        let params = SendParams {
+            project: sending.project.clone(),
+            host: sending.host.clone(),
+            moving: sending.moving,
+            uncommitted: sending.uncommitted,
+        };
         // The project's own host sends it, so the call goes to the host in front.
-        let asked = self.target().request("sendSession", params);
+        let asked = self.target().request_typed::<call::SendSession>(params);
         let verb = if sending.moving { "Moving" } else { "Copying" };
         crate::settings::session_sent(self, None, cx);
         self.notify(
@@ -344,9 +352,13 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) {
         let (asks, alias) = (self.asks.clone(), alias.to_owned());
-        let params = json!({ "alias": alias, "work": set_up });
+        let params = InstallParams {
+            alias: alias.clone(),
+            work: set_up,
+        };
         cx.spawn(async move |bench, cx| {
-            if let Err(error) = core::request(&asks, "installHost", params).await {
+            let asked = core::Target::here(&asks).request_typed::<call::InstallHost>(params);
+            if let Err(error) = asked.await {
                 let _ = bench.update(cx, |bench, cx| {
                     bench.notify(
                         toast::error(format!("{}: {error}", set_up.offer(&alias))),
@@ -399,7 +411,7 @@ impl Workbench {
     /// Turns the account host `host`'s own updates on or off; its view then says which.
     pub fn set_host_updates(&self, host: String, on: bool, cx: &mut Context<Self>) {
         let set = core::Target::new(&self.asks, Place::Account(host))
-            .request("setHostUpdates", json!({ "on": on }));
+            .request_typed::<call::SetHostUpdates>(HostUpdatesParams { on });
         self.report(set, "Update automatically", |_, _, _| {}, cx);
     }
 
@@ -452,10 +464,10 @@ impl Workbench {
             name.to_owned(),
             move |bench, typed, _, _| {
                 if !typed.trim().is_empty() {
-                    bench.call(
-                        "renameAccountDevice",
-                        json!({ "key": key, "name": typed.trim() }),
-                    );
+                    bench.call_typed::<call::RenameAccountDevice>(DeviceParams {
+                        key: key.clone(),
+                        name: Some(typed.trim().to_owned()),
+                    });
                 }
             },
             cx,
@@ -472,7 +484,10 @@ impl Workbench {
             true,
             move |bench, yes, _, _| {
                 if yes {
-                    bench.call("removeAccountDevice", json!({ "key": key }));
+                    bench.call_typed::<call::RemoveAccountDevice>(DeviceParams {
+                        key: key.clone(),
+                        name: None,
+                    });
                 }
             },
             cx,
@@ -532,8 +547,11 @@ impl Workbench {
                 gpui_kit::component::button::Button::new("remove-account-device")
                     .label("Remove")
                     .on_click(move |_, window, cx| {
-                        let removed =
-                            core::request(&asks, "removeAccountDevice", json!({ "key": key }));
+                        let removed = core::Target::here(&asks)
+                            .request_typed::<call::RemoveAccountDevice>(DeviceParams {
+                                key: key.clone(),
+                                name: None,
+                            });
                         let name = name.clone();
                         window
                             .spawn(cx, async move |cx| {

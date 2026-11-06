@@ -22,6 +22,8 @@ use crate::page_view::{PageEvent, Room};
 use crate::theme::{Tokens, TEXT_XS};
 use crate::workbench::{Strip, Workbench};
 use crate::{page_view, theme};
+use sikemux_core::server::call;
+use sikemux_core::server::mods::{BadgeParams, ModParams};
 
 const BRIDGE: &str = include_str!("mod_pane/bridge.js");
 /// How long a burst of changes gathers before the watches it moved read again.
@@ -138,14 +140,16 @@ impl ModPane {
         }
         self.reading = true;
         self.stale = false;
-        let answer = self.core.request("modPage", json!({ "id": self.id }));
+        let answer = self.core.request_typed::<call::ModPage>(ModParams {
+            id: self.id.clone(),
+        });
         cx.spawn_in(window, async move |this, cx| {
             let answer = answer.await;
             let _ = this.update_in(cx, |pane, window, cx| {
                 pane.reading = false;
                 match answer {
                     Ok(answer) => {
-                        let html = answer["html"].as_str().unwrap_or_default();
+                        let html = answer.html.as_str();
                         pane.problem = None;
                         pane.present(html, window, cx);
                     }
@@ -228,8 +232,10 @@ impl ModPane {
             }
             Some("badge") => {
                 let badge = message["text"].as_str();
-                self.core
-                    .call("setModBadge", json!({ "id": self.id, "badge": badge }));
+                self.core.call_typed::<call::SetModBadge>(BadgeParams {
+                    id: self.id.clone(),
+                    badge: badge.map(str::to_owned),
+                });
             }
             _ => {}
         }

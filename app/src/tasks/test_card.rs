@@ -9,7 +9,6 @@ use gpui_kit::{
     anchored, deferred, div, px, Anchor, AnyElement, Context, FontWeight, InteractiveElement,
     IntoElement, ParentElement, StatefulInteractiveElement, Styled,
 };
-use serde_json::json;
 use sikemux_core::harness::runs::RunStatus;
 use sikemux_core::server::tasks::RunView;
 use sikemux_core::server::tasks::TaskView;
@@ -22,6 +21,8 @@ use crate::theme::{
 };
 use crate::ui::{self, IconButton, Variant};
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::tasks::RerunParams;
 
 /// A finished run of the task the chip shows, with the task it ran.
 pub struct Finished<'a> {
@@ -390,7 +391,9 @@ fn fix_button(bench: &Workbench, request: String, cx: &mut Context<Workbench>) -
 fn rerun_failed(bench: &Workbench, execution: &str, cx: &mut Context<Workbench>) {
     let rerun = bench
         .target()
-        .request("taskRerunFailed", json!({ "executionId": execution }));
+        .request_typed::<call::TaskRerunFailed>(RerunParams {
+            execution_id: execution.to_owned(),
+        });
     bench.report(
         rerun,
         "Could not rerun the failed tests",

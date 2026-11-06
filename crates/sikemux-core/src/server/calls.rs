@@ -125,7 +125,7 @@ macro_rules! calls {
 calls! { core, client, method, params;
     "chatFile": Watch, any_program => answer(attachments::chat_file(&core, &client.peer, parse(params)?).await?),
     "keepPasted": Full => answer(attachments::keep_pasted(&core, parse(params)?).await?),
-    "page": Watch, any_program => answer(super::harness::read_page(&core, parse(params)?).await?),
+    "page" ReadPage (super::harness::pages::PageParams) -> super::harness::pages::PageHtml: Watch, any_program => super::harness::read_page(&core, params).await?,
     "nameAgent": NoDevice => answer(names::name_agent(&core, parse(params)?).await?),
     "renameAgent" RenameAgent (names::RenameAgentParams) -> names::AgentName: Full, counted => names::rename_agent(&core, params).await?,
     "promptChat" PromptChat (chat_calls::PromptChatParams) -> (): Full => chat_calls::prompt_chat(&core, params).await?,
@@ -152,7 +152,7 @@ calls! { core, client, method, params;
         let params: super::launching::StartParams = parse(params)?;
         answer(super::launching::start_saved(&core, &params.agent_id, params.waits_for_person).await?)
     },
-    "resumeSession": Full, counted => answer(super::launching::resume_session(&core, parse(params)?).await?),
+    "resumeSession" ResumeSession (super::workspace::SessionChoice) -> super::launching::SessionTaken: Full, counted => super::launching::resume_session(&core, params).await?,
     "activitySummary": Watch, any_program => answer(super::activity_log::summary_for(&core, parse(params)?).await?),
     "setActivityPrice": Owner => answer(super::activity_log::set_price_for(&core, parse(params)?)?),
     "steerQueued" SteerQueued (chat_calls::QueuedParams) -> (): Full, counted => {
@@ -181,10 +181,10 @@ calls! { core, client, method, params;
     "runCommand": NoDevice => answer(super::custom_command::run(parse(params)?).await?),
     "updateStatus": Watch, any_program => answer(core.updates.status()),
     "updateCheck": Owner => answer(super::updates::check(&core).await?),
-    "updateInstall": Owner, counted => answer(super::updates::install(&core, parse(params)?)?),
+    "updateInstall" UpdateInstall (super::updates::UpdateInstallParams) -> super::updates::UpdateStatus: Owner, counted => super::updates::install(&core, params)?,
     "updateCancel": Owner => answer(super::updates::cancel(&core)),
     "updateHost": NoDevice, any_program => answer(super::updates::update_host(&core).await?),
-    "setHostUpdates": Owner => answer(super::updates::set_automatic(&core, parse(params)?).await?),
+    "setHostUpdates" SetHostUpdates (super::updates::HostUpdatesParams) -> super::updates::UpdateStatus: Owner => super::updates::set_automatic(&core, params).await?,
     "runCustomCommand" RunCustomCommand (super::custom_command::RunCustomParams) -> super::custom_command::CommandRan: Owner, counted => super::custom_command::run_custom(&core, params).await?,
     "addProject" AddProject (workspace::AddProjectParams) -> sikemux_wire::protocol::ProjectInfo: Owner => workspace::add_project(&core, params).await?,
     "removeProject" RemoveProject (workspace::RemoveProjectParams) -> (): Owner => workspace::remove_project(&core, params)?,
@@ -323,7 +323,7 @@ calls! { core, client, method, params;
         super::chat::authenticate(&core, &params.agent_id, params.method_id).await?;
         answer(())
     },
-    "shareChat": Owner, counted => answer(share::share_chat_for(&core, parse(params)?)?),
+    "shareChat" ShareChat (share::ShareChatParams) -> share::ShareView: Owner, counted => share::share_chat_for(&core, params)?,
     "stopShare": Owner => answer(share::stop(&core, &parse::<share::StopShareParams>(params)?.id)?),
     "shares": Full, any_program => answer(share::list(&core)),
     "pairing" RemotePairing (NoParams) -> remote::RemotePairing: Owner, any_program => remote::pairing(&core),
@@ -371,22 +371,22 @@ calls! { core, client, method, params;
     "setFaceStyle": Owner, counted => answer(super::faces::set_style_shown(&core, parse(params)?)?),
     "preferences" Preferences (NoParams) -> Preferences: Watch => core.preferences.get(),
     "mods": Watch => answer(super::mods::list(&core).await?),
-    "modPage": Watch => answer(super::mods::page(&core, parse(params)?).await?),
+    "modPage" ModPage (super::mods::ModParams) -> super::mods::ModPage: Watch => super::mods::page(&core, params).await?,
     "modRead": Owner => super::mods::read(&core, client, parse(params)?).await,
     "modWrite": Owner => super::mods::write(&core, client, parse(params)?).await,
-    "allowMod": Owner => answer(super::mods::allow(&core, parse(params)?).await?),
-    "setModBadge": Owner => answer(super::mods::set_badge(&core, parse(params)?)?),
-    "pinMod": Owner => answer(super::mods::pin(&core, parse(params)?)?),
-    "turnModOff": Owner => answer(super::mods::turn_off(&core, parse(params)?)?),
-    "removeMod": Owner => answer(super::mods::remove(&core, parse(params)?).await?),
-    "addExampleMod": Owner => answer(super::mods::add_example(&core, parse(params)?).await?),
+    "allowMod" AllowMod (super::mods::AllowParams) -> (): Owner => super::mods::allow(&core, params).await?,
+    "setModBadge" SetModBadge (super::mods::BadgeParams) -> (): Owner => super::mods::set_badge(&core, params)?,
+    "pinMod" PinMod (super::mods::PinModParams) -> (): Owner => super::mods::pin(&core, params)?,
+    "turnModOff" TurnModOff (super::mods::OffParams) -> (): Owner => super::mods::turn_off(&core, params)?,
+    "removeMod" RemoveMod (super::mods::ModParams) -> (): Owner => super::mods::remove(&core, params).await?,
+    "addExampleMod" AddExampleMod (super::mods::ModParams) -> (): Owner => super::mods::add_example(&core, params).await?,
     "stash": Owner => answer(super::stash::list(&core, parse_or_default(params)?).await?),
     "stashPrompt" StashPrompt (super::stash::StashPromptParams) -> super::stash::StashedPrompt: Owner, counted => {
         super::stash::stash_prompt(&core, params).await?
     },
-    "seeStash": Owner => answer(super::stash::see(&core, parse(params)?).await?),
-    "stashFile": Owner, counted => answer(super::stash::keep(&core, parse(params)?).await?),
-    "stashPicture": Owner, counted => answer(super::stash::picture(&core, parse(params)?).await?),
+    "seeStash" SeeStash (super::stash::SeeParams) -> crate::accounts::protocol::StashSeen: Owner => super::stash::see(&core, params).await?,
+    "stashFile" StashFile (super::stash::StashItemParams) -> super::stash::StashKept: Owner, counted => super::stash::keep(&core, params).await?,
+    "stashPicture": Full => answer(super::stash::picture(&core, parse(params)?).await?),
     "attachStash" AttachStash (super::stash::AttachStashParams) -> super::stash::AttachedStash: Owner, counted => {
         super::stash::attach(&core, params).await?
     },
@@ -422,11 +422,11 @@ calls! { core, client, method, params;
     },
     "hosts": Watch => answer(super::hosts::rows(&core)),
     "hostInstalledFrom": Owner => answer(super::hosts::installed_from(&core, parse(params)?)?),
-    "installHost": Owner => answer(super::hosts::install::install_host(&core, parse(params)?).await?),
+    "installHost" InstallHost (super::hosts::install::InstallParams) -> Value: Owner => super::hosts::install::install_host(&core, params).await?,
     "hostSetup": Owner => answer(super::hosts::install::host_setup(&core, parse(params)?).await?),
     "linkHost": Owner, counted => answer(super::hosts::link_host(&core, parse(params)?).await?),
-    "openOnHost": Owner, counted => answer(super::hosts::open::open_on(&core, parse(params)?).await?),
-    "sendSession": Owner, counted => answer(super::hosts::transfer::send_session(&core, parse(params)?).await?),
+    "openOnHost" OpenOnHost (super::hosts::open::OpenOnParams) -> Value: Owner, counted => super::hosts::open::open_on(&core, params).await?,
+    "sendSession" SendSession (super::hosts::transfer::SendParams) -> Value: Owner, counted => super::hosts::transfer::send_session(&core, params).await?,
     "requireApproval" RequireApproval (NoParams) -> remote::ApprovalSetting: Owner => remote::ApprovalSetting {
         require_approval: core.remote.requires_approval(),
     },
@@ -495,7 +495,7 @@ calls! { core, client, method, params;
     "commitOwners" CommitOwners (sikemux_view::owners::CommitsParams) -> std::collections::BTreeMap<String, Vec<sikemux_view::owners::AgentOwner>>: Watch, any_program => who_wrote::call(&core, params).await?,
     "commitLines" CommitLines (sikemux_view::owners::CommitParams) -> sikemux_view::owners::CommitLines: Watch, any_program, counted => who_wrote::lines(&core, params).await?,
     "inbox": Watch, any_program => answer(inbox::read(&core).await?),
-    "digest": Watch, any_program => answer(inbox::read_digest(&core, parse(params)?).await?),
+    "digest" Digest (inbox::DigestParams) -> sikemux_view::inbox::InboxDigest: Watch, any_program => inbox::read_digest(&core, params).await?,
     "ports": Owner => answer(super::ports::project_ports(&core, client.id, parse::<super::ports::PortsParams>(params)?.project).await?),
     "testResults": Owner => answer(super::tasks::module_tests(&core, parse::<super::tasks::ProjectParams>(params)?.project).await?),
     "projectConfig": Owner => answer(super::tasks::project_config(&core, parse::<super::tasks::ProjectParams>(params)?.project).await?),
@@ -503,8 +503,8 @@ calls! { core, client, method, params;
     "trustProject": Owner => answer(super::tasks::trust_project_for(&core, &client.peer, parse(params)?).await?),
     "tasks": Owner => answer(super::tasks::list(&core, parse::<super::tasks::ProjectParams>(params)?.project).await?),
     "taskRuns": Owner => answer(super::tasks::runs(&core)),
-    "taskStart": Owner, counted => answer(super::tasks::start(&core, parse(params)?).await?),
-    "taskRerunFailed": Owner, counted => answer(super::tasks::rerun_failed(&core, parse(params)?).await?),
+    "taskStart" TaskStart (super::tasks::TaskStartParams) -> Value: Owner, counted => super::tasks::start(&core, params).await?,
+    "taskRerunFailed" TaskRerunFailed (super::tasks::RerunParams) -> Value: Owner, counted => super::tasks::rerun_failed(&core, params).await?,
     "taskStop": Owner => {
         super::harness::stop_runs(&core, parse(params)?).await;
         answer(())
@@ -512,8 +512,8 @@ calls! { core, client, method, params;
     "trustAsks": Owner => answer(super::tasks::asks(&core)),
     "answerTrust": Owner => answer(super::tasks::answer_trust_for(&core, &client.peer, parse(params)?)?),
     "addTask": Owner => answer(super::tasks::add(&core, parse(params)?, super::tasks::answered_by(&core, &client.peer)).await?),
-    "removeTask": Owner => answer(super::tasks::remove(&core, parse(params)?).await?),
-    "setCheck": Owner => answer(super::tasks::set_check(&core, parse(params)?).await?),
+    "removeTask" RemoveTask (super::tasks::RemoveTaskParams) -> Value: Owner => super::tasks::remove(&core, params).await?,
+    "setCheck" SetCheck (super::tasks::SetCheckParams) -> Value: Owner => super::tasks::set_check(&core, params).await?,
     "agentModels": NoDevice => answer(super::chat::models_of(&core, &parse::<super::chat::AgentModelsParams>(params)?.agent)),
     "plugin": Owner, counted_by("plugin") => answer(plugins::window_call(&core, parse(params)?).await),
     "pluginManifests": Owner => answer(plugins::manifests(&core)),
@@ -523,8 +523,8 @@ calls! { core, client, method, params;
     "whatsNew": Watch => answer(super::about::whats_new(&core)),
     "cliInstall": Watch => answer(super::cli_install::status().await?),
     "installCli": Owner, counted => answer(super::cli_install::install().await?),
-    "renameAccountDevice": Owner => answer(super::account::devices::rename_device(&core, parse(params)?).await?),
-    "removeAccountDevice": Owner => answer(super::account::devices::remove_device(&core, parse(params)?).await?),
+    "renameAccountDevice" RenameAccountDevice (super::account::devices::DeviceParams) -> (): Owner => super::account::devices::rename_device(&core, params).await?,
+    "removeAccountDevice" RemoveAccountDevice (super::account::devices::DeviceParams) -> (): Owner => super::account::devices::remove_device(&core, params).await?,
     "accountPhones": Owner => answer(super::account::devices::phones(&core).await?),
     "showFiles": Watch => {
         super::open_files::show(&core, client.id, parse(params)?)?;

@@ -7,7 +7,7 @@ use gpui_kit::{
     div, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Styled,
     Window,
 };
-use serde_json::{json, Value};
+use serde_json::Value;
 use sikemux_core::harness::runs::RunStatus;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
@@ -18,6 +18,8 @@ use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, TEXT_2XS_H, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, Variant};
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::tasks::TaskStartParams;
 
 /// A task held back by its checks, waiting on the person.
 pub struct RunCheck {
@@ -58,15 +60,14 @@ impl Workbench {
             return;
         }
         let label = self.task_label(&task);
-        let asked = self.target().request(
-            "taskStart",
-            json!({
-                "project": project,
-                "taskId": task,
-                "force": how == How::Anyway,
-                "fix": how == How::Fixed,
-            }),
-        );
+        let asked = self
+            .target()
+            .request_typed::<call::TaskStart>(TaskStartParams {
+                project: project.to_owned(),
+                task_id: task.to_owned(),
+                force: how == How::Anyway,
+                fix: how == How::Fixed,
+            });
         if let Some(check) = self
             .overlays
             .run_check

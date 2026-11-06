@@ -16,7 +16,6 @@ use gpui_kit::{
     IntoElement, ParentElement, PathBuilder, Pixels, SharedString, StatefulInteractiveElement,
     Styled, Transformation, WeakEntity, Window,
 };
-use serde_json::json;
 use sikemux_core::git::log::GitCommit;
 
 use super::GitPane;
@@ -30,6 +29,7 @@ use crate::theme::{
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_core::server::workspace::SessionChoice;
 use sikemux_view::owners::AgentOwner;
 
 pub const ROW_HEIGHT: f32 = 32.;
@@ -700,15 +700,24 @@ fn open_owner(
     let (Some(session), Some(project)) = (&owner.session_id, &owner.project) else {
         return;
     };
-    let params = json!({ "provider": owner.cli, "sessionId": session, "project": project });
-    let (answer, core) = (core.request("resumeSession", params), core.clone());
+    let params = SessionChoice {
+        provider: owner.cli.clone(),
+        session_id: session.clone(),
+        project: project.clone().into(),
+        cwd: None,
+        title: None,
+    };
+    let (answer, core) = (
+        core.request_typed::<call::ResumeSession>(params),
+        core.clone(),
+    );
     window
         .spawn(cx, async move |cx| match answer.await {
             Ok(started) => {
                 core.call_typed::<call::OpenTab>(OpenTab::new(
-                    At::project(started["project"].as_str().unwrap_or_default()),
+                    At::project(&started.project),
                     PaneKind::Agent,
-                    started["agentId"].as_str().unwrap_or_default(),
+                    started.agent_id,
                 ));
             }
             Err(error) => {

@@ -3,7 +3,7 @@
 //! to review, then finished work, then work under way. Built from what the
 //! core already keeps; only how each agent's latest turn went is kept here.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
@@ -1360,12 +1360,12 @@ pub(super) async fn read(core: &Arc<Core>) -> CoreResult<sikemux_view::inbox::In
     .await
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DigestParams {
-    since: Option<u64>,
+pub struct DigestParams {
+    pub since: Option<u64>,
     /// Only what is about this project, by its path.
-    project: Option<String>,
+    pub project: Option<String>,
 }
 
 /// What finished, failed and waits since the person last left, or `since`.

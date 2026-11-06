@@ -5,7 +5,6 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::{
     div, AnyElement, App, Entity, IntoElement, ParentElement, SharedString, Styled, Window,
 };
-use serde_json::json;
 use sikemux_core::server::mods::ModInfo;
 
 use crate::icons::Icon;
@@ -15,6 +14,8 @@ use crate::settings::rows;
 use crate::theme::{Tokens, SPACE_1H};
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::mods::AllowParams;
 
 /// What a search finds on this page.
 pub(in crate::settings) const ENTRIES: &[Entry] = &[
@@ -69,9 +70,10 @@ fn controls(shown: &ModInfo, this: &Entity<Workbench>) -> AnyElement {
         button("take-back", "Take back writes").on_click(move |_, _, cx| {
             let id = taken.clone();
             taking.update(cx, |bench, _| {
-                bench
-                    .target()
-                    .call("allowMod", json!({ "id": id, "writes": null }))
+                bench.target().call_typed::<call::AllowMod>(AllowParams {
+                    id: id.clone(),
+                    writes: None,
+                })
             })
         })
     });

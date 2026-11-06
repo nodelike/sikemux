@@ -140,11 +140,11 @@ fn device_path(key: &str) -> CoreResult<String> {
     Ok(format!("/v1/devices/{key}"))
 }
 
-#[derive(serde::Deserialize)]
-pub(crate) struct DeviceParams {
-    key: String,
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct DeviceParams {
+    pub key: String,
     #[serde(default)]
-    name: Option<String>,
+    pub name: Option<String>,
 }
 
 /// Renames a device or host on the account, which every device and host

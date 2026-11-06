@@ -15,7 +15,7 @@ use sikemux_process::sync::Locked;
 
 use super::super::changed::Topic;
 use super::super::Core;
-use super::install::Work;
+use super::install::SetUpWork;
 
 /// Long enough to connect and ask; a host that takes longer is left as it was.
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
@@ -47,12 +47,12 @@ pub enum Found {
 
 impl Found {
     /// What setting the host up takes, if anything does.
-    pub(crate) fn set_up(self) -> Option<Work> {
+    pub(crate) fn set_up(self) -> Option<SetUpWork> {
         match self {
-            Found::Nothing => Some(Work::Install),
-            Found::SignedOut => Some(Work::SignIn),
-            Found::Stopped => Some(Work::Start),
-            Found::Outdated => Some(Work::Update),
+            Found::Nothing => Some(SetUpWork::Install),
+            Found::SignedOut => Some(SetUpWork::SignIn),
+            Found::Stopped => Some(SetUpWork::Start),
+            Found::Outdated => Some(SetUpWork::Update),
             Found::Same | Found::Other => None,
         }
     }
