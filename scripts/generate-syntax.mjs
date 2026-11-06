@@ -8,8 +8,10 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import {
+  check,
   localLanguages,
   shikiGrammars,
+  stale,
   typescriptLoader,
 } from "./lib/generated.mjs";
 
@@ -18,7 +20,6 @@ const langsDir = resolve(root, "node_modules/@shikijs/langs");
 const assetsDir = resolve(root, "app/assets");
 const indexPath = resolve(assetsDir, "syntax.json");
 const grammarsPath = resolve(assetsDir, "grammars.bin");
-const check = process.argv.includes("--check");
 
 const { version } = JSON.parse(
   await readFile(resolve(langsDir, "package.json"), "utf8"),
@@ -167,10 +168,7 @@ const fresh =
   JSON.stringify(strip(existing.kept)) === JSON.stringify(strip(index)) &&
   ids.every((id) => existing.unpacked[id] === sources[id]);
 if (!fresh) {
-  if (check)
-    throw new Error(
-      `Generated syntax highlighting is stale: run pnpm syntax:generate`,
-    );
+  if (check) throw stale(grammarsPath);
   await writeFile(grammarsPath, Buffer.concat(packed));
   await writeFile(indexPath, `${JSON.stringify(index, null, 1)}\n`);
 }

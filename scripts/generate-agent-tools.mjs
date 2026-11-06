@@ -3,9 +3,9 @@
 // harness; without this check a method can exist on one side and be unreachable
 // from the other.
 import { execFileSync } from "node:child_process";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { check, emit } from "./lib/generated.mjs";
+import { readdir, readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { emit } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const manifestPath = resolve(root, "tools/tools.json");

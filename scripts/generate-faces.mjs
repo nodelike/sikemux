@@ -11,12 +11,11 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { chromium } from "playwright-core";
-import { typescriptLoader } from "./lib/generated.mjs";
+import { check, typescriptLoader } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const manifestPath = resolve(root, "crates/sikemux-core/src/assets/faces.json");
 const drawingsDir = resolve(root, "app/assets/faces");
-const check = process.argv.includes("--check");
 const STATES = ["idle", "working", "waiting", "done", "error"];
 // The art repeats an attribute on some elements. WebKit, which draws it on the Mac,
 // keeps the first; an SVG parser refuses the whole drawing. Keep the first here too.

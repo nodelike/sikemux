@@ -4,8 +4,9 @@
 // beside them. `--check` fails when the Swift file is out of date instead of
 // writing it.
 
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { emit } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const iconsPath = resolve(root, "shared/ui/Icons.tsx");
@@ -14,7 +15,6 @@ const outputPath = resolve(
   root,
   "helpers/notch/Sources/NotchKit/Icons.generated.swift",
 );
-const check = process.argv.includes("--check");
 
 const LINE_ICONS = {
   plus: "IconPlus",
@@ -319,14 +319,4 @@ ${marks.join("\n")}
 }
 `;
 
-if (check) {
-  const current = await readFile(outputPath, "utf8").catch(() => "");
-  if (current !== swift) {
-    console.error(
-      "The notch icons are out of date. Run: node scripts/generate-notch-icons.mjs",
-    );
-    process.exit(1);
-  }
-} else {
-  await writeFile(outputPath, swift);
-}
+await emit(outputPath, swift);
