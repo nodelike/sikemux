@@ -53,17 +53,26 @@ const STYLE_FLAGS: Flags = Flags::BOLD
 fn style_flags(flags: Flags) -> u16 {
     let mut style = 0;
     for (flag, bit) in [
-        (Flags::BOLD, wire::STYLE_BOLD),
-        (Flags::ITALIC, wire::STYLE_ITALIC),
-        (Flags::DIM, wire::STYLE_DIM),
-        (Flags::INVERSE, wire::STYLE_INVERSE),
-        (Flags::HIDDEN, wire::STYLE_HIDDEN),
-        (Flags::STRIKEOUT, wire::STYLE_STRIKE),
-        (Flags::UNDERLINE, wire::STYLE_UNDERLINE),
-        (Flags::DOUBLE_UNDERLINE, wire::STYLE_DOUBLE_UNDERLINE),
-        (Flags::UNDERCURL, wire::STYLE_CURLY_UNDERLINE),
-        (Flags::DOTTED_UNDERLINE, wire::STYLE_DOTTED_UNDERLINE),
-        (Flags::DASHED_UNDERLINE, wire::STYLE_DASHED_UNDERLINE),
+        (Flags::BOLD, sikemux_grid::STYLE_BOLD),
+        (Flags::ITALIC, sikemux_grid::STYLE_ITALIC),
+        (Flags::DIM, sikemux_grid::STYLE_DIM),
+        (Flags::INVERSE, sikemux_grid::STYLE_INVERSE),
+        (Flags::HIDDEN, sikemux_grid::STYLE_HIDDEN),
+        (Flags::STRIKEOUT, sikemux_grid::STYLE_STRIKE),
+        (Flags::UNDERLINE, sikemux_grid::STYLE_UNDERLINE),
+        (
+            Flags::DOUBLE_UNDERLINE,
+            sikemux_grid::STYLE_DOUBLE_UNDERLINE,
+        ),
+        (Flags::UNDERCURL, sikemux_grid::STYLE_CURLY_UNDERLINE),
+        (
+            Flags::DOTTED_UNDERLINE,
+            sikemux_grid::STYLE_DOTTED_UNDERLINE,
+        ),
+        (
+            Flags::DASHED_UNDERLINE,
+            sikemux_grid::STYLE_DASHED_UNDERLINE,
+        ),
     ] {
         if flags.contains(flag) {
             style |= bit;
@@ -222,14 +231,20 @@ pub(super) fn wrapped(row: &Row<Cell>, cols: usize) -> bool {
 fn modes(mode: TermMode) -> u32 {
     let mut modes = 0;
     for (flag, bit) in [
-        (TermMode::ALT_SCREEN, wire::MODE_ALT_SCREEN),
-        (TermMode::MOUSE_REPORT_CLICK, wire::MODE_MOUSE_CLICK),
-        (TermMode::MOUSE_DRAG, wire::MODE_MOUSE_DRAG),
-        (TermMode::MOUSE_MOTION, wire::MODE_MOUSE_MOTION),
-        (TermMode::ALTERNATE_SCROLL, wire::MODE_ALTERNATE_SCROLL),
-        (TermMode::BRACKETED_PASTE, wire::MODE_BRACKETED_PASTE),
-        (TermMode::FOCUS_IN_OUT, wire::MODE_FOCUS_REPORTS),
-        (TermMode::APP_CURSOR, wire::MODE_APP_CURSOR),
+        (TermMode::ALT_SCREEN, sikemux_grid::MODE_ALT_SCREEN),
+        (TermMode::MOUSE_REPORT_CLICK, sikemux_grid::MODE_MOUSE_CLICK),
+        (TermMode::MOUSE_DRAG, sikemux_grid::MODE_MOUSE_DRAG),
+        (TermMode::MOUSE_MOTION, sikemux_grid::MODE_MOUSE_MOTION),
+        (
+            TermMode::ALTERNATE_SCROLL,
+            sikemux_grid::MODE_ALTERNATE_SCROLL,
+        ),
+        (
+            TermMode::BRACKETED_PASTE,
+            sikemux_grid::MODE_BRACKETED_PASTE,
+        ),
+        (TermMode::FOCUS_IN_OUT, sikemux_grid::MODE_FOCUS_REPORTS),
+        (TermMode::APP_CURSOR, sikemux_grid::MODE_APP_CURSOR),
     ] {
         if mode.contains(flag) {
             modes |= bit;
@@ -260,17 +275,17 @@ impl Terminal {
         let point = grid.cursor.point;
         let style = self.term.cursor_style();
         let shape = if !mode.contains(TermMode::SHOW_CURSOR) {
-            wire::CURSOR_HIDDEN
+            sikemux_grid::CURSOR_HIDDEN
         } else {
             let shape = match style.shape {
-                CursorShape::Block => wire::CURSOR_BLOCK,
-                CursorShape::Underline => wire::CURSOR_UNDERLINE,
-                CursorShape::Beam => wire::CURSOR_BEAM,
-                CursorShape::HollowBlock => wire::CURSOR_HOLLOW,
-                CursorShape::Hidden => wire::CURSOR_HIDDEN,
+                CursorShape::Block => sikemux_grid::CURSOR_BLOCK,
+                CursorShape::Underline => sikemux_grid::CURSOR_UNDERLINE,
+                CursorShape::Beam => sikemux_grid::CURSOR_BEAM,
+                CursorShape::HollowBlock => sikemux_grid::CURSOR_HOLLOW,
+                CursorShape::Hidden => sikemux_grid::CURSOR_HIDDEN,
             };
             if style.blinking {
-                shape | wire::CURSOR_BLINKS
+                shape | sikemux_grid::CURSOR_BLINKS
             } else {
                 shape
             }
@@ -278,7 +293,12 @@ impl Terminal {
         let colors = self.term.colors();
         FrameHeader {
             frame,
-            flags: flags | if palette { wire::FRAME_PALETTE } else { 0 },
+            flags: flags
+                | if palette {
+                    sikemux_grid::FRAME_PALETTE
+                } else {
+                    0
+                },
             cols: self.term.columns() as u16,
             rows: self.term.screen_lines() as u16,
             epoch: self.epoch,

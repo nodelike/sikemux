@@ -40,8 +40,8 @@ struct Look {
 
 impl Look {
     const PLAIN: Look = Look {
-        fg: Color::Named(wire::NAMED_FOREGROUND),
-        bg: Color::Named(wire::NAMED_BACKGROUND),
+        fg: Color::Named(sikemux_grid::NAMED_FOREGROUND),
+        bg: Color::Named(sikemux_grid::NAMED_BACKGROUND),
         flags: 0,
         underline_color: None,
     };
@@ -58,17 +58,17 @@ impl Look {
     fn sgr(&self, out: &mut String) {
         out.push_str("\x1b[0");
         for (flag, code) in [
-            (wire::STYLE_BOLD, "1"),
-            (wire::STYLE_DIM, "2"),
-            (wire::STYLE_ITALIC, "3"),
-            (wire::STYLE_UNDERLINE, "4"),
-            (wire::STYLE_DOUBLE_UNDERLINE, "4:2"),
-            (wire::STYLE_CURLY_UNDERLINE, "4:3"),
-            (wire::STYLE_DOTTED_UNDERLINE, "4:4"),
-            (wire::STYLE_DASHED_UNDERLINE, "4:5"),
-            (wire::STYLE_INVERSE, "7"),
-            (wire::STYLE_HIDDEN, "8"),
-            (wire::STYLE_STRIKE, "9"),
+            (sikemux_grid::STYLE_BOLD, "1"),
+            (sikemux_grid::STYLE_DIM, "2"),
+            (sikemux_grid::STYLE_ITALIC, "3"),
+            (sikemux_grid::STYLE_UNDERLINE, "4"),
+            (sikemux_grid::STYLE_DOUBLE_UNDERLINE, "4:2"),
+            (sikemux_grid::STYLE_CURLY_UNDERLINE, "4:3"),
+            (sikemux_grid::STYLE_DOTTED_UNDERLINE, "4:4"),
+            (sikemux_grid::STYLE_DASHED_UNDERLINE, "4:5"),
+            (sikemux_grid::STYLE_INVERSE, "7"),
+            (sikemux_grid::STYLE_HIDDEN, "8"),
+            (sikemux_grid::STYLE_STRIKE, "9"),
         ] {
             if self.flags & flag != 0 {
                 out.push(';');

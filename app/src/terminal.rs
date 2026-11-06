@@ -919,7 +919,7 @@ fn layout(
     if size != terminal.asked_size {
         terminal.asked_size = size;
         // A pane with no room yet, such as a desk starting to slide open, keeps its last size.
-        if size.0 >= wire::MIN_TERMINAL_COLUMNS {
+        if size.0 >= sikemux_grid::MIN_TERMINAL_COLUMNS {
             let _ = asks.send(routed(
                 &bench.terminals.places,
                 id,
@@ -1035,39 +1035,39 @@ impl View<'_> {
             )
     }
 
-    fn look(&self, style: &wire::Style) -> Look {
+    fn look(&self, style: &sikemux_grid::Style) -> Look {
         let flags = style.flags;
-        let default_bg = style.bg == Color::Named(wire::NAMED_BACKGROUND);
+        let default_bg = style.bg == Color::Named(sikemux_grid::NAMED_BACKGROUND);
         let (mut fg, mut bg) = (
             self.rgb(style.fg),
             (!default_bg).then(|| self.rgb(style.bg)),
         );
-        if flags & wire::STYLE_INVERSE != 0 {
+        if flags & sikemux_grid::STYLE_INVERSE != 0 {
             (fg, bg) = (bg.unwrap_or_else(|| self.rgb(style.bg)), Some(fg));
         }
-        if flags & wire::STYLE_DIM != 0 {
+        if flags & sikemux_grid::STYLE_DIM != 0 {
             fg.a *= 0.6;
         }
-        if flags & wire::STYLE_HIDDEN != 0 {
+        if flags & sikemux_grid::STYLE_HIDDEN != 0 {
             fg.a = 0.;
         }
         let underline = [
-            (wire::STYLE_UNDERLINE, Underline::Single),
-            (wire::STYLE_DOUBLE_UNDERLINE, Underline::Double),
-            (wire::STYLE_CURLY_UNDERLINE, Underline::Curly),
-            (wire::STYLE_DOTTED_UNDERLINE, Underline::Dotted),
-            (wire::STYLE_DASHED_UNDERLINE, Underline::Dashed),
+            (sikemux_grid::STYLE_UNDERLINE, Underline::Single),
+            (sikemux_grid::STYLE_DOUBLE_UNDERLINE, Underline::Double),
+            (sikemux_grid::STYLE_CURLY_UNDERLINE, Underline::Curly),
+            (sikemux_grid::STYLE_DOTTED_UNDERLINE, Underline::Dotted),
+            (sikemux_grid::STYLE_DASHED_UNDERLINE, Underline::Dashed),
         ]
         .into_iter()
         .find_map(|(flag, underline)| (flags & flag != 0).then_some(underline));
         Look {
             fg,
             bg,
-            bold: flags & wire::STYLE_BOLD != 0,
-            italic: flags & wire::STYLE_ITALIC != 0,
+            bold: flags & sikemux_grid::STYLE_BOLD != 0,
+            italic: flags & sikemux_grid::STYLE_ITALIC != 0,
             underline,
             underline_color: style.underline_color.map(|color| self.rgb(color)),
-            strike: flags & wire::STYLE_STRIKE != 0,
+            strike: flags & sikemux_grid::STYLE_STRIKE != 0,
         }
     }
 }
@@ -1103,17 +1103,17 @@ impl Grid for View<'_> {
             .filter(|row| *row < header.rows)?;
         if self.focused
             && self.in_front
-            && header.cursor.shape & wire::CURSOR_BLINKS != 0
+            && header.cursor.shape & sikemux_grid::CURSOR_BLINKS != 0
             && blinked_off(self.terminal.blink_from)
         {
             return None;
         }
-        let shape = match header.cursor.shape & !wire::CURSOR_BLINKS {
-            wire::CURSOR_HIDDEN => return None,
+        let shape = match header.cursor.shape & !sikemux_grid::CURSOR_BLINKS {
+            sikemux_grid::CURSOR_HIDDEN => return None,
             _ if !self.focused => CursorShape::Hollow,
-            wire::CURSOR_UNDERLINE => CursorShape::Underline,
-            wire::CURSOR_BEAM => CursorShape::Beam,
-            wire::CURSOR_HOLLOW => CursorShape::Hollow,
+            sikemux_grid::CURSOR_UNDERLINE => CursorShape::Underline,
+            sikemux_grid::CURSOR_BEAM => CursorShape::Beam,
+            sikemux_grid::CURSOR_HOLLOW => CursorShape::Hollow,
             _ => CursorShape::Block,
         };
         let color = self.rgb(Color::Named(258));
@@ -1133,7 +1133,7 @@ impl Grid for View<'_> {
                 .checked_sub(self.top)
                 .and_then(|row| u16::try_from(row).ok())
             {
-                let color = self.rgb(Color::Named(wire::NAMED_FOREGROUND));
+                let color = self.rgb(Color::Named(sikemux_grid::NAMED_FOREGROUND));
                 each(Highlight {
                     row,
                     columns: link.columns.clone(),
@@ -1168,8 +1168,8 @@ impl Grid for View<'_> {
             row,
             column: header.cursor.col,
             text,
-            fg: self.rgb(Color::Named(wire::NAMED_FOREGROUND)),
-            bg: self.rgb(Color::Named(wire::NAMED_BACKGROUND)),
+            fg: self.rgb(Color::Named(sikemux_grid::NAMED_FOREGROUND)),
+            bg: self.rgb(Color::Named(sikemux_grid::NAMED_BACKGROUND)),
         })
     }
 }
@@ -1217,7 +1217,7 @@ pub fn type_text(bench: &mut Workbench, id: TermKey, text: String, cx: &mut App)
         .chars()
         .filter(|char| matches!(char, '\n' | '\t') || !char.is_control())
         .collect();
-    let input = if terminal.screen.header.modes & wire::MODE_BRACKETED_PASTE != 0 {
+    let input = if terminal.screen.header.modes & sikemux_grid::MODE_BRACKETED_PASTE != 0 {
         TerminalInput::Paste { text }
     } else {
         TerminalInput::Text {
@@ -1454,7 +1454,9 @@ fn point_at(terminal: &Terminal, metrics: &Metrics, position: Point<Pixels>) -> 
 }
 
 fn reports_mouse(terminal: &Terminal, modifiers: &Modifiers) -> bool {
-    terminal.screen.header.modes & wire::MODE_MOUSE_ANY != 0 && !modifiers.shift && !modifiers.alt
+    terminal.screen.header.modes & sikemux_grid::MODE_MOUSE_ANY != 0
+        && !modifiers.shift
+        && !modifiers.alt
 }
 
 fn mouse_down(
@@ -1507,7 +1509,9 @@ fn mouse_move(bench: &mut Workbench, id: TermKey, event: &MouseMoveEvent) -> boo
     let modes = terminal.screen.header.modes;
     if reports_mouse(terminal, &event.modifiers) {
         let pressed = event.pressed_button == Some(Button::Left);
-        if modes & wire::MODE_MOUSE_MOTION != 0 || (pressed && modes & wire::MODE_MOUSE_DRAG != 0) {
+        if modes & sikemux_grid::MODE_MOUSE_MOTION != 0
+            || (pressed && modes & sikemux_grid::MODE_MOUSE_DRAG != 0)
+        {
             let button = if pressed {
                 MouseButton::Left
             } else {
@@ -1599,7 +1603,8 @@ fn wheel(bench: &mut Workbench, id: TermKey, event: &ScrollEvent) -> bool {
         return false;
     }
     let modes = terminal.screen.header.modes;
-    let alternate = modes & wire::MODE_ALT_SCREEN != 0 && modes & wire::MODE_ALTERNATE_SCROLL != 0;
+    let alternate = modes & sikemux_grid::MODE_ALT_SCREEN != 0
+        && modes & sikemux_grid::MODE_ALTERNATE_SCROLL != 0;
     if reports_mouse(terminal, &event.modifiers) || alternate {
         let (point, row) = point_at(terminal, &metrics, event.position);
         let input = TerminalInput::Wheel {
@@ -1741,7 +1746,7 @@ fn page(bench: &mut Workbench, id: TermKey, up: bool) {
         return;
     };
     let header = &terminal.screen.header;
-    if header.modes & wire::MODE_ALT_SCREEN != 0 {
+    if header.modes & sikemux_grid::MODE_ALT_SCREEN != 0 {
         let key = if up { "PageUp" } else { "PageDown" };
         let mods = Mods {
             shift: true,
@@ -2033,7 +2038,7 @@ fn focus_changed(bench: &mut Workbench, id: TermKey, focused: bool, cx: &mut Con
         return;
     };
     terminal.blink_from = Instant::now();
-    if terminal.screen.header.modes & wire::MODE_FOCUS_REPORTS != 0 {
+    if terminal.screen.header.modes & sikemux_grid::MODE_FOCUS_REPORTS != 0 {
         let _ = bench.asks.send(routed(
             &bench.terminals.places,
             id,
@@ -2073,9 +2078,12 @@ pub fn keep_blinking(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             .unwrap_or(false);
         let Ok(wait) = this.update(cx, |bench, cx| {
             let focused = bench.terminals.focused;
-            let blinking = focused
-                .and_then(|id| bench.terminals.open.get(&id))
-                .filter(|terminal| terminal.screen.header.cursor.shape & wire::CURSOR_BLINKS != 0);
+            let blinking =
+                focused
+                    .and_then(|id| bench.terminals.open.get(&id))
+                    .filter(|terminal| {
+                        terminal.screen.header.cursor.shape & sikemux_grid::CURSOR_BLINKS != 0
+                    });
             let wait = blinking
                 .filter(|_| in_front)
                 .map(|terminal| BLINK - phase(terminal) + BLINK_MARGIN);
