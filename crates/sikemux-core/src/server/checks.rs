@@ -108,6 +108,8 @@ struct Checks {
     shown: HashSet<String>,
     /// Each project's CI check that waits, by project.
     ci: HashMap<String, CiWait>,
+    /// The commits whose check waits for the person to trust the project's `sikemux.json`.
+    awaiting_trust: HashMap<String, Vec<Commit>>,
 }
 
 struct CiWait {
@@ -293,6 +295,12 @@ pub(crate) fn settle(core: &Arc<Core>) {
             let outcome = match crate::server::worktree::agent::integration(&core, &dir, &newest)
                 .await
             {
+                Ok(checkout) if needs_trust(&core, &project, &dir, &checkout, &commits).await => {
+                    Err(format!(
+                        "{}. The person is asked to trust it, and the check runs again if they do",
+                        crate::server::edits::generate::UNTRUSTED
+                    ))
+                }
                 Ok(checkout) => {
                     let (owner, command) = (core.clone(), command.clone());
                     let (dir, agents) = (dir.clone(), agents.clone());
@@ -350,6 +358,48 @@ pub(crate) fn settle(core: &Arc<Core>) {
     if publish {
         core.changed(What::View);
     }
+}
+
+/// Whether the check of `commits` stops at a `sikemux.json` the person has not trusted as
+/// `checkout` holds it. They are asked, once at a time, and those commits are checked again if
+/// they trust it.
+async fn needs_trust(
+    core: &Arc<Core>,
+    project: &str,
+    dir: &Path,
+    checkout: &Path,
+    commits: &[Commit],
+) -> bool {
+    let reading = {
+        let (owner, dir, checkout) = (core.clone(), dir.to_owned(), checkout.to_owned());
+        tokio::task::spawn_blocking(move || {
+            crate::server::edits::generate::trust_needed(&owner, &dir, &checkout)
+        })
+        .await
+    };
+    let Ok(Some(ask)) = reading else {
+        return false;
+    };
+    let first = {
+        let mut state = core.checks.state.locked();
+        let waiting = state.awaiting_trust.entry(project.to_owned()).or_default();
+        waiting.extend_from_slice(commits);
+        waiting.len() == commits.len()
+    };
+    if first {
+        let (core, project, dir) = (core.clone(), project.to_owned(), dir.to_owned());
+        tokio::spawn(async move {
+            let trusted = super::tasks::ask_person(&core, &project, ask, None).await;
+            let mut state = core.checks.state.locked();
+            let commits = state.awaiting_trust.remove(&project).unwrap_or_default();
+            if trusted {
+                state.wait_again(project, dir, commits);
+            }
+            drop(state);
+            core.checks.wake.now();
+        });
+    }
+    true
 }
 
 /// What git says of the commits a CI check waits on.

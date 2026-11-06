@@ -39,7 +39,7 @@ mod writing;
 pub(crate) use test_results::module_tests;
 use test_results::*;
 use trust::*;
-pub(crate) use trust::{answer_trust, asks, config_needs, config_trusted};
+pub(crate) use trust::{answer_trust, ask_person, asks, config_needs, config_trusted};
 pub use writing::*;
 
 const TRUST_FILE: &str = "task-trust.json";

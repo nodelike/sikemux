@@ -14,6 +14,7 @@ use super::footer::known;
 use super::land::{apply, steps};
 use super::owners::{git, run};
 use super::push::line;
+use crate::server::tasks::TrustAsk;
 use crate::server::Core;
 use crate::tasks::config::{self, ConfigLoad, GenerateConfig};
 use crate::trailers::{self, Agent, Commit};
@@ -23,6 +24,38 @@ const GENERATE_OUTPUT_LIMIT: usize = 256 * 1024;
 
 /// How the subject of a commit that brings generated files up to date starts.
 pub(crate) const GENERATED_SUBJECT: &str = "build(gen): ";
+
+pub(crate) const UNTRUSTED: &str =
+    "sikemux.json is not trusted yet, so its generate command did not run";
+
+/// What the person must trust before the `generate` command `checkout`'s `sikemux.json` names
+/// runs, or none. They trust a project's file, never the integration checkout's, so the grant is
+/// looked up by the project's path and the content of the file at this commit: a commit that
+/// changes the file asks again.
+pub(crate) fn trust_needed(core: &Core, project: &Path, checkout: &Path) -> Option<TrustAsk> {
+    let ConfigLoad::Valid {
+        config,
+        fingerprint,
+        trust,
+        ..
+    } = config::load(checkout)
+    else {
+        return None;
+    };
+    config.generate.as_ref()?;
+    crate::server::tasks::config_needs(
+        core,
+        &ConfigLoad::Valid {
+            path: project
+                .join(config::CONFIG_FILE)
+                .to_string_lossy()
+                .into_owned(),
+            config,
+            fingerprint,
+            trust,
+        },
+    )
+}
 
 /// Runs the project's `generate` command in `checkout`, the integration
 /// checkout at `commit` of the branch `project`'s checkout is on, and commits
@@ -35,19 +68,15 @@ pub(crate) fn regenerate(
     commit: &str,
     agents: &[String],
 ) -> Result<Option<String>, String> {
-    let load = config::load(checkout);
-    let ConfigLoad::Valid {
-        config: ref found, ..
-    } = load
-    else {
+    if trust_needed(core, project, checkout).is_some() {
+        return Err(UNTRUSTED.to_owned());
+    }
+    let ConfigLoad::Valid { config: found, .. } = config::load(checkout) else {
         return Ok(None);
     };
     let Some(generate) = found.generate.clone() else {
         return Ok(None);
     };
-    if crate::server::tasks::config_needs(core, &load).is_some() {
-        return Err("sikemux.json is not trusted yet, so its generate command did not run".into());
-    }
     let signers: Vec<_> = agents
         .iter()
         .filter_map(|agent| known(core, project, agent))
@@ -198,6 +227,89 @@ mod tests {
             bring_up_to_date(&main, &checkout, &made, &generate, &[], None)
                 .unwrap()
                 .is_none()
+        );
+    }
+
+    /// On 2026-11-07 the check of a slice in this project kept refusing with "sikemux.json is not
+    /// trusted yet" after the person trusted it: the grant named the project's file, and this
+    /// looked one up for the integration checkout's, which nobody can be asked about.
+    #[tokio::test]
+    async fn a_trusted_file_runs_from_the_integration_checkout_and_a_changed_one_does_not() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let main = root.join("project");
+        std::fs::create_dir(&main).unwrap();
+        git_in(&main, &["init", "-q", "-b", "main"]);
+        git_in(&main, &["config", "user.name", "t"]);
+        git_in(&main, &["config", "user.email", "t@t"]);
+        let settings = |command: &str| {
+            format!(
+                r#"{{"version":1,"generate":{{"command":"{command}","outputs":["generated.txt"]}}}}"#
+            )
+        };
+        std::fs::write(
+            main.join("sikemux.json"),
+            settings("cp schema.txt generated.txt"),
+        )
+        .unwrap();
+        std::fs::write(main.join("schema.txt"), "two\n").unwrap();
+        std::fs::write(main.join("generated.txt"), "one\n").unwrap();
+        git_in(&main, &["add", "."]);
+        git_in(&main, &["commit", "-qm", "base"]);
+        let head = git_in(&main, &["rev-parse", "HEAD"]);
+        let checkout = root.join("integration");
+        git_in(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "--detach",
+                &checkout.to_string_lossy(),
+                &head,
+            ],
+        );
+        git_in(&checkout, &["config", "user.name", "t"]);
+        git_in(&checkout, &["config", "user.email", "t@t"]);
+        let core = Core::new(Default::default(), None).unwrap();
+        assert_eq!(
+            regenerate(&core, &main, &checkout, &head, &[]).unwrap_err(),
+            UNTRUSTED
+        );
+        let ConfigLoad::Valid { fingerprint, .. } = config::load(&main) else {
+            panic!("the project's file is valid");
+        };
+        let project = main.to_string_lossy().into_owned();
+        crate::server::tasks::trust_project(&core, project, fingerprint, None)
+            .await
+            .unwrap();
+
+        let made = regenerate(&core, &main, &checkout, &head, &[])
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(main.join("generated.txt")).unwrap(),
+            "two\n"
+        );
+
+        std::fs::write(
+            main.join("sikemux.json"),
+            settings("echo changed > generated.txt"),
+        )
+        .unwrap();
+        git_in(&main, &["add", "sikemux.json"]);
+        git_in(&main, &["commit", "-qm", "changes the command"]);
+        let changed = git_in(&main, &["rev-parse", "HEAD"]);
+        assert_ne!(changed, made);
+        git_in(&checkout, &["checkout", "-q", "--detach", &changed]);
+        assert_eq!(
+            regenerate(&core, &main, &checkout, &changed, &[]).unwrap_err(),
+            UNTRUSTED
+        );
+        assert!(trust_needed(&core, &main, &checkout).is_some());
+        assert_eq!(
+            std::fs::read_to_string(main.join("generated.txt")).unwrap(),
+            "two\n"
         );
     }
 }

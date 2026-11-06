@@ -82,7 +82,7 @@ pub(super) fn trust_for(
 
 /// Puts `ask` to the person and waits for the answer. False when they
 /// refused, the run waiting on it was stopped, or nobody answered in time.
-pub(super) async fn ask_person(
+pub(crate) async fn ask_person(
     core: &Arc<Core>,
     project: &str,
     ask: TrustAsk,
