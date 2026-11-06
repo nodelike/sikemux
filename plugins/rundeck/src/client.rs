@@ -1,6 +1,5 @@
-// Shared HTTP plumbing. One process-wide reqwest::Client keeps connections
-// warm across parallel calls. A rejected token is
-// reported as an `auth` error; nothing here logs in again on its own.
+// Shared HTTP plumbing. A rejected token is reported as an `auth` error;
+// nothing here logs in again on its own.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -35,7 +34,6 @@ const PATH_SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'.')
     .remove(b'~');
 
-/// Percent-encodes one value for use as a single URL path segment.
 pub fn seg(value: &str) -> RundeckResult<String> {
     if matches!(value, "" | "." | "..") {
         return Err(RundeckError::BadArg(

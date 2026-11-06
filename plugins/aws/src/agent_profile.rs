@@ -76,7 +76,6 @@ pub(crate) fn agent_profile(ctx: &PluginContext, project: Option<&Path>) -> Opti
     effective(&picks, project.as_deref(), shell_var, auth::profile_names)
 }
 
-/// AWS_PROFILE for an agent or terminal started in `project`.
 pub(crate) fn environment(ctx: &PluginContext, project: &Path) -> BTreeMap<String, String> {
     agent_profile(ctx, Some(project))
         .and_then(|picked| picked.profile)

@@ -6,8 +6,6 @@ use crate::error::RundeckResult;
 
 use crate::client::{get_json, Session};
 
-// ---- projects ------------------------------------------------------------
-
 #[derive(Serialize, Clone, Deserialize)]
 pub struct RundeckProject {
     pub name: String,
@@ -20,6 +18,3 @@ pub async fn projects(session: &Session) -> RundeckResult<Vec<RundeckProject>> {
     Ok(out)
 }
 
-// ---- jobs ---------------------------------------------------------------
-
-// ---- matrix ---------------------------------------------------------------

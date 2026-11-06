@@ -72,7 +72,6 @@ fn variable_for(source: Option<TokenSource>, host: &str) -> Option<&'static str>
         .flatten()
 }
 
-/// The account the call named, or the default one.
 pub async fn status(data_dir: &Path) -> Status {
     let config = match config::load(data_dir) {
         Ok(config) => config,
@@ -133,7 +132,6 @@ pub struct SignIn {
     pub token: Option<String>,
 }
 
-/// Adds the account the token belongs to, and says which one it is.
 pub async fn sign_in(data_dir: &Path, input: SignIn) -> GithubResult<String> {
     let host = match input.host.as_deref() {
         Some(host) => config::validate_host(host)?,
@@ -192,8 +190,7 @@ pub async fn sign_in(data_dir: &Path, input: SignIn) -> GithubResult<String> {
     Ok(id)
 }
 
-/// Signs out the account the call named, or the default one. Only a token
-/// Sikemux saved is deleted; one the shell or `gh` provides is left where it is.
+/// Only a token Sikemux saved is deleted; one the shell or `gh` provides is left where it is.
 pub async fn sign_out(data_dir: &Path) -> GithubResult<()> {
     let chosen = chosen();
     let removed = store::update(data_dir, move |config: &mut GithubConfig| {

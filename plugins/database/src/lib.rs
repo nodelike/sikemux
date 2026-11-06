@@ -1,14 +1,4 @@
 // Databases: saved connections, their schemas, and SQL run against them.
-//
-//   agent       — the tools agents call: databases by name, tables, SQL on a connection of their own,
-//                 and a database proposed for the person to approve
-//   profiles    — the databases saved here, and their passwords in the Keychain
-//   form        — a database's address read as a profile
-//   engines     — one open connection, whichever engine the database runs on
-//   connections — keeping one connection open per saved database
-//   schema      — tables, columns, indexes and keys, the same for every engine
-//   queries     — running SQL against a saved database
-//   values      — query results, the same for every engine
 
 mod agent;
 mod connections;

@@ -1,7 +1,7 @@
-// Read-only pre-deploy plan. Mirrors `cmd_plan` from the bash CLI: inspect
-// the local checkout, the branch the job last deployed successfully, and how
-// the two relate, so the user can sanity-check before running the job. Repo
-// state is read with git2; refreshing remote refs shells out to `git fetch`.
+// Read-only pre-deploy plan: inspect the local checkout, the branch the job
+// last deployed successfully, and how the two relate, so the user can
+// sanity-check before running the job. Repo state is read with git2;
+// refreshing remote refs shells out to `git fetch`.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -182,7 +182,6 @@ fn read_head(repo: &Repository, plan: &mut PlanResult) -> bool {
     }
 }
 
-/// The branch the checkout at `repo_path` is on.
 pub fn current_branch(repo_path: &std::path::Path) -> RundeckResult<String> {
     let repo = Repository::discover(repo_path).map_err(|_| {
         RundeckError::BadArg(format!("{} is not in a git checkout", repo_path.display()))
@@ -218,14 +217,12 @@ fn inspect_repo(mut plan: PlanResult, repo_path: &str) -> RundeckResult<PlanResu
 
     let detached = read_head(&repo, &mut plan);
 
-    // Dirty tree
     if let Ok(statuses) = repo.statuses(None) {
         plan.dirty = statuses
             .iter()
             .any(|s| !s.status().is_ignored() && !(s.status().is_empty()));
     }
 
-    // Upstream + ahead/behind
     if let Some(branch_name) = &plan.current_branch {
         if let Ok(branch) = repo.find_branch(branch_name, BranchType::Local) {
             if let Ok(upstream) = branch.upstream() {
@@ -245,12 +242,10 @@ fn inspect_repo(mut plan: PlanResult, repo_path: &str) -> RundeckResult<PlanResu
         }
     }
 
-    // Remote target ref exists?
     plan.remote_target_exists = repo
         .find_reference(&format!("refs/remotes/origin/{target_branch}"))
         .is_ok();
 
-    // Push action prediction
     plan.push_action = match &plan.current_branch {
         _ if detached => PushAction::NotPushDetached,
         Some(cb) if cb == &target_branch => PushAction::PushCurrent,
@@ -258,7 +253,6 @@ fn inspect_repo(mut plan: PlanResult, repo_path: &str) -> RundeckResult<PlanResu
         None => PushAction::NotPushDetached,
     };
 
-    // Branch relation
     plan.branch_relation = match (&deployed_branch, plan.remote_target_exists) {
         (None, _) => BranchRelation::UnknownNoDeployedBranch,
         (Some(d), _) if d == &target_branch => BranchRelation::Same,
@@ -267,7 +261,6 @@ fn inspect_repo(mut plan: PlanResult, repo_path: &str) -> RundeckResult<PlanResu
             if deployed_ref.is_err() {
                 BranchRelation::UnknownDeployedNotOnOrigin
             } else {
-                // Resolve OIDs and check ancestry.
                 let target_ref = repo
                     .find_reference(&format!("refs/remotes/origin/{target_branch}"))
                     .ok()

@@ -1,17 +1,5 @@
 // Bitbucket Cloud: the pull requests and pipelines of whichever repository
 // Sikemux has open, answered in the shapes every code host answers in.
-//
-//   config    — which way this is signed in, and the Keychain entry behind it
-//   oauth     — signing in through the browser, and keeping the token fresh
-//   client    — the HTTP client, the credential, and Bitbucket's error shapes
-//   auth      — signing in and out, and who the app is talking to Bitbucket as
-//   repo      — a git remote turned into workspace and repository
-//   pulls     — pull requests, their files, commits and history, and merging one
-//   review    — what reviewers asked of a pull request, and answering it
-//   issues    — the issue tracker, tags as releases, and the inbox of pull requests waiting
-//   pipelines — pipelines as runs, their steps as jobs, and starting one
-//   watch     — following a pipeline while it is going
-//   images    — avatars, handed to the window as data: addresses
 
 mod auth;
 mod client;
@@ -59,7 +47,6 @@ fn resolve(query: RemoteQuery) -> Resolved {
     }
 }
 
-/// The status of the account that just signed in.
 async fn signed_in(
     data_dir: &Path,
     outcome: BitbucketResult<String>,

@@ -93,7 +93,6 @@ pub struct KeySignIn {
     pub key: String,
 }
 
-/// Adds the workspace the key belongs to, and says which one it is.
 pub async fn sign_in(data_dir: &Path, input: KeySignIn) -> LinearResult<String> {
     let key = input.key.trim().to_string();
     if key.is_empty() {
@@ -145,7 +144,6 @@ pub struct WorkspaceRef {
     pub workspace: Option<String>,
 }
 
-/// Signs out the workspace named, or the default one.
 pub async fn sign_out(data_dir: &Path, input: WorkspaceRef) -> LinearResult<()> {
     let removed = store::sign_out::<LinearConfig, _, _>(data_dir, input.workspace, |workspace| {
         let refresh_token = match workspace.sign_in {

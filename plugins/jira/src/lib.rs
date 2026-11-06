@@ -1,11 +1,4 @@
 // Jira Cloud: tools for the person's agents to read and change issues.
-//
-//   config  — the sites signed in here, and their sign-ins in the Keychain
-//   client  — the HTTP client, size limits, and Jira's error shape
-//   oauth   — signing in through the browser with an Atlassian account
-//   auth    — signing in with an API token or the browser, and the status of each
-//   adf     — Jira's document format to markdown and back
-//   issues  — search, one issue, comments, transitions, new and edited issues, links, worklogs
 
 mod adf;
 mod auth;

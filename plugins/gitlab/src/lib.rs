@@ -1,17 +1,6 @@
 // GitLab, on gitlab.com or a company's own server: the merge requests,
 // pipelines, issues and releases of whichever project Sikemux has open,
 // answered in the shapes every code host answers in.
-//
-//   config    — the accounts signed in, each on its server, and the Keychain entry behind it
-//   client    — the HTTP client, the token, GitLab's paging and error shapes
-//   auth      — signing in and out, and who the app is talking to GitLab as
-//   repo      — a git remote turned into group and project
-//   pulls     — merge requests, their changes, commits and approvals, and merging one
-//   review    — what reviewers asked of a merge request, and answering it
-//   notes     — the comments and events on a merge request or issue
-//   issues    — issues, releases, and the To-Do list as the inbox
-//   images    — avatars, handed to the window as data: addresses
-//   pipelines — pipelines as runs, their jobs by stage, logs, and starting one
 
 mod auth;
 mod client;
@@ -59,7 +48,6 @@ fn resolve(data_dir: &Path, query: RemoteQuery) -> Resolved {
     }
 }
 
-/// The status of the account that just signed in.
 async fn signed_in(data_dir: &Path, outcome: GitlabResult<String>) -> Result<Value, PluginError> {
     let id = outcome?;
     reply(as_account(Some(id), auth::status(data_dir)).await)

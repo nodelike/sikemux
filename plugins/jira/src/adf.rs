@@ -338,7 +338,6 @@ enum Marker {
     Task(bool),
 }
 
-/// The list marker a line starts with, if any, and the text after it.
 fn list_marker(line: &str) -> Option<(Marker, &str)> {
     let text = line.trim_start();
     for bullet in ["- ", "* ", "+ "] {
@@ -416,7 +415,6 @@ fn parse_list(lines: &[&str]) -> Value {
     }
 }
 
-/// Inline markdown to ADF text nodes with marks.
 fn parse_inline(text: &str) -> Vec<Value> {
     let mut nodes = Vec::new();
     inline_into(text, &[], &mut nodes);

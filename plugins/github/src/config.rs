@@ -87,13 +87,11 @@ impl GithubConfig {
         )
     }
 
-    /// The host of the account named, or of the default one.
     pub fn host_of(&self, id: Option<&str>) -> String {
         self.account(id)
             .map_or_else(|| self.host_hint(), |account| account.host.clone())
     }
 
-    /// Whether any account signed in here is on this host.
     pub fn serves(&self, host: &str) -> bool {
         if self.accounts.is_empty() {
             return self.host_hint() == host;

@@ -41,7 +41,6 @@ pub struct AgentSchemaRequest {
     pub schema: Option<String>,
 }
 
-/// A saved database by its name.
 #[derive(Deserialize, Debug)]
 pub struct DatabaseRef {
     pub database: String,

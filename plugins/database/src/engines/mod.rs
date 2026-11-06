@@ -118,7 +118,6 @@ impl Session {
         }
     }
 
-    /// Stops the statement running on this connection, if any.
     pub async fn cancel(&self) -> DatabaseResult<()> {
         match self {
             Self::Mysql(session) => session.cancel().await,

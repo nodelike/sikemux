@@ -19,7 +19,6 @@ pub struct Signed {
     pub workspaces: Vec<Listed>,
 }
 
-/// A workspace signed in, and who in it.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Listed {
@@ -98,7 +97,6 @@ pub fn token_kind_ok(token: &str) -> bool {
     token.starts_with("xoxp-") || token.starts_with("xoxb-") || token.starts_with("xoxe.xoxp-")
 }
 
-/// Adds the workspace the token belongs to, and says which one it is.
 pub async fn sign_in(data_dir: &Path, input: TokenSignIn) -> SlackResult<String> {
     let token = input.token.trim().to_string();
     if token.is_empty() {
@@ -127,7 +125,6 @@ pub struct WorkspaceRef {
     pub workspace: Option<String>,
 }
 
-/// Signs out the workspace named, or the default one.
 pub async fn sign_out(data_dir: &Path, input: WorkspaceRef) -> SlackResult<()> {
     let removed = store::sign_out::<SlackConfig, _, _>(data_dir, input.workspace, |workspace| {
         Ok(config::KEYCHAIN.delete(&workspace.id)?)

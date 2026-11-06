@@ -1,11 +1,5 @@
 // Linear: the person's issues and a search, one issue with its comments, and
 // the changes their agents make, as agent tools.
-//
-//   config — the workspaces signed in here, and their keys or tokens in the Keychain
-//   client — the GraphQL client, the key or token, and Linear's errors in words
-//   oauth  — signing in through the browser with a Linear account
-//   auth   — signing in with the browser or a personal API key, and each workspace's status
-//   issues — listing, reading, commenting on, changing and filing issues
 
 mod auth;
 mod client;

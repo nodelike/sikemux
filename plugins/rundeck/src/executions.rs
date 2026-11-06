@@ -216,8 +216,6 @@ pub async fn execution(session: &Session, execution_id: u64) -> RundeckResult<Ex
     get_json(session, &format!("/execution/{execution_id}"), &[]).await
 }
 
-// ---- summaries for the plan ----------------------------------------------
-
 /// The value of the first option named like one of `branch_options`, trying
 /// the names in order and ignoring case.
 pub fn branch_from_options(
@@ -241,8 +239,6 @@ pub fn deployed_branch(execution: &Execution, branch_options: &[String]) -> Opti
     let options = execution.job.as_ref()?.options.as_ref()?;
     branch_from_options(options, branch_options)
 }
-
-// ---- run ------------------------------------------------------------------
 
 #[derive(Serialize, Clone)]
 pub struct RunResult {
@@ -319,8 +315,6 @@ pub async fn run(
     }
 }
 
-// ---- abort ----------------------------------------------------------------
-
 #[derive(Serialize, Clone, Deserialize)]
 pub struct AbortResult {
     pub abort: Option<AbortBody>,
@@ -344,8 +338,6 @@ pub async fn abort(session: &Session, execution_id: u64) -> RundeckResult<AbortR
     post_empty_json(session, &format!("/execution/{execution_id}/abort")).await
 }
 
-// ---- Step / workflow state (used by watch.rs and also by single fetch UI) --
-//
 // Rundeck's actual /state JSON puts the step lifecycle fields FLAT on each
 // step object — NOT in a nested `stepState` wrapper as the docs imply.
 // Real shape: { id, stepctx, executionState, startTime, endTime, duration,

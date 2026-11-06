@@ -528,7 +528,6 @@ fn person_of(row: UserRow) -> Person {
     }
 }
 
-/// Whether someone's names contain every word asked for.
 fn matches_name(row: &UserRow, wanted: &str) -> bool {
     let names = [
         row.name.as_deref(),

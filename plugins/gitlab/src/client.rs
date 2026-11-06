@@ -29,7 +29,6 @@ pub static HTTP: Http<Gitlab> = Http::with_limits(
 pub static API: Calls<Gitlab> = Calls::new();
 static TOKENS: Held<String> = Held::secrets();
 
-/// Where a server's API lives.
 pub fn api_base(host: &str) -> String {
     format!("https://{host}/api/v4")
 }
@@ -46,7 +45,6 @@ pub struct Session {
 }
 
 impl Session {
-    /// The account the call named, or the default one.
     pub async fn current(data_dir: &Path) -> GitlabResult<Session> {
         let account = config::load(data_dir)?
             .account(chosen().as_deref())
@@ -165,7 +163,6 @@ pub async fn get_page<T: DeserializeOwned>(
     })
 }
 
-/// Every page of a list, up to `max_pages` of them.
 pub async fn get_all<T: DeserializeOwned>(
     data_dir: &Path,
     path: &str,

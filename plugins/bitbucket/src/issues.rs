@@ -280,7 +280,6 @@ struct ChangeRow {
     changes: Changes,
 }
 
-/// A state change read as closing or reopening, saying why it closed.
 fn state_event(change: ChangeRow) -> Option<TimelineItem> {
     let new = change.changes.state?.new?;
     let kind = if OPEN_STATES.contains(&new.as_str()) {

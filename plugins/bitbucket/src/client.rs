@@ -62,7 +62,6 @@ pub struct Session {
 }
 
 impl Session {
-    /// The account the call named, or the default one.
     pub async fn current(data_dir: &Path) -> BitbucketResult<Session> {
         let account = config::load(data_dir)?
             .account(chosen().as_deref())

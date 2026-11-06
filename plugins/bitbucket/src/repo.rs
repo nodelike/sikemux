@@ -103,7 +103,6 @@ pub fn slug(repo: &Repo) -> String {
     format!("{}/{}", repo.owner, repo.name)
 }
 
-/// The repository a git remote points at.
 pub fn from_remote(remote: &str) -> Option<Repo> {
     let (host, path) = answers::split_remote(remote)?;
     let mut parts = path.split('/').filter(|part| !part.is_empty());

@@ -1,12 +1,5 @@
 // Vercel: an account's projects and deployments, each deployment's build log, and
 // building, promoting and stopping them, as agent tools.
-//
-//   config      — the account signed in here, its tokens in the Keychain, and the team chosen
-//   client      — the REST client, the token, the team a call is for, and Vercel's errors in words
-//   oauth       — installing the Sikemux integration from the browser, and removing it
-//   auth        — signing in with the browser or an access token, choosing a team, and the account's status
-//   projects    — projects, their domains, and the names of their environment variables
-//   deployments — listing and reading deployments, build logs, redeploy, promote and cancel
 
 mod auth;
 mod client;

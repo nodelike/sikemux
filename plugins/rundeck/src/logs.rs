@@ -29,7 +29,6 @@ pub struct LogChunk {
     pub entries: Vec<LogEntry>,
 }
 
-/// A line of a run's output, as Rundeck sends it.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct LogEntry {
     pub time: Option<String>,

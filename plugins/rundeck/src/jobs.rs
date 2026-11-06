@@ -226,8 +226,6 @@ pub async fn definitions(session: &Session, project: &str) -> RundeckResult<Vec<
         .collect())
 }
 
-// ---- remote option values -------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,10 +1,4 @@
 // Shared CLI plumbing for every AWS module.
-//
-//   run_aws_cli         — spawn `aws ...` with PAGER/COLOR scrubbed
-//   aws_json            — run + parse stdout as JSON
-//   classify_cli_err    — map stderr text → typed AwsError
-//   describe_in_chunks  — run N AWS calls in parallel, splitting `arns` into
-//                         chunks (AWS describe-* commands cap at 10/100/etc)
 
 use std::time::Duration;
 
@@ -136,8 +130,6 @@ pub(crate) async fn run_aws_cli_async(
     .map_err(|e| AwsError::Aws(format!("join error: {e}")))?
 }
 
-/// Map AWS CLI stderr text into a typed AwsError.
-///
 /// Prefers structured JSON when the CLI ran `--output json` and surfaced
 /// an error envelope (`{"Error": {"Code": "ExpiredToken", ...}}`). Falls
 /// back to substring matching the human stderr when no structured form is

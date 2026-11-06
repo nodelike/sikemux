@@ -1,17 +1,5 @@
 // Rundeck integration: projects, jobs, running jobs and following them, as agent
 // tools. Rundeck speaks bearer-token REST, so we call the API directly with reqwest.
-//
-// Module split:
-//   agent       — what the rundeck_* agent tools answer
-//   config      — the saved sign-in and settings, and whether the URL is safe to call
-//   client      — shared HTTP client, error classification, request limiter
-//   auth        — password login, token login, logout, status, the person's lists
-//   projects    — projects
-//   jobs        — job definitions
-//   executions  — history, one run, run, abort, and the branch a run deployed
-//   watch       — following a run's state until it finishes
-//   logs        — a run's log output, read with an offset cursor
-//   plan        — read-only git inspection (dirty / ahead-behind / relation)
 
 mod agent;
 mod auth;

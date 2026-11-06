@@ -272,7 +272,6 @@ async fn label_ids(session: &Session, team: &str, names: &[String]) -> LinearRes
         .collect()
 }
 
-/// Moves, assigns, reprioritises, relabels or renames the issue.
 pub async fn update(data_dir: &Path, input: Change) -> LinearResult<Value> {
     let session = Session::of(data_dir, input.workspace.as_deref()).await?;
     let issue = read(&session, input.id.trim()).await?;
@@ -362,7 +361,6 @@ fn team_named<'a>(teams: &'a [Value], wanted: &str) -> LinearResult<&'a Value> {
         })
 }
 
-/// The workspace's teams and each one's states.
 pub async fn teams(data_dir: &Path, input: crate::auth::WorkspaceRef) -> LinearResult<Vec<Value>> {
     let session = Session::of(data_dir, input.workspace.as_deref()).await?;
     let data = session.query(TEAMS, json!({})).await?;
@@ -378,7 +376,6 @@ pub async fn teams(data_dir: &Path, input: crate::auth::WorkspaceRef) -> LinearR
         .collect())
 }
 
-/// Files a new issue in the team named.
 pub async fn create(data_dir: &Path, input: NewIssue) -> LinearResult<Value> {
     let title = input.title.trim();
     if title.is_empty() {

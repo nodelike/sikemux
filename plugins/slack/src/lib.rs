@@ -1,11 +1,5 @@
 // Slack: read a thread a person shares, search, reply, and say who someone is,
 // as tools for the person's agents.
-//
-//   config — the workspaces signed in here, and their tokens in the Keychain
-//   client — the HTTP client, the token, and Slack's `ok: false` answers
-//   auth   — signing in with a token, and the status of each workspace
-//   text   — message links, and Slack's markup as markdown
-//   slack  — channels, history, threads, search, posts and people
 
 mod auth;
 mod client;

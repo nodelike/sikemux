@@ -41,7 +41,6 @@ pub static APP: OAuthApp = OAuthApp {
 /// Every site one Atlassian account reaches shares its sign-in, so access is kept by account.
 pub static ACCESS: Refreshing<Jira> = Refreshing::new(&APP, &client::HTTP, config::KEYCHAIN);
 
-/// A Jira site the signed-in account may use.
 #[derive(Deserialize)]
 pub struct CloudSite {
     pub id: String,

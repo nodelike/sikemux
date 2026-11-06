@@ -760,7 +760,6 @@ fn project_path(project: &str) -> JiraResult<String> {
     Ok(format!("/rest/api/3/project/{project}"))
 }
 
-/// The issue types a project can create, by name.
 async fn issue_types(credentials: &Credentials, project: &str) -> JiraResult<Vec<String>> {
     let found = client::send(credentials, Method::GET, &project_path(project)?, &[], None).await?;
     Ok(found

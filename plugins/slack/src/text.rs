@@ -5,7 +5,6 @@ use std::collections::HashMap;
 
 use crate::error::{SlackError, SlackResult};
 
-/// A message a Slack link points at.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct MessageLink {
     /// The workspace's address, `acme.slack.com`.

@@ -195,7 +195,6 @@ impl Collector {
         false
     }
 
-    /// Ends the result being filled, if there is one.
     fn close(&mut self) {
         let Some(mut finished) = self.open.take() else {
             return;

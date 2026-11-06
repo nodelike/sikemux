@@ -11,8 +11,6 @@ const ECS_DESCRIBE_CHUNK: usize = 10;
 const MAX_TASKS: &str = "100";
 const SERVICE_EVENTS: usize = 10;
 
-// ---- clusters ------------------------------------------------------------
-
 #[derive(Serialize, Clone)]
 pub struct EcsCluster {
     pub(crate) name: String,
@@ -69,8 +67,6 @@ pub(crate) async fn clusters(target: &Target) -> AwsResult<Vec<EcsCluster>> {
         })
         .collect())
 }
-
-// ---- services ------------------------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -321,8 +317,6 @@ async fn describe_service(
         .ok_or_else(|| AwsError::NotFound(format!("No service {service} in cluster {cluster}.")))
 }
 
-// ---- tasks ---------------------------------------------------------------
-
 #[derive(Serialize, Clone)]
 pub struct EcsTask {
     pub(crate) arn: String,
@@ -476,8 +470,6 @@ pub(crate) async fn tasks(
         })
         .collect())
 }
-
-// ---- task definitions ---------------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -648,8 +640,6 @@ pub(crate) async fn task_definition(target: &Target, name: &str) -> AwsResult<Ec
     })
 }
 
-// ---- log configuration --------------------------------------------------
-//
 // For the `awslogs` driver a specific task's stream is
 // `<prefix>/<container>/<taskId>`. We expose service-level (group only) and
 // task-level (group + stream) resolutions so the UI can hop straight to the

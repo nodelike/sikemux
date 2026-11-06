@@ -73,7 +73,6 @@ pub fn can_write(scopes: &[String]) -> bool {
 
 pub type Status = SignInStatus<Signed>;
 
-/// The account the call named, or the default one.
 pub async fn status(data_dir: &Path) -> Status {
     let config = match config::load(data_dir) {
         Ok(config) => config,
@@ -142,7 +141,6 @@ pub struct TokenSignIn {
     pub host: String,
 }
 
-/// Adds the account the token belongs to, and says which one it is.
 pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> GitlabResult<String> {
     let token = input.token.trim().to_string();
     if token.is_empty() {
@@ -162,7 +160,6 @@ pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> GitlabRe
     Ok(id)
 }
 
-/// Signs out the account the call named, or the default one.
 pub async fn sign_out(data_dir: &Path) -> GitlabResult<()> {
     let removed = store::sign_out::<GitlabConfig, _, _>(data_dir, chosen(), |account| {
         Ok(config::KEYCHAIN.delete(&account.keychain_account())?)

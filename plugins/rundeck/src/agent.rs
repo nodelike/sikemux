@@ -32,8 +32,6 @@ fn path_of(detail: &JobDetail) -> String {
     }
 }
 
-// ---- jobs -----------------------------------------------------------------
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OptionEntry {
@@ -287,8 +285,6 @@ pub async fn resolve(
     }
 }
 
-// ---- runs -----------------------------------------------------------------
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Outcome {
@@ -532,8 +528,6 @@ pub async fn execution(session: &Session, execution_id: u64, wait: bool) -> Rund
     Ok(outcome(execution))
 }
 
-// ---- history --------------------------------------------------------------
-
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Row {
@@ -620,8 +614,6 @@ pub async fn history(
         .map(|execution| row(execution, branch_options))
         .collect())
 }
-
-// ---- plan -----------------------------------------------------------------
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]

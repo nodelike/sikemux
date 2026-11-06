@@ -10,7 +10,6 @@ use sikemux_plugin_api::store::{self, Secrets};
 
 use crate::error::VercelResult;
 
-/// The Vercel account signed in.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {

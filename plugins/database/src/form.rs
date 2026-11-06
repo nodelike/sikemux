@@ -180,7 +180,6 @@ fn tls_named(mode: &str) -> Option<&'static str> {
     }
 }
 
-/// `text` with its `%xx` escapes turned back into the characters they stand for.
 fn decoded(text: &str) -> String {
     let mut out = Vec::with_capacity(text.len());
     let mut rest = text.as_bytes();

@@ -46,7 +46,6 @@ impl ApiPath for RepoRef {
     }
 }
 
-/// A person as GitLab describes them.
 #[derive(Deserialize, Default, Clone, Debug)]
 pub struct User {
     pub id: Option<u64>,
@@ -69,7 +68,6 @@ pub fn slug(repo: &Repo) -> String {
     format!("{}/{}", repo.owner, repo.name)
 }
 
-/// The project a git remote points at.
 pub fn from_remote(remote: &str) -> Option<Repo> {
     let (host, path) = answers::split_remote(remote)?;
     let (owner, name) = path.rsplit_once('/')?;

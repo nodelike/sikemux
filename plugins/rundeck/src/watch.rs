@@ -43,7 +43,6 @@ fn state_is_terminal(state: &WorkflowState) -> bool {
         })
 }
 
-/// Hands `each` the execution's state on every poll until it ends.
 pub async fn follow(
     session: &Session,
     execution_id: u64,

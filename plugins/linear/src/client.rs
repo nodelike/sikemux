@@ -31,7 +31,6 @@ pub struct Session {
 }
 
 impl Session {
-    /// The workspace named, or the default one.
     pub async fn of(data_dir: &Path, workspace: Option<&str>) -> LinearResult<Session> {
         let workspace = config::load(data_dir)?
             .account(workspace)

@@ -1,12 +1,4 @@
 // SigNoz: logs, service health and traces for the projects Sikemux has open.
-//
-//   config    — where SigNoz is, and the key in the Keychain the shell CLI shares
-//   client    — the HTTP client, size limits, and SigNoz's error shapes
-//   query     — v5 query_range builders, filter quoting, and time windows
-//   logs      — search
-//   services  — health per service, and one service's charts, endpoints and errors
-//   traces    — every span of one trace, ordered for a waterfall
-//   agent     — which method each of the agent's tools reaches
 
 mod agent;
 mod auth;

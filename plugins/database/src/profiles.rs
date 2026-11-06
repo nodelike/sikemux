@@ -28,7 +28,6 @@ pub enum Tls {
     VerifyFull,
 }
 
-/// A database server reached over the network.
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Server {
@@ -270,7 +269,6 @@ fn password_change(password: Option<&str>) -> PasswordChange<'_> {
     }
 }
 
-/// Saves the profile and its password, and returns it as saved.
 pub fn save(data_dir: &Path, request: SaveRequest) -> DatabaseResult<Profile> {
     let SaveRequest { profile, password } = request;
     let name = profile.name.trim().to_string();
@@ -323,7 +321,6 @@ pub fn save(data_dir: &Path, request: SaveRequest) -> DatabaseResult<Profile> {
     Ok(saved)
 }
 
-/// Lets agents change the database's data, or keeps them to reading it.
 pub fn set_agent_writes(data_dir: &Path, id: &str, on: bool) -> DatabaseResult<()> {
     let _turn = WRITING.locked();
     let mut profiles = load(data_dir)?;

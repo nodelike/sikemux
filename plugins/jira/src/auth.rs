@@ -12,7 +12,6 @@ use crate::config::{self, normalise_host, JiraConfig, SignIn as SiteSignIn, Site
 use crate::error::{JiraError, JiraResult};
 use crate::oauth;
 
-/// A Jira site signed in to.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct SiteStatus {

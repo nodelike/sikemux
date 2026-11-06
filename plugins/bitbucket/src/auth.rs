@@ -42,7 +42,6 @@ fn can_write(session: &Session) -> bool {
         || session.scopes.iter().any(|scope| scope == PIPELINE_WRITE)
 }
 
-/// The account the call named, or the default one.
 pub async fn status(data_dir: &Path) -> Status {
     let config = match config::load(data_dir) {
         Ok(config) => config,
@@ -129,7 +128,6 @@ pub struct TokenSignIn {
     pub email: Option<String>,
 }
 
-/// Adds the account the token belongs to, and says which one it is.
 pub async fn sign_in_with_token(data_dir: &Path, input: TokenSignIn) -> BitbucketResult<String> {
     let token = input.token.trim().to_string();
     let email = input
@@ -193,7 +191,6 @@ pub async fn sign_in_with_browser(data_dir: &Path, sink: &StreamSink) -> Bitbuck
     Ok(id)
 }
 
-/// Signs out the account the call named, or the default one.
 pub async fn sign_out(data_dir: &Path) -> BitbucketResult<()> {
     let removed = store::sign_out::<BitbucketConfig, _, _>(data_dir, chosen(), |account| {
         Ok(config::KEYCHAIN.delete(&account.keychain_account())?)

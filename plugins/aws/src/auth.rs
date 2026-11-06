@@ -1,10 +1,4 @@
 // Profile discovery and identity/SSO-login surface.
-//
-//   profiles     — parse ~/.aws/{config,credentials}, classify
-//   resolve      — which profile and region an agent's call runs as
-//   identity     — `sts get-caller-identity`, 60s per-process cache
-//   status       — whether the profile agents start on can sign in
-//   sso_login    — `aws sso login` (spawn-and-wait)
 
 use std::collections::HashMap;
 use std::fs;
@@ -19,10 +13,6 @@ use sikemux_process::sync::Locked;
 
 use crate::common::{classify_cli_err, run_aws_cli_async, Target};
 use crate::error::{AwsError, AwsResult};
-
-// ============================================================
-// profile discovery
-// ============================================================
 
 #[derive(Serialize, Clone, Copy, Debug)]
 #[serde(rename_all = "snake_case")]
@@ -61,10 +51,10 @@ fn credentials_path() -> Option<PathBuf> {
     aws_file("AWS_SHARED_CREDENTIALS_FILE", "credentials")
 }
 
-/// Parse an INI-style AWS config. Supports `[profile X]`, `[default]`, and
-/// `[sso-session Y]`. Returns `(profile_blocks, sso_session_blocks)`.
 type IniBlocks = HashMap<String, HashMap<String, String>>;
 
+/// Parses an INI-style AWS config with `[profile X]`, `[default]` and `[sso-session Y]`
+/// blocks. Returns `(profile_blocks, sso_session_blocks)`.
 fn parse_ini(content: &str) -> (IniBlocks, IniBlocks) {
     let mut profiles: HashMap<String, HashMap<String, String>> = HashMap::new();
     let mut sessions: HashMap<String, HashMap<String, String>> = HashMap::new();
@@ -224,10 +214,6 @@ pub(crate) fn profile_names() -> Vec<String> {
         .collect()
 }
 
-// ============================================================
-// caller identity (cached)
-// ============================================================
-
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum AwsStatus {
@@ -368,10 +354,6 @@ pub(crate) async fn status(ctx: &PluginContext) -> SignInStatus<Signed> {
     }
 }
 
-// ============================================================
-// SSO login
-// ============================================================
-
 #[derive(Serialize, Clone)]
 pub struct AwsLoginResult {
     success: bool,
@@ -382,8 +364,6 @@ pub struct AwsLoginResult {
 pub(crate) async fn sso_login(profile: String) -> AwsLoginResult {
     let target = Target::named(&profile);
     let r = run_aws_cli_async(&["sso", "login"], &target).await;
-    // Drop the cached "expired" identity so the next identity call doesn't
-    // lie about state.
     id_cache().locked().remove(&profile);
     match r {
         Ok((ok, out, err)) => AwsLoginResult {

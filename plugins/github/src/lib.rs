@@ -1,22 +1,5 @@
 // GitHub: the runs, pull requests, issues, releases and notifications of
 // whichever repository Sikemux has open.
-//
-//   config    — which GitHub this is, and where the token comes from
-//   client    — the HTTP client, size limits, and GitHub's error shapes
-//   auth      — signing in, signing out, and who the token belongs to
-//   repo      — a git remote turned into owner and repository
-//   workflows — the workflows a repository has, and starting one by hand
-//   runs      — runs, the jobs in one, and re-running or stopping them
-//   logs      — a job's log, and what GitHub flagged in it
-//   artifacts — what a run left behind, and putting one on disk
-//   approvals — a run held at an environment until somebody signs it off
-//   pulls     — pull requests, the files they touch, and merging one
-//   review    — what reviewers asked of a pull request, and answering it
-//   issues    — issues, and closing or reopening one
-//   releases  — releases, their notes and the files hung off them
-//   inbox     — the notifications GitHub would otherwise email
-//   common    — the shapes every part of the API repeats
-//   images    — avatars and pictures, handed to the window as data: addresses
 
 mod annotations;
 mod approvals;

@@ -31,7 +31,6 @@ pub struct Lane {
     turn: tokio::sync::Mutex<()>,
 }
 
-/// Runs an agent's SQL on the saved database the request names.
 pub async fn run(
     pool: &Pool,
     data_dir: &Path,
