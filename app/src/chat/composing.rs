@@ -124,6 +124,7 @@ pub struct Composing {
     pub read_rev: u64,
     /// A draft typed in another app, with this draft as it was when that came, and its revision.
     pub arrived: Option<(Sent, Value, u64)>,
+    pub saving: super::draft::Saving,
     pub _keeping: Task<()>,
     pub _heard: [Subscription; 2],
 }
@@ -1046,6 +1047,7 @@ impl Workbench {
             synced: json!({ "text": "" }),
             read_rev: 0,
             arrived: None,
+            saving: Default::default(),
             _keeping: Task::ready(()),
             _heard: [sending, keeping],
         }

@@ -295,6 +295,7 @@ pub struct GitPane {
     owners_asked: Vec<String>,
     /// The commit message as the core last kept it.
     synced: String,
+    saving: crate::chat::draft::Saving,
     _keeping: Task<()>,
     generating: bool,
     asking: Option<Asking>,
@@ -396,6 +397,7 @@ impl GitPane {
             commands: VecDeque::new(),
             commands_open: false,
             synced: String::new(),
+            saving: Default::default(),
             _keeping: Task::ready(()),
             generating: false,
             asking: None,
@@ -962,13 +964,16 @@ impl GitPane {
     /// the person has typed nothing since they last agreed, so their own words are never
     /// overwritten and their cursor never jumps.
     pub fn drafts(&mut self, drafts: &crate::reads::Drafts, cx: &mut Context<Self>) {
+        if self.saving.on_its_way() {
+            return;
+        }
         let kept = (drafts.get(&self.draft_key()))
             .map(|draft| draft.text.clone())
             .unwrap_or_default();
         if kept == self.synced {
             return;
         }
-        if self.draft.read(cx).value().as_ref() == self.synced {
+        if self.written.take().is_some() || self.draft.read(cx).value().as_ref() == self.synced {
             self.written = Some(kept.clone());
             cx.notify();
         }
@@ -981,7 +986,7 @@ impl GitPane {
             cx.background_executor().timer(DRAFT_PAUSE).await;
             pane.update(cx, |pane, cx| {
                 let text = pane.draft.read(cx).value().to_string();
-                pane.keep_draft(text);
+                pane.keep_draft(text, cx);
             })
             .ok();
         });
@@ -989,21 +994,22 @@ impl GitPane {
 
     /// Puts `text` in the commit box and keeps it as the draft.
     fn write(&mut self, text: String, cx: &mut Context<Self>) {
-        self.keep_draft(text.clone());
+        self.keep_draft(text.clone(), cx);
         self.written = Some(text);
         cx.notify();
     }
 
-    fn keep_draft(&mut self, text: String) {
+    fn keep_draft(&mut self, text: String, cx: &App) {
         if text == self.synced {
             return;
         }
         self.synced = text.clone();
-        self.core.call_typed::<call::SetDraft>(SetDraftParams {
+        let params = SetDraftParams {
             key: self.draft_key(),
             text,
             extra: None,
             rev: None,
-        });
+        };
+        self.saving.save(&self.core, params, cx);
     }
 }

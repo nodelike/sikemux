@@ -3,7 +3,9 @@
 //! A draft from elsewhere replaces this one only while nothing was typed here since the two
 //! last agreed, so the person's own words are never overwritten.
 
+use std::cell::Cell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::base::input::{InlineToken, InputContent};
@@ -14,6 +16,7 @@ use sikemux_core::server::calls::AgentParams;
 use sikemux_core::server::drafts::SetDraftParams;
 
 use super::{Composing, Sent};
+use crate::core::Target;
 use crate::reads::Drafts;
 use crate::workbench::Workbench;
 
@@ -132,6 +135,31 @@ fn rev(drafts: &Drafts, agent: &str) -> u64 {
     drafts.get(&key(agent)).map_or(0, |draft| draft.rev)
 }
 
+/// Saves of a draft the core has not answered yet. A read of the drafts that crossed one on the
+/// way is older than the save, and would bring back the words it replaced.
+#[derive(Clone, Default)]
+pub struct Saving(Rc<Cell<u32>>);
+
+impl Saving {
+    pub fn on_its_way(&self) -> bool {
+        self.0.get() > 0
+    }
+
+    pub fn save(&self, target: &Target, params: SetDraftParams, cx: &App) {
+        self.0.set(self.0.get() + 1);
+        let saved = target.request_typed::<call::SetDraft>(params);
+        let saving = self.0.clone();
+        cx.foreground_executor()
+            .spawn(async move {
+                if let Err(error) = saved.await {
+                    eprintln!("sikemux: the core did not keep a draft: {error}");
+                }
+                saving.set(saving.get() - 1);
+            })
+            .detach();
+    }
+}
+
 /// Takes the drafts the core keeps into every composer, of chats on this host or `elsewhere`,
 /// that has not moved on; Home's is this host's.
 pub fn take(
@@ -147,13 +175,20 @@ pub fn take(
         .filter(|_| !elsewhere)
         .map(|start| (super::START, start));
     for (owner, composing) in open.chain(start) {
+        if composing.saving.on_its_way() {
+            continue;
+        }
         let draft = held(drafts, owner);
         if draft == composing.synced {
             composing.read_rev = rev(drafts, owner);
             continue;
         }
         let shown = kept(composing, cx);
-        if shown == composing.synced {
+        let untouched = match composing.arrived.take() {
+            Some((_, was, _)) => shown == was,
+            None => shown == composing.synced,
+        };
+        if untouched {
             composing.arrived = Some((restored(&draft), shown, rev(drafts, owner)));
             cx.notify();
         }
@@ -207,11 +242,12 @@ impl Workbench {
             extra: draft.get("extra").cloned(),
             rev: Some(composing.read_rev),
         };
+        let saving = composing.saving.clone();
         let target = match agent {
             super::START => crate::core::Target::here(&self.asks),
             chat => self.chat_target(chat),
         };
-        target.call_typed::<call::SetDraft>(params);
+        saving.save(&target, params, cx);
     }
 }
 
