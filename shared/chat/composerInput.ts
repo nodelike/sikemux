@@ -10,7 +10,9 @@ export function commandMatches(commands: readonly ChatCommandInfo[], needle: str
 
 /** The command a message opens with that the session does not offer. A session that lists none is taken at its word. */
 export function unknownCommand(text: string, commands: readonly ChatCommandInfo[]): string | null {
-    const name = /^\/(\S+)/.exec(text)?.[1];
+    const word = /^\/(\S+)/.exec(text)?.[1];
+    /* Only a first word like `/name` counts, so a path such as `/usr/bin` goes to the agent as text. */
+    const name = word && /^[\p{L}\p{N}_:.-]+$/u.test(word) ? word : null;
     return name && commands.length > 0 && !commands.some((command) => command.name === name) ? name : null;
 }
 

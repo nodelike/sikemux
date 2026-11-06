@@ -1,3 +1,4 @@
+import { EXTENSIONLESS } from "../wire.generated";
 import { expandHome, fileUriToPath, joinPath, normalizePath } from "../lib/paths";
 
 /** A reference to a file, resolved far enough to open it. */
@@ -44,13 +45,13 @@ function splitLocation(raw: string): { body: string; line?: number; column?: num
 /* A bare name is only a file reference when it carries an extension or is one
    of the few names a project spells out in full. Everything else needs a
    separator to tell it apart from an ordinary word. */
-const EXTENSIONLESS = new Set(["makefile", "dockerfile", "license", "readme", "changelog", "procfile", "justfile", "rakefile", "gemfile"]);
+const EXTENSIONLESS_NAMES = new Set(EXTENSIONLESS);
 const HAS_EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 
 function looksRelative(body: string): boolean {
     if (body.includes("/") || body.includes("\\")) return true;
     if (body.startsWith(".")) return true;
-    return HAS_EXTENSION.test(body) || EXTENSIONLESS.has(body.toLowerCase());
+    return HAS_EXTENSION.test(body) || EXTENSIONLESS_NAMES.has(body.toLowerCase());
 }
 
 /**
@@ -96,7 +97,7 @@ function candidateFrom(token: string, offset: number): PathCandidate | null {
     const inner = token.slice(leading).replace(TRAILING_NOISE, "");
     if (!inner) return null;
     const separated = inner.includes("/") || inner.includes("\\");
-    if (!separated && !HAS_EXTENSION.test(inner) && !EXTENSIONLESS.has(inner.toLowerCase())) return null;
+    if (!separated && !HAS_EXTENSION.test(inner) && !EXTENSIONLESS_NAMES.has(inner.toLowerCase())) return null;
     if (URL_SCHEME.test(inner) && !/^file:\/\//i.test(inner) && !WINDOWS_DRIVE.test(inner)) return null;
     return { start: offset + leading, end: offset + leading + inner.length, raw: inner };
 }

@@ -14,6 +14,17 @@ export const EARLIER_URI = "sikemux://earlier/";
 export const WOKEN_URI = "sikemux://woken/";
 export const STASH_URI = "sikemux://stash/";
 export const ANSWER_URI = "sikemux://answer/";
+export const EXTENSIONLESS: readonly string[] = [
+    "makefile",
+    "dockerfile",
+    "license",
+    "readme",
+    "changelog",
+    "procfile",
+    "justfile",
+    "rakefile",
+    "gemfile",
+];
 
 /** What the phone reads once it opens a sealed notification. */
 export interface NotificationCard {

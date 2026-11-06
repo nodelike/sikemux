@@ -496,6 +496,16 @@ async function uris() {
   }).join("\n");
 }
 
+/** The bare names a project spells out in full, which are files without an extension. */
+async function extensionless() {
+  const text = await readFile(resolve(root, `${MARKDOWN}/paths.rs`), "utf8");
+  const names = /pub const EXTENSIONLESS: \[&str; \d+\] = \[([^\]]*)\]/.exec(
+    text,
+  )?.[1];
+  if (!names) fail(`${MARKDOWN}/paths.rs has no EXTENSIONLESS`);
+  return `export const EXTENSIONLESS: readonly string[] = [${names}];`;
+}
+
 const PRIMITIVES = {
   String: "string",
   PathBuf: "string",
@@ -1470,7 +1480,7 @@ for (const [, variant, key] of gateKeys) {
 
 await emit(
   OUTPUTS.ts,
-  `${typescript(TS_ROOTS, `${limits}\n${await uris()}\n\n`)}\n${defaults}\n`,
+  `${typescript(TS_ROOTS, `${limits}\n${await uris()}\n${await extensionless()}\n\n`)}\n${defaults}\n`,
 );
 await emit(OUTPUTS.notch, swift());
 await emit(OUTPUTS.cardSwift, cardSwift());

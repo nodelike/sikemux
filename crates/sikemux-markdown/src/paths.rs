@@ -6,7 +6,7 @@ use std::ops::Range;
 use crate::{Element, Node};
 
 /// Names a project spells out in full, which are files without an extension.
-const EXTENSIONLESS: [&str; 9] = [
+pub const EXTENSIONLESS: [&str; 9] = [
     "makefile",
     "dockerfile",
     "license",
