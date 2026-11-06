@@ -313,6 +313,11 @@ pub fn run_with_pid(
     })
 }
 
+/// `text` as one word for a POSIX shell.
+pub fn single_quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -378,9 +383,4 @@ mod tests {
         assert!(matches!(error, ProcessRunError::Cancelled), "{error}");
         assert!(started.elapsed() < Duration::from_secs(5));
     }
-}
-
-/// `text` as one word for a POSIX shell.
-pub fn single_quoted(text: &str) -> String {
-    format!("'{}'", text.replace('\'', r"'\''"))
 }
