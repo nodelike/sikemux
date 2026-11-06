@@ -42,7 +42,6 @@ pub struct AcpModes {
     pub bypass: &'static str,
 }
 
-/// How the core drives the agent in a chat.
 pub enum ChatDriver {
     Claude,
     Codex,
@@ -67,7 +66,6 @@ pub struct Home {
     pub variable: &'static str,
     pub dir: &'static str,
     pub within: Option<&'static str>,
-    /// The folder its saved sessions sit in.
     pub sessions: Option<&'static str>,
     /// What an account's folder Sikemux makes links to the default account's.
     pub account_links: Option<AccountLinks>,
@@ -111,7 +109,6 @@ pub struct Routed {
     pub rank: u8,
 }
 
-/// How the agent reaches a connected model provider.
 pub enum ProviderUse {
     /// Sikemux points it at one in place of its maker's account.
     Routed,
@@ -155,7 +152,6 @@ pub struct AgentEntry {
     pub terminal: Terminal,
     pub chat: Option<ChatDriver>,
     pub providers: Option<ProviderUse>,
-    /// How Sikemux points it at a provider, when it can.
     pub routed: Option<Routed>,
 }
 
