@@ -3,8 +3,7 @@
  * terminals and chats, written to read well in a screenshot.
  */
 
-import type { PermissionMode } from '@shared/wire.generated';
-import type { ChatMessage, ChatPart, ChatView, PermissionAsk, ToolAction, ToolCall } from '@shared/chat/types';
+import type { PermissionMode, ChatMessage, ChatPart, ChatView, PermissionAsk, ToolAction, ToolCall } from '@shared/wire.generated';
 
 export const CORE = 'showcase0000000000000000000000000000000000000000000000000000core';
 export const HOST = { name: 'MacBook Pro', model: 'MacBook Pro' };

@@ -11,7 +11,8 @@ import { ChatMessageRow } from "./ChatMessageRow";
 import { FoldMemoryContext, type FoldMemory } from "@shared/chat/longText";
 import { copyText, EARLIER_LOST, rowTime } from "@shared/chat/messageMeta";
 import { PermissionRequest } from "./PermissionRequest";
-import type { ChatMessage, ChatRows } from "@shared/chat/types";
+import type { ChatMessage } from "@shared/wire.generated";
+import type { ChatRows } from "@shared/chat/rows";
 import { WorkSummary } from "./WorkSummary";
 
 /* A long transcript mounts its newest rows first and the older ones above

@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import type { AccountMove, AgentNotice, ChatPart, TaskNotice as Notice } from '@shared/chat/types';
+import type { AccountMove, AgentNotice, ChatPart, TaskNotice as Notice } from '@shared/wire.generated';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useFold } from './folds';

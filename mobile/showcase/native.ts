@@ -5,8 +5,7 @@
  */
 import type { MdElement } from '@shared/markdown/types';
 import AGENT_CATALOG from '../../shared/agents/catalog.generated.json';
-import type { ChatMessage } from '@shared/chat/types';
-import type { CoreCalls } from '@shared/wire.generated';
+import type { ChatMessage, CoreCalls } from '@shared/wire.generated';
 import { ChatAttachment, CoreEvent, MobileError } from '../app/test/mocks/sikemux-native';
 import {
   BOARDS,

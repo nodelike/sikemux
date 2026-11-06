@@ -23,7 +23,7 @@ import type {
   AsyncTask,
   SubagentCard,
   WorkflowAgent,
-} from "@shared/chat/types";
+} from "@shared/wire.generated";
 
 type GroupFolds = {
   folded: ReadonlySet<string>;

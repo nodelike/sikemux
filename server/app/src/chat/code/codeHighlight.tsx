@@ -10,8 +10,8 @@ import {
 import { currentTheme, subscribeTheme } from "../themes/bus";
 import { codeThemeName } from "@shared/chat/codeTheme";
 import { grammarFor } from "@shared/languages/index";
-import type { CodeLine, CodeToken } from "@shared/chat/types";
-import type { DiffLine } from "@shared/chat/types";
+import type { CodeLine, CodeToken } from "./tokens";
+import type { DiffLine } from "@shared/wire.generated";
 import type * as ShikiTokens from "./shikiTokens";
 
 /** The grammar a fence asks for, whether it names a language or a file. */

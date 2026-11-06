@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { unknownCommand } from '@shared/chat/composerInput';
 import { currentLabel } from '@/chat/sessionConfig';
 import type { ChatRows } from '@shared/chat/rows';
-import type { ChatCommandInfo, PermissionAsk } from '@shared/chat/types';
+import type { ChatCommandInfo, PermissionAsk } from '@shared/wire.generated';
 import { problem } from '@/core/problem';
 import { haptics } from '@/ui/haptics';
 import { AgentIcon, Icon } from '@/ui/Icon';

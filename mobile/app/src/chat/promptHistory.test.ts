@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sentPrompts } from './promptHistory';
-import type { ChatMessage } from '@shared/chat/types';
+import type { ChatMessage } from '@shared/wire.generated';
 
 const said = (role: ChatMessage['role'], text: string): ChatMessage => ({
   id: text,

@@ -1,5 +1,5 @@
 import { commandMatches } from '@shared/chat/composerInput';
-import type { ChatCommandInfo } from '@shared/chat/types';
+import type { ChatCommandInfo } from '@shared/wire.generated';
 
 /** The agent's slash commands with what is typed anywhere in their name, while only a command is typed. */
 export function matchingCommands(commands: ChatCommandInfo[], typed: string): ChatCommandInfo[] {

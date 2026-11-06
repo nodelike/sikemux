@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { Keyboard } from 'react-native';
 
-import type { ChatMessage } from '@shared/chat/types';
+import type { ChatMessage } from '@shared/wire.generated';
 
 import type { ChatSession } from './session';
 

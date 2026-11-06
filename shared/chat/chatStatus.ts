@@ -1,5 +1,5 @@
 import { activityLabel } from "./toolLabels";
-import type { ChatRows } from "./types";
+import type { ChatRows } from "./rows";
 
 /** What the line under the last row says the chat is doing, from what the core says it is doing. */
 export function activityText(activity: ChatRows["activity"]): string | null {

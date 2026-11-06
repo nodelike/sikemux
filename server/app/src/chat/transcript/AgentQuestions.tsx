@@ -1,7 +1,7 @@
 import { AgentMark } from "../agents/AgentMark";
 import { IconLock } from "@shared/ui/Icons";
 import { SECRET_ANSWERED } from "@shared/chat/agentLetters";
-import type { AgentLetter } from "@shared/chat/types";
+import type { AgentLetter } from "@shared/wire.generated";
 
 /** A question as it reads once answered: who asked, its words, and the answer in one line, or only that it was answered when the answer is a secret. */
 export function AnsweredQuestion({ letter }: { letter: AgentLetter }) {

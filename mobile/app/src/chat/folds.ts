@@ -1,6 +1,6 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 
-import type { ChatMessage } from '@shared/chat/types';
+import type { ChatMessage } from '@shared/wire.generated';
 
 /**
  * Which tool groups and rows in a transcript the person opened or closed, kept outside the rows

@@ -1,4 +1,4 @@
-import type { ChatMessage } from "./types";
+import type { ChatMessage } from "../wire.generated";
 
 /** Said above a chat whose host no longer keeps its first turns. */
 export const EARLIER_LOST = "Earlier messages are no longer kept.";

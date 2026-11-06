@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ChatAttachment, MobileError, type ConnectionLike } from '@sikemux/native';
 
-import type { ChatChange, ChatMessage, PermissionAsk } from '@shared/chat/types';
-import type { ChatInfo, ChatState } from '@shared/wire.generated';
+import type { ChatChange, ChatMessage, PermissionAsk, ChatInfo, ChatState } from '@shared/wire.generated';
 import type { ChatDelivery } from '@/devices/hub';
 import { ChatSession } from './session';
 import type { Attachment } from './uploads';

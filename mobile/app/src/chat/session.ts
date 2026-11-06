@@ -2,8 +2,7 @@ import { ChatAttachment, type ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
 import { applyChanges, type ChatRows } from '@shared/chat/rows';
-import type { ChatChange, ChatView, PermissionAsk, ToolDetail } from '@shared/chat/types';
-import type { ChatInfo, FindAnswer, FindParams } from '@shared/wire.generated';
+import type { ChatChange, ChatView, PermissionAsk, ToolDetail, ChatInfo, FindAnswer, FindParams } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';

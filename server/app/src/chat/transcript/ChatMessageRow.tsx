@@ -48,7 +48,7 @@ import type {
   ContentBlock,
   SubagentCard,
   TaskNotice,
-} from "@shared/chat/types";
+} from "@shared/wire.generated";
 import { ContextChipLabel } from "./ContextChip";
 import type { MdElement } from "@shared/markdown/types";
 import { Shimmer } from "../ui/Shimmer";

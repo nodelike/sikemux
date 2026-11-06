@@ -1,5 +1,5 @@
 import { IconShieldBolt } from "@shared/ui/Icons";
-import type { PermissionAsk } from "@shared/chat/types";
+import type { PermissionAsk } from "@shared/wire.generated";
 
 export function PermissionRequest({ request }: { request: PermissionAsk }) {
   return (

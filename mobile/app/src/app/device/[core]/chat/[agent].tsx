@@ -10,7 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { activityText, composerPlaceholder } from '@shared/chat/chatStatus';
 import { sentPrompts } from '@/chat/promptHistory';
-import type { ChatMessage } from '@shared/chat/types';
+import type { ChatMessage } from '@shared/wire.generated';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { FindBar } from '@/chat/FindBar';
 import { FindingContext } from '@/chat/found';

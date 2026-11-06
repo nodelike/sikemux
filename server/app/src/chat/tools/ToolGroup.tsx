@@ -12,7 +12,7 @@ import { Shimmer } from "../ui/Shimmer";
 import { ToolRow } from "./ToolRow";
 import { durationLabel } from "@shared/chat/durationLabel";
 import { callCount, callsLabel, toolGroupSummary } from "@shared/chat/toolView";
-import type { ChatPart } from "@shared/chat/types";
+import type { ChatPart } from "@shared/wire.generated";
 
 /* A run of tool calls is worth watching while the agent is still adding to it
    and worth folding away once it has moved on, so it stays open until

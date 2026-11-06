@@ -2,7 +2,7 @@ import { memo, useMemo, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { collapseDiff } from '@shared/chat/diff';
-import type { DiffLine, ToolDiff } from '@shared/chat/types';
+import type { DiffLine, ToolDiff } from '@shared/wire.generated';
 import { counted } from '@/devices/words';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, translucent, useColors, useStyles } from '@/ui/theme';

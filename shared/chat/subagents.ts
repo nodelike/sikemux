@@ -1,4 +1,4 @@
-import type { ChatMessage, SubagentCard } from "./types";
+import type { ChatMessage, SubagentCard } from "../wire.generated";
 
 /** The chat's subagents: each one's card by its session, for a notice that names one, and the rows it wrote. */
 export type Subagents = { card: (sessionId: string) => SubagentCard | undefined; rows: Readonly<Record<string, ChatMessage[]>> };

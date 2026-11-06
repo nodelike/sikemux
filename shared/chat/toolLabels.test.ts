@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { activityLabel, toolKind, toolUrl } from "./toolLabels";
-import type { ToolCall } from "./types";
+import type { ToolCall } from "../wire.generated";
 
 const call = (title: string, extra: Partial<ToolCall> = {}): ToolCall => ({
     toolCallId: "t1",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { emptyChat } from '@shared/chat/rows';
-import type { AsyncTask, SubagentCard } from '@shared/chat/types';
+import type { AsyncTask, SubagentCard } from '@shared/wire.generated';
 import { hasLiveWork, liveKey, liveWork } from './liveWork';
 
 const subagent = (sessionId: string, name: string): SubagentCard => ({ sessionId, name, task: 'look around', state: 'running', calls: 0 });

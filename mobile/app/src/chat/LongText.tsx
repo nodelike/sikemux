@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 import { cutLongBlocks, showRestLabel } from '@shared/chat/longText';
 import type { MdElement } from '@shared/markdown/types';
 import { revealBlocks, visibleText } from '@shared/markdown/visible';
-import type { PartTree } from '@shared/chat/types';
+import type { PartTree } from '@shared/wire.generated';
 import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { FoldsContext, useFold } from './folds';
 import { FindingContext, markBlocks } from './found';

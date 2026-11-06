@@ -1,7 +1,6 @@
 import type { ChatRows } from '@shared/chat/rows';
-import type { PlanEntry } from '@shared/wire.generated';
+import type { PlanEntry, AsyncTask, SubagentCard } from '@shared/wire.generated';
 import { groupTasks, subagentActivity, taskDetail, workflowAgentDetail } from '@shared/chat/transcript';
-import type { AsyncTask, SubagentCard } from '@shared/chat/types';
 import { counted } from '@/devices/words';
 import type { Held } from './outbox';
 

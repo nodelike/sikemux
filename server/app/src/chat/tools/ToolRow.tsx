@@ -78,7 +78,7 @@ import {
   type ToolIconName,
 } from "@shared/chat/toolView";
 import { attachmentName } from "@shared/chat/transcript";
-import type { ChatPart, ToolCall, ToolOutput } from "@shared/chat/types";
+import type { ChatPart, ToolCall, ToolOutput } from "@shared/wire.generated";
 
 const TOOL_ICONS: Record<ToolIconName, ComponentType<{ size?: number }>> = {
   activity: IconActivity,

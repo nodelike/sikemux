@@ -4,8 +4,8 @@ import { OVER_LIMIT_WAIT_MS, reconnectDelay, SignInRenewal } from "../account/re
 import { agentLabel, setAgentCatalog } from "../agents/catalog";
 import { imageType } from "../lib/imagePaths";
 import { applyChanges, emptyChat, fromView, withPage } from "../chat/rows";
-import type { ChatChange, ChatRows, ToolDetail } from "../chat/types";
-import type { ShareAsk, SharedChat, ShareFrame, ShareReply } from "../wire.generated";
+import type { ChatChange, ToolDetail, ShareAsk, SharedChat, ShareFrame, ShareReply } from "../wire.generated";
+import type { ChatRows } from "../chat/rows";
 import type { ShareCipher } from "./cipher";
 import type { ShareLink } from "./link";
 

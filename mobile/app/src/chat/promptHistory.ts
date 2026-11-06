@@ -1,4 +1,4 @@
-import type { ChatMessage } from '@shared/chat/types';
+import type { ChatMessage } from '@shared/wire.generated';
 
 /** What the person sent in this chat, oldest first, with a message repeated back to back kept once. */
 export function sentPrompts(messages: readonly ChatMessage[], queued: readonly string[] = []): string[] {

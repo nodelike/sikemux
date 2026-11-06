@@ -1,4 +1,4 @@
-import type { ContextUsage } from "./types";
+import type { ContextUsage } from "../wire.generated";
 
 type ContextTone = "steady" | "warm" | "hot";
 

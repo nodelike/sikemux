@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { attachmentName, decodedFenceName, formatDetail, groupParts, groupTasks, subagentActivity, taskDetail } from "./transcript";
-import type { AsyncTask, SubagentCard, ChatPart } from "./types";
+import type { AsyncTask, SubagentCard, ChatPart } from "../wire.generated";
 
 const text = (id: string): ChatPart => ({ id, kind: "text", text: id });
 const tool = (id: string): ChatPart => ({

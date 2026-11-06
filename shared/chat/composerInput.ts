@@ -1,4 +1,4 @@
-import type { ChatCommandInfo } from "./types";
+import type { ChatCommandInfo } from "../wire.generated";
 
 const MAX_COMMANDS = 8;
 

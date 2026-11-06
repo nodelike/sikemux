@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { queuedLabel } from './queuedMessages';
-import type { QueuedMessage } from '@shared/chat/types';
+import type { QueuedMessage } from '@shared/wire.generated';
 
 const queued = (id: string, text: string, paths: string[] = [], context: QueuedMessage['context'] = []): QueuedMessage => ({
   id,

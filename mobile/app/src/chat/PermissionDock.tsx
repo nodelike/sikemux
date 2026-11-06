@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { toolKind } from '@shared/chat/toolLabels';
-import type { PermissionAsk, ToolCall } from '@shared/chat/types';
+import type { PermissionAsk, ToolCall } from '@shared/wire.generated';
 import { agentLabel } from '@shared/agents/catalog';
 import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';

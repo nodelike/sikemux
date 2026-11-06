@@ -15,7 +15,7 @@ import {
   toolIconName,
   type ToolIconName,
 } from '@shared/chat/toolView';
-import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/chat/types';
+import type { ChatPart, ToolCall, ToolDetail as Detail, ToolOutput } from '@shared/wire.generated';
 import { problem as problemOf } from '@/core/problem';
 import { CopyButton } from '@/ui/CopyButton';
 import { Icon } from '@/ui/Icon';

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { toolRunning } from "./toolLabels";
-import type { ChatPart, ToolDetail } from "./types";
+import type { ChatPart, ToolDetail } from "../wire.generated";
 
 type ToolPart = Extract<ChatPart, { kind: "tool" }>;
 

@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { contextChip, type ContextChip } from '@shared/chat/promptContext';
-import type { SentContext } from '@shared/chat/types';
+import type { SentContext } from '@shared/wire.generated';
 import { Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';

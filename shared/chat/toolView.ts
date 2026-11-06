@@ -1,7 +1,7 @@
 import { durationLabel, elapsedLabel } from "./durationLabel";
 import { toolKind, toolRunning } from "./toolLabels";
 import type { ToolRowIcon } from "./toolRows";
-import type { ChatPart, ToolAction, ToolCall } from "./types";
+import type { ChatPart, ToolAction, ToolCall } from "../wire.generated";
 
 type ToolPart = Extract<ChatPart, { kind: "tool" }>;
 

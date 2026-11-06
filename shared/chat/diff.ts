@@ -1,4 +1,4 @@
-import type { DiffLine } from "./types";
+import type { DiffLine } from "../wire.generated";
 
 function splitLines(text: string): string[] {
     if (text === "") return [];

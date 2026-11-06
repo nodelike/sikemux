@@ -1,7 +1,7 @@
 import { tokenCount } from "./contextUsage";
 import { toolKind } from "./toolLabels";
 import { callCount } from "./toolView";
-import type { AsyncTask, ChatPart, SubagentCard, WorkflowAgent } from "./types";
+import type { AsyncTask, ChatPart, SubagentCard, WorkflowAgent } from "../wire.generated";
 
 const MAX_DETAIL_CHARS = 120_000;
 

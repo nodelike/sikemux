@@ -1,7 +1,7 @@
 import { MobileError, type ChatMark, type ConnectionLike } from '@sikemux/native';
 
 import { applyChanges, emptyChat, fromView, withPage, type ChatRows } from '@shared/chat/rows';
-import type { ChatChange, ChatPage, ChatView, ToolDetail } from '@shared/chat/types';
+import type { ChatChange, ChatPage, ChatView, ToolDetail } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
 import type { ChatDelivery } from '@/devices/hub';

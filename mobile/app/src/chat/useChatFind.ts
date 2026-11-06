@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { shownParts } from '@shared/chat/transcript';
-import type { ChatMessage } from '@shared/chat/types';
-import type { FindHit } from '@shared/wire.generated';
+import type { ChatMessage, FindHit } from '@shared/wire.generated';
 
 import { ChatFind } from './chatFind';
 import { rowFold } from './folds';

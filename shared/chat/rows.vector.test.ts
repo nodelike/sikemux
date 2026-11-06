@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { applyChanges, emptyChat, fromView } from "./rows";
-import type { ChatChange, ChatView } from "./types";
+import type { ChatChange, ChatView } from "../wire.generated";
 
 /* Written by the fold's own test from a real chat, so the fold and this applier cannot drift. */
 const vector = JSON.parse(readFileSync(join(import.meta.dirname, "../../crates/sikemux-fold/vectors/changes.json"), "utf8")) as {

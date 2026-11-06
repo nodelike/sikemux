@@ -1,4 +1,4 @@
-import type { SentContext } from "./types";
+import type { SentContext } from "../wire.generated";
 
 export interface ContextChip {
     kind: "issue" | "pull" | null;

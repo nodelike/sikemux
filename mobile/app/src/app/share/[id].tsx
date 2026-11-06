@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { activityText } from '@shared/chat/chatStatus';
 import { subagentsOf } from '@shared/chat/subagents';
-import type { ChatMessage } from '@shared/chat/types';
+import type { ChatMessage } from '@shared/wire.generated';
 import { shareUrl } from '@shared/account/live';
 import { parseShareLink, type ShareLink } from '@shared/share/link';
 import { sharedChatTitle, ShareSession, type ShareSnapshot } from '@shared/share/session';

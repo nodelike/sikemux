@@ -2,7 +2,7 @@ import type { ConnectionLike } from '@sikemux/native';
 import { randomUUID } from 'expo-crypto';
 
 import type { ChatRows } from '@shared/chat/rows';
-import type { ChatMessage, QueuedMessage } from '@shared/chat/types';
+import type { ChatMessage, QueuedMessage } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
 import { problem as problemOf } from '@/core/problem';

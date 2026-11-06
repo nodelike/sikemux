@@ -2,7 +2,7 @@ import { Pressable, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
 import { contextShare, contextTone } from '@shared/chat/contextUsage';
-import type { ContextUsage } from '@shared/chat/types';
+import type { ContextUsage } from '@shared/wire.generated';
 import { agentReadsUsage, useAgentBrand } from '@shared/agents/catalog';
 import { type Palette, useColors, useStyles } from '@/ui/theme';
 

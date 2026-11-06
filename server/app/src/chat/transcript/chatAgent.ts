@@ -1,7 +1,7 @@
 import { createContext } from "react";
 import type { AgentType } from "@shared/agents/catalog";
 import type { Subagents } from "@shared/chat/subagents";
-import type { ToolDetail } from "@shared/chat/types";
+import type { ToolDetail } from "@shared/wire.generated";
 
 export const ChatAgentContext = createContext<AgentType>("agent");
 

@@ -9,7 +9,7 @@ import {
   workflowAgentCount,
   workflowAgentDetail,
 } from '@shared/chat/transcript';
-import type { WorkflowAgent } from '@shared/chat/types';
+import type { WorkflowAgent } from '@shared/wire.generated';
 import { queuedLabel } from '@/chat/queuedMessages';
 import { AgentIcon, Icon } from '@/ui/Icon';
 import type { IconName } from '@/ui/icons.generated';

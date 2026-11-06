@@ -1,6 +1,5 @@
 import { safeWebUrl } from "../lib/urls";
-import type { ToolRow } from "../wire.generated";
-import type { ToolAction, ToolCall } from "./types";
+import type { ToolRow, ToolAction, ToolCall } from "../wire.generated";
 
 /* The core works out what each call did and to what; these are only the words the app says it in. */
 const ACTION_WORDS: Record<ToolAction, string> = {

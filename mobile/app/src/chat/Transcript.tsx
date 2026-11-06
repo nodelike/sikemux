@@ -16,7 +16,7 @@ import {
   type SubagentMark,
 } from '@shared/chat/transcript';
 import { callsLabel, workedLabel } from '@shared/chat/toolView';
-import type { ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice as Notice } from '@shared/chat/types';
+import type { ChatMessage, ChatPart, ContentBlock, SubagentCard, TaskNotice as Notice } from '@shared/wire.generated';
 import { CopyButton } from '@/ui/CopyButton';
 import { haptics } from '@/ui/haptics';
 import { AgentFace } from '@/devices/Buddy';
