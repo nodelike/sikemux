@@ -13,7 +13,11 @@ const FILE: &str = "data-format.json";
 type Step = fn(&Path, &ServerConfig) -> std::io::Result<()>;
 
 /// Each step takes the folder from the format of its index to the next.
-const STEPS: [Step; 2] = [prompts_say_whether_shown, host_key_named_by_socket_path];
+const STEPS: [Step; 3] = [
+    prompts_say_whether_shown,
+    host_key_named_by_socket_path,
+    activity_database_in_the_data_folder,
+];
 
 pub(crate) fn upgrade(config: &ServerConfig) {
     let Some(data_dir) = config.data_dir.as_deref() else {
@@ -60,6 +64,31 @@ pub(crate) fn upgrade(config: &ServerConfig) {
             format + 1
         );
     }
+}
+
+/// The app kept the activity database before the core did: it moves over, for the core that
+/// shares the app's data folder.
+fn activity_database_in_the_data_folder(
+    data_dir: &Path,
+    _: &ServerConfig,
+) -> std::io::Result<()> {
+    if data_dir.file_name() != Some(sikemux_process::names::APP_IDENTIFIER.as_ref()) {
+        return Ok(());
+    }
+    let path = data_dir.join(super::activity_log::DATABASE);
+    let Some(old) = sikemux_process::paths::config_file("activity", "sqlite3") else {
+        return Ok(());
+    };
+    if path.exists() || !old.exists() {
+        return Ok(());
+    }
+    for suffix in ["", "-wal", "-shm"] {
+        let from = std::path::PathBuf::from(format!("{}{suffix}", old.display()));
+        if from.exists() {
+            let _ = std::fs::rename(&from, format!("{}{suffix}", path.display()));
+        }
+    }
+    Ok(())
 }
 
 /// Format 0 cores named the client a prompt to send again came from, or

@@ -41,7 +41,7 @@ const HEATMAP_DAYS: i64 = 371;
 const MAX_TRANSCRIPT_READ: u64 = 64 * 1024 * 1024;
 const MAX_TURN_COMMITS: usize = 500;
 const GIT_TIMEOUT: Duration = Duration::from_secs(5);
-const DATABASE: &str = "activity.sqlite3";
+pub(super) const DATABASE: &str = "activity.sqlite3";
 const PRICES: &str = "activity-prices.json";
 
 /// Where an agent works and the transcript its CLI writes, as the core knows
@@ -156,28 +156,9 @@ pub(crate) struct ActivityLog {
     feed: Option<Feed>,
 }
 
-/// The database the app kept before the core did, moved over once.
-fn take_over_app_database(path: &Path) {
-    let Some(old) = sikemux_process::paths::config_file("activity", "sqlite3") else {
-        return;
-    };
-    if path.exists() || !old.exists() {
-        return;
-    }
-    for suffix in ["", "-wal", "-shm"] {
-        let from = PathBuf::from(format!("{}{suffix}", old.display()));
-        if from.exists() {
-            let _ = fs::rename(&from, format!("{}{suffix}", path.display()));
-        }
-    }
-}
-
 impl ActivityLog {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let path = data_dir.map(|dir| dir.join(DATABASE));
-        if let Some(dir) = super::from_app::app_data_dir(data_dir) {
-            take_over_app_database(&dir.join(DATABASE));
-        }
         Self {
             path,
             prices_path: data_dir.map(|dir| dir.join(PRICES)),

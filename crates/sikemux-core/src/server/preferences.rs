@@ -59,11 +59,6 @@ impl super::part::Part for Prefs {
     }
 }
 
-/// Every preference's name.
-pub(crate) fn keys() -> Vec<String> {
-    defaults().keys().cloned().collect()
-}
-
 fn defaults() -> Map<String, Value> {
     match serde_json::to_value(Preferences::default()) {
         Ok(Value::Object(fields)) => fields,
