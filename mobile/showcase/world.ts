@@ -415,7 +415,8 @@ export function chatRows(chat: DemoChat): ChatMessage[] {
     const work = answer.parts.slice(0, from);
     if (from === answer.parts.length || !work.length) return;
     const calls = work.filter((done) => done.kind === 'tool').length;
-    answer.fold = { id: answer.id, last: answer.id, from, calls, took, thought: calls === 0 };
+    const shown = answer.parts.flatMap((_, at) => (at >= from ? [at] : []));
+    answer.fold = { id: answer.id, last: answer.id, from, shown, calls, took, thought: calls === 0 };
   });
   return rows;
 }
