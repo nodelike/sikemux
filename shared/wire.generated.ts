@@ -1736,6 +1736,8 @@ export type MdElement =
           t: "a";
           href: string;
           title?: string;
+          /** `href` names a file rather than a place on the web. */
+          file?: boolean;
           c: MdNode[];
       }
     | {

@@ -2,7 +2,6 @@ import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle } from 'react-native';
 
 import { fencedDiff } from '@shared/chat/diff';
-import { namesWholePath } from '@shared/chat/filePath';
 import { decodedFenceName } from '@shared/chat/transcript';
 import { safeWebUrl } from '@shared/lib/urls';
 import { tableSource } from '@shared/markdown/tableSource';
@@ -141,7 +140,7 @@ function inline(node: MdNode, key: number, ink: Ink): ReactNode {
         );
       const image = hostImagePath(node.href);
       if (image) return <LinkedImage key={key} path={image} label={label} />;
-      if (namesWholePath(node.href)) return <FileRef key={key} raw={node.href} label={label} look="link" />;
+      if (node.file) return <FileRef key={key} raw={node.href} label={label} look="link" />;
       return <Fragment key={key}>{label}</Fragment>;
     }
     default:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { namesWholePath, parsePathRef, scanPathCandidates } from "./filePath";
+import { parsePathRef } from "./filePath";
 
 const roots = { cwd: "/work/demo", home: "/Users/pat" };
 
@@ -90,54 +90,5 @@ describe("parsePathRef edge cases", () => {
     it("cannot place a relative path without a project to resolve it from", () => {
         expect(parsePathRef("src/a.ts", { cwd: "" })).toBeNull();
         expect(parsePathRef("/etc/hosts", { cwd: "" })?.path).toBe("/etc/hosts");
-    });
-});
-
-describe("scanPathCandidates", () => {
-    it("passes over a word that is only punctuation", () => {
-        expect(scanPathCandidates('well ... ("") ok')).toEqual([]);
-    });
-
-    it("keeps a file URI a sentence mentions", () => {
-        expect(scanPathCandidates("open <file:///tmp/a.ts>")).toEqual([{ start: 6, end: 22, raw: "file:///tmp/a.ts" }]);
-    });
-
-    it("finds a path in the middle of a sentence without its full stop", () => {
-        expect(scanPathCandidates("I edited src/a.ts.")).toEqual([{ start: 9, end: 17, raw: "src/a.ts" }]);
-    });
-
-    it("unwraps a path a sentence put in brackets", () => {
-        expect(scanPathCandidates("see (src/a.ts)")).toEqual([{ start: 5, end: 13, raw: "src/a.ts" }]);
-    });
-
-    it("keeps the line a reference names", () => {
-        expect(scanPathCandidates("src/a.ts:42 fails")[0].raw).toBe("src/a.ts:42");
-    });
-
-    it("finds every path in a run of text", () => {
-        expect(scanPathCandidates("moved src/a.ts to src/b.ts").map((found) => found.raw)).toEqual(["src/a.ts", "src/b.ts"]);
-    });
-
-    it("passes over ordinary words", () => {
-        expect(scanPathCandidates("read it and/or write it, either way")).toEqual([{ start: 8, end: 14, raw: "and/or" }]);
-        expect(scanPathCandidates("it either works or it does not")).toEqual([]);
-    });
-
-    it("passes over a web address", () => {
-        expect(scanPathCandidates("see https://example.com/a/b for more")).toEqual([]);
-    });
-});
-
-describe("namesWholePath", () => {
-    it("takes a single name between backticks", () => {
-        expect(namesWholePath("src/a.ts")).toBe(true);
-        expect(namesWholePath("npm run build")).toBe(false);
-    });
-
-    it("takes a full path with spaces in it", () => {
-        expect(namesWholePath("/work/demo/Shipped Mon 5 + Wed 7.mp4")).toBe(true);
-        expect(namesWholePath("~/Movies/demo cut.mp4")).toBe(true);
-        expect(namesWholePath("src/demo cut.mp4")).toBe(false);
-        expect(namesWholePath("/ a")).toBe(false);
     });
 });

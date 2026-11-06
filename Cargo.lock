@@ -9437,6 +9437,7 @@ dependencies = [
  "pulldown-cmark",
  "serde",
  "serde_json",
+ "url",
  "workspace-hack",
 ]
 

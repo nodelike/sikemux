@@ -14,8 +14,9 @@ const TWO_FOLDERS_DEEP = /^~?\/[^/\s]+\/[^/\s]/;
 
 /**
  * The Mac asks the host whether a name it reads as a path is there before drawing it as a file.
- * The phone cannot, so it takes only names that could hardly be anything else: a folder and an
- * extension, or a path from the root at least two folders deep.
+ * `files.kinds` takes full access, which a watching phone does not have, so the phone takes only
+ * names that could hardly be anything else: a folder and an extension, or a path from the root at
+ * least two folders deep.
  */
 export function namesFile(raw: string): boolean {
   const body = raw.replace(LOCATION, '');

@@ -172,6 +172,7 @@ fn link(href: String, label: String) -> MdNode {
     MdNode::Element(MdElement::A {
         href,
         title: None,
+        file: false,
         c: vec![MdNode::Text(label)],
     })
 }

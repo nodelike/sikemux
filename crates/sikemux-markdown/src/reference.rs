@@ -5,7 +5,13 @@
 use crate::{MdElement, MdNode};
 
 pub fn fold(node: MdNode) -> MdNode {
-    let MdNode::Element(MdElement::A { href, title, c }) = node else {
+    let MdNode::Element(MdElement::A {
+        href,
+        title,
+        file,
+        c,
+    }) = node
+    else {
         return node;
     };
     let named = match c.as_slice() {
@@ -13,7 +19,12 @@ pub fn fold(node: MdNode) -> MdNode {
         _ => None,
     };
     let c = named.map_or(c, |name| vec![MdNode::Text(name)]);
-    MdNode::Element(MdElement::A { href, title, c })
+    MdNode::Element(MdElement::A {
+        href,
+        title,
+        file,
+        c,
+    })
 }
 
 /// How GitHub writes a reference to the pull request or issue at `href`, when it is one.

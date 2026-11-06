@@ -124,6 +124,9 @@ pub enum MdElement {
         href: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         title: Option<String>,
+        /// `href` names a file rather than a place on the web.
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        file: bool,
         c: Vec<MdNode>,
     },
     Img {
@@ -595,6 +598,7 @@ impl Builder {
                             Some(href) => MdElement::A {
                                 href: href.clone(),
                                 title: None,
+                                file: false,
                                 c: vec![MdNode::Element(image)],
                             },
                             None => image,
@@ -828,6 +832,7 @@ impl Builder {
                 c: self.children(frame.children),
             },
             Kind::Link { href, title } => MdElement::A {
+                file: paths::names_whole_path(&href),
                 href,
                 title,
                 c: Self::nodes(frame.children, false, false),
