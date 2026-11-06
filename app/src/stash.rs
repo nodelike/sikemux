@@ -642,7 +642,7 @@ fn said<'a>(shown: &'a ShownStashItem, agents: &[(String, String)]) -> Said<'a> 
     let context: Vec<SentContext> = (pages.iter())
         .map(|page| SentContext::new(page.url.to_owned(), String::new()))
         .collect();
-    let named = crate::chat::named(text, &names, &context, agents, &[]);
+    let named = crate::chat::named(text, &names, &context, agents);
     let words = pieces(text, &named, &pages);
     let (photos, files): (Vec<&StashItem>, Vec<&StashItem>) =
         (attachments.into_iter()).partition(|file| file.kind == StashKind::Image);

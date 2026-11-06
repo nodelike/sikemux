@@ -1387,6 +1387,7 @@ mod reducer {
                 prompt_id: None,
                 parts: Vec::new(),
                 attachments: vec!["/tmp/shot.png".into()],
+                spans: Vec::new(),
                 context: Vec::new(),
                 letters: Vec::new(),
                 sent_at: Some(5_000),

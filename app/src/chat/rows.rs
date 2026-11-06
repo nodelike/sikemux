@@ -959,7 +959,7 @@ pub(super) fn part(
             };
             drop(styles);
             let look = if user {
-                attach::with_chips(look, &row.message, &looks.agent, &looks.bench, window, cx)
+                attach::with_chips(look, &row.message, &looks.bench, window)
             } else {
                 look
             };

@@ -5,7 +5,6 @@ import { durationLabel } from '@shared/chat/durationLabel';
 import { basename } from '@shared/lib/paths';
 import { rateLabel, sentLabel } from '@shared/chat/messageMeta';
 import type { MdElement } from '@shared/markdown/types';
-import { sentChips } from '@/chat/sentChips';
 import {
   attachmentName,
   groupParts,
@@ -31,7 +30,7 @@ import { FindingContext, markTyped, type Finding } from './found';
 import { Markdown, plainBlocks } from './Markdown';
 import { SentAttachments } from './Attachments';
 import { hostImagePath } from './FileRef';
-import { HostContext, useHostFile } from './hostFiles';
+import { useHostFile } from './hostFiles';
 import { ImageViewer } from './ImageViewer';
 import type { Strip as StripMeta } from './messageMeta';
 import type { Unsent } from './outbox';
@@ -41,7 +40,7 @@ import { AnsweredQuestion } from './Question';
 import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { AccountLine, AgentNoticeLine, PageCard, TaskNotice } from '@/chat/Notices';
 import { ContextChips } from '@/chat/ContextChips';
-import { Editing, MessageEditor, useNamesIn } from '@/chat/MessageEditor';
+import { Editing, MessageEditor } from '@/chat/MessageEditor';
 import { FiredTrigger } from '@/chat/FiredTrigger';
 import { LongText } from '@/chat/LongText';
 
@@ -291,8 +290,6 @@ export function Message({
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const chatAgent = useContext(AgentContext);
-  const host = useContext(HostContext);
-  const agentNames = useNamesIn(message.role === 'user' ? host : '');
   const finding = useContext(FindingContext);
   const tap = onTap
     ? () => {
@@ -339,8 +336,8 @@ export function Message({
     const failed = unsent?.state === 'failed';
     const typed = message.parts.flatMap((part) => (part.kind === 'text' ? [part] : []));
     const text = typed.map((part) => part.text).join('\n\n');
-    const { spans, drawn } = sentChips(text, message.attachments ?? [], message.context ?? [], agentNames);
-    const context = (message.context ?? []).filter((item) => !drawn.has(item.uri));
+    const spans = message.spans ?? [];
+    const context = (message.context ?? []).filter((item) => !spans.some((span) => span.chip?.carried === item.uri));
     return (
       <View style={styles.userRow}>
         {message.attachments?.length ? <SentAttachments paths={message.attachments} sentFiles={sentFiles} /> : null}
@@ -356,16 +353,18 @@ export function Message({
             <Text style={styles.userText} selectable>
               {finding ? (
                 <TypedFound parts={typed} finding={finding} />
-              ) : (
+              ) : spans.length ? (
                 spans.map((span, index) =>
-                  typeof span === 'string' ? (
-                    span
-                  ) : (
+                  span.chip ? (
                     <Text key={index} style={styles.sentChip}>
                       {span.chip.label}
                     </Text>
+                  ) : (
+                    span.text
                   ),
                 )
+              ) : (
+                text
               )}
             </Text>
           </Pressable>

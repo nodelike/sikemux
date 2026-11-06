@@ -507,7 +507,10 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   kept?: readonly number[] | null;
 }) {
   const { parts, letters } = message;
-  const context = message.context ?? [];
+  const spans = message.spans ?? [];
+  const context = (message.context ?? []).filter(
+    (item) => !spans.some((span) => span.chip?.carried === item.uri),
+  );
   const shown = useMemo(() => shownParts(parts, kept), [parts, kept]);
   const attachments = message.attachments ?? [];
   const written = parts
@@ -540,7 +543,27 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             ))}
           </div>
         )}
-        <PartGroups parts={shown} live={live} typed={message.role === "user"} />
+        {spans.length ? (
+          <div className="chat-markdown">
+            <p className="chat-sent-text">
+              {spans.map((span, index) =>
+                span.chip ? (
+                  <span key={index} className="chat-sent-chip">
+                    {span.chip.label}
+                  </span>
+                ) : (
+                  span.text
+                ),
+              )}
+            </p>
+          </div>
+        ) : (
+          <PartGroups
+            parts={shown}
+            live={live}
+            typed={message.role === "user"}
+          />
+        )}
         {copyable && (
           <div className="chat-message-meta">
             <CopyButton

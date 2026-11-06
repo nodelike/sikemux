@@ -4,7 +4,6 @@ export const MAX_ATTACHMENT_BYTES = 10485760;
 export const MAX_ATTACHMENTS = 32;
 export const AGENT_URI = "sikemux://agent/";
 export const EARLIER_URI = "sikemux://earlier/";
-export const WOKEN_URI = "sikemux://woken/";
 export const STASH_URI = "sikemux://stash/";
 export const EXTENSIONLESS: readonly string[] = [
     "makefile",
@@ -1576,6 +1575,11 @@ export interface ChatMessage {
     attachments?: string[];
     /** What the person sent with it, named rather than whole. */
     context?: SentContext[];
+    /**
+     * A sent message's text read in order, its words and the chips its draft wrote into it,
+     * when it holds any chip.
+     */
+    spans?: SentSpan[];
     /** The messages from other agents and answers it is made of, when that is all it holds. */
     letters?: AgentLetter[];
     /** When the person sent it, in Unix milliseconds. */
@@ -1884,6 +1888,26 @@ export interface AccountMove {
 }
 
 export type MoveReason = "limit" | "chosen";
+
+/** A stretch of a sent message's text: its words, or a chip its draft wrote there. */
+export interface SentSpan {
+    text: string;
+    chip?: SentChip;
+}
+
+/** What a draft's chip names in a sent message. */
+export interface SentChip {
+    kind: SentChipKind;
+    /** What it says: `@Otter`, `+src/main.rs`, `Image #1`, `#12 Title`. */
+    label: string;
+    /**
+     * The file or address the message carried for it, which needs no chip of its own; none
+     * for a command.
+     */
+    carried?: string;
+}
+
+export type SentChipKind = "agent" | "chat" | "command" | "file" | "folder" | "image" | "issue" | "pull";
 
 /**
  * A message from another agent, or an answer to an agent's question, as the

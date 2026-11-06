@@ -469,13 +469,6 @@ function useHost<T>(core: string, read: () => T): T {
   return useSyncExternalStore((listener) => subscribeHost(core, listener), read);
 }
 
-/** The names the host's agents go by, one a line, so a reader draws again only when one changes. */
-export function useAgentNames(core: string): string {
-  return useHost(core, () =>
-    (liveOf(core).snapshot?.workspace.agents ?? []).flatMap((agent) => (agent.name ? [agent.name] : [])).join('\n'),
-  );
-}
-
 /** The host's connection while it is open. */
 export function connectionOf(live: Live | undefined): ConnectionLike | undefined {
   return live?.status === 'open' ? live.connection : undefined;

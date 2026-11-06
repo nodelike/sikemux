@@ -199,6 +199,7 @@ named_fields!(row_field, ChatMessage {
     "parts" => parts,
     "attachments" => attachments,
     "context" => context,
+    "spans" => spans,
     "letters" => letters,
     "sentAt" => sent_at,
     "endedAt" => ended_at,

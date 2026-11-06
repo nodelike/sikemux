@@ -4,7 +4,7 @@
 //! the same events the others watched arrive.
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -446,6 +446,12 @@ impl Feed {
         context: &[ChatContext],
     ) {
         let mut payload = json!({ "text": text, "paths": paths });
+        let folders: Vec<&String> = (paths.iter())
+            .filter(|path| Path::new(path).is_dir())
+            .collect();
+        if !folders.is_empty() {
+            payload["folders"] = json!(folders);
+        }
         if let Some(message_id) = message_id {
             payload["messageId"] = json!(message_id);
         }

@@ -119,7 +119,7 @@ const LIMITS = [
 ];
 
 /** Addresses clients write into what they send, read from the core's own. */
-const URIS = ["AGENT_URI", "EARLIER_URI", "WOKEN_URI", "STASH_URI"];
+const URIS = ["AGENT_URI", "EARLIER_URI", "STASH_URI"];
 
 const OUTPUTS = {
   ts: "shared/wire.generated.ts",

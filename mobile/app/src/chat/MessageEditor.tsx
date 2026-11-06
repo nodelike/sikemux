@@ -1,14 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { useAgentNames } from '@/devices/hub';
 import { fonts, keyboardFor, type Palette, useColors, useStyles } from '@/ui/theme';
-
-/** The host's agent names, for the `@` chips a sent message wrote. */
-export function useNamesIn(core: string): string[] {
-  const names = useAgentNames(core);
-  return useMemo(() => (names ? names.split('\n') : []), [names]);
-}
 
 /** Writing a sent message again where its bubble was. */
 export type Editing = { onCancel: () => void; onSend: (text: string) => void };

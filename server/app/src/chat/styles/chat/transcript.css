@@ -56,6 +56,18 @@
   padding-bottom: 10px;
 }
 
+.chat-sent-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.chat-sent-chip {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--surface-active);
+  color: var(--acc);
+}
+
 /* The header sits above the bubble and spans the row, so the bubble is the
    only thing that hugs the right edge. */
 .chat-message.user .chat-markdown {

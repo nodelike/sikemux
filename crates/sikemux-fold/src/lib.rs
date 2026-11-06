@@ -7,6 +7,7 @@ mod event;
 mod find;
 pub mod pickers;
 mod prompt;
+pub use prompt::{sent_spans, SentNames};
 mod row;
 mod send;
 #[cfg(test)]
@@ -101,6 +102,8 @@ struct Row {
     /// letters were read out of it.
     raw: Vec<ChatPart>,
     sent_context: Vec<SentContext>,
+    /// Which of the message's attachments are folders.
+    folders: Vec<String>,
     stream: Option<Stream>,
     sides: Vec<Side>,
     /// Opened since the last flush, so it goes out whole.
@@ -119,6 +122,7 @@ impl Row {
                 prompt_id: None,
                 parts: Vec::new(),
                 attachments: Vec::new(),
+                spans: Vec::new(),
                 context: Vec::new(),
                 letters: Vec::new(),
                 sent_at: None,
@@ -135,6 +139,7 @@ impl Row {
             local: false,
             raw: Vec::new(),
             sent_context: Vec::new(),
+            folders: Vec::new(),
             stream: None,
             sides: Vec::new(),
             fresh: true,
@@ -698,6 +703,29 @@ impl Fold {
         }
     }
 
+    /// A sent message read before the agent named its commands may have named one.
+    fn read_sent_again(&mut self) {
+        for at in 0..self.main.rows.len() {
+            let row = &mut self.main.rows[at];
+            let sent = row.msg.role == ChatRole::User
+                && (row.raw.iter())
+                    .any(|part| matches!(part, ChatPart::Text { text, .. } if text.contains('/')));
+            if !sent {
+                continue;
+            }
+            let before = std::mem::take(&mut row.msg.spans);
+            let was_fresh = row.fresh;
+            read_sent(row, &self.head.commands);
+            let row = &mut self.main.rows[at];
+            if row.msg.spans == before {
+                row.fresh = was_fresh;
+            } else {
+                self.main.touch(at);
+                self.note_main_change(&None, at);
+            }
+        }
+    }
+
     pub fn set_earlier_lost(&mut self) {
         if !self.head.earlier_lost {
             self.head.earlier_lost = true;
@@ -923,6 +951,11 @@ impl Fold {
         row.msg.prompt_id = text_of(payload.get("messageId")).map(str::to_owned);
         row.msg.sent_at = Some(payload.get("at").and_then(Value::as_u64).unwrap_or(at));
         row.msg.attachments = paths;
+        row.folders = (payload.get("folders").and_then(Value::as_array))
+            .into_iter()
+            .flatten()
+            .filter_map(|path| Some(path.as_str()?.to_owned()))
+            .collect();
         row.sent_context = payload
             .get("context")
             .and_then(Value::as_array)
@@ -946,7 +979,7 @@ impl Fold {
                 cut_bytes: None,
             });
         }
-        read_sent(&mut row);
+        read_sent(&mut row, &self.head.commands);
         let at = self.main.push(row);
         self.note_main_change(&None, at);
         self.suppress_user_echo = true;
@@ -1147,6 +1180,7 @@ impl Fold {
             UpdateKind::AvailableCommandsUpdate => {
                 self.head.commands = commands_of(update);
                 self.set_head("commands");
+                self.read_sent_again();
             }
             UpdateKind::ConfigOptionUpdate => {
                 self.set_config_options(
@@ -1321,6 +1355,10 @@ impl Fold {
         until: u64,
     ) {
         let text = text_of(content.get("text"));
+        let commands = match role {
+            ChatRole::User => self.head.commands.clone(),
+            _ => Vec::new(),
+        };
         let Some(transcript) = self.transcript(within) else {
             return;
         };
@@ -1370,7 +1408,7 @@ impl Fold {
                     content: bound_content(content),
                 }),
             }
-            read_sent(row);
+            read_sent(row, &commands);
             transcript.touch(position);
             self.note_main_change(within, position);
             return;
@@ -2186,7 +2224,7 @@ impl Fold {
 /// What a person sent with a message is shown by name: their own text stays
 /// prose, an issue they handed over is a chip, and letters from other agents
 /// are read out. A row read again goes out whole.
-fn read_sent(row: &mut Row) {
+fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
     let mut context = row.sent_context.clone();
     let mut parts = Vec::new();
     for part in &row.raw {
@@ -2218,8 +2256,6 @@ fn read_sent(row: &mut Row) {
             _ => parts.push(part.clone()),
         }
     }
-    let mut seen = HashSet::new();
-    context.retain(|item| !prompt::is_mention(&item.uri) && seen.insert(item.uri.clone()));
     let whole: String = parts
         .iter()
         .map(|part| match part {
@@ -2227,6 +2263,21 @@ fn read_sent(row: &mut Row) {
             _ => "",
         })
         .collect();
+    let commands: Vec<String> = (commands.iter())
+        .map(|command| command.name.clone())
+        .collect();
+    row.msg.spans = prompt::sent_spans(
+        &whole,
+        prompt::SentNames {
+            attachments: &row.msg.attachments,
+            folders: &row.folders,
+            context: &context,
+            commands: &commands,
+            ..Default::default()
+        },
+    );
+    let mut seen = HashSet::new();
+    context.retain(|item| !prompt::is_mention(&item.uri) && seen.insert(item.uri.clone()));
     let only_text = parts
         .iter()
         .all(|part| matches!(part, ChatPart::Text { .. }));

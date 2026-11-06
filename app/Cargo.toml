@@ -63,6 +63,7 @@ sikemux-linked = { path = "../crates/sikemux-linked" }
 sikemux-grid = { path = "../crates/sikemux-grid" }
 sikemux-wire = { path = "../crates/sikemux-wire" }
 sikemux-view = { path = "../crates/sikemux-view" }
+sikemux-fold = { path = "../crates/sikemux-fold" }
 sikemux-voice = { path = "../crates/sikemux-voice" }
 textmate-highlight = { path = "crates/textmate-highlight" }
 tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
@@ -88,7 +89,6 @@ naga = { git = "https://github.com/gfx-rs/wgpu", rev = "3b3506ea31154edc04de64de
 
 [dev-dependencies]
 film-frame = { path = "crates/film-frame" }
-sikemux-fold = { path = "../crates/sikemux-fold" }
 gpui = { package = "gpui-pre", version = "=0.3.10", features = ["test-support"] }
 gpui_platform = { package = "gpui-pre-platform", version = "=0.3.10", features = ["test-support", "bench-support"] }
 # So the shot can read what the window drew, such as an open menu's items.

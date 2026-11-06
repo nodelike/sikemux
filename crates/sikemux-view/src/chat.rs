@@ -603,6 +603,10 @@ pub struct ChatMessage {
     /// What the person sent with it, named rather than whole.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub context: Vec<SentContext>,
+    /// A sent message's text read in order, its words and the chips its draft wrote into it,
+    /// when it holds any chip.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spans: Vec<SentSpan>,
     /// The messages from other agents and answers it is made of, when that is all it holds.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub letters: Vec<AgentLetter>,
@@ -721,6 +725,44 @@ pub fn tracked_title<'a>(title: &'a str, number: &str) -> &'a str {
     let bare = bare.trim_start_matches("Pull request ");
     bare.strip_prefix(&format!("#{number}"))
         .map_or(title, |rest| rest.trim_start_matches(':').trim_start())
+}
+
+/// A stretch of a sent message's text: its words, or a chip its draft wrote there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SentSpan {
+    pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chip: Option<SentChip>,
+}
+
+/// What a draft's chip names in a sent message.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SentChip {
+    pub kind: SentChipKind,
+    /// What it says: `@Otter`, `+src/main.rs`, `Image #1`, `#12 Title`.
+    pub label: String,
+    /// The file or address the message carried for it, which needs no chip of its own; none
+    /// for a command.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub carried: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SentChipKind {
+    Agent,
+    Chat,
+    Command,
+    File,
+    Folder,
+    Image,
+    Issue,
+    Pull,
+    /// A kind from a newer core, which a client draws as plain words.
+    #[serde(other)]
+    Other,
 }
 
 /// Something read elsewhere and sent with a message, named.

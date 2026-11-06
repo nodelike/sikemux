@@ -6,6 +6,18 @@ use std::ops::Range;
 use crate::{MdElement, MdNode};
 
 /// Names a project spells out in full, which are files without an extension.
+/// The extensions a client treats as pictures.
+pub const IMAGE_EXTENSIONS: [&str; 13] = [
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif",
+];
+
+/// Whether `path`, on any computer, names a picture by its extension.
+pub fn is_image_path(path: &str) -> bool {
+    path.rsplit_once('.').is_some_and(|(_, extension)| {
+        IMAGE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+    })
+}
+
 pub const EXTENSIONLESS: [&str; 9] = [
     "makefile",
     "dockerfile",

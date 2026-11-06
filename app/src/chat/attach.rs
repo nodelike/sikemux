@@ -1,6 +1,7 @@
 //! The files a message carries: picked, dropped on the chat or pasted, shown as tiles over
 //! the draft, each picture also named in the draft where it belongs, as `[Image #n]`.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -18,7 +19,8 @@ use gpui_kit::{
 use gpui_transcript::FilePress;
 use sikemux_core::server::chat::prompt::MAX_ATTACHMENTS;
 use sikemux_view::chat::{
-    tracked_at, tracked_title, TrackedKind, AGENT_URI, ANSWER_URI, EARLIER_URI, STASH_URI,
+    tracked_at, tracked_title, SentChip, SentChipKind, SentSpan, TrackedKind, AGENT_URI,
+    ANSWER_URI, EARLIER_URI, STASH_URI, WOKEN_URI,
 };
 use sikemux_view::chat::{ChatMessage, SentContext};
 use sikemux_wire::protocol::ChatContext;
@@ -640,31 +642,10 @@ pub(crate) fn pill(
 pub fn with_chips(
     look: Rc<gpui_transcript::Style>,
     message: &ChatMessage,
-    agent: &str,
     bench: &WeakEntity<Workbench>,
     window: &mut Window,
-    cx: &App,
 ) -> Rc<gpui_transcript::Style> {
-    let (agents, commands) = bench
-        .upgrade()
-        .map(|bench| {
-            let bench = bench.read(cx);
-            let commands: Vec<String> = bench
-                .chats
-                .open
-                .get(agent)
-                .and_then(|chat| chat.state.as_ref())
-                .map(|head| {
-                    head.commands
-                        .iter()
-                        .map(|command| command.name.clone())
-                        .collect()
-                })
-                .unwrap_or_default();
-            (named_agents(bench), commands)
-        })
-        .unwrap_or_default();
-    let mentions = mentions(message, &agents, &commands);
+    let mentions = mentions(message);
     if mentions.is_empty() {
         return look;
     }
@@ -740,106 +721,70 @@ pub(crate) fn named_agents(bench: &Workbench) -> Vec<(String, String)> {
         .collect()
 }
 
-/// What a sent message's text names, as the draft's chips wrote it. Agents and commands
-/// are named only in the text, so `agents` and `commands` say which words they are.
-fn mentions(
-    message: &ChatMessage,
-    agents: &[(String, String)],
-    commands: &[String],
-) -> Vec<Mention> {
-    let written = super::edit::written(message);
-    named(
-        &written,
-        &message.attachments,
-        &message.context,
-        agents,
-        commands,
-    )
+/// What a sent message's text names, as the core read it.
+fn mentions(message: &ChatMessage) -> Vec<Mention> {
+    mentions_in(&message.spans)
 }
 
-/// What `written` names, as a draft's chips wrote it, of the files and context it went with.
+/// What `written` names of the files and context it went with, and of `agents`. A stash item is
+/// read here as the core reads a sent message.
 pub(crate) fn named(
     written: &str,
     attachments: &[String],
     context: &[SentContext],
     agents: &[(String, String)],
-    commands: &[String],
 ) -> Vec<Mention> {
-    let mut found: Vec<Mention> = agents
-        .iter()
-        .map(|(name, id)| Mention {
-            written: format!("@{name}"),
-            id: format!("agent:{id}"),
-            label: format!("@{name}"),
-            carried: format!("{AGENT_URI}{id}"),
-        })
-        .chain(commands.iter().map(|name| Mention {
-            written: format!("/{name}"),
-            id: format!("command:{name}"),
-            label: format!("/{name}"),
-            carried: String::new(),
-        }))
-        .collect();
-    for (index, path) in attachments.iter().enumerate() {
-        let number = index + 1;
-        if is_image(Path::new(path)) {
-            found.push(Mention {
-                written: format!("[Image #{number}]"),
-                id: format!("{IMAGE}{path}"),
-                label: format!("Image {number}"),
-                carried: path.clone(),
-            });
-            continue;
-        }
-        let parts: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
-        let tag = (1..=parts.len())
-            .rev()
-            .map(|from| format!("+{}", parts[parts.len() - from..].join("/")))
-            .find(|tag| written.contains(tag.as_str()));
-        if let Some(tag) = tag {
-            let kind = if Path::new(path).is_dir() {
-                "folder"
-            } else {
-                "file"
-            };
-            found.push(Mention {
-                written: tag.clone(),
-                id: format!("{kind}:{path}"),
-                label: tag,
-                carried: path.clone(),
-            });
-        }
-    }
-    for item in context {
-        let named = item.title.starts_with('@');
-        let mention = item
-            .uri
-            .strip_prefix(EARLIER_URI)
-            .filter(|_| named)
-            .map(|chat| format!("earlier:{chat}"));
-        if let Some(id) = mention {
-            found.push(Mention {
-                written: item.title.clone(),
-                id,
-                label: item.title.clone(),
-                carried: item.uri.clone(),
-            });
-        } else if let Some((icon, number)) = tracked(&item.uri) {
-            let (sign, kind) = if matches!(icon, Icon::PullRequest) {
-                ('!', "pull")
-            } else {
-                ('#', "issue")
-            };
-            found.push(Mention {
-                written: format!("{sign}{number}"),
-                id: format!("tracked:{kind}:{number}:{}", item.uri),
-                label: format!("#{number} {}", tracked_title(&item.title, number)),
-                carried: item.uri.clone(),
-            });
-        }
-    }
-    found.retain(|mention| written.contains(mention.written.as_str()));
-    found
+    mentions_in(&sikemux_fold::sent_spans(
+        written,
+        sikemux_fold::SentNames {
+            attachments,
+            context,
+            agents,
+            ..Default::default()
+        },
+    ))
+}
+
+fn mentions_in(spans: &[SentSpan]) -> Vec<Mention> {
+    let mut seen = HashSet::new();
+    (spans.iter())
+        .filter_map(|span| Some((span.text.as_str(), span.chip.as_ref()?)))
+        .filter(|(written, _)| seen.insert(*written))
+        .filter_map(|(written, chip)| mention_of(written, chip))
+        .collect()
+}
+
+fn mention_of(written: &str, chip: &SentChip) -> Option<Mention> {
+    let carried = chip.carried.clone().unwrap_or_default();
+    let agent = || {
+        (carried.strip_prefix(AGENT_URI))
+            .or_else(|| carried.strip_prefix(WOKEN_URI))
+            .unwrap_or(&carried)
+    };
+    let id = match chip.kind {
+        SentChipKind::Agent => format!("agent:{}", agent()),
+        SentChipKind::Chat => format!(
+            "earlier:{}",
+            carried.strip_prefix(EARLIER_URI).unwrap_or(&carried)
+        ),
+        SentChipKind::Command => format!("command:{}", written.trim_start_matches('/')),
+        SentChipKind::File => format!("file:{carried}"),
+        SentChipKind::Folder => format!("folder:{carried}"),
+        SentChipKind::Image => format!("{IMAGE}{carried}"),
+        SentChipKind::Issue => format!("tracked:issue:{}:{carried}", &written[1..]),
+        SentChipKind::Pull => format!("tracked:pull:{}:{carried}", &written[1..]),
+        SentChipKind::Other => return None,
+    };
+    let label = match chip.kind {
+        SentChipKind::Image => chip.label.replace('#', ""),
+        _ => chip.label.clone(),
+    };
+    Some(Mention {
+        written: written.to_owned(),
+        id,
+        label,
+        carried,
+    })
 }
 
 /// What a chip says: its handle without the sign typed to make it, and for an issue or pull
@@ -1073,7 +1018,7 @@ pub fn sent(
     }
     let t = Tokens::get(cx).clone();
     let written = super::edit::written(message);
-    let inline = mentions(message, &[], &[]);
+    let inline = mentions(message);
     let in_text = |carried: &str| {
         inline
             .iter()

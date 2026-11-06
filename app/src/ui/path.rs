@@ -29,6 +29,4 @@ pub fn file_name(path: &std::path::Path) -> String {
 }
 
 /// The extensions of the pictures an agent can be shown.
-pub const IMAGE_EXTENSIONS: [&str; 13] = [
-    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif",
-];
+pub use sikemux_markdown::paths::IMAGE_EXTENSIONS;
