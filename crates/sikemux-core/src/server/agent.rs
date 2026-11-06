@@ -53,7 +53,7 @@ pub(crate) fn publish_chat_state(core: &Core, agent_id: &str, state: AgentState)
         agent_id: agent_id.to_owned(),
         state,
         sequence: next_sequence(),
-        source: "acp".into(),
+        source: "chat".into(),
         confidence: "high".into(),
         reason: "the chat's turn as the core runs it".into(),
         matched_rule: None,
