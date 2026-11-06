@@ -67,7 +67,6 @@ pub struct ShipHold {
 }
 
 /// What the id of an item begins with when it asks about environments an agent proposed.
-pub const PROPOSED_ENVIRONMENTS_ITEM: &str = "environments:";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -98,6 +97,8 @@ pub enum InboxKind {
     /// Rules the person kept saying in past sessions in `project`, offered to
     /// keep; its memory view lists them, for `keepSeededRules`.
     SeededRules,
+    /// An agent proposes the environments of `project`, for the person to accept or change.
+    ProposedEnvironments,
     /// A turn or card that changed files.
     Changes,
     Failed,
@@ -149,6 +150,8 @@ pub struct InboxItem {
     pub id: String,
     pub tier: InboxTier,
     pub kind: InboxKind,
+    /// What its row leads with: what it is about, or what it says when that already names it.
+    pub heading: String,
     /// What the person is needed for; none while nothing waits on them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub need: Option<InboxNeed>,
@@ -262,6 +265,8 @@ pub struct AgentShown {
     pub tasks: u32,
     /// Mid-turn or waiting on an answer, so stopping it now loses work.
     pub busy: bool,
+    /// Its last turn ended in a failure.
+    pub failed: bool,
     /// It still has subagents or shells running.
     pub background: bool,
     pub active_at: Option<u64>,

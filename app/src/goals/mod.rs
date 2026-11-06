@@ -27,9 +27,7 @@ use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::memory::KeepSeededParams;
 use sikemux_core::server::memory::MemoryEntryParams;
 use sikemux_core::server::memory::MemoryParams;
-use sikemux_view::inbox::{
-    InboxCard, InboxDigest, InboxItem, InboxKind, PROPOSED_ENVIRONMENTS_ITEM,
-};
+use sikemux_view::inbox::{InboxCard, InboxDigest, InboxItem, InboxKind};
 use sikemux_view::memory::{MemoryView, Seeding};
 use sikemux_view::slice::{
     CheckRun, Gate, GateState, GateView, GoalEta, GoalSummaryParams, GoalSummaryView, Need, Passer,
@@ -401,9 +399,7 @@ impl GoalsPane {
         );
         match (item.kind, &item.card, &item.url) {
             (InboxKind::SeededRules, ..) => return self.go(At::Home, cx),
-            (InboxKind::Held, None, _) if item.id.starts_with(PROPOSED_ENVIRONMENTS_ITEM) => {
-                return self.go(At::Environments, cx)
-            }
+            (InboxKind::ProposedEnvironments, ..) => return self.go(At::Environments, cx),
             (InboxKind::PullRequest, _, Some(url)) => return self.open_url(agent, url.clone(), cx),
             (_, Some(inbox), _) if !in_chat || agent.is_none() => {
                 if let Some(card) = (self.board_of(&inbox.project))

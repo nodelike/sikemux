@@ -219,7 +219,7 @@ fn needs_row(
         )
         .children(
             about
-                .filter(|about| !item.what.contains(about.as_str()))
+                .filter(|_| item.heading != item.what)
                 .map(|about| ui::meta(about, cx).flex_shrink_1().min_w_0().truncate()),
         )
         .child(

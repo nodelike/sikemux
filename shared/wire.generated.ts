@@ -643,6 +643,8 @@ export interface InboxItem {
     id: string;
     tier: InboxTier;
     kind: InboxKind;
+    /** What its row leads with: what it is about, or what it says when that already names it. */
+    heading: string;
     /** What the person is needed for; none while nothing waits on them. */
     need?: InboxNeed;
     agentId: string | null;
@@ -691,6 +693,7 @@ export interface InboxItem {
 
 export type InboxTier = "needs" | "review" | "finished" | "progress";
 
+/** What the id of an item begins with when it asks about environments an agent proposed. */
 export type InboxKind =
     | "permission"
     | "question"
@@ -701,6 +704,7 @@ export type InboxKind =
     | "ship"
     | "pullRequest"
     | "seededRules"
+    | "proposedEnvironments"
     | "changes"
     | "failed"
     | "finished"
@@ -906,6 +910,8 @@ export interface AgentShown {
     tasks: number;
     /** Mid-turn or waiting on an answer, so stopping it now loses work. */
     busy: boolean;
+    /** Its last turn ended in a failure. */
+    failed: boolean;
     /** It still has subagents or shells running. */
     background: boolean;
     activeAt: number | null;

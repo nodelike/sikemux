@@ -60,13 +60,8 @@ struct Entry: Identifiable, Equatable {
 
     var id: String { item.id }
     var provider: String { item.cli ?? "" }
-    /// What it is about, or what it says when that already names it, as "Stalled on" a card does.
-    var title: String {
-        guard let about = agent?.title ?? item.title ?? item.card?.title,
-            !item.what.contains(about)
-        else { return item.what }
-        return about
-    }
+    /// What the core says its row leads with; an agent the inbox has nothing about goes by its title.
+    var title: String { item.heading.isEmpty ? agent?.title ?? item.what : item.heading }
     /// Subagents, and shells or monitors, its agent still has going.
     var subagents: Int { agent?.subagents ?? 0 }
     var tasks: Int { agent?.tasks ?? 0 }
@@ -84,7 +79,7 @@ struct Entry: Identifiable, Equatable {
         switch agent?.group {
         case .blocked: return .needs
         case .working: return .working
-        case .done: return item.kind == .failed ? .failed : .done
+        case .done: return agent?.failed == true ? .failed : .done
         case .idle: return .idle
         case .unknown, nil: break
         }
@@ -145,14 +140,14 @@ extension DeviceView {
     private func idleItem(_ agentId: String) -> InboxItem? {
         if let chat = chats.first(where: { $0.agentId == agentId }) {
             return InboxItem(
-                id: "agent:\(agentId)", tier: .unknown, kind: .unknown, agentId: agentId, name: chat.name, cli: chat.provider,
+                id: "agent:\(agentId)", tier: .unknown, kind: .unknown, heading: "", agentId: agentId, name: chat.name, cli: chat.provider,
                 project: chat.cwd, title: nil, what: "", detail: nil, at: 0,
                 session: nil, card: nil, requestId: nil, questionId: nil, url: nil
             )
         }
         guard let session = sessions.first(where: { $0.agentId == agentId }) else { return nil }
         return InboxItem(
-            id: "agent:\(agentId)", tier: .unknown, kind: .unknown, agentId: agentId, name: session.agentName,
+            id: "agent:\(agentId)", tier: .unknown, kind: .unknown, heading: "", agentId: agentId, name: session.agentName,
             cli: session.agentType, project: session.project, title: nil, what: "", detail: nil, at: 0,
             session: session.id, card: nil, requestId: nil, questionId: nil, url: nil
         )

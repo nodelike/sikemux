@@ -59,30 +59,30 @@ let fixture = #"""
   ],
   "faceStyle": {"motion": true},
   "inbox": {"working": 2, "rollup": {"subagents": 3, "tasks": 2}, "agents": [
-    {"agentId": "a1", "title": "Fix the login flake", "group": "blocked", "subagents": 0, "tasks": 0},
-    {"agentId": "a9", "title": "Move the ledger import", "group": "blocked", "subagents": 0, "tasks": 0},
-    {"agentId": "a4", "title": "Bump Astro to 6", "group": "done", "subagents": 0, "tasks": 0, "nextTrigger": IN(1080)},
-    {"agentId": "a10", "title": "Rotate the signing keys", "group": "done", "subagents": 0, "tasks": 0},
-    {"agentId": "a11", "title": "Tidy the changelog", "group": "done", "subagents": 0, "tasks": 0},
-    {"agentId": "a2", "title": "Refactor the auth middleware", "group": "working", "subagents": 3, "tasks": 0},
-    {"agentId": "a3", "title": "Draft the notch spec", "group": "working", "subagents": 0, "tasks": 0},
-    {"agentId": "a5", "title": "Profile the terminal flood", "group": "idle", "subagents": 0, "tasks": 2},
-    {"agentId": "t1", "title": "Tighten the rail spacing", "group": "idle", "subagents": 0, "tasks": 0, "nextTrigger": IN(10800)}
+    {"agentId": "a1", "title": "Fix the login flake", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a9", "title": "Move the ledger import", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a4", "title": "Bump Astro to 6", "group": "done", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(1080)},
+    {"agentId": "a10", "title": "Rotate the signing keys", "group": "done", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a11", "title": "Tidy the changelog", "group": "done", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a2", "title": "Refactor the auth middleware", "group": "working", "failed": false, "subagents": 3, "tasks": 0},
+    {"agentId": "a3", "title": "Draft the notch spec", "group": "working", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a5", "title": "Profile the terminal flood", "group": "idle", "failed": false, "subagents": 0, "tasks": 2},
+    {"agentId": "t1", "title": "Tighten the rail spacing", "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(10800)}
   ], "items": [
-    {"id": "permission:a1:p1", "tier": "needs", "kind": "permission", "agentId": "a1", "name": "Otter", "cli": "claude", "project": "p-sikemux",
+    {"id": "permission:a1:p1", "tier": "needs", "kind": "permission", "heading": "Fix the login flake", "agentId": "a1", "name": "Otter", "cli": "claude", "project": "p-sikemux",
      "title": "Fix the login flake", "what": "Needs your permission", "detail": "pnpm test --filter core -- --runInBand", "at": AGO(134), "requestId": "p1"},
-    {"id": "question:q1", "tier": "needs", "kind": "question", "agentId": "a9", "name": "Maple", "cli": "codex", "project": "p-server",
+    {"id": "question:q1", "tier": "needs", "kind": "question", "heading": "Move the ledger import", "agentId": "a9", "name": "Maple", "cli": "codex", "project": "p-server",
      "title": "Move the ledger import", "what": "Asks you", "detail": "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
      "at": AGO(1), "questionId": "q1"},
-    {"id": "agent:a4", "tier": "review", "kind": "changes", "agentId": "a4", "name": "Birch", "cli": "grok", "project": "p-front",
+    {"id": "agent:a4", "tier": "review", "kind": "changes", "heading": "Bump Astro to 6", "agentId": "a4", "name": "Birch", "cli": "grok", "project": "p-front",
      "title": "Bump Astro to 6", "what": "Finished, with changes to review", "at": AGO(70)},
-    {"id": "agent:a10", "tier": "finished", "kind": "failed", "agentId": "a10", "name": "Pine", "cli": "claude", "project": "p-server",
+    {"id": "agent:a10", "tier": "finished", "kind": "failed", "heading": "Rotate the signing keys", "agentId": "a10", "name": "Pine", "cli": "claude", "project": "p-server",
      "title": "Rotate the signing keys", "what": "Ran into a problem", "detail": "The keychain refused the new key", "at": AGO(300)},
-    {"id": "agent:a11", "tier": "finished", "kind": "finished", "agentId": "a11", "name": "Moss", "cli": "claude", "project": "p-sikemux",
+    {"id": "agent:a11", "tier": "finished", "kind": "finished", "heading": "Tidy the changelog", "agentId": "a11", "name": "Moss", "cli": "claude", "project": "p-sikemux",
      "title": "Tidy the changelog", "what": "Finished", "at": AGO(900)},
-    {"id": "agent:a2", "tier": "progress", "kind": "working", "agentId": "a2", "name": "Flint", "cli": "codex", "project": "p-server",
+    {"id": "agent:a2", "tier": "progress", "kind": "working", "heading": "Refactor the auth middleware", "agentId": "a2", "name": "Flint", "cli": "codex", "project": "p-server",
      "title": "Refactor the auth middleware", "what": "Working", "at": AGO(252)},
-    {"id": "agent:a3", "tier": "progress", "kind": "working", "agentId": "a3", "name": "Wren", "cli": "opencode", "project": "p-sikemux",
+    {"id": "agent:a3", "tier": "progress", "kind": "working", "heading": "Draft the notch spec", "agentId": "a3", "name": "Wren", "cli": "opencode", "project": "p-sikemux",
      "title": "Draft the notch spec", "what": "Working", "at": AGO(48)}
   ]}
 }
@@ -136,7 +136,7 @@ func catalogueFaces() -> [AgentFace] {
 }
 let faces = arguments.contains("--faces") ? catalogueFaces() : []
 let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumerated().map { index, agent in
-    AgentShown(agentId: agent.agentId, title: agent.title, group: agent.group, subagents: agent.subagents, tasks: agent.tasks, nextTrigger: agent.nextTrigger, calledAt: agent.calledAt,
+    AgentShown(agentId: agent.agentId, title: agent.title, group: agent.group, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, calledAt: agent.calledAt,
                face: faces[index % faces.count])
 }
 let full = DeviceView(

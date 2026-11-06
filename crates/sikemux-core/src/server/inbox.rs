@@ -15,7 +15,7 @@ use crate::text::{clipped, clipped_line};
 use sikemux_view::inbox::{
     AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandTo, InboxHandoff, InboxItem,
     InboxKind, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent, ShipHold, ShipKind,
-    TeamLink, PROPOSED_ENVIRONMENTS_ITEM,
+    TeamLink,
 };
 use sikemux_wire::protocol::{
     AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, SessionInfo,
@@ -126,9 +126,8 @@ impl Case {
             | Case::Looping
             | Case::CheckFailing
             | Case::StaleMemory => (InboxKind::Held, Wants::Person(Fix)),
-            Case::Colliding | Case::TicketDone | Case::ProposedEnvironments => {
-                (InboxKind::Held, Wants::Person(Decide))
-            }
+            Case::Colliding | Case::TicketDone => (InboxKind::Held, Wants::Person(Decide)),
+            Case::ProposedEnvironments => (InboxKind::ProposedEnvironments, Wants::Person(Decide)),
             Case::Failed(Some(Fault::Account)) => (InboxKind::Failed, Wants::Person(Unblock)),
             Case::Failed(Some(Fault::Broke)) => (InboxKind::Failed, Wants::Person(Fix)),
             Case::Failed(Some(Fault::Retrying) | None) => {
@@ -172,6 +171,7 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         subagents: 0,
         tasks: 0,
         busy: matches!(group, AgentGroup::Blocked | AgentGroup::Working),
+        failed: false,
         background: false,
         active_at: None,
         next_trigger: None,
@@ -498,6 +498,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         Wants::Nobody(Quiet::Progress) => (InboxTier::Progress, None),
     };
     InboxItem {
+        heading: String::new(),
         id,
         tier,
         kind,
@@ -859,7 +860,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     }
     for (project, proposal) in board::proposals(core) {
         let mut item = item(
-            format!("{PROPOSED_ENVIRONMENTS_ITEM}{project}"),
+            format!("environments:{project}"),
             Case::ProposedEnvironments,
             format!("{} proposes this project's environments", proposal.by),
             proposal.at,
@@ -1025,6 +1026,22 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         .collect();
     let mut view = view_of(core, &agents(core, chats, sessions), sessions);
     with_remote_workers(&mut listed, &mut view.remote_agents);
+    for agent in &mut listed {
+        agent.failed = (view.items.iter()).any(|item| {
+            item.kind == InboxKind::Failed && item.agent_id.as_ref() == Some(&agent.agent_id)
+        });
+    }
+    for item in &mut view.items {
+        let agent = (listed.iter()).find(|agent| item.agent_id.as_ref() == Some(&agent.agent_id));
+        let about = agent
+            .map(|agent| agent.title.as_str())
+            .or(item.title.as_deref())
+            .or(item.card.as_ref().map(|card| card.title.as_str()));
+        item.heading = about
+            .filter(|about| !item.what.contains(about))
+            .unwrap_or(&item.what)
+            .to_owned();
+    }
     let mut needs: BTreeMap<String, usize> = BTreeMap::new();
     let mut needed = 0;
     for item in view.items.iter().filter(|item| item.need.is_some()) {

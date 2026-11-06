@@ -390,6 +390,8 @@ struct InboxItem: Codable, Hashable {
     let id: String
     let tier: InboxTier
     let kind: InboxKind
+    /// What its row leads with: what it is about, or what it says when that already names it.
+    let heading: String
     let agentId: String?
     let name: String?
     let cli: String?
@@ -422,6 +424,7 @@ enum InboxTier: String, Codable, Hashable {
     }
 }
 
+/// What the id of an item begins with when it asks about environments an agent proposed.
 enum InboxKind: String, Codable, Hashable {
     /// Answer with the chat's permission reply, naming `requestId`.
     case permission
@@ -449,6 +452,8 @@ enum InboxKind: String, Codable, Hashable {
     /// Rules the person kept saying in past sessions in `project`, offered to
     /// keep; its memory view lists them, for `keepSeededRules`.
     case seededRules
+    /// An agent proposes the environments of `project`, for the person to accept or change.
+    case proposedEnvironments
     /// A turn or card that changed files.
     case changes
     case failed
@@ -475,6 +480,8 @@ struct AgentShown: Codable, Hashable {
     let group: AgentGroup
     let subagents: Int
     let tasks: Int
+    /// Its last turn ended in a failure.
+    let failed: Bool
     /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
     let nextTrigger: Int?
     /// When the agent was last named with `@` or messaged by another agent.
