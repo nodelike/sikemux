@@ -21,9 +21,9 @@ use sikemux_view::chat::{ChatChange, ChatPage, ChatRole};
 use sikemux_view::device::DeviceView;
 use sikemux_view::workspace::Workspace;
 use sikemux_wire::protocol::{
-    Attention, AttentionKind, BackdropImage, BuildIdentity, ChatAttachment, ChatLaunch, ChatMark,
-    ChatState, DeviceAccess, Event, LaunchIdentity, PermissionMode, RemoteStatus, SessionId,
-    SpawnTarget, TerminalSpawn, MAX_ATTACHMENT_BYTES,
+    Attention, AttentionKind, BuildIdentity, ChatAttachment, ChatLaunch, ChatMark, ChatState,
+    DeviceAccess, Event, LaunchIdentity, PermissionMode, RemoteStatus, SessionId, SpawnTarget,
+    TerminalSpawn, MAX_ATTACHMENT_BYTES,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
 
@@ -752,35 +752,36 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
         Some("#0f0f13"),
         "a device draws in the core's own colours for the person's theme"
     );
-    let picture = BackdropImage {
-        id: "pane-1".into(),
-        data_url: "data:image/jpeg;base64,AAAA".into(),
-    };
-    app.ask(ask::PublishBackdrop {
-        texture: true,
-        image: Some(picture),
-    })
-    .await
-    .expect("publish backdrop");
-    let backdrop = workspace_of(&client).await.backdrop;
-    assert!(backdrop.texture);
-    assert_eq!(backdrop.image.as_deref(), Some("pane-1"));
-    let data_url = client
-        .ask(ask::BackdropImage)
+    #[cfg(target_os = "macos")]
+    {
+        let picture = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../brand/mark/mark-white-64.png"
+        );
+        app.call(
+            "setPreference",
+            json!({ "key": "paneImage", "value": picture }),
+        )
         .await
-        .expect("backdrop image");
-    assert_eq!(data_url.as_deref(), Some("data:image/jpeg;base64,AAAA"));
-    let not_a_picture = BackdropImage {
-        id: "pane-2".into(),
-        data_url: "data:text/plain,hi".into(),
-    };
-    let refused = app
-        .ask(ask::PublishBackdrop {
-            texture: true,
-            image: Some(not_a_picture),
+        .expect("choose the pane picture");
+        let backdrop = tokio::time::timeout(WAIT, async {
+            loop {
+                let backdrop = workspace_of(&client).await.backdrop;
+                if backdrop.image.is_some() {
+                    break backdrop;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
         })
-        .await;
-    assert!(refusal(refused).contains("not an image"));
+        .await
+        .expect("the core publishes the picture the preferences name");
+        assert!(backdrop.texture);
+        let data_url = client
+            .ask(ask::BackdropImage)
+            .await
+            .expect("backdrop image");
+        assert!(data_url.is_some_and(|url| url.starts_with("data:image/jpeg;base64,")));
+    }
     let refused = app.ask(ask::Unpair).await;
     assert!(refusal(refused).contains("only a paired device"));
     let refused = client

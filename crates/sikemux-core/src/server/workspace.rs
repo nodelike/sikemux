@@ -30,9 +30,7 @@ use sikemux_view::workspace::{
     AgentBuddy, Backdrop, LauncherInfo, PinnedChat, ProjectInfo, SpaceInfo, Workspace,
     WorkspaceAgent,
 };
-use sikemux_wire::protocol::{
-    BackdropImage, ChatAccount, ChatInfo, ChatLaunch, ChatState, SessionInfo,
-};
+use sikemux_wire::protocol::{ChatAccount, ChatInfo, ChatLaunch, ChatState, SessionInfo};
 
 use super::calls::given;
 use super::changed::Topic;
@@ -197,6 +195,14 @@ struct Published {
     pin_homes: HashMap<PathBuf, PathBuf>,
     texture: bool,
     image: Option<BackdropImage>,
+}
+
+/// A picture shown behind the panes, shrunk to suit a phone.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BackdropImage {
+    /// Changes whenever the picture does, so a device fetches it only then.
+    pub(crate) id: String,
+    pub(crate) data_url: String,
 }
 
 /// How an agent is launched, as the workspace keeps it.
@@ -1022,9 +1028,6 @@ impl Workspaces {
         image: Option<BackdropImage>,
     ) -> CoreResult<()> {
         if let Some(image) = &image {
-            if !image.data_url.starts_with("data:image/") {
-                return Err("the backdrop picture is not an image".into());
-            }
             if image.data_url.len() > MAX_IMAGE_BYTES {
                 return Err("the backdrop picture is larger than the core keeps".into());
             }

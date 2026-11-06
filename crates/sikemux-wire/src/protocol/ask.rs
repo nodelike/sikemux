@@ -348,15 +348,6 @@ pub struct AllowDevices {
     pub devices: Vec<AllowedDevice>,
 }
 
-/// What the app draws behind its panes, so devices draw the same.
-/// Replaces what it published before.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PublishBackdrop {
-    pub texture: bool,
-    pub image: Option<super::BackdropImage>,
-}
-
 /// The agents the app shows now, replacing the last list, and whether its
 /// window is in front. An agent on screen in a window in front is never
 /// left unread, and one on screen is not put to sleep.
@@ -471,7 +462,6 @@ requests! {
     SetOwner,
     AnswerPairing,
     AllowDevices,
-    PublishBackdrop,
     PublishOnScreen,
     FocusAgent,
     StartChat,
@@ -535,7 +525,6 @@ done! {
     SetNotifications,
     ClearNotifications,
     SetForeground,
-    PublishBackdrop,
     PublishOnScreen,
     WatchView,
     FocusAgent,

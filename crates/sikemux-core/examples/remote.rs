@@ -22,9 +22,7 @@ use iroh::{Endpoint, EndpointAddr, RelayMode};
 use sikemux_client::accounts::network;
 use sikemux_client::client::CoreClient;
 use sikemux_client::remote::{self, SecretKey};
-use sikemux_wire::protocol::{
-    BackdropImage, DeviceAccess, LaunchIdentity, SpawnTarget, TerminalSpawn,
-};
+use sikemux_wire::protocol::{DeviceAccess, LaunchIdentity, SpawnTarget, TerminalSpawn};
 
 type Failure = Box<dyn std::error::Error>;
 
@@ -39,7 +37,6 @@ async fn main() -> Result<(), Failure> {
         ["mac", socket, "say", agent, text @ ..] => say(Path::new(socket), agent, &text.join(" ")).await,
         ["mac", socket, "sleepy"] => sleepy(Path::new(socket)).await,
         ["mac", socket, "chats"] => chats(Path::new(socket)).await,
-        ["mac", socket, "backdrop", texture, image @ ..] => backdrop(Path::new(socket), *texture == "on", image.first().copied()).await,
         ["mac", socket, action] => mac(Path::new(socket), action).await,
         ["device", key, "sessions", core] => sessions(Path::new(key), core).await,
         _ => Err("usage: remote mac <socket> on|off|allow|status|spawn|publish|chat|say | remote device <key-file> sessions <core-id>".into()),
@@ -133,46 +130,6 @@ async fn chat(socket: &Path, prompt: &str) -> Result<(), Failure> {
             .await?;
     }
     Ok(())
-}
-
-async fn backdrop(socket: &Path, texture: bool, image: Option<&str>) -> Result<(), Failure> {
-    let (client, _events) = CoreClient::connect(socket).await?;
-    let picture = match image {
-        Some(path) => {
-            let bytes = std::fs::read(path)?;
-            Some(BackdropImage {
-                id: format!("{:x}", bytes.len()),
-                data_url: format!("data:image/jpeg;base64,{}", base64(&bytes)),
-            })
-        }
-        None => None,
-    };
-    client
-        .ask(ask::PublishBackdrop {
-            texture,
-            image: picture,
-        })
-        .await?;
-    println!("published the backdrop");
-    Ok(())
-}
-
-fn base64(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
-        for (index, shift) in [18, 12, 6, 0].into_iter().enumerate() {
-            if index <= chunk.len() {
-                out.push(char::from(TABLE[((n >> shift) & 63) as usize]));
-            } else {
-                out.push('=');
-            }
-        }
-    }
-    out
 }
 
 async fn chats(socket: &Path) -> Result<(), Failure> {

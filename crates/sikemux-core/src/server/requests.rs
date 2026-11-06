@@ -455,10 +455,6 @@ pub(super) async fn run(
                 let result = remote::set_access(&core, &id, access);
                 client.answer::<ask::SetDeviceAccess>(request_id, result.map(Box::new));
             }
-            Request::PublishBackdrop(ask::PublishBackdrop { texture, image }) => {
-                let result = core.workspaces.publish_backdrop(texture, image);
-                client.answer::<ask::PublishBackdrop>(request_id, result);
-            }
             Request::BackdropImage => {
                 let data_url = core.workspaces.backdrop_image();
                 client.answer::<ask::BackdropImage>(request_id, Ok(data_url));

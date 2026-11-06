@@ -148,8 +148,7 @@ pub(crate) fn rule(request: &Request) -> Rule {
         | Request::RevokeDevice(_)
         | Request::AllowDevices(_)
         | Request::PublishOnScreen(_)
-        | Request::FocusAgent(_)
-        | Request::PublishBackdrop(_) => (Needs::NoDevice, Program::App),
+        | Request::FocusAgent(_) => (Needs::NoDevice, Program::App),
     };
     Rule { needs, program }
 }

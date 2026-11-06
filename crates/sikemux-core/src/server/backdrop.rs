@@ -1,9 +1,9 @@
 //! What devices draw behind their panes: the host's grain, and the picture in its place, taken
 //! from the person's preferences so that no app has to send it.
 
+use super::workspace::BackdropImage;
 use super::Core;
 use crate::server::changed::What;
-use sikemux_wire::protocol::BackdropImage;
 
 /// Publishes the backdrop the preferences describe, shrinking a newly chosen picture first.
 pub(crate) fn follow(core: &Core) {

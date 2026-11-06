@@ -98,8 +98,7 @@ pub enum Request {
     SetOwner(ask::SetOwner),
     AnswerPairing(ask::AnswerPairing),
     AllowDevices(ask::AllowDevices),
-    PublishBackdrop(ask::PublishBackdrop),
-    /// The picture published with the backdrop, as a data URL.
+    /// The picture the core draws from the person's preferences, as a data URL.
     BackdropImage,
     PublishOnScreen(ask::PublishOnScreen),
     /// Sends this client the device view now and whenever it changes, as
