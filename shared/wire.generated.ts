@@ -2617,6 +2617,8 @@ export interface CardRun {
     stage: RunStage;
     /** Auto gave the card back to the person, who is needed for this. */
     held: RunHold | null;
+    /** Auto gave it back, or its pull request waits for them. */
+    waitsOnPerson: boolean;
     note: string | null;
     pull: CardPull | null;
 }

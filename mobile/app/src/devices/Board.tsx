@@ -219,7 +219,7 @@ function CardRow({
   const cli = chat?.provider ?? terminal?.agentType ?? card.ownerCli;
   const group = snapshot.inbox.agents.find((agent) => agent.agentId === card.owner)?.group;
   const question = column === 'needs' ? cardQuestion(card, questions) : undefined;
-  const handedBack = card.auto && (card.auto.held || card.auto.stage === 'watching') && card.status !== 'done' ? card.auto.note : null;
+  const handedBack = card.auto?.waitsOnPerson && card.status !== 'done' ? card.auto.note : null;
   const reviewing = card.auto?.stage === 'reviewing' ? card.auto.note : null;
   const acceptance = card.acceptance && card.status !== 'done' ? `Done when: ${card.acceptance}` : null;
   const under = cards.filter((other) => other.parent === card.id);

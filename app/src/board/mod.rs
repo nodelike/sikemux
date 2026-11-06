@@ -19,9 +19,7 @@ use sikemux_core::server::board::BoardParams;
 use sikemux_core::server::board::BoardView;
 use sikemux_core::server::board::CardView;
 use sikemux_core::server::board::Column;
-use sikemux_core::server::board::RunView as CardRun;
 use sikemux_core::server::board::SettingsParams as BoardSettingsParams;
-use sikemux_core::server::board::Stage;
 use sikemux_core::server::board::Status as CardStatus;
 use sikemux_core::server::board::Ticket;
 use sikemux_core::server::board::UpdateParams as BoardUpdateParams;
@@ -49,11 +47,6 @@ const COLUMNS: [(Column, &str); 4] = [
     (Column::Needs, "Needs you"),
     (Column::Done, "Done"),
 ];
-
-/// A run Auto gave back to the person, or whose pull request waits for them.
-pub(crate) fn waits_on_person(run: &CardRun) -> bool {
-    run.held.is_some() || run.stage == Stage::Watching
-}
 
 /// The column a card moving to `status` shows in until the core answers.
 fn column_moving_to(status: CardStatus) -> Column {

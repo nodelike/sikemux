@@ -153,7 +153,7 @@ fn running_and_next(
     cx: &mut Context<GoalsPane>,
 ) -> Option<AnyElement> {
     let mut lines: Vec<AnyElement> = Vec::new();
-    if let Some(name) = pane.working_on(goal, cx) {
+    if let Some(name) = pane.working_on(goal) {
         lines.push(running_line(
             state_mark(SliceState::Moving, cx),
             format!("{name} is working"),

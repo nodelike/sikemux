@@ -379,6 +379,7 @@ impl Run {
             start_sha: self.start_sha.clone(),
             stage: self.stage,
             held: self.held,
+            waits_on_person: self.held.is_some() || self.stage == Stage::Watching,
             note: self.note.clone(),
             pull: self.pull.as_ref().map(|pull| PullView {
                 number: pull.number,
@@ -402,6 +403,8 @@ pub struct RunView {
     pub stage: Stage,
     /// Auto gave the card back to the person, who is needed for this.
     pub held: Option<Hold>,
+    /// Auto gave it back, or its pull request waits for them.
+    pub waits_on_person: bool,
     pub note: Option<String>,
     pub pull: Option<PullView>,
 }

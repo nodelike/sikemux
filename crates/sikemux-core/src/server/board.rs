@@ -1363,6 +1363,16 @@ pub struct BoardView {
     pub triggers: Vec<sikemux_view::chat::ChatTrigger>,
 }
 
+/// How a goal with no slices and no owner stands, as its card's column does.
+fn state_by_column(column: Column) -> SliceState {
+    match column {
+        Column::Done => SliceState::Done,
+        Column::Needs => SliceState::NeedsYou,
+        Column::Progress => SliceState::Moving,
+        Column::Open => SliceState::Waiting,
+    }
+}
+
 fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
     let team = team_of(core, board, card);
     let now = epoch_ms();
@@ -1410,7 +1420,11 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         is_goal: board.is_goal(card),
         display_title: display_title(core, board, card),
         next: slice::next_gates(core, board, card, now),
-        goal_state: chat_goal::goal_state(core, board, card),
+        goal_state: chat_goal::goal_state(core, board, card).or_else(|| {
+            board
+                .is_goal(card)
+                .then(|| state_by_column(column_of(core, &board.settings, card)))
+        }),
         goal_stalled: slice::goal_stalled(board, card) || chat_goal::plain_owner_closed(core, card),
         eta: board.promises.get(&card.id).and_then(eta::Promise::view),
         decisions: card.goal.decisions(),

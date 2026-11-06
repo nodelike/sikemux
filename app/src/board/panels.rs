@@ -22,7 +22,7 @@ use sikemux_core::server::messages::log::Row as MessageRow;
 use sikemux_core::server::messages::log::Tone as MessageTone;
 use sikemux_core::server::messages::Kind as MessageKind;
 
-use crate::board::{owner, short_title, waits_on_person, BoardPane, Open};
+use crate::board::{owner, short_title, BoardPane, Open};
 use crate::chat::model_picker;
 use crate::icons::Icon;
 use crate::theme::{
@@ -489,7 +489,7 @@ fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> 
                     ),
             );
         }
-        if waits_on_person(&run) {
+        if run.waits_on_person {
             let again = if run.worktree.is_empty() {
                 "Start it again"
             } else {

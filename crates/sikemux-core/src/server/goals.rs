@@ -349,14 +349,8 @@ fn agents_of(
     (agents, owned)
 }
 
-/// How `goal` stands by its slices, or for one with none, by its card.
 fn state_of(goal: &CardView) -> SliceState {
-    goal.goal_state.unwrap_or(match goal.column {
-        Column::Done => SliceState::Done,
-        Column::Needs => SliceState::NeedsYou,
-        Column::Progress => SliceState::Moving,
-        Column::Open => SliceState::Waiting,
-    })
+    goal.goal_state.unwrap_or(SliceState::Waiting)
 }
 
 fn slices_of(board: &BoardView, goal: &CardView) -> Vec<GoalSlice> {

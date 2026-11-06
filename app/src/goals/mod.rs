@@ -19,7 +19,6 @@ use serde::Serialize;
 use sikemux_core::server::board::goal::DecideParams as BoardDecideParams;
 use sikemux_core::server::board::BoardView;
 use sikemux_core::server::board::CardView;
-use sikemux_core::server::board::Column;
 use sikemux_core::server::board::NoteParams as BoardNoteParams;
 use sikemux_core::server::board::PassParams as BoardPassParams;
 use sikemux_core::server::call::{self, Call};
@@ -546,23 +545,10 @@ impl GoalsPane {
 
     /// The name of the agent holding goal `goal` while it is at work, for a goal with no slices
     /// to say what moves.
-    fn working_on(&self, goal: &CardView, cx: &Context<Self>) -> Option<String> {
-        if !goal.goal_slices.is_empty() {
-            return None;
-        }
-        let bench = self.bench.upgrade()?;
-        let owner = goal.owner.as_deref()?;
-        let bench = bench.read(cx);
-        let project = bench.project()?.id.clone();
-        let working = bench.agents_of(&project).iter().any(|agent| {
-            agent.id == owner
-                && matches!(
-                    agent.status,
-                    sikemux_wire::protocol::AgentStatus::Working
-                        | sikemux_wire::protocol::AgentStatus::Starting
-                )
-        });
-        working.then(|| goal.owner_name.clone()).flatten()
+    fn working_on(&self, goal: &CardView) -> Option<String> {
+        (goal.goal_slices.is_empty() && goal.goal_state == Some(SliceState::Moving))
+            .then(|| goal.owner_name.clone())
+            .flatten()
     }
 
     /// Keeps a decision the summary found as one of the goal's own, as the person.
@@ -1097,12 +1083,7 @@ fn slices_of(cards: &[CardView], goal: u64) -> Vec<(&CardView, &SliceView)> {
 
 /// Where a goal stands: as its slices do together, or for one with none, as its card does.
 fn goal_mark(goal: &CardView) -> SliceState {
-    goal.goal_state.unwrap_or(match goal.column {
-        Column::Done => SliceState::Done,
-        Column::Needs => SliceState::NeedsYou,
-        Column::Progress => SliceState::Moving,
-        Column::Open => SliceState::Waiting,
-    })
+    goal.goal_state.unwrap_or(SliceState::Waiting)
 }
 
 /// What a goal goes by: the short name its summary gave it, else its card's title.
