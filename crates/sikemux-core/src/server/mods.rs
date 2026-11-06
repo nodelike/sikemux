@@ -3,7 +3,7 @@
 //! reads and writes. The core lists them, follows their files and serves their pages.
 
 mod bridge;
-pub use bridge::{follows, Moved};
+pub use bridge::{follows, BridgeParams, BridgeWrite, Moved};
 
 /// What an agent is asked to make a mod from what the person wrote.
 pub fn make_prompt(asked: &str, folder: &str) -> String {

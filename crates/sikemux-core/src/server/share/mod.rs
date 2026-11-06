@@ -522,9 +522,9 @@ pub struct ShareChatParams {
     pub title: Option<String>,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct StopShareParams {
-    pub(crate) id: String,
+#[derive(Serialize, Deserialize)]
+pub struct StopShareParams {
+    pub id: String,
 }
 
 pub(crate) fn share_chat_for(core: &Arc<Core>, params: ShareChatParams) -> CoreResult<ShareView> {

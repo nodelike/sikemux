@@ -1,32 +1,73 @@
 //! What the pane does to the repository, one operation at a time, and the row moves it queues.
 
 use super::*;
+use serde::de::DeserializeOwned;
+use sikemux_core::server::edits::CommitParams;
+use sikemux_core::server::git::PullRequestUrlParams;
+
+/// What an operation's answer says to the person; most say nothing.
+pub(crate) trait Said {
+    fn said(&self) -> &str {
+        ""
+    }
+}
+
+impl Said for () {}
+
+impl Said for String {
+    fn said(&self) -> &str {
+        self
+    }
+}
 
 impl GitPane {
-    /// Runs the git operation `call`, as [`run_method`] does.
+    /// Runs the git operation `call`, as [`run_call`] does, for a `call` that is its own params.
     pub(super) fn run<C>(
         &mut self,
         label: impl Into<SharedString>,
         call: C,
         cx: &mut Context<Self>,
-        then: impl FnOnce(&mut Self, Result<Value, String>, &mut Context<Self>) + 'static,
+        then: impl FnOnce(&mut Self, Result<C::Answer, String>, &mut Context<Self>) + 'static,
     ) where
-        C: Call<Params = C> + Serialize,
+        C: Call<Params = C> + Serialize + 'static,
+        C::Answer: DeserializeOwned + Said + 'static,
     {
-        let params = serde_json::to_value(call).unwrap_or_default();
-        self.run_method(label, C::METHOD, params, cx, then);
+        self.run_call::<C>(label, call, cx, then);
     }
 
     /// Runs one git operation at a time, saying in the head what it is while it runs and
-    /// what went wrong if it fails.
-    pub(crate) fn run_method(
+    /// what went wrong if it fails, and what it answered if it says anything.
+    pub(crate) fn run_call<C>(
         &mut self,
         label: impl Into<SharedString>,
-        method: &'static str,
-        params: Value,
+        params: C::Params,
         cx: &mut Context<Self>,
-        then: impl FnOnce(&mut Self, Result<Value, String>, &mut Context<Self>) + 'static,
-    ) {
+        then: impl FnOnce(&mut Self, Result<C::Answer, String>, &mut Context<Self>) + 'static,
+    ) where
+        C: Call + 'static,
+        C::Params: Serialize,
+        C::Answer: DeserializeOwned + Said + 'static,
+    {
+        self.quietly::<C>(label, params, cx, |pane, answer, cx| {
+            if let Ok(answer) = &answer {
+                pane.done(answer.said(), cx);
+            }
+            then(pane, answer, cx);
+        });
+    }
+
+    /// As [`run_call`], leaving what the operation answered for `then` to show.
+    pub(crate) fn quietly<C>(
+        &mut self,
+        label: impl Into<SharedString>,
+        params: C::Params,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, Result<C::Answer, String>, &mut Context<Self>) + 'static,
+    ) where
+        C: Call + 'static,
+        C::Params: Serialize,
+        C::Answer: DeserializeOwned + Said + 'static,
+    {
         if self.busy.is_some() {
             return;
         }
@@ -38,18 +79,18 @@ impl GitPane {
         let label = label.into();
         self.busy = Some(label.clone());
         let logged = self.logged(label);
-        let answer = self.core.request(method, params);
+        let answer = self.core.request_typed::<C>(params);
         cx.spawn(async move |pane, cx| {
             let answer = answer.await;
             pane.update(cx, |pane, cx| {
                 pane.busy = None;
-                pane.settle(logged, &answer);
-                match &answer {
-                    Err(error) => pane.fail(error, cx),
-                    Ok(Value::String(said)) if method != git_call::AiMessage::METHOD => {
-                        pane.done(said, cx)
-                    }
-                    Ok(_) => {}
+                let ended = match &answer {
+                    Ok(answer) => Ok(answer.said()),
+                    Err(error) => Err(error.as_str()),
+                };
+                pane.settle(logged, ended);
+                if let Err(error) = &answer {
+                    pane.fail(error, cx);
                 }
                 then(pane, answer, cx);
                 cx.notify();
@@ -77,17 +118,12 @@ impl GitPane {
     }
 
     /// Notes how a logged operation ended, with the first line of what it said.
-    pub(crate) fn settle(&mut self, id: u64, answer: &Result<Value, String>) {
+    pub(crate) fn settle(&mut self, id: u64, ended: Result<&str, &str>) {
         let Some(entry) = self.commands.iter_mut().find(|entry| entry.id == id) else {
             return;
         };
-        entry.done = Some(answer.is_ok());
-        let said = match answer {
-            Ok(Value::String(text)) => text.as_str(),
-            Ok(_) => "",
-            Err(error) => error.as_str(),
-        };
-        let first = first_line(said);
+        entry.done = Some(ended.is_ok());
+        let first = first_line(ended.unwrap_or_else(|error| error));
         entry.detail = (!first.is_empty()).then(|| first.into());
     }
 
@@ -123,7 +159,7 @@ impl GitPane {
         call: C,
         cx: &mut Context<Self>,
     ) where
-        C: Call<Params = C> + Serialize,
+        C: Call<Params = C, Answer = ()> + Serialize + 'static,
     {
         if paths.is_empty() {
             return;
@@ -134,8 +170,8 @@ impl GitPane {
         self.queue.push_back(Move {
             paths,
             side,
-            method: C::METHOD,
-            params: serde_json::to_value(call).unwrap_or_default(),
+            label: C::METHOD,
+            start: Box::new(move |core| Box::pin(core.request_typed::<C>(call))),
         });
         self.list(cx);
         self.next_move(cx);
@@ -149,13 +185,13 @@ impl GitPane {
             return;
         };
         self.running = true;
-        let logged = self.logged(format!("{} {}", next.method, next.paths.join(" ")).into());
-        let answer = self.core.request(next.method, next.params);
+        let logged = self.logged(format!("{} {}", next.label, next.paths.join(" ")).into());
+        let answer = (next.start)(&self.core);
         cx.spawn(async move |pane, cx| {
             let answer = answer.await;
             pane.update(cx, |pane, cx| {
                 pane.running = false;
-                pane.settle(logged, &answer);
+                pane.settle(logged, answer.as_ref().map(|_| "").map_err(String::as_str));
                 if let Err(error) = &answer {
                     pane.fail(error, cx);
                 }
@@ -348,10 +384,12 @@ impl GitPane {
             self.fail("Stage the changes you want to commit first.", cx);
             return;
         }
-        let params = json!({ "dir": self.repo, "message": message });
-        self.run_method(
+        let params = CommitParams {
+            dir: self.repo.clone().into(),
+            message: message.clone(),
+        };
+        self.run_call::<call::CommitStaged>(
             "Commit staged changes",
-            "commitStaged",
             params,
             cx,
             move |pane, answer, cx| {
@@ -372,9 +410,9 @@ impl GitPane {
             Some((kind, label, model)) => (Some(kind), label, Some(model)),
             None => (None, "Hermes".to_owned(), None),
         };
-        self.run(format!("Generate message with {label}"), git_call::AiMessage { repo: self.repo.clone(), provider: provider.clone(), model: model.clone() }, cx, move |pane, answer, cx| {
+        self.quietly::<git_call::AiMessage>(format!("Generate message with {label}"), git_call::AiMessage { repo: self.repo.clone(), provider: provider.clone(), model: model.clone() }, cx, move |pane, answer, cx| {
             pane.generating = false;
-            let Ok(Value::String(message)) = answer else {
+            let Ok(message) = answer else {
                 return;
             };
             if message.trim().is_empty() {
@@ -423,17 +461,14 @@ impl GitPane {
     }
 
     pub(crate) fn pull_request(&mut self, cx: &mut Context<Self>) {
-        self.run_method(
-            "opening PR…",
-            "git.pullRequestUrl",
-            json!({ "repo": self.repo }),
-            cx,
-            |_, answer, cx| {
-                if let Ok(Value::String(url)) = answer {
-                    cx.open_url(&url);
-                }
-            },
-        );
+        let params = PullRequestUrlParams {
+            repo: self.repo.clone(),
+        };
+        self.quietly::<call::GitPullRequestUrl>("opening PR…", params, cx, |_, answer, cx| {
+            if let Ok(url) = answer {
+                cx.open_url(&url);
+            }
+        });
     }
 }
 
@@ -444,6 +479,7 @@ pub(crate) fn stash_step<C>(
 ) -> impl Fn(&mut GitPane, &mut Context<GitPane>) + Clone + 'static
 where
     C: Call<Params = C> + Serialize + Clone + 'static,
+    C::Answer: DeserializeOwned + Said + 'static,
 {
     move |pane, cx| {
         pane.run(label.clone(), call.clone(), cx, |pane, _, cx| {

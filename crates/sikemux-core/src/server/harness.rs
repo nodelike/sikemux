@@ -47,9 +47,10 @@ use inspect::*;
 use methods::tool_word;
 pub(crate) use pages::read_page;
 use pages::*;
+pub use processes::RunSelector;
 use processes::*;
 pub(crate) use processes::{
-    start_for_person, stop_run, stop_runs, tell_agent_run_failed, FailedRun, RunSelector,
+    start_for_person, stop_run, stop_runs, tell_agent_run_failed, FailedRun,
 };
 use skills_tool::*;
 use tally::*;

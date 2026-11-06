@@ -3,9 +3,10 @@
 
 use crate::core::Target;
 use gpui_kit::{App, Context, SharedString, Window};
-use serde_json::{json, Value};
 use sikemux_core::server::call;
 use sikemux_core::server::tasks::ConfigStatus;
+use sikemux_core::server::tasks::{ProjectConfigRead, ProjectParams};
+use sikemux_core::tasks::config::{ConfigLoad, Stated};
 use sikemux_view::layout::PaneKind;
 use tokio::sync::oneshot;
 
@@ -169,15 +170,18 @@ const STANDALONE: [Standalone; 9] = [
 
 /// The deck's rows for the preview the project's `sikemux.json` checks in: start its command,
 /// and open its address.
-fn preview_rows(config: &Value, project: &str) -> Vec<Row> {
-    if config["status"] != "valid" {
+fn preview_rows(config: &ProjectConfigRead, project: &str) -> Vec<Row> {
+    let ConfigLoad::Valid { config, .. } = &config.load else {
         return Vec::new();
-    }
-    let preview = &config["config"]["preview"];
-    let url = preview["url"].as_str();
+    };
+    let Some(preview) = config.preview.as_ref().and_then(Stated::given) else {
+        return Vec::new();
+    };
+    let url = preview.url.as_deref();
     let mut rows = Vec::new();
-    if preview["command"]
-        .as_str()
+    if preview
+        .command
+        .as_deref()
         .is_some_and(|command| !command.is_empty())
     {
         let detail = url.map_or_else(
@@ -203,49 +207,35 @@ fn preview_rows(config: &Value, project: &str) -> Vec<Row> {
 }
 
 /// The project's sikemux.json actions that give themselves a shortcut, as `(id, label, keys)`.
-pub(crate) fn action_keys(config: &Value) -> Vec<(String, String, String)> {
-    if config["status"] != "valid" {
+pub(crate) fn action_keys(config: &ProjectConfigRead) -> Vec<(String, String, String)> {
+    let ConfigLoad::Valid { config, .. } = &config.load else {
         return Vec::new();
-    }
-    config["config"]["actions"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    };
+    (config.actions.iter())
         .filter_map(|action| {
-            let id = action["id"].as_str()?;
-            let keys = action["keybinding"].as_str()?;
-            let label = action["label"].as_str().unwrap_or(id);
-            Some((id.to_owned(), label.to_owned(), keys.to_owned()))
+            let keys = action.keybinding.clone()?;
+            Some((action.id.clone(), action.label.clone(), keys))
         })
         .collect()
 }
 
 /// The deck's rows for the project's `sikemux.json` actions, each run once the person trusts
 /// the file.
-fn action_rows(config: &Value, cx: &App) -> Vec<Row> {
-    if config["status"] != "valid" {
+fn action_rows(config: &ProjectConfigRead, cx: &App) -> Vec<Row> {
+    let ConfigLoad::Valid { config, path, .. } = &config.load else {
         return Vec::new();
-    }
-    let path = config["path"].as_str().unwrap_or("sikemux.json");
-    let actions = config["config"]["actions"]
-        .as_array()
-        .map_or(&[][..], Vec::as_slice);
-    actions
-        .iter()
-        .filter_map(|action| {
-            let id = action["id"].as_str()?;
-            let label = action["label"].as_str().unwrap_or(id);
-            let detail = action["description"]
-                .as_str()
+    };
+    (config.actions.iter())
+        .map(|action| {
+            let id = action.id.as_str();
+            let detail = Some(action.description.as_str())
                 .filter(|detail| !detail.is_empty())
                 .map_or_else(|| format!("Run from {path}"), str::to_owned);
-            Some(
-                Row::new(Pick::Action(id).key(), label)
-                    .keys(keymap::action_hint(id, cx))
-                    .meta("Project · sikemux.json")
-                    .also(&detail)
-                    .also("Project · sikemux.json"),
-            )
+            Row::new(Pick::Action(id).key(), &action.label)
+                .keys(keymap::action_hint(id, cx))
+                .meta("Project · sikemux.json")
+                .also(&detail)
+                .also("Project · sikemux.json")
         })
         .collect()
 }
@@ -468,7 +458,9 @@ impl Workbench {
             project.path.to_string_lossy().into_owned(),
         );
         let target = self.target();
-        let config = target.request("projectConfig", json!({ "project": folder }));
+        let config = target.request_typed::<call::ProjectConfig>(ProjectParams {
+            project: folder.clone(),
+        });
         let listed = self
             .git_repo()
             .map(|repo| target.request_typed::<git_call::Worktrees>(git_call::Worktrees { repo }));
@@ -575,7 +567,9 @@ impl Workbench {
     fn start_preview(&self, project: &str, cx: &mut Context<Self>) {
         let started = self
             .target()
-            .request("startPreview", json!({ "project": project }));
+            .request_typed::<call::StartPreview>(ProjectParams {
+                project: project.to_owned(),
+            });
         self.report(
             started,
             "The project preview did not start",

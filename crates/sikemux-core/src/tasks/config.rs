@@ -100,7 +100,7 @@ static PATTERNED_KEY_CODE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("key code pattern")
 });
 
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ActionPlacement {
     Background,
@@ -123,13 +123,13 @@ impl ActionPlacement {
     }
 }
 
-#[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CommandContext {
     Project,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectAction {
     pub id: String,
@@ -143,7 +143,7 @@ pub struct ProjectAction {
     pub keybinding: Option<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectTask {
     pub id: String,
@@ -155,7 +155,7 @@ pub struct ProjectTask {
     pub env: Vec<(String, String)>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectPreview {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -164,7 +164,7 @@ pub struct ProjectPreview {
     pub command: Option<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeHook {
     pub id: String,
@@ -172,7 +172,7 @@ pub struct WorktreeHook {
     pub command: String,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeConfig {
     pub on_create: Vec<WorktreeHook>,
@@ -180,7 +180,7 @@ pub struct WorktreeConfig {
 
 /// What makes the files a project commits but builds from its other files,
 /// and which files they are, so the core keeps them up to date on its own.
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerateConfig {
     pub command: String,
@@ -204,6 +204,21 @@ impl<T> Stated<T> {
     }
 }
 
+impl<'de, T: Deserialize<'de>> Deserialize<'de> for Stated<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Either<T> {
+            Off(bool),
+            Given(T),
+        }
+        match Either::deserialize(deserializer)? {
+            Either::Off(_) => Ok(Stated::Off),
+            Either::Given(value) => Ok(Stated::Given(value)),
+        }
+    }
+}
+
 impl<T: Serialize> Serialize for Stated<T> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
@@ -214,7 +229,7 @@ impl<T: Serialize> Serialize for Stated<T> {
 }
 
 /// What proves the project sound.
-#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum ProjectCheck {
     /// A command run on each commit on the project's branch, as committed.
@@ -233,7 +248,7 @@ impl ProjectCheck {
     }
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectConfig {
     pub version: u64,
@@ -269,7 +284,7 @@ pub struct ProjectConfig {
 
 /// Project-relative path patterns, such as `server/**`, kept as written and
 /// read once into a matcher.
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(transparent)]
 pub struct PathGlobs {
     pub patterns: Vec<String>,
@@ -300,7 +315,7 @@ pub struct ConfigError {
     pub message: String,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TrustSummary {
     pub requires_approval: bool,
@@ -308,7 +323,7 @@ pub struct TrustSummary {
     pub reasons: Vec<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(
     tag = "status",
     rename_all = "camelCase",
@@ -1367,7 +1382,16 @@ fn has_drive_prefix(path: &str) -> bool {
 }
 
 mod env_map {
-    use serde::Serializer;
+    use serde::{Deserialize, Deserializer, Serializer};
+    use std::collections::BTreeMap;
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<(String, String)>, D::Error> {
+        Ok(BTreeMap::<String, String>::deserialize(deserializer)?
+            .into_iter()
+            .collect())
+    }
 
     pub fn serialize<S: Serializer>(
         env: &[(String, String)],

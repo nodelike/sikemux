@@ -9,8 +9,11 @@ use gpui_kit::{
     SharedString, Styled, Subscription, Window,
 };
 use serde_json::{json, Value};
+use sikemux_core::server::call;
+use sikemux_core::server::themes::{ThemePaletteParams, ThemeParams};
+use sikemux_core::server::wallpaper::PixelsParams;
 
-use crate::core::{self, Target};
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::reads::Read;
 use crate::settings::rows;
@@ -191,13 +194,13 @@ fn preview(bench: &Workbench, cx: &mut Context<Workbench>) {
     let Some(draft) = editor(bench, cx).map(|editor| editor.draft.clone()) else {
         return;
     };
-    let asks = bench.asks.clone();
+    let Ok(theme) = serde_json::from_value(draft) else {
+        return;
+    };
+    let asked =
+        Target::here(&bench.asks).request_typed::<call::ThemePalette>(ThemePaletteParams { theme });
     cx.spawn(async move |_, cx| {
-        let Ok(palette) = core::request(&asks, "themePalette", json!({ "theme": draft })).await
-        else {
-            return;
-        };
-        let Ok(palette) = serde_json::from_value(palette) else {
+        let Ok(palette) = asked.await else {
             return;
         };
         cx.update(|cx| {
@@ -330,10 +333,14 @@ fn open(
 pub fn customize(bench: &Workbench, id: String, window: &mut Window, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn_in(window, async move |bench, cx| {
-        let Ok(palette) = core::request(&asks, "theme", json!({ "id": id })).await else {
+        let asked =
+            Target::here(&asks).request_typed::<call::Theme>(Some(ThemeParams { id: Some(id) }));
+        let Ok(palette) = asked.await else {
             return;
         };
-        let original = palette["theme"].clone();
+        let Ok(original) = serde_json::to_value(palette.theme) else {
+            return;
+        };
         let mut draft = original.clone();
         draft["id"] = json!(new_id());
         draft["name"] = json!(format!(
@@ -405,8 +412,9 @@ pub fn from_picture(
                     Picture::Wallpaper => format!("{name} wallpaper"),
                     Picture::PaneImage => name,
                 };
-                let asked = json!({ "name": name, "pixels": pixels });
-                core::request(&asks, "themeFromPixels", asked).await.ok()
+                let asked = Target::here(&asks)
+                    .request_typed::<call::ThemeFromPixels>(PixelsParams { name, pixels });
+                asked.await.ok()
             }
             None => None,
         };
@@ -419,7 +427,7 @@ pub fn from_picture(
                 };
                 bench.notify(crate::toast::error(note), cx);
             }
-            if let Some(original) = theme {
+            if let Some(Ok(original)) = theme.map(serde_json::to_value) {
                 let mut draft = original.clone();
                 draft["id"] = json!(new_id());
                 open(bench, draft, original, true, window, cx);

@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use crate::server::plugins::{AgentTool, Manifest};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_plugin_api::codehost as host_method;
 
@@ -167,16 +167,26 @@ fn connector(manifests: &[&Manifest], name: &str) -> Option<Asked> {
     })
 }
 
-#[derive(Deserialize)]
+/// What a mod's page asks through its bridge. `name` and `params` are the page's own, so the
+/// core works out what they mean.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(in super::super) struct BridgeParams {
-    id: String,
-    name: String,
+pub struct BridgeParams {
+    pub id: String,
+    pub name: String,
     #[serde(default)]
-    params: Value,
+    pub params: Value,
     /// The project of the strip the mod's pane is in.
     #[serde(default)]
-    project: Option<String>,
+    pub project: Option<String>,
+}
+
+/// How a mod's write went: done, or waiting on the person to allow what its manifest declares.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BridgeWrite {
+    Ask { name: String, writes: Vec<String> },
+    Done(Value),
 }
 
 /// The mod's manifest, once its folder still holds one that reads.
@@ -212,7 +222,7 @@ pub(in super::super) async fn write(
     core: &Arc<Core>,
     client: &ClientConn,
     asked: BridgeParams,
-) -> CoreResult<Value> {
+) -> CoreResult<BridgeWrite> {
     let manifest = manifest_of(core, &asked.id).await?;
     let wanted = self::asked(core, &asked.name)?;
     if !wanted.writes {
@@ -226,10 +236,13 @@ pub(in super::super) async fn write(
         .into());
     }
     if !core.mods.allowed(&asked.id, &manifest.writes) {
-        return Ok(json!({ "ask": { "name": manifest.name, "writes": manifest.writes } }));
+        return Ok(BridgeWrite::Ask {
+            name: manifest.name,
+            writes: manifest.writes,
+        });
     }
     let done = run(core, client, wanted.reach, asked.params, asked.project).await?;
-    Ok(json!({ "done": done }))
+    Ok(BridgeWrite::Done(done))
 }
 
 /// `params` with the project the pane is in, unless they name one.

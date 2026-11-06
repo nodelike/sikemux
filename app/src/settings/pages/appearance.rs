@@ -1,6 +1,8 @@
 //! How the app looks: its theme, the size of its text, the panes' grain or
 //! picture, the agents' buddies, and the window's opacity and blur.
 
+use sikemux_core::server::call;
+use sikemux_core::server::faces::FaceStyleChange;
 use std::rc::Rc;
 
 use gpui_kit::component::color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState};
@@ -16,7 +18,7 @@ use serde_json::{json, Value};
 use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern};
 use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
-use crate::core::{Ask, Target};
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::reads::Read;
 use crate::settings::index::Page::{Buddies, Interface, Theme};
@@ -1135,19 +1137,14 @@ pub fn render(
         .this_view()
         .map(|view| (*view.face_style).clone())
         .unwrap_or_default();
-    let face_switch = |id: &'static str, field: &'static str, on: bool| {
+    let face_switch = |id: &'static str, change: fn(bool) -> FaceStyleChange, on: bool| {
         let this = this.clone();
         gpui_kit::component::switch::Switch::new(id)
             .checked(on)
             .on_change(move |on: &bool, _, cx| {
-                let mut change = serde_json::Map::new();
-                change.insert(field.to_owned(), (*on).into());
-                let change = Value::Object(change);
+                let on = *on;
                 this.update(cx, |bench, _| {
-                    let _ = bench.asks.send(Ask::Call {
-                        method: "setFaceStyle",
-                        params: change,
-                    });
+                    bench.call_typed::<call::SetFaceStyle>(change(on));
                 })
             })
     };
@@ -1156,12 +1153,13 @@ pub fn render(
     let choose = |pack: String, shape: String| {
         let this = this.clone();
         move |_: &gpui_kit::ClickEvent, _: &mut Window, cx: &mut gpui_kit::App| {
-            let change = serde_json::json!({ "pack": pack, "shape": shape });
+            let change = FaceStyleChange {
+                pack: Some(pack.clone()),
+                shape: Some(shape.clone()),
+                ..FaceStyleChange::default()
+            };
             this.update(cx, |bench, _| {
-                let _ = bench.asks.send(Ask::Call {
-                    method: "setFaceStyle",
-                    params: change,
-                });
+                bench.call_typed::<call::SetFaceStyle>(change);
             })
         }
     };
@@ -1301,7 +1299,14 @@ pub fn render(
         .child(rows::row(
             "Show buddies",
             Some("Agents get a character in place of their harness logo."),
-            face_switch("buddies-on", "on", style.on),
+            face_switch(
+                "buddies-on",
+                |on| FaceStyleChange {
+                    on: Some(on),
+                    ..FaceStyleChange::default()
+                },
+                style.on,
+            ),
             cx,
         ))
         .child(stacked(
@@ -1321,7 +1326,14 @@ pub fn render(
         .child(rows::row(
             "Animate faces",
             Some("Faces move with what their agents are doing."),
-            face_switch("buddies-motion", "motion", style.motion),
+            face_switch(
+                "buddies-motion",
+                |motion| FaceStyleChange {
+                    motion: Some(motion),
+                    ..FaceStyleChange::default()
+                },
+                style.motion,
+            ),
             cx,
         ));
 

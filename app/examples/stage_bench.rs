@@ -25,10 +25,15 @@ use gpui::{
 };
 use serde_json::json;
 use sikemux_core::harness::runs::RunStatus;
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::layout::{Side, SplitPane};
+use sikemux_core::server::spare::NewTerminal;
+use sikemux_core::server::tasks::TrustAnswerParams;
 use sikemux_gpui::hosts::Place;
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{core, icons, terminal, theme, WINDOW_SIZE};
-use sikemux_view::layout::{Pane, PaneKind};
+use sikemux_view::layout::{At, Pane, PaneKind};
 use sikemux_wire::protocol::SessionId;
 
 const FRAME: Duration = Duration::from_micros(8_333);
@@ -211,24 +216,27 @@ fn main() -> anyhow::Result<()> {
         })
         .ok_or_else(|| anyhow::anyhow!("the tab in front shows no chat"))?;
     let runtime = tokio::runtime::Runtime::new()?;
+    let here = core::Target::here(&asks);
     let already = run.bench.read_with(&run.cx, |bench, _| shown(bench).len());
     for count in already + 1..=2 {
         let opened = runtime
-            .block_on(core::request(
-                &asks,
-                "newTerminal",
-                json!({ "project": project }),
-            ))
+            .block_on(here.request_typed::<call::NewTerminal>(NewTerminal {
+                project: project.clone(),
+                terminals: false,
+            }))
             .map_err(anyhow::Error::msg)?;
-        let params = json!({
-            "project": project,
-            "tab": tab,
-            "pane": view,
-            "side": "right",
-            "fromTab": opened,
-        });
+        let split = SplitPane {
+            at: At::project(&project),
+            tab: tab.clone(),
+            pane: view.clone(),
+            side: Side::Right,
+            kind: None,
+            target: None,
+            from_tab: Some(opened),
+            keep_front: false,
+        };
         runtime
-            .block_on(core::request(&asks, "splitPane", params))
+            .block_on(here.request_typed::<call::SplitPane>(split))
             .map_err(anyhow::Error::msg)?;
         if !run.until(600, |bench| {
             let found = shown(bench);
@@ -379,13 +387,14 @@ fn main() -> anyhow::Result<()> {
         };
         for _ in 0..600 {
             let waiting = runtime
-                .block_on(core::request(&asks, "trustAsks", json!({})))
+                .block_on(here.request_typed::<call::TrustAsks>(NoParams {}))
                 .unwrap_or_default();
-            for ask in waiting.as_array().into_iter().flatten() {
-                if let Some(ask) = ask["id"].as_str() {
-                    let answer = json!({ "id": ask, "trust": true });
-                    let _ = runtime.block_on(core::request(&asks, "answerTrust", answer));
-                }
+            for ask in waiting {
+                let answer = TrustAnswerParams {
+                    id: ask.id,
+                    trust: true,
+                };
+                let _ = runtime.block_on(here.request_typed::<call::AnswerTrust>(answer));
             }
             run.frame();
             if run.bench.read_with(&run.cx, |bench, _| running(bench)) {

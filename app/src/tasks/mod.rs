@@ -8,7 +8,8 @@ pub(crate) mod run_check;
 pub(crate) mod test_card;
 
 use gpui_kit::{Context, Window};
-use serde_json::json;
+use sikemux_core::server::call;
+use sikemux_core::server::harness::RunSelector;
 use sikemux_core::server::ports::PortOwner;
 use sikemux_core::server::ports::ProjectPort;
 use sikemux_core::server::tasks::RunView;
@@ -85,6 +86,7 @@ impl Workbench {
     }
 
     pub fn stop_run(&self, execution: &str) {
-        self.call_in_front("taskStop", json!({ "executionId": execution }));
+        self.target()
+            .call_typed::<call::TaskStop>(RunSelector::of_execution(execution));
     }
 }

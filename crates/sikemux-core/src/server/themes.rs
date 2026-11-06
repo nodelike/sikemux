@@ -3,7 +3,7 @@
 //! each terminal palette, and the person's own, kept in preferences.
 
 use super::{Core, CoreResult};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 
 use sikemux_process::sync::Locked;
@@ -616,14 +616,14 @@ fn ghostty_theme(
 }
 
 /// Which theme to answer for; the person's pick when none is named.
-#[derive(Deserialize, Default)]
-pub(crate) struct ThemeParams {
-    id: Option<String>,
+#[derive(Serialize, Deserialize, Default)]
+pub struct ThemeParams {
+    pub id: Option<String>,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct ThemePaletteParams {
-    pub(crate) theme: sikemux_view::theme::Theme,
+#[derive(Serialize, Deserialize)]
+pub struct ThemePaletteParams {
+    pub theme: sikemux_view::theme::Theme,
 }
 
 #[derive(Deserialize)]

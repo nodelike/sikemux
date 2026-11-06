@@ -1,6 +1,8 @@
 //! A project's own settings in a tab of its own: what Sikemux keeps for it, its processes and
 //! check command, the repository its Git views use, and its sikemux.json.
 
+use sikemux_core::server::tasks::{ProjectConfigRead, ProjectParams, TrustProjectParams};
+use sikemux_core::tasks::config::{ConfigError, ConfigLoad, ProjectCheck, Stated};
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::{BTreeMap, HashSet};
@@ -13,7 +15,6 @@ use gpui_kit::{
     div, px, AnyElement, AppContext, Context, Entity, InteractiveElement, IntoElement,
     ParentElement, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
 };
-use serde_json::{json, Value};
 use sikemux_core::server::tasks::Source;
 use sikemux_core::server::tasks::TaskView;
 use sikemux_view::layout::PaneKind;
@@ -54,7 +55,7 @@ const PAGES: [(Page, &str, Icon); 4] = [
 pub struct ProjectSettings {
     page: Page,
     /// What the core last said of the project's sikemux.json.
-    config: Option<Value>,
+    config: Option<ProjectConfigRead>,
     /// The repositories directly inside the project's folder.
     repos: Option<Vec<DiscoveredRepo>>,
     check: Entity<InputState>,
@@ -94,7 +95,9 @@ impl Workbench {
     fn reload_config(&self, folder: &str, cx: &mut Context<Self>) {
         let asked = self
             .target()
-            .request("projectConfig", json!({ "project": folder }));
+            .request_typed::<call::ProjectConfig>(ProjectParams {
+                project: folder.to_owned(),
+            });
         let folder = folder.to_owned();
         cx.spawn(async move |bench, cx| {
             let Ok(config) = asked.await else {
@@ -115,9 +118,7 @@ impl Workbench {
             return;
         };
         let typed = settings.check.read(cx).value().trim().to_owned();
-        let saved = settings.config.as_ref().map_or("", |config| {
-            config["config"]["check"].as_str().unwrap_or_default()
-        });
+        let saved = settings.config.as_ref().map_or("", check_command);
         if typed == saved {
             return;
         }
@@ -141,15 +142,20 @@ impl Workbench {
             .project_settings
             .get(folder)
             .and_then(|settings| settings.config.as_ref())
-            .and_then(|config| config["fingerprint"].as_str())
-            .map(str::to_owned)
+            .and_then(|config| match &config.load {
+                ConfigLoad::Valid { fingerprint, .. } => Some(fingerprint.clone()),
+                ConfigLoad::Invalid { fingerprint, .. } => fingerprint.clone(),
+                ConfigLoad::Absent { .. } => None,
+            })
         else {
             return;
         };
-        let trusting = self.target().request(
-            "trustProject",
-            json!({ "project": folder, "fingerprint": fingerprint }),
-        );
+        let trusting = self
+            .target()
+            .request_typed::<call::TrustProject>(TrustProjectParams {
+                project: folder.to_owned(),
+                fingerprint,
+            });
         let folder = folder.to_owned();
         cx.spawn(async move |bench, cx| {
             if trusting.await.is_ok() {
@@ -336,10 +342,7 @@ pub fn pane(
         return ui::pane(cx).into_any_element();
     };
     if let (false, Some(config)) = (settings.check_filled, &settings.config) {
-        let check = config["config"]["check"]
-            .as_str()
-            .unwrap_or_default()
-            .to_owned();
+        let check = check_command(config).to_owned();
         let folder = folder.to_owned();
         cx.defer_in(window, move |bench, window, cx| {
             if let Some(settings) = bench.settings_of(&folder) {
@@ -364,7 +367,7 @@ pub fn pane(
     let invalid = settings
         .config
         .as_ref()
-        .is_some_and(|config| config["status"] == "invalid");
+        .is_some_and(|config| matches!(config.load, ConfigLoad::Invalid { .. }));
     let nav = PAGES.iter().map(|&(page, label, icon)| {
         let (this, folder) = (this.clone(), folder.to_owned());
         let on = settings.page == page;
@@ -794,7 +797,7 @@ fn tasks(
     let invalid = settings
         .config
         .as_ref()
-        .is_some_and(|config| config["status"] == "invalid");
+        .is_some_and(|config| matches!(config.load, ConfigLoad::Invalid { .. }));
     sections.push(rows::section(
         "Check",
         None,
@@ -962,15 +965,17 @@ fn config(
             cx,
         );
     };
-    let status = config["status"].as_str().unwrap_or("absent");
-    let trusted = config["trusted"].as_bool().unwrap_or(false);
-    let errors = config["errors"].as_array().cloned().unwrap_or_default();
-    let (label, about) = match (status, trusted) {
-        ("absent", _) => (
+    let trusted = config.trusted;
+    let errors: &[ConfigError] = match &config.load {
+        ConfigLoad::Invalid { errors, .. } => errors,
+        _ => &[],
+    };
+    let (label, about) = match (&config.load, trusted) {
+        (ConfigLoad::Absent { .. }, _) => (
             "Not made yet",
             "Adding a process for the team makes it.".to_owned(),
         ),
-        ("invalid", _) => (
+        (ConfigLoad::Invalid { .. }, _) => (
             "Has mistakes",
             format!(
                 "{} {}; Sikemux ignores the file until they are fixed.",
@@ -991,19 +996,27 @@ fn config(
             "Sikemux asks before it runs any of its commands.".to_owned(),
         ),
     };
-    let path = PathBuf::from(config["path"].as_str().unwrap_or_default());
+    let path = PathBuf::from(match &config.load {
+        ConfigLoad::Absent { path }
+        | ConfigLoad::Invalid { path, .. }
+        | ConfigLoad::Valid { path, .. } => path,
+    });
+    let (valid, absent) = (
+        matches!(config.load, ConfigLoad::Valid { .. }),
+        matches!(config.load, ConfigLoad::Absent { .. }),
+    );
     let (trusting, opening, folder) = (this.clone(), this.clone(), folder.to_owned());
     let controls = div()
         .flex()
         .gap(SPACE_1H)
-        .when(status == "valid" && !trusted, |controls| {
+        .when(valid && !trusted, |controls| {
             controls.child(
                 Button::new("config-trust", "Trust", Variant::Outline).on_click(move |_, _, cx| {
                     trusting.update(cx, |bench, cx| bench.trust_config(&folder, cx))
                 }),
             )
         })
-        .when(status != "absent", |controls| {
+        .when(!absent, |controls| {
             controls.child(
                 Button::new("config-open", "Open", Variant::Outline).on_click(move |_, _, cx| {
                     opening.update(cx, |bench, cx| bench.open_file(&path, cx))
@@ -1021,12 +1034,12 @@ fn config(
                 div()
                     .font_family(theme::MONO)
                     .text_color(t.text_secondary)
-                    .child(error["path"].as_str().unwrap_or_default().to_owned()),
+                    .child(error.path.clone()),
             )
             .child(
                 div()
                     .text_color(t.text_tertiary)
-                    .child(error["message"].as_str().unwrap_or_default().to_owned()),
+                    .child(error.message.clone()),
             )
     });
     rows::section(
@@ -1039,4 +1052,15 @@ fn config(
             .children(mistakes),
         cx,
     )
+}
+
+/// The command the project checks itself with, when it names one rather than CI.
+fn check_command(config: &ProjectConfigRead) -> &str {
+    let ConfigLoad::Valid { config, .. } = &config.load else {
+        return "";
+    };
+    match config.check.as_ref().and_then(Stated::given) {
+        Some(ProjectCheck::Command(command)) => command,
+        _ => "",
+    }
 }

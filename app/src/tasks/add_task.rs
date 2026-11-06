@@ -1,6 +1,8 @@
 //! The dialog that saves a person's own start command as one of the project's tasks,
 //! for the team in sikemux.json or for them alone, or changes one they saved.
 
+use sikemux_core::server::call;
+use sikemux_core::server::tasks::AddParams;
 use std::rc::Rc;
 
 use gpui_kit::component::input::InputState;
@@ -9,7 +11,6 @@ use gpui_kit::{
     div, AnyElement, AppContext, Context, Entity, FontWeight, IntoElement, ParentElement,
     SharedString, Styled, Window,
 };
-use serde_json::json;
 use sikemux_core::server::tasks::Source;
 use sikemux_core::server::tasks::TaskView;
 
@@ -178,17 +179,21 @@ fn save_task(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
     }
     let (team, project, replaces) = (adding.team, adding.project.clone(), adding.replaces.clone());
     let edited = replaces.is_some();
-    let params = json!({ "project": project, "label": label, "command": command, "cwd": folder, "team": team, "replaces": replaces });
-    let adding = bench.target().request("addTask", params);
+    let adding = bench.target().request_typed::<call::AddTask>(AddParams {
+        project,
+        label: label.clone(),
+        command,
+        cwd: Some(folder),
+        team,
+        replaces,
+    });
     bench.overlays.adding_task = None;
     cx.notify();
     cx.spawn_in(window, async move |bench, cx| {
         let added = adding.await;
         let _ = bench.update_in(cx, |bench, window, cx| match added {
             Ok(answer) => {
-                if let Some(task) = answer["taskId"].as_str() {
-                    bench.pick_task(task, cx);
-                }
+                bench.pick_task(&answer.task_id, cx);
                 let done = if edited { "Saved" } else { "Added" };
                 let saved = if team {
                     format!("{done} {label} in sikemux.json; commit it to share it")

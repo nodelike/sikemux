@@ -1,13 +1,15 @@
 //! What a project's checked-in commands ask of the person before they run, one question at a
 //! time.
 
+use crate::core::Target;
+use crate::hosts::Place;
+use sikemux_core::server::call;
+use sikemux_core::server::tasks::TrustAnswerParams;
 use std::collections::HashSet;
 
 use gpui_kit::Context;
-use serde_json::json;
 use sikemux_core::server::tasks::TrustQuestion;
 
-use crate::core::Ask;
 use crate::workbench::Workbench;
 
 /// The trust questions already put to the person.
@@ -84,14 +86,13 @@ impl Workbench {
             ask.confirm_label,
             false,
             move |bench, trust, _, _| {
-                let answer = Ask::Call {
-                    method: "answerTrust",
-                    params: json!({ "id": id, "trust": trust }),
-                };
-                let _ = bench.asks.send(match &host {
-                    Some(host) => Ask::On(host.clone(), Box::new(answer)),
-                    None => answer,
-                });
+                let place = host.clone().map_or(Place::This, Place::Account);
+                Target::new(&bench.asks, place).call_typed::<call::AnswerTrust>(
+                    TrustAnswerParams {
+                        id: id.clone(),
+                        trust,
+                    },
+                );
             },
             cx,
         );

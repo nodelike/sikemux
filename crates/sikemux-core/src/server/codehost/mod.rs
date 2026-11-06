@@ -170,10 +170,10 @@ fn listed_state(state: Option<String>) -> Result<String, PluginFailure> {
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct PullsParams {
-    project: String,
-    state: Option<String>,
+#[derive(Serialize, Deserialize)]
+pub struct PullsParams {
+    pub project: String,
+    pub state: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

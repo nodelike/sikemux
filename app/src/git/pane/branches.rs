@@ -1,15 +1,17 @@
 //! The Branches page: the local branches, then each remote with its branches while open,
 //! what can be done with each, and the card that heads a branch's review.
 
+use super::Said;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, list, px, Anchor, AnyElement, App, Context, Div, Entity, FontWeight, HoverListenerMode,
     Hsla, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled,
 };
+use sikemux_core::server::call;
+use sikemux_core::server::codehost::PullsParams;
 use std::collections::HashMap;
 
-use serde_json::json;
 use sikemux_core::git::branches::GitBranch;
 use sikemux_core::git::remote::{GitRemote, GitRemoteBranch};
 use sikemux_plugin_api::codehost::{PullList, PullState};
@@ -181,13 +183,12 @@ impl GitPane {
         if self.host_of().is_none() {
             return;
         }
-        let params = json!({ "project": self.repo, "state": "open" });
-        let answer = self.core.request("codeHostPulls", params);
+        let answer = self.core.request_typed::<call::CodeHostPulls>(PullsParams {
+            project: self.repo.clone(),
+            state: Some("open".to_owned()),
+        });
         cx.spawn(async move |pane, cx| {
-            let list: Option<PullList> = answer
-                .await
-                .ok()
-                .and_then(|answer| crate::core::outcome(&answer).ok());
+            let list: Option<PullList> = answer.await.ok().and_then(|answer| answer.read().ok());
             let pulls = list
                 .into_iter()
                 .flat_map(|list| list.pulls)
@@ -272,7 +273,8 @@ impl GitPane {
 
     fn git<C>(&mut self, label: String, call: C, cx: &mut Context<Self>)
     where
-        C: Call<Params = C> + Serialize,
+        C: Call<Params = C> + Serialize + 'static,
+        C::Answer: serde::de::DeserializeOwned + Said + 'static,
     {
         self.run(label, call, cx, |pane, answer, cx| {
             if answer.is_ok() {

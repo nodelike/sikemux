@@ -2,6 +2,8 @@
 //! with the keys the person chose in the core's preferences, else the defaults both apps read.
 //! An id no part of the app has an action for yet stays unbound.
 
+use sikemux_core::server::activity_log::CommandUsed;
+use sikemux_core::server::call;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::sync::LazyLock;
@@ -13,7 +15,6 @@ use gpui_kit::{
     SystemMenuType, Window,
 };
 use serde::Deserialize;
-use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::core::Ask;
@@ -278,10 +279,8 @@ pub fn dispatch(id: &str, window: &mut Window, cx: &mut App) {
 
 fn used(id: &str, cx: &App) {
     if shortcuts().iter().any(|shortcut| shortcut.id == id) {
-        let _ = cx.global::<Keymap>().used.send(Ask::Call {
-            method: "commandUsed",
-            params: json!({ "id": id }),
-        });
+        let used = crate::core::typed_call::<call::CommandUsed>(CommandUsed { id: id.to_owned() });
+        let _ = cx.global::<Keymap>().used.send(used);
     }
 }
 

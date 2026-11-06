@@ -110,6 +110,18 @@ pub(crate) struct TrustAsk {
     grant: Grant,
 }
 
+/// `sikemux.json` as read now, and whether the person trusts it on this host.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectConfigRead {
+    #[serde(flatten)]
+    pub load: ConfigLoad,
+    pub trusted: bool,
+    /// What the person is asked before it runs, while it is not trusted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trust_ask: Option<Value>,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Asked {
@@ -451,20 +463,19 @@ fn view(project: &Path, task: &Definition, run: Option<&Run>) -> TaskView {
     }
 }
 
-/// `sikemux.json` as read now, and whether the person trusts it on this host.
-pub(crate) async fn project_config(core: &Arc<Core>, project: String) -> CoreResult<Value> {
+pub(crate) async fn project_config(
+    core: &Arc<Core>,
+    project: String,
+) -> CoreResult<ProjectConfigRead> {
     let core = core.clone();
     blocking(move || {
-        let config = config::load(Path::new(&project));
-        let ask = config_needs(&core, &config);
-        let mut value = serde_json::to_value(&config)?;
-        if let Some(object) = value.as_object_mut() {
-            object.insert("trusted".into(), ask.is_none().into());
-            if let Some(ask) = ask {
-                object.insert("trustAsk".into(), serde_json::to_value(ask)?);
-            }
-        }
-        Ok(value)
+        let load = config::load(Path::new(&project));
+        let ask = config_needs(&core, &load);
+        Ok(ProjectConfigRead {
+            load,
+            trusted: ask.is_none(),
+            trust_ask: ask.map(serde_json::to_value).transpose()?,
+        })
     })
     .await
 }
@@ -1082,21 +1093,21 @@ pub(crate) async fn publish_runs(core: Arc<Core>) {
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct ProjectParams {
-    pub(crate) project: String,
+#[derive(Serialize, Deserialize)]
+pub struct ProjectParams {
+    pub project: String,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct TrustProjectParams {
-    project: String,
-    fingerprint: String,
+#[derive(Serialize, Deserialize)]
+pub struct TrustProjectParams {
+    pub project: String,
+    pub fingerprint: String,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct TrustAnswerParams {
-    id: String,
-    trust: bool,
+#[derive(Serialize, Deserialize)]
+pub struct TrustAnswerParams {
+    pub id: String,
+    pub trust: bool,
 }
 
 /// The name of the device the person acted from, when it was not this host's own window.

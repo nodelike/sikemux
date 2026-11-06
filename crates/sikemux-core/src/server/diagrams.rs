@@ -85,16 +85,24 @@ impl Diagrams {
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct DiagramParams {
-    key: String,
+#[derive(Serialize, Deserialize)]
+pub struct DiagramParams {
+    pub key: String,
     /// The arrangement to keep; without one the kept arrangement is forgotten.
     #[serde(default)]
-    layout: Option<Value>,
+    pub layout: Option<Value>,
 }
 
-pub(crate) fn layout(core: &Core, params: DiagramParams) -> Value {
-    json!({ "layout": core.diagrams.get(&params.key) })
+/// The arrangement kept for a diagram, whose shape only the app that drew it knows.
+#[derive(Serialize, Deserialize)]
+pub struct DiagramLayout {
+    pub layout: Option<Value>,
+}
+
+pub(crate) fn layout(core: &Core, params: DiagramParams) -> DiagramLayout {
+    DiagramLayout {
+        layout: core.diagrams.get(&params.key),
+    }
 }
 
 pub(crate) fn set_layout(core: &Core, params: DiagramParams) -> CoreResult<Value> {

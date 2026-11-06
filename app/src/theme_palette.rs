@@ -1,11 +1,13 @@
 //! The theme palette: every theme, each worn by the window while it is
 //! highlighted, and the person's own put back when they leave without one.
 
+use crate::core::Target;
 use gpui_kit::{Context, SharedString, Window};
-use serde_json::json;
-use sikemux_view::theme::{Palette, ThemeSource, ThemeSummary};
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::themes::ThemeParams;
+use sikemux_view::theme::{ThemeSource, ThemeSummary};
 
-use crate::core;
 use crate::palette::{Row, Spec};
 use crate::theme;
 use crate::workbench::Workbench;
@@ -46,12 +48,9 @@ impl Workbench {
         .browse(|row, bench, _, cx| bench.wear_theme(Some(row.key.clone()), cx))
         .cancel(|bench, _, cx| bench.wear_theme(None, cx));
         self.toggle_palette(spec, window, cx);
-        let listed = core::request(&self.asks, "themes", json!({}));
+        let listed = Target::here(&self.asks).request_typed::<call::Themes>(NoParams {});
         cx.spawn(async move |this, cx| {
             let Ok(themes) = listed.await else {
-                return;
-            };
-            let Ok(themes) = serde_json::from_value::<Vec<ThemeSummary>>(themes) else {
                 return;
             };
             let _ = this.update(cx, |bench, cx| {
@@ -71,12 +70,11 @@ impl Workbench {
 
     /// Draws the window in theme `id`, or in the person's own theme again.
     fn wear_theme(&self, id: Option<SharedString>, cx: &mut Context<Self>) {
-        let worn = core::request(&self.asks, "theme", json!({ "id": id.as_deref() }));
+        let worn = Target::here(&self.asks).request_typed::<call::Theme>(Some(ThemeParams {
+            id: id.as_ref().map(ToString::to_string),
+        }));
         cx.spawn(async move |this, cx| {
             let Ok(palette) = worn.await else {
-                return;
-            };
-            let Ok(palette) = serde_json::from_value::<Palette>(palette) else {
                 return;
             };
             let _ = this.update(cx, |bench, cx| {

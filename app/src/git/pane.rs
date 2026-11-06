@@ -146,11 +146,17 @@ struct Logged {
 }
 
 /// Files moved between the groups by one click, which run one after another.
+/// Asks the core for a queued move, once its turn comes.
+type MoveStart = Box<
+    dyn FnOnce(&Target) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>>,
+>;
+
 struct Move {
     paths: Vec<String>,
     side: Side,
-    method: &'static str,
-    params: Value,
+    /// What the command log calls it.
+    label: &'static str,
+    start: MoveStart,
 }
 
 /// Something done with a line of text the person typed, such as a name.

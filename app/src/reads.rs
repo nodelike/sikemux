@@ -561,7 +561,9 @@ impl Workbench {
                 }
             }
             Read::ProjectConfig => {
-                crate::keymap::bind_project_actions(&crate::commands::action_keys(&value), cx);
+                if let Some(config) = decoded(value, "project config") {
+                    crate::keymap::bind_project_actions(&crate::commands::action_keys(&config), cx);
+                }
             }
             Read::Runs => {
                 if !keep_decoded(&mut self.reads.runs, value, "process runs") {

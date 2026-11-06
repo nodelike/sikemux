@@ -1,6 +1,7 @@
 //! Sharing a chat read-only: a link anyone signed in to Sikemux can read it from, as it
 //! happens. The core opens and keeps the share; the window lists them and asks.
 
+use sikemux_core::server::share::StopShareParams;
 use std::rc::Rc;
 
 use gpui_kit::component::WindowExt;
@@ -9,7 +10,6 @@ use gpui_kit::{
     div, px, AnyElement, ClipboardItem, Context, Div, FontWeight, InteractiveElement, IntoElement,
     ParentElement, StatefulInteractiveElement, Styled, Window,
 };
-use serde_json::json;
 use sikemux_core::server::share::ShareState;
 use sikemux_core::server::share::ShareView;
 
@@ -114,7 +114,8 @@ impl Workbench {
     }
 
     fn stop_share(&mut self, share: String, window: &mut Window, cx: &mut Context<Self>) {
-        let stopped = crate::core::request(&self.asks, "stopShare", json!({ "id": share }));
+        let stopped = crate::core::Target::here(&self.asks)
+            .request_typed::<call::StopShare>(StopShareParams { id: share });
         if let Some(sharing) = self.overlays.sharing.as_mut() {
             sharing.working = true;
         }

@@ -1,8 +1,12 @@
 //! A picture shown properly: over the whole window, as large as the window lets it
 //! be, with a way to keep a copy in Downloads.
 
+use sikemux_core::server::remote_image::{ImageParams, PictureData};
+use sikemux_core::server::stash::StashItemParams;
+use std::future::Future;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::Arc;
 
 use base64::Engine;
@@ -64,10 +68,15 @@ impl Remote {
         }
     }
 
-    fn fetch(&self) -> impl std::future::Future<Output = Result<Value, String>> {
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<PictureData, String>> + Send>> {
+        let here = Target::here(&self.asks);
         match self.stashed {
-            true => crate::core::request(&self.asks, "stashPicture", json!({ "id": self.url })),
-            false => crate::core::request(&self.asks, "remoteImage", json!({ "url": self.url })),
+            true => Box::pin(here.request_typed::<call::StashPicture>(StashItemParams {
+                id: self.url.to_string(),
+            })),
+            false => Box::pin(here.request_typed::<call::RemoteImage>(ImageParams {
+                url: self.url.to_string(),
+            })),
         }
     }
 
@@ -77,11 +86,8 @@ impl Remote {
             let answer = fetched
                 .await
                 .map_err(|error| ImageCacheError::Asset(error.into()))?;
-            decode(
-                answer["mime"].as_str().unwrap_or_default(),
-                answer["data"].as_str().unwrap_or_default(),
-            )
-            .ok_or_else(|| ImageCacheError::Asset("Couldn't load the picture".into()))
+            decode(&answer.mime, &answer.data)
+                .ok_or_else(|| ImageCacheError::Asset("Couldn't load the picture".into()))
         }
     }
 }
@@ -520,10 +526,7 @@ impl Workbench {
                     write(&asks, &downloads, &name, base64).await
                 }
                 Picture::Remote(remote) => match remote.fetch().await {
-                    Ok(answer) => {
-                        let base64 = answer["data"].as_str().unwrap_or_default().to_owned();
-                        write(&asks, &downloads, &name, base64).await
-                    }
+                    Ok(answer) => write(&asks, &downloads, &name, answer.data).await,
                     Err(error) => Err(error),
                 },
             };

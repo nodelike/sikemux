@@ -5,7 +5,7 @@
 
 use super::CoreResult;
 use base64::Engine;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sikemux_view::theme::Theme;
 
 /// Pixels sampled at most, spread evenly over the image.
@@ -16,8 +16,8 @@ const MAX_PIXEL_BYTES: usize = 4 * 1024 * 1024;
 /// The hues of red, yellow, green, cyan, blue and magenta.
 const ANSI_HUES: [f64; 6] = [29.0, 100.0, 142.0, 195.0, 262.0, 328.0];
 
-#[derive(Deserialize)]
-pub(crate) struct PixelsParams {
+#[derive(Serialize, Deserialize)]
+pub struct PixelsParams {
     pub name: String,
     /// The wallpaper's pixels as RGBA bytes, in base64.
     pub pixels: String,

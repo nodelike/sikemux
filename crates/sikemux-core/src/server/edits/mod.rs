@@ -577,10 +577,10 @@ pub(crate) async fn change_owners(core: &Arc<Core>, params: CheckoutParams) -> C
     blocking(move || Ok(owners_at(&core, &params.dir, params.staged)?)).await
 }
 
-#[derive(Deserialize)]
-pub(crate) struct CommitParams {
-    dir: PathBuf,
-    message: String,
+#[derive(Serialize, Deserialize)]
+pub struct CommitParams {
+    pub dir: PathBuf,
+    pub message: String,
 }
 
 /// Commits what the person staged in the git panel, with the footer naming

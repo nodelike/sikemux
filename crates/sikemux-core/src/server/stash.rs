@@ -3,6 +3,7 @@
 //! host's chats lands in that chat's draft as soon as the host hears of it; any other waits
 //! until the person attaches it from a composer.
 
+use super::remote_image::PictureData;
 use crate::server::changed::What;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -267,7 +268,7 @@ pub(crate) async fn keep(core: &Core, params: StashItemParams) -> CoreResult<Sta
 }
 
 /// A picture in the stash, in base64, for an app to show small.
-pub(crate) async fn picture(core: &Core, params: StashItemParams) -> CoreResult<Value> {
+pub(crate) async fn picture(core: &Core, params: StashItemParams) -> CoreResult<PictureData> {
     let item = item(core, &params.id).await?;
     let mime = item.mime.clone().unwrap_or_default();
     if item.kind != StashKind::Image || !mime.starts_with("image/") {
@@ -280,7 +281,10 @@ pub(crate) async fn picture(core: &Core, params: StashItemParams) -> CoreResult<
         return Err(CoreError::from("that picture is too large to show small"));
     }
     let bytes = file(core, &item, MAX_PICTURE_BYTES).await?;
-    Ok(json!({ "mime": mime, "data": STANDARD.encode(bytes) }))
+    Ok(PictureData {
+        mime,
+        data: STANDARD.encode(bytes),
+    })
 }
 
 #[derive(Serialize, Deserialize)]

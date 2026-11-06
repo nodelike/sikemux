@@ -10,7 +10,6 @@ use std::path::Path;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::{App, Context, SharedString};
-use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::hosts::HostRow;
@@ -495,19 +494,19 @@ impl Workbench {
     /// Opens ~/.ssh/config on this host in the editor, at the `Host` line of `alias` when given.
     pub fn edit_ssh_config(&mut self, alias: Option<String>, cx: &mut Context<Self>) {
         self.show_workbench(cx);
-        let file = core::request(&self.asks, "sshConfigFile", json!({}));
+        let here = core::Target::here(&self.asks);
+        let file = here.request_typed::<call::SshConfigFile>(NoParams {});
         let hosts = alias
             .is_some()
-            .then(|| core::request(&self.asks, "sshHosts", json!({})));
+            .then(|| here.request_typed::<call::SshHosts>(NoParams {}));
         cx.spawn(async move |bench, cx| {
             let file = file.await;
             let line = match hosts {
                 Some(hosts) => hosts.await.ok().and_then(|hosts| {
                     let listed = hosts
-                        .as_array()?
                         .iter()
-                        .find(|host| host["alias"].as_str() == alias.as_deref())?;
-                    u32::try_from(listed["line"].as_u64()?).ok()
+                        .find(|host| Some(&host.alias) == alias.as_ref())?;
+                    u32::try_from(listed.line).ok()
                 }),
                 None => None,
             };
@@ -515,7 +514,7 @@ impl Workbench {
                 Ok(path) => {
                     bench.choose_host(HostChoice::This, cx);
                     let at = crate::editor::OpenAt {
-                        path: path.as_str().unwrap_or_default().into(),
+                        path: path.into(),
                         line: line.unwrap_or(0),
                         column: None,
                     };

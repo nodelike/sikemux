@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use super::codehost::repo as codehost;
 use super::connection::blocking;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sikemux_process::sync::Locked;
 use sikemux_view::workspace::{ProjectCodeHost, ProjectGit, ProjectPull, PullChecks};
@@ -99,9 +99,9 @@ fn lived_in(core: &Core, path: &Path) -> bool {
             .any(|agent| agent.cwd.starts_with(path))
 }
 
-#[derive(Deserialize)]
-pub(super) struct PullRequestUrlParams {
-    repo: String,
+#[derive(Serialize, Deserialize)]
+pub struct PullRequestUrlParams {
+    pub repo: String,
 }
 
 /// Where to open a pull request for the repository's branch, which the code host layer says.

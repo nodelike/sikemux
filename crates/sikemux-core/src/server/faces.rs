@@ -111,7 +111,7 @@ fn face(style: &FaceStyle, agent: &WorkspaceAgent) -> Option<AgentFace> {
 }
 
 /// A change to the face style; a field left out stays as it is.
-#[derive(Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FaceStyleChange {
     pub on: Option<bool>,

@@ -627,11 +627,6 @@ impl Workbench {
         self.feeds.this.view.as_ref()
     }
 
-    /// One of the core's methods on the host in front, for what the person did there.
-    pub fn call_in_front(&self, method: &'static str, params: Value) {
-        self.target().call(method, params);
-    }
-
     pub fn projects(&self) -> &[ProjectInfo] {
         self.shown()
             .map_or(&[], |view| view.workspace.projects.as_slice())

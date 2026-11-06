@@ -23,7 +23,7 @@ use crate::theme::{Tokens, TEXT_XS};
 use crate::workbench::{Strip, Workbench};
 use crate::{page_view, theme};
 use sikemux_core::server::call;
-use sikemux_core::server::mods::{BadgeParams, ModParams};
+use sikemux_core::server::mods::{AllowParams, BadgeParams, BridgeParams, BridgeWrite, ModParams};
 
 const BRIDGE: &str = include_str!("mod_pane/bridge.js");
 /// How long a burst of changes gathers before the watches it moved read again.
@@ -195,7 +195,8 @@ impl ModPane {
         match message["op"].as_str() {
             Some("read") => {
                 let (read, generation) = (
-                    self.core.request("modRead", self.asking(&name, params)),
+                    self.core
+                        .request_typed::<call::ModRead>(self.asking(&name, params)),
                     self.generation,
                 );
                 cx.spawn(async move |this, cx| {
@@ -239,33 +240,43 @@ impl ModPane {
         }
     }
 
-    fn asking(&self, name: &str, params: Value) -> Value {
-        json!({ "id": self.id, "name": name, "params": params, "project": self.project })
+    fn asking(&self, name: &str, params: Value) -> BridgeParams {
+        BridgeParams {
+            id: self.id.clone(),
+            name: name.to_owned(),
+            params,
+            project: self.project.clone(),
+        }
     }
 
     /// Runs a write, asking the person first when they have not allowed the mod's writes.
     fn write(&mut self, id: u64, name: String, params: Value, cx: &mut Context<Self>) {
         let asked = self.asking(&name, params);
         let (write, generation) = (
-            self.core.request("modWrite", asked.clone()),
+            self.core.request_typed::<call::ModWrite>(asked.clone()),
             self.generation,
         );
         cx.spawn(async move |this, cx| {
             let answer = write.await;
             let _ = this.update(cx, |pane, cx| match answer {
-                Ok(answer) if answer.get("ask").is_some() => {
-                    pane.ask(generation, id, &answer["ask"], asked, cx)
+                Ok(BridgeWrite::Ask { name, writes }) => {
+                    pane.ask((generation, id), name, writes, asked, cx)
                 }
-                Ok(answer) => pane.answer_to(generation, id, Ok(answer["done"].clone())),
+                Ok(BridgeWrite::Done(done)) => pane.answer_to(generation, id, Ok(done)),
                 Err(error) => pane.answer_to(generation, id, Err(error)),
             });
         })
         .detach();
     }
 
-    fn ask(&self, generation: u64, id: u64, ask: &Value, asked: Value, cx: &mut Context<Self>) {
-        let name = ask["name"].as_str().unwrap_or(&self.id).to_owned();
-        let writes: Vec<String> = serde_json::from_value(ask["writes"].clone()).unwrap_or_default();
+    fn ask(
+        &self,
+        (generation, id): (u64, u64),
+        name: String,
+        writes: Vec<String>,
+        asked: BridgeParams,
+        cx: &mut Context<Self>,
+    ) {
         let listed: Vec<String> = writes.iter().map(|write| said(write)).collect();
         let body = format!(
             "{name} asks to {}. It may do so whenever it is open, until its mod.json asks for more. Settings, Mods takes this back.",
@@ -294,26 +305,27 @@ impl ModPane {
         (generation, id): (u64, u64),
         allowed: bool,
         writes: Vec<String>,
-        asked: Value,
+        asked: BridgeParams,
         cx: &mut Context<Self>,
     ) {
         if !allowed {
             let refused = Err("the person did not allow this mod's writes".into());
             return self.answer_to(generation, id, refused);
         }
-        let allow = self
-            .core
-            .request("allowMod", json!({ "id": self.id, "writes": writes }));
+        let allow = self.core.request_typed::<call::AllowMod>(AllowParams {
+            id: self.id.clone(),
+            writes: Some(writes),
+        });
         let core = self.core.clone();
         cx.spawn(async move |this, cx| {
             let answer = match allow.await {
-                Ok(_) => core.request("modWrite", asked).await,
+                Ok(_) => core.request_typed::<call::ModWrite>(asked).await,
                 Err(error) => Err(error),
             };
             let _ = this.update(cx, |pane, _| {
                 let answer = match answer {
-                    Ok(answer) if answer.get("done").is_some() => Ok(answer["done"].clone()),
-                    Ok(_) => Err("this mod's writes are not allowed".into()),
+                    Ok(BridgeWrite::Done(done)) => Ok(done),
+                    Ok(BridgeWrite::Ask { .. }) => Err("this mod's writes are not allowed".into()),
                     Err(error) => Err(error),
                 };
                 pane.answer_to(generation, id, answer)
@@ -353,21 +365,20 @@ impl ModPane {
         if !self.shown {
             return;
         }
-        let due: Vec<(u64, Value)> = self
+        let due: Vec<(u64, String, Value)> = self
             .watches
             .iter_mut()
             .filter(|(_, watch)| watch.dirty && !watch.reading)
             .map(|(id, watch)| {
                 watch.dirty = false;
                 watch.reading = true;
-                (*id, json!({ "name": watch.name, "params": watch.params }))
+                (*id, watch.name.clone(), watch.params.clone())
             })
             .collect();
-        for (id, asked) in due {
-            let name = asked["name"].as_str().unwrap_or_default();
+        for (id, name, params) in due {
             let read = self
                 .core
-                .request("modRead", self.asking(name, asked["params"].clone()));
+                .request_typed::<call::ModRead>(self.asking(&name, params));
             let generation = self.generation;
             cx.spawn(async move |this, cx| {
                 let answer = read.await;

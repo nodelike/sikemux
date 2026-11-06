@@ -3,6 +3,8 @@
 
 mod dbml;
 
+use sikemux_core::server::call;
+use sikemux_core::server::diagrams::DiagramParams;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -224,7 +226,8 @@ impl Diagram {
     /// there when one is, waiting a moment for it before laying the tables out.
     pub(crate) fn kept_by(&mut self, kept: Kept, cx: &mut Context<Self>) {
         let key = self.key_for(&kept.key);
-        let asked = core::request(&kept.asks, "diagramLayout", json!({ "key": key }));
+        let asked = core::Target::here(&kept.asks)
+            .request_typed::<call::DiagramLayout>(DiagramParams { key, layout: None });
         self.kept_by = Some(kept);
         self.loading = true;
         cx.spawn(async move |this, cx| {
@@ -233,8 +236,7 @@ impl Diagram {
                 if !diagram.loading {
                     return;
                 }
-                let layout = answer.and_then(|answer| answer.get("layout").cloned());
-                if let Some(layout) = layout.filter(|layout| !layout.is_null()) {
+                if let Some(layout) = answer.and_then(|answer| answer.layout) {
                     diagram.restore(&layout);
                 }
                 diagram.loading = false;
@@ -335,10 +337,12 @@ impl Diagram {
             })
         });
         let key = self.key_for(&kept.key);
-        let _ = kept.asks.send(Ask::Call {
-            method: "setDiagramLayout",
-            params: json!({ "key": key, "layout": layout }),
-        });
+        let _ = kept
+            .asks
+            .send(core::typed_call::<call::SetDiagramLayout>(DiagramParams {
+                key,
+                layout,
+            }));
     }
 
     pub(crate) fn set_source(&mut self, source: &str, cx: &mut Context<Self>) {

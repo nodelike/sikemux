@@ -7,8 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 use url::Url;
 
@@ -23,9 +22,16 @@ const KEPT_BYTES: usize = 48 * 1024 * 1024;
 const FAILED_FOR: Duration = Duration::from_secs(60);
 const COULD_NOT: &str = "Couldn't load the picture";
 
-#[derive(Deserialize)]
-pub(crate) struct ImageParams {
-    url: String,
+#[derive(Serialize, Deserialize)]
+pub struct ImageParams {
+    pub url: String,
+}
+
+/// A picture for a client to show, its bytes in base64.
+#[derive(Serialize, Deserialize)]
+pub struct PictureData {
+    pub mime: String,
+    pub data: String,
 }
 
 #[derive(Clone)]
@@ -36,8 +42,11 @@ struct Image {
 }
 
 impl Image {
-    fn answer(&self) -> Value {
-        json!({ "mime": self.mime, "data": &*self.data })
+    fn answer(&self) -> PictureData {
+        PictureData {
+            mime: self.mime.to_owned(),
+            data: self.data.to_string(),
+        }
     }
 }
 
@@ -132,7 +141,7 @@ fn allowed(url: &str) -> Option<Url> {
 }
 
 /// The picture at `url` as `{mime, data}`, its bytes in base64.
-pub(crate) async fn fetch(images: &RemoteImages, params: ImageParams) -> CoreResult<Value> {
+pub(crate) async fn fetch(images: &RemoteImages, params: ImageParams) -> CoreResult<PictureData> {
     if let Some(answer) = images.get(&params.url) {
         return answer.map(|image| image.answer());
     }

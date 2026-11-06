@@ -1,6 +1,8 @@
 //! What an agent row stands for, in a card beside it once the pointer rests on the row:
 //! its project, its worktree's branch and folder, and that branch's pull requests.
 
+use sikemux_core::server::call;
+use sikemux_core::server::codehost::PullsParams;
 use std::time::Duration;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -9,7 +11,6 @@ use gpui_kit::{
     Entity, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
     SharedString, StatefulInteractiveElement, Styled, Task,
 };
-use serde_json::json;
 use sikemux_plugin_api::codehost::PullList;
 use sikemux_view::workspace::WorkspaceAgent;
 
@@ -119,16 +120,17 @@ impl Workbench {
         }) else {
             return;
         };
-        let asked = crate::core::request(
-            &self.asks,
-            "codeHostPulls",
-            json!({ "project": folder, "state": "all" }),
+        let asked = crate::core::Target::here(&self.asks).request_typed::<call::CodeHostPulls>(
+            PullsParams {
+                project: folder,
+                state: Some("all".to_owned()),
+            },
         );
         cx.spawn(async move |bench, cx| {
             let Some(list) = asked
                 .await
                 .ok()
-                .and_then(|answer| crate::core::outcome::<PullList>(&answer).ok())
+                .and_then(|answer| answer.read::<PullList>().ok())
             else {
                 return;
             };

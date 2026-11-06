@@ -53,15 +53,24 @@ pub(crate) async fn stop_run(core: &Arc<Core>, execution_id: &str) -> Result<Run
 }
 
 /// The runs that match every field given.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RunSelector {
+pub struct RunSelector {
     execution_id: Option<String>,
     project: Option<String>,
     agent_id: Option<String>,
 }
 
 impl RunSelector {
+    /// The one run `execution_id` names.
+    pub fn of_execution(execution_id: &str) -> Self {
+        Self {
+            execution_id: Some(execution_id.to_owned()),
+            project: None,
+            agent_id: None,
+        }
+    }
+
     pub(crate) fn of_agent(agent_id: &str) -> Self {
         Self {
             execution_id: None,

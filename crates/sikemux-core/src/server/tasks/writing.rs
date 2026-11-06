@@ -3,17 +3,24 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AddParams {
-    project: String,
-    label: String,
-    command: String,
-    cwd: Option<String>,
+pub struct AddParams {
+    pub project: String,
+    pub label: String,
+    pub command: String,
+    pub cwd: Option<String>,
     /// For the team in `sikemux.json`, or for this person only.
-    team: bool,
+    pub team: bool,
     /// The task this one is an edit of, which goes when its id or place changes.
-    replaces: Option<String>,
+    pub replaces: Option<String>,
+}
+
+/// The task saved, by its id.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskAdded {
+    pub task_id: String,
 }
 
 /// Saves a task the person wrote; answers its id.
@@ -21,7 +28,7 @@ pub(crate) async fn add(
     core: &Arc<Core>,
     params: AddParams,
     answered_by: Option<String>,
-) -> CoreResult<Value> {
+) -> CoreResult<TaskAdded> {
     let core = core.clone();
     blocking(move || {
         let project = PathBuf::from(&params.project);
@@ -59,7 +66,7 @@ pub(crate) async fn add(
             detect::remove_saved(&project, &old)?;
         }
         core.changed(What::ReadIn(Topic::Tasks, Some(&params.project), None));
-        Ok(json!({ "taskId": task_id }))
+        Ok(TaskAdded { task_id })
     })
     .await
 }
