@@ -337,6 +337,6 @@ pub(super) async fn serve(core: Arc<Core>) {
 
 impl super::part::Part for DeviceViews {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![super::part::serving(core, serve)]
+        vec![tokio::spawn(serve(core.clone()))]
     }
 }

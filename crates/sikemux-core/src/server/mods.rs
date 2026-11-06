@@ -589,6 +589,11 @@ pub(crate) fn watch(core: &Arc<Core>) {
 }
 
 impl super::part::Part for Mods {
+    fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        watch(core);
+        Vec::new()
+    }
+
     fn flush(&self) {
         self.kept.flush();
     }

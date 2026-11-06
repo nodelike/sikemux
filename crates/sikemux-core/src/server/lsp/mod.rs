@@ -31,7 +31,7 @@ use types::{LspDiagnosticsPayload, LspKind, LspTextChange};
 
 use super::changed::Topic;
 use super::connection::ClientId;
-use super::{Core, CoreError, CoreResult};
+use super::{Core, CoreResult};
 
 pub(crate) type Publish = Arc<dyn Fn(LspDiagnosticsPayload) + Send + Sync>;
 
@@ -124,14 +124,14 @@ fn publisher(core: Weak<Core>) -> Publish {
 }
 
 #[derive(Deserialize)]
-struct Server {
+pub(crate) struct Server {
     project: String,
     language: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Document {
+pub(crate) struct Document {
     project: String,
     language: String,
     path: String,
@@ -139,7 +139,7 @@ struct Document {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Open {
+pub(crate) struct Open {
     #[serde(flatten)]
     document: Document,
     content: String,
@@ -147,7 +147,7 @@ struct Open {
 }
 
 #[derive(Deserialize)]
-struct Change {
+pub(crate) struct Change {
     #[serde(flatten)]
     document: Document,
     content: String,
@@ -155,7 +155,7 @@ struct Change {
 }
 
 #[derive(Deserialize)]
-struct IncrementalChange {
+pub(crate) struct IncrementalChange {
     #[serde(flatten)]
     document: Document,
     changes: Vec<LspTextChange>,
@@ -163,14 +163,14 @@ struct IncrementalChange {
 }
 
 #[derive(Deserialize)]
-struct Save {
+pub(crate) struct Save {
     #[serde(flatten)]
     document: Document,
     content: Option<String>,
 }
 
 #[derive(Deserialize)]
-struct Locations {
+pub(crate) struct Locations {
     #[serde(flatten)]
     document: Document,
     line: u32,
@@ -179,26 +179,18 @@ struct Locations {
 }
 
 #[derive(Deserialize)]
-struct Language {
+pub(crate) struct Language {
     language: String,
 }
 
 #[derive(Deserialize)]
-struct Project {
+pub(crate) struct Project {
     project: String,
 }
 
 #[derive(Deserialize)]
-struct Path {
+pub(crate) struct Path {
     path: String,
-}
-
-fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
-    serde_json::from_value(params).map_err(|error| {
-        CoreError::from(format!(
-            "invalid argument: the call's params do not fit: {error}"
-        ))
-    })
 }
 
 fn answer(value: impl Serialize) -> CoreResult<Value> {
@@ -225,17 +217,22 @@ pub(crate) fn release(client: ClientId) {
     close_all(held::leave(client));
 }
 
-/// Keeps `client`'s documents open a while after its connection goes, for it
-/// to claim back, then closes those it did not.
-pub(crate) fn orphan(client: ClientId) {
-    let handles = held::orphan(client);
-    if handles.is_empty() {
-        return;
+/// The language servers, whose state is the process's own, as a part of the core.
+pub(crate) struct Lsp;
+
+impl super::part::Part for Lsp {
+    /// Keeps `client`'s documents open a while after its connection goes, for it
+    /// to claim back, then closes those it did not.
+    fn client_gone(&self, _core: &Arc<Core>, client: ClientId) {
+        let handles = held::orphan(client);
+        if handles.is_empty() {
+            return;
+        }
+        tokio::spawn(async move {
+            tokio::time::sleep(CLAIM_GRACE).await;
+            close_all(held::expire(&handles));
+        });
     }
-    tokio::spawn(async move {
-        tokio::time::sleep(CLAIM_GRACE).await;
-        close_all(held::expire(&handles));
-    });
 }
 
 pub(crate) fn carry() -> Vec<held::Carried> {
@@ -280,160 +277,167 @@ pub(crate) fn adopt(core: &Arc<Core>, carried: Vec<held::Carried>) {
 }
 
 #[derive(Deserialize)]
-struct Claim {
+pub(crate) struct Claim {
     handles: Vec<String>,
 }
 
-/// The editor's language-server methods, `lsp.<name>`, as `client` asks.
-pub(crate) async fn call(
+pub(crate) fn release_all(client: ClientId) -> CoreResult<Value> {
+    release(client);
+    answer(())
+}
+
+pub(crate) fn claim(client: ClientId, Claim { handles }: Claim) -> CoreResult<Value> {
+    answer(held::claim(client, &handles))
+}
+
+pub(crate) async fn languages() -> CoreResult<Value> {
+    answer(lsp_languages().await?)
+}
+
+pub(crate) async fn install(Language { language }: Language) -> CoreResult<Value> {
+    answer(lsp_install_server(language).await?)
+}
+
+pub(crate) async fn start(
     core: &Arc<Core>,
-    client: ClientId,
-    method: &str,
-    params: Value,
+    Server { project, language }: Server,
 ) -> CoreResult<Value> {
-    match method {
-        "lsp.release" => {
-            release(client);
-            answer(())
-        }
-        "lsp.claim" => {
-            let Claim { handles } = parse(params)?;
-            answer(held::claim(client, &handles))
-        }
-        "lsp.languages" => answer(lsp_languages().await?),
-        "lsp.install" => answer(lsp_install_server(parse::<Language>(params)?.language).await?),
-        "lsp.start" => {
-            let Server { project, language } = parse(params)?;
-            answer(lsp_start(publisher(core.me.clone()), project, language).await?)
-        }
-        "lsp.stop" => answer(lsp_stop(parse::<Project>(params)?.project).await?),
-        "lsp.open" => {
-            let Open {
-                document,
-                content,
-                language_id,
-            } = parse(params)?;
-            let key = held::DocKey {
-                project: document.project.clone(),
-                language: document.language.clone(),
-                path: document.path.clone(),
-            };
-            let kept = content.clone();
-            let language_id = language_id.unwrap_or_else(|| document.language.clone());
-            lsp_open(
-                document.project,
-                document.language,
-                document.path,
-                content,
-                Some(language_id.clone()),
-            )
-            .await?;
-            let handle = held::hold(client, key, language_id, kept);
-            answer(serde_json::json!({ "handle": handle }))
-        }
-        "lsp.change" => {
-            let Change {
-                document,
-                content,
-                version,
-            } = parse(params)?;
-            let key = held::DocKey {
-                project: document.project.clone(),
-                language: document.language.clone(),
-                path: document.path.clone(),
-            };
-            let kept = content.clone();
-            lsp_change(
-                document.project,
-                document.language,
-                document.path,
-                content,
-                version,
-            )
-            .await?;
-            held::set_text(&key, kept);
-            answer(())
-        }
-        "lsp.changeIncremental" => {
-            let IncrementalChange {
-                document,
-                changes,
-                version,
-            } = parse(params)?;
-            let key = held::DocKey {
-                project: document.project.clone(),
-                language: document.language.clone(),
-                path: document.path.clone(),
-            };
-            let applied = changes.clone();
-            lsp_change_incremental(
-                document.project,
-                document.language,
-                document.path,
-                changes,
-                version,
-            )
-            .await?;
-            held::edit(&key, &applied);
-            answer(())
-        }
-        "lsp.save" => {
-            let Save { document, content } = parse(params)?;
-            answer(lsp_save(document.project, document.language, document.path, content).await?)
-        }
-        "lsp.close" => {
-            let Document {
-                project,
-                language,
-                path,
-            } = parse(params)?;
-            held::let_go(
-                client,
-                &held::DocKey {
-                    project: project.clone(),
-                    language: language.clone(),
-                    path: path.clone(),
-                },
-            );
-            answer(lsp_close(project, language, path).await?)
-        }
-        "lsp.locations" => {
-            let Locations {
-                document,
-                line,
-                character,
-                kind,
-            } = parse(params)?;
-            answer(
-                lsp_locations(
-                    document.project,
-                    document.language,
-                    document.path,
-                    line,
-                    character,
-                    kind,
-                )
-                .await?,
-            )
-        }
-        "lsp.symbols" => {
-            let Document {
-                project,
-                language,
-                path,
-            } = parse(params)?;
-            answer(lsp_document_symbols(project, language, path).await?)
-        }
-        "lsp.diagnostics" => {
-            let Path { path } = parse(params)?;
-            answer(
-                diagnostics()
-                    .locked()
-                    .get(&path)
-                    .cloned()
-                    .unwrap_or_default(),
-            )
-        }
-        _ => Err(super::CoreError::unknown_method(method)),
-    }
+    answer(lsp_start(publisher(core.me.clone()), project, language).await?)
+}
+
+pub(crate) async fn stop(Project { project }: Project) -> CoreResult<Value> {
+    answer(lsp_stop(project).await?)
+}
+
+pub(crate) async fn open(client: ClientId, params: Open) -> CoreResult<Value> {
+    let Open {
+        document,
+        content,
+        language_id,
+    } = params;
+    let key = held::DocKey {
+        project: document.project.clone(),
+        language: document.language.clone(),
+        path: document.path.clone(),
+    };
+    let kept = content.clone();
+    let language_id = language_id.unwrap_or_else(|| document.language.clone());
+    lsp_open(
+        document.project,
+        document.language,
+        document.path,
+        content,
+        Some(language_id.clone()),
+    )
+    .await?;
+    let handle = held::hold(client, key, language_id, kept);
+    answer(serde_json::json!({ "handle": handle }))
+}
+
+pub(crate) async fn change(params: Change) -> CoreResult<Value> {
+    let Change {
+        document,
+        content,
+        version,
+    } = params;
+    let key = held::DocKey {
+        project: document.project.clone(),
+        language: document.language.clone(),
+        path: document.path.clone(),
+    };
+    let kept = content.clone();
+    lsp_change(
+        document.project,
+        document.language,
+        document.path,
+        content,
+        version,
+    )
+    .await?;
+    held::set_text(&key, kept);
+    answer(())
+}
+
+pub(crate) async fn change_incremental(params: IncrementalChange) -> CoreResult<Value> {
+    let IncrementalChange {
+        document,
+        changes,
+        version,
+    } = params;
+    let key = held::DocKey {
+        project: document.project.clone(),
+        language: document.language.clone(),
+        path: document.path.clone(),
+    };
+    let applied = changes.clone();
+    lsp_change_incremental(
+        document.project,
+        document.language,
+        document.path,
+        changes,
+        version,
+    )
+    .await?;
+    held::edit(&key, &applied);
+    answer(())
+}
+
+pub(crate) async fn save(Save { document, content }: Save) -> CoreResult<Value> {
+    answer(lsp_save(document.project, document.language, document.path, content).await?)
+}
+
+pub(crate) async fn close(client: ClientId, document: Document) -> CoreResult<Value> {
+    let Document {
+        project,
+        language,
+        path,
+    } = document;
+    held::let_go(
+        client,
+        &held::DocKey {
+            project: project.clone(),
+            language: language.clone(),
+            path: path.clone(),
+        },
+    );
+    answer(lsp_close(project, language, path).await?)
+}
+
+pub(crate) async fn locations(params: Locations) -> CoreResult<Value> {
+    let Locations {
+        document,
+        line,
+        character,
+        kind,
+    } = params;
+    answer(
+        lsp_locations(
+            document.project,
+            document.language,
+            document.path,
+            line,
+            character,
+            kind,
+        )
+        .await?,
+    )
+}
+
+pub(crate) async fn symbols(document: Document) -> CoreResult<Value> {
+    let Document {
+        project,
+        language,
+        path,
+    } = document;
+    answer(lsp_document_symbols(project, language, path).await?)
+}
+
+pub(crate) fn diagnostics_of(Path { path }: Path) -> CoreResult<Value> {
+    answer(
+        diagnostics()
+            .locked()
+            .get(&path)
+            .cloned()
+            .unwrap_or_default(),
+    )
 }

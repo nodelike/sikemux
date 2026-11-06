@@ -346,7 +346,7 @@ fn idle(core: &Core, agent_id: &str) -> bool {
 
 impl super::part::Part for Lifecycle {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![super::part::serving(core, serve)]
+        vec![tokio::spawn(serve(core.clone()))]
     }
 }
 

@@ -3105,10 +3105,6 @@ impl super::part::Part for Boards {
         self.writer.flush();
         self.chat_goals.flush();
     }
-
-    fn has_work(&self) -> bool {
-        auto::has_work(self)
-    }
 }
 
 #[cfg(test)]

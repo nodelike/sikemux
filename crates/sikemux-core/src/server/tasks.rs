@@ -1129,6 +1129,6 @@ pub(crate) fn answer_trust_for(
 
 impl super::part::Part for Tasks {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![super::part::serving(core, publish_runs)]
+        vec![tokio::spawn(publish_runs(core.clone()))]
     }
 }

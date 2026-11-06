@@ -9,7 +9,7 @@ mod goals;
 mod presence;
 impl crate::server::part::Part for Notifier {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![crate::server::part::serving(core, run)]
+        vec![tokio::spawn(run(core.clone()))]
     }
 }
 

@@ -1,7 +1,7 @@
 //! What the core asks of a feature that keeps state, so that starting, stopping, handing over
-//! and a client leaving walk one list and a new feature joins them by being on it.
+//! and a client leaving walk one list and a new feature joins them by being on it. `run_core`
+//! starts what keeps no state of its own.
 
-use std::future::Future;
 use std::sync::Arc;
 
 use tokio::task::JoinHandle;
@@ -21,11 +21,6 @@ pub(crate) trait Part: Send + Sync {
 
     /// Lets go of what a connection that has gone held.
     fn client_gone(&self, _core: &Arc<Core>, _client: ClientId) {}
-
-    /// Whether it has work that keeps a core nothing else is using running.
-    fn has_work(&self) -> bool {
-        false
-    }
 }
 
 /// Runs `work` each time the wake `of` the core is woken.
@@ -37,16 +32,8 @@ pub(crate) fn on_wake(
     tokio::spawn(wake::serve(core.clone(), of, work))
 }
 
-/// A task that takes the core and runs for as long as it does.
-pub(crate) fn serving<F: Future<Output = ()> + Send + 'static>(
-    core: &Arc<Core>,
-    serve: impl FnOnce(Arc<Core>) -> F,
-) -> JoinHandle<()> {
-    tokio::spawn(serve(core.clone()))
-}
-
 impl Core {
-    fn parts(&self) -> [&dyn Part; 25] {
+    fn parts(&self) -> [&dyn Part; 26] {
         [
             &self.harness,
             &self.boards,
@@ -73,6 +60,7 @@ impl Core {
             &self.preferences,
             &self.drafts,
             &self.code_host_lists,
+            &super::lsp::Lsp,
         ]
     }
 
@@ -95,10 +83,5 @@ impl Core {
         for part in self.parts() {
             part.client_gone(self, client);
         }
-        super::lsp::orphan(client);
-    }
-
-    pub(super) fn parts_have_work(&self) -> bool {
-        self.parts().iter().any(|part| part.has_work())
     }
 }

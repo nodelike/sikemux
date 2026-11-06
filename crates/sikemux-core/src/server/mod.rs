@@ -769,7 +769,7 @@ impl Core {
             && self.clients.locked().is_empty()
             && self.running_sessions() == 0
             && self.chats.count() == 0
-            && !self.parts_have_work()
+            && !board::auto::has_work(&self.boards)
     }
 
     pub(crate) fn client_conn(&self, id: ClientId) -> Option<Arc<ClientConn>> {
@@ -1092,14 +1092,12 @@ pub(crate) async fn run_core(
     listener.set_nonblocking(true)?;
     let listener = tokio::net::UnixListener::from_std(listener)?;
     remote::start(&core, &config).await;
-    core.chats.resets.arm_saved(&core);
     git::follow_projects(&core);
     backdrop::follow(&core);
     if let Some(data_dir) = config.data_dir.as_deref() {
         crate::agent_accounts::usage::keep_readings_in(data_dir.join("plan-limits.json"));
         tokio::spawn(workspace::refresh_launchers(core.clone()));
         skill_library::watch_global(&core);
-        mods::watch(&core);
         account::start(&core);
         tokio::spawn(usage::serve(core.clone(), data_dir.to_owned()));
     }
