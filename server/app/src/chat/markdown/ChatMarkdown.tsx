@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import { CopyButton } from "../ui/CopyButton";
 import { FileIcon } from "../files/FileIcon";
 import { Markdown, MarkdownBlocks, type MarkdownComponents } from "./Markdown";
@@ -188,6 +188,46 @@ const markdownComponents: MarkdownComponents = {
   table: ChatTable,
   path: ChatPath,
 };
+
+/** What each chip a sent message's draft wrote says, by the words it stands for in the text. */
+export const SentChipsContext = createContext<ReadonlyMap<string, string>>(
+  new Map(),
+);
+
+/* A run of a person's text, with the chips their draft wrote in it drawn over those words. */
+function SentText({ text }: { text: string }) {
+  const chips = useContext(SentChipsContext);
+  const pieces: ReactNode[] = [];
+  let rest = text;
+  for (;;) {
+    let next: { at: number; written: string } | undefined;
+    for (const written of chips.keys()) {
+      const at = rest.indexOf(written);
+      if (at < 0) continue;
+      if (
+        !next ||
+        at < next.at ||
+        (at === next.at && written.length > next.written.length)
+      )
+        next = { at, written };
+    }
+    if (!next) break;
+    if (next.at) pieces.push(rest.slice(0, next.at));
+    pieces.push(
+      <span key={pieces.length} className="chat-sent-chip">
+        {chips.get(next.written)}
+      </span>,
+    );
+    rest = rest.slice(next.at + next.written.length);
+  }
+  pieces.push(rest);
+  return <>{pieces}</>;
+}
+
+const typedComponents: MarkdownComponents = {
+  ...markdownComponents,
+  text: SentText,
+};
 const AGENT_MARKDOWN: MarkdownOptions = {
   gfm: true,
   htmlAsText: false,
@@ -230,7 +270,7 @@ function LiveMarkdown({
       text={text}
       options={typed ? TYPED_MARKDOWN : AGENT_MARKDOWN}
       live={live}
-      components={markdownComponents}
+      components={typed ? typedComponents : markdownComponents}
     />
   );
 }

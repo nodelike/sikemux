@@ -24,7 +24,11 @@ import { ChatFileRef, useFileRef } from "../files/FileRef";
 import { ChatAgentContext, ChatSubagentsContext } from "./chatAgent";
 import { ChatImage } from "../files/ChatImage";
 import { imageTag } from "@shared/chat/composerInput";
-import { FoldedMarkdown, warmChatMarkdown } from "../markdown/ChatMarkdown";
+import {
+  FoldedMarkdown,
+  SentChipsContext,
+  warmChatMarkdown,
+} from "../markdown/ChatMarkdown";
 import { ChatPage } from "../pages/ChatPage";
 import { ToolGroup } from "../tools/ToolGroup";
 import { ToolRow } from "../tools/ToolRow";
@@ -507,9 +511,18 @@ export const ChatMessageRow = memo(function ChatMessageRow({
   kept?: readonly number[] | null;
 }) {
   const { parts, letters } = message;
-  const spans = message.spans ?? [];
+  const spans = message.spans;
+  const chips = useMemo(
+    () =>
+      new Map(
+        (spans ?? []).flatMap((span) =>
+          span.chip ? [[span.text, span.chip.label] as const] : [],
+        ),
+      ),
+    [spans],
+  );
   const context = (message.context ?? []).filter(
-    (item) => !spans.some((span) => span.chip?.carried === item.uri),
+    (item) => !spans?.some((span) => span.chip?.carried === item.uri),
   );
   const shown = useMemo(() => shownParts(parts, kept), [parts, kept]);
   const attachments = message.attachments ?? [];
@@ -543,27 +556,13 @@ export const ChatMessageRow = memo(function ChatMessageRow({
             ))}
           </div>
         )}
-        {spans.length ? (
-          <div className="chat-markdown">
-            <p className="chat-sent-text">
-              {spans.map((span, index) =>
-                span.chip ? (
-                  <span key={index} className="chat-sent-chip">
-                    {span.chip.label}
-                  </span>
-                ) : (
-                  span.text
-                ),
-              )}
-            </p>
-          </div>
-        ) : (
+        <SentChipsContext.Provider value={chips}>
           <PartGroups
             parts={shown}
             live={live}
             typed={message.role === "user"}
           />
-        )}
+        </SentChipsContext.Provider>
         {copyable && (
           <div className="chat-message-meta">
             <CopyButton

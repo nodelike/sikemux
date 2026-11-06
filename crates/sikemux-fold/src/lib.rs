@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
+use sikemux_markdown::paths::is_image_path;
 use sikemux_markdown::Doc;
 use sikemux_wire::protocol::PermissionMode;
 
@@ -102,8 +103,6 @@ struct Row {
     /// letters were read out of it.
     raw: Vec<ChatPart>,
     sent_context: Vec<SentContext>,
-    /// Which of the message's attachments are folders.
-    folders: Vec<String>,
     stream: Option<Stream>,
     sides: Vec<Side>,
     /// Opened since the last flush, so it goes out whole.
@@ -139,7 +138,6 @@ impl Row {
             local: false,
             raw: Vec::new(),
             sent_context: Vec::new(),
-            folders: Vec::new(),
             stream: None,
             sides: Vec::new(),
             fresh: true,
@@ -951,11 +949,6 @@ impl Fold {
         row.msg.prompt_id = text_of(payload.get("messageId")).map(str::to_owned);
         row.msg.sent_at = Some(payload.get("at").and_then(Value::as_u64).unwrap_or(at));
         row.msg.attachments = paths;
-        row.folders = (payload.get("folders").and_then(Value::as_array))
-            .into_iter()
-            .flatten()
-            .filter_map(|path| Some(path.as_str()?.to_owned()))
-            .collect();
         row.sent_context = payload
             .get("context")
             .and_then(Value::as_array)
@@ -2266,11 +2259,16 @@ fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
     let commands: Vec<String> = (commands.iter())
         .map(|command| command.name.clone())
         .collect();
+    // The fold runs on the host the chat's files are on, however old the message it reads.
+    let folders: Vec<String> = (row.msg.attachments.iter())
+        .filter(|path| !is_image_path(path) && Path::new(path).is_dir())
+        .cloned()
+        .collect();
     row.msg.spans = prompt::sent_spans(
         &whole,
         prompt::SentNames {
             attachments: &row.msg.attachments,
-            folders: &row.folders,
+            folders: &folders,
             context: &context,
             commands: &commands,
             ..Default::default()
