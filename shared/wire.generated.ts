@@ -3147,7 +3147,7 @@ export interface AgentQuestion {
     blocked: boolean;
     assumption: string | null;
     /**
-     * The answer is a secret, such as a password: typed into a masked field,
+     * The answer is a secret, such as a password: typed into a hidden field,
      * never the composer, and never shown again.
      */
     secret: boolean;

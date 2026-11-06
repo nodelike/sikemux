@@ -76,7 +76,17 @@ export function AnsweredQuestion({
   );
 }
 
-/** The answer to a secret question, typed into a masked field that keeps nothing once it is held. */
+/** How much a hidden answer holds, so the person can see their typing and paste landed. */
+function hiddenSize(text: string) {
+  const lines = text.replace(/\n$/, '').split('\n').length;
+  const characters = `${text.length} character${text.length === 1 ? '' : 's'} hidden`;
+  return lines > 1 ? `${lines} lines, ${characters}` : characters;
+}
+
+/**
+ * The answer to a secret question, typed or pasted into a field that keeps nothing once it is held.
+ * A secure field cannot hold line breaks, so this one draws its text invisibly.
+ */
 function SecretAnswer({ question, onKeep }: { question: AgentQuestion; onKeep: (text: string) => Promise<boolean> }) {
   const styles = useStyles(makeStyles);
   const [text, setText] = useState('');
@@ -89,21 +99,20 @@ function SecretAnswer({ question, onKeep }: { question: AgentQuestion; onKeep: (
         <Field
           value={text}
           onChangeText={setText}
-          onSubmitEditing={keep}
-          secureTextEntry
+          multiline
           autoComplete="off"
           autoCorrect={false}
           autoCapitalize="none"
           spellCheck={false}
           textContentType="none"
           importantForAutofill="no"
-          returnKeyType="send"
-          placeholder="Type the answer"
+          placeholder="Type or paste the answer"
           accessibilityLabel={`Private answer to ${question.name}`}
           style={styles.secretInput}
         />
         <Chip title="Send" primary onPress={keep} />
       </View>
+      {text ? <Text style={styles.secretSize}>{hiddenSize(text)}</Text> : null}
       <Private text={question.secretNote ?? ''} />
     </View>
   );
@@ -409,8 +418,9 @@ const makeStyles = (colors: Palette) =>
     assumedText: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.inkDim },
     act: { fontFamily: fonts.uiMedium, color: colors.ink },
     secret: { marginTop: 8, marginBottom: 6, gap: 8 },
-    secretField: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-    secretInput: { flex: 1 },
+    secretField: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+    secretInput: { flex: 1, height: 'auto', minHeight: 40, maxHeight: 140, paddingTop: 10, paddingBottom: 10, textAlignVertical: 'top', color: 'transparent' },
+    secretSize: { fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.inkDim },
     private: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 4, marginBottom: 8 },
     privateText: { flex: 1, fontFamily: fonts.ui, fontSize: 12.5, lineHeight: 18, color: colors.inkDim },
   });

@@ -2,6 +2,9 @@
 
 use super::*;
 
+use gpui_kit::component::input::{Copy, Cut, Textarea};
+use gpui_kit::component::Sizable;
+
 use crate::theme::{SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS_H, TEXT_XS};
 
 /// What stands where the composer would, in a chat that can only be read here.
@@ -221,7 +224,19 @@ pub(super) fn kept(t: &Tokens) -> impl IntoElement {
         .child("Answer kept, sent with the rest")
 }
 
-/// The masked field a secret answer is typed into, which keeps nothing once it is picked.
+/// How much a hidden answer holds, so the person can see their typing and paste landed.
+fn hidden_size(text: &str) -> String {
+    let characters = text.chars().count();
+    let plural = if characters == 1 { "" } else { "s" };
+    match text.lines().count() {
+        0 | 1 => format!("{characters} character{plural} hidden"),
+        lines => format!("{lines} lines, {characters} character{plural} hidden"),
+    }
+}
+
+/// The field a secret answer is typed or pasted into, which keeps nothing once it is picked.
+/// Only a single-line field can mask, and it drops a paste's line breaks, so this one draws its
+/// text invisibly and refuses to copy it.
 pub(super) fn secret(
     agent: &str,
     question: &Question,
@@ -230,6 +245,8 @@ pub(super) fn secret(
     cx: &mut Context<Workbench>,
 ) -> Option<impl IntoElement> {
     let field = chat.composer.as_ref()?.secret.clone();
+    let held = field.read(cx).value();
+    let size = (!held.is_empty()).then(|| hidden_size(&held));
     let agent = agent.to_owned();
     let done = Button::new("secret-done", "Done", Variant::Outline)
         .disabled(chat.sending_answers())
@@ -245,24 +262,38 @@ pub(super) fn secret(
             .child(
                 div()
                     .flex()
-                    .items_center()
+                    .items_start()
                     .gap(SPACE_1H)
                     .child(
                         div()
                             .flex_1()
-                            .h(px(30.))
-                            .px(SPACE_2H)
+                            .min_w_0()
+                            .min_h(px(30.))
+                            .py(SPACE_1)
                             .flex()
                             .items_center()
                             .border_1()
                             .border_color(t.line)
                             .rounded(theme::RADIUS_2)
                             .bg(t.surface_sunken)
-                            .text_size(crate::theme::ui_text(TEXT_XS))
-                            .child(Input::new(&field).appearance(false).bordered(false)),
+                            .capture_action(|_: &Copy, _, cx| cx.stop_propagation())
+                            .capture_action(|_: &Cut, _, cx| cx.stop_propagation())
+                            .child(
+                                Textarea::new(&field)
+                                    .xsmall()
+                                    .appearance(false)
+                                    .text_size(crate::theme::ui_text(TEXT_XS))
+                                    .text_color(gpui_kit::transparent_black()),
+                            ),
                     )
                     .child(done),
             )
+            .children(size.map(|size| {
+                div()
+                    .text_size(crate::theme::ui_text(TEXT_2XS))
+                    .text_color(t.text_tertiary)
+                    .child(size)
+            }))
             .children(question.secret_note.clone().map(|note| {
                 div()
                     .flex()
@@ -271,7 +302,7 @@ pub(super) fn secret(
                     .text_size(crate::theme::ui_text(TEXT_2XS))
                     .text_color(t.text_tertiary)
                     .child(ui::icon(Icon::Shield, 12.).text_color(t.text_tertiary))
-                    .child(note)
+                    .child(div().flex_1().min_w_0().child(note))
             })),
     )
 }

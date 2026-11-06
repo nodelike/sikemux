@@ -234,7 +234,8 @@
   .rows .row .s.asked { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; color: var(--ink-dim); }
   .ask-answered { margin: 4px 0 8px; color: var(--ink-dim); font-size: 13px; }
   .ask-answered b { color: var(--ink); font-weight: 400; }
-  .ask-secret { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; }
+  .ask-secret { display: flex; align-items: flex-start; gap: 8px; margin: 8px 0 0; }
+  .ask-secret-size { margin: 6px 0 0; font-size: 12.5px; line-height: 18px; color: var(--ink-dim); }
   .ask-secret .field { flex: 1; height: 40px; padding: 0 12px; display: flex; align-items: center; border-radius: 10px; border: 1px solid var(--acc); background: var(--surface-sunken); color: var(--ink); font-size: 14.5px; letter-spacing: 2px; }
   .ask-secret .field.ph { border-color: var(--border); color: var(--ink-faint); letter-spacing: 0; }
   .ask-secret .chip { height: 32px; padding: 0 12px; border-radius: 10px; display: inline-flex; align-items: center; font-size: 13.5px; font-weight: 500; background: var(--ink); color: var(--bg); }
@@ -2638,7 +2639,8 @@
           <div class="prose">The sandbox import ran clean. One more for the staging copy.</div>
           <div class="ask-who"><span class="codex">{{IconCodex:14}}</span><span><b>Maple</b> asks you</span><span class="ticket">PROJ-12</span></div>
           <div class="prose" style="margin-top:0">What is the password for the staging database? I need it to check the migrated amounts.</div>
-          <div class="ask-secret"><span class="field">••••••••••••</span><span class="chip">Send</span></div>
+          <div class="ask-secret"><span class="field"></span><span class="chip">Send</span></div>
+          <div class="ask-secret-size">12 characters hidden</div>
           <div class="ask-private">{{IconLock:12}}<span>Kept private. Maple reads it from a file only your account can open, and it never shows in the chat.</span></div>
         </div>
         <div class="composer-wrap">
@@ -2655,7 +2657,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A secret question</b><div class="note">The agent asked for something secret, such as a password or a token, so the question came straight to the person. Under its words sits a masked field with Send beside it, and a dim line under a lock saying the answer stays private: the agent reads it from a file only the person's account can open, and it never shows in the chat. The field is never the composer, so the composer keeps no Answering chip and no draft of it, and nothing is corrected, suggested or saved to the keyboard or the password manager. Any answers the agent offered still sit above it as rows. Once sent, the answer folds into Answered, kept private, here and in the transcript afterwards, never its text. A watching phone shows the question without the field.</div></figcaption>
+      <figcaption><b>A secret question</b><div class="note">The agent asked for something secret, such as a password or a token, so the question came straight to the person. Under its words sits a field with Send beside it that grows with its lines, so a multi-line paste such as a private key or an env file keeps its line breaks. Its text is never drawn: a line under it says how many lines and characters it holds. Below that is a dim line under a lock saying the answer stays private: the agent reads it from a file only the person's account can open, and it never shows in the chat. The field is never the composer, so the composer keeps no Answering chip and no draft of it, and nothing is corrected, suggested or saved to the keyboard or the password manager. Any answers the agent offered still sit above it as rows. Once sent, the answer folds into Answered, kept private, here and in the transcript afterwards, never its text. A watching phone shows the question without the field.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

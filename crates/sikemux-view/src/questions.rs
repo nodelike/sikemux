@@ -50,7 +50,7 @@ pub struct AgentQuestion {
     /// The asker waits for the answer; otherwise it goes on with `assumption`.
     pub blocked: bool,
     pub assumption: Option<String>,
-    /// The answer is a secret, such as a password: typed into a masked field,
+    /// The answer is a secret, such as a password: typed into a hidden field,
     /// never the composer, and never shown again.
     pub secret: bool,
     pub at: u64,

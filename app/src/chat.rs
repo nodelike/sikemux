@@ -12,7 +12,6 @@ use cards::*;
 use changes::Changed;
 use composing::*;
 use gpui_kit::base::{Button as BaseButton, Scrollbar};
-use gpui_kit::component::input::Input;
 use gpui_kit::component::WindowExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{

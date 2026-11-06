@@ -4,7 +4,7 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 
-use gpui_kit::component::input::{InputEvent, InputState, TextareaState};
+use gpui_kit::component::input::{InputEvent, TextareaState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     AppContext, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
@@ -89,12 +89,12 @@ pub(super) enum Waiting {
     Approval(Box<sikemux_view::inbox::InboxItem>),
 }
 
-/// The draft, the masked field a secret answer is typed into, and what the draft last said while empty.
+/// The draft, the field a secret answer is typed into, and what the draft last said while empty.
 pub struct Composing {
     pub draft: Entity<TextareaState>,
     /// Where the composer is drawn, apart from the chat around it.
     pub view: Entity<ComposerView>,
-    pub secret: Entity<InputState>,
+    pub secret: Entity<TextareaState>,
     pub hint: SharedString,
     /// The files going out with the next message, its pictures named in the draft by number.
     pub attachments: Vec<PathBuf>,
@@ -953,9 +953,10 @@ impl Workbench {
                 .submit_on_enter(true)
         });
         let secret = cx.new(|cx| {
-            InputState::new(window, cx)
-                .masked(true)
-                .placeholder("Type the answer")
+            TextareaState::new(window, cx)
+                .auto_grow(1, 6)
+                .submit_on_enter(true)
+                .placeholder("Type or paste the answer")
         });
         let sending = {
             let owner = owner.to_owned();
@@ -994,10 +995,12 @@ impl Workbench {
             cx.subscribe_in(
                 &secret,
                 window,
-                move |bench, _, event: &InputEvent, window, cx| {
-                    if let InputEvent::PressEnter { .. } = event {
+                move |bench, _, event: &InputEvent, window, cx| match event {
+                    InputEvent::PressEnter { shift: false, .. } => {
                         bench.keep_secret(&owner, window, cx);
                     }
+                    InputEvent::Change => cx.notify(),
+                    _ => {}
                 },
             )
         };
