@@ -47,7 +47,6 @@ pub(crate) struct Outbox {
     bodies: PathBuf,
 }
 
-/// What to send a host.
 pub(crate) struct Sending {
     pub method: &'static str,
     pub params: Value,
@@ -75,7 +74,6 @@ impl Outbox {
         self.bodies.join(name)
     }
 
-    /// Queues `sending` behind what already waits for `host`.
     pub(crate) fn push(&self, host: &str, sending: Sending) {
         let mut record = self.record.locked();
         record.next += 1;
@@ -143,7 +141,6 @@ impl Outbox {
         self.kept.save(&*record);
     }
 
-    /// Drops everything waiting for a host no longer linked.
     pub(crate) fn forget(&self, host: &str) {
         let mut record = self.record.locked();
         if let Some(posts) = record.posts.remove(host) {

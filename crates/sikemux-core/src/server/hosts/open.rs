@@ -93,7 +93,6 @@ pub(super) struct OpenParams {
     code: Code,
 }
 
-/// A linked host asks this one to open the person's project here.
 pub(super) async fn open_here(
     core: &Arc<Core>,
     params: OpenParams,

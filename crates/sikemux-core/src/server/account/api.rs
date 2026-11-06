@@ -17,7 +17,6 @@ use super::super::{Core, CoreError, CoreResult};
 /// How long the accounts server remembers a signature, refusing it if it comes again.
 const SIGNATURE_MEMORY_SECS: u64 = 60;
 
-/// Calls the accounts API as this host, signed with its key.
 pub(crate) async fn as_host<T: DeserializeOwned>(
     core: &Core,
     method: Method,

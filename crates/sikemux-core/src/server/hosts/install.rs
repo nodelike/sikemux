@@ -147,7 +147,6 @@ pub(crate) async fn install_host(core: &Arc<Core>, params: InstallParams) -> Cor
     Ok(json!({ "terminal": id, "tab": tab }))
 }
 
-/// Waits for the latest set-up of `alias` to end, and answers how it went.
 pub(crate) async fn host_setup(core: &Arc<Core>, params: AliasParams) -> CoreResult<Value> {
     let mut ended = core
         .hosts

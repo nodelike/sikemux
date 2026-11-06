@@ -161,7 +161,6 @@ impl<'a> Answers<'a> {
     }
 }
 
-/// Whether `line` of `path` is among `wrote`'s.
 pub(crate) fn holds(wrote: &Wrote, path: &str, line: u64) -> bool {
     wrote.get(path).is_some_and(|runs| {
         let after = runs.partition_point(|[first, _]| *first <= line);

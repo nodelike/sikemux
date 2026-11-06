@@ -89,7 +89,6 @@ pub async fn read(dir: &Path) -> Option<Profile> {
     serde_json::from_slice(&text).ok()
 }
 
-/// The cached picture `hash` names, and its type.
 pub async fn picture(dir: &Path, hash: &str) -> Option<(&'static str, Vec<u8>)> {
     if !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;

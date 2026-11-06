@@ -292,7 +292,6 @@ pub(super) fn team_here(core: &Core, host: &str, params: TeamParams) -> CoreResu
     Ok(Value::Null)
 }
 
-/// Tells an agent here something about a teammate on another host.
 fn notice(core: &Core, to: String, text: String) {
     let Some(core) = core.arc() else {
         return;
@@ -615,7 +614,6 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
     Ok(json!({ "name": named.name }))
 }
 
-/// Which agent an ask is about.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct AboutAgent {

@@ -59,7 +59,6 @@ impl Host {
     }
 }
 
-/// Every code host a plugin speaks for.
 fn hosts(core: &Core) -> impl Iterator<Item = Host> {
     plugins::manifests(core).into_iter().filter_map(|manifest| {
         Some(Host {
@@ -69,7 +68,6 @@ fn hosts(core: &Core) -> impl Iterator<Item = Host> {
     })
 }
 
-/// The plugin that speaks for the code host `id`.
 fn plugin_of(id: &str) -> String {
     format!("sikemux.{id}")
 }
@@ -113,7 +111,6 @@ impl Pull {
 }
 
 impl Repo {
-    /// Calls `method` of the host's plugin about this repository, with `more`.
     pub(crate) async fn call(&self, method: &str, more: Value) -> Result<Value, Failure> {
         plugins::call_on(self.plugins, self.host.plugin(), method, self.params(more)).await
     }
@@ -255,7 +252,6 @@ impl Repo {
         self.account.as_deref()
     }
 
-    /// What the host is called, as people know it.
     pub(crate) fn label(&self) -> &'static str {
         &self.host.spec.label
     }
@@ -285,7 +281,6 @@ impl std::fmt::Display for RepoId {
 }
 
 impl Pull {
-    /// The repository the pull request is on.
     pub(crate) fn repo_id(&self) -> RepoId {
         RepoId {
             provider: plugin_of(&self.host),
@@ -405,7 +400,6 @@ pub(crate) async fn branch_pull(repo: &Repo, branch: &str) -> Result<Option<Proj
 }
 
 impl Repo {
-    /// The repository as the CI watch names it.
     pub(crate) fn watched(&self) -> super::ci::Shown {
         super::ci::Shown {
             id: self.id(),
@@ -583,14 +577,12 @@ const MAX_FAILED_JOBS: usize = 6;
 /// How long reading them may take before the reading is given up.
 const FAILED_JOBS_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// A CI job that failed on a commit, and what its log says.
 pub(crate) struct FailedJob {
     /// Its workflow's name and its own, such as `CI / clippy`.
     pub check: String,
     pub url: Option<String>,
     /// The tests its log says failed, when its test runner names them.
     pub tests: Vec<String>,
-    /// The error its log shows.
     pub error: Option<String>,
 }
 
@@ -798,7 +790,6 @@ pub(crate) async fn answer(
     Ok(repo.call("answerReview", answered).await.map(drop)?)
 }
 
-/// Closes the pull request without merging it.
 pub(crate) async fn close(core: &Core, pull: &Pull) -> Result<(), String> {
     let repo = pull.repo(core)?;
     let closed = json!({ "number": pull.number, "state": "closed" });

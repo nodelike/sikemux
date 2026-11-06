@@ -77,7 +77,6 @@ pub(super) fn apply(repo: &Path, steps: Steps, before: &str, after: &str) -> Vec
     merged
 }
 
-/// Lands `agent_id`'s commits from its own checkout onto its base branch.
 pub(super) fn land(core: &Core, agent_id: &str) -> Result<Landed, String> {
     let worktree = core
         .workspaces

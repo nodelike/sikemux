@@ -62,7 +62,6 @@ struct Hello {
     addresses: Value,
 }
 
-/// Links this host with the one `params` names.
 pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResult<()> {
     let own = core
         .remote

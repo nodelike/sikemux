@@ -828,9 +828,8 @@ fn tree_entries<'a>(
 }
 
 /// The commit of `changes` on top of the last one, built in an index of its
-/// own, and the blob each change wrote.
-/// The commit of `changes`, with the message `signed` gives for its tree and
-/// parents.
+/// own with the message `signed` gives for its tree and parents, and the blob
+/// each change wrote.
 fn build(
     diff: &Diff,
     changes: &[Change],

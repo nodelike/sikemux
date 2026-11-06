@@ -341,7 +341,6 @@ impl Outside {
     }
 }
 
-/// Starts watching every file under `top`.
 fn watch(top: &Path, seen: Arc<Mutex<Seen>>, core: Weak<Core>) -> Option<RecommendedWatcher> {
     let at = top.to_path_buf();
     let started = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {

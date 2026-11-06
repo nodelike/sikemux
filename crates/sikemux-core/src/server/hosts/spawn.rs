@@ -38,7 +38,6 @@ fn text<'a>(params: &'a Value, key: &str) -> Option<&'a str> {
         .filter(|text| !text.is_empty())
 }
 
-/// Starts a worker for the calling agent on the linked host `host`.
 pub(crate) async fn spawn(
     core: &Arc<Core>,
     request: &HarnessRequest,

@@ -3,7 +3,6 @@
 use super::*;
 
 impl Remote {
-    /// The hosts asking to link with this one.
     pub(crate) fn pending_links(&self) -> Vec<PendingDevice> {
         self.inner
             .locked()

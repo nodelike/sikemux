@@ -131,7 +131,6 @@ fn paths_in(line: &str) -> Vec<String> {
         .collect()
 }
 
-/// The tests a failing job's log `lines` say failed, as their runner names them.
 pub(crate) fn failed_tests(lines: &[String]) -> Vec<String> {
     let mut tests: Vec<String> = Vec::new();
     for test in lines

@@ -128,7 +128,6 @@ pub(crate) async fn approve_host_sign_in(
     .await
 }
 
-/// A device or host on the account, by its key.
 fn device_path(key: &str) -> CoreResult<String> {
     let usable = !key.is_empty()
         && key.len() <= 128

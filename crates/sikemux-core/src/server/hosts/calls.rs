@@ -46,7 +46,6 @@ host_asks! {
     QuestionClosed "questionClosed" route::ClosedParams;
 }
 
-/// `params` as the ask `A` carries them.
 pub(super) fn params_of<A: HostAsk>(params: &A::Params) -> Value {
     serde_json::to_value(params).unwrap_or_default()
 }

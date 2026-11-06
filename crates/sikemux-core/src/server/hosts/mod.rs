@@ -258,7 +258,6 @@ pub(crate) fn find(core: &Core, wanted: &str) -> Result<LinkedHost, String> {
     }
 }
 
-/// What this host calls the linked host `id`.
 pub(crate) fn name_of(core: &Core, id: &str) -> String {
     core.remote
         .link(id)
@@ -266,7 +265,6 @@ pub(crate) fn name_of(core: &Core, id: &str) -> String {
         .unwrap_or_else(|| id.get(..8).unwrap_or(id).to_owned())
 }
 
-/// Where this host's endpoint can be reached directly.
 fn own_addresses(core: &Core) -> Vec<String> {
     core.remote
         .endpoint()

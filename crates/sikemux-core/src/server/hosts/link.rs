@@ -120,7 +120,6 @@ async fn read_body(recv: &mut RecvStream) -> std::io::Result<Received> {
     }
 }
 
-/// Asks the host at the other end of `connection`, waiting at most `limit`.
 pub(crate) async fn ask(
     connection: &Connection,
     method: &str,
@@ -155,7 +154,6 @@ pub(crate) async fn ask(
         })
 }
 
-/// What a host answers an ask with.
 pub(crate) type Answer = Result<Value, String>;
 
 /// One ask the other host made: its method, params and any bundle it sent.

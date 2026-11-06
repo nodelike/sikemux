@@ -58,7 +58,6 @@ impl Signing {
     }
 }
 
-/// Pushes `agent_id`'s unpushed commits on `dir`'s branch to `remote`.
 pub(super) fn push(
     core: &Core,
     dir: &Path,

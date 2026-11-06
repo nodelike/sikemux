@@ -78,7 +78,6 @@ pub(crate) fn ask(core: &Arc<Core>, alias: &str, again: bool) {
     });
 }
 
-/// What was found on the SSH host `alias` when it was last asked.
 pub(crate) fn found(core: &Core, alias: &str) -> Option<Found> {
     core.hosts.probes.locked().get(alias).copied()
 }

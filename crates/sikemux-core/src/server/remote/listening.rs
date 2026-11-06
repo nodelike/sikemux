@@ -352,7 +352,6 @@ pub(super) async fn serve_device(core: Arc<Core>, incoming: Incoming) {
 }
 
 impl Remote {
-    /// The endpoint remote access listens on, while it does.
     pub(crate) fn endpoint(&self) -> Option<Endpoint> {
         self.inner
             .locked()
@@ -376,8 +375,6 @@ impl Remote {
         self.inner.locked().direct_only = true;
     }
 
-    /// Notes what the server did with a push. True when the phone's state
-    /// changed, so the app should hear.
     #[cfg(test)]
     pub(crate) fn set_accounts_api(&self, base: &str) {
         self.inner.locked().accounts_api = Some(base.into());

@@ -181,7 +181,6 @@ fn bundled_ref(repo: &Path, bundle: &Path) -> Result<String, String> {
         .ok_or_else(|| "the bundle holds no branch".to_owned())
 }
 
-/// Fetches what `bundle` holds into `repo`, under `into`.
 fn fetch(repo: &Path, bundle: &Path, into: &str) -> Result<(), String> {
     Git::slow(repo)
         .trimmed(&["bundle", "verify", "--quiet", &bundle.to_string_lossy()])
@@ -275,7 +274,6 @@ fn folder_name(code: &Code) -> String {
     }
 }
 
-/// Whether `dir` is a checkout whose `origin` is `remote`.
 fn has_origin(dir: &Path, remote: &str) -> bool {
     Git::quick(dir)
         .trimmed(&["remote", "get-url", "origin"])

@@ -84,7 +84,6 @@ pub(crate) enum Change {
     Text { old: Option<String>, new: String },
 }
 
-/// Each file a tool call changed, by path.
 pub(crate) type Changes = Vec<(String, Change)>;
 
 /// The edits of a chat's tool calls that have not finished yet.
@@ -278,7 +277,6 @@ impl Edits {
         self.store.outside.top_of(core, agent_id)
     }
 
-    /// The person saved `path` in Sikemux's editor.
     pub(crate) fn saved(&self, path: PathBuf) {
         let _ = self.jobs.send(Job::Saved(path));
     }
@@ -287,7 +285,6 @@ impl Edits {
         let _ = self.jobs.send(Job::Changed);
     }
 
-    /// Notes what `chat`'s tool call `tool_call_id` changed.
     pub(crate) fn record(&self, chat: &Chat, tool_call_id: String, changes: Changes) {
         let done = Done {
             at: epoch_ms(),
@@ -579,7 +576,6 @@ pub(crate) struct CheckoutParams {
     staged: bool,
 }
 
-/// Which agent wrote each uncommitted line of a checkout.
 pub(crate) async fn change_owners(core: &Arc<Core>, params: CheckoutParams) -> CoreResult<Owners> {
     let core = core.clone();
     blocking(move || Ok(owners_at(&core, &params.dir, params.staged)?)).await

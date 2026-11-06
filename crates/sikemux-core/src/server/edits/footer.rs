@@ -37,8 +37,8 @@ pub(crate) fn attributed(dir: &Path) -> bool {
 /// every agent whose lines it holds for certain, or the agents `named` when
 /// that was worked out before. Lines several agents at work together may have
 /// written name none of them but the committer. An `amend` keeps the agents of
-/// the commit it replaces. With it, the note for
-/// the commit's hooks to put on it, when it holds lines of several writers.
+/// the commit it replaces. Also answers with the note for the commit's hooks to
+/// put on it, when it holds lines of several writers.
 fn footer(
     core: &Core,
     dir: &Path,

@@ -84,7 +84,6 @@ pub(crate) struct Author {
 }
 
 impl Author {
-    /// The agent, or each of the agents it stands for.
     pub(crate) fn agents(&self) -> impl Iterator<Item = &str> {
         let own = self.shared.is_empty().then_some(&self.agent_id);
         own.into_iter().chain(&self.shared).map(String::as_str)

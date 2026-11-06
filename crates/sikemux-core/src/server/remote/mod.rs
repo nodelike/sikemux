@@ -75,7 +75,6 @@ struct Stored {
     enabled: bool,
     devices: Vec<DeviceInfo>,
     owner: Option<String>,
-    /// The last account event applied.
     #[serde(default)]
     account_event_id: i64,
     /// The account this host signed out of before the server heard, which
@@ -209,11 +208,9 @@ where
     Ok(serde_json::from_value(value).ok())
 }
 
-/// Another host this one is linked with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct LinkedHost {
-    /// Its key.
     pub id: String,
     /// What this host calls it, which agents address it by.
     pub name: String,
@@ -437,7 +434,6 @@ impl Remote {
         self.inner.locked().stored.owner.clone()
     }
 
-    /// This build is older than the accounts server works with.
     pub(crate) fn too_old(&self) -> bool {
         self.inner.locked().update_required.is_some()
     }
@@ -630,7 +626,6 @@ impl Remote {
         })
     }
 
-    /// The key this host signs with, once it has loaded.
     pub(crate) fn host_key(&self) -> Option<SecretKey> {
         self.inner.locked().secret.clone()
     }
@@ -1007,7 +1002,6 @@ impl Remote {
         Ok(signed(self.sign_host_request(request)?))
     }
 
-    /// Signs a share viewer's nonce as this host.
     pub(crate) fn share_viewer_signature(&self, params: NonceParams) -> CoreResult<Value> {
         Ok(signed(self.sign_share_viewer(&params.nonce)?))
     }

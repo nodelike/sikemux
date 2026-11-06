@@ -25,18 +25,15 @@ pub(crate) enum Role {
     Lead,
 }
 
-/// An agent on a linked host.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Foreign {
     pub agent_id: String,
-    /// The key of the host it runs on.
     pub host: String,
     pub name: String,
     pub cli: String,
     /// The project here its team works in.
     pub project: String,
-    /// The agent that started it.
     pub parent: Option<String>,
     pub role: Role,
     pub status: AgentStatus,
