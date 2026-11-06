@@ -1428,7 +1428,7 @@
       "description": "Wait for process or UI events, a file or a pid.",
       "properties": {
         "cursor": {
-          "description": "Event cursor from workspace_inspect or the last wait",
+          "description": "Event cursor from the last wait; else from now",
           "type": "string"
         },
         "timeoutMs": {

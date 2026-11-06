@@ -12,16 +12,32 @@ impl Drop for WaitSlot<'_> {
 
 pub(super) async fn events_wait(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let params = &request.params;
-    let cursor = required_text(params, "cursor")?;
-    let after = cursor
-        .bytes()
-        .all(|byte| byte.is_ascii_digit())
-        .then(|| cursor.parse::<u64>().ok())
-        .flatten()
-        .ok_or("Event cursor is invalid; take a fresh one from workspace_inspect")?;
-    let timeout = integer(params, "timeoutMs", MAX_WAIT_MS, MAX_WAIT_MS, 0)?;
-    let execution_id = text(params, "executionId")?;
+    let cursor = match params.get("cursor") {
+        Some(Value::Null) => None,
+        Some(Value::String(cursor)) if cursor.trim().is_empty() => None,
+        _ => text(params, "cursor")?,
+    };
     let harness = &core.harness;
+    let after = match cursor {
+        Some(cursor) => cursor
+            .bytes()
+            .all(|byte| byte.is_ascii_digit())
+            .then(|| cursor.parse::<u64>().ok())
+            .flatten()
+            .ok_or("Event cursor is invalid; take a fresh one from workspace_inspect")?,
+        None => harness.journal_cursor(&request.project),
+    };
+    let execution_id = text(params, "executionId")?;
+    let over_already = cursor.is_none()
+        && execution_id.is_some_and(|id| {
+            harness
+                .read(|state| state.run(&request.project, id))
+                .is_ok_and(|run| !run.status.is_active())
+        });
+    let timeout = match over_already {
+        true => 0,
+        false => integer(params, "timeoutMs", MAX_WAIT_MS, MAX_WAIT_MS, 0)?,
+    };
     let _slot = harness.wait_slot()?;
     let deadline = Instant::now() + Duration::from_millis(timeout);
     loop {
@@ -73,4 +89,46 @@ pub(super) async fn plugins_wait(harness: &Harness, params: &Value) -> Result<Va
     }
     let version = *harness.plugins.borrow();
     Ok(json!({ "version": version }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 70 calls since 2026-11-03 failed with "cursor must be nonempty text": a note from
+    /// `process_start` tells agents to wait on its `executionId`, and they had no cursor to pass.
+    #[tokio::test]
+    async fn a_wait_with_no_cursor_starts_from_now() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let project = tempfile::tempdir().unwrap();
+        let project = project.path().to_string_lossy().into_owned();
+        core.harness.change(|state| {
+            state
+                .journals
+                .append(&project, "process.running", Some("a"), None);
+        });
+        let now = core.harness.journal_cursor(&project).to_string();
+        let asking = |params: Value| HarnessRequest {
+            id: "wait".to_owned(),
+            project: project.clone(),
+            agent_id: None,
+            method: "events.wait".to_owned(),
+            params,
+        };
+        for params in [
+            json!({ "timeoutMs": 0 }),
+            json!({ "cursor": "", "timeoutMs": 0 }),
+            json!({ "cursor": null, "timeoutMs": 0 }),
+        ] {
+            let answer = events_wait(&core, &asking(params)).await.unwrap();
+            assert_eq!(answer["events"], json!([]));
+            assert_eq!(answer["cursor"], now);
+        }
+        let earlier = json!({ "cursor": "0", "timeoutMs": 0 });
+        let answer = events_wait(&core, &asking(earlier)).await.unwrap();
+        assert_eq!(answer["events"].as_array().unwrap().len(), 1);
+        assert!(events_wait(&core, &asking(json!({ "cursor": 5 })))
+            .await
+            .is_err());
+    }
 }
