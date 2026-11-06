@@ -1,4 +1,4 @@
-# Sikemux v0.6.1-nightly.4
+# Sikemux v0.6.1-nightly.5
 
 Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
 
@@ -7,18 +7,26 @@ Nightlies are signed and delivered exactly like stable releases, but they carry 
 - **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android.
 - **This nightly links only with hosts on the 0.6.1 nightlies.** Hosts on stable 0.6.0 can't reach it.
 
-## New since nightly.3
+## New since nightly.4
 
-- **Environments.** A project can name its environments, what recognises each (a Rundeck job, Vercel's target, an AWS profile, a kube context, a Terraform workspace or a command of the project's) and who passes it: nobody, the check, a person, or production. A deploy to a safe one goes, one after the check goes once it passes, and anything that reads as production or can't be recognised waits for you. A project with none set works as before.
-- **Slices follow them.** A slice goes Built, then a step per environment. Each deploy is followed to its end and kept as evidence on the slice. Agents can only propose environments; you decide.
-- **Held deploys say why.** Needs you and the agent's chat say where a held deploy is going and why it waited.
+- **Home shows every goal and agent at a glance.** Six numbers rank the list, with filter tabs, a find box and rows under Needs you, Moving, Waiting, No goal and Done.
+- **A chat can pick up a goal.** When a chat's work looks real, Sikemux offers Track as goal under the composer, and you can Undo it after. Its subagents count towards the goal.
+- **Messages between agents fold to one line**, showing who sent them, how many, and what someone needs from you. Your last prompt stays in reach above them.
+- **Agents settle more among themselves.** A worker's assumption stands, a blocked question goes back to its lead first, and the lead raises only what is yours to decide.
+- **Let dev go unasked.** A held Rundeck deploy to a job in a folder that isn't production offers `Let dev/* go unasked`, so one click frees that whole folder without changing any slice.
 
 ## Fixes
 
-- An agent waiting on you shows as waiting everywhere: tabs, the tab rail, the project row and the notch. Only the question tool did before, so a question in a reply or a held deploy could show purple or nothing.
-- A Chat from Home's composer no longer adds a goal card. Plan first and Hand off still do, and Hand off has its own icon.
-- What happened on a goal reads clearly to someone who hasn't seen the code, and goals older than about 13 days keep their chats.
-- `/` offers the agent's commands in a chat that waited for you.
-- An agent's `git_commit` can push its own commits in a repository with attribution off.
+- A wide character in a very narrow terminal can no longer end every agent on the host.
+- A sent message no longer comes back into the composer and goes out again with the next one.
+- A finished turn keeps its answer out of the fold when the agent wrote it before more calls and a short closing line.
+- Claude Code's own questions get the answer you actually gave.
+- A secret answer takes a multi-line paste, such as an env file or a private key.
+- A chat starts even if its program was too busy to name its version in time, and a Muse or ACP turn the network cut short goes again when the network is back.
+- The board and goals read again after a reconnect, and the Plan fold draws steps instead of raw JSON.
+- Remotes on `ssh.bitbucket.org` work, ahead of Bitbucket's move on 2026-11-12.
+- On the share page, pictures open when clicked, an agent's page shows as a card, and a shared chat wears its agent's mark.
 
-For the complete patch history, compare [`v0.6.1-nightly.3...v0.6.1-nightly.4`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.3...v0.6.1-nightly.4).
+Much of this nightly is a large internal restructuring of the app, the core and the phone's shared code. It should change nothing you see, so tell us if something that worked no longer does.
+
+For the complete patch history, compare [`v0.6.1-nightly.4...v0.6.1-nightly.5`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.4...v0.6.1-nightly.5).

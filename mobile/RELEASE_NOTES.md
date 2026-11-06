@@ -1,4 +1,5 @@
-# 0.2.0-nightly.16
-• Keeps the app in step with Sikemux 0.6.1-nightly.4 on your host, which adds project environments and held deploys.
-• An agent waiting on you shows as waiting, whatever it is waiting for, once your host is on that nightly.
+# 0.2.0-nightly.17
+• Messages between agents fold to one line, and your last prompt stays in reach.
+• The strip under a sent prompt shows, so you can reach Edit.
+• /usr/bin/x and other paths go to the agent as text, not as a command.
 • Works with hosts on the Sikemux 0.6.1 nightlies, not stable 0.6.0.
