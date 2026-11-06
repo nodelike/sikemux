@@ -10,9 +10,6 @@ categories = ["gui"]
 publish = false
 
 [features]
-# Letter spacing and runs drawn at a share of the font size, which GPUI gains in
-# sikemux/gpui: table headings get their spacing and inline code sits smaller.
-fork = []
 # Counts the drawing work done, for the stress example's slow frames; never on in the app.
 counts = []
 

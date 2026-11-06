@@ -772,8 +772,6 @@ mod wallpaper {
         {
             gnome::path()
         }
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        None
     }
 
     /// GNOME keeps a light and a dark wallpaper, worn by the colour scheme it is set to.

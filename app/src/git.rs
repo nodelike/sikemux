@@ -3,19 +3,17 @@
 
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::ops::Range;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, font, list, px, Action, App, AppContext, Context, Div, HighlightStyle, Hsla,
-    InteractiveElement, IntoElement, ListAlignment, ListState, ParentElement, Pixels, Render,
-    ScrollEvent, SharedString, StatefulInteractiveElement, Styled, StyledText, Task, Window,
+    div, font, px, Action, App, AppContext, Context, Div, HighlightStyle, Hsla, InteractiveElement,
+    IntoElement, ListState, ParentElement, Pixels, SharedString, StatefulInteractiveElement,
+    Styled, StyledText, Task, Window,
 };
 use serde_json::{json, Value};
 use sikemux_core::git::diff::{changes, DiffRow, ROW_ADDED, ROW_DELETED, ROW_HIDDEN};
@@ -23,16 +21,14 @@ use sikemux_core::git::log::GitOverview;
 use sikemux_core::git::status::DiscoveredRepo;
 use sikemux_view::layout::PaneKind;
 use sikemux_wire::protocol::ProjectCodeHost;
-use tokio::sync::mpsc::UnboundedSender;
 
 use sikemux_view::owners::{CommitLines, FileOwners, Owners};
 
-use crate::core::{request, Ask};
 use crate::editor::OpenAt;
 use crate::keyboard::TakesKeys;
 use crate::reads::Read;
 use crate::syntax::LineRuns;
-use crate::theme::{Tokens, SPACE_2, SPACE_3, TEXT_2XS};
+use crate::theme::{Tokens, TEXT_2XS};
 use crate::workbench::Workbench;
 use crate::{syntax, tabs, theme, ui};
 
@@ -126,23 +122,16 @@ pub struct Hunk {
     /// The run in the editor's text, counted from 0. A deletion's is empty, at the line
     /// it sits above.
     pub lines: Range<u32>,
-    /// What the run was in the revision.
-    pub old: SharedString,
 }
 
 /// What changed from `base` to `live`, worked out off the main thread.
 pub fn hunks(base: SharedString, live: String, cx: &App) -> Task<Vec<Hunk>> {
     cx.background_executor().spawn(async move {
-        let old: Vec<&str> = base.split_inclusive('\n').collect();
         changes(&base, &live)
             .into_iter()
             .map(|change| Hunk {
                 kind: change.kind(),
                 lines: change.new_start as u32..(change.new_start + change.new_len) as u32,
-                old: old
-                    .get(change.old_start..change.old_start + change.old_len)
-                    .map_or_else(String::new, |lines| lines.concat())
-                    .into(),
             })
             .collect()
     })
@@ -244,18 +233,8 @@ impl Diff {
         }
     }
 
-    pub fn row(&self, index: usize) -> Option<&DiffRow> {
-        self.rows.get(index)
-    }
-
     pub fn len(&self) -> usize {
         self.rows.len()
-    }
-
-    /// How many lines it adds and how many it takes out.
-    pub fn stat(&self) -> (u64, u64) {
-        let count = |kind| self.rows.iter().filter(|row| row.0 == kind).count() as u64;
-        (count(ROW_ADDED), count(ROW_DELETED))
     }
 
     pub fn is_empty(&self) -> bool {
@@ -577,171 +556,12 @@ impl Notes {
     }
 }
 
-/// One file's diff in a pane of its own, read from the core and coloured as the file's
-/// language, drawn only as far as it shows.
-pub struct DiffView {
-    asks: UnboundedSender<Ask>,
-    compared: Compared,
-    language: Option<String>,
-    /// Asks for every unchanged line, after the person opened a hidden run.
-    whole: bool,
-    diff: Option<Result<Diff, String>>,
-    colours: Colours,
-    rows: ListState,
-    scrolled: Pixels,
-    /// How wide the pane last drew.
-    shown: Rc<Cell<Pixels>>,
-    _reading: Task<()>,
-}
-
-impl DiffView {
-    pub fn new(asks: UnboundedSender<Ask>, compared: Compared, cx: &mut Context<Self>) -> Self {
-        let language = crate::file_icons::language(&compared.path, cx)
-            .filter(|language| syntax::knows(language));
-        let mut view = Self {
-            asks,
-            compared,
-            language,
-            whole: false,
-            diff: None,
-            colours: Colours::default(),
-            rows: ListState::new(0, ListAlignment::Top, px(600.)),
-            scrolled: px(0.),
-            shown: Rc::default(),
-            _reading: Task::ready(()),
-        };
-        view.read(cx);
-        view
-    }
-
-    /// Reads the diff again, as after the file or the repository changed.
-    pub fn read(&mut self, cx: &mut Context<Self>) {
-        let Compared {
-            repo,
-            path,
-            base,
-            head,
-        } = &self.compared;
-        let params = json!({ "repo": repo, "path": path, "baseRev": base, "headRev": head, "full": self.whole });
-        let answer = request(&self.asks, "git.fileDiff", params);
-        self._reading = cx.spawn(async move |view, cx| {
-            let diff = answer.await.and_then(|rows| {
-                serde_json::from_value::<Vec<DiffRow>>(rows).map_err(|error| error.to_string())
-            });
-            view.update(cx, |view, cx| view.read_as(diff.map(Diff::new), cx))
-                .ok();
-        });
-    }
-
-    fn read_as(&mut self, diff: Result<Diff, String>, cx: &mut Context<Self>) {
-        if let Ok(diff) = &diff {
-            let first = self.rows.logical_scroll_top();
-            self.rows.reset(diff.len());
-            self.rows.scroll_to(first);
-            self.colours = Colours::default();
-        }
-        self.diff = Some(diff);
-        cx.notify();
-    }
-
-    fn expand(&mut self, cx: &mut Context<Self>) {
-        if !self.whole {
-            self.whole = true;
-            self.read(cx);
-        }
-    }
-
-    fn wheel(&mut self, event: &ScrollEvent, window: &Window, width: Pixels) -> bool {
-        let delta = event.delta.pixel_delta(window.line_height());
-        if delta.x == px(0.) || delta.x.abs() < delta.y.abs() {
-            return false;
-        }
-        let widest = (width - self.shown.get()).max(px(0.));
-        let scrolled = (self.scrolled - delta.x).clamp(px(0.), widest);
-        let moved = scrolled != self.scrolled;
-        self.scrolled = scrolled;
-        moved
-    }
-}
-
 /// The width of a character of code, which every character of the code font has.
 pub(crate) fn advance(window: &Window) -> Pixels {
     let text = window.text_system();
     let id = text.resolve_font(&font(theme::MONO));
     text.advance(id, CODE_SIZE, 'm')
         .map_or(CODE_SIZE * 0.6, |size| size.width)
-}
-
-impl Render for DiffView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = Tokens::get(cx).clone();
-        let message = |text: String, color| {
-            div()
-                .p(SPACE_3)
-                .text_size(crate::theme::ui_text(TEXT_2XS))
-                .text_color(color)
-                .child(text)
-                .into_any_element()
-        };
-        let diff = match &self.diff {
-            None => return message("loading diff...".into(), t.text_tertiary),
-            Some(Err(error)) => return message(format!("x {error}"), t.danger),
-            Some(Ok(diff)) if diff.is_empty() => {
-                return message("No changes.".into(), t.text_tertiary)
-            }
-            Some(Ok(diff)) => diff,
-        };
-        self.colours
-            .ask(diff, self.language.as_deref(), cx, |view: &mut Self| {
-                Some(&mut view.colours)
-            });
-        let advance = advance(window);
-        let width = diff.width(advance);
-        let view = cx.entity();
-        let scrolled = self.scrolled;
-        let file = Path::new(&self.compared.repo).join(&self.compared.path);
-        let rows = list(self.rows.clone(), move |index, _, cx| {
-            let this = view.read(cx);
-            let Some(Ok(diff)) = &this.diff else {
-                return div().into_any_element();
-            };
-            let look = RowLook::new(Tokens::get(cx), advance, scrolled);
-            let expanding = view.clone();
-            row(
-                diff,
-                &this.colours,
-                index,
-                &look,
-                SharedString::from(format!("diff-row-{index}")),
-                Some(&file),
-                move |_, cx| expanding.update(cx, |view, cx| view.expand(cx)),
-            )
-            .into_any_element()
-        });
-        let shown = self.shown.clone();
-        div()
-            .id("diff")
-            .size_full()
-            .py(SPACE_2)
-            .font_family(theme::MONO)
-            .text_size(CODE_SIZE)
-            .line_height(ROW_HEIGHT)
-            .on_scroll(cx.listener(move |view, event: &ScrollEvent, window, cx| {
-                if view.wheel(event, window, width) {
-                    cx.notify();
-                }
-            }))
-            .child(
-                canvas(
-                    move |bounds, _, _| shown.set(bounds.size.width),
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .size_full(),
-            )
-            .child(rows.size_full())
-            .into_any_element()
-    }
 }
 
 /// Tells `list` only the run of `old` that `new` replaced, so what is in view stays put.

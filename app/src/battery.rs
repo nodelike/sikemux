@@ -25,14 +25,6 @@ pub use mac::{read, watch};
 #[cfg(target_os = "linux")]
 pub use linux::{read, watch};
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn read() -> Option<Battery> {
-    None
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub fn watch(_changed: impl Fn() + Send + 'static) {}
-
 /// UPower's summary of the batteries, which it keeps on the system bus.
 #[cfg(target_os = "linux")]
 mod linux {

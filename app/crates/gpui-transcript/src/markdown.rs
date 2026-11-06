@@ -570,11 +570,6 @@ impl Markdown {
         (hidden >= limit / 10).then_some((blocks, hidden))
     }
 
-    /// Whether the tree matches the text; when it does not, draw the text as it is.
-    pub fn is_current(&self) -> bool {
-        self.units.is_some()
-    }
-
     /// Applies a patch `{ n, o }`, leaving every block it does not reach as it was.
     pub fn write(&mut self, patch: &Value, units: usize) {
         let Ok(patch) = Patch::deserialize(patch) else {

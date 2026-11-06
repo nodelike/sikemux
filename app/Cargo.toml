@@ -43,7 +43,7 @@ gpui = { package = "gpui-pre", version = "=0.3.10" }
 gpui-kit = { version = "=0.8.1", default-features = false, features = ["component"] }
 gpui-native-view = { path = "crates/gpui-native-view" }
 gpui-terminal-grid = { path = "crates/gpui-terminal-grid" }
-gpui-transcript = { path = "crates/gpui-transcript", features = ["fork"] }
+gpui-transcript = { path = "crates/gpui-transcript" }
 lsp-types = "0.97"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 percent-encoding = "2"

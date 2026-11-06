@@ -1654,10 +1654,7 @@ fn hide_chip_words(looks: Looks, chips: &[(Range<usize>, Chip)]) -> Looks {
                     color: Some(gpui::transparent_black()),
                     ..HighlightStyle::default()
                 };
-                #[cfg(feature = "fork")]
-                {
-                    look.font_scale = Some(gpui::FontScale(0.01));
-                }
+                look.font_scale = Some(gpui::FontScale(0.01));
             }
             (range, look)
         })
@@ -1681,10 +1678,7 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
     if marks.has(Marks::CODE) {
         highlight.color = Some(style.code_ink);
         highlight.background_color = Some(style.mark_ground);
-        #[cfg(feature = "fork")]
-        {
-            highlight.font_scale = Some(gpui::FontScale(0.88));
-        }
+        highlight.font_scale = Some(gpui::FontScale(0.88));
     }
     if marks.has(Marks::LINK) {
         highlight.color = Some(style.accent);
@@ -1692,14 +1686,8 @@ fn highlight(marks: Marks, style: &Style) -> HighlightStyle {
     highlight
 }
 
-#[cfg(feature = "fork")]
 fn spaced(row: Div) -> Div {
     row.letter_spacing(0.06)
-}
-
-#[cfg(not(feature = "fork"))]
-fn spaced(row: Div) -> Div {
-    row
 }
 
 fn tasks_in(node: &Node) -> usize {

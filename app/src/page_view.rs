@@ -11,25 +11,18 @@ pub(crate) type Events = tokio::sync::mpsc::UnboundedSender<PageEvent>;
 #[derive(Clone)]
 pub(crate) struct View {
     pub(crate) surface: NativeSurface,
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
     page: std::rc::Rc<sikemux_browser::page_view::PageView>,
 }
 
 impl View {
     /// Shows `html` in place of what the page showed.
     pub(crate) fn show(&self, html: &str) {
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.page.show(html);
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        let _ = html;
     }
 
     /// Runs `script` in the page, with no answer waited for.
     pub(crate) fn run(&self, script: &str) {
-        #[cfg(any(target_os = "macos", target_os = "linux"))]
         self.page.run_script(script);
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        let _ = script;
     }
 }
 
@@ -86,11 +79,6 @@ pub(crate) fn open(
             None
         }
     }
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-pub(crate) fn open(_: &str, _: Room, _: Events, _: &Window, _: &App) -> Option<View> {
-    None
 }
 
 /// The page's view placed in its element, kept with the page that fills it.

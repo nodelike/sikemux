@@ -549,11 +549,6 @@ fn system_reduces_motion() -> bool {
     linux::reduces_motion()
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
-fn system_reduces_motion() -> bool {
-    false
-}
-
 /// The desktop's animation setting, read through the desktop portal: GNOME's "enable
 /// animations" switch, or KDE's animation speed set to instant.
 #[cfg(target_os = "linux")]
