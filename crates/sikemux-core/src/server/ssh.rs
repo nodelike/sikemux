@@ -8,7 +8,7 @@ use std::sync::Weak;
 
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use sikemux_pty::shell_protocol::SshLink;
+use sikemux_pty::shell_protocol::{ssh_link_word, SshLink, SSH_LINK_OSC};
 
 use super::changed::Topic;
 use super::Core;
@@ -193,8 +193,12 @@ fn portable_quote(value: &str) -> String {
 }
 
 fn unix_loop(alias: &str) -> String {
-    const LOOP: &str = r#"sikemux_ssh_link() { printf '\033]6973;ssh;%s\007' "$1"; }; trap 'sikemux_ssh_link disconnected' EXIT; trap 'exit 130' INT TERM HUP; sikemux_ssh_link connecting; sikemux_ssh_retries=0; while :; do command ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o PermitLocalCommand=yes -o "LocalCommand=/usr/bin/printf '\033]6973;ssh;connected\007'" @HOST@; sikemux_ssh_status=$?; stty sane 2>/dev/null || true; printf '\033[0m\033[?25h\033[?1l\033>\033[?2004l\033[?1000l\033[?1002l\033[?1003l\033[?1006l'; if [ "$sikemux_ssh_status" -eq 0 ]; then break; fi; if [ "$sikemux_ssh_status" -eq 130 ]; then printf '\r\nSSH reconnect cancelled. Back at your local shell.\r\n'; break; fi; if [ "$sikemux_ssh_retries" -ge @RETRIES@ ]; then printf '\r\nSSH could not reconnect after @RETRIES@ retries. Back at your local shell.\r\n'; break; fi; sikemux_ssh_retries=$((sikemux_ssh_retries + 1)); printf '\r\nSSH connection lost. Retrying (%s/@RETRIES@) in 3 seconds… Press Ctrl-C to stop.\r\n' "$sikemux_ssh_retries"; sikemux_ssh_link connecting; sleep 3 || break; done"#;
-    LOOP.replace("@RETRIES@", RETRIES)
+    const LOOP: &str = r#"sikemux_ssh_link() { printf '\033]@OSC@%s\007' "$1"; }; trap 'sikemux_ssh_link @DISCONNECTED@' EXIT; trap 'exit 130' INT TERM HUP; sikemux_ssh_link @CONNECTING@; sikemux_ssh_retries=0; while :; do command ssh -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o PermitLocalCommand=yes -o "LocalCommand=/usr/bin/printf '\033]@OSC@@CONNECTED@\007'" @HOST@; sikemux_ssh_status=$?; stty sane 2>/dev/null || true; printf '\033[0m\033[?25h\033[?1l\033>\033[?2004l\033[?1000l\033[?1002l\033[?1003l\033[?1006l'; if [ "$sikemux_ssh_status" -eq 0 ]; then break; fi; if [ "$sikemux_ssh_status" -eq 130 ]; then printf '\r\nSSH reconnect cancelled. Back at your local shell.\r\n'; break; fi; if [ "$sikemux_ssh_retries" -ge @RETRIES@ ]; then printf '\r\nSSH could not reconnect after @RETRIES@ retries. Back at your local shell.\r\n'; break; fi; sikemux_ssh_retries=$((sikemux_ssh_retries + 1)); printf '\r\nSSH connection lost. Retrying (%s/@RETRIES@) in 3 seconds… Press Ctrl-C to stop.\r\n' "$sikemux_ssh_retries"; sikemux_ssh_link @CONNECTING@; sleep 3 || break; done"#;
+    LOOP.replace("@OSC@", SSH_LINK_OSC)
+        .replace("@CONNECTING@", ssh_link_word(SshLink::Connecting))
+        .replace("@CONNECTED@", ssh_link_word(SshLink::Connected))
+        .replace("@DISCONNECTED@", ssh_link_word(SshLink::Disconnected))
+        .replace("@RETRIES@", RETRIES)
         .replacen("@HOST@", &posix_quote(alias), 1)
 }
 

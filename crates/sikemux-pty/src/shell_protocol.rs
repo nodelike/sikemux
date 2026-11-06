@@ -9,7 +9,7 @@ const MAX_SHELL_PATH_BYTES: usize = 4 * 1024;
 const MAX_SHELL_EXIT_CODE_BYTES: usize = 11;
 const SHELL_EVENT_MIN_INTERVAL: Duration = Duration::from_millis(100);
 /// Sikemux's own OSC, which the SSH startup loop prints its state under.
-const SSH_LINK_OSC: &[u8] = b"6973;ssh;";
+pub const SSH_LINK_OSC: &str = "6973;ssh;";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShellProtocolUpdate {
@@ -303,7 +303,7 @@ fn parse_shell_signal(payload: &[u8]) -> Option<ShellSignal> {
     if let Some(uri) = payload.strip_prefix(b"7;") {
         return parse_shell_cwd(uri).map(ShellSignal::Cwd);
     }
-    if let Some(link) = payload.strip_prefix(SSH_LINK_OSC) {
+    if let Some(link) = payload.strip_prefix(SSH_LINK_OSC.as_bytes()) {
         return parse_ssh_link(link).map(ShellSignal::Ssh);
     }
     let payload = payload.strip_prefix(b"133;")?;
@@ -337,13 +337,23 @@ fn parse_shell_signal(payload: &[u8]) -> Option<ShellSignal> {
     }
 }
 
-fn parse_ssh_link(value: &[u8]) -> Option<SshLink> {
-    match value {
-        b"connecting" => Some(SshLink::Connecting),
-        b"connected" => Some(SshLink::Connected),
-        b"disconnected" => Some(SshLink::Disconnected),
-        _ => None,
+/// What the SSH startup loop prints after [`SSH_LINK_OSC`] to say `link`.
+pub fn ssh_link_word(link: SshLink) -> &'static str {
+    match link {
+        SshLink::Connecting => "connecting",
+        SshLink::Connected => "connected",
+        SshLink::Disconnected => "disconnected",
     }
+}
+
+fn parse_ssh_link(value: &[u8]) -> Option<SshLink> {
+    [
+        SshLink::Connecting,
+        SshLink::Connected,
+        SshLink::Disconnected,
+    ]
+    .into_iter()
+    .find(|link| ssh_link_word(*link).as_bytes() == value)
 }
 
 fn parse_shell_exit_code(value: &[u8]) -> Option<i32> {

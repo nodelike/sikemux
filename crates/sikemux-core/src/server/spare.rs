@@ -320,8 +320,8 @@ async fn shell_at_home(
         session_name,
         session_kind: LaunchKind::Command,
         project: None,
-        window_id: Some(format!("win-{}", uuid::Uuid::new_v4().simple())),
-        pane_id: Some(format!("pane-{}", uuid::Uuid::new_v4().simple())),
+        window_id: Some(super::layout::window_id()),
+        pane_id: Some(super::layout::view_id()),
         agent_id: None,
         agent_type: None,
         initial_prompt_submitted: false,
@@ -346,8 +346,8 @@ pub(crate) async fn project_shell(core: &Arc<Core>, project: &str) -> CoreResult
     let (path, name) = project_folder(core, project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))?;
     let size = opening_size(core);
-    let window_id = format!("win-{}", uuid::Uuid::new_v4().simple());
-    let pane_id = format!("pane-{}", uuid::Uuid::new_v4().simple());
+    let window_id = super::layout::window_id();
+    let pane_id = super::layout::view_id();
     shell(
         core,
         project,
@@ -379,8 +379,8 @@ pub(crate) async fn command_shell(
 ) -> CoreResult<SessionId> {
     let (path, name) = project_folder(core, project)
         .ok_or_else(|| CoreError::from("that project is not on this host"))?;
-    let window_id = format!("win-{}", uuid::Uuid::new_v4().simple());
-    let pane_id = format!("pane-{}", uuid::Uuid::new_v4().simple());
+    let window_id = super::layout::window_id();
+    let pane_id = super::layout::view_id();
     let size = opening_size(core);
     shell(
         core,
@@ -460,8 +460,8 @@ fn to_host(host: &str, session_kind: LaunchKind) -> PtyContext {
         session_name: host.to_owned(),
         session_kind,
         project: None,
-        window_id: Some(format!("win-{}", uuid::Uuid::new_v4().simple())),
-        pane_id: Some(format!("pane-{}", uuid::Uuid::new_v4().simple())),
+        window_id: Some(super::layout::window_id()),
+        pane_id: Some(super::layout::view_id()),
         agent_id: None,
         agent_type: None,
         initial_prompt_submitted: false,

@@ -305,8 +305,12 @@ fn holds(pane: &Pane, kind: PaneKind, target: &str) -> bool {
     }
 }
 
-fn view_id() -> String {
+pub(super) fn view_id() -> String {
     format!("pane-{}", uuid::Uuid::new_v4().simple())
+}
+
+pub(super) fn window_id() -> String {
+    format!("win-{}", uuid::Uuid::new_v4().simple())
 }
 
 /// Puts `new` beside the view `beside`, answering whether that view is in `pane`.
