@@ -187,8 +187,8 @@ impl Workbench {
             .map(|list| list.folder.display().to_string())
             .unwrap_or_else(|| "~/.config/sikemux/mods".to_owned());
         let prompt = match editing {
-            Some(shown) => change_prompt(&shown.name, &folder, &shown.id, &asked),
-            None => make_prompt(&asked, &folder),
+            Some(shown) => change_prompt(&shown.name, &folder, &shown.id, asked),
+            None => make_prompt(asked, &folder),
         };
         let (started, agent) = oneshot::channel();
         let target = self.target();
