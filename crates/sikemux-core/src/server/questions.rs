@@ -2289,7 +2289,29 @@ mod tests {
         );
         assert_eq!(
             asked_in("It's fixed. Yes or no?"),
-            vec![("Yes or no?".to_owned(), true)]
+            vec![("It's fixed. Yes or no?".to_owned(), true)]
+        );
+    }
+
+    /// The shape of a reply whose question showed as "Is that okay?", saying nothing of what.
+    const OKAY_AFTER_A_PROPOSAL: &str = "**Who owns #5 (no indication on Product claim stills)?** \
+        I'd have Satoru find the cause first, and Medical or you decide whether it blocks. \
+        Is that okay?\n";
+
+    #[test]
+    fn a_question_about_what_was_just_said_shows_with_it() {
+        assert_eq!(
+            asked_in(OKAY_AFTER_A_PROPOSAL),
+            vec![(
+                "Who owns #5 (no indication on Product claim stills)? I'd have Satoru find the \
+                 cause first, and Medical or you decide whether it blocks. Is that okay?"
+                    .to_owned(),
+                true
+            )]
+        );
+        assert_eq!(
+            asked_in("We could cache it.\n\nThoughts?"),
+            vec![("We could cache it. Thoughts?".to_owned(), false)]
         );
     }
 }

@@ -25,6 +25,12 @@ const NOT_WORK: [&str; 24] = [
 
 /// The verb of the work a yes-or-no question offers, such as `commit` in "Want me to commit it?".
 pub(super) fn offered_work(sentence: &str) -> Option<String> {
+    if sentences_of(sentence)
+        .last()
+        .is_some_and(|last| bare_ask(last).is_some())
+    {
+        return None;
+    }
     let lower = sentence.to_lowercase();
     let asked = after_lead_in(&lower);
     let work = (OFFERS.iter())
@@ -40,13 +46,22 @@ pub(super) fn offered_work(sentence: &str) -> Option<String> {
 /// A paragraph or list item counts when its last sentence ends in a question mark, so one
 /// answered in the same paragraph does not, or offers more as "If you want, I can…" does.
 /// A last sentence that means nothing alone, such as "Yes or no?", stands for the latest real
-/// question before it, anywhere in the reply.
+/// question before it, anywhere in the reply, or with no such question, comes with the rest of
+/// its paragraph, or the paragraph before when it stands alone, which is what it asks about.
 pub(super) fn asked_in(reply: &str) -> Vec<(String, bool)> {
     let mut found: Vec<(String, bool)> = Vec::new();
     let mut earlier: Vec<String> = Vec::new();
+    let mut said: Option<String> = None;
     for paragraph in paragraphs(reply) {
         let mut sentences = sentences_of(&paragraph);
+        let whole = sentences.join(" ");
         sentences.pop();
+        let before = if sentences.is_empty() {
+            said.take()
+        } else {
+            Some(sentences.join(" "))
+        };
+        said = Some(whole);
         earlier.extend(sentences.into_iter().filter(|sentence| {
             sentence.trim_end_matches([')', '"']).ends_with('?') && bare_ask(sentence).is_none()
         }));
@@ -66,7 +81,11 @@ pub(super) fn asked_in(reply: &str) -> Vec<(String, bool)> {
                 let polar = takes_yes_or_no || answers_yes_or_no(question);
                 found.push((question.clone(), polar));
             }
-            None => found.push((sentence, takes_yes_or_no)),
+            None => {
+                let shown = before
+                    .map_or_else(|| sentence.clone(), |before| format!("{before} {sentence}"));
+                found.push((shown, takes_yes_or_no));
+            }
         }
     }
     found
@@ -226,8 +245,37 @@ pub(super) fn answers_yes_or_no(sentence: &str) -> bool {
 pub(super) fn bare_ask(sentence: &str) -> Option<bool> {
     let lower = sentence.to_lowercase();
     match after_lead_in(&lower).trim_end_matches(['?', '!', '.']) {
-        "yes or no" | "yes/no" | "y/n" | "ok" | "okay" | "right" | "agreed" | "sound good"
-        | "sounds good" | "good to go" | "go ahead" => Some(true),
+        "yes or no"
+        | "yes/no"
+        | "y/n"
+        | "ok"
+        | "okay"
+        | "right"
+        | "agreed"
+        | "sound good"
+        | "sounds good"
+        | "good to go"
+        | "go ahead"
+        | "is that ok"
+        | "is that okay"
+        | "is this ok"
+        | "is this okay"
+        | "that ok"
+        | "that okay"
+        | "ok with that"
+        | "okay with that"
+        | "are you ok with that"
+        | "are you okay with that"
+        | "does that work"
+        | "does this work"
+        | "does that work for you"
+        | "work for you"
+        | "works for you"
+        | "does that sound good"
+        | "does that sound right"
+        | "does that make sense"
+        | "good with that"
+        | "happy with that" => Some(true),
         "thoughts" | "your thoughts" | "your call" | "what do you think" | "what do you say" => {
             Some(false)
         }
