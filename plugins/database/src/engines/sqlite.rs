@@ -1,7 +1,6 @@
 // SQLite: a file on this Mac, opened in place. Every call runs on a thread
 // meant for blocking, since SQLite does its work on the calling thread.
 
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -21,15 +20,10 @@ pub struct Session {
     alive: Arc<AtomicBool>,
 }
 
-fn expand(path: &str) -> PathBuf {
-    let home = std::env::var("HOME").ok();
-    sikemux_process::files::expand_home(path, home.as_deref())
-}
-
 impl Session {
     /// Opens the file without ever creating it, so a mistyped path is an error rather than an empty database.
     pub async fn open(path: &str, read_only: bool) -> DatabaseResult<Self> {
-        let file = expand(path);
+        let file = sikemux_process::paths::expand_home(path);
         tokio::task::spawn_blocking(move || {
             if !file.is_file() {
                 return Err(DatabaseError::Connect(format!(
@@ -298,6 +292,7 @@ fn describe(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     /// A fresh database file with a small table in it.
     pub fn fixture(name: &str) -> PathBuf {
@@ -534,8 +529,10 @@ pub mod tests {
 
     #[test]
     fn a_tilde_is_the_home_folder() {
-        let home = std::env::var("HOME").unwrap();
-        assert_eq!(expand("~/a.db"), PathBuf::from(home).join("a.db"));
-        assert_eq!(expand("/tmp/a.db"), PathBuf::from("/tmp/a.db"));
+        use sikemux_process::paths::{expand_home, home};
+        let home = home().unwrap();
+        assert_eq!(expand_home("~/a.db"), home.join("a.db"));
+        assert_eq!(expand_home("~"), home);
+        assert_eq!(expand_home("/tmp/a.db"), PathBuf::from("/tmp/a.db"));
     }
 }

@@ -36,10 +36,9 @@ pub struct AwsProfile {
 
 /// Where the AWS CLI looks, so the profiles listed are the ones it can use.
 fn aws_file(variable: &str, default: &str) -> Option<PathBuf> {
-    let home = std::env::var("HOME").ok();
     match sikemux_process::user_environment::var(variable).filter(|path| !path.is_empty()) {
-        Some(path) => Some(sikemux_process::files::expand_home(&path, home.as_deref())),
-        None => Some(PathBuf::from(home?).join(".aws").join(default)),
+        Some(path) => Some(sikemux_process::paths::expand_home(&path)),
+        None => Some(sikemux_process::paths::home()?.join(".aws").join(default)),
     }
 }
 
@@ -387,15 +386,14 @@ mod tests {
 
     #[test]
     fn a_path_from_the_shell_may_start_at_home() {
-        use sikemux_process::files::expand_home;
+        use sikemux_process::paths::{expand_home, home};
         assert_eq!(
-            expand_home("~/work/aws-config", Some("/Users/me")),
-            PathBuf::from("/Users/me/work/aws-config")
+            expand_home("~/work/aws-config"),
+            home().unwrap().join("work/aws-config")
         );
         assert_eq!(
-            expand_home("/etc/aws/config", Some("/Users/me")),
+            expand_home("/etc/aws/config"),
             PathBuf::from("/etc/aws/config")
         );
-        assert_eq!(expand_home("~/x", None), PathBuf::from("~/x"));
     }
 }
