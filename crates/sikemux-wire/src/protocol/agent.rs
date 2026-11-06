@@ -88,18 +88,6 @@ impl AgentState {
     }
 }
 
-impl From<crate::pty::agent_detection::AgentDetectionState> for AgentState {
-    fn from(state: crate::pty::agent_detection::AgentDetectionState) -> Self {
-        use crate::pty::agent_detection::AgentDetectionState;
-        match state {
-            AgentDetectionState::Unknown => AgentState::Unknown,
-            AgentDetectionState::Idle => AgentState::Idle,
-            AgentDetectionState::Working => AgentState::Working,
-            AgentDetectionState::Blocked => AgentState::Blocked,
-        }
-    }
-}
-
 /// The checkout an agent was given, as its workspace record keeps it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use sikemux_wire::grid::{FindResult, GridPoint};
-use sikemux_wire::pty::agent_detection::DetectionExplain;
 use sikemux_wire::pty::shell_protocol::ShellMetadataSnapshot;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -466,14 +465,6 @@ impl CoreClient {
     /// answered.
     pub fn ack(&self, stream: StreamId, frame: u32) {
         self.send(&ClientMessage::Ack { stream, frame });
-    }
-
-    pub async fn explain_agent_detection(
-        &self,
-        agent_id: String,
-    ) -> Result<DetectionExplain, ClientError> {
-        let explain = self.ask(ask::ExplainAgentDetection { agent_id }).await?;
-        Ok(*explain)
     }
 
     fn send(&self, message: &ClientMessage) {

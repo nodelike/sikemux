@@ -942,19 +942,29 @@ async fn manifests_are_listed_reloaded_and_explained() {
     let (client, mut stream) = core.connect().await;
     let manifests = tempfile::tempdir().expect("manifest dir");
     let configured = client
-        .ask(ask::Configure {
-            manifest_dir: Some(manifests.path().to_path_buf()),
-        })
+        .call(
+            "configureAgentManifests",
+            serde_json::json!({ "manifestDir": manifests.path() }),
+        )
         .await
         .expect("configure");
-    assert!(!configured.manifests.is_empty());
+    assert!(!configured["manifests"].as_array().expect("list").is_empty());
     assert_eq!(
-        client.ask(ask::ListManifests).await.expect("list"),
-        client.ask(ask::ReloadManifests).await.expect("reload")
+        client
+            .call("agentManifests", serde_json::json!({}))
+            .await
+            .expect("list"),
+        client
+            .call("reloadAgentManifests", serde_json::json!({}))
+            .await
+            .expect("reload")
     );
 
     assert!(client
-        .explain_agent_detection("nobody".into())
+        .call(
+            "explainAgentDetection",
+            serde_json::json!({ "agentId": "nobody" })
+        )
         .await
         .is_err());
     let id = client
@@ -963,10 +973,16 @@ async fn manifests_are_listed_reloaded_and_explained() {
         .expect("spawn");
     stream.until_agent_state(&client, AgentState::Idle).await;
     let explain = client
-        .explain_agent_detection("agent-9".into())
+        .call(
+            "explainAgentDetection",
+            serde_json::json!({ "agentId": "agent-9" }),
+        )
         .await
         .expect("explain");
-    assert!(!explain.manifest_version.is_empty());
+    assert!(!explain["manifestVersion"]
+        .as_str()
+        .expect("text")
+        .is_empty());
     client.ask(ask::Kill { id }).await.expect("kill");
 }
 

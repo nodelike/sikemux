@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::grid::FindResult;
-use crate::pty::agent_detection::{DetectionExplain, ManifestReloadReport};
 use crate::pty::launch::{PtyContext, PtyDirectCommand};
 use crate::pty::output_log::OutputPage;
 use crate::pty::task::TaskSpawnRequest;
@@ -66,10 +65,6 @@ pub enum Request {
     ResetModes(ask::ResetModes),
     TaskOutput(ask::TaskOutput),
     ShellAtPrompt(ask::ShellAtPrompt),
-    Configure(ask::Configure),
-    ListManifests,
-    ReloadManifests,
-    ExplainAgentDetection(ask::ExplainAgentDetection),
     /// Kills every session and keeps running.
     StopAll,
     /// This connection is the app's window from now on, replacing any other.
@@ -316,12 +311,6 @@ pub enum Response {
     },
     ShellAtPrompt {
         at_prompt: bool,
-    },
-    Manifests {
-        report: ManifestReloadReport,
-    },
-    DetectionExplain {
-        explain: Box<DetectionExplain>,
     },
     ChatStarted {
         start: ChatStart,

@@ -1,7 +1,7 @@
 use crate::server::changed::What;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use portable_pty::ExitStatus;
@@ -15,6 +15,7 @@ use sikemux_pty::agent_detection::{
 use sikemux_wire::protocol::{AgentState, AgentStateEvent, Event};
 
 use super::activity::Activity;
+use super::connection::blocking;
 use super::messages;
 use super::session::Session;
 use super::spawn::{self, Ending};
@@ -480,10 +481,15 @@ pub(crate) fn poll(core: &Core, session: &Session, now: u64) {
         .store(revision, Ordering::Release);
 }
 
-pub(crate) fn explain(
-    registry: &ManifestRegistry,
-    session: &Session,
-) -> CoreResult<DetectionExplain> {
+/// How the agent's detection rules read its screen now.
+pub(crate) async fn explain_of(core: Arc<Core>, agent_id: String) -> CoreResult<DetectionExplain> {
+    let target = core
+        .agent_session(&agent_id)
+        .ok_or("invalid argument: agent has no live terminal")?;
+    blocking(move || explain(&core.detection.read_locked(), &target)).await
+}
+
+fn explain(registry: &ManifestRegistry, session: &Session) -> CoreResult<DetectionExplain> {
     let kind = session
         .agent
         .as_ref()

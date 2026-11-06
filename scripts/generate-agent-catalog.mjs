@@ -21,7 +21,10 @@ const cssPath = resolve(
   "server/app/src/chat/styles/generated/agent-brands.css",
 );
 const rustPath = resolve(root, "crates/sikemux-core/src/agent_catalog.rs");
-const wireKindPath = resolve(root, "crates/sikemux-wire/src/pty/agent_kind.rs");
+const detectionKindPath = resolve(
+  root,
+  "crates/sikemux-pty/src/agent_detection/agent_kind.rs",
+);
 const bundledPath = resolve(
   root,
   "crates/sikemux-pty/src/agent_detection/bundled.rs",
@@ -364,7 +367,7 @@ ${driver}
 }
 
 await emit(
-  wireKindPath,
+  detectionKindPath,
   `// ${banner}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AgentKind {

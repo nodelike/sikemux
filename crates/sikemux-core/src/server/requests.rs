@@ -4,7 +4,6 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
-use sikemux_process::sync::Shared;
 use sikemux_pty::validate_pty_dimensions;
 use tokio::sync::mpsc;
 
@@ -173,36 +172,6 @@ pub(super) async fn run(
             Request::PluginsChanged => {
                 core.harness.plugins_changed();
                 client.answer::<ask::PluginsChanged>(request_id, Ok(()));
-            }
-            Request::Configure(ask::Configure { manifest_dir }) => {
-                tokio::spawn(async move {
-                    let result = blocking(move || core.configure_manifests(manifest_dir)).await;
-                    client.answer::<ask::Configure>(request_id, result);
-                });
-            }
-            Request::ReloadManifests => {
-                tokio::spawn(async move {
-                    let result = blocking(move || core.reload_manifests()).await;
-                    client.answer::<ask::ReloadManifests>(request_id, result);
-                });
-            }
-            Request::ListManifests => {
-                let report = core.manifest_report();
-                client.answer::<ask::ListManifests>(request_id, Ok(report));
-            }
-            Request::ExplainAgentDetection(ask::ExplainAgentDetection { agent_id }) => {
-                let result = match core.agent_session(&agent_id) {
-                    Some(target) => {
-                        let explaining = core.clone();
-                        blocking(move || {
-                            let registry = explaining.detection.read_locked();
-                            agent::explain(&registry, &target)
-                        })
-                        .await
-                    }
-                    None => Err("invalid argument: agent has no live terminal".into()),
-                };
-                client.answer::<ask::ExplainAgentDetection>(request_id, result.map(Box::new));
             }
             Request::Attach(ask::Attach { id }) => {
                 let result = match session_or_missing(&core, id) {

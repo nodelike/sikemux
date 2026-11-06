@@ -3,7 +3,6 @@
 use std::path::PathBuf;
 
 use crate::grid::{FindOptions, FindResult, GridPoint};
-use crate::pty::agent_detection::{DetectionExplain, ManifestReloadReport};
 use crate::pty::output_log::{OutputPage, OutputQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -131,19 +130,6 @@ pub struct TaskOutput {
 #[serde(rename_all = "camelCase")]
 pub struct ShellAtPrompt {
     pub id: SessionId,
-}
-
-/// Where the person's own agent detection rules live. Loads them at once.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Configure {
-    pub manifest_dir: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ExplainAgentDetection {
-    pub agent_id: String,
 }
 
 /// `stop_all` kills every session first; without it the core refuses to
@@ -451,8 +437,6 @@ macro_rules! unit_requests {
 
 unit_requests! {
     List,
-    ListManifests,
-    ReloadManifests,
     StopAll,
     RegisterWindow,
     PluginsChanged,
@@ -492,8 +476,6 @@ requests! {
     ResetModes,
     TaskOutput,
     ShellAtPrompt,
-    Configure,
-    ExplainAgentDetection,
     Shutdown,
     AcpStart,
     AcpAttach,
@@ -601,10 +583,6 @@ answers! {
     TerminalWaitFor -> Option<String> { line => TerminalLine { line } }
     ShellAtPrompt -> bool { at_prompt => ShellAtPrompt { at_prompt } }
     TaskOutput -> OutputPage { page => TaskOutput { page } }
-    Configure -> ManifestReloadReport { report => Manifests { report } }
-    ListManifests -> ManifestReloadReport { report => Manifests { report } }
-    ReloadManifests -> ManifestReloadReport { report => Manifests { report } }
-    ExplainAgentDetection -> Box<DetectionExplain> { explain => DetectionExplain { explain } }
     AcpStart -> ChatStart { start => ChatStarted { start } }
     AcpAttach -> ChatAttachment { attachment => ChatAttached { attachment } }
     AcpHistory -> Value { page => ChatHistory { page } }

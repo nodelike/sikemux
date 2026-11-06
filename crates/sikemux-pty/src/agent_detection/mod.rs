@@ -6,7 +6,9 @@
 //! Keeping this boundary pure makes the matching policy deterministic and
 //! fixture-testable while the PTY remains free to choose its locking strategy.
 
+mod agent_kind;
 mod bundled;
+mod report;
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -15,8 +17,10 @@ use std::path::{Path, PathBuf};
 
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-pub use sikemux_wire::pty::agent_detection::{
-    AgentDetectionState, AgentKind, DetectionConfidence, DetectionExplain, EvaluatedRule,
+
+pub use agent_kind::AgentKind;
+pub use report::{
+    AgentDetectionState, DetectionConfidence, DetectionExplain, EvaluatedRule,
     ManifestReloadReport, ManifestSourceInfo, ManifestSourceKind, ManifestSummary, MatcherEvidence,
     RuleEvidence,
 };

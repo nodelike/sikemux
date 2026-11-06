@@ -1,8 +1,9 @@
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+use sikemux_wire::protocol::AgentState;
 
-pub use super::agent_kind::AgentKind;
+use super::agent_kind::AgentKind;
 
 impl AgentKind {
     pub fn from_label(label: &str) -> Option<Self> {
@@ -37,6 +38,17 @@ pub enum AgentDetectionState {
     Idle,
     Working,
     Blocked,
+}
+
+impl From<AgentDetectionState> for AgentState {
+    fn from(state: AgentDetectionState) -> Self {
+        match state {
+            AgentDetectionState::Unknown => AgentState::Unknown,
+            AgentDetectionState::Idle => AgentState::Idle,
+            AgentDetectionState::Working => AgentState::Working,
+            AgentDetectionState::Blocked => AgentState::Blocked,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

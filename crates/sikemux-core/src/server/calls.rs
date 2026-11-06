@@ -178,6 +178,17 @@ calls! { core, client, method, params;
         saved::call(&core, params).await?
     },
     "workspace": Watch, any_program => answer(core.workspace_view()),
+    "agentManifests": NoDevice, any_program => answer(core.manifest_report()),
+    "reloadAgentManifests": NoDevice => {
+        answer(blocking(move || core.reload_manifests()).await?)
+    },
+    "configureAgentManifests": NoDevice => {
+        let ManifestFolder { manifest_dir } = parse(params)?;
+        answer(blocking(move || core.configure_manifests(manifest_dir)).await?)
+    },
+    "explainAgentDetection": NoDevice, any_program => {
+        answer(super::agent::explain_of(core, parse::<AgentParams>(params)?.agent_id).await?)
+    },
     "runCommand": NoDevice => answer(super::custom_command::run(parse(params)?).await?),
     "updateStatus": Watch, any_program => answer(core.updates.status()),
     "updateCheck": Owner => answer(super::updates::check(&core).await?),
@@ -598,6 +609,13 @@ impl<'de> Deserialize<'de> for NoParams {
         serde::de::IgnoredAny::deserialize(deserializer)?;
         Ok(NoParams {})
     }
+}
+
+/// Where the person's own agent detection rules live.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ManifestFolder {
+    manifest_dir: Option<std::path::PathBuf>,
 }
 
 #[derive(Deserialize)]

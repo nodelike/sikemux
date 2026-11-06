@@ -144,15 +144,10 @@ pub(crate) fn rule(request: &Request) -> Rule {
         | Request::StartChat(_)
         | Request::ResumeChat(_)
         | Request::AcpSwitchAccount(_) => (Needs::Full, Program::App),
-        Request::ListManifests
-        | Request::ExplainAgentDetection(_)
-        | Request::StopAll
-        | Request::Shutdown(_)
-        | Request::RemoteStatus
-        | Request::WatchView => (Needs::NoDevice, Program::Anyone),
-        Request::Configure(_)
-        | Request::ReloadManifests
-        | Request::RegisterWindow
+        Request::StopAll | Request::Shutdown(_) | Request::RemoteStatus | Request::WatchView => {
+            (Needs::NoDevice, Program::Anyone)
+        }
+        Request::RegisterWindow
         | Request::PluginsChanged
         | Request::SetRemoteAccess(_)
         | Request::SetDeviceAccess(_)
@@ -256,7 +251,6 @@ mod tests {
             Request::Shutdown(ask::Shutdown { stop_all: true }),
             Request::StopAll,
             Request::RegisterWindow,
-            Request::Configure(ask::Configure { manifest_dir: None }),
             Request::SetRemoteAccess(ask::SetRemoteAccess { enabled: false }),
             Request::RevokeDevice(ask::RevokeDevice { id: "other".into() }),
             Request::AnswerPairing(ask::AnswerPairing {

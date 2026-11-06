@@ -1249,9 +1249,10 @@ async fn run(
                 let client = Arc::new(client);
                 let _ = updates.send(Update::Connected(client.hello().build.version.clone()));
                 if let Err(error) = client
-                    .ask(ask::Configure {
-                        manifest_dir: home.manifest_dir.clone(),
-                    })
+                    .call(
+                        "configureAgentManifests",
+                        json!({ "manifestDir": home.manifest_dir }),
+                    )
                     .await
                 {
                     eprintln!("sikemux: the core could not read the agent manifests: {error}");
@@ -1597,20 +1598,13 @@ async fn run(
                             Some(Ask::Detection { detection, reply }) => {
                                 let client = client.clone();
                                 tokio::spawn(async move {
-                                    let answer = match detection {
-                                        Detection::List => client.ask(ask::ListManifests).await.map(serde_json::to_value),
-                                        Detection::Reload => client.ask(ask::ReloadManifests).await.map(serde_json::to_value),
-                                        Detection::Explain(agent) => client
-                                            .explain_agent_detection(agent)
-                                            .await
-                                            .map(serde_json::to_value),
+                                    let (method, params) = match detection {
+                                        Detection::List => ("agentManifests", json!({})),
+                                        Detection::Reload => ("reloadAgentManifests", json!({})),
+                                        Detection::Explain(agent) => ("explainAgentDetection", json!({ "agentId": agent })),
                                     };
-                                    let answer = match answer {
-                                        Ok(Ok(value)) => Ok(value),
-                                        Ok(Err(error)) => Err(error.to_string()),
-                                        Err(error) => Err(error.to_string()),
-                                    };
-                                    let _ = reply.send(answer);
+                                    let answer = client.call(method, params).await;
+                                    let _ = reply.send(answer.map_err(|error| error.to_string()));
                                 });
                             }
                             Some(Ask::Chat(ask)) => {
