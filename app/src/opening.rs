@@ -2,21 +2,20 @@
 //! path's project and opens its tab; the window comes forward to show it, and tells the core
 //! when a waiting `open`'s tabs have all closed.
 
-use sikemux_core::server::call;
-use sikemux_view::layout::At;
-use sikemux_view::layout::OpenTab;
-use sikemux_view::layout::PaneKind;
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use gpui_kit::{App, AppContext, Context};
 use serde_json::{json, Value};
 use sikemux_core::cli::protocol::{
-    CliOpenFailure, CliOpenOutcome, CliOpenRequest, CliOpenTarget, CliTargetKind, HarnessRequest,
-    MAX_CLI_TARGETS,
+    is_browser_method, is_sim_method, CliOpenFailure, CliOpenOutcome, CliOpenRequest,
+    CliOpenTarget, CliTargetKind, HarnessRequest, MAX_CLI_TARGETS,
 };
-use sikemux_wire::protocol::CallId;
+use sikemux_core::server::call;
+use sikemux_view::layout::{At, OpenTab, PaneKind};
+use sikemux_wire::protocol::{CallId, WindowAnswer, WindowCall};
 
 use crate::core::Ask;
 use crate::editor::OpenAt;
@@ -344,5 +343,101 @@ impl Workbench {
         let _ = self
             .window
             .update(cx, |_, window, _| window.activate_window());
+    }
+}
+
+impl Workbench {
+    /// Answers a call the core hands this window: an agent's browser tools run on the
+    /// engine, on a thread of their own, since most answers wait on a page.
+    pub fn answer_window_call(
+        &mut self,
+        call_id: CallId,
+        call: WindowCall,
+        cx: &mut Context<Self>,
+    ) {
+        let asks = self.asks.clone();
+        let answer: crate::opening::Answer = Box::new(move |answer: Result<Value, String>| {
+            let _ = asks.send(Ask::AnswerWindow(call_id, WindowAnswer::from(answer)));
+        });
+        let request = match call {
+            WindowCall::Open { request } => {
+                return self.open_from_cli(call_id, request, answer, cx)
+            }
+            WindowCall::Harness { request } => request,
+        };
+        let request: HarnessRequest = match serde_json::from_value(request) {
+            Ok(request) => request,
+            Err(error) => {
+                return answer(Err(format!(
+                    "Sikemux could not read the tool call: {error}"
+                )))
+            }
+        };
+        match request.method.as_str() {
+            "app.console" => return answer(crate::console::read(&request.params)),
+            "page.show" => return self.show_page(request, answer, cx),
+            "ui.open" => return self.ui_open(request, answer, cx),
+            _ => {}
+        }
+        let run: Box<dyn FnOnce() -> Result<Value, String> + Send> =
+            if is_sim_method(&request.method) {
+                let engine = Arc::clone(self.sims.read(cx).engine());
+                Box::new(move || sikemux_simulator::tools::execute(&engine, &request))
+            } else if let Some(engine) = self
+                .desks
+                .read(cx)
+                .engine
+                .clone()
+                .filter(|_| is_browser_method(&request.method))
+            {
+                Box::new(move || sikemux_browser::tools::execute(&engine, &request))
+            } else {
+                return answer(Err(format!(
+                    "this window cannot answer {} yet",
+                    request.method
+                )));
+            };
+        let spawned = std::thread::Builder::new()
+            .name("sikemux-window-call".into())
+            .spawn(move || answer(run()));
+        if let Err(error) = spawned {
+            eprintln!("sikemux: a tool call could not start: {error}");
+        }
+    }
+
+    /// A page an agent kept, which an agent in a terminal sees on its desk.
+    pub(crate) fn show_page(
+        &self,
+        request: HarnessRequest,
+        answer: impl FnOnce(Result<Value, String>) + Send + 'static,
+        cx: &App,
+    ) {
+        let Some(agent) = request.agent_id else {
+            return answer(Ok(json!({})));
+        };
+        let id = request.params["id"].as_str().unwrap_or_default().to_owned();
+        if !sikemux_core::pages::is_page_id(&id) {
+            return answer(Err("that is not a page the core keeps".into()));
+        }
+        let page = (request.params["desk"] == true)
+            .then(|| crate::core::request(&self.asks, "page", json!({ "id": id })));
+        let files = self.desks.read(cx).page_files.clone();
+        crate::desk::spawn(async move {
+            let Some(page) = page else {
+                return answer(Ok(json!({})));
+            };
+            let shown = async {
+                let page = page.await?;
+                let html = page["html"].as_str().ok_or("that page is gone")?;
+                let url = files.url(&id, html)?;
+                files
+                    .engine()?
+                    .open_tab(&agent, Some(&url))
+                    .await
+                    .map_err(|error| error.to_string())?;
+                Ok(json!({}))
+            };
+            answer(shown.await);
+        });
     }
 }

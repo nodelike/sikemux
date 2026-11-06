@@ -303,15 +303,7 @@ pub enum Ask {
     AnswerWindow(CallId, WindowAnswer),
     /// Every tab a waiting `sikemux open` opened has closed.
     WindowOpenClosed(CallId),
-    /// Starts a chat with `launcher`'s agent in `project` and brings its tab to the front,
-    /// answering the new agent's id to `started` when it is there.
-    StartChat {
-        launcher: String,
-        project: String,
-        /// The permission mode it starts in, for this launch only; none starts in the launcher's.
-        mode: Option<PermissionMode>,
-        started: Option<oneshot::Sender<String>>,
-    },
+    StartChat(NewChat),
     /// Stops every agent and terminal the core runs.
     Shutdown,
     /// Starts the core again after it stopped on purpose.
@@ -327,6 +319,16 @@ pub enum Ask {
         spawn: Box<TerminalSpawn>,
         started: oneshot::Sender<Result<SessionId, String>>,
     },
+}
+
+/// Starts a chat with `launcher`'s agent in `project` and brings its tab to the front,
+/// answering the new agent's id to `started` when it is there.
+pub struct NewChat {
+    launcher: String,
+    project: String,
+    /// The permission mode it starts in, for this launch only; none starts in the launcher's.
+    mode: Option<PermissionMode>,
+    started: Option<oneshot::Sender<String>>,
 }
 
 /// What the window asks of remote access, each answered with where it stands now.
@@ -573,37 +575,37 @@ struct Beginning {
 /// Starts a chat on `client`'s core and brings its tab to the front there:
 /// as soon as `begun` names the new chat, rather than once its agent's program is ready, which
 /// takes a real agent seconds.
-async fn open_chat_on(client: Arc<CoreClient>, ask: Ask, begun: Option<oneshot::Receiver<String>>) {
-    let (opened, project, started, shown) = match ask {
-        Ask::StartChat {
-            launcher,
-            project,
-            mode,
-            started,
-        } => {
-            let asked = client.ask(ask::StartChat {
-                launcher,
-                project: project.clone(),
-                permission_mode: mode,
-                model: None,
-                effort: None,
-            });
-            let (begun, shown) = {
-                let early = async {
-                    let agent = begun?.await.ok()?;
-                    open_tab(&client, &project, &agent).await;
-                    Some(agent)
-                };
-                tokio::pin!(asked, early);
-                tokio::select! {
-                    answer = &mut asked => (answer, None),
-                    shown = &mut early => (asked.await, shown),
-                }
-            };
-            (begun, project, started, shown)
+async fn open_chat_on(
+    client: Arc<CoreClient>,
+    chat: NewChat,
+    begun: Option<oneshot::Receiver<String>>,
+) {
+    let NewChat {
+        launcher,
+        project,
+        mode,
+        started,
+    } = chat;
+    let asked = client.ask(ask::StartChat {
+        launcher,
+        project: project.clone(),
+        permission_mode: mode,
+        model: None,
+        effort: None,
+    });
+    let (begun, shown) = {
+        let early = async {
+            let agent = begun?.await.ok()?;
+            open_tab(&client, &project, &agent).await;
+            Some(agent)
+        };
+        tokio::pin!(asked, early);
+        tokio::select! {
+            answer = &mut asked => (answer, None),
+            shown = &mut early => (asked.await, shown),
         }
-        _ => return,
     };
+    let opened = begun;
     match opened {
         Ok((agent, _)) => {
             if shown.as_ref() != Some(&agent) {
@@ -1102,12 +1104,12 @@ impl Target {
         mode: Option<PermissionMode>,
         started: Option<oneshot::Sender<String>>,
     ) {
-        self.ask(Ask::StartChat {
+        self.ask(Ask::StartChat(NewChat {
             launcher,
             project,
             mode,
             started,
-        });
+        }));
     }
 
     /// Asks `read` once, the answer arriving as any other read's.
@@ -1526,7 +1528,7 @@ async fn run(
                                         }
                                     }
                                 },
-                                ask @ Ask::StartChat { .. } => {
+                                Ask::StartChat(chat) => {
                                     let linked = linked.clone();
                                     tokio::spawn(async move {
                                         let client = match &linked {
@@ -1534,7 +1536,7 @@ async fn run(
                                             None => None,
                                         };
                                         match client {
-                                            Some(client) => open_chat_on(client, ask, None).await,
+                                            Some(client) => open_chat_on(client, chat, None).await,
                                             None => eprintln!("sikemux: {host} is out of reach, so no chat started there"),
                                         }
                                     });
@@ -1623,16 +1625,10 @@ async fn run(
                                 });
                             }
                             Some(Ask::Terminal(session, ask)) => streams.ask(session, ask),
-                            Some(ask @ Ask::StartChat { .. }) => {
-                                let heard = match &ask {
-                                    Ask::StartChat { launcher, .. } => {
-                                        let (begun, heard) = oneshot::channel();
-                                        beginnings.push(Beginning { launcher: launcher.clone(), begun });
-                                        Some(heard)
-                                    }
-                                    _ => None,
-                                };
-                                tokio::spawn(open_chat_on(client.clone(), ask, heard));
+                            Some(Ask::StartChat(chat)) => {
+                                let (begun, heard) = oneshot::channel();
+                                beginnings.push(Beginning { launcher: chat.launcher.clone(), begun });
+                                tokio::spawn(open_chat_on(client.clone(), chat, Some(heard)));
                             }
                             Some(Ask::StartCore) => {}
                             Some(Ask::Shutdown) => {

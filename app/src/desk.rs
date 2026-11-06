@@ -19,17 +19,15 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Subscription, WeakEntity, Window,
 };
 use gpui_native_view::{native_view, Frame, NativeSurface, Surface};
-use serde_json::{json, Value};
 use sikemux_browser::{
     BrowserBounds, BrowserDownload, BrowserManager, BrowserShortcut, BrowserSnapshot, Host,
     ParentView,
 };
-use sikemux_core::cli::protocol::{is_browser_method, is_sim_method, HarnessRequest};
 use sikemux_core::harness::runs::RunStatus;
 use sikemux_process::sync::Locked;
 use sikemux_view::goals::{AgentDesk, DeskTerminal};
 use sikemux_view::layout::{Pane, PaneKind};
-use sikemux_wire::protocol::{AgentStatus, CallId, WindowAnswer, WindowCall};
+use sikemux_wire::protocol::AgentStatus;
 use tokio::sync::mpsc;
 
 use crate::core::Ask;
@@ -43,24 +41,24 @@ use crate::workbench::{shows, Strip, Workbench};
 
 /// The browser engine and what the desks show of it.
 pub struct Desks {
-    engine: Option<Arc<BrowserManager>>,
-    strips: HashMap<String, Arc<BrowserSnapshot>>,
-    pages: HashMap<String, Page>,
+    pub(crate) engine: Option<Arc<BrowserManager>>,
+    pub(crate) strips: HashMap<String, Arc<BrowserSnapshot>>,
+    pub(crate) pages: HashMap<String, Page>,
     /// Each agent's tabs as last heard, so only a tab it newly opened brings its desk out.
     known: HashMap<String, HashSet<String>>,
     /// What each agent's desk shows: its pages, or its simulator.
-    kinds: HashMap<String, DeskKind>,
+    pub(crate) kinds: HashMap<String, DeskKind>,
     /// The agents in the view as last heard, so those that leave it are let go.
     present: HashSet<String>,
     /// The agents in a turn as last heard, so each one's desk is tidied as its turn ends.
     working: HashSet<String>,
     /// The terminals of runs that finished, which leave their desk once its agent's turn ends.
     finished_runs: HashSet<u64>,
-    page_files: Arc<PageFiles>,
+    pub(crate) page_files: Arc<PageFiles>,
     /// The files and task terminals on each agent's desk, beside its pages, in the order they came.
-    items: HashMap<String, Vec<DeskItem>>,
+    pub(crate) items: HashMap<String, Vec<DeskItem>>,
     /// The item each desk shows in front of its pages, while it shows one.
-    front: HashMap<String, DeskItem>,
+    pub(crate) front: HashMap<String, DeskItem>,
     /// The file and the terminal each desk last showed, which its switch brings back.
     last_front: HashMap<(String, DeskKind), DeskItem>,
     /// Pages' site icons, decoded once from the inline image each page sends.
@@ -71,7 +69,7 @@ pub struct Desks {
     runs_read: bool,
     /// The agent whose address ⌘L asked for, floated once its desk has drawn it.
     address_wanted: Option<String>,
-    floating: Option<address::Floating>,
+    pub(crate) floating: Option<address::Floating>,
     /// Each desk's tab strip, and the tab it last scrolled into view.
     tab_scrolls: std::cell::RefCell<HashMap<String, (gpui_kit::ScrollHandle, Option<usize>)>>,
     /// What the engine tells the window, until the window listens.
@@ -184,10 +182,10 @@ pub enum DeskKind {
 }
 
 /// One desk's page area and address bar.
-struct Page {
-    surface: NativeSurface,
-    focus: FocusHandle,
-    address: Entity<InputState>,
+pub(crate) struct Page {
+    pub(crate) surface: NativeSurface,
+    pub(crate) focus: FocusHandle,
+    pub(crate) address: Entity<InputState>,
     _typing: Subscription,
 }
 
@@ -536,7 +534,7 @@ impl Host for DeskHost {
 }
 
 /// Where the pages agents show on their desks are kept, drawn in the window's theme.
-struct PageFiles {
+pub(crate) struct PageFiles {
     folder: Option<PathBuf>,
     theme: Mutex<String>,
     /// What a tab's page shows until it draws, on Linux.
@@ -546,7 +544,7 @@ struct PageFiles {
 
 impl PageFiles {
     /// An address for `html` in a desk tab, kept as `name` so showing it again replaces the copy.
-    fn url(&self, name: &str, html: &str) -> Result<String, String> {
+    pub(crate) fn url(&self, name: &str, html: &str) -> Result<String, String> {
         let folder = self
             .folder
             .as_ref()
@@ -558,7 +556,7 @@ impl PageFiles {
         self.engine()?.local_file_url(&path)
     }
 
-    fn engine(&self) -> Result<Arc<BrowserManager>, String> {
+    pub(crate) fn engine(&self) -> Result<Arc<BrowserManager>, String> {
         self.engine
             .get()
             .and_then(Weak::upgrade)
@@ -841,7 +839,7 @@ impl Workbench {
         })
     }
 
-    fn desk_open_anywhere(&self, agent: &str) -> bool {
+    pub(crate) fn desk_open_anywhere(&self, agent: &str) -> bool {
         self.this_view().is_some_and(|view| {
             view.layout.projects.values().any(|strip| {
                 strip
@@ -1545,88 +1543,6 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
         .collect();
     for (address, url) in shown {
         address.update(cx, |address, cx| address.set_value(url, window, cx));
-    }
-}
-
-#[cfg(feature = "drive")]
-impl Workbench {
-    /// What each desk holds and where the keys are, for the test bundle's driver to check.
-    pub fn drive_state(&self, window: &Window, cx: &App) -> Value {
-        let desks = &self.desks.read(cx);
-        let agents: std::collections::BTreeSet<&String> = (desks.strips.keys())
-            .chain(desks.items.keys())
-            .chain(desks.kinds.keys())
-            .chain(desks.pages.keys())
-            .collect();
-        let item = |item: &DeskItem| match item {
-            DeskItem::File(path) => json!({ "file": path }),
-            DeskItem::Terminal { session, title } => {
-                json!({ "terminal": title, "session": session })
-            }
-        };
-        let desk = |agent: &String| {
-            let page = desks.pages.get(agent);
-            let address = page.map(|page| page.address.read(cx));
-            let floating = desks
-                .floating
-                .as_ref()
-                .filter(|floating| floating.agent == *agent);
-            let floating_focused = floating.is_some_and(|floating| {
-                floating.input.read(cx).focus_handle(cx).is_focused(window)
-            });
-            let pages = desks.strips.get(agent).map(|strip| {
-                (strip.tabs.iter())
-                    .map(|tab| {
-                        json!({
-                            "title": tab.title,
-                            "url": tab.url,
-                            "active": tab.active,
-                            "loading": tab.loading,
-                            "back": tab.can_go_back,
-                            "forward": tab.can_go_forward,
-                        })
-                    })
-                    .collect::<Vec<_>>()
-            });
-            json!({
-                "open": self.desk_open_anywhere(agent),
-                "kind": match desks.kinds.get(agent).copied().unwrap_or_default() {
-                    DeskKind::Simulator => "simulator",
-                    _ => "pages",
-                },
-                "pages": pages,
-                "items": desks.items.get(agent).map(|items| items.iter().map(item).collect::<Vec<_>>()),
-                "front": desks.front.get(agent).map(item),
-                "pageFocused": page.is_some_and(|page| page.focus.is_focused(window)),
-                "pageBounds": page.and_then(|page| page.surface.placed()).map(|frame| {
-                    let bounds = frame.visible;
-                    [bounds.left(), bounds.top(), bounds.size.width, bounds.size.height].map(f32::from)
-                }),
-                "addressFocused": floating_focused || address.is_some_and(|address| address.focus_handle(cx).is_focused(window)),
-                "addressFloating": floating.is_some(),
-                "address": address.map(|address| address.value().to_string()),
-            })
-        };
-        let files = (self.editors.read(cx).open_files(cx).into_iter())
-            .map(|(path, line, dirty)| json!({ "path": path, "line": line, "dirty": dirty }))
-            .collect::<Vec<_>>();
-        let size = window.viewport_size();
-        json!({
-            "window": [f32::from(size.width), f32::from(size.height)],
-            "contexts": window.context_stack().iter().map(|context| format!("{context:?}")).collect::<Vec<_>>(),
-            "desks": agents.into_iter().map(|agent| (agent.clone(), desk(agent))).collect::<serde_json::Map<_, _>>(),
-            "files": files,
-            "spots": crate::drive::spots(),
-            "rail": match self.rails.page {
-                sikemux_view::prefs::TabRailPage::Agents => "agents",
-                sikemux_view::prefs::TabRailPage::Terminals => "terminals",
-                sikemux_view::prefs::TabRailPage::Files => "files",
-            },
-            "railBounds": self.rails.frame.get(),
-            "tree": self.files.drive_state(),
-            "git": self.git.pane.as_ref().map(|git| git.read(cx).drive_state()),
-            "sky": crate::ui::grain::drive_state(window, cx),
-        })
     }
 }
 
@@ -2442,98 +2358,4 @@ fn simulator_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -
     )
 }
 
-impl Workbench {
-    /// Answers a call the core hands this window: an agent's browser tools run on the
-    /// engine, on a thread of their own, since most answers wait on a page.
-    pub fn answer_window_call(
-        &mut self,
-        call_id: CallId,
-        call: WindowCall,
-        cx: &mut Context<Self>,
-    ) {
-        let asks = self.asks.clone();
-        let answer: crate::opening::Answer = Box::new(move |answer: Result<Value, String>| {
-            let _ = asks.send(Ask::AnswerWindow(call_id, WindowAnswer::from(answer)));
-        });
-        let request = match call {
-            WindowCall::Open { request } => {
-                return self.open_from_cli(call_id, request, answer, cx)
-            }
-            WindowCall::Harness { request } => request,
-        };
-        let request: HarnessRequest = match serde_json::from_value(request) {
-            Ok(request) => request,
-            Err(error) => {
-                return answer(Err(format!(
-                    "Sikemux could not read the tool call: {error}"
-                )))
-            }
-        };
-        match request.method.as_str() {
-            "app.console" => return answer(crate::console::read(&request.params)),
-            "page.show" => return self.show_page(request, answer, cx),
-            "ui.open" => return self.ui_open(request, answer, cx),
-            _ => {}
-        }
-        let run: Box<dyn FnOnce() -> Result<Value, String> + Send> =
-            if is_sim_method(&request.method) {
-                let engine = Arc::clone(self.sims.read(cx).engine());
-                Box::new(move || sikemux_simulator::tools::execute(&engine, &request))
-            } else if let Some(engine) = self
-                .desks
-                .read(cx)
-                .engine
-                .clone()
-                .filter(|_| is_browser_method(&request.method))
-            {
-                Box::new(move || sikemux_browser::tools::execute(&engine, &request))
-            } else {
-                return answer(Err(format!(
-                    "this window cannot answer {} yet",
-                    request.method
-                )));
-            };
-        let spawned = std::thread::Builder::new()
-            .name("sikemux-window-call".into())
-            .spawn(move || answer(run()));
-        if let Err(error) = spawned {
-            eprintln!("sikemux: a tool call could not start: {error}");
-        }
-    }
-
-    /// A page an agent kept, which an agent in a terminal sees on its desk.
-    fn show_page(
-        &self,
-        request: HarnessRequest,
-        answer: impl FnOnce(Result<Value, String>) + Send + 'static,
-        cx: &App,
-    ) {
-        let Some(agent) = request.agent_id else {
-            return answer(Ok(json!({})));
-        };
-        let id = request.params["id"].as_str().unwrap_or_default().to_owned();
-        if !sikemux_core::pages::is_page_id(&id) {
-            return answer(Err("that is not a page the core keeps".into()));
-        }
-        let page = (request.params["desk"] == true)
-            .then(|| crate::core::request(&self.asks, "page", json!({ "id": id })));
-        let files = self.desks.read(cx).page_files.clone();
-        spawn(async move {
-            let Some(page) = page else {
-                return answer(Ok(json!({})));
-            };
-            let shown = async {
-                let page = page.await?;
-                let html = page["html"].as_str().ok_or("that page is gone")?;
-                let url = files.url(&id, html)?;
-                files
-                    .engine()?
-                    .open_tab(&agent, Some(&url))
-                    .await
-                    .map_err(|error| error.to_string())?;
-                Ok(json!({}))
-            };
-            answer(shown.await);
-        });
-    }
-}
+impl Workbench {}

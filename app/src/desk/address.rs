@@ -32,9 +32,9 @@ pub fn install(cx: &mut App) {
 }
 
 /// The open address and what it offers.
-pub(super) struct Floating {
-    pub(super) agent: String,
-    pub(super) input: Entity<InputState>,
+pub(crate) struct Floating {
+    pub(crate) agent: String,
+    pub(crate) input: Entity<InputState>,
     /// What the person typed, without the part finished for them.
     typed: String,
     /// Only typing forward is finished; deleting the finished part must not bring it back.

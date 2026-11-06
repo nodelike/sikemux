@@ -17,12 +17,14 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::time::Duration;
 
 use gpui_kit::{
-    point, px, AnyWindowHandle, App, AsyncApp, Entity, Keystroke, Modifiers, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformInput, Point, ScrollDelta,
-    ScrollEvent, ScrollSource, TouchPhase,
+    point, px, AnyWindowHandle, App, AsyncApp, Entity, Focusable, Keystroke, Modifiers,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, PlatformInput, Point,
+    ScrollDelta, ScrollEvent, ScrollSource, TouchPhase, Window,
 };
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
+use crate::desk::{DeskItem, DeskKind};
 use crate::workbench::Workbench;
 
 const SETTLE: Duration = Duration::from_millis(60);
@@ -343,4 +345,85 @@ pub fn trace(what: std::fmt::Arguments) {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_millis());
     eprintln!("sikemux trace {now} {what}");
+}
+
+impl Workbench {
+    /// What each desk holds and where the keys are, for the test bundle's driver to check.
+    pub fn drive_state(&self, window: &Window, cx: &App) -> Value {
+        let desks = &self.desks.read(cx);
+        let agents: std::collections::BTreeSet<&String> = (desks.strips.keys())
+            .chain(desks.items.keys())
+            .chain(desks.kinds.keys())
+            .chain(desks.pages.keys())
+            .collect();
+        let item = |item: &DeskItem| match item {
+            DeskItem::File(path) => json!({ "file": path }),
+            DeskItem::Terminal { session, title } => {
+                json!({ "terminal": title, "session": session })
+            }
+        };
+        let desk = |agent: &String| {
+            let page = desks.pages.get(agent);
+            let address = page.map(|page| page.address.read(cx));
+            let floating = desks
+                .floating
+                .as_ref()
+                .filter(|floating| floating.agent == *agent);
+            let floating_focused = floating.is_some_and(|floating| {
+                floating.input.read(cx).focus_handle(cx).is_focused(window)
+            });
+            let pages = desks.strips.get(agent).map(|strip| {
+                (strip.tabs.iter())
+                    .map(|tab| {
+                        json!({
+                            "title": tab.title,
+                            "url": tab.url,
+                            "active": tab.active,
+                            "loading": tab.loading,
+                            "back": tab.can_go_back,
+                            "forward": tab.can_go_forward,
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            });
+            json!({
+                "open": self.desk_open_anywhere(agent),
+                "kind": match desks.kinds.get(agent).copied().unwrap_or_default() {
+                    DeskKind::Simulator => "simulator",
+                    _ => "pages",
+                },
+                "pages": pages,
+                "items": desks.items.get(agent).map(|items| items.iter().map(item).collect::<Vec<_>>()),
+                "front": desks.front.get(agent).map(item),
+                "pageFocused": page.is_some_and(|page| page.focus.is_focused(window)),
+                "pageBounds": page.and_then(|page| page.surface.placed()).map(|frame| {
+                    let bounds = frame.visible;
+                    [bounds.left(), bounds.top(), bounds.size.width, bounds.size.height].map(f32::from)
+                }),
+                "addressFocused": floating_focused || address.is_some_and(|address| address.focus_handle(cx).is_focused(window)),
+                "addressFloating": floating.is_some(),
+                "address": address.map(|address| address.value().to_string()),
+            })
+        };
+        let files = (self.editors.read(cx).open_files(cx).into_iter())
+            .map(|(path, line, dirty)| json!({ "path": path, "line": line, "dirty": dirty }))
+            .collect::<Vec<_>>();
+        let size = window.viewport_size();
+        json!({
+            "window": [f32::from(size.width), f32::from(size.height)],
+            "contexts": window.context_stack().iter().map(|context| format!("{context:?}")).collect::<Vec<_>>(),
+            "desks": agents.into_iter().map(|agent| (agent.clone(), desk(agent))).collect::<serde_json::Map<_, _>>(),
+            "files": files,
+            "spots": crate::drive::spots(),
+            "rail": match self.rails.page {
+                sikemux_view::prefs::TabRailPage::Agents => "agents",
+                sikemux_view::prefs::TabRailPage::Terminals => "terminals",
+                sikemux_view::prefs::TabRailPage::Files => "files",
+            },
+            "railBounds": self.rails.frame.get(),
+            "tree": self.files.drive_state(),
+            "git": self.git.pane.as_ref().map(|git| git.read(cx).drive_state()),
+            "sky": crate::ui::grain::drive_state(window, cx),
+        })
+    }
 }
