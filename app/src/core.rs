@@ -4,6 +4,7 @@ use sikemux_core::server::chat::find::FindAnswer;
 use sikemux_core::server::chat::find::FindParams;
 use sikemux_view::changed::Topic;
 use sikemux_view::chat::{ChatPage, ToolDetail};
+use sikemux_view::device::HostInfo;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
@@ -1386,7 +1387,8 @@ async fn run(
                                         let Ok(client) = linked.client(&host).await else {
                                             return;
                                         };
-                                        if let Ok(info) = client.ask(ask::Host).await {
+                                        let info = client.ask(ask::Host).await.map(serde_json::from_value::<HostInfo>);
+                                        if let Ok(Ok(info)) = info {
                                             let home = info.home.to_string_lossy().into_owned();
                                             let _ = updates.send(Update::HostHome(host, home));
                                         }

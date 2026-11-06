@@ -578,7 +578,8 @@ async fn about(socket: &Path) -> Result<(RemoteStatus, String, Option<Value>), S
                 .await
                 .ok()
                 .filter(|updates| updates["automatic"].is_boolean());
-            Ok((remote, host.name, updates))
+            let name = host["name"].as_str().unwrap_or_default().to_owned();
+            Ok((remote, name, updates))
         }
         _ => Err("the core answered with something else".into()),
     }

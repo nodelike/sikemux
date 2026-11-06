@@ -512,7 +512,7 @@ pub(super) async fn run(
             }
             Request::Host => {
                 tokio::spawn(async move {
-                    let host = blocking(|| Ok(host::info())).await;
+                    let host = blocking(|| Ok(serde_json::to_value(host::info())?)).await;
                     client.answer::<ask::Host>(request_id, host);
                 });
             }

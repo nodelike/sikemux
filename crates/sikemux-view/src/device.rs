@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::workspace::Workspace;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sikemux_wire::protocol::{Attention, ChatInfo, SessionInfo};
+use sikemux_wire::protocol::{Attention, BuildChannel, ChatInfo, SessionInfo};
 
 use crate::layout::Layout;
 
@@ -99,4 +99,19 @@ pub struct RecentInfo {
     /// The person pinned it, so it shows above the rest however long ago it ran.
     #[serde(default)]
     pub pinned: bool,
+}
+
+/// The computer a core runs on, as a person would recognise it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostInfo {
+    /// The name set in System Settings, such as "Kishore's MacBook Pro".
+    pub name: String,
+    /// The kind of computer, such as "MacBook Pro" or "Mac mini".
+    pub model: String,
+    /// The Sikemux release running there, such as "0.4.3-nightly.5".
+    pub version: String,
+    pub channel: BuildChannel,
+    /// The home folder of the person the core runs as, so a client can shorten its paths.
+    pub home: PathBuf,
 }

@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    ask, BuildChannel, BuildIdentity, CallId, ChatAttachment, ChatInfo, ChatStart, Event, HostInfo,
+    ask, BuildChannel, BuildIdentity, CallId, ChatAttachment, ChatInfo, ChatStart, Event,
     RemoteStatus, RequestId, SessionId, SessionInfo, StreamId,
 };
 
@@ -319,8 +319,9 @@ pub enum Response {
         agent_id: String,
         start: ChatStart,
     },
+    /// The core's `HostInfo` as JSON, so what it adds reaches phones over the air.
     Host {
-        host: HostInfo,
+        host: Value,
     },
     BackdropImage {
         data_url: Option<String>,

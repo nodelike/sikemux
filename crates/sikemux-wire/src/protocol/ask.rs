@@ -8,8 +8,8 @@ use serde_json::Value;
 
 use super::{
     AllowedDevice, ChatAccount, ChatAttachment, ChatContext, ChatInfo, ChatLaunch, ChatMark,
-    ChatStart, DeviceAccess, HostInfo, HostRegistration, LaunchIdentity, NotifyPrefs,
-    PermissionMode, Request, Response, SessionId, SessionInfo, SpawnTarget, StreamId,
+    ChatStart, DeviceAccess, HostRegistration, LaunchIdentity, NotifyPrefs, PermissionMode,
+    Request, Response, SessionId, SessionInfo, SpawnTarget, StreamId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -563,7 +563,7 @@ answers! {
     AllowDevices -> Box<super::RemoteStatus> { status => Remote { status } }
     SignRegistration -> HostRegistration { registration => Registration { registration } }
     BackdropImage -> Option<String> { data_url => BackdropImage { data_url } }
-    Host -> HostInfo { host => Host { host } }
+    Host -> Value { host => Host { host } }
     StartChat -> (String, ChatStart) { (agent_id, start) => ChatBegun { agent_id, start } }
     ResumeChat -> (String, ChatStart) { (agent_id, start) => ChatBegun { agent_id, start } }
 }

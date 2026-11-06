@@ -1,7 +1,5 @@
 //! This host, the devices paired with it, and what the core builds for them.
 
-use std::path::PathBuf;
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -11,21 +9,6 @@ pub enum DeviceAccess {
     Full,
     /// Read sessions and answer agents' permission requests.
     Watch,
-}
-
-/// The computer a core runs on, as a person would recognise it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HostInfo {
-    /// The name set in System Settings, such as "Kishore's MacBook Pro".
-    pub name: String,
-    /// The kind of computer, such as "MacBook Pro" or "Mac mini".
-    pub model: String,
-    /// The Sikemux release running there, such as "0.4.3-nightly.5".
-    pub version: String,
-    pub channel: BuildChannel,
-    /// The home folder of the person the core runs as, so a client can shorten its paths.
-    pub home: PathBuf,
 }
 
 /// Which kind of Sikemux build a core belongs to. Each keeps its own key and
