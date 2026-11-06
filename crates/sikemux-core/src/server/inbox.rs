@@ -1038,7 +1038,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     for agent in &mut listed {
         agent.face = faces.get(agent.agent_id.as_str()).map(|&face| face.clone());
     }
-    let kept = kept_agents(core, &workspace_agents, &listed, &called);
+    let kept = kept_agents(core, &workspace_agents, &listed, called);
     let mut by_project: BTreeMap<String, Vec<&AgentShown>> = BTreeMap::new();
     let project_of = core.workspaces.agent_projects();
     for agent in &mut listed {

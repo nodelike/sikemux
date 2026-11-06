@@ -831,9 +831,10 @@ impl Chat {
             .current(open)
             .filter(|question| !question.secret && !self.is_folded(open));
         if let Some(id) = answering.map(|question| question.id.clone()) {
-            let shown = (text.is_empty())
-                .then(|| paths.join(", "))
-                .unwrap_or_else(|| text.clone());
+            let shown = match text.is_empty() {
+                true => paths.join(", "),
+                false => text.clone(),
+            };
             return self
                 .pick(
                     &id,
