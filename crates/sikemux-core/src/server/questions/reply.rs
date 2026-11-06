@@ -48,6 +48,7 @@ pub(super) fn offered_work(sentence: &str) -> Option<String> {
 /// A last sentence that means nothing alone, such as "Yes or no?", stands for the latest real
 /// question before it, anywhere in the reply, or with no such question, comes with the rest of
 /// its paragraph, or the paragraph before when it stands alone, which is what it asks about.
+/// A yes or a no does not answer a paragraph that also asks something open, such as "Who owns it?".
 pub(super) fn asked_in(reply: &str) -> Vec<(String, bool)> {
     let mut found: Vec<(String, bool)> = Vec::new();
     let mut earlier: Vec<String> = Vec::new();
@@ -62,9 +63,11 @@ pub(super) fn asked_in(reply: &str) -> Vec<(String, bool)> {
             Some(sentences.join(" "))
         };
         said = Some(whole);
+        let known = earlier.len();
         earlier.extend(sentences.into_iter().filter(|sentence| {
             sentence.trim_end_matches([')', '"']).ends_with('?') && bare_ask(sentence).is_none()
         }));
+        let asked_here = earlier.len() > known;
         let Some((sentence, polar)) = last_ask(&paragraph) else {
             continue;
         };
@@ -84,7 +87,7 @@ pub(super) fn asked_in(reply: &str) -> Vec<(String, bool)> {
             None => {
                 let shown = before
                     .map_or_else(|| sentence.clone(), |before| format!("{before} {sentence}"));
-                found.push((shown, takes_yes_or_no));
+                found.push((shown, takes_yes_or_no && !asked_here));
             }
         }
     }
