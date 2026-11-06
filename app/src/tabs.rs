@@ -856,15 +856,19 @@ impl Workbench {
         }
     }
 
-    /// Makes the pane of the tab in front, for the kinds made the first time they come to the
-    /// front.
+    /// Makes the panes of the tab in front, for the kinds made the first time one shows, in
+    /// whichever of its splits.
     pub(crate) fn make_front_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.tell_reach(cx);
-        let front = self
-            .tab()
-            .and_then(|tab| tabs::first_view(&tab.pane))
-            .map(|(kind, _)| kind);
-        if let Some(kind) = front {
+        let mut kinds: Vec<PaneKind> = Vec::new();
+        if let Some(tab) = self.tab() {
+            for view in crate::panes::views(&tab.pane) {
+                if !kinds.contains(&view.kind) {
+                    kinds.push(view.kind);
+                }
+            }
+        }
+        for kind in kinds {
             crate::pane_kind::make(kind, self, window, cx);
         }
     }

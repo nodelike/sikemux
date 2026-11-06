@@ -157,7 +157,14 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
         PaneKind::Terminal => terminals.contains(target),
         // A kind no core makes any more, saved in an older layout.
         PaneKind::Unknown => false,
-        _ => true,
+        PaneKind::Files
+        | PaneKind::Git
+        | PaneKind::Search
+        | PaneKind::Board
+        | PaneKind::ProjectSettings
+        | PaneKind::InstallSikemux
+        | PaneKind::Stash
+        | PaneKind::Mod => true,
     };
     layout
         .projects
@@ -883,7 +890,14 @@ pub(crate) async fn lay_out_carried(
     let shown = |kind: PaneKind, target: &str| match kind {
         PaneKind::Agent => made.contains(target),
         PaneKind::Desk | PaneKind::InstallSikemux | PaneKind::Unknown => false,
-        _ => true,
+        PaneKind::Terminal
+        | PaneKind::Files
+        | PaneKind::Git
+        | PaneKind::Search
+        | PaneKind::Board
+        | PaneKind::ProjectSettings
+        | PaneKind::Stash
+        | PaneKind::Mod => true,
     };
     let mut carried = Vec::new();
     for mut tab in tabs {

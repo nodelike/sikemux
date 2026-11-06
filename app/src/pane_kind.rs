@@ -126,7 +126,9 @@ pub fn tint(kind: PaneKind, t: &Tokens) -> Hsla {
     }
 }
 
-/// Makes what a view of `kind` needs, as its tab comes to the front.
+/// Makes what a view of `kind` needs, as its tab comes to the front. A mod's and a desk's panes
+/// are made for the whole strip by [`Workbench::settle_front`], which lets go of those it no
+/// longer shows; the rest make themselves as they draw or hold nothing to make.
 pub fn make(
     kind: PaneKind,
     bench: &mut Workbench,
