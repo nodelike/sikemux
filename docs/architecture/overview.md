@@ -305,5 +305,5 @@ matching `:generate` script and commit what it writes:
 | `notch-sources:check`            | The settings, colours and faces the notch helper shares with the app                                                                    |
 
 `release:check` runs offline checks of the release configuration, which reads the app's name,
-identifiers and version from the GPUI crate's `Cargo.toml`. `pnpm rust:fmt:check`,
-`pnpm rust:clippy` and `pnpm rust:test` cover the Rust; CI is the gate.
+identifiers and version from the GPUI crate's `Cargo.toml`. `pnpm check:rust` covers the Rust,
+through the same `scripts/check-rust.sh` CI's jobs call; CI is the gate.

@@ -83,13 +83,18 @@ Merging a change under `server/` to `main` deploys it: `.github/workflows/server
 
 ## Before you open a PR
 
-CI runs these gates on every push. To run them before pushing:
+CI runs its gates on every push that touches them. To run the ones a Mac can before pushing:
 
 ```bash
-make check            # every gate
+make check            # CI's gates, apart from those listed below
 ```
 
-`make check` runs Prettier in check mode, ShellCheck, ESLint and TypeScript over `shared/`, the dependency audit, `cargo fmt --check`, the `workspace-hack` check, Clippy with warnings denied, Rust tests, and credential-free release-tooling checks. It also checks that generated files (wire types, agent tools, grammars, icons) match their sources. These are the same quality gates enforced by CI.
+`make check` runs Prettier in check mode, ShellCheck, ESLint and TypeScript over `shared/`, the dependency audit, `cargo fmt --check`, the `workspace-hack` check, Clippy with warnings denied, Rust tests, the core built with no plugins, Clippy and tests for the GPUI app, a build of the notch and voice helpers, and credential-free release-tooling checks. It also checks that generated files (wire types, agent tools, grammars, icons) match their sources. It takes as long as a full build of the app.
+
+CI also runs what `make check` leaves out:
+
+- The Linux compile, tests and packages, and **GPUI on Linux in a real window**, which need Linux.
+- The **iOS Simulator helper**, which boots a real simulator.
 
 One CI job stays out of every push: **GPUI in a real window**. It runs daily and when CI is started by hand with `window` checked; start it that way if you touched how the app draws or launches.
 

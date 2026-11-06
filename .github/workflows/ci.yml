@@ -46,8 +46,6 @@ env:
   DEPS_OPT_LEVEL: 1
   # Tests and checks never read debug info, and leaving it out makes compiling and linking much faster.
   CARGO_PROFILE_DEV_DEBUG: 0
-  # The GPUI app and its crates, which a bare cargo run leaves out.
-  GPUI_PACKAGES: -p sikemux-gpui -p film-frame -p gpui-native-view -p gpui-terminal-grid -p gpui-transcript -p textmate-highlight
 
 jobs:
   # Compares against main's last green run rather than the previous push, so a job that
@@ -190,7 +188,7 @@ jobs:
           components: clippy rustfmt
 
       - name: Check Rust formatting
-        run: cargo fmt --all -- --check
+        run: scripts/check-rust.sh fmt
 
       - name: Install cargo-hakari
         run: |
@@ -202,10 +200,10 @@ jobs:
           echo "$bin" >>"$GITHUB_PATH"
 
       - name: Check workspace-hack is up to date
-        run: cargo hakari generate --diff
+        run: scripts/check-rust.sh hakari
 
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: scripts/check-rust.sh clippy
 
       # nextest runs every test binary at once; cargo test runs them one after another.
       - name: Install cargo-nextest
@@ -221,7 +219,7 @@ jobs:
         run: cargo nextest run --all-targets --all-features
 
       - name: Build without any plugins
-        run: cargo clippy -p sikemux-host --no-default-features --all-targets -- -D warnings
+        run: scripts/check-rust.sh no-plugins
 
   # The job above leaves out the GPUI app, which this one builds alongside it.
   gpui:
@@ -240,10 +238,10 @@ jobs:
           components: clippy rustfmt
 
       - name: Run Clippy
-        run: cargo clippy $GPUI_PACKAGES --all-targets -- -D warnings
+        run: scripts/check-rust.sh gpui-clippy
 
       - name: Run Rust tests
-        run: cargo test $GPUI_PACKAGES --all-targets
+        run: scripts/check-rust.sh gpui-test
 
   # Whether GPUI's Metal renderer draws on a runner: a window is opened in the runner's own
   # session and captured. It takes up to two hours, so it runs daily and by hand with
@@ -435,7 +433,7 @@ jobs:
         run: cargo check --all-targets --locked
 
       - name: Check the GPUI app on Linux
-        run: cargo clippy $GPUI_PACKAGES --all-targets --locked -- -D warnings
+        run: scripts/check-rust.sh gpui-clippy
 
       - name: Run the core's tests on Linux
         run: cargo test --locked -p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host

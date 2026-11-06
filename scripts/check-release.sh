@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-bash -n scripts/build-mac.sh scripts/release.sh scripts/sign-helper.sh scripts/sign-mac.sh scripts/mac-entitlements.sh scripts/verify-release.sh scripts/publish-release.sh scripts/sign-host.sh scripts/icons.sh scripts/check-release.sh
+bash -n scripts/build-mac.sh scripts/release.sh scripts/sign-helper.sh scripts/sign-mac.sh scripts/mac-entitlements.sh scripts/verify-release.sh scripts/publish-release.sh scripts/sign-host.sh scripts/icons.sh scripts/check-release.sh scripts/check-rust.sh
 node --check scripts/verify-updater-signature.mjs
 node --check scripts/app-metadata.mjs
 node --check scripts/release-credits.mjs
@@ -38,8 +38,17 @@ const signHost = fs.readFileSync("scripts/sign-host.sh", "utf8");
 const coreBuild = fs.readFileSync("scripts/build-core.mjs", "utf8");
 const publish = fs.readFileSync("scripts/publish-release.sh", "utf8");
 const releaseWorkflow = fs.readFileSync(".github/workflows/release.yml", "utf8");
+const ciWorkflow = fs.readFileSync(".github/workflows/ci.yml", "utf8");
+const hakari = fs.readFileSync(".config/hakari.toml", "utf8");
 const fail = (message) => { throw new Error(message); };
 
+for (const gate of ["fmt", "hakari", "clippy", "no-plugins", "gpui-clippy", "gpui-test"]) {
+  if (!ciWorkflow.includes(`run: scripts/check-rust.sh ${gate}\n`)) fail(`CI does not run the ${gate} gate pnpm check runs`);
+}
+if (!ciWorkflow.includes("run: pnpm check:helpers\n")) fail("CI does not build the helpers pnpm check builds");
+for (const crate of ["sikemux-gpui", ...fs.readdirSync("app/crates")]) {
+  if (!hakari.includes(`"${crate}"`)) fail(`.config/hakari.toml lets workspace-hack traverse ${crate}, which would bring GPUI's dependencies into the core's builds`);
+}
 if (pkg.version !== app.version) fail("package.json and the GPUI app's versions differ");
 if (app.name !== "Sikemux" || app.identifier !== "com.nodelike.sikemux") fail("the app's name or identifier changed");
 if (app["dev-name"] !== "Sikemux Dev" || app["dev-identifier"] !== "com.nodelike.sikemux.dev") fail("the dev app's name or identifier changed");

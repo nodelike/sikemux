@@ -107,7 +107,7 @@ cd sikemux
 pnpm install
 make dev     # builds and opens Sikemux Dev, beside the installed app
 make build   # Apple Silicon app and DMG
-make check   # every quality gate
+make check   # CI's gates that run on a Mac
 ```
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the project layout and checks. [docs/releasing.md](docs/releasing.md) covers publishing.
