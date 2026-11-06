@@ -670,18 +670,11 @@ fn answered<T: Serialize>(result: CoreResult<T>) -> link::Answer {
         .and_then(|value| serde_json::to_value(value).map_err(|error| error.to_string()))
 }
 
-fn platform() -> String {
-    serde_json::to_value(super::host::PLATFORM)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_default()
-}
-
 /// What this host tells a host it links with about itself.
 fn introduction(core: &Core) -> Value {
     json!({
         "name": super::host::info().name,
-        "platform": platform(),
+        "platform": super::host::PLATFORM,
         "addresses": own_addresses(core),
     })
 }
