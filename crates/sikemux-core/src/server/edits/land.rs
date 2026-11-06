@@ -6,6 +6,9 @@
 //! agent's checkout then moves to the new tip, keeping what it has not
 //! committed.
 
+use std::ffi::OsStr;
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -17,6 +20,8 @@ use crate::server::worktree::AgentWorktree;
 use crate::server::Core;
 
 const ATTEMPTS: usize = 4;
+const EXECUTABLE: &str = "100755";
+const LINK: &str = "120000";
 
 #[derive(Serialize)]
 pub(crate) struct Landed {
@@ -38,9 +43,10 @@ pub(crate) struct Landed {
 
 /// What landing does to one file of the project's checkout.
 enum Step {
-    Write(Vec<u8>),
+    Write(Vec<u8>, String),
     Delete,
-    Keep,
+    /// Its bytes are right already; only the mode may not be.
+    Keep(String),
 }
 
 /// What moving the project's checkout to new commits does to each file, and
@@ -56,15 +62,9 @@ pub(super) fn apply(repo: &Path, steps: Steps, before: &str, after: &str) -> Vec
     for (path, step, dirty) in steps.0 {
         let file = repo.join(&path);
         let done = match step {
-            Step::Write(bytes) => file
-                .parent()
-                .map_or(Ok(()), std::fs::create_dir_all)
-                .and_then(|()| std::fs::write(&file, bytes)),
-            Step::Delete => match std::fs::remove_file(&file) {
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                done => done,
-            },
-            Step::Keep => Ok(()),
+            Step::Write(bytes, mode) => write(&file, &bytes, &mode),
+            Step::Delete => remove(&file),
+            Step::Keep(mode) => set_executable(&file, &mode),
         };
         if let Err(error) = done {
             eprintln!("sikemux core: {path} did not take the new commits: {error}");
@@ -201,27 +201,36 @@ pub(super) fn steps(repo: &Path, before: &str, after: &str) -> Result<Steps, Str
     let mut steps = Vec::new();
     let mut clashes = Vec::new();
     for path in changed.split('\0').filter(|path| !path.is_empty()) {
-        let old = blob(repo, before, path);
-        let new = blob(repo, after, path);
-        let work = std::fs::read(repo.join(path)).ok();
-        let old_bytes = old.as_ref().map(|id| contents(repo, id)).transpose()?;
-        let new_bytes = new.as_ref().map(|id| contents(repo, id)).transpose()?;
+        let old = entry(repo, before, path);
+        let new = entry(repo, after, path);
+        let work = on_disk(&repo.join(path));
+        let old_bytes = old
+            .as_ref()
+            .map(|old| contents(repo, &old.blob))
+            .transpose()?;
+        let new_bytes = new
+            .as_ref()
+            .map(|new| contents(repo, &new.blob))
+            .transpose()?;
+        let new_mode = new.as_ref().map(|new| new.mode.clone()).unwrap_or_default();
         let step = if work == old_bytes {
             match new_bytes {
-                Some(bytes) => (Step::Write(bytes), false),
+                Some(bytes) => (Step::Write(bytes, new_mode), false),
                 None => (Step::Delete, false),
             }
         } else if work == new_bytes {
-            (Step::Keep, false)
+            (Step::Keep(new_mode), false)
         } else {
             match (work, old, new) {
-                (Some(work), Some(old), Some(new)) => match merged(repo, &work, &old, &new)? {
-                    Some(bytes) => (Step::Write(bytes), true),
-                    None => {
-                        clashes.push(path.to_owned());
-                        continue;
+                (Some(work), Some(old), Some(new)) => {
+                    match merged(repo, &work, &old.blob, &new.blob)? {
+                        Some(bytes) => (Step::Write(bytes, new_mode), true),
+                        None => {
+                            clashes.push(path.to_owned());
+                            continue;
+                        }
                     }
-                },
+                }
                 _ => {
                     clashes.push(path.to_owned());
                     continue;
@@ -239,18 +248,70 @@ pub(super) fn steps(repo: &Path, before: &str, after: &str) -> Result<Steps, Str
     Ok(Steps(steps))
 }
 
-fn blob(repo: &Path, commit: &str, path: &str) -> Option<String> {
-    git(
+/// A file as a commit holds it.
+struct Entry {
+    mode: String,
+    blob: String,
+}
+
+fn entry(repo: &Path, commit: &str, path: &str) -> Option<Entry> {
+    let listed = git(
         repo,
-        &[
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            &format!("{commit}:{path}"),
-        ],
+        &["ls-tree", commit, "--", &format!(":(top,literal){path}")],
     )
-    .ok()
-    .map(line)
+    .ok()?;
+    let mut info = listed.split_whitespace();
+    let mode = info.next()?.to_owned();
+    let blob = info.nth(1)?.to_owned();
+    Some(Entry { mode, blob })
+}
+
+/// What the checkout holds at `file`, in the terms a commit does: a link is
+/// the path it points at.
+fn on_disk(file: &Path) -> Option<Vec<u8>> {
+    match std::fs::read_link(file) {
+        Ok(target) => Some(target.as_os_str().as_bytes().to_vec()),
+        Err(_) => std::fs::read(file).ok(),
+    }
+}
+
+fn write(file: &Path, bytes: &[u8], mode: &str) -> std::io::Result<()> {
+    if let Some(parent) = file.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    if mode == LINK || std::fs::read_link(file).is_ok() {
+        remove(file)?;
+    }
+    if mode == LINK {
+        return std::os::unix::fs::symlink(OsStr::from_bytes(bytes), file);
+    }
+    std::fs::write(file, bytes)?;
+    set_executable(file, mode)
+}
+
+fn remove(file: &Path) -> std::io::Result<()> {
+    match std::fs::remove_file(file) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        done => done,
+    }
+}
+
+/// Turns the execute bits on or off to match a commit's `mode`, as git does,
+/// leaving the rest of the file's permissions as they are.
+fn set_executable(file: &Path, mode: &str) -> std::io::Result<()> {
+    let meta = std::fs::symlink_metadata(file)?;
+    if !meta.is_file() {
+        return Ok(());
+    }
+    let now = meta.permissions().mode();
+    let wanted = match mode == EXECUTABLE {
+        true => now | (now & 0o444) >> 2,
+        false => now & !0o111,
+    };
+    if wanted == now {
+        return Ok(());
+    }
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(wanted))
 }
 
 fn contents(repo: &Path, blob: &str) -> Result<Vec<u8>, String> {
@@ -293,17 +354,11 @@ fn share_index(repo: &Path, before: &str, after: &str) {
         )
         .ok()
         .and_then(|entry| entry.split_whitespace().nth(1).map(str::to_owned));
-        if staged != blob(repo, before, path) {
+        if staged != entry(repo, before, path).map(|old| old.blob) {
             continue;
         }
-        match blob(repo, after, path) {
-            Some(new) => {
-                let mode = git(repo, &["ls-tree", after, "--", path])
-                    .ok()
-                    .and_then(|entry| entry.split_whitespace().next().map(str::to_owned))
-                    .unwrap_or_else(|| "100644".to_owned());
-                info.push_str(&format!("{mode} {new}\t{path}\0"));
-            }
+        match entry(repo, after, path) {
+            Some(new) => info.push_str(&format!("{} {}\t{path}\0", new.mode, new.blob)),
             None => info.push_str(&format!("0 {}\t{path}\0", "0".repeat(40))),
         }
     }
@@ -394,5 +449,72 @@ mod tests {
             .unwrap_or_default()
             .contains("a.txt"));
         assert_eq!(git_in(&main, &["rev-parse", "main"]), before);
+    }
+
+    #[test]
+    fn landing_gives_each_file_the_mode_its_commit_holds() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let main = root.join("project");
+        std::fs::create_dir(&main).unwrap();
+        git_in(&main, &["init", "-q", "-b", "main"]);
+        std::fs::write(main.join("becomes-executable.sh"), "echo\n").unwrap();
+        std::fs::write(main.join("edited.sh"), "one\n").unwrap();
+        std::fs::set_permissions(
+            main.join("edited.sh"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        git_in(&main, &["add", "."]);
+        git_in(&main, &["commit", "-qm", "base"]);
+        let start_sha = git_in(&main, &["rev-parse", "HEAD"]);
+        let tree = root.join("tree");
+        git_in(
+            &main,
+            &[
+                "worktree",
+                "add",
+                "-q",
+                "-b",
+                "sikemux/work",
+                &tree.to_string_lossy(),
+            ],
+        );
+        std::fs::write(tree.join("new.sh"), "echo\n").unwrap();
+        std::fs::set_permissions(tree.join("new.sh"), std::fs::Permissions::from_mode(0o755))
+            .unwrap();
+        std::fs::set_permissions(
+            tree.join("becomes-executable.sh"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+        std::fs::write(tree.join("edited.sh"), "two\n").unwrap();
+        std::os::unix::fs::symlink("new.sh", tree.join("link")).unwrap();
+        git_in(&tree, &["add", "."]);
+        git_in(&tree, &["commit", "-qm", "worker"]);
+        let worktree = AgentWorktree {
+            repo: main.clone(),
+            path: tree.clone(),
+            branch: "sikemux/work".into(),
+            base: Some("main".into()),
+            start_sha,
+        };
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+        land_from(&worktree, &signing).unwrap();
+        let executable = |name: &str| {
+            let mode = std::fs::metadata(main.join(name)).unwrap().permissions();
+            mode.mode() & 0o111 != 0
+        };
+        assert!(executable("new.sh"));
+        assert!(executable("becomes-executable.sh"));
+        assert!(executable("edited.sh"));
+        assert_eq!(
+            std::fs::read_link(main.join("link")).unwrap(),
+            Path::new("new.sh")
+        );
+        assert_eq!(git_in(&main, &["status", "--porcelain"]), "");
     }
 }
