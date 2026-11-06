@@ -584,6 +584,7 @@ const AUTH = new Set([
   "signedIn",
   "session",
   "sessionOrHost",
+  "sessionHostOrMac",
   "sessionOrDevice",
   "host",
   "device",
@@ -593,6 +594,7 @@ const SECURITY = {
   signedIn: [{ session: [] }],
   session: [{ session: [] }],
   sessionOrHost: [{ session: [] }, { host: [] }],
+  sessionHostOrMac: [{ session: [] }, { host: [] }],
   sessionOrDevice: [{ session: [] }, { host: [] }, { device: [] }],
   host: [{ host: [] }],
 };
@@ -603,6 +605,8 @@ const AUTH_NOTES = {
     "Only the phone's and the web app's sign-ins; the Mac app's OAuth token is refused with 403.",
   sessionOrHost:
     "The phone's or the web app's sign-in, or a request signed by a host on the account.",
+  sessionHostOrMac:
+    "The phone's or the web app's sign-in, a request signed by a host on the account, or the Mac app's OAuth token.",
   sessionOrDevice:
     "The phone's or the web app's sign-in, or a request signed by a host or a phone on the account.",
   host: "Only a request signed by a host on the account.",

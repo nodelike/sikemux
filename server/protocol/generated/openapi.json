@@ -140,7 +140,7 @@
         "operationId": "listDevices",
         "summary": "Your devices",
         "security": [{ "session": [] }, { "host": [] }],
-        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
+        "description": "The phone's or the web app's sign-in, a request signed by a host on the account, or the Mac app's OAuth token.",
         "parameters": [
           {
             "name": "role",
@@ -352,7 +352,7 @@
         "operationId": "createJoinTicket",
         "summary": "A ticket for this phone to join one of your hosts without a code",
         "security": [{ "session": [] }, { "host": [] }],
-        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
+        "description": "The phone's or the web app's sign-in, a request signed by a host on the account, or the Mac app's OAuth token.",
         "parameters": [
           {
             "name": "key",

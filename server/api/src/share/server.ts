@@ -11,7 +11,7 @@ import { Relay } from "./relay.ts";
 import { recheckShares, SHARE_SOCKET, ShareSocket } from "./socket.ts";
 import { byeAll } from "../sockets/socket.ts";
 
-/** The Mac app's window, which watches a shared chat from its own page. */
+/** The window of a released Mac app from before the GPUI one, which watches a shared chat from its own page. */
 const MAC_ORIGIN = "tauri://localhost";
 
 interface ShareServices {

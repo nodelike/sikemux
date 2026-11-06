@@ -132,7 +132,7 @@ export function loadConfig(
   if (appOrigin && URL.parse(appOrigin)?.origin !== appOrigin)
     problems.push("APP_ORIGIN is not an origin like https://app.sikemux.com");
 
-  const apiOrigin = text("API_ORIGIN", "https://api.sikemux.com");
+  const apiOrigin = text("API_ORIGIN", facts.accounts.production.apiUrl);
   if (apiOrigin && URL.parse(apiOrigin)?.origin !== apiOrigin)
     problems.push("API_ORIGIN is not an origin like https://api.sikemux.com");
 

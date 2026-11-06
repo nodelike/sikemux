@@ -463,7 +463,7 @@ describe("bundle and openapi", () => {
     expect(() =>
       openapi(withLive, { routes: [{ ...socket, auth: "cookie" }] }),
     ).toThrow(
-      /auth is one of none, signedIn, session, sessionOrHost, sessionOrDevice, host, device, webhook/,
+      /auth is one of none, signedIn, session, sessionOrHost, sessionHostOrMac, sessionOrDevice, host, device, webhook/,
     );
   });
 
