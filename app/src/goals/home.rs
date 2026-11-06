@@ -91,13 +91,22 @@ impl GoalsPane {
         happened
     }
 
-    /// What agents decided in the project the view shows while the person was away, which they
-    /// may overrule.
+    /// What agents decided in the project the view shows and nobody overruled.
     pub(super) fn decided_here(&self) -> Vec<&SwarmDecision> {
         let decided = self.digest.iter().flat_map(|digest| digest.decided.iter());
         decided
             .filter(|swarm| Some(swarm.project.as_str()) == self.here.as_deref())
             .collect()
+    }
+
+    /// How many of those were decided while the person was away.
+    pub(super) fn decided_away(&self) -> usize {
+        let Some(since) = self.digest.as_ref().and_then(|digest| digest.since) else {
+            return 0;
+        };
+        (self.decided_here().iter())
+            .filter(|swarm| swarm.decision.learned.at >= since)
+            .count()
     }
 
     /// Answers question `question` with the answer at `choice` among those it takes in one click.
@@ -422,7 +431,9 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
     let t = Tokens::get(cx).clone();
     let back = crumb("overnight-back", "Home", cx)
         .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Home, cx)));
-    let Some(since) = pane.digest.as_ref().and_then(|digest| digest.since) else {
+    let since = pane.digest.as_ref().and_then(|digest| digest.since);
+    let decided: Vec<SwarmDecision> = pane.decided_here().into_iter().cloned().collect();
+    if since.is_none() && decided.is_empty() {
         return div()
             .flex()
             .flex_col()
@@ -433,7 +444,7 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
                 cx,
             ))
             .into_any_element();
-    };
+    }
     let Some(bench) = pane.bench.upgrade() else {
         return div().into_any_element();
     };
@@ -444,7 +455,6 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
             bench.shown().map_or(0, |view| view.inbox.needed),
         )
     };
-    let decided: Vec<SwarmDecision> = pane.decided_here().into_iter().cloned().collect();
     let finished = happened.iter().filter(|happened| happened.done).count();
     let failed = happened.len() - finished;
     let mut groups: Vec<(Option<String>, Vec<Happened>)> = Vec::new();
@@ -473,11 +483,11 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
         .flex_col()
         .child(back)
         .child(ui::text("Overnight", TEXT_XL, FontWeight::SEMIBOLD).text_color(t.text_primary))
-        .child(
+        .children(since.map(|since| {
             div()
                 .pt(SPACE_1H)
-                .child(ui::meta(format!("since {}", minute(since)), cx)),
-        )
+                .child(ui::meta(format!("since {}", minute(since)), cx))
+        }))
         .child(
             div()
                 .pt(SPACE_5)

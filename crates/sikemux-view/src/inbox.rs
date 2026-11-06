@@ -86,6 +86,9 @@ pub enum InboxKind {
     /// longer holds, or a slice's ticket was closed with nothing of it landed,
     /// for the reason in `detail`.
     Held,
+    /// An assumption an agent went on with, as a host of an earlier release lists it. This
+    /// release's core keeps assumptions in the decision log instead.
+    Assumption,
     /// The slice on `card` waits for the person to pass `gate`.
     Gate,
     /// An agent's action that leaves this machine, held as `hold` until the
@@ -391,7 +394,8 @@ pub struct InboxDigest {
     pub finished: Vec<InboxItem>,
     pub failed: Vec<InboxItem>,
     pub waiting: Vec<InboxItem>,
-    /// What agents decided in that time and nobody has overruled, oldest first.
+    /// What agents decided and nobody has overruled, oldest first: on a goal in that time, and on
+    /// a project's own log whenever.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decided: Vec<SwarmDecision>,
 }

@@ -45,6 +45,8 @@ const MAX_LINE_CHARS: usize = 200;
 /// The agents a stalled slice's item offers to hand it to.
 const MAX_HAND_TO: usize = 12;
 const DONE_UNCOMMITTED: &str = "Done, uncommitted";
+/// The files of an agent's whose state git is asked for at once.
+const MAX_STATUS_FILES: usize = 256;
 
 /// How a turn failed, as far as the person is concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -426,16 +428,29 @@ fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
                 }
             }
             handoff.edited = seen.len();
-            handoff.uncommitted =
-                !handoff.files.is_empty() && uncommitted(&chat.launch.cwd, &handoff.files);
+            handoff.uncommitted = uncommitted(core, &project, agent_id, &chat.launch.cwd);
         }
     }
     turn(&mut core.inbox.turns.locked(), agent_id).handoff = Some(handoff.clone());
     handoff
 }
 
-/// Whether any of `files` has changes git has not committed.
-fn uncommitted(cwd: &Path, files: &[String]) -> bool {
+/// Whether a file the agent changed in any turn of its chat holds changes git has not committed,
+/// so a later turn that changed nothing does not hide them.
+fn uncommitted(core: &Core, project: &str, agent_id: &str, cwd: &Path) -> bool {
+    let filter = serde_json::from_value(json!({ "project": project, "agentId": agent_id }));
+    let Ok(filter) = filter else {
+        return false;
+    };
+    let mut files: Vec<String> = (core.edits.read(project, &filter).into_iter())
+        .map(|edit| edit.path)
+        .collect();
+    files.sort_unstable();
+    files.dedup();
+    files.truncate(MAX_STATUS_FILES);
+    if files.is_empty() {
+        return false;
+    }
     let mut status = vec!["status", "--porcelain", "--"];
     status.extend(files.iter().map(String::as_str));
     Git::at(cwd)
@@ -443,18 +458,30 @@ fn uncommitted(cwd: &Path, files: &[String]) -> bool {
         .is_ok_and(|listed| !listed.trim().is_empty())
 }
 
-/// How an agent's latest turn left things, for a row about the agent, and what its reply offered.
-pub(crate) fn left(core: &Core, agent_id: &str) -> (Option<String>, Option<String>) {
+/// How an agent's latest turn left things, as a row about the agent says it.
+#[derive(Default)]
+pub(crate) struct Left {
+    /// The turn ended by itself, with no problem.
+    pub ended_well: bool,
+    pub words: Option<String>,
+    pub offer: Option<String>,
+}
+
+pub(crate) fn left(core: &Core, agent_id: &str) -> Left {
     if !core.inbox.ended_well(agent_id) {
-        return (None, None);
+        return Left::default();
     }
     let handoff = handoff(core, agent_id);
-    let left = match (handoff.uncommitted, &handoff.offer) {
+    let words = match (handoff.uncommitted, &handoff.offer) {
         (true, _) => Some(DONE_UNCOMMITTED.to_owned()),
         (false, Some(_)) => Some("Done".to_owned()),
         (false, None) => None,
     };
-    (left, handoff.offer)
+    Left {
+        ended_well: true,
+        words,
+        offer: handoff.offer,
+    }
 }
 
 /// An agent as the inbox names it.
@@ -1517,9 +1544,7 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
         finished: here(ranked(finished)),
         failed: here(ranked(failed)),
         waiting: here(waiting),
-        decided: since.map_or(Vec::new(), |since| {
-            board::goal::decided_since(core, since, project)
-        }),
+        decided: board::goal::decided_since(core, since, project),
     }
 }
 

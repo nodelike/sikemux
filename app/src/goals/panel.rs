@@ -13,9 +13,7 @@ use sikemux_view::goals::{AgentDesk, GoalAgent, GoalRow, GoalSlice};
 use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed};
 use sikemux_view::slice::SliceState;
 
-use super::room::{
-    agent_face, agent_state, clock_words, need_title, need_word, next_ink, next_words, Chosen,
-};
+use super::room::{agent_face, clock_words, need_title, need_word, next_ink, next_words, Chosen};
 use super::{state_dot, At, GoalsPane};
 use crate::desk::DeskShown;
 use crate::icons::Icon;
@@ -365,7 +363,7 @@ fn loose_agent(pane: &mut GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPa
         .overflow_y_scroll()
         .child(head(
             agent.task.clone(),
-            agent_state(agent),
+            agent.state,
             Some(line),
             None,
             offered,

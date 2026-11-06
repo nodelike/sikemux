@@ -717,6 +717,7 @@ export type InboxKind =
     | "question"
     | "input"
     | "held"
+    | "assumption"
     | "gate"
     | "ship"
     | "pullRequest"

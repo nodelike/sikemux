@@ -280,6 +280,8 @@ pub(super) enum Chosen {
 #[derive(Default, Clone, Copy)]
 struct Counts {
     active: usize,
+    /// Every row All active lists: those goals and needs, and the agents on no goal.
+    listed: usize,
     needs: usize,
     moving: usize,
     waiting: usize,
@@ -510,17 +512,21 @@ impl GoalsPane {
             .collect();
 
         let count = |state: SliceState| scoped.iter().filter(|row| row.state == state).count();
+        let agents_at =
+            |state: SliceState| no_goal.iter().filter(|agent| agent.state == state).count();
         let needs = count(SliceState::NeedsYou) + count(SliceState::Failed) + loose.len();
+        let active = scoped
+            .iter()
+            .filter(|row| row.state != SliceState::Done)
+            .count()
+            + loose.len();
         let counts = Counts {
-            active: scoped
-                .iter()
-                .filter(|row| row.state != SliceState::Done)
-                .count()
-                + loose.len(),
+            active,
+            listed: active + no_goal.len(),
             needs,
-            moving: count(SliceState::Moving),
-            waiting: count(SliceState::Waiting),
-            done: count(SliceState::Done) + room.view.done_earlier,
+            moving: count(SliceState::Moving) + agents_at(SliceState::Moving),
+            waiting: count(SliceState::Waiting) + agents_at(SliceState::Waiting),
+            done: count(SliceState::Done) + agents_at(SliceState::Done) + room.view.done_earlier,
         };
         let mut stats = Stats::default();
         for agent in room.view.agents.iter().filter(|agent| agent_scoped(agent)) {
@@ -558,13 +564,16 @@ impl GoalsPane {
                 || agent.task.to_lowercase().contains(&find)
                 || (agent.name.as_deref()).is_some_and(|name| name.to_lowercase().contains(&find))
         };
-        let loose_agents: Vec<String> = match room.filter {
-            Filter::Active => (no_goal.iter().copied())
-                .filter(agent_found)
-                .map(|agent| agent.id.clone())
-                .collect(),
-            _ => Vec::new(),
+        let agent_listed = |agent: &&GoalAgent| match room.filter {
+            Filter::Active => true,
+            Filter::Needs => false,
+            filter => listed(filter, agent.state),
         };
+        let loose_agents: Vec<String> = (no_goal.iter().copied())
+            .filter(agent_listed)
+            .filter(agent_found)
+            .map(|agent| agent.id.clone())
+            .collect();
 
         let mut entries =
             Vec::with_capacity(shown.len() + loose_ids.len() + loose_agents.len() + 5);
@@ -839,7 +848,7 @@ pub(super) fn draw(
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
     let happened = (pane.bench.upgrade()).map_or(0, |bench| {
-        pane.happened(bench.read(cx)).len() + pane.decided_here().len()
+        pane.happened(bench.read(cx)).len() + pane.decided_away()
     });
     let reading_rules = matches!(
         pane.memory
@@ -1076,7 +1085,7 @@ fn tools(
             "tab-active",
             Filter::Active,
             "All active",
-            counts.active,
+            counts.listed,
             None,
         ),
         (
@@ -1583,7 +1592,7 @@ fn agent_row(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -
             .find(|project| Some(project.id.as_str()) == agent.project.as_deref())
             .map(|project| project.name.clone())
     });
-    let state = agent_state(agent);
+    let state = agent.state;
     let who = agent.name.as_ref().map(|name| format!("@{name}"));
     let next = [agent.left.clone(), who]
         .into_iter()
@@ -1620,15 +1629,6 @@ fn agent_row(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -
         cx,
     ));
     super::with_agent_menu(spaced(id, line), Some(agent.id.clone()), &pane.bench)
-}
-
-/// How an agent on no goal stands, in the marks goals wear.
-pub(super) fn agent_state(agent: &GoalAgent) -> SliceState {
-    match agent.group {
-        AgentGroup::Working => SliceState::Moving,
-        AgentGroup::Blocked => SliceState::NeedsYou,
-        AgentGroup::Done | AgentGroup::Idle => SliceState::Waiting,
-    }
 }
 
 /// A row's end columns, as many as its width leaves room for: its slices, its agents, what is

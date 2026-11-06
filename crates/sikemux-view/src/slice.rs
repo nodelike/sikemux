@@ -334,7 +334,7 @@ pub enum CheckRun {
 }
 
 /// Where a slice stands as a whole, so clients mark it without working it out.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SliceState {
     /// Every gate of its ladder passed.
@@ -344,6 +344,7 @@ pub enum SliceState {
     /// The gate it waits at is the person's, and nothing it needs is missing.
     NeedsYou,
     /// It waits on another card, or nobody holds it.
+    #[default]
     Waiting,
     Moving,
 }

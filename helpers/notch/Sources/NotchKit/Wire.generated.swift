@@ -417,6 +417,9 @@ enum InboxKind: String, Codable, Hashable {
     /// longer holds, or a slice's ticket was closed with nothing of it landed,
     /// for the reason in `detail`.
     case held
+    /// An assumption an agent went on with, as a host of an earlier release lists it. This
+    /// release's core keeps assumptions in the decision log instead.
+    case assumption
     /// The slice on `card` waits for the person to pass `gate`.
     case gate
     /// An agent's action that leaves this machine, held as `hold` until the

@@ -595,9 +595,14 @@ pub(crate) fn keep_settled(core: &Core, settled: Settled) {
     core.boards.save(&mut state, &project);
 }
 
-/// What agents decided since `since` that nobody overruled, oldest first, in `project` or in
-/// every project.
-pub(crate) fn decided_since(core: &Core, since: u64, project: Option<&str>) -> Vec<SwarmDecision> {
+/// What agents decided that nobody overruled, oldest first, in `project` or in every project: on a
+/// goal since `since`, as the goal's page lists the rest, and on a project's own log whenever, as
+/// nowhere else lists it.
+pub(crate) fn decided_since(
+    core: &Core,
+    since: Option<u64>,
+    project: Option<&str>,
+) -> Vec<SwarmDecision> {
     let state = core.boards.state.locked();
     let mut decided = Vec::new();
     for board in state.boards.values() {
@@ -608,10 +613,11 @@ pub(crate) fn decided_since(core: &Core, since: u64, project: Option<&str>) -> V
             .map(|card| (Some(card.id), &card.goal))
             .chain([(None, &board.decided)]);
         for (goal, kept) in logs {
+            let from = goal.and(since).unwrap_or(0);
             let recent = (kept.decisions.iter()).filter(|decision| {
                 decision.holder.is_some()
                     && decision.retired.is_none()
-                    && decision.learned.at >= since
+                    && decision.learned.at >= from
             });
             decided.extend(recent.map(|decision| SwarmDecision {
                 project: board.project.clone(),

@@ -160,6 +160,9 @@ pub struct GoalAgent {
     /// Its project, by id.
     pub project: Option<String>,
     pub desk: AgentDesk,
+    /// The mark it wears and the filter it counts under on Home, when it works no goal.
+    #[serde(default)]
+    pub state: SliceState,
     /// How its last turn left things, such as "Done, uncommitted".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub left: Option<String>,

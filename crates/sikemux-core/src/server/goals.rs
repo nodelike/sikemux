@@ -13,9 +13,9 @@ use sikemux_view::goals::{
     AgentDesk, DeskCounts, DesksParams, GoalAgent, GoalClock, GoalNext, GoalRow, GoalSlice,
     GoalsView, LooseNeed,
 };
-use sikemux_view::inbox::{Inbox, InboxItem, InboxKind, InboxNeed};
+use sikemux_view::inbox::{AgentShown, Inbox, InboxItem, InboxKind, InboxNeed};
 use sikemux_view::slice::{Passer, SliceState, WaitOn};
-use sikemux_wire::protocol::SessionId;
+use sikemux_wire::protocol::{AgentGroup, SessionId};
 
 use super::board::{self, BoardCard, BoardColumn, ProjectBoard};
 use super::changed::Topic;
@@ -170,10 +170,11 @@ pub(super) fn view(core: &Core) -> GoalsView {
         .collect();
     let agents = (inbox.agents.iter())
         .map(|agent| {
-            let (left, offer) = inbox::left(core, &agent.agent_id);
+            let left = inbox::left(core, &agent.agent_id);
             GoalAgent {
-                left,
-                offer,
+                state: agent_state(agent, left.ended_well),
+                left: left.words,
+                offer: left.offer,
                 id: agent.agent_id.clone(),
                 name: names.get(agent.agent_id.as_str()).cloned().flatten(),
                 cli: agent.cli.clone(),
@@ -192,6 +193,18 @@ pub(super) fn view(core: &Core) -> GoalsView {
         agents,
         no_goal,
         loose_needs,
+    }
+}
+
+/// How an agent stands in the marks goals wear: done once its turn ended well, whether or not the
+/// person has seen it yet.
+fn agent_state(agent: &AgentShown, ended_well: bool) -> SliceState {
+    match agent.group {
+        AgentGroup::Working => SliceState::Moving,
+        AgentGroup::Blocked => SliceState::NeedsYou,
+        AgentGroup::Done if !agent.failed => SliceState::Done,
+        AgentGroup::Idle if ended_well => SliceState::Done,
+        AgentGroup::Done | AgentGroup::Idle => SliceState::Waiting,
     }
 }
 
