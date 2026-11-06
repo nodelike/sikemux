@@ -144,9 +144,9 @@ pub(crate) struct RanSession {
     pub project: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AgentName {
+pub struct AgentName {
     pub agent_id: String,
     pub name: String,
     pub project: String,
@@ -1035,11 +1035,11 @@ pub(crate) async fn name_agent(
     .await
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RenameAgentParams {
-    agent_id: String,
-    name: String,
+pub struct RenameAgentParams {
+    pub agent_id: String,
+    pub name: String,
 }
 
 pub(crate) async fn rename_agent(

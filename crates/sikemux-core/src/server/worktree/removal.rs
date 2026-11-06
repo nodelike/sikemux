@@ -15,27 +15,27 @@ use crate::server::{board, ports, tasks};
 use crate::server::{Core, CoreError, CoreResult};
 use sikemux_wire::protocol::{AgentState, WorkspaceAgent};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WorktreeParams {
-    agent_id: String,
+pub struct WorktreeParams {
+    pub agent_id: String,
 }
 
 /// What removing an agent's worktree would cost.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Removal {
-    branch: String,
-    path: PathBuf,
+pub struct WorktreeRemovalInfo {
+    pub branch: String,
+    pub path: PathBuf,
     /// The agent is at work, so it keeps its worktree until its turn ends.
-    busy: bool,
+    pub busy: bool,
     /// Other agents and projects in the worktree, by name, which keep it.
-    shared_with: Vec<String>,
+    pub shared_with: Vec<String>,
     /// Files with changes not committed, which removing it loses.
-    dirty_files: usize,
+    pub dirty_files: usize,
     /// Commits on its branch its base does not have, which deleting the
     /// branch loses.
-    unmerged_commits: usize,
+    pub unmerged_commits: usize,
 }
 
 fn worktree_of(core: &Core, agent_id: &str) -> CoreResult<(WorkspaceAgent, AgentWorktree)> {
@@ -92,25 +92,25 @@ fn busy(core: &Core, agent_id: &str) -> bool {
 }
 
 /// What an agent's worktree shows of its work, as its review lays it out.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Review {
-    branch: String,
-    path: PathBuf,
+pub struct WorktreeReview {
+    pub branch: String,
+    pub path: PathBuf,
     /// The first line of what it put on its card as the result.
-    summary: Option<String>,
+    pub summary: Option<String>,
     /// Files changed since it branched, committed or not.
-    changed: Vec<String>,
+    pub changed: Vec<String>,
     /// How many of them are not committed.
-    uncommitted: usize,
+    pub uncommitted: usize,
     /// Test results were found.
-    tested: bool,
-    passed: u64,
-    failed: u64,
+    pub tested: bool,
+    pub passed: u64,
+    pub failed: u64,
     /// Where a server it started listens.
-    url: Option<String>,
+    pub url: Option<String>,
     /// What to tell it about the tests that fail, while some do.
-    failures: Option<String>,
+    pub failures: Option<String>,
 }
 
 /// The paths `git status --porcelain` lists, a rename by its new name.
@@ -197,7 +197,7 @@ pub(crate) async fn merged(core: &Arc<Core>, params: WorktreeParams) -> CoreResu
 }
 
 /// The `agentReview` call.
-pub(crate) async fn review(core: &Arc<Core>, params: WorktreeParams) -> CoreResult<Review> {
+pub(crate) async fn review(core: &Arc<Core>, params: WorktreeParams) -> CoreResult<WorktreeReview> {
     let (_, worktree) = worktree_of(core, &params.agent_id)?;
     let summary = board::agent_card(core, &params.agent_id)
         .and_then(|card| card.result)
@@ -224,7 +224,7 @@ pub(crate) async fn review(core: &Arc<Core>, params: WorktreeParams) -> CoreResu
         })
         .await?
     };
-    Ok(Review {
+    Ok(WorktreeReview {
         branch: worktree.branch,
         path: worktree.path,
         summary,
@@ -238,7 +238,10 @@ pub(crate) async fn review(core: &Arc<Core>, params: WorktreeParams) -> CoreResu
     })
 }
 
-pub(crate) async fn removal(core: &Core, params: WorktreeParams) -> CoreResult<Removal> {
+pub(crate) async fn removal(
+    core: &Core,
+    params: WorktreeParams,
+) -> CoreResult<WorktreeRemovalInfo> {
     let (_, worktree) = worktree_of(core, &params.agent_id)?;
     let shared_with = sharers(core, &params.agent_id, &worktree.path);
     let busy = busy(core, &params.agent_id);
@@ -246,7 +249,7 @@ pub(crate) async fn removal(core: &Core, params: WorktreeParams) -> CoreResult<R
         let worktree = worktree.clone();
         blocking(move || Ok(costs(&worktree))).await?
     };
-    Ok(Removal {
+    Ok(WorktreeRemovalInfo {
         branch: worktree.branch,
         path: worktree.path,
         busy,
@@ -256,23 +259,23 @@ pub(crate) async fn removal(core: &Core, params: WorktreeParams) -> CoreResult<R
     })
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RemoveParams {
-    agent_id: String,
+pub struct RemoveWorktreeParams {
+    pub agent_id: String,
     /// The person agreed to lose the worktree's uncommitted changes.
     #[serde(default)]
-    discard_changes: bool,
+    pub discard_changes: bool,
     /// The person agreed to lose commits only its branch has.
     #[serde(default)]
-    delete_branch: bool,
+    pub delete_branch: bool,
 }
 
 /// What removing did to the branch.
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Removed {
-    branch_deleted: bool,
+pub struct WorktreeRemoved {
+    pub branch_deleted: bool,
 }
 
 /// The agent's folder once the worktree is gone: the same place in the main
@@ -284,7 +287,10 @@ fn outside(worktree: &AgentWorktree, cwd: &Path) -> PathBuf {
     }
 }
 
-pub(crate) async fn remove(core: &Core, params: RemoveParams) -> CoreResult<Removed> {
+pub(crate) async fn remove(
+    core: &Core,
+    params: RemoveWorktreeParams,
+) -> CoreResult<WorktreeRemoved> {
     let (_, worktree) = worktree_of(core, &params.agent_id)?;
     if busy(core, &params.agent_id) {
         return Err("stop the agent's turn before removing its worktree".into());
@@ -326,7 +332,7 @@ pub(crate) async fn remove(core: &Core, params: RemoveParams) -> CoreResult<Remo
         agent.worktree = None;
         agent.cwd = outside(&worktree, &agent.cwd);
     })?;
-    Ok(Removed {
+    Ok(WorktreeRemoved {
         branch_deleted: deleted,
     })
 }

@@ -11,6 +11,9 @@ use sikemux_wire::protocol::{PermissionMode, PinnedChat, WorkspaceAgent};
 use crate::icons::Icon;
 use crate::toast;
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::names::RenameAgentParams;
+use sikemux_core::server::workspace::{AgentPatch, PinnedParams, UpdateAgentParams};
 
 /// What a link's parts escape, as a browser's encodeURIComponent does.
 const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
@@ -115,10 +118,10 @@ impl AgentMenu {
                         name.clone(),
                         move |bench, typed, _, _| {
                             if !typed.is_empty() && typed != name {
-                                bench.call(
-                                    "renameAgent",
-                                    json!({ "agentId": renamed, "name": typed }),
-                                );
+                                bench.call_typed::<call::RenameAgent>(RenameAgentParams {
+                                    agent_id: renamed.clone(),
+                                    name: typed.to_owned(),
+                                });
                             }
                         },
                         cx,
@@ -132,37 +135,40 @@ impl AgentMenu {
             agent.title.clone(),
             self.in_front,
         );
-        popup = popup
-            .item(
-                PopupMenuItem::new("Edit Title…")
-                    .icon(Icon::Pencil)
-                    .on_click(move |_, window, cx| {
-                        let (bench, retitled, title) =
-                            (bench.clone(), retitled.clone(), title.clone());
-                        if in_front {
-                            window.defer(cx, move |window, cx| {
-                                let _ = bench
-                                    .update(cx, |bench, cx| bench.retitle(&retitled, false, window, cx));
+        popup = popup.item(
+            PopupMenuItem::new("Edit Title…")
+                .icon(Icon::Pencil)
+                .on_click(move |_, window, cx| {
+                    let (bench, retitled, title) = (bench.clone(), retitled.clone(), title.clone());
+                    if in_front {
+                        window.defer(cx, move |window, cx| {
+                            let _ = bench.update(cx, |bench, cx| {
+                                bench.retitle(&retitled, false, window, cx)
                             });
-                            return;
-                        }
-                        let _ = bench.update(cx, |bench, cx| {
-                            bench.prompt(
-                                "Edit title",
-                                title.clone(),
-                                move |bench, typed, _, _| {
-                                    if !typed.is_empty() && typed != title {
-                                        bench.call(
-                                            "updateAgent",
-                                            json!({ "agentId": retitled, "patch": { "title": typed, "renamed": true } }),
-                                        );
-                                    }
-                                },
-                                cx,
-                            )
                         });
-                    }),
-            );
+                        return;
+                    }
+                    let _ = bench.update(cx, |bench, cx| {
+                        bench.prompt(
+                            "Edit title",
+                            title.clone(),
+                            move |bench, typed, _, _| {
+                                if !typed.is_empty() && typed != title {
+                                    bench.call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+                                        retitled.clone(),
+                                        AgentPatch {
+                                            title: Some(typed.to_owned()),
+                                            renamed: Some(true),
+                                            ..AgentPatch::default()
+                                        },
+                                    ));
+                                }
+                            },
+                            cx,
+                        )
+                    });
+                }),
+        );
         if self.faces_on {
             let (bench, picked) = (self.bench.clone(), id.clone());
             popup = popup.item(
@@ -196,7 +202,11 @@ impl AgentMenu {
             popup = popup.item(
                 PopupMenuItem::new(if pinned { "Unpin" } else { "Pin" })
                     .icon(Icon::Pin)
-                    .on_click(self.call("setPinnedChats", json!({ "chats": chats }))),
+                    .on_click(self.on_bench(move |bench, _| {
+                        bench.call_typed::<call::SetPinnedChats>(PinnedParams {
+                            chats: chats.clone(),
+                        })
+                    })),
             );
         }
         if agent.asleep {
@@ -220,10 +230,18 @@ impl AgentMenu {
                         "Keep Alive"
                     })
                     .icon(Icon::Pin)
-                    .on_click(self.call(
-                        "updateAgent",
-                        json!({ "agentId": id, "patch": { "keepAlive": !agent.keep_alive } }),
-                    )),
+                    .on_click({
+                        let (id, keep_alive) = (id.clone(), !agent.keep_alive);
+                        self.on_bench(move |bench, _| {
+                            bench.call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+                                id.clone(),
+                                AgentPatch {
+                                    keep_alive: Some(keep_alive),
+                                    ..AgentPatch::default()
+                                },
+                            ))
+                        })
+                    }),
                 );
         }
         let (bench, moved) = (self.bench.clone(), id.clone());

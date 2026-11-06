@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::server::changed::What;
+use serde::{Deserialize, Serialize};
 
 /// An agent's session a client takes up again, named by its agent and the project it ran in.
 #[derive(Deserialize)]
@@ -96,22 +97,22 @@ pub(super) fn running_now<'a>(chat: &Recent, open: &'a [ChatInfo]) -> Option<&'a
         .find(|live| holds(chat, &live.provider, live.session_id.as_deref()))
 }
 
-#[derive(Deserialize)]
-pub(crate) struct PinnedParams {
-    chats: Vec<PinnedChat>,
+#[derive(Deserialize, Serialize)]
+pub struct PinnedParams {
+    pub chats: Vec<PinnedChat>,
 }
 
 pub(crate) fn set_pinned_chats(core: &Core, params: PinnedParams) -> CoreResult<()> {
     core.workspaces.set_pinned(params.chats)
 }
 
-#[derive(Deserialize)]
-pub(crate) struct PinParams {
-    recent: String,
-    pinned: bool,
+#[derive(Deserialize, Serialize)]
+pub struct PinChatParams {
+    pub recent: String,
+    pub pinned: bool,
 }
 
-pub(crate) fn pin_chat(core: &Core, params: PinParams) -> CoreResult<()> {
+pub(crate) fn pin_chat(core: &Core, params: PinChatParams) -> CoreResult<()> {
     core.workspaces.pin_chat(&params.recent, params.pinned)
 }
 
@@ -213,20 +214,20 @@ pub(super) fn saved_chat(launcher: String, session: saved_chats::RecentSession) 
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct RecentChatsParams {
+pub struct RecentChatsParams {
     /// Every project's when absent.
-    project: Option<String>,
-    query: Option<String>,
-    cursor: Option<saved_chats::RecentCursor>,
-    limit: Option<usize>,
+    pub project: Option<String>,
+    pub query: Option<String>,
+    pub cursor: Option<saved_chats::RecentCursor>,
+    pub limit: Option<usize>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct RecentChats {
-    chats: Vec<RecentInfo>,
-    next: Option<saved_chats::RecentCursor>,
+#[derive(Serialize, Deserialize)]
+pub struct RecentChats {
+    pub chats: Vec<RecentInfo>,
+    pub next: Option<saved_chats::RecentCursor>,
 }
 
 /// A page of a project's saved chats, or every project's, newest first, those matching

@@ -8,12 +8,16 @@ use serde_json::json;
 use sikemux_core::server::ssh::SshHost;
 
 use crate::core::Ask;
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
 use crate::reads::Read;
 use crate::toast;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::call;
+use sikemux_core::server::move_agent::{MoveParams, MoveToFolder};
+use sikemux_core::server::workspace::AddProjectParams;
 
 const PROJECT: &str = "project:";
 const FOLDER: &str = "folder:";
@@ -118,9 +122,13 @@ impl Workbench {
         path: &str,
         cx: &mut Context<Self>,
     ) -> gpui_kit::Task<Option<String>> {
-        let added = crate::core::request(&self.asks, "addProject", json!({ "path": path }));
+        let added = Target::here(&self.asks).request_typed::<call::AddProject>(AddProjectParams {
+            path: path.into(),
+            name: None,
+            id: None,
+        });
         cx.spawn(async move |bench, cx| match added.await {
-            Ok(project) => project["id"].as_str().map(str::to_owned),
+            Ok(project) => Some(project.id),
             Err(error) => {
                 let note = toast::error(format!("The folder did not open as a project: {error}"));
                 let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
@@ -301,15 +309,15 @@ impl Workbench {
                 return;
             };
             if let Some(project) = key.strip_prefix(PROJECT) {
-                self.call(
-                    "moveAgentToProject",
-                    json!({ "agentId": agent, "project": project }),
-                );
+                self.call_typed::<call::MoveAgentToProject>(MoveParams {
+                    agent_id: agent,
+                    project: project.to_owned(),
+                });
             } else if let Some(path) = key.strip_prefix(FOLDER) {
-                self.call(
-                    "moveAgentToFolder",
-                    json!({ "agentId": agent, "path": path }),
-                );
+                self.call_typed::<call::MoveAgentToFolder>(MoveToFolder {
+                    agent_id: agent,
+                    path: path.into(),
+                });
             }
             return;
         }

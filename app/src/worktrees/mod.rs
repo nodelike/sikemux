@@ -6,10 +6,13 @@ pub mod switch;
 
 use gpui_kit::component::WindowExt;
 use gpui_kit::{Context, Window};
-use serde_json::{json, Value};
 
 use crate::toast;
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::worktree::removal::{
+    RemoveWorktreeParams, WorktreeParams, WorktreeRemovalInfo,
+};
 
 impl Workbench {
     /// Removes an agent's worktree once the person knows what that loses: uncommitted
@@ -24,7 +27,9 @@ impl Workbench {
         let agent = agent.to_owned();
         let cost = self
             .chat_target(&agent)
-            .request("worktreeRemoval", json!({ "agentId": agent }));
+            .request_typed::<call::WorktreeRemoval>(WorktreeParams {
+                agent_id: agent.clone(),
+            });
         cx.spawn_in(window, async move |bench, cx| {
             let cost = cost.await;
             let _ = bench.update_in(cx, |bench, window, cx| match cost {
@@ -41,28 +46,25 @@ impl Workbench {
     pub(crate) fn confirm_removal(
         &mut self,
         agent: String,
-        cost: &Value,
+        cost: &WorktreeRemovalInfo,
         pull_merged: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if cost["sharedWith"]
-            .as_array()
-            .is_some_and(|shared| !shared.is_empty())
-        {
+        if !cost.shared_with.is_empty() {
             return window.push_notification(
                 "Another agent or project still uses this worktree. Close it before removing the worktree.",
                 cx,
             );
         }
-        if cost["busy"] == true {
+        if cost.busy {
             return window
                 .push_notification("Stop the agent's turn before removing its worktree", cx);
         }
-        let branch = cost["branch"].as_str().unwrap_or_default().to_owned();
-        let path = cost["path"].as_str().unwrap_or_default().to_owned();
-        let dirty = cost["dirtyFiles"].as_u64().unwrap_or(0);
-        let unmerged = !pull_merged && cost["unmergedCommits"].as_u64().unwrap_or(0) > 0;
+        let branch = cost.branch.clone();
+        let path = cost.path.to_string_lossy().into_owned();
+        let dirty = cost.dirty_files;
+        let unmerged = !pull_merged && cost.unmerged_commits > 0;
         let named = branch.clone();
         let then_branch = move |bench: &mut Workbench,
                                 discard: bool,
@@ -110,17 +112,19 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let params =
-            json!({ "agentId": agent, "discardChanges": discard, "deleteBranch": delete_branch });
         let removing = self
             .chat_target(&agent)
-            .request("removeAgentWorktree", params);
+            .request_typed::<call::RemoveAgentWorktree>(RemoveWorktreeParams {
+                agent_id: agent.clone(),
+                discard_changes: discard,
+                delete_branch,
+            });
         cx.spawn_in(window, async move |_, cx| {
             let removed = removing.await;
             let _ = cx.update(|window, cx| {
                 window.push_notification(
                     match removed {
-                        Ok(answer) if answer["branchDeleted"] == true => {
+                        Ok(answer) if answer.branch_deleted => {
                             toast::success(format!("Removed worktree and branch {branch}"))
                         }
                         Ok(_) => toast::success(format!("Removed worktree {branch}")),

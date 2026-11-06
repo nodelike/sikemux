@@ -9,7 +9,6 @@ use gpui_kit::{
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Subscription,
     WeakEntity, Window,
 };
-use serde_json::json;
 
 use crate::core;
 use crate::icons::Icon;
@@ -21,6 +20,8 @@ use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::ui::path::tilde;
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::move_agent::MoveParams;
 
 const CONTEXT: &str = "ProjectSwitcher";
 
@@ -310,10 +311,11 @@ pub fn around(
         let Some(asks) = bench.upgrade().map(|bench| bench.read(cx).asks.clone()) else {
             return;
         };
-        let (agent, bench) = (moved.clone(), bench.clone());
+        let (agent_id, bench) = (moved.clone(), bench.clone());
         cx.spawn(async move |cx| {
-            let moving = json!({ "agentId": agent, "project": project });
-            if let Err(error) = core::request(&asks, "moveAgentToProject", moving).await {
+            let moving = core::Target::here(&asks)
+                .request_typed::<call::MoveAgentToProject>(MoveParams { agent_id, project });
+            if let Err(error) = moving.await {
                 let note = toast::error(format!("The chat stayed where it was: {error}"));
                 let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
             }

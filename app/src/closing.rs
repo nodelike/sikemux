@@ -2,11 +2,12 @@
 //! work, and when the agents it started could stop with it or keep running on their own.
 
 use gpui_kit::Context;
-use serde_json::json;
 use sikemux_view::layout::PaneKind;
 
 use crate::asking::Choice;
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::CloseAgentsParams;
 
 impl Workbench {
     /// Closes these agents, asking first.
@@ -16,8 +17,8 @@ impl Workbench {
             _ => format!("Close {} agents?", agents.len()),
         };
         self.ask_to_stop(agents.clone(), title, cx, move |bench, workers| {
-            let closing: Vec<&String> = agents.iter().chain(&workers).collect();
-            bench.call("closeAgents", json!({ "agentIds": closing }));
+            let agent_ids = agents.iter().chain(&workers).cloned().collect();
+            bench.call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids });
         });
     }
 
@@ -47,7 +48,7 @@ impl Workbench {
             bench.ask_to_stop(agents.clone(), title.clone(), cx, move |bench, workers| {
                 bench.close_tabs(&strip, &tabs);
                 if !workers.is_empty() {
-                    bench.call("closeAgents", json!({ "agentIds": workers }));
+                    bench.call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids: workers });
                 }
             });
         };

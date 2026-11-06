@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::workspace::AddProjectParams;
 use super::{launching, session, Core, CoreError, CoreResult};
@@ -14,20 +14,20 @@ use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::relocate::relocate;
 use sikemux_wire::protocol::WorkspaceAgent;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MoveParams {
-    agent_id: String,
+pub struct MoveParams {
+    pub agent_id: String,
     /// The project, by id.
-    project: String,
+    pub project: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MoveToFolder {
-    agent_id: String,
+pub struct MoveToFolder {
+    pub agent_id: String,
     /// The folder, which becomes a project first when it is not one.
-    path: PathBuf,
+    pub path: PathBuf,
 }
 
 fn movable(core: &Core, agent_id: &str) -> CoreResult<WorkspaceAgent> {

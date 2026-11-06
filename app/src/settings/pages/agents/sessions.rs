@@ -14,6 +14,8 @@ use crate::settings::rows::{self, Choice};
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, SPACE_3, SPACE_4, TEXT_2XS_H, TEXT_SM};
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::DefaultsParams;
 
 pub struct Fields {
     mid_turn: Choice,
@@ -166,9 +168,8 @@ pub fn boundary(
                 )
                 .on_click(move |_, _, cx| {
                     this.update(cx, |bench, _| {
-                        let _ = bench.asks.send(Ask::Call {
-                            method: "setAgentDefaults",
-                            params: json!({ "permissionMode": mode }),
+                        bench.call_typed::<call::SetAgentDefaults>(DefaultsParams {
+                            permission_mode: *mode,
                         });
                     })
                 })

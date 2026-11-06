@@ -11,7 +11,7 @@ use crate::git::{main_checkout, Git};
 use crate::tasks::detect::PERSONAL_TASKS;
 
 pub mod agent;
-pub(crate) mod removal;
+pub mod removal;
 mod warm;
 
 pub(crate) use warm::seed_in_background;

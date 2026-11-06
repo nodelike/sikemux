@@ -8,7 +8,6 @@ use gpui_kit::{
     div, img, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use serde_json::{json, Value};
 use sikemux_wire::protocol::{AgentFace, WorkspaceAgent};
 
 use crate::faces::{self, Pack};
@@ -19,6 +18,9 @@ use crate::theme::{
 };
 use crate::ui::{self, dialog};
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
+use sikemux_wire::protocol::AgentBuddy;
 
 /// Which agent's face is being picked, and the pack whose shapes it shows.
 pub struct BuddyPicker {
@@ -55,11 +57,15 @@ impl Workbench {
         cx.notify();
     }
 
-    fn set_buddy(&self, agent: &str, buddy: Value) {
-        self.call_in_front(
-            "updateAgent",
-            json!({ "agentId": agent, "patch": { "buddy": buddy } }),
-        );
+    fn set_buddy(&self, agent: &str, buddy: Option<AgentBuddy>) {
+        self.target()
+            .call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+                agent,
+                AgentPatch {
+                    buddy: Some(buddy),
+                    ..AgentPatch::default()
+                },
+            ));
     }
 }
 
@@ -156,10 +162,17 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             .child(drawn(pack, &head_shape, index, 20.))
             .on_click(cx.listener(move |bench, _, _, _| {
                 let buddy = match &own_pack {
-                    Some(own_pack) => json!({ "pack": own_pack, "shape": shape, "color": index }),
-                    None => json!({ "color": index }),
+                    Some(own_pack) => AgentBuddy {
+                        pack: Some(own_pack.clone()),
+                        shape: Some(shape.clone()),
+                        color: Some(index),
+                    },
+                    None => AgentBuddy {
+                        color: Some(index),
+                        ..AgentBuddy::default()
+                    },
                 };
-                bench.set_buddy(&agent_id, buddy);
+                bench.set_buddy(&agent_id, Some(buddy));
             }))
         }));
     let head = div()
@@ -264,11 +277,14 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
             .tooltip(ui::tooltip(shape.name.clone()))
             .child(drawn(pack, &shape.id, color, 40.))
             .on_click(cx.listener(move |bench, _, _, _| {
-                let buddy = match own_color {
-                    Some(color) => json!({ "pack": pack_id, "shape": shape_id, "color": color }),
-                    None => json!({ "pack": pack_id, "shape": shape_id }),
-                };
-                bench.set_buddy(&agent_id, buddy);
+                bench.set_buddy(
+                    &agent_id,
+                    Some(AgentBuddy {
+                        pack: Some(pack_id.clone()),
+                        shape: Some(shape_id.clone()),
+                        color: own_color.map(|color| color as u32),
+                    }),
+                );
             }))
         }));
     let body = div()
@@ -299,10 +315,10 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
         let (this, agent_id) = (cx.entity(), agent_id.clone());
         Rc::new(move |_, cx| {
             this.update(cx, |bench, _| {
-                let buddy = match own_color {
-                    Some(color) => json!({ "color": color }),
-                    None => Value::Null,
-                };
+                let buddy = own_color.map(|color| AgentBuddy {
+                    color: Some(color as u32),
+                    ..AgentBuddy::default()
+                });
                 bench.set_buddy(&agent_id, buddy);
             })
         })

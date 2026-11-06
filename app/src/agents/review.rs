@@ -1,7 +1,6 @@
 //! What an agent did in its worktree, opened from its card in the rail: its branch, what it
 //! said it did, the files it changed, its tests and the server it runs, as the core reads them.
 
-use std::path::PathBuf;
 use std::rc::Rc;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -10,8 +9,6 @@ use gpui_kit::{
     KeyDownEvent, ParentElement, Render, SharedString, StatefulInteractiveElement, Styled,
     WeakEntity, Window,
 };
-use serde::Deserialize;
-use serde_json::json;
 
 use crate::core::Target;
 use crate::editor::OpenAt;
@@ -22,32 +19,18 @@ use crate::theme::{
 };
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::worktree::removal::{WorktreeParams, WorktreeReview};
 
 const SHOWN_FILES: usize = 6;
 
 /// Closes the review.
 type Dismiss = Rc<dyn Fn(&mut Window, &mut App)>;
 
-/// What the core's `agentReview` answers.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Found {
-    branch: String,
-    path: PathBuf,
-    summary: Option<String>,
-    changed: Vec<String>,
-    uncommitted: usize,
-    tested: bool,
-    passed: u64,
-    failed: u64,
-    url: Option<String>,
-    failures: Option<String>,
-}
-
 pub struct AgentReview {
     bench: WeakEntity<Workbench>,
     agent: String,
-    found: Option<Result<Found, SharedString>>,
+    found: Option<Result<WorktreeReview, SharedString>>,
     close: Dismiss,
     /// Takes the keyboard while the review shows, so Escape closes it.
     focus: FocusHandle,
@@ -63,11 +46,11 @@ impl AgentReview {
         close: Dismiss,
         cx: &mut Context<Self>,
     ) -> Self {
-        let read = core.request("agentReview", json!({ "agentId": agent }));
+        let read = core.request_typed::<call::AgentReview>(WorktreeParams {
+            agent_id: agent.clone(),
+        });
         cx.spawn(async move |review, cx| {
-            let found = read.await.map_err(SharedString::from).and_then(|value| {
-                serde_json::from_value(value).map_err(|error| error.to_string().into())
-            });
+            let found = read.await.map_err(SharedString::from);
             review
                 .update(cx, |review, cx| {
                     review.found = Some(found);

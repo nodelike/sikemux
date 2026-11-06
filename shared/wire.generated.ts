@@ -3574,6 +3574,18 @@ export interface MarkdownOptions {
     references?: boolean;
 }
 
+export interface RenameAgentParams {
+    agentId: string;
+    name: string;
+}
+
+export interface AgentName {
+    agentId: string;
+    name: string;
+    project: string;
+    parent: string | null;
+}
+
 export interface PromptChatParams {
     agentId: string;
     messageId?: string | null;
@@ -3605,6 +3617,13 @@ export interface ClosedAgent {
 
 /** What a call that takes nothing is sent; whatever a client sends reads as nothing. */
 export type NoParams = Record<string, never>;
+
+export interface AgentViewParams {
+    agentId: string;
+    to: AgentViewKind;
+}
+
+export type AgentViewKind = "chat" | "terminal";
 
 export interface QueuedParams {
     agentId: string;
@@ -3736,6 +3755,107 @@ export interface CommandResult {
     output: string;
 }
 
+export interface AddProjectParams {
+    path: string;
+    name: string | null;
+    id: string | null;
+}
+
+export interface RemoveProjectParams {
+    path: string;
+}
+
+export interface UpdateProjectParams {
+    id: string;
+    patch: Record<string, unknown>;
+}
+
+export interface MoveProjectParams {
+    id: string;
+    index: number;
+}
+
+export interface SpacesParams {
+    spaces: SpaceInfo[];
+}
+
+export interface PinnedParams {
+    chats: PinnedChat[];
+}
+
+export interface PinChatParams {
+    recent: string;
+    pinned: boolean;
+}
+
+export interface RecentChatsParams {
+    /** Every project's when absent. */
+    project: string | null;
+    query: string | null;
+    cursor: RecentCursor | null;
+    limit: number | null;
+}
+
+/**
+ * Where the last page ended. Sessions are ordered newest first, then by
+ * provider and a key that is stable for each provider, so equal times never
+ * repeat or skip a row.
+ */
+export interface RecentCursor {
+    atMs: number;
+    agent: string;
+    key: string;
+}
+
+export interface RecentChats {
+    chats: RecentInfo[];
+    next: RecentCursor | null;
+}
+
+export interface DefaultsParams {
+    permissionMode: PermissionMode;
+}
+
+export interface UpdateAgentParams {
+    agentId: string;
+    patch: AgentPatch;
+}
+
+/**
+ * The fields of an agent a client may change; a null one is cleared. The
+ * rest, such as its terminal or worktree, only the core sets.
+ */
+export interface AgentPatch {
+    title?: string;
+    renamed?: boolean;
+    provider?: string;
+    permissionMode?: PermissionMode;
+    keepAlive?: boolean;
+    lead?: string | null;
+    resumeId?: string | null;
+    profileId?: string | null;
+    model?: string | null;
+    modelProvider?: string | null;
+    effort?: string | null;
+    buddy?: AgentBuddy | null;
+}
+
+export interface MoveParams {
+    agentId: string;
+    /** The project, by id. */
+    project: string;
+}
+
+export interface MoveToFolder {
+    agentId: string;
+    /** The folder, which becomes a project first when it is not one. */
+    path: string;
+}
+
+export interface CloseAgentsParams {
+    agentIds: string[];
+}
+
 export interface AgentParams {
     agentId: string;
 }
@@ -3753,6 +3873,73 @@ export interface MadeAgentWorktree {
     cwd: string;
     /** Why the project's worktree setup did not all finish, when it did not. */
     setupError: string | null;
+}
+
+export interface WorktreeParams {
+    agentId: string;
+}
+
+/** What an agent's worktree shows of its work, as its review lays it out. */
+export interface WorktreeReview {
+    branch: string;
+    path: string;
+    /** The first line of what it put on its card as the result. */
+    summary: string | null;
+    /** Files changed since it branched, committed or not. */
+    changed: string[];
+    /** How many of them are not committed. */
+    uncommitted: number;
+    /** Test results were found. */
+    tested: boolean;
+    passed: number;
+    failed: number;
+    /** Where a server it started listens. */
+    url: string | null;
+    /** What to tell it about the tests that fail, while some do. */
+    failures: string | null;
+}
+
+/** What removing an agent's worktree would cost. */
+export interface WorktreeRemovalInfo {
+    branch: string;
+    path: string;
+    /** The agent is at work, so it keeps its worktree until its turn ends. */
+    busy: boolean;
+    /** Other agents and projects in the worktree, by name, which keep it. */
+    sharedWith: string[];
+    /** Files with changes not committed, which removing it loses. */
+    dirtyFiles: number;
+    /**
+     * Commits on its branch its base does not have, which deleting the
+     * branch loses.
+     */
+    unmergedCommits: number;
+}
+
+export interface RemoveWorktreeParams {
+    agentId: string;
+    /** The person agreed to lose the worktree's uncommitted changes. */
+    discardChanges?: boolean;
+    /** The person agreed to lose commits only its branch has. */
+    deleteBranch?: boolean;
+}
+
+/** What removing did to the branch. */
+export interface WorktreeRemoved {
+    branchDeleted: boolean;
+}
+
+export interface RecentRenamed {
+    recent: string;
+    title: string;
+    cwd: string | null;
+}
+
+/** A recent chat, named as the workspace lists it. */
+export interface RecentChat {
+    recent: string;
+    /** The folder it ran in, for a chat the core no longer lists. */
+    cwd: string | null;
 }
 
 /** Brings forward the tab of `at` showing `target`, opening one when none does. */
@@ -4889,9 +5076,11 @@ export interface LineNamed {
 
 /** The core's calls that name what they take and answer, by method. */
 export interface CoreCalls {
+    renameAgent: { params: RenameAgentParams; answer: AgentName };
     promptChat: { params: PromptChatParams; answer: null };
     closedAgents: { params: ClosedAgentsParams; answer: ClosedAgent[] };
     agentCatalog: { params: NoParams; answer: CatalogAgent[] };
+    switchAgentView: { params: AgentViewParams; answer: unknown };
     steerQueued: { params: QueuedParams; answer: null };
     editMessage: { params: EditParams; answer: null };
     chatFind: { params: FindParams; answer: FindAnswer };
@@ -4899,8 +5088,27 @@ export interface CoreCalls {
     dropQueued: { params: QueuedParams; answer: null };
     agentSessions: { params: SessionSearchParams; answer: SessionMatch[] };
     runCustomCommand: { params: RunCustomParams; answer: CommandRan };
+    addProject: { params: AddProjectParams; answer: ProjectInfo };
+    removeProject: { params: RemoveProjectParams; answer: null };
+    updateProject: { params: UpdateProjectParams; answer: ProjectInfo };
+    moveProject: { params: MoveProjectParams; answer: null };
+    setSpaces: { params: SpacesParams; answer: null };
+    setPinnedChats: { params: PinnedParams; answer: null };
+    pinChat: { params: PinChatParams; answer: null };
+    recentChats: { params: RecentChatsParams; answer: RecentChats };
+    setAgentDefaults: { params: DefaultsParams; answer: null };
+    updateAgent: { params: UpdateAgentParams; answer: WorkspaceAgent };
+    moveAgentToProject: { params: MoveParams; answer: WorkspaceAgent };
+    moveAgentToFolder: { params: MoveToFolder; answer: WorkspaceAgent };
+    closeAgents: { params: CloseAgentsParams; answer: null };
     closeChat: { params: AgentParams; answer: null };
     createAgentWorktree: { params: AgentWorktreeParams; answer: MadeAgentWorktree };
+    agentReview: { params: WorktreeParams; answer: WorktreeReview };
+    worktreeMerged: { params: WorktreeParams; answer: boolean };
+    worktreeRemoval: { params: WorktreeParams; answer: WorktreeRemovalInfo };
+    removeAgentWorktree: { params: RemoveWorktreeParams; answer: WorktreeRemoved };
+    renameRecent: { params: RecentRenamed; answer: null };
+    deleteRecent: { params: RecentChat; answer: null };
     openTab: { params: OpenTab; answer: string };
     keepTab: { params: TabParams; answer: null };
     closeTab: { params: TabParams; answer: null };

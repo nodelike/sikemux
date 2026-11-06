@@ -10,11 +10,11 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, Pixels, Point, Render, SharedString, Stateful,
     StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
-use serde_json::json;
 
-use crate::core::Ask;
 use crate::theme::{Tokens, SPACE_1, SPACE_2H, TEXT_XS};
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::MoveProjectParams;
 
 /// A tab being dragged along its strip.
 #[derive(Clone)]
@@ -235,10 +235,7 @@ pub fn project(
                     return;
                 };
                 if id != target {
-                    let _ = bench.asks.send(Ask::Call {
-                        method: "moveProject",
-                        params: json!({ "id": id, "index": index }),
-                    });
+                    bench.call_typed::<call::MoveProject>(MoveProjectParams { id, index });
                 }
             })
         })

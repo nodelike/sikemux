@@ -221,7 +221,14 @@ function serde(attrs, where) {
 }
 
 const KNOWN = {
-  container: ["rename_all", "default", "tag", "rename_all_fields", "untagged"],
+  container: [
+    "rename_all",
+    "default",
+    "tag",
+    "rename_all_fields",
+    "untagged",
+    "deny_unknown_fields",
+  ],
   field: [
     "rename",
     "default",
@@ -466,7 +473,7 @@ function parseType(text, file) {
     if (owned.length !== 1) fail(`${text} needs one type argument`);
     return parseType(owned[0] === "str" ? "String" : owned[0], file);
   }
-  if (path === "BTreeMap" || path === "HashMap") {
+  if (path === "BTreeMap" || path === "HashMap" || path === "Map") {
     if (args.length !== 2 || parseType(args[0], file).kind !== "string")
       fail(`${text} is not keyed by strings`);
     return { kind: "map", of: parseType(args[1], file) };

@@ -4,7 +4,6 @@
 //! the goals and back.
 
 use gpui_kit::{App, Context, Window};
-use serde_json::json;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::{Pane, PaneKind};
@@ -12,6 +11,8 @@ use sikemux_wire::protocol::ProjectInfo;
 
 use crate::tabs;
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::{CloseAgentsParams, RemoveProjectParams};
 use sikemux_view::prefs::TabRailPage;
 
 impl Workbench {
@@ -84,9 +85,10 @@ impl Workbench {
             .read(cx)
             .unsaved_under(&self.place(), &project.path)
             .count();
-        let path = project.path.to_string_lossy().into_owned();
-        let close =
-            move |bench: &mut Workbench| bench.call("removeProject", json!({ "path": path }));
+        let path = project.path.clone();
+        let close = move |bench: &mut Workbench| {
+            bench.call_typed::<call::RemoveProject>(RemoveProjectParams { path: path.clone() })
+        };
         if working == 0 && unsaved == 0 {
             return close(self);
         }
@@ -245,7 +247,7 @@ impl Workbench {
             return self.ask_to_stop(vec![target], title, cx, move |bench, workers| {
                 close(bench);
                 if !workers.is_empty() {
-                    bench.call("closeAgents", json!({ "agentIds": workers }));
+                    bench.call_typed::<call::CloseAgents>(CloseAgentsParams { agent_ids: workers });
                 }
             });
         }

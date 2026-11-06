@@ -48,7 +48,7 @@ mod recent;
 
 pub(crate) use launchers::*;
 pub(crate) use policy::*;
-pub(crate) use recent::*;
+pub use recent::*;
 
 /// Bumped by a change to what [`Saved`] holds that an earlier file needs
 /// carried over to.
@@ -1149,11 +1149,11 @@ impl Workspaces {
     }
 }
 
-#[derive(Deserialize)]
-pub(crate) struct AddProjectParams {
-    path: PathBuf,
-    name: Option<String>,
-    id: Option<String>,
+#[derive(Deserialize, Serialize)]
+pub struct AddProjectParams {
+    pub path: PathBuf,
+    pub name: Option<String>,
+    pub id: Option<String>,
 }
 
 impl AddProjectParams {
@@ -1199,9 +1199,9 @@ pub(crate) async fn add_project(
     Ok(project)
 }
 
-#[derive(Deserialize)]
-pub(crate) struct RemoveProjectParams {
-    path: PathBuf,
+#[derive(Deserialize, Serialize)]
+pub struct RemoveProjectParams {
+    pub path: PathBuf,
 }
 
 /// Stops offering a project, and closes its agents.
@@ -1213,10 +1213,22 @@ pub(crate) fn remove_project(core: &Core, params: RemoveProjectParams) -> CoreRe
     Ok(())
 }
 
-#[derive(Deserialize)]
-pub(crate) struct UpdateProjectParams {
-    id: String,
-    patch: Map<String, Value>,
+#[derive(Deserialize, Serialize)]
+pub struct UpdateProjectParams {
+    pub id: String,
+    pub patch: Map<String, Value>,
+}
+
+impl UpdateProjectParams {
+    /// Moves the project into `space`, or out of any.
+    pub fn space(id: impl Into<String>, space: Option<String>) -> Self {
+        let mut patch = Map::new();
+        patch.insert("space".to_owned(), Value::from(space));
+        Self {
+            id: id.into(),
+            patch,
+        }
+    }
 }
 
 /// Renames, pins or moves a project to a space.
@@ -1230,29 +1242,29 @@ pub(crate) fn update_project(core: &Core, params: UpdateProjectParams) -> CoreRe
     Ok(project)
 }
 
-#[derive(Deserialize)]
-pub(crate) struct MoveProjectParams {
-    id: String,
-    index: usize,
+#[derive(Deserialize, Serialize)]
+pub struct MoveProjectParams {
+    pub id: String,
+    pub index: usize,
 }
 
 pub(crate) fn move_project(core: &Core, params: MoveProjectParams) -> CoreResult<()> {
     core.workspaces.move_project(&params.id, params.index)
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SpacesParams {
-    spaces: Vec<SpaceInfo>,
+#[derive(Deserialize, Serialize)]
+pub struct SpacesParams {
+    pub spaces: Vec<SpaceInfo>,
 }
 
 pub(crate) fn set_spaces(core: &Core, params: SpacesParams) -> CoreResult<()> {
     core.workspaces.set_spaces(params.spaces)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct DefaultsParams {
-    permission_mode: PermissionMode,
+pub struct DefaultsParams {
+    pub permission_mode: PermissionMode,
 }
 
 /// Keeps the mode agents start in, and offers the launchers in it.
@@ -1276,37 +1288,79 @@ pub(crate) fn create_agent(core: &Core, params: CreateAgentParams) -> CoreResult
     core.workspaces.put_agent(params.agent)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct UpdateAgentParams {
-    agent_id: String,
-    patch: AgentPatch,
+pub struct UpdateAgentParams {
+    pub agent_id: String,
+    pub patch: AgentPatch,
 }
 
 /// The fields of an agent a client may change; a null one is cleared. The
 /// rest, such as its terminal or worktree, only the core sets.
-#[derive(Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct AgentPatch {
-    title: Option<String>,
-    renamed: Option<bool>,
-    provider: Option<String>,
-    permission_mode: Option<PermissionMode>,
-    keep_alive: Option<bool>,
-    #[serde(default, deserialize_with = "given")]
-    lead: Option<Option<String>>,
-    #[serde(default, deserialize_with = "given")]
-    resume_id: Option<Option<String>>,
-    #[serde(default, deserialize_with = "given")]
-    profile_id: Option<Option<String>>,
-    #[serde(default, deserialize_with = "given")]
-    model: Option<Option<String>>,
-    #[serde(default, deserialize_with = "given")]
-    model_provider: Option<Option<String>>,
-    #[serde(default, deserialize_with = "given")]
-    effort: Option<Option<String>>,
-    #[serde(default, deserialize_with = "given")]
-    buddy: Option<Option<AgentBuddy>>,
+pub struct AgentPatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub renamed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<PermissionMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_alive: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub lead: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub resume_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub profile_id: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_provider: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub effort: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub buddy: Option<Option<AgentBuddy>>,
+}
+
+impl UpdateAgentParams {
+    pub fn new(agent_id: impl Into<String>, patch: AgentPatch) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+            patch,
+        }
+    }
 }
 
 impl AgentPatch {
@@ -1337,10 +1391,10 @@ pub(crate) fn update_agent(core: &Core, params: UpdateAgentParams) -> CoreResult
         .edit_agent(&params.agent_id, |agent| params.patch.apply(agent))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct CloseAgentsParams {
-    agent_ids: Vec<String>,
+pub struct CloseAgentsParams {
+    pub agent_ids: Vec<String>,
 }
 
 pub(crate) fn close_agents(core: &Core, params: CloseAgentsParams) -> CoreResult<()> {

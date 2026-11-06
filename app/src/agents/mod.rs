@@ -1,6 +1,9 @@
 use crate::agents::limits::limits;
 use crate::agents::terminal_pages::ssh_page;
 use crate::agents::terminal_pages::terminals_page;
+use sikemux_core::server::call;
+use sikemux_core::server::saved_sessions::{RecentChat, RecentRenamed};
+use sikemux_core::server::workspace::PinChatParams;
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 
@@ -568,10 +571,11 @@ fn rename_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Work
         chat.title.clone(),
         move |bench, title, _, _| {
             if !title.trim().is_empty() {
-                bench.call(
-                    "renameRecent",
-                    serde_json::json!({ "recent": recent, "title": title.trim(), "cwd": cwd }),
-                );
+                bench.call_typed::<call::RenameRecent>(RecentRenamed {
+                    recent: recent.clone(),
+                    title: title.trim().to_owned(),
+                    cwd: Some(cwd.clone()),
+                });
                 bench.retitle_older(&recent, title.trim());
             }
         },
@@ -592,10 +596,10 @@ fn delete_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Work
         true,
         move |bench, yes, _, _| {
             if yes {
-                bench.call(
-                    "deleteRecent",
-                    serde_json::json!({ "recent": recent, "cwd": cwd }),
-                );
+                bench.call_typed::<call::DeleteRecent>(RecentChat {
+                    recent: recent.clone(),
+                    cwd: Some(cwd.clone()),
+                });
                 bench.forget_older(&recent);
             }
         },
@@ -611,8 +615,11 @@ fn pin_chat(this: &Entity<Workbench>, recent: &RecentInfo) -> (&'static str, Cli
     let (this, id, pinned) = (this.clone(), recent.id.clone(), recent.pinned);
     let label = if pinned { "Unpin" } else { "Pin" };
     let pin = move |_: &mut Window, cx: &mut App| {
-        let params = serde_json::json!({ "recent": id, "pinned": !pinned });
-        this.update(cx, |bench, _| bench.call("pinChat", params));
+        let params = PinChatParams {
+            recent: id.clone(),
+            pinned: !pinned,
+        };
+        this.update(cx, |bench, _| bench.call_typed::<call::PinChat>(params));
     };
     (label, Rc::new(pin))
 }

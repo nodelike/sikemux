@@ -50,9 +50,11 @@ use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
 use serde::Serialize;
 use sikemux_core::server::agent_accounts::AccountUsage;
+use sikemux_core::server::agent_view::{AgentViewKind, AgentViewParams};
 use sikemux_core::server::call::Call;
 use sikemux_core::server::layout::{ActivateProjectParams, HostParams, TabParams, TabsParams};
 use sikemux_core::server::spare::{NewTerminal, SshParams};
+use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
 /// Linux a page is a window of another connection, which X would otherwise leave it with.
@@ -853,10 +855,15 @@ impl Workbench {
             .take(72)
             .collect();
         if save && !title.is_empty() && title != retitling.title {
-            self.call_in_front(
-                "updateAgent",
-                json!({ "agentId": retitling.agent, "patch": { "title": title, "renamed": true } }),
-            );
+            self.target()
+                .call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+                    retitling.agent,
+                    AgentPatch {
+                        title: Some(title),
+                        renamed: Some(true),
+                        ..AgentPatch::default()
+                    },
+                ));
         }
         self.parts.redraw_stage(cx);
         self.parts.redraw(&self.parts.rail, cx);
@@ -894,9 +901,16 @@ impl Workbench {
     /// Moves an agent between its chat and its own CLI in a terminal, carrying what was
     /// typed and not sent.
     pub fn switch_view(&self, agent: &str, terminal: bool) {
-        let to = if terminal { "terminal" } else { "chat" };
+        let to = if terminal {
+            AgentViewKind::Terminal
+        } else {
+            AgentViewKind::Chat
+        };
         self.chat_target(agent)
-            .call("switchAgentView", json!({ "agentId": agent, "to": to }));
+            .call_typed::<call::SwitchAgentView>(AgentViewParams {
+                agent_id: agent.to_owned(),
+                to,
+            });
     }
 
     /// Shows the workbench in place of the goals, as anything opened in one of its tabs needs.

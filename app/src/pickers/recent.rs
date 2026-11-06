@@ -5,10 +5,12 @@ use std::time::Duration;
 
 use gpui_kit::component::input::InputState;
 use gpui_kit::{Context, Entity, Subscription};
-use serde_json::{json, Value};
 use sikemux_view::device::RecentInfo;
 
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::RecentChatsParams;
+use sikemux_core::sessions::recent::RecentCursor;
 
 /// The rail's filter of recent chats: its field, and what is typed there in lower case.
 pub struct Filter {
@@ -30,7 +32,7 @@ pub struct OlderChats {
     pub project: String,
     pub query: String,
     pub chats: Vec<RecentInfo>,
-    pub next: Option<Value>,
+    pub next: Option<RecentCursor>,
     loading: bool,
 }
 
@@ -65,15 +67,19 @@ impl Workbench {
                 loading: true,
             });
         }
-        let params =
-            json!({ "project": project, "query": query, "cursor": cursor, "limit": limit });
+        let params = RecentChatsParams {
+            project: Some(project.clone()),
+            query: Some(query.clone()),
+            cursor,
+            limit: Some(limit),
+        };
         let target = self.target();
         let settle = !same && !query.is_empty();
         self._older = Some(cx.spawn(async move |this, cx| {
             if settle {
                 cx.background_executor().timer(SETTLE).await;
             }
-            let page = target.request("recentChats", params).await.ok();
+            let page = target.request_typed::<call::RecentChats>(params).await.ok();
             let _ = this.update(cx, |bench, cx| {
                 let Some(older) = bench
                     .older
@@ -85,10 +91,8 @@ impl Workbench {
                 older.loading = false;
                 older.next = None;
                 if let Some(page) = page {
-                    let chats: Vec<RecentInfo> =
-                        serde_json::from_value(page["chats"].clone()).unwrap_or_default();
-                    older.chats.extend(chats);
-                    older.next = Some(page["next"].clone()).filter(|next| !next.is_null());
+                    older.chats.extend(page.chats);
+                    older.next = page.next;
                 }
                 bench.refill_agent_palette(cx);
                 cx.notify();

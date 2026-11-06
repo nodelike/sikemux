@@ -5,7 +5,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::agent_catalog::AgentKind;
 use crate::sessions::{self, recent::RecentRequest, SavedRef};
@@ -79,20 +79,20 @@ pub(super) async fn relocate(moved: Moved) -> CoreResult<()> {
 }
 
 /// A recent chat, named as the workspace lists it.
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct RecentChat {
-    recent: String,
+pub struct RecentChat {
+    pub recent: String,
     /// The folder it ran in, for a chat the core no longer lists.
-    cwd: Option<PathBuf>,
+    pub cwd: Option<PathBuf>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct RecentRenamed {
-    recent: String,
-    title: String,
-    cwd: Option<PathBuf>,
+pub struct RecentRenamed {
+    pub recent: String,
+    pub title: String,
+    pub cwd: Option<PathBuf>,
 }
 
 /// Renames a recent chat in its CLI's own history, as the launcher that found it signs in.

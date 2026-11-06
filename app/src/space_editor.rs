@@ -13,7 +13,6 @@ use gpui_kit::{
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Subscription,
     WeakEntity, Window,
 };
-use serde_json::json;
 use sikemux_wire::protocol::{ProjectInfo, SpaceInfo};
 
 use crate::icons::Icon;
@@ -21,6 +20,8 @@ use crate::theme::{Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_2, TEXT_3XS_H, TEXT
 use crate::ui;
 use crate::ui::IconButton;
 use crate::workbench::{Workbench, MAX_SPACE_NAME};
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::{SpacesParams, UpdateProjectParams};
 
 /// The icons a space can wear, as the Mac offers them.
 pub const SPACE_ICONS: [&str; 18] = [
@@ -384,11 +385,10 @@ impl Workbench {
                     name,
                     icon: "folder".into(),
                 });
-                bench.call("setSpaces", json!({ "spaces": spaces }));
+                bench.call_typed::<call::SetSpaces>(SpacesParams { spaces });
                 match &into {
-                    Some(project) => bench.call(
-                        "updateProject",
-                        json!({ "id": project, "patch": { "space": id } }),
+                    Some(project) => bench.call_typed::<call::UpdateProject>(
+                        UpdateProjectParams::space(project.clone(), Some(id)),
                     ),
                     None => bench.show_space(Some(id), cx),
                 }
@@ -404,7 +404,7 @@ impl Workbench {
             .this_view()
             .map_or_else(Vec::new, |view| view.workspace.spaces.clone());
         edit(&mut spaces);
-        self.call("setSpaces", json!({ "spaces": spaces }));
+        self.call_typed::<call::SetSpaces>(SpacesParams { spaces });
     }
 
     /// Asks for the space's new name, as the Mac does.
@@ -461,10 +461,9 @@ impl Workbench {
                     })
                     .unwrap_or_default();
                 for project in held {
-                    bench.call(
-                        "updateProject",
-                        json!({ "id": project, "patch": { "space": null } }),
-                    );
+                    bench.call_typed::<call::UpdateProject>(UpdateProjectParams::space(
+                        project, None,
+                    ));
                 }
                 if bench.space.as_ref() == Some(&id) {
                     bench.show_space(None, cx);

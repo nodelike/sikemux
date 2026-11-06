@@ -12,7 +12,6 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::{div, AnyElement, App, Context, Focusable, IntoElement, SharedString, Task, Window};
-use serde_json::json;
 use sikemux_core::server::board::BoardAddParams;
 use sikemux_core::server::board::BoardHandOffParams;
 use sikemux_core::server::call;
@@ -29,6 +28,7 @@ use crate::core::{ChatAsk, Target};
 use crate::icons::Icon;
 use crate::ui::Segmented;
 use crate::workbench::Workbench;
+use sikemux_core::server::workspace::{AgentPatch, CloseAgentsParams, UpdateAgentParams};
 
 /// How long typing pauses before the core is asked to suggest a way.
 const SETTLE: Duration = Duration::from_millis(300);
@@ -252,7 +252,11 @@ impl GoalsPane {
         // An agent whose card could not be added would sit in an empty tab.
         let close = {
             let here = here.clone();
-            move |agent: &str| here.call("closeAgents", json!({ "agentIds": [agent] }))
+            move |agent: &str| {
+                here.call_typed::<call::CloseAgents>(CloseAgentsParams {
+                    agent_ids: vec![agent.to_owned()],
+                })
+            }
         };
         self.busy = true;
         cx.notify();
@@ -265,9 +269,16 @@ impl GoalsPane {
                 return;
             };
             if model.is_some() || payer.is_some() {
-                let patch = json!({ "model": model, "modelProvider": payer });
+                let patch = AgentPatch {
+                    model: Some(model),
+                    model_provider: Some(payer),
+                    ..AgentPatch::default()
+                };
                 let changed = here
-                    .request("updateAgent", json!({ "agentId": agent, "patch": patch }))
+                    .request_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+                        agent.clone(),
+                        patch,
+                    ))
                     .await;
                 if let Err(error) = changed {
                     close(&agent);

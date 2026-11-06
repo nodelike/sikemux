@@ -31,6 +31,8 @@ use crate::theme::{
 use crate::ui::{Button, Group, IconButton, Row, Tone, Variant};
 use crate::workbench::{Strip, Workbench};
 use crate::{agents, keymap, motion, rail, tabs, ui};
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::UpdateProjectParams;
 
 /// A side of the window a rail lives on.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -889,10 +891,10 @@ fn project_menu(
         let move_to = |space: Option<String>| {
             let id = id.clone();
             act(Rc::new(move |bench: &mut Workbench| {
-                bench.call(
-                    "updateProject",
-                    json!({ "id": id, "patch": { "space": space } }),
-                )
+                bench.call_typed::<call::UpdateProject>(UpdateProjectParams::space(
+                    id.clone(),
+                    space.clone(),
+                ))
             }))
         };
         let settings = {

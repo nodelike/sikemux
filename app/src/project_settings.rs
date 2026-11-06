@@ -29,7 +29,9 @@ use crate::theme::{
 use crate::ui::{self, Button, Field, IconButton, Variant};
 use crate::workbench::Workbench;
 use sikemux_core::git::status::DiscoveredRepo;
+use sikemux_core::server::call;
 use sikemux_core::server::git::call as git_call;
+use sikemux_core::server::workspace::UpdateProjectParams;
 
 #[derive(Clone, Copy, Default, PartialEq)]
 enum Page {
@@ -286,10 +288,12 @@ fn space_choice(
                 return;
             };
             let space = at.checked_sub(1).and_then(|at| offered.get(at)).cloned();
-            bench.call_in_front(
-                "updateProject",
-                json!({ "id": project, "patch": { "space": space } }),
-            );
+            bench
+                .target()
+                .call_typed::<call::UpdateProject>(UpdateProjectParams::space(
+                    project.clone(),
+                    space,
+                ));
         },
         window,
         cx,

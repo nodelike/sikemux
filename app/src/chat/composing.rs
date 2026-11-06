@@ -23,6 +23,7 @@ use super::*;
 use crate::chat::{Answering, Chat, Question};
 use crate::core::ChatAsk;
 use crate::ui::list_picker::{Choose, Close, Next, Previous};
+use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
 
 /// The composer at the bottom of the goals' Home, which starts work rather than writing to a
 /// chat; every other composer goes by the agent whose chat it writes to.
@@ -1355,10 +1356,14 @@ impl Workbench {
 
     /// Whether the agent asks before it acts, kept for its next session and changed in the one running.
     pub fn switch_mode(&self, agent: &str, mode: PermissionMode) {
-        self.chat_target(agent).call(
-            "updateAgent",
-            json!({ "agentId": agent, "patch": { "permissionMode": mode } }),
-        );
+        self.chat_target(agent)
+            .call_typed::<call::UpdateAgent>(UpdateAgentParams::new(
+                agent,
+                AgentPatch {
+                    permission_mode: Some(mode),
+                    ..AgentPatch::default()
+                },
+            ));
         self.ask_chat(ChatAsk::Mode {
             agent: agent.to_owned(),
             mode,

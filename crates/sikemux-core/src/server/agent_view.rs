@@ -5,7 +5,7 @@
 use crate::server::changed::What;
 use std::sync::Arc;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::agent::AgentActivity;
@@ -13,33 +13,35 @@ use super::{launching, session, Core, CoreResult};
 
 const AT_WORK: &str = "Wait for the agent to finish";
 
-#[derive(Deserialize, Clone, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "camelCase")]
-enum View {
+pub enum AgentViewKind {
     Chat,
     Terminal,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SwitchParams {
-    agent_id: String,
-    to: View,
+pub struct AgentViewParams {
+    pub agent_id: String,
+    pub to: AgentViewKind,
 }
 
 /// Answers `{ptyId}` once the agent runs in a terminal, or null once it runs
 /// as a chat.
-pub(crate) async fn switch(core: &Arc<Core>, params: SwitchParams) -> CoreResult<Value> {
+pub(crate) async fn switch(core: &Arc<Core>, params: AgentViewParams) -> CoreResult<Value> {
     let agent = core.workspaces.agent_or_gone(&params.agent_id)?;
     let terminal = agent
         .pty_id
         .and_then(|pty| core.session(pty))
         .filter(|session| session.is_running());
     match (params.to, terminal) {
-        (View::Terminal, Some(terminal)) => Ok(json!({ "ptyId": terminal.id })),
-        (View::Terminal, None) => to_terminal(core, &params.agent_id).await,
-        (View::Chat, None) if core.chats.get(&params.agent_id).is_some() => Ok(Value::Null),
-        (View::Chat, terminal) => to_chat(core, &params.agent_id, terminal).await,
+        (AgentViewKind::Terminal, Some(terminal)) => Ok(json!({ "ptyId": terminal.id })),
+        (AgentViewKind::Terminal, None) => to_terminal(core, &params.agent_id).await,
+        (AgentViewKind::Chat, None) if core.chats.get(&params.agent_id).is_some() => {
+            Ok(Value::Null)
+        }
+        (AgentViewKind::Chat, terminal) => to_chat(core, &params.agent_id, terminal).await,
     }
 }
 
