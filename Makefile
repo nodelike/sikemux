@@ -11,7 +11,8 @@ dev:
 dev-stop:
 	@test -x target/debug/sikemux-host || { echo "No dev build yet; run make dev first."; exit 1; }
 	env -u SIKEMUX_CORE_SOCKET target/debug/sikemux-host stop
-	@pid=$$(cat "$(HOME)/.config/sikemux/notch.dev.lock" 2>/dev/null); [ -z "$$pid" ] || kill "$$pid" 2>/dev/null || true
+	@# The lock outlives the notch, and by then its pid may belong to another program.
+	@pid=$$(cat "$(HOME)/.config/sikemux/notch.dev.lock" 2>/dev/null); [ -n "$$pid" ] && ps -p "$$pid" -o comm= | grep -q '/sikemux-notch$$' && kill "$$pid" 2>/dev/null || true
 
 # The app and its DMG, against the size limit the Release workflow would otherwise be first to hit.
 build:
