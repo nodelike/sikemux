@@ -17,7 +17,7 @@ A run is titled with its tag, so the approval names what it will publish, and it
 4. **Sign and notarize the app** signs the app on a fresh machine with Apple's tools and a Tauri CLI pinned by hash, notarizes it, packs and signs the updater archive, and puts the signed app back into the DMG (`scripts/sign-mac.sh`).
 5. **Verify the signed release** checks every signature, notarization ticket, hash, architecture and size, starts the signed CLI and helpers, and writes `latest.json` (`scripts/verify-release.sh`).
 
-Beside it, `pnpm build:linux` (`scripts/build-linux.sh`) builds the GPUI app as the x86_64 `.deb`, `.rpm` and `.AppImage` on Ubuntu 24.04. The signing job signs the AppImage with the updater key, and the publish step adds it to the update feed as `linux-x86_64`, so an AppImage updates itself; the `.deb` and `.rpm` carry no signature and are updated by the installer, whose command the app shows. Each Linux host core joins the feed the same way, as `host-linux-x86_64` and `host-linux-aarch64`, which a host's root update service reads. Once the builds and the checks pass, `scripts/publish-release.sh` publishes them together. A prerelease version goes to the nightly channel and any other version to stable. Only one release runs at a time, and each run keeps its built artifacts.
+Beside it, `pnpm build:linux` (`scripts/build-linux.sh`) builds the GPUI app as the x86_64 `.deb`, `.rpm` and `.AppImage` on Ubuntu 24.04. The signing job signs the AppImage with the updater key, and the publish step adds it to the update feed as `linux-x86_64`, so an AppImage updates itself; the `.deb` and `.rpm` carry no signature and are updated by the installer, whose command the app shows. Each Linux host core joins the feed the same way, as `host-linux-x86_64` and `host-linux-aarch64`, which a host's root update service reads. Once the builds and the checks pass, `scripts/publish-release.sh` publishes them together. A `-nightly.N` version goes to the nightly channel and a plain version to stable; the workflow refuses any other prerelease. Only one release runs at a time, and each run keeps its built artifacts.
 
 Every release also publishes `scripts/install.sh` as `install.sh`, the installer made for its own files, and sikemux.com/install serves the latest stable release's copy. A change to the installer therefore reaches people only with a release, never with a push to `main`. Before publishing, the host job installs the core it just built with that installer, twice, from the files laid out as the release will have them (`scripts/smoke-host-install.sh`), and stops the release if either install fails. With `SIKEMUX_CHANNEL=nightly`, the stable installer hands over to the nightly's own `install.sh`. A separate job then signs each host core with the updater key (`scripts/sign-host.sh`), running nothing but a pinned Tauri CLI, and the release carries each signature beside its core as `.tar.gz.sig`: a host updating itself installs only a core that signature covers.
 
@@ -37,7 +37,7 @@ Every release takes its signing material from the `release` environment:
 | `RELEASE_NOTARIZED`                                                                                                                        | variable, `1` to enable | notarized releases |
 | `APPLE_CERTIFICATE` (base64 `.p12`), `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | secrets                 | notarized releases |
 
-In this workflow only the two signing jobs use the `release` environment, which holds the secrets and has no reviewer. The Bitbucket, Jira and Vercel OAuth client secrets are compiled into the app, so they are repository secrets the build jobs read. A stable release first waits on its "Approve the stable release" job, which runs on the `approval` environment: that one holds nothing and has the owner as its required reviewer. A nightly skips the approval and publishes as soon as its checks pass. The approval can be given while the checks are still running.
+In this workflow only the two signing jobs use the `release` environment, which holds the secrets and has no reviewer. The Bitbucket, Jira and Vercel OAuth client secrets and the Klipy API key are compiled into the core, so they are repository secrets the build jobs read. A stable release first waits on its "Approve the stable release" job, which runs on the `approval` environment: that one holds nothing and has the owner as its required reviewer. A nightly skips the approval and publishes as soon as its checks pass. The approval can be given while the checks are still running.
 
 Run `scripts/release.sh` locally without `--publish` to preview a release: it runs the same steps in order, building, signing and verifying everything without touching GitHub. The build steps never see the signing material in their environment, but they run on a Mac whose keychain holds the Developer ID, so only the workflow keeps the two apart.
 
@@ -47,7 +47,7 @@ The updater and Apple Gatekeeper trust different signatures. By default, `script
 
 Existing community installations can receive in-app updates. Fresh downloads are not notarized by Apple, so macOS may ask you to remove quarantine again. Keep the updater private key secure. Clients reject archives that do not match the public key bundled with the app.
 
-Both channels create a versioned GitHub release holding the build. A stable cut also attaches `latest.json`, which the default channel follows. A nightly cut requires a prerelease semantic version, publishes its release as a prerelease, and repoints the moving `nightly` release that the opt-in Nightly channel follows.
+Both channels create a versioned GitHub release holding the build. A stable cut also attaches `latest.json`, which the default channel follows. A nightly cut requires a `-nightly.N` version, publishes its release as a prerelease, and repoints the moving `nightly` release that the opt-in Nightly channel follows.
 
 Stable is cut from a `release/<major.minor>` branch and nightly from `main`. A nightly targets whichever version comes next, whether that is a patch, a minor or a major, and a stable release of that version overtakes its nightlies for nightly users too.
 
@@ -115,7 +115,7 @@ The push to `release/*` fails unless it fast-forwards, and only the owner may pu
 ./scripts/release.sh 0.4.0-nightly.1 "Nightly notes" --nightly
 ```
 
-If you have an Apple Developer membership, set `RELEASE_NOTARIZED=1` with the Developer ID and notarization environment variables. The release script then requires a successful Gatekeeper assessment and stapled notarization tickets before it publishes anything.
+If you have an Apple Developer membership, set `RELEASE_NOTARIZED=1` with the Developer ID and notarization environment variables. The release script then requires a successful Gatekeeper assessment and stapled notarization tickets, and fails without them.
 
 ## Releasing the phone app
 

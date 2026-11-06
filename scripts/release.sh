@@ -45,8 +45,8 @@ if [[ "$NOTARIZED" != "0" && "$NOTARIZED" != "1" ]]; then
   exit 2
 fi
 VERSION_WITHOUT_BUILD="${VERSION%%+*}"
-if [[ "$CHANNEL" == "nightly" && "$VERSION_WITHOUT_BUILD" != *-* ]]; then
-  echo "Nightly releases require a prerelease semver such as 0.4.0-nightly.1" >&2
+if [[ "$CHANNEL" == "nightly" && "$VERSION_WITHOUT_BUILD" != *-nightly.* ]]; then
+  echo "Nightly releases require a version such as 0.4.0-nightly.1" >&2
   exit 2
 fi
 if [[ "$CHANNEL" == "stable" && "$VERSION_WITHOUT_BUILD" == *-* ]]; then

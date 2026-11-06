@@ -26,7 +26,9 @@ phone never runs.
   `sikemux-view` holds what clients read as JSON and draw: a chat's rows, the device view,
   goals, the inbox, preferences. A contract type goes in `sikemux-wire` if the phone's Rust
   acts on it, and in `sikemux-view` if it does not. Such a type names `sikemux-wire`, never
-  the reverse, so a message that carries one holds it as JSON.
+  the reverse, so a message that carries one holds it as JSON. A type only the code host
+  plugins fill, such as `Pull` or `TrackedItem`, stays in `sikemux-plugin-api`, which the
+  phone does not link either.
 - **`sikemux-core` builds on them.** It adds what only the desktop does: finding, starting
   and upgrading the core on this machine, and the host's checks of a join ticket.
   `sikemux-pty` takes its wire types from `sikemux-wire`.
@@ -49,8 +51,8 @@ phone never runs.
   pages on demand, and what a client missed when it comes back with a mark. Clients keep
   one store of that view, apply the changes and draw it, with only their own words, icons,
   formatting, path display and markdown drawing. No client reads an agent's messages, folds
-  events or keeps a second copy of the core's logic, so the Mac, the phone, the notch, the
-  web and a GPUI desktop all show the same thing from the same data.
+  events or keeps a second copy of the core's logic, so the Mac, the phone, the notch and the
+  web all show the same thing from the same data.
 
 ## Consequences
 
