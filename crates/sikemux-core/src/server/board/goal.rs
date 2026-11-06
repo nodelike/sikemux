@@ -7,7 +7,8 @@
 //! retired first, then its oldest. The person or the goal's lead writes its
 //! assertions, and once a slice fulfilling one has started, only the person. A
 //! command the lead writes as an assertion's evidence counts only once the
-//! person approves exactly that command.
+//! person approves exactly that command, and any command only while the
+//! repository files it names are as they accepted them.
 //! What agents settle among themselves goes in its goal's log, or the project's
 //! when they work on no goal, where the person can overrule it.
 
@@ -19,7 +20,9 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::inbox::SwarmDecision;
 use sikemux_view::memory::Learned;
-use sikemux_view::slice::{Assertion, Collect, Decision, GoalRule};
+use sikemux_view::slice::{
+    Assertion, ChangedFile, Collect, CommandFiles, Decision, GoalRule, NamedFile,
+};
 
 use super::{goal_of, project_at, project_view, Board, GoalRef, ProjectBoard};
 use crate::cli::protocol::HarnessRequest;
@@ -79,6 +82,68 @@ impl Goal {
     pub(super) fn assertion(&self, id: u64) -> Option<&Assertion> {
         (self.assertions.iter()).find(|assertion| assertion.id == id && assertion.retired.is_none())
     }
+
+    /// Those of `named`, as slice `card` holds them at `head`, that the person has not accepted
+    /// for assertion `id`: what it now waits for them to answer, in place of what it waited for of
+    /// that slice, and what they turned down.
+    pub(super) fn files_of_slice(
+        &mut self,
+        id: u64,
+        card: u64,
+        head: &str,
+        named: &[NamedFile],
+    ) -> (Vec<NamedFile>, Vec<NamedFile>) {
+        let Some(kept) = (self.assertions.iter_mut()).find(|kept| kept.id == id) else {
+            return Default::default();
+        };
+        let files = &mut kept.files;
+        files.changed.retain(|changed| changed.card != card);
+        let (refused, asked): (Vec<NamedFile>, Vec<NamedFile>) = (named.iter())
+            .filter(|file| match file.blob {
+                Some(_) => !files.accepted.contains(file),
+                None => {
+                    !files.accepted.contains(file)
+                        && (files.accepted.iter()).any(|known| known.path == file.path)
+                }
+            })
+            .cloned()
+            .partition(|file| files.turned_down.contains(file));
+        files
+            .changed
+            .extend(asked.iter().cloned().map(|file| ChangedFile {
+                card,
+                head: head.to_owned(),
+                file,
+            }));
+        (asked, refused)
+    }
+}
+
+/// Forgets what waited for the person of a slice that moved past that commit, or is not at work.
+/// Whether any went.
+pub(super) fn forget_moved_on(board: &mut Board) -> bool {
+    let waiting = |card: &super::Card| {
+        (card.goal.assertions.iter()).any(|assertion| !assertion.files.changed.is_empty())
+    };
+    if !board.cards.iter().any(waiting) {
+        return false;
+    }
+    let heads: Vec<(u64, String)> = (board.cards.iter())
+        .filter(|card| card.status == super::CardStatus::Progress)
+        .filter_map(|card| Some((card.id, card.slice.as_ref()?.head()?.to_owned())))
+        .collect();
+    let mut forgot = false;
+    for assertion in (board.cards.iter_mut()).flat_map(|card| card.goal.assertions.iter_mut()) {
+        let before = assertion.files.changed.len();
+        (assertion.files.changed).retain(|changed| {
+            (heads.iter()).any(|(card, head)| *card == changed.card && *head == changed.head)
+        });
+        forgot |= assertion.files.changed.len() != before;
+    }
+    if forgot {
+        super::slice::rebind(board);
+    }
+    forgot
 }
 
 /// What a goal keeps that still stands, oldest first.
@@ -367,6 +432,49 @@ pub(crate) fn change(
     change: Change,
     by: Learned,
 ) -> Result<String, String> {
+    keep_change(core, project, goal, list, change, by, Vec::new())
+}
+
+/// Changes goal `goal`'s assertions, keeping how the project's branch holds the files a command
+/// named in the change names, as what the person accepts along with it.
+fn change_assertion(
+    core: &Core,
+    project: &str,
+    goal: u64,
+    asserting: Change,
+    by: Learned,
+) -> Result<String, String> {
+    let command = match &asserting {
+        Change::New {
+            evidence: Some(Collect::Command { command }),
+            ..
+        }
+        | Change::Correct {
+            evidence: Some(Collect::Command { command }),
+            ..
+        } => Some(command.as_str()),
+        _ => None,
+    };
+    let files = command
+        .and_then(|command| {
+            super::commands::named_at(std::path::Path::new(project), "HEAD", command).ok()
+        })
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|file| file.blob.is_some())
+        .collect();
+    keep_change(core, project, goal, List::Assertions, asserting, by, files)
+}
+
+fn keep_change(
+    core: &Core,
+    project: &str,
+    goal: u64,
+    list: List,
+    change: Change,
+    by: Learned,
+    files: Vec<NamedFile>,
+) -> Result<String, String> {
     let mut state = core.boards.state.locked();
     let board = state
         .boards
@@ -428,6 +536,16 @@ pub(crate) fn change(
                 learned: by,
                 was: None,
                 retired: None,
+                files: match &approved {
+                    Some(_) => CommandFiles {
+                        accepted: files,
+                        ..CommandFiles::default()
+                    },
+                    None => CommandFiles {
+                        proposed: files,
+                        ..CommandFiles::default()
+                    },
+                },
                 approved,
             };
             let waits = match assertion.awaits_approval() {
@@ -447,14 +565,22 @@ pub(crate) fn change(
                 _ => None,
             };
             let by_person = by.agent.is_none().then(|| by.clone());
+            let files_of_proposal = files.clone();
             let mut said = apply(&mut kept.assertions, goal, change, by)?;
             if let Some((id, evidence)) = evidence {
                 if let Some(kept) = kept.assertions.iter_mut().find(|kept| kept.id == id) {
+                    kept.files.changed.clear();
+                    kept.files.proposed.clear();
                     if let Some(person) = &by_person {
                         kept.approved = written_by_person(&evidence, person);
+                        kept.files = CommandFiles {
+                            accepted: files,
+                            ..CommandFiles::default()
+                        };
                     }
                     kept.evidence = evidence;
                     if kept.awaits_approval().is_some() {
+                        kept.files.proposed = files_of_proposal;
                         said.push_str(NOT_UNTIL_APPROVED);
                     }
                 }
@@ -835,7 +961,7 @@ pub(crate) async fn tool_assert(
             }
         };
         let by = learned(&core, Some(&agent));
-        let said = change(&core, &project, goal, List::Assertions, asserting, by)?;
+        let said = change_assertion(&core, &project, goal, asserting, by)?;
         Ok(json!({ "goal": goal, "note": said }))
     })
     .await
@@ -850,12 +976,17 @@ pub struct AnswerCommandParams {
     pub assertion: u64,
     /// The command the person saw, which an answer holds for only while the assertion names it.
     pub command: String,
+    /// The changed files the person saw, which it holds for only while these are what wait.
+    #[serde(default)]
+    pub files: Vec<NamedFile>,
     pub accept: bool,
 }
 
-/// The person answers a command an agent wrote. Accepted, that exact command counts. Turned down,
-/// the assertion goes back to the command they last approved, or is retired with none. Only the
-/// person's own app reaches this, so an agent has no way to approve its own.
+/// The person answers a command an agent wrote, or a change to a file a command names. Accepted,
+/// that exact command or content counts. A command turned down goes back to the one they last
+/// approved, or its assertion is retired with none. A content turned down keeps the command from
+/// running on it. Only the person's own app reaches this, so an agent has no way to approve its
+/// own.
 pub(crate) async fn person_answer_command(
     core: &Arc<Core>,
     params: AnswerCommandParams,
@@ -872,36 +1003,55 @@ pub(crate) async fn person_answer_command(
             let kept = (card.goal.assertions.iter_mut())
                 .find(|kept| kept.id == params.assertion && kept.retired.is_none())
                 .ok_or("That assertion is gone")?;
-            if kept.awaits_approval() != Some(params.command.as_str()) {
+            let waiting: Vec<&NamedFile> = (kept.files.changed.iter())
+                .map(|changed| &changed.file)
+                .collect();
+            let as_seen = kept.command() == Some(params.command.as_str())
+                && (kept.awaits_approval().is_some()
+                    || (!waiting.is_empty()
+                        && waiting.iter().all(|file| params.files.contains(file))
+                        && params.files.iter().all(|file| waiting.contains(&file))));
+            if !as_seen {
                 return Err(
-                    "That command changed or was answered already; look at it again".into(),
+                    "That command or a file it names changed, or was answered already; look at it again".into(),
                 );
             }
-            let then = match (params.accept, kept.approved.take()) {
-                (true, _) => {
-                    kept.approved = Some(params.command.clone());
-                    "approved it, so it runs on each slice's latest commit".to_owned()
+            let told = if kept.awaits_approval().is_some() {
+                let then = match (params.accept, kept.approved.take()) {
+                    (true, _) => {
+                        kept.approved = Some(params.command.clone());
+                        kept.files.accepted = std::mem::take(&mut kept.files.proposed);
+                        "approved it, so it runs on each slice's latest commit".to_owned()
+                    }
+                    (false, Some(earlier)) => {
+                        let words = format!("turned it down, so `{earlier}` stands");
+                        kept.evidence = Collect::Command {
+                            command: earlier.clone(),
+                        };
+                        kept.approved = Some(earlier);
+                        kept.files.proposed.clear();
+                        words
+                    }
+                    (false, None) => {
+                        kept.retired = Some(by);
+                        "turned it down, so the assertion is retired".to_owned()
+                    }
+                };
+                kept.learned.agent.clone().map(|agent| super::Notice {
+                    to: agent,
+                    text: format!(
+                        "Of the command `{}` you wrote for assertion #{} of goal #{}, the person {then}.",
+                        params.command, params.assertion, params.card
+                    ),
+                })
+            } else {
+                let answered = (kept.files.changed.drain(..)).map(|changed| changed.file);
+                match params.accept {
+                    true => kept.files.accepted.extend(answered),
+                    false => kept.files.turned_down.extend(answered),
                 }
-                (false, Some(earlier)) => {
-                    let words = format!("turned it down, so `{earlier}` stands");
-                    kept.evidence = Collect::Command {
-                        command: earlier.clone(),
-                    };
-                    kept.approved = Some(earlier);
-                    words
-                }
-                (false, None) => {
-                    kept.retired = Some(by);
-                    "turned it down, so the assertion is retired".to_owned()
-                }
+                None
             };
-            let told = kept.learned.agent.clone().map(|agent| super::Notice {
-                to: agent,
-                text: format!(
-                    "Of the command `{}` you wrote for assertion #{} of goal #{}, the person {then}.",
-                    params.command, params.assertion, params.card
-                ),
-            });
             card.updated_at = epoch_ms();
             super::slice::rebind(board);
             let settled = super::environments::settle_cards(&core, &mut state, &project);
@@ -945,14 +1095,7 @@ pub(crate) async fn person_assert(
             params.retire,
         )?;
         let by = learned(&core, None);
-        change(
-            &core,
-            &project,
-            params.card,
-            List::Assertions,
-            asserting,
-            by,
-        )?;
+        change_assertion(&core, &project, params.card, asserting, by)?;
         Ok(project_view(&core, &project))
     })
     .await

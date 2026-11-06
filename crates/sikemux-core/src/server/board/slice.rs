@@ -167,15 +167,22 @@ pub(super) struct Named {
     /// The person approved the command it names, which is run only then.
     #[serde(default)]
     pub approved: bool,
+    /// The commit of the slice where a file that command names waits for the person to accept it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held_at: Option<String>,
 }
 
 impl Named {
-    pub(super) fn of(goal: u64, assertion: &Assertion) -> Self {
+    /// The assertion `assertion` of goal `goal`, as slice `card` fulfils it.
+    pub(super) fn of(goal: u64, assertion: &Assertion, card: u64) -> Self {
         Self {
             goal,
             id: assertion.id,
             evidence: assertion.evidence.clone(),
             approved: assertion.awaits_approval().is_none(),
+            held_at: (assertion.files.changed.iter())
+                .find(|changed| changed.card == card)
+                .map(|changed| changed.head.clone()),
         }
     }
 }
@@ -484,7 +491,7 @@ impl Slice {
                 on_head.is_some_and(|evidence| evidence.verdict == Some(Verdict::Passed))
             }
             Collect::Command { .. } => {
-                named.approved
+                !self.unapproved(named)
                     && on_head.is_some_and(|evidence| evidence.verdict == Some(Verdict::Passed))
             }
             Collect::Recording | Collect::Screenshot => on_head.is_some(),
@@ -506,7 +513,7 @@ impl Slice {
     /// The approved commands that have not passed on its latest commit.
     pub(super) fn awaiting_commands(&self) -> Vec<String> {
         let mut commands: Vec<String> = (self.asserts.iter())
-            .filter(|named| named.approved && !self.asserted(named))
+            .filter(|named| !self.unapproved(named) && !self.asserted(named))
             .filter_map(|named| match &named.evidence {
                 Collect::Command { command } => Some(command.clone()),
                 _ => None,
@@ -539,7 +546,7 @@ impl Slice {
             command: command.to_owned(),
         };
         let assertions: Vec<u64> = (self.asserts.iter())
-            .filter(|named| named.approved && named.evidence == shows)
+            .filter(|named| !self.unapproved(named) && named.evidence == shows)
             .map(|named| named.id)
             .collect();
         if !assertions.is_empty() {
@@ -560,8 +567,22 @@ impl Slice {
             && self.asserts.iter().any(|named| self.unapproved(named))
     }
 
+    /// Its command waits for the person: the command itself, or a file it names on its latest
+    /// commit.
     fn unapproved(&self, named: &Named) -> bool {
-        matches!(named.evidence, Collect::Command { .. }) && !named.approved
+        matches!(named.evidence, Collect::Command { .. })
+            && (!named.approved
+                || named.held_at.is_some() && named.held_at.as_deref() == self.head())
+    }
+
+    /// The assertions it fulfils that `command` shows, each with the goal that keeps it.
+    pub(super) fn commanded_by(&self, command: &str) -> Vec<(u64, u64)> {
+        (self.asserts.iter())
+            .filter(|named| {
+                named.approved && matches!(&named.evidence, Collect::Command { command: wanted } if wanted == command)
+            })
+            .map(|named| (named.goal, named.id))
+            .collect()
     }
 
     fn gate_needs_assertions(&self, settings: &BoardSettings) -> bool {
@@ -573,7 +594,9 @@ impl Slice {
     fn command_failed(&self, settings: &BoardSettings) -> bool {
         self.gate_needs_assertions(settings)
             && (self.asserts.iter())
-                .filter(|named| matches!(named.evidence, Collect::Command { .. }) && named.approved)
+                .filter(|named| {
+                    matches!(named.evidence, Collect::Command { .. }) && !self.unapproved(named)
+                })
                 .filter_map(|named| self.latest_for(named))
                 .any(|evidence| {
                     evidence.verdict == Some(Verdict::Failed)
@@ -1179,7 +1202,7 @@ impl Slice {
         }
         if (self.asserts.iter()).any(|named| self.unapproved(named)) {
             return Some(format!(
-                "{label} is not Built yet: a command one of its assertions names waits for the person to approve it, which only they can do, and does not run until they do. Built passes by itself once it has run and passed on {}, and you will hear. board_list with the goal's card shows which.",
+                "{label} is not Built yet: a command one of its assertions names, or a file that command names, waits for the person to accept it, which only they can do, and the command does not run until they do. Built passes by itself once it has run and passed on {}, and you will hear. board_list with the goal's card shows which.",
                 short(head)
             ));
         }

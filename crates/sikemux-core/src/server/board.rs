@@ -353,11 +353,13 @@ impl Board {
         }
     }
 
-    /// Whether `card` is a goal: at the top of the board, with slices or with an agent on it.
+    /// Whether `card` is a goal: at the top of the board, with slices, an agent on it or
+    /// assertions, which its page lists and answers.
     fn is_goal(&self, card: &Card) -> bool {
         card.parent.is_none()
             && (card.owner.is_some()
                 || card.slice.is_some()
+                || (card.goal.assertions().iter()).any(|kept| kept.retired.is_none())
                 || (self.cards.iter())
                     .filter(|under| under.parent == Some(card.id))
                     .any(|under| under.owner.is_some() || under.slice.is_some()))
@@ -405,7 +407,7 @@ impl Board {
         let kept = &self.card(goal)?.goal;
         (asserts.iter())
             .map(|id| match kept.assertion(*id) {
-                Some(assertion) => Ok(slice::Named::of(goal, assertion)),
+                Some(assertion) => Ok(slice::Named::of(goal, assertion, card.unwrap_or(0))),
                 None => Err(format!("Goal #{goal} has no assertion #{id} that stands")),
             })
             .collect()
@@ -1529,7 +1531,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         .filter(|assertion| assertion.retired.is_none())
         .map(|assertion| {
             let mut listed = json!({ "assertion": assertion.id, "text": text(&assertion.text), "evidence": assertion.evidence });
-            if assertion.awaits_approval().is_some() {
+            if assertion.needs_person() {
                 listed["awaitsApproval"] = true.into();
             }
             listed
@@ -3004,12 +3006,14 @@ pub(crate) fn proposals(core: &Core) -> Vec<(String, EnvironmentsProposal)> {
         .collect()
 }
 
-/// A command an agent wrote for a goal's assertion, which waits for the person's approval.
+/// A goal's assertion whose command, or a file that command names, waits for the person.
 pub(crate) struct ProposedCommand {
     pub project: String,
     pub goal: u64,
     pub title: String,
     pub assertion: Assertion,
+    /// When the card last changed, as what waits may be newer than the assertion.
+    pub at: u64,
 }
 
 pub(crate) fn proposed_commands(core: &Core) -> Vec<ProposedCommand> {
@@ -3017,14 +3021,14 @@ pub(crate) fn proposed_commands(core: &Core) -> Vec<ProposedCommand> {
     let mut proposed = Vec::new();
     for (project, board) in &state.boards {
         for card in &board.cards {
-            let waiting = (card.goal.assertions().iter()).filter(|assertion| {
-                assertion.retired.is_none() && assertion.awaits_approval().is_some()
-            });
+            let waiting = (card.goal.assertions().iter())
+                .filter(|assertion| assertion.retired.is_none() && assertion.needs_person());
             proposed.extend(waiting.map(|assertion| ProposedCommand {
                 project: project.clone(),
                 goal: card.id,
                 title: card.title.clone(),
                 assertion: assertion.clone(),
+                at: card.updated_at,
             }));
         }
     }

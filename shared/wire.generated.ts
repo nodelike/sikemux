@@ -3006,6 +3006,8 @@ export interface Assertion {
      * while it is exactly this one.
      */
     approved?: string;
+    /** The repository files its command names, as the person accepted them. */
+    files?: CommandFiles;
 }
 
 /** The evidence an assertion needs, which the core collects itself. */
@@ -3035,6 +3037,38 @@ export type Collect =
           kind: "command";
           command: string;
       };
+
+/** What the person has said of the repository files an assertion's command names. */
+export interface CommandFiles {
+    /** Each content they accepted, along with the command or since. */
+    accepted?: NamedFile[];
+    /** As they stood when an agent wrote the command, accepted along with it. */
+    proposed?: NamedFile[];
+    /** What waits for them to accept or turn down. */
+    changed?: ChangedFile[];
+    /**
+     * Each content they turned down, which the command does not run on and they are not asked
+     * of again.
+     */
+    turnedDown?: NamedFile[];
+}
+
+/** A file in the repository, as a commit holds it. */
+export interface NamedFile {
+    path: string;
+    /** The git id of its content; none when the commit does not hold it. */
+    blob: string | null;
+}
+
+/**
+ * A file a command names that a slice's latest commit holds differently from what the person
+ * accepted.
+ */
+export interface ChangedFile {
+    card: number;
+    head: string;
+    file: NamedFile;
+}
 
 /** How a project's board runs on its own. */
 export interface BoardSettings {

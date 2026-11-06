@@ -15,7 +15,7 @@ use sikemux_core::server::board::goal::AnswerCommandParams;
 use sikemux_core::server::board::AssertParams as BoardAssertParams;
 use sikemux_core::server::board::BoardCard;
 use sikemux_core::server::call;
-use sikemux_view::slice::{Assertion, Collect, SliceView};
+use sikemux_view::slice::{Assertion, Collect, NamedFile, SliceView};
 
 use super::goal::quiet_section;
 use super::GoalsPane;
@@ -219,6 +219,7 @@ impl GoalsPane {
         card: u64,
         assertion: u64,
         command: String,
+        files: Vec<NamedFile>,
         accept: bool,
         cx: &mut Context<Self>,
     ) {
@@ -233,27 +234,77 @@ impl GoalsPane {
             card,
             assertion,
             command,
+            files,
             accept,
         };
         self.ask_moved::<call::BoardAnswerCommand>(params, |_| {}, cx);
     }
 }
 
-/// The command an agent wrote for an assertion, whole, with what answers it, as what an agent
-/// proposes for a project's environments shows.
+/// What of an assertion waits for the person, with what answers it, as what an agent proposes for
+/// a project's environments shows: the command an agent wrote, whole, or the files a command names
+/// that a slice changed.
 fn proposal(
     pane: &GoalsPane,
     goal: &BoardCard,
     assertion: &Assertion,
     cx: &mut Context<GoalsPane>,
 ) -> Option<AnyElement> {
-    let command = assertion.awaits_approval()?.to_owned();
+    if !assertion.needs_person() {
+        return None;
+    }
+    let command = assertion.command()?.to_owned();
+    let proposing = assertion.awaits_approval().is_some();
+    let mut files: Vec<NamedFile> = Vec::new();
+    for changed in &assertion.files.changed {
+        if !files.contains(&changed.file) {
+            files.push(changed.file.clone());
+        }
+    }
     let t = Tokens::get(cx).clone();
     let (card, id, busy) = (goal.id, assertion.id, pane.busy);
     let by = assertion.learned.name.as_deref().unwrap_or("An agent");
     let number = number(goal, id).unwrap_or_default();
-    let on_accept = command.clone();
-    let on_decline = command.clone();
+    let on_accept = (command.clone(), files.clone());
+    let on_decline = (command.clone(), files);
+    let says = match proposing {
+        true => format!(
+            "@{by} proposes this command for assertion {number}. It runs and counts once you accept it."
+        ),
+        false => format!(
+            "A file assertion {number}'s command names changed. It runs on that commit once you accept it."
+        ),
+    };
+    let details: Vec<String> = match proposing {
+        true => (assertion.files.proposed.iter())
+            .map(|file| format!("Accepts {} as it stood when this was proposed", file.path))
+            .chain(
+                assertion
+                    .approved
+                    .iter()
+                    .map(|earlier| format!("Turning it down keeps {earlier}")),
+            )
+            .collect(),
+        false => (assertion.files.changed.iter())
+            .map(|changed| match changed.file.blob {
+                Some(_) => format!(
+                    "{} changed on #{} at {}",
+                    changed.file.path,
+                    changed.card,
+                    changed.head.get(..7).unwrap_or(&changed.head)
+                ),
+                None => format!(
+                    "{} is gone on #{} at {}",
+                    changed.file.path,
+                    changed.card,
+                    changed.head.get(..7).unwrap_or(&changed.head)
+                ),
+            })
+            .chain(std::iter::once(
+                "Turning it down keeps the command from running on what you see here".to_owned(),
+            ))
+            .collect(),
+    };
     Some(
         div()
             .py(SPACE_2)
@@ -264,14 +315,14 @@ fn proposal(
                 div()
                     .text_size(theme::ui_text(TEXT_XS_H))
                     .text_color(t.text_primary)
-                    .child(format!(
-                        "@{by} proposes this command for assertion {number}. It runs and counts once you accept it."
-                    )),
+                    .child(says),
             )
             .child(ui::mono(command, TEXT_2XS, cx).whitespace_normal())
-            .when_some(assertion.approved.as_ref(), |view, earlier| {
-                view.child(ui::meta(format!("Turning it down keeps {earlier}"), cx))
-            })
+            .children(
+                details
+                    .into_iter()
+                    .map(|detail| ui::meta(detail, cx).whitespace_normal()),
+            )
             .child(
                 div()
                     .pt(SPACE_1H)
@@ -285,7 +336,8 @@ fn proposal(
                         )
                         .disabled(busy)
                         .on_click(cx.listener(move |pane, _, _, cx| {
-                            pane.answer_command(card, id, on_accept.clone(), true, cx)
+                            let (command, files) = on_accept.clone();
+                            pane.answer_command(card, id, command, files, true, cx)
                         })),
                     )
                     .child(
@@ -296,7 +348,8 @@ fn proposal(
                         )
                         .disabled(busy)
                         .on_click(cx.listener(move |pane, _, _, cx| {
-                            pane.answer_command(card, id, on_decline.clone(), false, cx)
+                            let (command, files) = on_decline.clone();
+                            pane.answer_command(card, id, command, files, false, cx)
                         })),
                     ),
             )

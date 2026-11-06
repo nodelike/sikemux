@@ -428,17 +428,77 @@ pub struct Assertion {
     /// while it is exactly this one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approved: Option<String>,
+    /// The repository files its command names, as the person accepted them.
+    #[serde(default, skip_serializing_if = "CommandFiles::is_empty")]
+    pub files: CommandFiles,
 }
 
 impl Assertion {
     /// The command it names that the person has not approved.
     pub fn awaits_approval(&self) -> Option<&str> {
-        match &self.evidence {
-            Collect::Command { command } if self.approved.as_ref() != Some(command) => {
-                Some(command)
-            }
+        match self.command() {
+            Some(command) if self.approved.as_deref() != Some(command) => Some(command),
             _ => None,
         }
+    }
+
+    pub fn command(&self) -> Option<&str> {
+        match &self.evidence {
+            Collect::Command { command } => Some(command),
+            _ => None,
+        }
+    }
+
+    /// It waits on the person: for its command, or for a file its command names that changed.
+    pub fn needs_person(&self) -> bool {
+        self.awaits_approval().is_some() || !self.files.changed.is_empty()
+    }
+}
+
+/// A file in the repository, as a commit holds it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NamedFile {
+    pub path: String,
+    /// The git id of its content; none when the commit does not hold it.
+    pub blob: Option<String>,
+}
+
+/// A file a command names that a slice's latest commit holds differently from what the person
+/// accepted.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangedFile {
+    pub card: u64,
+    pub head: String,
+    pub file: NamedFile,
+}
+
+/// What the person has said of the repository files an assertion's command names.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandFiles {
+    /// Each content they accepted, along with the command or since.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accepted: Vec<NamedFile>,
+    /// As they stood when an agent wrote the command, accepted along with it.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub proposed: Vec<NamedFile>,
+    /// What waits for them to accept or turn down.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changed: Vec<ChangedFile>,
+    /// Each content they turned down, which the command does not run on and they are not asked
+    /// of again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turned_down: Vec<NamedFile>,
+}
+
+impl CommandFiles {
+    pub fn is_empty(&self) -> bool {
+        self.accepted.is_empty()
+            && self.proposed.is_empty()
+            && self.changed.is_empty()
+            && self.turned_down.is_empty()
     }
 }
 

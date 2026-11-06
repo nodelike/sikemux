@@ -960,26 +960,48 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     }
     for proposed in board::proposed_commands(core) {
         let assertion = &proposed.assertion;
+        let changed = &assertion.files.changed;
+        let (what, at, seen) = match changed.first() {
+            Some(first) if assertion.awaits_approval().is_none() => (
+                "A file its command names changed",
+                proposed.at,
+                format!(":{}", first.head),
+            ),
+            _ => (
+                "Proposes a command as a gate",
+                assertion.learned.at,
+                String::new(),
+            ),
+        };
         let mut item = item(
             format!(
-                "command:{}:{}:{}",
+                "command:{}:{}:{}{seen}",
                 proposed.project, proposed.goal, assertion.id
             ),
             Case::ProposedCommand,
-            "Proposes a command as a gate".to_owned(),
-            assertion.learned.at,
+            what.to_owned(),
+            at,
         );
-        if let Some(agent) = assertion.learned.agent.as_deref() {
-            item = item.by(agent, find(agent));
-        }
-        item.detail = Some(clipped_line(
-            &format!(
+        let detail = if seen.is_empty() {
+            if let Some(agent) = assertion.learned.agent.as_deref() {
+                item = item.by(agent, find(agent));
+            }
+            format!(
                 "`{}` for \"{}\". It does not count until you accept it.",
                 assertion.awaits_approval().unwrap_or_default(),
                 assertion.text
-            ),
-            MAX_LINE_CHARS,
-        ));
+            )
+        } else {
+            let files: Vec<&str> = (changed.iter())
+                .map(|changed| changed.file.path.as_str())
+                .collect();
+            format!(
+                "{} for `{}`. It does not run on that commit until you accept it.",
+                files.join(", "),
+                assertion.command().unwrap_or_default()
+            )
+        };
+        item.detail = Some(clipped_line(&detail, MAX_LINE_CHARS));
         item.project = Some(proposed.project.clone());
         item.card = Some(InboxCard {
             project: proposed.project,

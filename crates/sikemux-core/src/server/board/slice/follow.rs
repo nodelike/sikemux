@@ -46,7 +46,7 @@ pub(crate) fn rebind(board: &mut Board) -> Vec<u64> {
             .map(|card| {
                 (card.goal.assertions().iter())
                     .filter(|assertion| assertion.retired.is_none())
-                    .map(|assertion| Named::of(goal, assertion))
+                    .map(|assertion| Named::of(goal, assertion, id))
                     .collect()
             })
             .unwrap_or_default();
