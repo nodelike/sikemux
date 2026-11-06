@@ -142,13 +142,24 @@ enum StatsFit {
     Compact,
 }
 
+/// How the filter tabs stand, as the width runs out.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TabsFit {
+    Roomy,
+    /// Their words stay, with less room around them.
+    Close,
+    /// Only the chosen tab keeps its words; the others show a mark and a count, and name
+    /// themselves on hover.
+    Marks,
+}
+
 /// How the part of Home above the rows stands at the rows' width, from what its words take at
 /// the normal text size. All of these widths are of the rows; the rest of the head is a little
 /// wider or narrower, by the padding each part keeps.
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct Head {
     stats: StatsFit,
-    tab_words: bool,
+    tabs: TabsFit,
     happened_words: bool,
     /// Too little room for the find box beside how much happened at their smallest, and beside
     /// the project chip too, so they take a line each.
@@ -160,9 +171,10 @@ impl Head {
     const STATS_FULL_W: f32 = 470.;
     const STATS_NO_SMALL_LINES_W: f32 = 430.;
     const STATS_SMALL_NUMBERS_W: f32 = 350.;
-    const TAB_WORDS_W: f32 = 490.;
-    /// What the tabs take with their words, and as marks and counts with one tab's words.
-    const TABS_W: f32 = 425.;
+    /// What the tabs take in each step when every count has two digits, with the padding the
+    /// head keeps beside them.
+    const TABS_ROOMY_W: f32 = 510.;
+    const TABS_CLOSE_W: f32 = 410.;
     const TABS_MARKS_W: f32 = 245.;
     const HAPPENED_W: f32 = 190.;
     const HAPPENED_SHORT_W: f32 = 82.;
@@ -174,20 +186,24 @@ impl Head {
             width if width >= Self::STATS_SMALL_NUMBERS_W => StatsFit::SmallNumbers,
             _ => StatsFit::Compact,
         };
-        let tab_words = row_width >= Self::TAB_WORDS_W;
-        let (room, tabs) = match tab_words {
-            true => (row_width - 16., Self::TABS_W),
-            false => (row_width, Self::TABS_MARKS_W),
+        let (tabs, tabs_w) = match row_width {
+            width if width >= Self::TABS_ROOMY_W => (TabsFit::Roomy, Self::TABS_ROOMY_W),
+            width if width >= Self::TABS_CLOSE_W => (TabsFit::Close, Self::TABS_CLOSE_W),
+            _ => (TabsFit::Marks, Self::TABS_MARKS_W),
         };
-        let beside_tabs = room >= tabs + FIND_MIN_W + Self::HAPPENED_SHORT_W;
+        let room = match tabs {
+            TabsFit::Roomy => row_width - 16.,
+            _ => row_width,
+        };
+        let beside_tabs = row_width >= tabs_w + FIND_MIN_W + Self::HAPPENED_SHORT_W;
         let happened_words = match beside_tabs {
-            true => room >= tabs + FIND_W + Self::HAPPENED_W,
+            true => row_width >= tabs_w + FIND_W + Self::HAPPENED_W,
             false => room >= FIND_MIN_W + Self::HAPPENED_W,
         };
         let ends_smallest = FIND_MIN_W + Self::HAPPENED_SHORT_W + f32::from(SPACE_1);
         Head {
             stats,
-            tab_words,
+            tabs,
             happened_words,
             ends_tight: room < ends_smallest,
             ends_tight_with_project: room < ends_smallest + SCOPE_MIN_W + f32::from(SPACE_1),
@@ -1120,6 +1136,7 @@ fn tools(
     });
     let find = pane.find_field(window, cx);
     let head = pane.room.head.get();
+    let roomy = head.tabs == TabsFit::Roomy;
     let spacing = f32::from(SPACE_1);
     let ends_min = FIND_MIN_W
         + if happened > 0 {
@@ -1142,13 +1159,13 @@ fn tools(
         .flex_wrap()
         .flex_none()
         .items_center()
-        .gap_x(if head.tab_words { SPACE_1 } else { SPACE_0 })
+        .gap_x(if roomy { SPACE_1 } else { SPACE_0 })
         .gap_y(SPACE_1)
-        .px(px(if head.tab_words { 22. } else { 14. }))
+        .px(px(if roomy { 22. } else { 14. }))
         .pb(SPACE_2H)
         .children(tabs.map(|(id, filter, label, count, state)| {
             let on = filter == chosen;
-            let words = head.tab_words || on;
+            let words = head.tabs != TabsFit::Marks || on;
             let shown = match (words, state) {
                 (true, _) => Some(label),
                 (false, None) => Some("All"),
@@ -1159,9 +1176,9 @@ fn tools(
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(px(if head.tab_words { 7. } else { 5. }))
+                .gap(px(if roomy { 7. } else { 5. }))
                 .h(px(26.))
-                .px(if head.tab_words { SPACE_2H } else { SPACE_1 })
+                .px(if roomy { SPACE_2H } else { SPACE_1 })
                 .rounded(RADIUS_2)
                 .cursor_pointer()
                 .when(!words, |tab| tab.tooltip(ui::tooltip(label.to_owned())))
