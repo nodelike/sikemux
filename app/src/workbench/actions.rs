@@ -1,5 +1,7 @@
 //! Every command the window runs, each declared once: its action and id, what it does, and how
-//! it stands with what covers the window. The ids, labels and keys are the shared table's.
+//! it stands with what covers the window. The ids, labels and keys are the shared table's. Which
+//! commands the usage report counts is the core's own privacy list, `COMMANDS` in
+//! `activity_log/features.rs`, so a new command is counted only once it is added there.
 
 use gpui_kit::{App, Context, Div, InteractiveElement, Stateful, Window};
 use sikemux_core::server::call;
@@ -12,6 +14,17 @@ use crate::keymap::{Minimize, RunProjectAction, ToggleFullScreen, Zoom};
 use crate::panes::Towards;
 use crate::tabs::same_kind;
 use sikemux_core::server::calls::NoParams;
+
+/// A command's id, made only by its row below, so naming a command that is not there does not
+/// compile.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CommandId(&'static str);
+
+impl CommandId {
+    pub fn name(self) -> &'static str {
+        self.0
+    }
+}
 
 /// How a command stands with what covers the window.
 #[derive(Clone, Copy, PartialEq)]
@@ -60,6 +73,10 @@ macro_rules! commands {
             #[derive(Clone, Default, PartialEq, gpui::Action)]
             #[action(name = $id)]
             pub struct $name;
+
+            impl $name {
+                pub const ID: CommandId = CommandId($id);
+            }
         )*
 
         const APPLIES: &[(&str, &[Applies])] = &[

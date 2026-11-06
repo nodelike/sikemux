@@ -3,6 +3,7 @@
 //! and how many things in it wait on the person.
 
 use crate::theme::SPACE_2H;
+use crate::workbench::actions;
 use gpui_kit::div;
 use gpui_kit::App;
 use gpui_kit::AppContext as _;
@@ -123,7 +124,7 @@ pub(crate) fn goals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> Opti
         (true, None) => crate::agents::rail_empty(
             Icon::Steps,
             "No project open",
-            Some(("project.open", "open one")),
+            Some((actions::OpenProject::ID, "open one")),
             cx,
         ),
     };

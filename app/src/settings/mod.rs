@@ -2,6 +2,7 @@
 //! chosen from the list on their left or found by searching. Every change
 //! goes to the core as it is made.
 
+use crate::workbench::actions;
 use sikemux_core::server::call;
 use sikemux_core::server::preferences::SetPreferenceParams;
 use std::cell::Cell;
@@ -329,7 +330,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
     let t = Tokens::get(cx).clone();
     let found = index::search(&settings.query, cx);
     let searching = !settings.query.trim().is_empty();
-    let close_keys = crate::keymap::hint("settings.toggle", cx)
+    let close_keys = crate::keymap::hint(actions::ToggleSettings::ID, cx)
         .map_or_else(|| "Esc".to_owned(), |keys| format!("Esc / {keys}"));
 
     let page_row = |page: Page| {

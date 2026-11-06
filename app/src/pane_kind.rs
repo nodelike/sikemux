@@ -2,6 +2,8 @@
 //! where the rail opens it, its page on the tab rail, whether its menu moves it out of a split
 //! into a tab of its own, how it is made and drawn, and how it takes the keys.
 
+use crate::workbench::actions;
+use crate::workbench::actions::CommandId;
 use gpui_kit::{
     div, AnyElement, App, Context, Focusable, Hsla, IntoElement, ParentElement, Styled, Window,
 };
@@ -61,39 +63,39 @@ pub fn of(kind: PaneKind) -> Kind {
 pub struct Surface {
     pub kind: PaneKind,
     pub label: &'static str,
-    pub command: &'static str,
+    pub command: CommandId,
 }
 
 pub const SURFACES: [Surface; 6] = [
     Surface {
         kind: PaneKind::Files,
         label: "Files",
-        command: "window.files",
+        command: actions::FocusFiles::ID,
     },
     Surface {
         kind: PaneKind::Terminal,
         label: "Terminal",
-        command: "window.terminal",
+        command: actions::FocusTerminal::ID,
     },
     Surface {
         kind: PaneKind::Agent,
         label: "Agents",
-        command: "window.agents",
+        command: actions::FocusAgents::ID,
     },
     Surface {
         kind: PaneKind::Git,
         label: "Git",
-        command: "window.git",
+        command: actions::FocusGit::ID,
     },
     Surface {
         kind: PaneKind::Search,
         label: "Search",
-        command: "search.global",
+        command: actions::FocusSearch::ID,
     },
     Surface {
         kind: PaneKind::Board,
         label: "Agent board",
-        command: "window.board",
+        command: actions::FocusBoard::ID,
     },
 ];
 

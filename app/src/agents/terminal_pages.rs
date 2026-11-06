@@ -1,6 +1,7 @@
 //! The tab rail's pages for terminals with no project and for an SSH
 //! host.
 
+use crate::workbench::actions;
 use gpui_kit::component::menu::ContextMenuExt;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -35,7 +36,7 @@ pub(crate) fn terminals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> 
             rail_empty(
                 Icon::Terminal,
                 "No project open",
-                Some(("project.open", "open one")),
+                Some((actions::OpenProject::ID, "open one")),
                 cx,
             )
         } else {
@@ -48,7 +49,7 @@ pub(crate) fn terminals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> 
             rail_empty(
                 Icon::Terminal,
                 title,
-                Some(("terminal.new", "start one")),
+                Some((actions::NewTerminal::ID, "start one")),
                 cx,
             )
         }
@@ -65,7 +66,7 @@ pub(crate) fn terminals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> 
                         "new-terminal",
                         Icon::Plus,
                         "New terminal",
-                        "terminal.new",
+                        actions::NewTerminal::ID,
                         cx,
                     )
                     .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
@@ -147,7 +148,7 @@ pub(crate) fn ssh_page(
         rail_empty(
             Icon::Terminal,
             "No terminals open",
-            Some(("terminal.new", "start one")),
+            Some((actions::NewTerminal::ID, "start one")),
             cx,
         )
     });
@@ -163,7 +164,7 @@ pub(crate) fn ssh_page(
                         "new-terminal",
                         Icon::Terminal,
                         "New terminal",
-                        "terminal.new",
+                        actions::NewTerminal::ID,
                         cx,
                     )
                     .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
@@ -173,7 +174,7 @@ pub(crate) fn ssh_page(
                         "install-sikemux",
                         Icon::Download,
                         "Install Sikemux",
-                        "agent.new",
+                        actions::NewChat::ID,
                         cx,
                     )
                     .on_click(cx.listener(move |bench, _, _, _| bench.open_install_pane(&alias))),

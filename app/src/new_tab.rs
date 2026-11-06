@@ -1,6 +1,8 @@
 //! New…: every kind of tab the window can open, each by the command that opens
 //! it, so a kind joins the list once the window can do its command.
 
+use crate::workbench::actions;
+use crate::workbench::actions::CommandId;
 use gpui_kit::{Context, Window};
 
 use sikemux_view::layout::PaneKind;
@@ -12,7 +14,7 @@ use crate::palette::{Mark, Row, Spec};
 use crate::workbench::{Strip, Workbench};
 
 struct Choice {
-    command: &'static str,
+    command: CommandId,
     label: &'static str,
     detail: &'static str,
     icon: Icon,
@@ -22,7 +24,7 @@ struct Choice {
 
 impl Choice {
     /// A tab of `kind`, called and marked as such tabs are.
-    fn of(kind: PaneKind, command: &'static str, detail: &'static str, in_project: bool) -> Self {
+    fn of(kind: PaneKind, command: CommandId, detail: &'static str, in_project: bool) -> Self {
         let kind = crate::pane_kind::of(kind);
         Self {
             command,
@@ -36,22 +38,27 @@ impl Choice {
 
 fn choices() -> [Choice; 9] {
     [
-        Choice::of(PaneKind::Terminal, "terminal.new", "A new shell", false),
+        Choice::of(
+            PaneKind::Terminal,
+            actions::NewTerminal::ID,
+            "A new shell",
+            false,
+        ),
         Choice::of(
             PaneKind::Agent,
-            "agent.choose",
+            actions::ChooseAgent::ID,
             "Start or resume an agent",
             true,
         ),
         Choice {
-            command: "browser.tabNew",
+            command: actions::NewPage::ID,
             label: "Browser",
             detail: "A page on the agent's desk",
             icon: Icon::Globe,
             in_project: true,
         },
         Choice {
-            command: "simulator.new",
+            command: actions::NewSimulator::ID,
             label: "iOS Simulator",
             detail: "Drive an iPhone on the agent's desk",
             icon: Icon::Phone,
@@ -59,31 +66,31 @@ fn choices() -> [Choice; 9] {
         },
         Choice::of(
             PaneKind::Files,
-            "palette.files",
+            actions::OpenFile::ID,
             "Open a project file",
             true,
         ),
         Choice::of(
             PaneKind::Git,
-            "window.git",
+            actions::FocusGit::ID,
             "Changes, branches, remotes and stashes",
             true,
         ),
         Choice::of(
             PaneKind::Search,
-            "search.global",
+            actions::FocusSearch::ID,
             "Search across the project",
             true,
         ),
         Choice::of(
             PaneKind::Board,
-            "window.board",
+            actions::FocusBoard::ID,
             "What the project's agents are doing",
             true,
         ),
         Choice::of(
             PaneKind::Mod,
-            "palette.mods",
+            actions::OpenMod::ID,
             "A panel you or an agent made",
             false,
         ),
@@ -102,11 +109,12 @@ impl Workbench {
         let in_project = matches!(self.strip(), Some(Strip::Project(_)));
         let rows = choices()
             .iter()
-            .filter(|choice| cx.build_action(choice.command, None).is_ok())
-            .filter(|choice| cfg!(target_os = "macos") || choice.command != "simulator.new")
+            .filter(|choice| {
+                cfg!(target_os = "macos") || choice.command != actions::NewSimulator::ID
+            })
             .map(|choice| {
                 let shut = choice.in_project && !in_project;
-                Row::new(choice.command, choice.label)
+                Row::new(choice.command.name(), choice.label)
                     .meta(if shut {
                         "open a project first"
                     } else {
@@ -122,7 +130,7 @@ impl Workbench {
             "open a new tab…",
             rows,
             |row, _, window, cx| {
-                keymap::dispatch(&row.key, window, cx);
+                keymap::dispatch_named(&row.key, window, cx);
             },
         )
         .numbered()
@@ -132,13 +140,13 @@ impl Workbench {
 
     fn toggle_ssh_new_tab(&mut self, alias: String, window: &mut Window, cx: &mut Context<Self>) {
         let rows = vec![
-            Row::new("terminal.new", "SSH terminal")
+            Row::new(actions::NewTerminal::ID.name(), "SSH terminal")
                 .meta(format!("A new login on {alias}"))
-                .keys(keymap::hint("terminal.new", cx))
+                .keys(keymap::hint(actions::NewTerminal::ID, cx))
                 .mark(Mark::Icon(Icon::Terminal)),
             Row::new(INSTALL, "Install Sikemux")
                 .meta(format!("What Sikemux adds on {alias}, and the installer"))
-                .keys(keymap::hint("agent.new", cx))
+                .keys(keymap::hint(actions::NewChat::ID, cx))
                 .mark(Mark::Icon(Icon::Download)),
         ];
         let spec = Spec::new(
@@ -147,7 +155,7 @@ impl Workbench {
             rows,
             move |row, bench, window, cx| match row.key.as_ref() {
                 INSTALL => bench.open_install_pane(&alias),
-                command => keymap::dispatch(command, window, cx),
+                command => keymap::dispatch_named(command, window, cx),
             },
         )
         .width(440.);

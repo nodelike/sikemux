@@ -2,6 +2,7 @@ use crate::battery::battery_chip;
 use crate::core::Target;
 use crate::tabs;
 use crate::tasks::chip::run_chip;
+use crate::workbench::actions;
 use sikemux_core::server::call;
 use sikemux_core::server::layout::TabParams;
 use sikemux_core::server::layout::TabsParams;
@@ -55,7 +56,7 @@ fn goals_toggle(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElem
         true => "Back to the workbench",
         false => "Goals",
     };
-    let tip = match crate::keymap::hint("window.goals", cx) {
+    let tip = match crate::keymap::hint(actions::ToggleGoals::ID, cx) {
         Some(keys) => format!("{label} — {keys}"),
         None => label.to_owned(),
     };
@@ -128,7 +129,7 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                             IconButton::new(
                                 "focus",
                                 Icon::Focus,
-                                match crate::keymap::hint("view.focusMode", cx) {
+                                match crate::keymap::hint(actions::FocusMode::ID, cx) {
                                     Some(keys) => format!("Focus mode — hide rails — {keys}"),
                                     None => "Focus mode — hide rails".to_owned(),
                                 },
@@ -178,7 +179,7 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                 IconButton::new("new-tab", Icon::Plus, "New tab")
                     .glyph(13.)
                     .on_click(|_, window, cx| {
-                        crate::keymap::dispatch("palette.newTab", window, cx)
+                        crate::keymap::dispatch(actions::NewTab::ID, window, cx)
                     }),
             )
     });
@@ -236,7 +237,7 @@ fn git_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
             .text_color(t.text_tertiary)
             .hover(move |style| style.text_color(t.text_primary))
             .tooltip(ui::tooltip(about.join(" · ")))
-            .on_click(|_, window, cx| crate::keymap::dispatch("window.git", window, cx))
+            .on_click(|_, window, cx| crate::keymap::dispatch(actions::FocusGit::ID, window, cx))
             .child(mark)
             .child(
                 div()

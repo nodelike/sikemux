@@ -1,6 +1,8 @@
 //! The first run's welcome over the whole window: the first moves to make, and the
 //! agents on this machine with an install or a sign-in for those that need one.
 
+use crate::workbench::actions;
+use crate::workbench::actions::CommandId;
 use std::cell::Cell;
 
 use gpui_kit::prelude::FluentBuilder;
@@ -25,27 +27,27 @@ use crate::ui;
 use crate::workbench::Workbench;
 
 /// Real first moves; picking one closes the welcome and does it.
-const MOVES: [(&str, &str, &str, Icon); 4] = [
+const MOVES: [(CommandId, &str, &str, Icon); 4] = [
     (
-        "project.open",
+        actions::OpenProject::ID,
         "Open a project",
         "Pick a folder or repository to work in",
         Icon::Folder,
     ),
     (
-        "agent.new",
+        actions::NewChat::ID,
         "Start an agent",
         "In a project you pick, ready to type to",
         Icon::Agent,
     ),
     (
-        "palette.commands",
+        actions::OpenCommands::ID,
         "Browse commands",
         "Every action and its shortcut",
         Icon::Search,
     ),
     (
-        "ssh.open",
+        actions::OpenHost::ID,
         "Connect to a host",
         "Hosts from your SSH config",
         Icon::Server,
@@ -97,7 +99,7 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     .detach();
 }
 
-fn take(id: &'static str, window: &mut Window, cx: &mut Context<Workbench>, bench: &mut Workbench) {
+fn take(id: CommandId, window: &mut Window, cx: &mut Context<Workbench>, bench: &mut Workbench) {
     experience::close(bench, cx);
     keymap::dispatch(id, window, cx);
 }
@@ -145,7 +147,7 @@ fn key_down(
     let keystroke = &event.keystroke;
     if let Some(&(id, ..)) = MOVES
         .iter()
-        .find(|(id, ..)| keymap::pressed(id, keystroke, cx))
+        .find(|(id, ..)| keymap::pressed(id.name(), keystroke, cx))
     {
         cx.stop_propagation();
         return take(id, window, cx, bench);
@@ -196,7 +198,7 @@ pub fn render(
             let this = this.clone();
             let keys = keymap::hint(id, cx);
             div()
-                .id(SharedString::from(format!("welcome-{id}")))
+                .id(SharedString::from(format!("welcome-{}", id.name())))
                 .track_focus(focus)
                 .flex()
                 .items_center()

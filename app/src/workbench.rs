@@ -62,7 +62,7 @@ const PICTURE_BUDGET: usize = 256 * 1024 * 1024;
 /// The longest a space's name may be, as on the Mac.
 pub(crate) const MAX_SPACE_NAME: usize = 40;
 
-pub(crate) mod actions;
+pub mod actions;
 mod feed;
 
 /// The one store: what the core last said, and what only this window decides.

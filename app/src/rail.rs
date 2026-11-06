@@ -1,3 +1,4 @@
+use crate::workbench::actions;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::HashSet;
@@ -189,11 +190,11 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                     Group::new("Projects", empty)
                         .first()
                         .actions(actions(
-                            keymap::hint("project.open", cx),
+                            keymap::hint(actions::OpenProject::ID, cx),
                             [
                                 IconButton::new("add-project", Icon::Plus, "Open project")
                                     .on_click(|_, window, cx| {
-                                        keymap::dispatch("project.open", window, cx)
+                                        keymap::dispatch(actions::OpenProject::ID, window, cx)
                                     }),
                             ],
                             cx,
@@ -204,14 +205,16 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                 .child(
                     Group::new("Hosts", "no hosts")
                         .actions(actions(
-                            keymap::hint("ssh.open", cx),
+                            keymap::hint(actions::OpenHost::ID, cx),
                             [
                                 IconButton::new("edit-ssh", Icon::Pencil, "Edit ~/.ssh/config")
                                     .on_click(cx.listener(|bench, _, _, cx| {
                                         bench.edit_ssh_config(None, cx)
                                     })),
                                 IconButton::new("add-host", Icon::Plus, "Find a host").on_click(
-                                    |_, window, cx| keymap::dispatch("ssh.open", window, cx),
+                                    |_, window, cx| {
+                                        keymap::dispatch(actions::OpenHost::ID, window, cx)
+                                    },
                                 ),
                             ],
                             cx,
@@ -1297,7 +1300,7 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         .mark(24., avatar(bench, account, 24., &t))
         .centered();
     use crate::settings::Page;
-    let settings_keys = keymap::hint("settings.toggle", cx);
+    let settings_keys = keymap::hint(actions::ToggleSettings::ID, cx);
     let act = |act: fn(&mut Workbench, &mut Window, &mut Context<Workbench>)| {
         Rc::new(cx.listener(move |bench, _: &ClickEvent, window, cx| act(bench, window, cx)))
     };
@@ -1391,7 +1394,7 @@ fn settings_button() -> IconButton {
     IconButton::new("settings", Icon::Settings, "Settings")
         .glyph(14.)
         .width(28.)
-        .on_click(|_, window, cx| keymap::dispatch("settings.toggle", window, cx))
+        .on_click(|_, window, cx| keymap::dispatch(actions::ToggleSettings::ID, window, cx))
 }
 
 /// The account's picture in a circle, else its initials.

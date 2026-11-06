@@ -303,7 +303,7 @@ pub fn search(query: &str, cx: &App) -> Vec<Entry> {
         return Vec::new();
     }
     let shortcuts = keymap::shortcuts().iter().map(|shortcut| {
-        let keys = keymap::hint(shortcut.id, cx).unwrap_or_default();
+        let keys = keymap::hint_named(shortcut.id, cx).unwrap_or_default();
         let entry = Entry {
             page: Keyboard,
             section: "Shortcuts",

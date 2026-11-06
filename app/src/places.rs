@@ -3,6 +3,7 @@
 //! bringing forward a project's files, agents, terminals or board, and switching the window to
 //! the goals and back.
 
+use crate::workbench::actions;
 use gpui_kit::{App, Context, Window};
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
@@ -157,7 +158,7 @@ impl Workbench {
             .map(|tab| tab.id.clone());
         match agent {
             Some(tab) => self.activate_tab(&strip, &tab),
-            None => crate::keymap::dispatch("agent.choose", window, cx),
+            None => crate::keymap::dispatch(actions::ChooseAgent::ID, window, cx),
         }
     }
 

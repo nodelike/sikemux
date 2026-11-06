@@ -18,7 +18,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use crate::core::Ask;
-use crate::workbench::actions::{applies, Applies, QuitAndStopEverything};
+use crate::workbench::actions::{applies, Applies, CommandId, QuitAndStopEverything};
 
 static TABLE: &str = include_str!("../../crates/sikemux-core/src/assets/keybindings.json");
 
@@ -249,6 +249,10 @@ pub fn bind(overrides: &BTreeMap<String, Option<String>>, cx: &mut App) {
             continue;
         };
         let Ok(action) = cx.build_action(shortcut.id, None) else {
+            eprintln!(
+                "sikemux: the shortcut table names {}, which is no command",
+                shortcut.id
+            );
             continue;
         };
         let context = KeyBindingContextPredicate::parse(&context(shortcut.id, &keys))
@@ -270,7 +274,12 @@ pub fn bind(overrides: &BTreeMap<String, Option<String>>, cx: &mut App) {
 }
 
 /// Does what command `id` does, as its shortcut would; nothing while no part of the app has it.
-pub fn dispatch(id: &str, window: &mut Window, cx: &mut App) {
+pub fn dispatch(id: CommandId, window: &mut Window, cx: &mut App) {
+    dispatch_named(id.name(), window, cx);
+}
+
+/// [`dispatch`] for an id that comes from a table or a palette's row.
+pub fn dispatch_named(id: &str, window: &mut Window, cx: &mut App) {
     if let Ok(action) = cx.build_action(id, None) {
         used(id, cx);
         window.dispatch_action(action, cx);
@@ -310,7 +319,12 @@ pub fn pressed(id: &str, keystroke: &Keystroke, cx: &App) -> bool {
 }
 
 /// The keys `id` is bound to as the app shows them, such as ⌘⇧P, or none when it is unbound.
-pub fn hint(id: &str, cx: &App) -> Option<SharedString> {
+pub fn hint(id: CommandId, cx: &App) -> Option<SharedString> {
+    hint_named(id.name(), cx)
+}
+
+/// [`hint`] for an id that comes from a table.
+pub fn hint_named(id: &str, cx: &App) -> Option<SharedString> {
     label(cx.try_global::<Keymap>()?.bound.get(id)?)
 }
 

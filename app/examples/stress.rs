@@ -39,6 +39,7 @@ use gpui::{
 use gpui_transcript::Row as _;
 use serde_json::{json, Value};
 use sikemux_client::client::CoreClient;
+use sikemux_gpui::workbench::actions::{self, CommandId};
 use sikemux_gpui::workbench::Workbench;
 use sikemux_gpui::{core, icons, memory, theme, WINDOW_SIZE};
 use sikemux_view::layout::Pane;
@@ -303,11 +304,10 @@ impl Run {
         }
     }
 
-    fn act(&mut self, id: &str) {
-        let id = id.to_owned();
+    fn act(&mut self, id: CommandId) {
         self.cx
             .update_window(self.window, |_, window, cx| {
-                if let Ok(action) = cx.build_action(&id, None) {
+                if let Ok(action) = cx.build_action(id.name(), None) {
                     window.dispatch_action(action, cx);
                 }
             })
@@ -846,7 +846,7 @@ fn new_chats(run: &mut Run, driver: &Arc<Driver>) {
             });
         }
         let began = Instant::now();
-        run.act("agent.new");
+        run.act(actions::NewChat::ID);
         if !run.until(15, |run| run.front_chat() != before) {
             println!("new chat: none came to the front in 15 s");
             return;
@@ -1251,12 +1251,12 @@ fn flood(run: &mut Run, driver: &Arc<Driver>, log: &Path) {
 
 fn repo(run: &mut Run, driver: &Arc<Driver>) {
     run.frames(120);
-    run.act("window.git");
+    run.act(actions::FocusGit::ID);
     run.frames(10);
     let git = run.measure(15., |_, _| {});
     println!("{}", git.line("the Git tab on the large repository"));
     run.shot("repo-git");
-    run.act("window.files");
+    run.act(actions::FocusFiles::ID);
     let files = run.measure(10., move |run, index| {
         if index % 30 == 0 {
             run.wheel((WINDOW_SIZE.0 - 150., WINDOW_SIZE.1 / 2.), -8.)
@@ -1264,7 +1264,7 @@ fn repo(run: &mut Run, driver: &Arc<Driver>) {
     });
     println!("{}", files.line("the Files rail on the large repository"));
     run.shot("repo-files");
-    run.act("window.search");
+    run.act(actions::FocusSearchWindow::ID);
     run.frames(20);
     for key in ["n", "e", "e", "d", "l", "e"] {
         run.key(key);
@@ -1275,7 +1275,7 @@ fn repo(run: &mut Run, driver: &Arc<Driver>) {
         searched.line("searching the large repository for \"needle\"")
     );
     run.shot("repo-search");
-    run.act("palette.files");
+    run.act(actions::OpenFile::ID);
     run.frames(20);
     let finder = run.measure(10., |run, index| {
         let typed = ["m", "o", "d", "4", "2", "backspace", "7"];

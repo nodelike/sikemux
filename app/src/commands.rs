@@ -2,6 +2,7 @@
 //! commands, the ones used last first.
 
 use crate::core::Target;
+use crate::workbench::actions;
 use gpui_kit::{App, Context, SharedString, Window};
 use sikemux_core::server::call;
 use sikemux_core::server::tasks::ConfigStatus;
@@ -156,7 +157,7 @@ const STANDALONE: [Standalone; 9] = [
         detail: "Stop every terminal, terminal agent and process, then quit. Plain Quit leaves them running.",
         category: "Application",
         offered: |_| true,
-        run: |_, window, cx| keymap::dispatch("app.quitAndStopEverything", window, cx),
+        run: |_, window, cx| keymap::dispatch(actions::QuitAndStopEverything::ID, window, cx),
     },
     Standalone {
         id: "agents.reload-manifests",
@@ -351,7 +352,7 @@ impl Workbench {
             .map(|shortcut| {
                 Row::new(Pick::Builtin(shortcut.id).key(), shortcut.label)
                     .meta(shortcut.category)
-                    .keys(keymap::hint(shortcut.id, cx))
+                    .keys(keymap::hint_named(shortcut.id, cx))
                     .also(shortcut.detail)
                     .also(shortcut.category)
                     .also(shortcut.id)
@@ -405,7 +406,7 @@ impl Workbench {
             |row, bench, window, cx| {
                 bench.remember_command(row.key.clone(), cx);
                 match Pick::read(&row.key) {
-                    Some(Pick::Builtin(id)) => keymap::dispatch(id, window, cx),
+                    Some(Pick::Builtin(id)) => keymap::dispatch_named(id, window, cx),
                     Some(Pick::Custom(id)) => bench.run_custom_command(id, cx),
                     Some(Pick::Action(id)) => {
                         bench.run_command(Which::Action(id.to_string()), row.title.to_string(), cx)

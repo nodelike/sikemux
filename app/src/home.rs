@@ -1,5 +1,7 @@
 use crate::activity_view::calendar;
 use crate::activity_view::Metric;
+use crate::workbench::actions;
+use crate::workbench::actions::CommandId;
 
 use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::input::Input;
@@ -156,7 +158,7 @@ fn under_header(
 /// A project with every tab closed, which would otherwise show nothing to click.
 fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let hint = |id: &str| crate::keymap::hint(id, cx);
+    let hint = |id: CommandId| crate::keymap::hint(id, cx);
     div()
         .size_full()
         .flex()
@@ -179,17 +181,17 @@ fn empty_stage(cx: &mut Context<Workbench>) -> impl IntoElement {
                 .gap(SPACE_2)
                 .child(
                     Button::new("empty-new-agent", "New agent", Variant::Outline)
-                        .keys(hint("agent.new"))
+                        .keys(hint(actions::NewChat::ID))
                         .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
                 )
                 .child(
                     Button::new("empty-new-terminal", "New terminal", Variant::Outline)
-                        .keys(hint("terminal.new"))
+                        .keys(hint(actions::NewTerminal::ID))
                         .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
                 )
                 .child(
                     Button::new("empty-open-file", "Open file", Variant::Outline)
-                        .keys(hint("palette.files"))
+                        .keys(hint(actions::OpenFile::ID))
                         .on_click(cx.listener(|bench, _, window, cx| {
                             bench.toggle_finder(window, cx);
                             cx.notify();

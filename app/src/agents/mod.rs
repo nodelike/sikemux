@@ -2,6 +2,8 @@ use crate::agents::limits::limits;
 use crate::agents::terminal_pages::ssh_page;
 use crate::agents::terminal_pages::terminals_page;
 use crate::hosts::Place;
+use crate::workbench::actions;
+use crate::workbench::actions::CommandId;
 use sikemux_core::server::agent_view::AgentViewKind;
 use sikemux_core::server::agent_view::AgentViewParams;
 use sikemux_core::server::call;
@@ -163,12 +165,17 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 false => format!("No chats in {} on {host}", project.name),
             });
         if let Some(title) = shown {
-            rail_empty(Icon::Agent, title, Some(("agent.new", "start one")), cx)
+            rail_empty(
+                Icon::Agent,
+                title,
+                Some((actions::NewChat::ID, "start one")),
+                cx,
+            )
         } else if project.is_none() {
             rail_empty(
                 Icon::Agent,
                 "No project open",
-                Some(("project.open", "open one")),
+                Some((actions::OpenProject::ID, "open one")),
                 cx,
             )
         } else if bench.launchers().is_empty() {
@@ -191,7 +198,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
             rail_empty(
                 Icon::Agent,
                 "No agents yet",
-                Some(("agent.new", "start one")),
+                Some((actions::NewChat::ID, "start one")),
                 cx,
             )
         }
@@ -216,7 +223,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                         .map(|host| ui::meta(format!("on {host}"), cx).px(SPACE_2).pt(SPACE_1)),
                 )
                 .child(
-                    new_row("new-chat", Icon::Plus, "New chat", "agent.new", cx)
+                    new_row("new-chat", Icon::Plus, "New chat", actions::NewChat::ID, cx)
                         .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
                 )
                 .child(
@@ -224,7 +231,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                         "new-terminal",
                         Icon::Terminal,
                         "New terminal",
-                        "terminal.new",
+                        actions::NewTerminal::ID,
                         cx,
                     )
                     .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
@@ -234,11 +241,11 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                         "new-browser",
                         Icon::Globe,
                         "New browser",
-                        "browser.tabNew",
+                        actions::NewPage::ID,
                         cx,
                     )
                     .on_click(|_, window, cx| {
-                        crate::keymap::dispatch("browser.tabNew", window, cx)
+                        crate::keymap::dispatch(actions::NewPage::ID, window, cx)
                     }),
                 )
                 .child(div().mt(SPACE_2).child(scope_switch(bench, cx))),
@@ -292,7 +299,9 @@ fn header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
                 }))
                 .into_any_element(),
             IconButton::new("start-agent", Icon::Plus, "Choose agent")
-                .on_click(|_, window, cx| crate::keymap::dispatch("agent.choose", window, cx))
+                .on_click(|_, window, cx| {
+                    crate::keymap::dispatch(actions::ChooseAgent::ID, window, cx)
+                })
                 .into_any_element(),
         ],
         bench,
@@ -627,7 +636,13 @@ fn pin_chat(this: &Entity<Workbench>, recent: &RecentInfo) -> (&'static str, Cli
     (label, Rc::new(pin))
 }
 
-fn new_row(id: &'static str, glyph: Icon, label: &'static str, command: &str, cx: &App) -> Row {
+fn new_row(
+    id: &'static str,
+    glyph: Icon,
+    label: &'static str,
+    command: CommandId,
+    cx: &App,
+) -> Row {
     let t = Tokens::get(cx).clone();
     Row::new(id, label)
         .mark(
@@ -1206,7 +1221,7 @@ fn other_host(bench: &Workbench) -> Option<SharedString> {
 pub(crate) fn rail_empty(
     glyph: Icon,
     title: impl Into<SharedString>,
-    press: Option<(&str, &'static str)>,
+    press: Option<(CommandId, &'static str)>,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();

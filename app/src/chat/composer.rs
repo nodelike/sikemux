@@ -1,3 +1,4 @@
+use crate::workbench::actions;
 use std::cell::Cell;
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
@@ -767,7 +768,7 @@ fn yolo(
     cx: &App,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let press = crate::keymap::hint("agent.permissions", cx).unwrap_or("Click".into());
+    let press = crate::keymap::hint(actions::ToggleYolo::ID, cx).unwrap_or("Click".into());
     let about = if on {
         format!("YOLO mode on — {agent} runs without approvals. {press} turns it off.")
     } else {

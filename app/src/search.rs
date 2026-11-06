@@ -2,6 +2,7 @@
 //! listed as they arrive, the chosen one previewed in place, and every match replaced
 //! once the person has seen how many.
 
+use crate::workbench::actions;
 use gpui_kit::component::input::AnyInputState;
 use sikemux_core::server::call;
 use sikemux_core::server::search::{ReplaceParams, SearchParams, WindowParams};
@@ -1446,7 +1447,7 @@ fn foot(cx: &App) -> Div {
         .child(hint("⏎".into(), "open"))
         .child(hint("tab".into(), "replace"))
         .child(hint("⌘⏎".into(), "replace all"))
-        .children(crate::keymap::hint("search.global", cx).map(|keys| hint(keys, "focus")))
+        .children(crate::keymap::hint(actions::FocusSearch::ID, cx).map(|keys| hint(keys, "focus")))
 }
 
 impl Workbench {
