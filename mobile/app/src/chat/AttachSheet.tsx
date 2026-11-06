@@ -15,7 +15,6 @@ import { libraryPhotos, pickFiles, pickPhotos, takePhoto } from './pick';
 import type { Attachment } from './uploads';
 
 const COLUMNS = 4;
-/** The space around each square in the grid. */
 const INSET = 2;
 const HANDLE = 25;
 const TILES = 96;

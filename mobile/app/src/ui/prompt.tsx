@@ -72,7 +72,6 @@ export function Prompt({
   );
 }
 
-/** A screen that is only a prompt, with its buttons at the bottom. */
 export function PromptScreen({ actions, ...prompt }: Parameters<typeof Prompt>[0] & { actions: ReactNode }) {
   const styles = useStyles(makeStyles);
   const bottom = useBottomGap();
@@ -84,7 +83,6 @@ export function PromptScreen({ actions, ...prompt }: Parameters<typeof Prompt>[0
   );
 }
 
-/** What an empty list shows: a small glyph over one quiet line. */
 export function EmptyState({ icon, text }: { icon: Glyph; text: string }) {
   const styles = useStyles(makeStyles);
   return (

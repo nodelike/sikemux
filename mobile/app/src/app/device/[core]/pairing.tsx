@@ -84,7 +84,6 @@ function usePairing(connection: ConnectionLike | undefined) {
   };
 }
 
-/** One paired device: what it may do, and taking it off the host. */
 function DeviceSheet({
   device,
   onClose,

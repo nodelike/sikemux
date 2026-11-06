@@ -1,7 +1,6 @@
 import CryptoKit
 import Foundation
 
-/// A notification key the phone gave one host.
 struct HostKey {
   let host: String
   let keyId: UInt32

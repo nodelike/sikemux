@@ -8,7 +8,6 @@ import { useColors } from './theme';
 
 const COPIED_MS = 1200;
 
-/** Copies `value`, and shows a check for a moment once it has. */
 export function CopyButton({
   value,
   label,

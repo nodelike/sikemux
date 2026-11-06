@@ -188,7 +188,6 @@ export default function NewChat() {
   const [attachments, setAttachments] = useState<Attachment[]>(
     () => held?.attachments.filter((attachment) => new File(attachment.uri).exists) ?? [],
   );
-  /** Stashed links and text picked for the message, shown as chips and sent as words. */
   const [chips, setChips] = useState<StashItem[]>(held?.chips ?? []);
   const [sending, setSending] = useState<Sending>();
   const starting = Boolean(sending);

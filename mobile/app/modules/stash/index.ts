@@ -3,7 +3,6 @@ import { requireOptionalNativeModule } from 'expo';
 /** A file another app shared; one too large to stash has no `uri`. */
 export type SharedFile = { uri: string | null; name: string; mime: string; size: number };
 
-/** What another app shared to Sikemux through the share menu. */
 export type Shared = { text?: string | null; subject?: string | null; files: SharedFile[] };
 
 type StashModule = {

@@ -37,7 +37,6 @@ function Step({ icon, label, onPress }: { icon: IconName; label: string; onPress
   );
 }
 
-/** Find in chat, where the composer was: the words, how many places the host found, its options, and stepping through them. */
 export function FindBar({ find, onClose }: { find: ChatFind; onClose: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);

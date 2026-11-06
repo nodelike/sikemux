@@ -70,7 +70,6 @@ export function Button({
   );
 }
 
-/** A text box in the app's controls: sunken, rounded, edged in the accent while typing in it. `icon` says what goes in it. */
 export function Field({ icon, ...props }: TextInputProps & { icon?: IconName }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -122,7 +121,6 @@ export function PasswordField(props: Omit<TextInputProps, 'secureTextEntry'>) {
   );
 }
 
-/** A small rounded control that sits in a row of others, a little apart. */
 export function Chip({
   title,
   primary,

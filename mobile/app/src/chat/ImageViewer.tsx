@@ -33,7 +33,6 @@ async function save(shown: string, name: string): Promise<boolean> {
   return true;
 }
 
-/** A picture a message carried, over the whole screen, to look at closely and save. */
 export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; name: string; onClose: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);

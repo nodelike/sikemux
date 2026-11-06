@@ -1,11 +1,9 @@
 import Foundation
 
-/// What a host asked the phone to show, as it sealed it.
 typealias Card = NotificationCard
 
 extension NotificationCard {
   static let version = 1
-  /// The category whose cards carry Reject and Allow.
   static let answerCategory = NotificationCategory.permission.rawValue
 
   var answerable: Bool {

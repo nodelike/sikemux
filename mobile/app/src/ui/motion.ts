@@ -49,7 +49,6 @@ export function useSecond(on = true): number {
   return useExternalValue(second, (now) => (on ? now : 0));
 }
 
-/** Whether the app is in front. */
 export function useAppActive(): boolean {
   return useExternalValue(appActive);
 }

@@ -46,7 +46,6 @@ export function useForget(device: PairedDevice | undefined, done?: () => void) {
   return { forgetting, problem, leave };
 }
 
-/** The device screen's options: who may connect to the host, and forgetting it. */
 export function ForgetSheet({ device, visible, onClose }: { device: PairedDevice; visible: boolean; onClose: () => void }) {
   const styles = useStyles(makeStyles);
   const { forgetting, problem, leave } = useForget(device, onClose);

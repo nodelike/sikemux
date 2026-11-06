@@ -12,7 +12,6 @@ type CallAnswer<M extends string> = M extends keyof CoreCalls ? CoreCalls[M]['an
 /** What the host last answered a call with, and why the latest read failed if it did. */
 type HostRead<T> = { data?: T; problem?: string };
 
-/** Calls the core's `method` on the host. */
 export async function callHost<M extends string>(connection: ConnectionLike, method: M, params: CallParams<M>): Promise<CallAnswer<M>> {
   return JSON.parse(await connection.call(method, JSON.stringify(params))) as CallAnswer<M>;
 }

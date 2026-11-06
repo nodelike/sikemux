@@ -3,7 +3,6 @@ import type { ApnsEnvironment } from '@sikemux/protocol';
 
 export type ShownCard = { tag: string; host: string; agent?: string; kind?: string; request?: string };
 
-/** How an answer from a card went, as the card then says. */
 export type AnswerOutcome = 'answered' | 'rejected' | 'gone' | 'failed';
 
 type NotifyModule = {

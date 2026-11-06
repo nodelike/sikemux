@@ -27,14 +27,12 @@ private struct Snapshot: Decodable {
   let newChat: ShareNewChat?
 }
 
-/// One thing being shared, as it will be stashed.
 enum Outgoing {
   case link(URL)
   case text(String)
   case file(url: URL, name: String, mime: String, size: Int64)
 }
 
-/// The most of one item the stash keeps.
 let mostBytes: Int64 = 25 * 1024 * 1024
 /// The longest text the server takes as text; longer text goes as a file.
 let mostText = 16000

@@ -58,7 +58,6 @@ function ProjectTail({ snapshot, project }: { snapshot: Snapshot; project: Proje
   );
 }
 
-/** The host's name set large over its backdrop, under a line saying whether it is online and what runs on it. */
 function HostHead({ name, line, online }: { name: string; line: string; online: boolean }) {
   const styles = useStyles(makeStyles);
   return (

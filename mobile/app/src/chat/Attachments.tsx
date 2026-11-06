@@ -57,7 +57,6 @@ function StashedOrFile({ attachment }: { attachment: Attachment }) {
   return <FileChip name={attachment.name} size={attachment.size || undefined} tall />;
 }
 
-/** What is picked for the next message, above the composer's text, each with its upload's state. */
 export function ComposerAttachments({
   attachments,
   onRemove,

@@ -17,7 +17,6 @@ export function SectionLabel({ children, count, action }: { children: string; co
   );
 }
 
-/** Rows straight on the ground, a little apart, the way the Mac's rail lists agents. */
 export function Rows({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const styles = useStyles(makeStyles);
   return <View style={[styles.rows, style]}>{children}</View>;

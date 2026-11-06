@@ -30,7 +30,6 @@ const VERSION = versionLabel(versionFromBuild(nativeBuildVersion) ?? nativeAppli
   embedded: Updates.isEmbeddedLaunch,
 });
 
-/** Who is signed in, this phone as the account knows it, and signing out. */
 export function AccountSheet({ visible, onClose }: { visible: boolean; onClose: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);

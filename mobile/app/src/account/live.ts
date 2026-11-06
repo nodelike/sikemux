@@ -16,9 +16,7 @@ export type LiveDeps = {
   cursor: Cursor;
   /** A host joined, changed or left the account: the list of hosts is stale. */
   hostsChanged(): void;
-  /** An item was stashed, changed or removed on the account. */
   stashChanged(): void;
-  /** Another device or host joined the account. */
   deviceAdded(key: string): void;
   /** The server took this phone's hello, so the account is reachable again. */
   ready?(): void;
@@ -34,7 +32,6 @@ function isNews(at: string): boolean {
   return Date.now() - Date.parse(at) < NEW_DEVICE_NEWS_MS;
 }
 
-/** What a frame of events means to this phone. */
 export function readEvents(
   events: AccountEvent[],
   ownKey: string,

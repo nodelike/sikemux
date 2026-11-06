@@ -53,7 +53,6 @@ type Listener = {
 
 const projectPath = (id: string) => PROJECTS.find((project) => project.id === id)?.path ?? '/';
 
-/** The words a core shows for each group. */
 const GROUP_LABELS = { blocked: 'Needs input', working: 'Working', done: 'Done', idle: 'Idle' } as const;
 
 /** How the core shows each demo chat, in the order it lists them. */

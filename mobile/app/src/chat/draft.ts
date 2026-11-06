@@ -12,9 +12,9 @@ import { contextChipsOf, withContext, type ContextChip } from '@/stash/words';
 /** How long typing rests before the draft is saved on the host. */
 const DRAFT_SAVE_MS = 600;
 
-/** A file the host's draft holds, known here only by where the host keeps it. */
 const PICTURE = /\.(jpe?g|png|gif|webp|heic|heif)$/i;
 
+/** A file the host's draft holds, known here only by where the host keeps it. */
 function hostFile(path: string): Attachment {
   return {
     id: `draft:${path}`,

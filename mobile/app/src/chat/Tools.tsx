@@ -141,7 +141,6 @@ export function LiveSeconds({ since, spent = 0, style }: { since?: number; spent
   return <Text style={style}>{secondsSince(started, useSecond() * 1000, spent)}</Text>;
 }
 
-/** A command and what it printed, the way a terminal would have shown them. */
 function Terminal({
   part,
   command,

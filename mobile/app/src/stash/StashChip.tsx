@@ -8,7 +8,6 @@ import { Face, useBearer } from './StashPicker';
 import { useStash } from './store';
 import { itemTitle, type ContextChip } from './words';
 
-/** A stash item as it sits in the composer: its picture or glyph and its title. */
 export function StashPreview({ item }: { item: StashItem }) {
   const styles = useStyles(makeStyles);
   const bearer = useBearer();
@@ -48,7 +47,6 @@ function ChipFace({ uri }: { uri: string }) {
   );
 }
 
-/** A link or text the draft carries, with its × to take it off. */
 export function StashChip({ chip, onRemove }: { chip: ContextChip; onRemove: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);

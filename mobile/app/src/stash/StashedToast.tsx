@@ -3,7 +3,6 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
-/** Above the composer once its prompt went to the stash: "Stashed", with Undo to put it back. */
 export function StashedToast({ done, onUndo }: { done: boolean; onUndo: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);

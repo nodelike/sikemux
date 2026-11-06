@@ -27,7 +27,6 @@ export class AccountDeleting extends Error {
 
 export const OFFLINE = "Can't reach Sikemux. Check the phone is online.";
 
-/** The API's routes, signed in with `token`. */
 export const api = (token: TokenSource) => connectApi({ url: apiUrl(), token, offline: OFFLINE });
 
 /**
@@ -100,7 +99,6 @@ export async function clearPushToken(token: TokenSource): Promise<void> {
   }
 }
 
-/** The hosts signed in to the account. */
 /** The account's device or host with this key, if it is still on the account. */
 export async function accountDevice(token: TokenSource, key: string): Promise<Device | undefined> {
   return (await api(token).listDevices({})).devices.find((device) => device.key === key);

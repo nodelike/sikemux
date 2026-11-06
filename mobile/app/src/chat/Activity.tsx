@@ -7,7 +7,6 @@ import { fonts, type Palette, useStyles } from '@/ui/theme';
 import { useAnimating, useSecond } from '@/ui/motion';
 import { Shimmer } from '@/ui/Shimmer';
 
-/** The working line: the agent's logo breathing beside what it is doing, and for how long. */
 export function Activity({ provider, label, since }: { provider: string; label: string; since: number }) {
   const styles = useStyles(makeStyles);
   const [breath] = useState(() => new Animated.Value(1));

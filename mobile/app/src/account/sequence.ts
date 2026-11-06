@@ -69,7 +69,6 @@ export class AccountSequence {
     this.deps.hostsStale();
   }
 
-  /** The system gave the phone a new notification token. */
   pushChanged() {
     if (this.registered) this.push();
   }

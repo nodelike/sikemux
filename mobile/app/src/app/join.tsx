@@ -23,7 +23,6 @@ function clock(seconds: number): string {
 const LINE = 84;
 const DOT = 6;
 
-/** This phone and the host, with the live dot travelling between them while the host decides. */
 function Handshake() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -64,9 +63,9 @@ function stopped(error: unknown): JoinFailure {
   return { title: 'Connecting stopped', detail: problemOf(error) };
 }
 
-/** Connects to a host on the account; someone at the host still allows it. `arrived` marks a host that just signed in. */
 export { Crashed as ErrorBoundary } from '@/ui/Crashed';
 
+/** Connects to a host on the account; someone at the host still allows it. `arrived` marks a host that just signed in. */
 export default function Join() {
   const styles = useStyles(makeStyles);
   const type = useType();

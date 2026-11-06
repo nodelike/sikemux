@@ -270,7 +270,6 @@ private struct RowPress: ButtonStyle {
   }
 }
 
-/// A glyph on a small raised tile, a title and a line under it, centred: how the sheet ends.
 private struct Settled: View {
   let icon: IconDef
   let tone: Color

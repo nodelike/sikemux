@@ -20,7 +20,6 @@ export const TESTERS_GROUP = 'Testers';
 const PROCESSING_LIMIT_MS = 40 * 60 * 1000;
 const POLL_MS = 30 * 1000;
 
-/** What a build's external TestFlight state asks of us next. */
 export function nextStep(externalState) {
   switch (externalState) {
     case 'PROCESSING':

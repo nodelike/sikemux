@@ -50,7 +50,7 @@ type Uniform = number | boolean | number[];
 
 type Loop = { start: () => void; stop: () => void };
 
-/** The Mac's `ambient` and `image` presets from src/lib/shaderField.ts. */
+/** The `ambient` and `image` presets of the Mac's pane backdrop. */
 function preset(colors: Palette, image: boolean): { fragment: string; speed: number; uniforms: Record<string, Uniform> } {
   const sizing = { u_originX: 0.5, u_originY: 0.5, u_worldWidth: 0, u_worldHeight: 0, u_rotation: 0, u_offsetX: 0, u_offsetY: 0 };
   const clear = [0, 0, 0, 0];

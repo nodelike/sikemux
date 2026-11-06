@@ -9,8 +9,6 @@ import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import type { ChatSession } from './session';
 
-/** The account a chat runs on and the signed-in ones that keep its chats too, as the host's `chatAccounts` answers. */
-
 /** Whether `at`, in Unix milliseconds, is still to come; it turns false as `at` passes. */
 function useAhead(at: number | undefined) {
   const [now, setNow] = useState(() => Date.now());
@@ -61,6 +59,7 @@ export function Trouble({
   const styles = useStyles(makeStyles);
   const failure = state.failure;
   const accountsNeeded = canAct && (failure?.kind === 'signIn' || failure?.kind === 'limit');
+  /** The account a chat runs on and the signed-in ones that keep its chats too, as the host's `chatAccounts` answers. */
   const accounts = useHostCall(
     accountsNeeded ? connection : undefined,
     'chatAccounts',

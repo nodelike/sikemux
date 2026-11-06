@@ -25,7 +25,6 @@ function Item({ icon, label, danger, onPress }: { icon: IconName; label: string;
   );
 }
 
-/** The chat's ⋯ menu: finding words in it, what was sent before, a link that opens this chat on a phone, and stopping the agent. */
 export function ChatMenu({
   visible,
   onClose,

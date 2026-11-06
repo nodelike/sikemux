@@ -118,7 +118,6 @@ function TaskNoticeOrCard({ id, notice }: { id: string; notice: Notice }) {
   return <TaskNotice id={id} notice={notice} />;
 }
 
-/** A message's parts in order, with each run of tool calls drawn as one group. */
 function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boolean }) {
   const styles = useStyles(makeStyles);
   const groups = groupParts(parts);
@@ -159,7 +158,6 @@ function Parts({ id, parts, live }: { id: string; parts: ChatPart[]; live: boole
   );
 }
 
-/** A picture in an answer, opening over the whole screen on a tap. */
 function Picture({ uri, name }: { uri: string; name: string }) {
   const styles = useStyles(makeStyles);
   const [open, setOpen] = useState(false);
@@ -192,7 +190,6 @@ function HostPicture({ path, name }: { path: string; name: string }) {
   return uri ? <Picture uri={uri} name={name} /> : <ResourceChip name={name} image />;
 }
 
-/** An image or file the agent put in its answer. */
 function Content({ block }: { block: ContentBlock }) {
   const styles = useStyles(makeStyles);
   if (block.type === 'text' && block.text.trim()) return <Markdown blocks={plainBlocks(block.text)} style={styles.prose} />;
@@ -288,7 +285,6 @@ export function Message({
   kept?: readonly number[] | null;
   /** Writes this message again; absent when the chat cannot take it back. */
   onEdit?: (message: ChatMessage) => void;
-  /** This message is being written again. */
   editing?: Editing;
 }) {
   const colors = useColors();

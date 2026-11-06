@@ -7,8 +7,6 @@ import { haptics } from '@/ui/haptics';
 import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
-/** YOLO or safe, as the Mac's toggle says it; a tap switches it where the host can. */
-/** The Mac's YOLO word, in its rainbow. */
 function YoloWord() {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -33,6 +31,7 @@ function YoloWord() {
   );
 }
 
+/** YOLO or safe, as the Mac's toggle says it; a tap switches it where the host can. */
 export function YoloToggle({
   core,
   mode,

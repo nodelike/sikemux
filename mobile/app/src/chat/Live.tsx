@@ -31,10 +31,6 @@ function TaskIcon({ kind, color, size = 12 }: { kind: string; color: string; siz
 /** Past this many kinds the strip drops the words and keeps the counts. */
 const WORDED = 3;
 
-/**
- * One line docked on the composer saying what is still going: subagents, background tasks by
- * kind, waiting messages and the plan's progress. A tap opens all of it.
- */
 /** How long the strip shows one live thing before it turns to the next. */
 const TURN_MS = 3200;
 
@@ -67,6 +63,10 @@ function PieceIcon({ piece, provider }: { piece: StripPiece; provider: string })
   return <Icon name={piece.key === 'queued' ? 'IconClock' : 'IconCheck'} size={12} color={colors.inkDim} />;
 }
 
+/**
+ * One line docked on the composer saying what is still going: subagents, background tasks by
+ * kind, waiting messages and the plan's progress. A tap opens all of it.
+ */
 export function LiveStrip({ work, provider, onOpen }: { work: LiveWork; provider: string; onOpen: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);

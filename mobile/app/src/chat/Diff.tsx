@@ -24,7 +24,6 @@ export function SidewaysRows({ children }: { children: ReactNode }) {
   );
 }
 
-/** One line of a change: tinted by its sign, with the span that changed marked inside it. */
 export const DiffRow = memo(function DiffRow({ line, numbered }: { line: DiffLine; numbered: boolean }) {
   const styles = useStyles(makeStyles);
   const added = line.sign === '+';
