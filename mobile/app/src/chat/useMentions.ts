@@ -193,8 +193,7 @@ export function useMentions(session: ChatSession, typed: Typed | undefined): Men
         aside: chat.activeAt ? formatAge(chat.activeAt) : undefined,
         group: index === 0 ? 'Earlier chats' : undefined,
         mark: { agent: undefined, provider: chat.cli },
-        take: () =>
-          write('', undefined, undefined, { uri: `${EARLIER_URI}${chat.cli}/${chat.sessionId}`, title: chat.title, text: '' }),
+        take: () => write('', undefined, undefined, { uri: `${EARLIER_URI}${chat.cli}/${chat.sessionId}`, title: chat.title, text: '' }),
       }));
       const rows = [...mates, ...closedRows, ...earlierRows];
       return {
