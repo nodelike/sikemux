@@ -16,6 +16,7 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_core::agent_accounts::BUILT_IN;
 
 /// The profile being written: a saved one being changed, or a new one.
 pub struct Fields {
@@ -150,7 +151,7 @@ pub fn render(
         .map(|book| book.profiles.clone())
         .unwrap_or_default();
     let saved = profiles.iter().any(|profile| profile.id == fields.id);
-    let built_in = fields.id.starts_with("builtin-");
+    let built_in = fields.id.starts_with(BUILT_IN);
 
     let list = div()
         .w(px(180.))
@@ -241,7 +242,7 @@ pub fn render(
             };
             this.update(cx, |bench, cx| {
                 change_fields(bench, cx, |fields, _| {
-                    if !fields.id.starts_with("builtin-") {
+                    if !fields.id.starts_with(BUILT_IN) {
                         fields.provider = kind;
                     }
                 });

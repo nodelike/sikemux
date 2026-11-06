@@ -21,12 +21,13 @@ use crate::theme::{
 };
 use crate::ui::{self, dialog, sign_in};
 use crate::workbench::Workbench;
+use sikemux_core::agent_accounts::BUILT_IN;
 
 /// What the account is called: a built-in one still under its agent's name goes by
 /// the name on the account instead.
 fn name(bench: &Workbench, profile: &Profile, status: Option<&Status>) -> String {
     let unnamed =
-        profile.id.starts_with("builtin-") && profile.name == bench.agent_name(&profile.provider);
+        profile.id.starts_with(BUILT_IN) && profile.name == bench.agent_name(&profile.provider);
     status
         .and_then(|status| status.name.clone())
         .filter(|_| unnamed)
@@ -202,7 +203,7 @@ fn account_row(
         }
         None => div().into_any_element(),
     };
-    let removable = !profile.id.starts_with("builtin-");
+    let removable = !profile.id.starts_with(BUILT_IN);
     let more = (signed_in || removable).then(|| {
         let (sign_out, remove) = (this.clone(), this.clone());
         let (out_id, remove_id) = (id.clone(), id.clone());
@@ -437,7 +438,7 @@ pub fn dialog(
                             )
                             .on_click(again),
                         )
-                        .when(!profile.id.starts_with("builtin-"), |row| {
+                        .when(!profile.id.starts_with(BUILT_IN), |row| {
                             let remove = {
                                 let id = id.clone();
                                 on(this, move |bench, _, cx| accounts::remove(bench, &id, cx))

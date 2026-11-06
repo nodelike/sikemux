@@ -112,7 +112,7 @@ async fn change(
     core.workspaces.set_accounts(book.clone())?;
     refresh_launchers(core.clone()).await;
     core.changed(What::Read(Topic::AgentAccounts));
-    Ok(book)
+    Ok(book.with_built_ins())
 }
 
 /// Moves `provider`'s chats onto the account `id` the person chose, where it

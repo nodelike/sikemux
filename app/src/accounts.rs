@@ -22,6 +22,7 @@ use crate::core;
 use crate::theme;
 use crate::theme::{SPACE_2, TEXT_3XS_H};
 use crate::workbench::Workbench;
+use sikemux_core::agent_accounts::BUILT_IN;
 
 /// Who one account is signed in as, in its agent's own words.
 #[derive(Clone, Default, Deserialize)]
@@ -242,35 +243,10 @@ fn fetch(bench: &Workbench, cx: &mut Context<Workbench>) {
 
 /// Keeps the accounts as the core answered them after a change.
 fn adopt(bench: &mut Workbench, book: Value, cx: &mut Context<Workbench>) {
-    let mut book = serde_json::from_value::<Book>(book).unwrap_or_default();
-    with_built_ins(bench, &mut book);
+    let book = serde_json::from_value::<Book>(book).unwrap_or_default();
     bench.accounts.book = Some(book);
     ask_statuses(bench, cx);
     redraw(bench, cx);
-}
-
-/// Puts first the account each agent starts with, where the core has none for it yet:
-/// it keeps only what the person changed.
-fn with_built_ins(bench: &Workbench, book: &mut Book) {
-    let built_ins: Vec<Profile> = bench
-        .reads
-        .catalog
-        .agents()
-        .filter(|kind| kind.accounts)
-        .filter_map(|kind| {
-            let id = format!("builtin-{}", kind.kind);
-            (!book.profiles.iter().any(|profile| profile.id == id)).then(|| Profile {
-                id,
-                name: kind.label.clone(),
-                provider: kind.kind.clone(),
-                accent: kind.brand.clone(),
-                executable_path: None,
-                config_path: None,
-                environment_keys: Vec::new(),
-            })
-        })
-        .collect();
-    book.profiles.splice(0..0, built_ins);
 }
 
 /// Changes the accounts in the core with `method`, then keeps what it answers.
@@ -307,7 +283,7 @@ pub fn set_auto_switch(bench: &Workbench, provider: &str, on: bool, cx: &mut Con
 /// What the account is called: who it is signed in as while it still has its agent's own
 /// name, else the name the person gave it.
 pub fn name(bench: &Workbench, profile: &Profile, status: Option<&Status>) -> String {
-    let unnamed = profile.id.starts_with("builtin-")
+    let unnamed = profile.id.starts_with(BUILT_IN)
         && bench
             .reads
             .catalog
@@ -324,7 +300,7 @@ pub fn name(bench: &Workbench, profile: &Profile, status: Option<&Status>) -> St
 fn launcher_of(bench: &Workbench, profile: &Profile) -> String {
     let own = format!("{}:{}", profile.provider, profile.id);
     match bench.usage_of(&own) {
-        None if profile.id.starts_with("builtin-") => profile.provider.clone(),
+        None if profile.id.starts_with(BUILT_IN) => profile.provider.clone(),
         _ => own,
     }
 }

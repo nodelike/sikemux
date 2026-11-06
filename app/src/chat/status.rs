@@ -187,15 +187,6 @@ fn doing(row: &sikemux_view::chat::ToolRow) -> SharedString {
     .into()
 }
 
-/// Whose servers a provider's turns go to, for saying which the network lost.
-fn served_by(provider: &str) -> &'static str {
-    match provider {
-        "claude" => "Anthropic",
-        "codex" => "OpenAI",
-        _ => "the model provider",
-    }
-}
-
 impl Workbench {
     /// Starts the session of `agent`'s chat again after it dropped, and attaches to it.
     pub fn reconnect(&mut self, agent: &str) {
@@ -325,10 +316,10 @@ pub(super) fn trouble(
     let failure = head.failure.as_ref();
     let network = failure.is_some_and(|failure| failure.kind == FailureKind::Network);
     let said = if network {
-        format!(
-            "Lost connection to {}. Sikemux sends it again when you're back online.",
-            served_by(&agent.provider)
-        )
+        let served_by = sikemux_core::agent_catalog::agent(&agent.provider)
+            .and_then(|agent| agent.maker)
+            .unwrap_or("the model provider");
+        format!("Lost connection to {served_by}. Sikemux sends it again when you're back online.",)
     } else {
         error
     };

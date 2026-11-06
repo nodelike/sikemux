@@ -64,7 +64,7 @@ pub struct Book {
 }
 
 /// What the ids of the accounts each agent starts with begin with.
-const BUILT_IN: &str = "builtin-";
+pub const BUILT_IN: &str = "builtin-";
 
 impl Book {
     pub fn check(&self) -> Result<(), String> {
@@ -107,6 +107,29 @@ impl Book {
             .retain(|provider, id| id != &profile.id || provider == &profile.provider);
         self.profiles.retain(|kept| kept.id != profile.id);
         self.profiles.push(profile);
+    }
+
+    /// The book as clients read it: first the account each agent starts with, where the book has
+    /// none for it yet, as it keeps only what the person changed.
+    pub fn with_built_ins(mut self) -> Self {
+        let built_ins: Vec<Profile> = crate::agent_catalog::AGENTS
+            .iter()
+            .filter(|agent| agent.accounts)
+            .filter_map(|agent| {
+                let id = format!("{BUILT_IN}{}", agent.kind);
+                (!self.profiles.iter().any(|profile| profile.id == id)).then(|| Profile {
+                    id,
+                    name: agent.label.to_owned(),
+                    provider: agent.kind.to_owned(),
+                    accent: agent.brand.to_owned(),
+                    executable_path: None,
+                    config_path: None,
+                    environment_keys: Vec::new(),
+                })
+            })
+            .collect();
+        self.profiles.splice(0..0, built_ins);
+        self
     }
 
     /// Forgets the account, and that it was chosen. A built-in one stays.

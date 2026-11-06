@@ -249,7 +249,7 @@ calls! { core, client, method, params;
         answer(model_providers::remove(&core, parse(params)?).await?)
     },
     "setModelHelper": Owner => answer(model_providers::set_helper(&core, parse(params)?).await?),
-    "agentAccounts": Full, any_program => answer(core.workspaces.accounts()),
+    "agentAccounts": Full, any_program => answer(core.workspaces.accounts().unwrap_or_default().with_built_ins()),
     "agentStatus": Full, any_program => answer(agent_accounts::status(&core, parse(params)?).await?),
     "installedAgents": Full, any_program => answer(agent_accounts::installed(&core).await?),
     "agentSetup": Full, any_program => answer(agent_accounts::setup(&core).await?),
