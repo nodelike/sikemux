@@ -35,7 +35,7 @@ module.exports = {
       reasons: ['rustClient'],
     })),
   ],
-  ignorePaths: ['**/target/**/*', '../native/**/*'],
+  ignorePaths: ['**/target/**/*', '../native/**/*', '../../crates/sikemux-mobile/src/loopback_tests.rs'],
   fileHookTransform(source, chunk) {
     if (source.type !== 'contents' || chunk == null) return chunk;
     // Nightly and stable builds of the same code share a runtime version, so an update promoted to stable still fits.
