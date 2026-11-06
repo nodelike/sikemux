@@ -13,8 +13,9 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
 use sikemux_process::sync::Locked;
+use sikemux_wire::protocol::ChatContext;
 
 use crate::accounts::protocol::{
     AccountEvent, AccountEventType, StashItem, StashKind, StashLink, StashList, StashSeen,
@@ -342,7 +343,7 @@ pub(crate) async fn attach(core: &Core, params: AttachStashParams) -> CoreResult
 /// draft of `agent_id`'s chat.
 async fn into_draft(core: &Core, item: &StashItem, agent_id: &str) -> CoreResult<Vec<PathBuf>> {
     let paths = files(core, item).await?;
-    let key = super::drafts::chat_key(agent_id);
+    let key = sikemux_view::chat::chat_draft_key(agent_id);
     let said = match item.kind {
         StashKind::Prompt => item.text.as_deref(),
         _ => None,
@@ -403,23 +404,17 @@ pub(crate) async fn stash_prompt(
     core: &Core,
     params: StashPromptParams,
 ) -> CoreResult<StashedPrompt> {
-    let key = super::drafts::chat_key(&params.agent_id);
+    let key = sikemux_view::chat::chat_draft_key(&params.agent_id);
     let draft = core
         .drafts
         .chat_draft(&params.agent_id)
         .ok_or_else(|| CoreError::from("there is nothing written to stash"))?;
     let extra = draft.extra.unwrap_or_default();
-    let files: Vec<PathBuf> = extra["attachments"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|path| path.as_str().map(PathBuf::from))
-        .collect();
-    let links = extra["context"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|item| item["uri"].as_str())
+    let files: Vec<PathBuf> = extra.attachments.iter().map(PathBuf::from).collect();
+    let links = extra
+        .context
+        .iter()
+        .map(|item| item.uri.as_str())
         .filter(|uri| uri.starts_with("https://") || uri.starts_with("http://"));
     let text = [draft.text.trim()]
         .into_iter()
@@ -498,7 +493,7 @@ fn has_file(item: &StashItem) -> bool {
 
 /// A link or text as a chip in the draft, which the message hands the agent with its words: a
 /// link's title, address and description, or the text itself.
-fn context(item: &StashItem) -> Option<Value> {
+fn context(item: &StashItem) -> Option<ChatContext> {
     match item.kind {
         StashKind::Link => {
             let url = item.url.as_deref()?;
@@ -515,16 +510,20 @@ fn context(item: &StashItem) -> Option<Value> {
                 .filter(|part| !part.is_empty())
                 .collect::<Vec<_>>()
                 .join("\n\n");
-            Some(json!({ "uri": url, "title": title, "text": text }))
+            Some(ChatContext {
+                uri: url.to_owned(),
+                title: title.to_owned(),
+                text,
+            })
         }
         StashKind::Text => {
             let text = item.text.as_deref()?.trim();
             let title = text.lines().next().unwrap_or(text);
-            Some(json!({
-                "uri": format!("{}{}", sikemux_view::chat::STASH_URI, item.id),
-                "title": title.chars().take(80).collect::<String>(),
-                "text": text,
-            }))
+            Some(ChatContext {
+                uri: format!("{}{}", sikemux_view::chat::STASH_URI, item.id),
+                title: title.chars().take(80).collect(),
+                text: text.to_owned(),
+            })
         }
         _ => None,
     }

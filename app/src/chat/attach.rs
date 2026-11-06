@@ -27,6 +27,7 @@ use sikemux_wire::protocol::ChatContext;
 use sikemux_wire::protocol::MAX_ATTACHMENT_BYTES;
 use tokio::sync::oneshot;
 
+use super::mention::{AGENT, COMMAND, EARLIER, FILE, FOLDER, TRACKED};
 use super::Composing;
 use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
@@ -82,7 +83,7 @@ const MAX_KEPT: u64 = MAX_ATTACHMENT_BYTES as u64;
 /// file's or folder's.
 fn mark(id: &str, tint: Hsla, bench: &WeakEntity<Workbench>, cx: &App) -> gpui_kit::AnyElement {
     let named =
-        (id.strip_prefix("agent:")).and_then(|agent| bench.upgrade()?.read(cx).agent_by_id(agent));
+        (id.strip_prefix(AGENT)).and_then(|agent| bench.upgrade()?.read(cx).agent_by_id(agent));
     mark_of(id, tint, named, cx)
 }
 
@@ -101,22 +102,22 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
     if let Some(agent) = named {
         return agent.mark(14., cx);
     }
-    if id.starts_with("agent:") {
+    if id.starts_with(AGENT) {
         return ui::icon(Icon::Agent, 13.)
             .text_color(tint)
             .into_any_element();
     }
-    if id.starts_with("command:") {
+    if id.starts_with(COMMAND) {
         return ui::icon(Icon::Bolt, 13.)
             .text_color(tint)
             .into_any_element();
     }
-    if id.starts_with("earlier:") {
+    if id.starts_with(EARLIER) {
         return ui::icon(Icon::Message, 13.)
             .text_color(tint)
             .into_any_element();
     }
-    if let Some(kind) = id.strip_prefix("tracked:") {
+    if let Some(kind) = id.strip_prefix(TRACKED) {
         let icon = if kind.starts_with("pull") {
             Icon::PullRequest
         } else {
@@ -124,12 +125,12 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
         };
         return ui::icon(icon, 13.).text_color(tint).into_any_element();
     }
-    if id.starts_with("folder:") {
+    if id.starts_with(FOLDER) {
         return ui::icon(Icon::Folder, 13.)
             .text_color(tint)
             .into_any_element();
     }
-    let path = Path::new(id.strip_prefix("file:").unwrap_or(id));
+    let path = Path::new(id.strip_prefix(FILE).unwrap_or(id));
     let name = path
         .file_name()
         .map_or_else(String::new, |name| name.to_string_lossy().into_owned());
@@ -632,7 +633,7 @@ pub(crate) fn pill(
 ) -> Div {
     let (key, title) = chip_words(id, &label.to_owned().into());
     let mark = mark.unwrap_or_else(|| {
-        let named = (id.strip_prefix("agent:")).and_then(|agent| bench.agent_by_id(agent));
+        let named = (id.strip_prefix(AGENT)).and_then(|agent| bench.agent_by_id(agent));
         mark_of(id, Tokens::get(cx).text_tertiary, named, cx)
     });
     chip_face(key, title, false, mark, cx)
@@ -762,17 +763,17 @@ fn mention_of(written: &str, chip: &SentChip) -> Option<Mention> {
             .unwrap_or(&carried)
     };
     let id = match chip.kind {
-        SentChipKind::Agent => format!("agent:{}", agent()),
+        SentChipKind::Agent => format!("{AGENT}{}", agent()),
         SentChipKind::Chat => format!(
-            "earlier:{}",
+            "{EARLIER}{}",
             carried.strip_prefix(EARLIER_URI).unwrap_or(&carried)
         ),
-        SentChipKind::Command => format!("command:{}", written.trim_start_matches('/')),
-        SentChipKind::File => format!("file:{carried}"),
-        SentChipKind::Folder => format!("folder:{carried}"),
+        SentChipKind::Command => format!("{COMMAND}{}", written.trim_start_matches('/')),
+        SentChipKind::File => format!("{FILE}{carried}"),
+        SentChipKind::Folder => format!("{FOLDER}{carried}"),
         SentChipKind::Image => format!("{IMAGE}{carried}"),
-        SentChipKind::Issue => format!("tracked:issue:{}:{carried}", &written[1..]),
-        SentChipKind::Pull => format!("tracked:pull:{}:{carried}", &written[1..]),
+        SentChipKind::Issue => format!("{TRACKED}issue:{}:{carried}", &written[1..]),
+        SentChipKind::Pull => format!("{TRACKED}pull:{}:{carried}", &written[1..]),
         SentChipKind::Other => return None,
     };
     let label = match chip.kind {
@@ -790,7 +791,7 @@ fn mention_of(written: &str, chip: &SentChip) -> Option<Mention> {
 /// What a chip says: its handle without the sign typed to make it, and for an issue or pull
 /// request its title after the number, without a `feat(scope):` kind of prefix.
 fn chip_words(id: &str, label: &SharedString) -> (SharedString, Option<SharedString>) {
-    if id.starts_with("tracked:") {
+    if id.starts_with(TRACKED) {
         if let Some((number, title)) = label.split_once(' ') {
             let title = title
                 .split_once(": ")

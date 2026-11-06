@@ -96,7 +96,7 @@ const LIMITS = [
 ];
 
 /** Addresses clients write into what they send, read from the core's own. */
-const URIS = ["AGENT_URI", "EARLIER_URI", "STASH_URI"];
+const URIS = ["AGENT_URI", "EARLIER_URI", "STASH_URI", "CHAT_DRAFT"];
 
 const OUTPUTS = {
   ts: "shared/wire.generated.ts",
@@ -499,6 +499,7 @@ function parseFields(body, file, rule, where) {
     only(settings, KNOWN.field, `${where}.${match[1]}`);
     if (settings.skip) return [];
     const type = parseType(match[2], file);
+    if (settings.flatten && type.kind === "map") return [];
     if (settings.flatten) return flattened(type, `${where}.${match[1]}`);
     return {
       name: settings.rename ?? renameAll(match[1], rule, where),

@@ -10,10 +10,10 @@ use std::time::Duration;
 
 use gpui_kit::base::input::{InlineToken, InputContent};
 use gpui_kit::{App, Context, Window};
-use serde_json::{json, Value};
 use sikemux_core::server::call;
 use sikemux_core::server::calls::AgentParams;
 use sikemux_core::server::drafts::SetDraftParams;
+use sikemux_view::chat::{chat_draft_key, DraftExtra, DraftToken};
 
 use super::{Composing, Sent};
 use crate::core::Target;
@@ -23,116 +23,97 @@ use crate::workbench::Workbench;
 /// How long typing rests before the draft is kept.
 const PAUSE: Duration = Duration::from_millis(300);
 
-/// The key the core keeps `agent`'s draft under.
-pub fn key(agent: &str) -> String {
-    format!("chat:{agent}")
+/// The draft as the composer last agreed it with the core.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Kept {
+    text: String,
+    extra: DraftExtra,
 }
 
 /// The draft as `setDraft` takes it and `drafts` answers it.
-fn kept(composing: &Composing, cx: &App) -> Value {
+fn kept(composing: &Composing, cx: &App) -> Kept {
     let content = composing.draft.read(cx).content();
-    let tokens: Vec<Value> = content
+    let tokens: Vec<DraftToken> = content
         .tokens()
         .iter()
         .map(|span| {
             let token = span.token();
-            json!({
-                "start": span.range().start,
-                "end": span.range().end,
-                "id": token.id(),
-                "label": token.label(),
-            })
+            DraftToken {
+                start: span.range().start,
+                end: span.range().end,
+                id: token.id().to_string(),
+                label: Some(token.label().to_string()),
+            }
         })
         .collect();
-    let mut extra = serde_json::Map::new();
-    if !tokens.is_empty() {
-        extra.insert("tokens".into(), tokens.into());
-    }
-    if !composing.attachments.is_empty() {
-        extra.insert("attachments".into(), json!(composing.attachments));
-    }
-    if !composing.context.is_empty() {
-        extra.insert("context".into(), json!(composing.context));
-    }
-    let held: Vec<&str> = content
-        .tokens()
-        .iter()
-        .map(|span| span.token().id().as_ref())
-        .collect();
-    let tracked: serde_json::Map<String, Value> = composing
+    let tracked = composing
         .tracked_context
         .iter()
-        .filter(|(id, _)| held.contains(&id.as_str()))
-        .map(|(id, context)| (id.clone(), json!(context)))
+        .filter(|(id, _)| tokens.iter().any(|token| &token.id == *id))
+        .map(|(id, context)| (id.clone(), context.clone()))
         .collect();
-    if !tracked.is_empty() {
-        extra.insert("tracked".into(), tracked.into());
+    Kept {
+        text: content.text().to_string(),
+        extra: DraftExtra {
+            tokens,
+            attachments: composing
+                .attachments
+                .iter()
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect(),
+            context: composing.context.clone(),
+            tracked,
+            rest: Default::default(),
+        },
     }
-    let mut draft = json!({ "text": content.text() });
-    if !extra.is_empty() {
-        draft["extra"] = extra.into();
-    }
-    draft
 }
 
 /// A kept draft as the composer holds one; a chip that no longer matches its text is left
 /// out rather than refusing the whole draft.
-fn restored(draft: &Value) -> Sent {
-    let text = draft["text"].as_str().unwrap_or_default();
-    let extra = &draft["extra"];
-    let mut content = InputContent::new(text.to_owned());
-    for token in extra["tokens"].as_array().into_iter().flatten() {
-        let (Some(start), Some(end), Some(id)) = (
-            token["start"].as_u64(),
-            token["end"].as_u64(),
-            token["id"].as_str(),
-        ) else {
+fn restored(draft: &Kept) -> Sent {
+    let mut content = InputContent::new(draft.text.clone());
+    for token in &draft.extra.tokens {
+        let range = token.start..token.end;
+        let Some(written) = draft.text.get(range.clone()) else {
             continue;
         };
-        let range = start as usize..end as usize;
-        let Some(written) = text.get(range.clone()) else {
-            continue;
-        };
-        let mut chip = InlineToken::new(id.to_owned(), written.to_owned());
-        if let Some(label) = token["label"].as_str() {
-            chip = chip.with_label(label.to_owned());
+        let mut chip = InlineToken::new(token.id.clone(), written.to_owned());
+        if let Some(label) = &token.label {
+            chip = chip.with_label(label.clone());
         }
         if let Ok(with) = content.clone().with_token(range, chip) {
             content = with;
         }
     }
-    let attachments = extra["attachments"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|path| path.as_str().map(PathBuf::from))
-        .collect();
-    let context = serde_json::from_value(extra["context"].clone()).unwrap_or_default();
-    let tracked_context = serde_json::from_value(extra["tracked"].clone()).unwrap_or_default();
     Sent {
         content,
-        attachments,
-        context,
-        tracked_context,
+        attachments: draft.extra.attachments.iter().map(PathBuf::from).collect(),
+        context: draft.extra.context.clone(),
+        tracked_context: draft
+            .extra
+            .tracked
+            .iter()
+            .map(|(id, context)| (id.clone(), context.clone()))
+            .collect(),
     }
 }
 
 /// What `drafts` holds for `agent`, shaped as `kept` shapes it.
-fn held(drafts: &Drafts, agent: &str) -> Value {
-    let draft = drafts.get(&key(agent));
-    let mut held = json!({ "text": draft.map_or("", |draft| draft.text.as_str()) });
-    if let Some(extra) = draft
-        .and_then(|draft| draft.extra.as_ref())
-        .filter(|extra| extra.as_object().is_some_and(|extra| !extra.is_empty()))
-    {
-        held["extra"] = extra.clone();
+fn held(drafts: &Drafts, agent: &str) -> Kept {
+    let draft = drafts.get(&chat_draft_key(agent));
+    Kept {
+        text: draft.map_or_else(String::new, |draft| draft.text.clone()),
+        extra: draft
+            .and_then(|draft| draft.extra.clone())
+            .unwrap_or_default(),
     }
-    held
 }
 
 /// The core's revision of `agent`'s draft in `drafts`.
 fn rev(drafts: &Drafts, agent: &str) -> u64 {
-    drafts.get(&key(agent)).map_or(0, |draft| draft.rev)
+    drafts
+        .get(&chat_draft_key(agent))
+        .map_or(0, |draft| draft.rev)
 }
 
 /// Saves of a draft the core has not answered yet. A read of the drafts that crossed one on the
@@ -237,9 +218,9 @@ impl Workbench {
         }
         composing.synced = draft.clone();
         let params = SetDraftParams {
-            key: key(agent),
-            text: draft["text"].as_str().unwrap_or_default().to_owned(),
-            extra: draft.get("extra").cloned(),
+            key: chat_draft_key(agent),
+            text: draft.text,
+            extra: (!draft.extra.is_empty()).then_some(draft.extra),
             rev: Some(composing.read_rev),
         };
         let saving = composing.saving.clone();

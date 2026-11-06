@@ -34,12 +34,12 @@ use sikemux_view::chat::{AGENT_URI, EARLIER_URI};
 
 const SHOWN: usize = 8;
 const STASH_SHOWN: usize = 8;
-const AGENT: &str = "agent:";
-const FILE: &str = "file:";
-const FOLDER: &str = "folder:";
-const EARLIER: &str = "earlier:";
-const TRACKED: &str = "tracked:";
-const COMMAND: &str = "command:";
+pub(crate) const AGENT: &str = "agent:";
+pub(crate) const FILE: &str = "file:";
+pub(crate) const FOLDER: &str = "folder:";
+pub(crate) const EARLIER: &str = "earlier:";
+pub(crate) const TRACKED: &str = "tracked:";
+pub(crate) const COMMAND: &str = "command:";
 /// Earlier chats the core is asked for, and how long it may read transcripts for them.
 const EARLIER_SHOWN: usize = 4;
 const EARLIER_BUDGET_MS: u64 = 600;

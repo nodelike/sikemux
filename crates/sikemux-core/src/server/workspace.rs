@@ -1550,7 +1550,7 @@ fn agents_closed(core: &Core, before: HashSet<String>) {
     }
     let forgotten = core.drafts.forget(
         gone.iter()
-            .map(|agent_id| super::drafts::chat_key(agent_id)),
+            .map(|agent_id| sikemux_view::chat::chat_draft_key(agent_id)),
     );
     if !forgotten.is_empty() {
         super::drafts::changed(core, forgotten);

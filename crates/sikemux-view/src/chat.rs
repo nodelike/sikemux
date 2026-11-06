@@ -8,6 +8,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use sikemux_wire::protocol::ChatContext;
+
 use crate::slice::SliceState;
 
 /// A chat as a client opening it is sent: how it stands, its latest rows, and
@@ -327,15 +329,62 @@ pub struct ChatGoal {
     pub undoable: bool,
 }
 
-/// A chat's unsent draft: its text, what the apps keep beside it, such as its files as
-/// `attachments`, and its revision, which a `setDraft` names as the one it was written over.
+/// A chat's unsent draft: its text, what the apps keep beside it, and its revision, which a
+/// `setDraft` names as the one it was written over.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatDraft {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extra: Option<Value>,
+    pub extra: Option<DraftExtra>,
     pub rev: u64,
+}
+
+/// What a draft keeps beside its text.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftExtra {
+    /// The agents, files, chats and issues the text names, over the words that name them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tokens: Vec<DraftToken>,
+    /// The files sent with the text, by path.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<String>,
+    /// The links and texts sent with the text.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context: Vec<ChatContext>,
+    /// The issues and pull requests the tokens name, by the token's id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub tracked: BTreeMap<String, ChatContext>,
+    /// What this build does not read, kept so that saving the draft loses none of it.
+    #[serde(flatten)]
+    pub rest: serde_json::Map<String, Value>,
+}
+
+impl DraftExtra {
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
+/// A chip over the draft's text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftToken {
+    /// Where it starts in the text, in UTF-8 bytes.
+    pub start: usize,
+    /// Where it ends in the text, in UTF-8 bytes.
+    pub end: usize,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Starts the key the core keeps a chat's draft under, before its agent's id.
+pub const CHAT_DRAFT: &str = "chat:";
+
+pub fn chat_draft_key(agent: &str) -> String {
+    format!("{CHAT_DRAFT}{agent}")
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -2,6 +2,7 @@ import type { ConnectionLike } from '@sikemux/native';
 import { File } from 'expo-file-system';
 
 import type { ChatRows } from '@shared/chat/rows';
+import { CHAT_DRAFT, type DraftExtra } from '@shared/wire.generated';
 
 import { callHost } from '@/core/hostCalls';
 import type { DraftStore } from './kept';
@@ -53,7 +54,7 @@ export class Draft {
   private tracked: Record<string, ContextChip> = {};
   /** The host's revision of this chat's draft that the composer last took in. */
   private rev: number | undefined;
-  /** What the host's draft carries beside its text and files, which only the Mac reads; saved back as it came. */
+  /** What the host's draft carries that this build does not read; saved back as it came. */
   private extra: Record<string, unknown> = {};
   /** Changes made here since the draft was last saved, which the host's draft must not replace. */
   private edits = 0;
@@ -206,7 +207,7 @@ export class Draft {
     const paths = pathsOf(this.attachments);
     const { attachments: _files, context: _chips, ...rest } = this.extra;
     const draft = {
-      key: `chat:${this.agentId}`,
+      key: `${CHAT_DRAFT}${this.agentId}`,
       text: this.text,
       extra: {
         ...rest,
@@ -241,9 +242,8 @@ export class Draft {
     if (this.edits) return;
     const host = this.host.held();
     if (host?.rev === this.rev && host) return;
-    const extra = host?.extra && typeof host.extra === 'object' ? (host.extra as Record<string, unknown>) : {};
-    const { attachments, context, tokens, tracked, ...rest } = extra;
-    const paths = Array.isArray(attachments) ? attachments.filter((path): path is string => typeof path === 'string') : [];
+    const extra: DraftExtra = host?.extra ?? {};
+    const { attachments: paths = [], context, tokens, tracked, ...rest } = extra;
     const kept = new Map(this.attachments.flatMap((attachment) => (attachment.path ? [[attachment.path, attachment] as const] : [])));
     this.rev = host?.rev;
     this.extra = rest;

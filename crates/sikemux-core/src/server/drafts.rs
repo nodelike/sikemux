@@ -10,11 +10,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use sikemux_view::chat::ChatDraft;
+use sikemux_view::chat::{chat_draft_key, ChatDraft, DraftExtra, CHAT_DRAFT};
+use sikemux_wire::protocol::ChatContext;
 
 use super::changed::Topic;
 use super::kept::Kept;
@@ -40,9 +40,8 @@ struct Stored {
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Draft {
     pub text: String,
-    /// What the app keeps beside the text, such as its chips and files, as the app shaped it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extra: Option<Value>,
+    pub extra: Option<DraftExtra>,
     /// Moves on with every change, so an app saving the draft says which one it last read.
     #[serde(default)]
     pub rev: u64,
@@ -54,38 +53,23 @@ pub struct Draft {
 #[derive(Clone)]
 pub(crate) struct Delivery {
     pub paths: Vec<String>,
-    /// A link or text, as the draft's chips hold it and the message sends it: `{uri, title, text}`.
-    pub context: Option<Value>,
+    /// A link or text, as the draft's chips hold it and the message sends it.
+    pub context: Option<ChatContext>,
     pub words: String,
 }
 
-/// The list under `key` in the draft's extra, made when there is none.
-fn list<'a>(extra: &'a mut Option<Value>, key: &str) -> Option<&'a mut Vec<Value>> {
-    if !matches!(extra, Some(Value::Object(_))) {
-        *extra = Some(Value::Object(Default::default()));
-    }
-    let Some(Value::Object(extra)) = extra else {
-        return None;
-    };
-    extra
-        .entry(key)
-        .or_insert_with(|| Value::Array(Vec::new()))
-        .as_array_mut()
-}
-
 impl Delivery {
-    fn add_to(&self, text: &mut String, extra: &mut Option<Value>) {
-        for path in &self.paths {
-            if let Some(attachments) = list(extra, "attachments") {
-                if !attachments.iter().any(|kept| kept.as_str() == Some(path)) {
-                    attachments.push(Value::from(path.as_str()));
+    fn add_to(&self, text: &mut String, extra: &mut Option<DraftExtra>) {
+        if !self.paths.is_empty() || self.context.is_some() {
+            let extra = extra.get_or_insert_default();
+            for path in &self.paths {
+                if !extra.attachments.contains(path) {
+                    extra.attachments.push(path.clone());
                 }
             }
-        }
-        if let Some(context) = &self.context {
-            if let Some(held) = list(extra, "context") {
-                if !held.iter().any(|kept| kept["uri"] == context["uri"]) {
-                    held.push(context.clone());
+            if let Some(context) = &self.context {
+                if !extra.context.iter().any(|kept| kept.uri == context.uri) {
+                    extra.context.push(context.clone());
                 }
             }
         }
@@ -102,14 +86,10 @@ impl Delivery {
     }
 }
 
-pub(crate) fn chat_key(agent: &str) -> String {
-    format!("chat:{agent}")
-}
-
 /// The drafts under `keys` changed: every app reads them again, and a chat's clients hear its
 /// draft with the chat.
 pub(crate) fn changed(core: &Core, keys: Vec<String>) {
-    for agent in keys.iter().filter_map(|key| key.strip_prefix("chat:")) {
+    for agent in keys.iter().filter_map(|key| key.strip_prefix(CHAT_DRAFT)) {
         if let Some(feed) = core.chats.heard(agent) {
             feed.set_draft(core.drafts.chat_draft(agent));
         }
@@ -152,7 +132,7 @@ impl Drafts {
     /// The draft of `agent`'s chat, as the chat's clients are told it.
     pub(crate) fn chat_draft(&self, agent: &str) -> Option<ChatDraft> {
         let drafts = self.0.drafts.locked();
-        let draft = &drafts.get(&chat_key(agent))?.shown;
+        let draft = &drafts.get(&chat_draft_key(agent))?.shown;
         Some(ChatDraft {
             text: draft.text.clone(),
             extra: draft.extra.clone(),
@@ -177,7 +157,7 @@ impl Drafts {
 
     /// Keeps `text` and `extra` as the draft for `key`; an empty text with no extra
     /// drops it.
-    pub(crate) fn set(&self, key: &str, text: String, extra: Option<Value>) -> CoreResult<()> {
+    pub(crate) fn set(&self, key: &str, text: String, extra: Option<DraftExtra>) -> CoreResult<()> {
         let mut drafts = self.0.drafts.locked();
         self.put(&mut drafts, key, text, extra)?;
         drop(drafts);
@@ -191,7 +171,7 @@ impl Drafts {
         &self,
         key: &str,
         mut text: String,
-        mut extra: Option<Value>,
+        mut extra: Option<DraftExtra>,
         read: Option<u64>,
     ) -> CoreResult<()> {
         let mut drafts = self.0.drafts.locked();
@@ -244,13 +224,16 @@ impl Drafts {
         drafts: &mut BTreeMap<String, Stored>,
         key: &str,
         text: String,
-        extra: Option<Value>,
+        extra: Option<DraftExtra>,
     ) -> CoreResult<u64> {
         if key.is_empty() || key.len() > MAX_KEY {
             return Err(CoreError::from("a draft's key must be 1 to 512 bytes"));
         }
-        let extra = extra.filter(|extra| !extra.is_null());
-        let size = text.len() + extra.as_ref().map_or(0, |extra| extra.to_string().len());
+        let size = text.len()
+            + extra
+                .as_ref()
+                .and_then(|extra| serde_json::to_string(extra).ok())
+                .map_or(0, |extra| extra.len());
         if size > MAX_DRAFT {
             return Err(CoreError::from(
                 "that draft is longer than the 256 KB a draft can be",
@@ -322,7 +305,7 @@ pub struct SetDraftParams {
     pub key: String,
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extra: Option<Value>,
+    pub extra: Option<DraftExtra>,
     /// The draft's revision the app last read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rev: Option<u64>,

@@ -56,7 +56,7 @@ async fn to_terminal(core: &Arc<Core>, agent_id: &str) -> CoreResult<Value> {
     core.workspaces.set_asleep(agent_id, false);
     let pty =
         launching::start_terminal(core, agent_id, super::spare::opening_size(core), None).await?;
-    let key = super::drafts::chat_key(agent_id);
+    let key = sikemux_view::chat::chat_draft_key(agent_id);
     let draft = core.drafts.take_text(&key)?;
     super::drafts::changed(core, vec![key]);
     if let (Some(terminal), Some(draft)) = (core.session(pty), session::typable(&draft)) {
@@ -80,7 +80,7 @@ async fn to_chat(
         core.workspaces
             .edit_agent(agent_id, |agent| agent.pty_id = None)?;
         if !draft.trim().is_empty() {
-            let key = super::drafts::chat_key(agent_id);
+            let key = sikemux_view::chat::chat_draft_key(agent_id);
             core.drafts.set(&key, draft, None)?;
             super::drafts::changed(core, vec![key]);
         }

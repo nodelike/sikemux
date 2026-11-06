@@ -437,7 +437,10 @@ impl Workbench {
                 .as_ref()
                 .filter(|_| !elsewhere)
                 .map(|_| START);
-            chats.chain(start).map(crate::chat::draft_key).collect()
+            chats
+                .chain(start)
+                .map(sikemux_view::chat::chat_draft_key)
+                .collect()
         };
         let of_keys = |keys: Vec<String>| Some(DraftsParams { keys: Some(keys) });
         Target::here(&self.asks).watch::<call::Drafts>(Read::Drafts, of_keys(keys(false)));

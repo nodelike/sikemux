@@ -13,7 +13,6 @@ use gpui_kit::{
     AppContext, Context, Focusable, InteractiveElement, IntoElement, ParentElement, SharedString,
     Task, Window,
 };
-use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::chat::calls::QueuedParams;
 use sikemux_core::server::chat::queue::QueuedMessageParams as QueuedMessage;
@@ -118,12 +117,12 @@ pub struct Composing {
     pub stashed: Option<String>,
     pub stage: ComposeStage,
     /// The draft as the core last kept it.
-    pub synced: Value,
+    pub synced: super::draft::Kept,
     /// The core's revision of the draft this one has taken in, which a save names so the core
     /// puts back what it added since.
     pub read_rev: u64,
     /// A draft typed in another app, with this draft as it was when that came, and its revision.
-    pub arrived: Option<(Sent, Value, u64)>,
+    pub arrived: Option<(Sent, super::draft::Kept, u64)>,
     pub saving: super::draft::Saving,
     pub _keeping: Task<()>,
     pub _heard: [Subscription; 2],
@@ -1044,7 +1043,7 @@ impl Workbench {
             refusal: None,
             stashed: None,
             stage: ComposeStage::Writing,
-            synced: json!({ "text": "" }),
+            synced: Default::default(),
             read_rev: 0,
             arrived: None,
             saving: Default::default(),

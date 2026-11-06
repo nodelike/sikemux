@@ -5,6 +5,7 @@ export const MAX_ATTACHMENTS = 32;
 export const AGENT_URI = "sikemux://agent/";
 export const EARLIER_URI = "sikemux://earlier/";
 export const STASH_URI = "sikemux://stash/";
+export const CHAT_DRAFT = "chat:";
 export const EXTENSIONLESS: readonly string[] = [
     "makefile",
     "dockerfile",
@@ -1533,13 +1534,42 @@ export type ChatActivity =
       };
 
 /**
- * A chat's unsent draft: its text, what the apps keep beside it, such as its files as
- * `attachments`, and its revision, which a `setDraft` names as the one it was written over.
+ * A chat's unsent draft: its text, what the apps keep beside it, and its revision, which a
+ * `setDraft` names as the one it was written over.
  */
 export interface ChatDraft {
     text: string;
-    extra?: unknown;
+    extra?: DraftExtra;
     rev: number;
+}
+
+/** What a draft keeps beside its text. */
+export interface DraftExtra {
+    /** The agents, files, chats and issues the text names, over the words that name them. */
+    tokens?: DraftToken[];
+    /** The files sent with the text, by path. */
+    attachments?: string[];
+    /** The links and texts sent with the text. */
+    context?: ChatContext[];
+    /** The issues and pull requests the tokens name, by the token's id. */
+    tracked?: Record<string, ChatContext>;
+}
+
+/** A chip over the draft's text. */
+export interface DraftToken {
+    /** Where it starts in the text, in UTF-8 bytes. */
+    start: number;
+    /** Where it ends in the text, in UTF-8 bytes. */
+    end: number;
+    id: string;
+    label?: string;
+}
+
+/** Something read elsewhere and handed to the agent whole, such as an issue. */
+export interface ChatContext {
+    uri: string;
+    title: string;
+    text: string;
 }
 
 /** The goal a chat works on, as its composer shows it. */
@@ -3239,8 +3269,7 @@ export type ChatDriver = "claude" | "codex" | "muse" | "acp";
 
 export interface Draft {
     text: string;
-    /** What the app keeps beside the text, such as its chips and files, as the app shaped it. */
-    extra?: unknown;
+    extra?: DraftExtra;
     /** Moves on with every change, so an app saving the draft says which one it last read. */
     rev?: number;
 }
@@ -3461,13 +3490,6 @@ export interface AnswerParams {
     choices?: number[];
     /** The assumption the agent went on is right. */
     fine?: boolean;
-}
-
-/** Something read elsewhere and handed to the agent whole, such as an issue. */
-export interface ChatContext {
-    uri: string;
-    title: string;
-    text: string;
 }
 
 export interface AnswersParams {
@@ -3714,7 +3736,7 @@ export interface ApprovalSetting {
 export interface SetDraftParams {
     key: string;
     text: string;
-    extra?: unknown;
+    extra?: DraftExtra;
     /** The draft's revision the app last read. */
     rev?: number;
 }

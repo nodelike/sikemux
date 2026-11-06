@@ -91,7 +91,7 @@ pub use attach::{drop_hint, lasting, takes_drops};
 pub use composing::{
     dictate, drafting, mounted, step_prompts, ComposeStage, ComposerView, Composing, Sent, START,
 };
-pub use draft::key as draft_key;
+pub(crate) use mention::{AGENT, FILE, TRACKED};
 pub use questions::{question_keys, Answering, Question};
 
 /// Turns asked for each time the reader nears the top of what is held.

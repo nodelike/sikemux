@@ -3,6 +3,7 @@
 //! a chat's draft from the pane, by dragging it onto the chat, from the chip over a composer when
 //! items are new, or with `&` in the draft. The chat's core puts it there.
 
+use crate::chat::{AGENT, FILE, TRACKED};
 use crate::updates::bytes;
 use sikemux_view::layout::OpenTab;
 use std::cell::Cell;
@@ -656,7 +657,7 @@ fn said<'a>(shown: &'a ShownStashItem, agents: &[(String, String)]) -> Said<'a> 
         .collect();
     let lead = (photos.is_empty() && !pages.is_empty()).then(|| pages.remove(0));
     let agent =
-        (named.iter()).find_map(|mention| mention.id.strip_prefix("agent:").map(str::to_owned));
+        (named.iter()).find_map(|mention| mention.id.strip_prefix(AGENT).map(str::to_owned));
     Said {
         words,
         lead,
@@ -679,7 +680,7 @@ fn pieces(text: &str, named: &[crate::chat::Mention], pages: &[Page]) -> Vec<Pie
     let mut marks: Vec<(usize, usize, Option<Piece>)> = Vec::new();
     for mention in named {
         let id = match mention.id.strip_prefix("image:") {
-            Some(name) => format!("file:{name}"),
+            Some(name) => format!("{FILE}{name}"),
             None => mention.id.clone(),
         };
         let pill = || Piece::Pill {
@@ -699,7 +700,7 @@ fn pieces(text: &str, named: &[crate::chat::Mention], pages: &[Page]) -> Vec<Pie
                 false => "issue",
             };
             Some(Piece::Pill {
-                id: format!("tracked:{kind}:{}", page.url),
+                id: format!("{TRACKED}{kind}:{}", page.url),
                 label: reference,
                 state: page.state.map(str::to_owned),
             })
@@ -995,7 +996,10 @@ fn cut_of(
 
 /// A pull request's or issue's glyph in the colour of `state`.
 fn state_mark(id: &str, state: &str, t: &Tokens) -> Option<AnyElement> {
-    let (glyph, ink, _) = match id.starts_with("tracked:pull") {
+    let (glyph, ink, _) = match id
+        .strip_prefix(TRACKED)
+        .is_some_and(|kind| kind.starts_with("pull"))
+    {
         true => crate::code_host_marks::pull_look(serde_json::from_value(json!(state)).ok()?, t),
         false if state == "notPlanned" => {
             crate::code_host_marks::issue_look("closed", Some("not_planned"), t)
