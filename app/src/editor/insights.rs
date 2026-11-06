@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 
 use super::{go, OpenAt};
 use crate::core;
-use crate::hosts::Place as Host;
+use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::send_to;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
@@ -144,7 +144,7 @@ fn read_outline(bench: &mut Workbench, path: &Path, cx: &mut App) {
         .editors
         .read(cx)
         .open
-        .get(&super::FileKey::new(Host::This, path)))
+        .get(&super::FileKey::new(Place::This, path)))
     .and_then(|document| Some(document.served.as_ref()?.document()));
     let outline = match params {
         Some(_) => Outline::Loading(path.to_owned()),

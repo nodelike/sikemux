@@ -527,7 +527,7 @@ impl GitPane {
     fn writer(&self) -> Option<(String, String, String)> {
         let (kind, model) = match &self.writer {
             Some((kind, model)) => (kind.clone(), Some(model.clone())),
-            None => ("hermes".to_owned(), None),
+            None => (sikemux_core::git::ai::DEFAULT_WRITER.to_owned(), None),
         };
         let (_, label, models) = self.writers.iter().find(|(writer, _, _)| *writer == kind)?;
         let model = model.or_else(|| models.first().cloned())?;
@@ -1986,7 +1986,7 @@ impl GitPane {
 
     /// The key the core keeps the repository's commit message under.
     fn draft_key(&self) -> String {
-        format!("git:{}", self.repo)
+        super::draft_key(&self.repo)
     }
 
     /// Takes the drafts the core keeps. The commit message follows the core's only while

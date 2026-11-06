@@ -3,6 +3,9 @@ use std::time::Duration;
 use super::ai_provider::{run_ai_commit_model, GitAiProvider};
 use super::{git_has_head, git_ok, run_blocking};
 
+/// The agent that writes a commit message when the person picked none.
+pub const DEFAULT_WRITER: &str = "hermes";
+
 const PRIMARY_DIFF_BUDGET: usize = 18_000;
 const STAT_BUDGET: usize = 4_000;
 pub(super) const AI_COMMAND_TIMEOUT: Duration = Duration::from_secs(5 * 60);

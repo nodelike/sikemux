@@ -19,7 +19,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use super::FileKey;
 use super::{Document, Notice, OpenAt};
 use crate::core::{self, Ask, CallError};
-use crate::hosts::Place as Host;
+use crate::hosts::Place;
 use crate::toast;
 use crate::workbench::Workbench;
 use sikemux_wire::protocol::ErrorKind;
@@ -121,7 +121,7 @@ fn attach_trusted(
             Some(false) => return,
             None => {
                 let _ = bench.update(cx, |bench, cx| {
-                    let key = FileKey::new(Host::This, path.clone());
+                    let key = FileKey::new(Place::This, path.clone());
                     super::change(&bench.editors, &key, cx, |document, _| {
                         document.notice = Some(Notice::Trust(project))
                     });
@@ -137,7 +137,7 @@ fn attach_trusted(
         }
         let Ok(Some(content)) = bench.update(cx, |bench, cx| {
             (bench.editors.read(cx).open)
-                .get(&FileKey::new(Host::This, path.clone()))
+                .get(&FileKey::new(Place::This, path.clone()))
                 .map(|document| document.state.read(cx).value().to_string())
         }) else {
             return;
@@ -160,7 +160,7 @@ fn attach_trusted(
         let _ = bench.update(cx, |bench, cx| {
             let (asks, this, current) = (bench.asks.clone(), cx.weak_entity(), path.clone());
             bench.editors.update(cx, |editors, cx| {
-                let Some(document) = editors.open.get_mut(&FileKey::new(Host::This, path)) else {
+                let Some(document) = editors.open.get_mut(&FileKey::new(Place::This, path)) else {
                     return;
                 };
                 let served = Served {
@@ -190,7 +190,7 @@ fn attach_trusted(
                                 let _ = this.update(cx, |bench, cx| {
                                     super::peek(
                                         bench,
-                                        &FileKey::new(Host::This, current.clone()),
+                                        &FileKey::new(Place::This, current.clone()),
                                         "Definitions",
                                         places,
                                         cx,
@@ -438,7 +438,7 @@ pub(super) fn trust(
     cx: &mut Context<Workbench>,
 ) {
     remember_trust(bench, project, allowed);
-    let key = FileKey::new(Host::This, path.clone());
+    let key = FileKey::new(Place::This, path.clone());
     bench.editors.update(cx, |editors, _| {
         if let Some(document) = editors.open.get_mut(&key) {
             document.notice = None;

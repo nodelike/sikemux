@@ -21,7 +21,11 @@ pub(super) struct GitAiProvider {
 impl GitAiProvider {
     pub(super) fn parse(raw: Option<String>) -> Result<Self, String> {
         let name = raw.unwrap_or_default().trim().to_ascii_lowercase();
-        let name = if name.is_empty() { "hermes" } else { &name };
+        let name = if name.is_empty() {
+            super::ai::DEFAULT_WRITER
+        } else {
+            &name
+        };
         AgentKind::from_name(name)
             .and_then(|kind| {
                 Some(Self {

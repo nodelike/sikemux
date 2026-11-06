@@ -21,7 +21,7 @@ use sikemux_view::layout::{Pane, PaneKind};
 
 use crate::core::{Ask, CallError, Target};
 use crate::diagram;
-use crate::hosts::Place as Host;
+use crate::hosts::Place;
 use crate::keyboard::TakesKeys;
 use crate::text_size::Surface;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
@@ -108,12 +108,12 @@ pub fn install(cx: &mut App) {
 /// A file by the host it is on and its path there, since two hosts can hold the same path.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FileKey {
-    pub place: Host,
+    pub place: Place,
     pub path: PathBuf,
 }
 
 impl FileKey {
-    pub fn new(place: Host, path: impl Into<PathBuf>) -> Self {
+    pub fn new(place: Place, path: impl Into<PathBuf>) -> Self {
         Self {
             place,
             path: path.into(),
@@ -253,7 +253,7 @@ impl Editors {
     /// The files under `root` on `place` with changes not saved.
     pub fn unsaved_under<'a>(
         &'a self,
-        place: &'a Host,
+        place: &'a Place,
         root: &'a Path,
     ) -> impl Iterator<Item = &'a Path> + 'a {
         (self.open.iter())
@@ -264,7 +264,7 @@ impl Editors {
     }
 
     /// The files on `place` its core keeps watching for changes on disk.
-    fn watched(&self, place: &Host) -> Vec<String> {
+    fn watched(&self, place: &Place) -> Vec<String> {
         (self.open.keys())
             .chain(self.viewers.keys())
             .filter(|key| key.place == *place)
@@ -1136,7 +1136,7 @@ fn follow_edits(
 /// `to`, with their unsaved edits.
 pub fn renamed(
     bench: &mut Workbench,
-    place: &Host,
+    place: &Place,
     from: &Path,
     to: &Path,
     cx: &mut Context<Workbench>,
@@ -1174,7 +1174,7 @@ pub fn renamed(
         let _ = window.update(cx, |_, window, cx| {
             let _ = this.update(cx, |bench, cx| {
                 for (_, key) in moved {
-                    if key.place == Host::This {
+                    if key.place == Place::This {
                         lsp::attach(bench, key.path.clone(), window, cx);
                     }
                     gutter::read_base(bench, &key, cx);
@@ -1187,7 +1187,7 @@ pub fn renamed(
 }
 
 /// Tells the core of `place` which files to watch: every one of its files open in an editor.
-fn show_files(bench: &Workbench, place: &Host, cx: &App) {
+fn show_files(bench: &Workbench, place: &Place, cx: &App) {
     Target::new(&bench.asks, place.clone()).call(
         "showFiles",
         json!({ "paths": bench.editors.read(cx).watched(place) }),
@@ -1197,7 +1197,7 @@ fn show_files(bench: &Workbench, place: &Host, cx: &App) {
 /// Tells the cores again which files to watch and claims back the files open with language
 /// servers, as a core forgets both for a connection that drops.
 pub fn reconnected(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let mut places: Vec<Host> = Vec::new();
+    let mut places: Vec<Place> = Vec::new();
     let editors = bench.editors.read(cx);
     for key in (editors.open.keys()).chain(editors.viewers.keys()) {
         if !places.contains(&key.place) {
@@ -1211,7 +1211,7 @@ pub fn reconnected(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 }
 
 /// Tells an account host again which of its files to watch, once it is back in reach.
-pub fn host_reached(bench: &Workbench, place: &Host, cx: &App) {
+pub fn host_reached(bench: &Workbench, place: &Place, cx: &App) {
     if !bench.editors.read(cx).watched(place).is_empty() {
         show_files(bench, place, cx);
     }
@@ -1303,7 +1303,7 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
                 None => return,
             };
             if first && loaded {
-                if key.place == Host::This {
+                if key.place == Place::This {
                     lsp::attach(bench, key.path.clone(), window, cx);
                 }
                 gutter::read_base(bench, &key, cx);
@@ -1430,9 +1430,9 @@ fn shown(bench: &Workbench, cx: &App) -> Vec<FileKey> {
     let mut shown = Vec::new();
     let views =
         (bench.this_view().into_iter())
-            .map(|view| (Host::This, view))
+            .map(|view| (Place::This, view))
             .chain(bench.feeds.hosts().filter_map(|(host, feed)| {
-                Some((Host::Account(host.clone()), feed.view.as_ref()?))
+                Some((Place::Account(host.clone()), feed.view.as_ref()?))
             }));
     for (place, view) in views {
         let strips = view
@@ -1511,7 +1511,7 @@ pub fn close_unsaved(
 }
 
 /// The files in `pane`, its own or every one of its splits'.
-pub fn files_of(place: &Host, pane: &Pane) -> Vec<FileKey> {
+pub fn files_of(place: &Place, pane: &Pane) -> Vec<FileKey> {
     let mut found = Vec::new();
     files_in(place, pane, &mut found);
     found
@@ -1530,7 +1530,7 @@ pub fn keep(bench: &mut Workbench, cx: &mut App) {
             .filter(|key| !shown.contains(*key))
             .cloned()
             .collect();
-        let mut places: Vec<Host> = Vec::new();
+        let mut places: Vec<Place> = Vec::new();
         for key in closed {
             editors.viewers.remove(&key);
             editors.copies.forget(&key);
@@ -1557,7 +1557,7 @@ pub fn keep(bench: &mut Workbench, cx: &mut App) {
     }
 }
 
-fn files_in(place: &Host, pane: &Pane, found: &mut Vec<FileKey>) {
+fn files_in(place: &Place, pane: &Pane, found: &mut Vec<FileKey>) {
     found.extend(
         crate::panes::views(pane)
             .filter(|view| view.kind == PaneKind::Files)
@@ -1570,7 +1570,7 @@ fn files_in(place: &Host, pane: &Pane, found: &mut Vec<FileKey>) {
 /// head, or none for anything.
 pub fn git_changed(
     bench: &mut Workbench,
-    place: &Host,
+    place: &Place,
     project: Option<&str>,
     paths: Option<&[String]>,
     cx: &mut Context<Workbench>,
@@ -1600,7 +1600,12 @@ pub fn diagnostics_changed(bench: &mut Workbench, paths: &[String], cx: &mut Con
 
 /// Files that changed on disk: clean editors take the new text, and one with
 /// unsaved edits says the disk moved on when its version did.
-pub fn changed(bench: &mut Workbench, place: &Host, paths: &[String], cx: &mut Context<Workbench>) {
+pub fn changed(
+    bench: &mut Workbench,
+    place: &Place,
+    paths: &[String],
+    cx: &mut Context<Workbench>,
+) {
     let shown: Vec<FileKey> = paths
         .iter()
         .map(|path| FileKey::new(place.clone(), path))
@@ -1701,7 +1706,7 @@ fn show_rendered(
                 page.show(text);
                 return;
             }
-            let file = (key.place == Host::This).then_some(key.path.as_path());
+            let file = (key.place == Place::This).then_some(key.path.as_path());
             let (events, mut heard) = tokio::sync::mpsc::unbounded_channel();
             let page = crate::page_view::open(
                 text,
@@ -1726,8 +1731,8 @@ fn show_rendered(
                 return;
             }
             let host = match &key.place {
-                Host::This => "this".to_owned(),
-                Host::Account(host) => format!("host:{host}"),
+                Place::This => "this".to_owned(),
+                Place::Account(host) => format!("host:{host}"),
             };
             let kept = diagram::Kept {
                 asks: asks.clone(),

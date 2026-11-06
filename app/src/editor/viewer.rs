@@ -21,7 +21,7 @@ use serde_json::json;
 
 use super::{copies, Editors, FileKey};
 use crate::core::Target;
-use crate::hosts::Place as Host;
+use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_SM, TEXT_XS,
@@ -204,8 +204,8 @@ pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workben
         let shown_here = matches!(kind, Kind::Image | Kind::Document);
         let local = match &key.place {
             _ if !shown_here => None,
-            Host::This => Some(key.path.clone()),
-            Host::Account(_) => {
+            Place::This => Some(key.path.clone()),
+            Place::Account(_) => {
                 match copies::bring(editors.clone(), target.clone(), key.clone(), about.size, cx)
                     .await
                 {
@@ -293,13 +293,13 @@ pub(super) fn reopen(bench: &mut Workbench, keys: &[FileKey], cx: &mut Context<W
     for key in keys {
         let shown_here =
             (bench.editors.read(cx).viewers.get(key)).is_some_and(|viewer| viewer.local.is_some());
-        if shown_here && key.place != Host::This {
+        if shown_here && key.place != Place::This {
             load(bench, key.clone(), cx);
         }
     }
     let viewers = &bench.editors.read(cx).viewers;
     let pictures: Vec<&FileKey> = (keys.iter())
-        .filter(|key| key.place == Host::This)
+        .filter(|key| key.place == Place::This)
         .filter(|key| {
             (viewers.get(*key))
                 .and_then(|viewer| viewer.about.as_ref())
@@ -313,7 +313,7 @@ pub(super) fn reopen(bench: &mut Workbench, keys: &[FileKey], cx: &mut Context<W
         bench.editors.update(cx, |_, cx| cx.notify());
     }
     #[cfg(target_os = "macos")]
-    for key in keys.iter().filter(|key| key.place == Host::This) {
+    for key in keys.iter().filter(|key| key.place == Place::This) {
         if let Some((document, _, _)) = (bench.editors.read(cx).viewers.get(key))
             .and_then(|viewer| viewer.document.as_ref()?.as_ref())
         {
@@ -512,7 +512,7 @@ fn openable(viewer: &Viewer, key: &FileKey) -> Option<PathBuf> {
     viewer
         .local
         .clone()
-        .or_else(|| (key.place == Host::This).then(|| key.path.clone()))
+        .or_else(|| (key.place == Place::This).then(|| key.path.clone()))
 }
 
 fn message(text: SharedString, t: &Tokens) -> AnyElement {
@@ -602,7 +602,7 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
     let image = about.is_some_and(|about| kind_of(&about.mime) == Kind::Image);
     let reload = key.clone();
     let open = openable(viewer, key);
-    let reveal = (key.place == Host::This).then(|| path.to_owned());
+    let reveal = (key.place == Place::This).then(|| path.to_owned());
     let this_reload = this.clone();
     div()
         .flex()

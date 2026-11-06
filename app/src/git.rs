@@ -82,6 +82,11 @@ pub use sikemux_core::git::diff::DiffKind;
 pub(crate) mod pane;
 pub mod repos;
 
+/// The key the core keeps `repo`'s commit message under.
+fn draft_key(repo: &str) -> String {
+    format!("git:{repo}")
+}
+
 /// The project's Git view: the repository picker while none is chosen, else its pane, which
 /// takes the keys when it was just opened.
 pub(crate) fn pane(
@@ -641,7 +646,7 @@ impl Workbench {
         }) {
             let target = self.target();
             target.watch_folder(Read::GitOverview, json!({ "repo": repo }), repo.clone());
-            let draft = format!("git:{repo}");
+            let draft = draft_key(repo);
             target.watch(Read::GitDraft, json!({ "keys": [draft] }));
         }
         self.parts.redraw_stage(cx);
