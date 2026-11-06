@@ -2376,15 +2376,22 @@ pub(crate) fn card_line(core: &Core, agent_id: &str) -> Option<String> {
     ))
 }
 
+/// The open card an agent works now, on whichever board, and the board: the highest of them, as
+/// [`held_card`] takes, so its report, ticket and goal all name one card.
+fn open_work<'a>(state: &'a State, agent_id: &str) -> Option<(&'a String, &'a Board, &'a Card)> {
+    (state.boards.iter())
+        .filter_map(|(project, board)| Some((project, board, board.open_working_card(agent_id)?)))
+        .max_by_key(|(_, _, card)| card.work_rank())
+}
+
 /// The ticket of the card an agent holds, or of the card it sits under.
 pub(crate) fn ticket_of_agent(core: &Core, agent_id: &str) -> Option<String> {
     let state = core.boards.state.locked();
-    state.boards.values().find_map(|board| {
-        let card = board.open_working_card(agent_id)?;
-        board
-            .up_from(card)
-            .find_map(|card| Some(card.ticket.as_ref()?.key.clone()))
-    })
+    let (_, board, card) = open_work(&state, agent_id)?;
+    let ticket = board
+        .up_from(card)
+        .find_map(|card| Some(card.ticket.as_ref()?.key.clone()));
+    ticket
 }
 
 /// What a card not done waits on the person for.
@@ -2612,10 +2619,9 @@ pub(crate) struct GoalRef {
 /// The goal the card `agent_id` works sits under, in its own project: its
 /// card not done, walked up to the top card above it, done or not.
 pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
-    let project = core.names.get(agent_id)?.project;
     let state = core.boards.state.locked();
-    let board = state.boards.get(&project)?;
-    let live = board.open_working_card(agent_id)?;
+    let (project, board, live) = open_work(&state, agent_id)?;
+    let project = project.clone();
     let goal = board.goal_above(live);
     let promise = live.slice.as_ref().map(|slice| slice.promise.as_str());
     let text = [

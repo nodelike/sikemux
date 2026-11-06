@@ -427,7 +427,7 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
             name: chat.name.clone(),
             cli: Some(chat.provider.clone()),
             project: project(&chat.agent_id)
-                .or_else(|| Some(chat.cwd.to_string_lossy().into_owned())),
+                .or_else(|| Some(core.workspaces.project_of(&chat.cwd))),
             title: chat.title.clone(),
             session: None,
             group: chat.group,
@@ -445,7 +445,7 @@ fn agents(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agen
             cli: session.agent_type.clone(),
             project: project(agent_id).or_else(|| {
                 let folder = roster::terminal_folder(core, session)?;
-                Some(folder.to_string_lossy().into_owned())
+                Some(core.workspaces.project_of(&folder))
             }),
             title: session.title.clone(),
             session: Some(session.id),
@@ -480,7 +480,10 @@ fn gone_agent(core: &Core, agent_id: &str) -> Agent {
         id: agent_id.to_owned(),
         name: named.as_ref().map(|named| named.name.clone()),
         cli: None,
-        project: named.map(|named| named.project),
+        project: named.map(|named| named.project).or_else(|| {
+            let agent = core.workspaces.agent(agent_id)?;
+            Some(core.workspaces.project_of(&agent.cwd))
+        }),
         title: None,
         session: None,
         group: AgentGroup::Idle,
