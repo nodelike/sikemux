@@ -17,11 +17,9 @@ export interface FakeFcm {
   keyFile: Record<string, string>;
   /** Every message FCM accepted or refused, in order. */
   sent: { token: string; body: Record<string, unknown> }[];
-  /** How many access tokens were minted. */
   mints: number;
   /** Answers for the next sends, used up in order; after them every send succeeds. */
   replies: FcmReply[];
-  /** The access token the next mint hands out. */
   nextAccessToken: string;
   stop(): Promise<void>;
 }

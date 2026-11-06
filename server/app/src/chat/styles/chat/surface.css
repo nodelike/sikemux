@@ -7,10 +7,7 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
-  /* No fill of its own: the stage under the pane already carries the surface,
-     * exactly as it does for terminals (.pane-terminal) and the editor
-     * (.editor-pane). This used to paint the legacy --pane hex on top, which
-     * read as a second, theme-deaf background inside the frame. */
+  /* No fill of its own: the ground behind it already carries the theme's surface. */
   background: transparent;
 }
 

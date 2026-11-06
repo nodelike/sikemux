@@ -17,7 +17,6 @@ export async function signedInToken(
   return token;
 }
 
-/** What went wrong, in words for the person. */
 export function problemText(error: unknown): string {
   return error instanceof Error ? error.message : TRY_AGAIN;
 }

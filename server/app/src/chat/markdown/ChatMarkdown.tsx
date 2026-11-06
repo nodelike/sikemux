@@ -26,15 +26,15 @@ import { ChatImage } from "../files/ChatImage";
 import { DiffText } from "../tools/DiffView";
 import { decodedFenceName } from "@shared/chat/transcript";
 
+/** A link made from a name the message only mentioned: written plainly, or between backticks. */
+type PathGuess = "text" | "code";
+
 /* An agent writes an attached file back as a link to it. A picture beats its
    percent-encoded name, so show the picture whenever we can read it.
 
    A name the message only mentioned in passing arrives here too, marked as a
    guess. It is a file when the project has one by that name, and the words the
    agent wrote when it has not. */
-/** A link made from a name the message only mentioned: written plainly, or between backticks. */
-type PathGuess = "text" | "code";
-
 function ChatLink({
   href,
   guess,

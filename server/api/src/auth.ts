@@ -53,7 +53,6 @@ interface VerifierOptions {
 
 const OAUTH_TYPES = new Set(["at+jwt", "application/at+jwt"]);
 
-/** Refuses a sign-in to an account that was deleted but can still be restored. */
 export function accountDeleted(): ApiFailure {
   return unauthorized(
     "This account was deleted. Sign in to the phone app or app.sikemux.com to restore it.",
@@ -252,7 +251,6 @@ async function signedIdentity(
   };
 }
 
-/** Refuses a sign-in that is none of the ways in `accept`. */
 function admit(identity: Identity, accept: readonly SignIn[]) {
   const admitted =
     identity.via === "mac"

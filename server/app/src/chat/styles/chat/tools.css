@@ -1,9 +1,8 @@
-/* ── a run of tool calls ──────────────────────────────────────────────
- *
- * The same tree the side rail draws (restored-rails.css): one hairline spine,
- * a 9px tick per row, a 16px icon slot. Each row paints its own segment of the
- * spine, and the last row's segment stops at its tick — that is the elbow.
- * Erasing it instead would need a ground to erase with, and a pane has none.
+/*
+ * A run of tool calls is a tree: one hairline spine, a 9px tick per row, a 16px
+ * icon slot. Each row paints its own segment of the spine, and the last row's
+ * segment stops at its tick — that is the elbow. Erasing it instead would need
+ * a ground to erase with, and a pane has none.
  */
 .chat-tools {
   margin: 7px 0;
@@ -314,7 +313,6 @@ button.chat-tool:hover > .chat-tool-line::after,
   white-space: pre-wrap;
 }
 
-/* ── a command and what it printed ────────────────────────────────── */
 .chat-tool-terminal {
   overflow: hidden;
   border: 1px solid var(--line-soft);
@@ -417,7 +415,6 @@ button.chat-tool:hover > .chat-tool-line::after,
   border-radius: var(--radius-1);
 }
 
-/* ── the hunk an edit made ────────────────────────────────────────── */
 .chat-diff {
   overflow: hidden;
   border: 1px solid var(--line-soft);

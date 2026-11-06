@@ -1,4 +1,3 @@
-/* ---- Tooltip ------------------------------------------------------------ */
 .tip {
   position: fixed;
   z-index: var(--layer-tooltip);

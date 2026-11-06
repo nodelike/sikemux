@@ -6,7 +6,6 @@ import type {
 
 import type { ShareOptions } from "./options.ts";
 
-/** What the relay needs of a host's connection. */
 export interface HostLink {
   readonly key: string;
   readonly userId: string;
@@ -15,7 +14,6 @@ export interface HostLink {
   removed(): void;
 }
 
-/** What the relay needs of a viewer's connection. */
 export interface ViewerLink {
   readonly id: string;
   /** The viewer's own account. */

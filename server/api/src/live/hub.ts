@@ -5,12 +5,10 @@ import type { Logger } from "../log.ts";
 import type { LiveOptions } from "./options.ts";
 import { byeAll } from "../sockets/socket.ts";
 
-/** What the hub needs of every open connection. */
 export interface Connection {
   bye(reconnectAfterMs: number): Promise<void>;
 }
 
-/** What the hub needs of a connection that has said who it is. */
 export interface Member {
   readonly userId: string;
   /** The device's key; the web app has none. */

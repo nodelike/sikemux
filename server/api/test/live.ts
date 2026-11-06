@@ -101,7 +101,6 @@ export class Peer {
     for (const wake of waiters) wake();
   }
 
-  /** The next message not yet read, waiting for it if needed. */
   async next(timeoutMs = 3_000): Promise<LiveServerMessage> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
@@ -120,7 +119,6 @@ export class Peer {
     }
   }
 
-  /** Reads until a message of `type`, returning it. */
   async until<T extends LiveServerMessage["type"]>(
     type: T,
     timeoutMs = 3_000,

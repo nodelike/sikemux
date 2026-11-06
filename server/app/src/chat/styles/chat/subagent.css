@@ -1,5 +1,3 @@
-/* ── a subagent's own thread ──────────────────────────────────────── */
-
 /* The card is the record of what a subagent did, so it keeps to itself until
    it is opened: one line, and a chip saying how it ended. Opened, what it said
    hangs off the card on a quieter tray. What it is doing right now lives over

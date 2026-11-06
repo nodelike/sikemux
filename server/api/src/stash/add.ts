@@ -24,7 +24,6 @@ export type Upload = {
   name: string;
   note: string | null;
   target: StashTarget | undefined;
-  /** The prompt the file is attached to. */
   prompt: string | undefined;
   /** The size the upload says it has, before a byte is read. */
   declared: number;

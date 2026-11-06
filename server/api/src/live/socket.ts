@@ -36,7 +36,6 @@ export const LIVE_SOCKET: SocketKind = {
   codes: LiveCloseCode,
 };
 
-/** Who a hello proved the connection is. */
 type Who =
   | { role: "web"; userId: string; expiresAt: Date }
   | {
@@ -223,7 +222,6 @@ export class LiveSocket extends ChallengedSocket<
     await this.deliver(who);
   }
 
-  /** Works out who the hello proves the connection is, or refuses it. */
   private async check(hello: LiveHello): Promise<Who> {
     const { db, verifier } = this.context;
     if (hello.role === "web") {

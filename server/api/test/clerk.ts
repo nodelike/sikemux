@@ -4,7 +4,6 @@ import type { ClerkBackend } from "../src/account/clerk.ts";
 export class FakeClerk implements ClerkBackend {
   readonly deleted: string[] = [];
   readonly revoked: string[] = [];
-  /** The Apple access tokens Clerk holds for each user. */
   readonly appleTokens = new Map<string, string[]>();
   failing = false;
 

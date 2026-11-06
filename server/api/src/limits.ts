@@ -68,7 +68,6 @@ export function limit<E extends Env>(
   };
 }
 
-/** A limit on each signed-in account. */
 export function perUser(
   limiter: RateLimiter,
   name: string,

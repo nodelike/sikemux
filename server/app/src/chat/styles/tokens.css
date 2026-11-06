@@ -9,7 +9,7 @@
      * Two, with a hard rule about which: the sans is for anything the app
      * says, the mono is for anything the machine says. A branch name, a
      * timestamp, a shortcut, a diff — machine. A button label, a row title, a
-     * heading — app. `--mono` and `--kbd` come from base.css.
+     * heading — app. `--mono` comes from the shared palette.
      */
   --ui:
     "Figtree", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui,
@@ -53,17 +53,12 @@
 
   /* ── Surfaces ─────────────────────────────────────────────────────────
      *
-     * Four depths, and the app only ever needs four: the window recess, the
-     * panels on it, the things raised off a panel, and the things that float
-     * over everything. The old sheets reach for `--rail`, `--rail-2`, `--pane`
-     * and `--void` more or less interchangeably; these say what a surface is
-     * for instead of which pane happened to use it first.
-     *
-     * `--surface` is the theme's `--bg` exactly, so it agrees with `--rail` and
-     * `--pane`; the two above it are still lifted off it by the ramp rather
-     * than read from the theme. A theme is free to set `bgRaised` equal to its
-     * `line` — four of them do — and taking both verbatim put a control, its
-     * card and the hairline between them at one colour.
+     * The window recess, the things raised off a panel, and the things that
+     * float over everything. Raised and overlay are lifted off the panel by
+     * the ramp rather than read from the theme: a theme is free to set
+     * `bgRaised` equal to its `line` — four of them do — and taking both
+     * verbatim put a control, its card and the hairline between them at one
+     * colour.
      */
   --surface-sunken: var(--bg-dim, var(--void));
   --surface-raised: var(--gray-200);
@@ -72,7 +67,7 @@
   --s-raised: var(--surface-raised);
 
   /* Row states. Hover is a tint, not a colour — an accent wash on every
-     * hovered row is what made the rails read as decorated rather than dense. */
+     * hovered row is what made lists read as decorated rather than dense. */
   --surface-hover: color-mix(in oklab, var(--ink) 6%, transparent);
   --surface-active: color-mix(in oklab, var(--ink) 10%, transparent);
 
@@ -85,17 +80,15 @@
   --border: var(--gray-300);
   --border-strong: var(--gray-500);
 
-  /* The tree spine and the ticks hanging off it. The chat's tool calls and
-       the rail's project children draw the same tree, so they read the same
-       pair — accent-led, because the spine is what says these rows belong to
-       the row above them. */
+  /* The tree spine and the ticks hanging off it, accent-led because the spine
+       is what says these rows belong to the row above them. */
 
   --tree-spine: color-mix(in srgb, var(--acc) 52%, var(--line));
   --tree-tick: color-mix(in srgb, var(--acc) 72%, transparent);
 
   /* ── Text ─────────────────────────────────────────────────────────────
      *
-     * Four weights of presence. Body copy sits at `--text-secondary`, not at
+     * Three weights of presence. Body copy sits at `--text-secondary`, not at
      * full ink: a pane where every row is `--gray-1000` glares, and leaves the
      * selected row nothing left to be brighter than.
      */
@@ -106,8 +99,6 @@
   /* ── Radius ───────────────────────────────────────────────────────────
      *
      * Four steps, chosen by what an element is rather than how big it is.
-     * The legacy aliases below are not deprecation debt — they are how the
-     * existing sheets get the new geometry without touching every rule.
      */
   --radius-1: 4px; /* badges, chips, dots, the smallest controls */
   --radius-2: 5px; /* buttons, inputs, rows, tabs — the default */
