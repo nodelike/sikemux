@@ -32,7 +32,6 @@ export interface Connection {
     timeoutMs?: number;
 }
 
-/** The sign-in `token` gives, or a problem asking the person to sign in again. */
 export async function bearer(token: () => Promise<string | null>): Promise<string> {
     const signedIn = await token();
     if (!signedIn) throw new ApiProblem("Sign in again.", 401);

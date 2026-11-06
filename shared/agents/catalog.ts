@@ -9,7 +9,6 @@ export type AgentType = string;
 /** The agents each core said it can run, by core, read before anything shows an agent. */
 const catalogs = externalValue<ReadonlyMap<string, ReadonlyMap<string, CatalogAgent>>>(new Map());
 
-/** Takes the catalog `core` sent, in place of what it said before. */
 export function setAgentCatalog(core: string, agents: readonly CatalogAgent[]): void {
     catalogs.set(new Map(catalogs.get()).set(core, new Map(agents.map((agent) => [agent.type, agent]))));
 }

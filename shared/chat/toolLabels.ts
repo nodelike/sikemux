@@ -50,5 +50,3 @@ export function toolRunning(tool: ToolCall): boolean {
     const status = tool.status ?? "pending";
     return status !== "completed" && status !== "failed" && status !== "cancelled";
 }
-
-/** What the running call at the end of the chat is doing, in its row's words. */

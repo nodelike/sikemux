@@ -45,7 +45,6 @@ export function afterByeDelay(reconnectAfterMs: number, random: number): number 
     return reconnectAfterMs + Math.round(1000 * random);
 }
 
-/** `https://api` becomes `wss://api`, and the development server's `http` becomes `ws`. */
 export function liveUrl(api: string): string {
     return `${api.replace(/^http/, "ws")}/v1/live`;
 }

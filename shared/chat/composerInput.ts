@@ -2,7 +2,6 @@ import type { ChatCommandInfo } from "./types";
 
 const MAX_COMMANDS = 8;
 
-/** The agent's slash commands with `needle` anywhere in their name. */
 export function commandMatches(commands: readonly ChatCommandInfo[], needle: string): ChatCommandInfo[] {
     const lower = needle.toLowerCase();
     return commands.filter((command) => command.name.toLowerCase().includes(lower)).slice(0, MAX_COMMANDS);

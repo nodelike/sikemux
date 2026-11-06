@@ -43,6 +43,7 @@ export function fileUriToPath(uri: string): string | null {
     return /^\/[A-Za-z]:/.test(pathname) ? pathname.slice(1) : pathname;
 }
 
+/** A file's extension in lower case, without its dot. A hidden file's leading dot starts its name, not an extension. */
 export function extensionOf(path: string): string {
     const name = path.toLowerCase().split(/[\\/]/).pop() ?? "";
     const dot = name.lastIndexOf(".");

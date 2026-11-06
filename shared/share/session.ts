@@ -116,7 +116,6 @@ export class ShareSession {
 
     snapshot = () => this.snap;
 
-    /** Watches until `stop`. */
     start = () => {
         if (!this.stopped) return;
         this.stopped = false;

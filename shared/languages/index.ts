@@ -117,7 +117,6 @@ function known(name: string): string | null {
     return Object.hasOwn(GRAMMAR_ALIASES, name) ? GRAMMAR_ALIASES[name] : null;
 }
 
-/** A file's extension in lower case, without its dot. A hidden file's leading dot starts its name, not an extension. */
 /** The language a name, file name or path is written in, which may end in `:line` or `:line:column`. */
 export function languageOf(nameOrPath: string): string | null {
     const name = (nameOrPath.toLowerCase().split(/[\\/]/).pop() ?? "").replace(/:\d+(?::\d+)?$/, "");
