@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // Writes the types clients read the core's JSON with, from the Rust that
-// serializes it: TypeScript for the app and the phone, Swift for the notch,
-// and the app's copy of the defaults of the types in DEFAULTS.
+// serializes it: TypeScript for the phone and the web, and Swift for the notch.
 // It reads the serde declarations itself and fails on any it does not know,
 // rather than guess. `--check` fails when an output is out of date.
 
@@ -73,28 +72,16 @@ const TS_ROOTS = [
   "ChatPage",
   "ChatChange",
   "ToolDetail",
-  "CoreChangeTopic",
   "Preferences",
   "Palette",
-  "ThemeSummary",
   "ProjectBoard",
   "HostInfo",
   "RemoteStatus",
-  "AllowedDevice",
   "RemotePairing",
   "NetworkChange",
   "Inbox",
   "AgentQuestion",
   "CatalogAgent",
-  "GitOverview",
-  "DiscoveredRepo",
-  "GitCompare",
-  "GitStash",
-  "GitRemote",
-  "GitRemoteBranch",
-  "GitWorktree",
-  "GitBlame",
-  "DiffHunk",
   "Draft",
   "UpdateStatus",
   "ShareFrame",
@@ -120,30 +107,19 @@ const {
   await readFile(resolve(root, "helpers/notch/wire.json"), "utf8"),
 );
 
-/** Types whose `Default` the app shows until the core has answered with its own values. */
-const DEFAULTS = ["Preferences"];
+/** The calls the phone makes, which it says itself: the Mac reads the Rust, so nothing else reads the table. */
+const { calls: PHONE_CALLS } = JSON.parse(
+  await readFile(resolve(root, "mobile/app/wire.json"), "utf8"),
+);
 
 /** Limits the clients check before they send, read from where the core enforces them. */
 const LIMITS = [
   [`${WIRE}/protocol.rs`, "MAX_ATTACHMENT_BYTES"],
-  [`${VIEW}/prefs.rs`, "DEFAULT_TERMINAL_FONT_SIZE"],
-  [`${VIEW}/prefs.rs`, "MIN_TERMINAL_FONT_SIZE"],
-  [`${VIEW}/prefs.rs`, "MAX_TERMINAL_FONT_SIZE"],
-  [`${VIEW}/prefs.rs`, "DEFAULT_TEXT_SCALE"],
-  [`${VIEW}/prefs.rs`, "MIN_TEXT_SCALE"],
-  [`${VIEW}/prefs.rs`, "MAX_TEXT_SCALE"],
-  [`${VIEW}/prefs.rs`, "MAX_PROJECT_DEPTH"],
   [`${CORE}/server/chat/prompt.rs`, "MAX_ATTACHMENTS"],
 ];
 
 /** Addresses clients write into what they send, read from the core's own. */
-const URIS = [
-  "AGENT_URI",
-  "EARLIER_URI",
-  "WOKEN_URI",
-  "STASH_URI",
-  "ANSWER_URI",
-];
+const URIS = ["AGENT_URI", "EARLIER_URI", "WOKEN_URI", "STASH_URI"];
 
 const OUTPUTS = {
   ts: "shared/wire.generated.ts",
@@ -686,7 +662,6 @@ function parse(item, wanted) {
       rust: rest,
       docs,
       other: variant.other === true,
-      isDefault: attrs.includes("default"),
     };
   });
   return { name, docs: item.docs, kind: "strings", variants };
@@ -835,19 +810,32 @@ function typescript(roots, preamble) {
     .join("\n\n")}\n\n${callMap}\n`;
 }
 
-/** The methods in the core's `calls!` that name their params and answer, as `"method" Marker (Params) -> Answer`. */
+/**
+ * The methods the phone calls, as mobile/app/wire.json names them, from the core's `calls!` rows that name
+ * their params and answer, as `"method" Marker (Params) -> Answer`.
+ */
 function coreCalls() {
   const file = `${CORE}/server/calls.rs`;
   const text = texts[SOURCES.indexOf(file)];
-  return [
-    ...text.matchAll(
-      /^\s*"([\w.]+)"\s*\w+\s*\((.*?)\)\s*->\s*(.+?):\s*[A-Z]\w*(?:,\s*\w+(?:\([^)]*\))?)*\s*=>/gm,
-    ),
-  ].map(([, method, takes, gives]) => ({
-    method,
-    takes: parseType(takes, file),
-    gives: parseType(gives, file),
-  }));
+  const rows = new Map(
+    [
+      ...text.matchAll(
+        /^\s*"([\w.]+)"\s*\w+\s*\((.*?)\)\s*->\s*(.+?):\s*[A-Z]\w*(?:,\s*\w+(?:\([^)]*\))?)*\s*=>/gm,
+      ),
+    ].map(([, method, takes, gives]) => [method, { takes, gives }]),
+  );
+  return PHONE_CALLS.map((method) => {
+    const row = rows.get(method);
+    if (!row)
+      fail(
+        `mobile/app/wire.json names ${method}, which calls.rs does not type`,
+      );
+    return {
+      method,
+      takes: parseType(row.takes, file),
+      gives: parseType(row.gives, file),
+    };
+  });
 }
 
 const swiftCase = (name) => renameAll(name.replaceAll("-", "_"), "camelCase");
@@ -1253,20 +1241,6 @@ function askAnswers() {
   return answers;
 }
 
-/** The text of `impl Default for name`'s `Self { .. }`, if the file has one. */
-function defaultBody(item) {
-  const text = texts[SOURCES.indexOf(item.file)];
-  const at = text.search(new RegExp(`impl Default for ${item.name}\\s*\\{`));
-  if (at < 0) return null;
-  const impl = text.slice(at, balanced(text, text.indexOf("{", at)));
-  const fn = impl.search(/fn default\(\)\s*->\s*Self\s*\{/);
-  const body = impl.slice(impl.indexOf("{", fn) + 1);
-  const self = fn < 0 ? -1 : body.search(/\bSelf\s*\{/);
-  if (self < 0) fail(`${item.name}'s Default does not build Self { .. }`);
-  const open = body.indexOf("{", self);
-  return body.slice(open, balanced(body, open));
-}
-
 /** A constant's value, `const NAME: T = value;` in `file`. */
 function constant(file, name) {
   const text = texts[SOURCES.indexOf(file)];
@@ -1277,110 +1251,6 @@ function constant(file, name) {
   if (value === undefined) fail(`${file} has no constant ${name}`);
   return value;
 }
-
-/** What a type is when nothing was said: the JSON of its `Default`. */
-function defaultOfType(type, file) {
-  switch (type.kind) {
-    case "bool":
-      return false;
-    case "int":
-    case "float":
-      return 0;
-    case "string":
-      return "";
-    case "option":
-      return null;
-    case "list":
-      return [];
-    case "map":
-      return {};
-    case "named":
-      return defaultOf(byClientName(type.name));
-  }
-  fail(`${JSON.stringify(type)} in ${file} has no default`);
-}
-
-/** The JSON `expr` serializes to as a value of `type`, for the plain expressions defaults are written in. */
-function evaluate(expr, type, file) {
-  expr = expr.trim();
-  const built = /^(.*)\.(?:to_owned|to_string|into)\(\)$/s.exec(expr);
-  if (built) return evaluate(built[1], type, file);
-  if (expr === "true" || expr === "false") return expr === "true";
-  if (/^-?[\d_]+(\.[\d_]+)?$/.test(expr))
-    return Number(expr.replaceAll("_", ""));
-  if (/^"(?:[^"\\]|\\.)*"$/.test(expr)) return JSON.parse(expr);
-  if (expr === "None") return null;
-  const some = /^Some\((.*)\)$/s.exec(expr);
-  if (some && type.kind === "option") return evaluate(some[1], type.of, file);
-  const listed = /^vec!\[(.*)\]$/s.exec(expr);
-  if (listed && type.kind === "list")
-    return splitTop(listed[1])
-      .filter((item) => item.trim())
-      .map((item) => evaluate(item, type.of, file));
-  if (/^(?:String|Vec|BTreeMap|HashMap)::new\(\)$/.test(expr))
-    return defaultOfType(type, file);
-  if (/^(?:[\w:]+::)?(?:default|Default::default)\(\)$/.test(expr))
-    return defaultOfType(type, file);
-  const indexed = /^([A-Z][A-Z0-9_]*)\[(\d+)\]$/.exec(expr);
-  if (indexed) {
-    const list = constant(file, indexed[1]);
-    if (!list.startsWith("[")) fail(`${indexed[1]} in ${file} is not a list`);
-    return evaluate(
-      splitTop(list.slice(1, -1))[Number(indexed[2])],
-      type,
-      file,
-    );
-  }
-  if (/^[A-Z][A-Z0-9_]*$/.test(expr))
-    return evaluate(constant(file, expr), type, file);
-  const variant = /^(?:[\w:]+::)?(\w+)::(\w+)$/.exec(expr);
-  if (variant && type.kind === "named") {
-    const declared = parse(byClientName(type.name));
-    const found =
-      declared.kind === "strings" &&
-      declared.variants.find((v) => v.rust === variant[2]);
-    if (!found) fail(`${expr} in ${file} is not a variant of ${type.name}`);
-    return found.name;
-  }
-  fail(`the default ${expr} in ${file} is not a plain value`);
-}
-
-function defaultOf(item) {
-  const declared = parse(item);
-  if (declared.kind === "strings") {
-    const chosen = declared.variants.find((v) => v.isDefault);
-    if (!chosen) fail(`${item.name} has no #[default] variant`);
-    return chosen.name;
-  }
-  if (declared.kind !== "struct")
-    fail(`${item.name} has no default the app can copy`);
-  const body = defaultBody(item);
-  const given = new Map(
-    (body ? splitTop(body.slice(1, -1)) : []).map((member) => {
-      const match = /^(\w+)\s*:\s*([\s\S]+)$/.exec(member.trim());
-      if (!match) fail(`${item.name}'s Default sets ${member}`);
-      return [match[1], match[2]];
-    }),
-  );
-  return Object.fromEntries(
-    declared.fields.flatMap((field) => {
-      const expr = given.get(field.rust);
-      if (body && expr === undefined)
-        fail(`${item.name}'s Default leaves out ${field.rust}`);
-      const value =
-        expr === undefined
-          ? defaultOfType(field.type, item.file)
-          : evaluate(expr, field.type, item.file);
-      // serde leaves out a None it is told to skip.
-      return field.mayBeAbsent && value === null ? [] : [[field.name, value]];
-    }),
-  );
-}
-
-const defaults = DEFAULTS.map(
-  (name) =>
-    `/** What the core's \`${name}::default()\` serializes to. */\nexport const DEFAULT_${words(name).join("_").toUpperCase()}: ${name} = ${JSON.stringify(defaultOf(byClientName(name)))};`,
-).join("\n\n");
 
 async function emit(path, contents) {
   const full = resolve(root, path);
@@ -1421,7 +1291,7 @@ for (const [, variant, key] of gateKeys) {
 
 await emit(
   OUTPUTS.ts,
-  `${typescript(TS_ROOTS, `${limits}\n${await uris()}\n${await extensionless()}\n\n`)}\n${defaults}\n`,
+  `${typescript(TS_ROOTS, `${limits}\n${await uris()}\n${await extensionless()}\n\n`)}\n`,
 );
 await emit(OUTPUTS.notch, swift());
 await emit(OUTPUTS.cardSwift, cardSwift());
