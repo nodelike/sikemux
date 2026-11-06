@@ -65,7 +65,8 @@ export function rowFold(row: ChatMessage, open: (id: string) => boolean, run?: T
   const fold = row.fold;
   if (!fold) return UNFOLDED;
   const summary = row.id === fold.id ? fold : null;
-  if (open(fold.id)) return summary ? { summary, hidden: false, shown: null } : UNFOLDED;
+  // A host older than v0.6.1-nightly.5 sends no `shown`, so its rows draw whole.
+  if (open(fold.id) || !fold.shown) return summary ? { summary, hidden: false, shown: null } : UNFOLDED;
   return { summary, hidden: fold.shown.length === 0, shown: fold.shown };
 }
 

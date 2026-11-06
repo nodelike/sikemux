@@ -169,7 +169,8 @@ export function ChatTranscript({
                   onToggle={() => toggleWork(workId)}
                 />
               );
-            if (span && fold && folded && fold.shown.length === 0)
+            // A host older than v0.6.1-nightly.5 sends no `shown`, so its rows draw whole.
+            if (span && fold && folded && fold.shown?.length === 0)
               return (
                 <div key={message.id} data-index={index} className="chat-row">
                   {summary}
@@ -179,7 +180,7 @@ export function ChatTranscript({
               <div key={message.id} data-index={index} className="chat-row">
                 {summary}
                 <ChatMessageRow
-                  kept={span && fold && folded ? fold.shown : null}
+                  kept={span && fold && folded ? (fold.shown ?? null) : null}
                   message={message}
                   live={state.running && index === state.messages.length - 1}
                   copyable={copyText(state.messages, index)}
