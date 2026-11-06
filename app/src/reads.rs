@@ -14,6 +14,7 @@ use sikemux_core::server::agent_accounts::AccountUsage;
 use sikemux_core::server::drafts::Draft;
 use sikemux_core::server::hosts::HostRow;
 use sikemux_core::server::mods::ModList;
+use sikemux_core::server::plugins::PluginOutcome;
 use sikemux_core::server::ports::ProjectPort;
 use sikemux_core::server::project_roots::RootEntry;
 use sikemux_core::server::share::ShareView;
@@ -605,9 +606,14 @@ impl Workbench {
                 self.picker_answered(cx);
             }
             Read::WorktreePulls => {
-                self.reads.worktree_pulls = crate::core::outcome(&value)
-                    .inspect_err(|error| eprintln!("sikemux: the worktree's pulls: {error}"))
-                    .ok();
+                self.reads.worktree_pulls = decoded::<PluginOutcome>(value, "worktree's pulls")
+                    .and_then(|told| {
+                        told.read()
+                            .inspect_err(|error| {
+                                eprintln!("sikemux: the worktree's pulls: {error}")
+                            })
+                            .ok()
+                    });
             }
             Read::WorktreeMerged => {
                 self.reads.worktree_merged = decoded(value, "worktree merged");

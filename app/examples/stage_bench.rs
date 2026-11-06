@@ -23,11 +23,11 @@ use common::thread_cpu_ms;
 use gpui::{
     point, px, size, AnyWindowHandle, AppContext, Entity, Focusable, HeadlessAppContext, Keystroke,
 };
-use serde_json::json;
 use sikemux_core::harness::runs::RunStatus;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::layout::{Side, SplitPane};
+use sikemux_core::server::preferences::SetPreferenceParams;
 use sikemux_core::server::spare::NewTerminal;
 use sikemux_core::server::tasks::TrustAnswerParams;
 use sikemux_gpui::hosts::Place;
@@ -184,10 +184,10 @@ fn main() -> anyhow::Result<()> {
         frames: Vec::new(),
     };
     run.bench.update(&mut run.cx, |bench, _| {
-        bench.call(
-            "setPreference",
-            json!({ "key": "onboardingComplete", "value": true }),
-        )
+        bench.call_typed::<call::SetPreference>(SetPreferenceParams {
+            key: "onboardingComplete".to_owned(),
+            value: true.into(),
+        })
     });
     if !run.until(600, |bench| bench.agent().is_some()) {
         anyhow::bail!("the core's tab in front holds no chat");

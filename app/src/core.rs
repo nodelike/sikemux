@@ -14,7 +14,6 @@ use sikemux_view::layout::PaneKind;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -251,10 +250,7 @@ pub enum Ask {
     Unwatch(Read),
     /// One of the core's methods, for something the person did. What it changes
     /// comes back with the next view.
-    Call {
-        method: &'static str,
-        params: Value,
-    },
+    Call(Method),
     /// Asks `read` once, its answer arriving as any other read's.
     Answer {
         read: Read,
@@ -262,26 +258,14 @@ pub enum Ask {
     },
     /// A call whose answer goes back to the one asking, for answers that belong to
     /// what asked, such as one file's diff.
-    Request {
-        method: &'static str,
-        params: Value,
-        reply: oneshot::Sender<Result<Value, CallError>>,
-    },
+    Request(Method, oneshot::Sender<Result<Value, CallError>>),
     /// A watch, stream, call or answer for another host's core, by the host's key, as this
     /// host's would be. A read is watched in one place at a time.
     On(String, Box<Ask>),
-    /// A call to another host's core, by the host's key, whose answer goes back to the one asking.
-    HostRequest {
-        host: String,
-        method: &'static str,
-        params: Value,
-        reply: oneshot::Sender<Result<Value, CallError>>,
-    },
     /// A call whose answer arrives in parts, as `Stream` events under `stream`.
     Stream {
         stream: u64,
-        method: &'static str,
-        params: Value,
+        method: Method,
         parts: mpsc::UnboundedSender<Part>,
     },
     Terminal(SessionId, TerminalAsk),
@@ -627,26 +611,6 @@ async fn open_tab(client: &CoreClient, project: &str, agent: &str) {
     .await;
 }
 
-/// Asks another host's core one of its methods, by the host's key, and waits for the answer.
-pub fn try_request_on(
-    asks: &mpsc::UnboundedSender<Ask>,
-    host: &str,
-    method: &'static str,
-    params: Value,
-) -> impl std::future::Future<Output = Result<Value, CallError>> {
-    let (reply, answer) = oneshot::channel();
-    let sent = asks.send(Ask::HostRequest {
-        host: host.to_owned(),
-        method,
-        params,
-        reply,
-    });
-    async move {
-        sent.map_err(|_| CallError::gone())?;
-        answer.await.map_err(|_| CallError::gone())?
-    }
-}
-
 /// A call's failure, with what a client branches on. Words for it are the caller's.
 #[derive(Clone, Debug)]
 pub struct CallError {
@@ -713,27 +677,6 @@ impl From<ClientError> for CallError {
             other => other.to_string().into(),
         }
     }
-}
-
-/// Asks another host's core one of its methods, for a caller that only shows a failure.
-pub fn request_on(
-    asks: &mpsc::UnboundedSender<Ask>,
-    host: &str,
-    method: &'static str,
-    params: Value,
-) -> impl std::future::Future<Output = Result<Value, String>> {
-    let called = try_request_on(asks, host, method, params);
-    async move { Ok(called.await?) }
-}
-
-/// Asks this host's core one of its methods, for a caller that only shows a failure.
-pub fn request(
-    asks: &mpsc::UnboundedSender<Ask>,
-    method: &'static str,
-    params: Value,
-) -> impl std::future::Future<Output = Result<Value, String>> {
-    let called = try_request(asks, method, params);
-    async move { Ok(called.await?) }
 }
 
 /// Where this app's key on the network is kept.
@@ -911,51 +854,38 @@ async fn heard_from(heard: &mut Option<mpsc::UnboundedReceiver<Happened>>) -> Op
     }
 }
 
+/// One of the core's methods and its params, which only a typed call makes, so no name is
+/// spelled outside the core's table.
+pub struct Method {
+    name: &'static str,
+    params: Value,
+}
+
+impl Method {
+    fn of<C: Call>(params: C::Params) -> Self
+    where
+        C::Params: Serialize,
+    {
+        let params = serde_json::to_value(params).unwrap_or_else(|error| {
+            eprintln!(
+                "sikemux: the params of {} did not write: {error}",
+                C::METHOD
+            );
+            Value::Null
+        });
+        Self {
+            name: C::METHOD,
+            params,
+        }
+    }
+}
+
 /// The call `C`, which nothing waits on the answer of.
 pub fn typed_call<C: Call>(params: C::Params) -> Ask
 where
     C::Params: Serialize,
 {
-    let params = serde_json::to_value(params).unwrap_or_else(|error| {
-        eprintln!(
-            "sikemux: the params of {} did not write: {error}",
-            C::METHOD
-        );
-        Value::Null
-    });
-    Ask::Call {
-        method: C::METHOD,
-        params,
-    }
-}
-
-/// The value inside a plugin's answer, or what its failure said.
-pub fn outcome<T: serde::de::DeserializeOwned>(value: &Value) -> Result<T, gpui_kit::SharedString> {
-    if let Some(failed) = value.get("failed") {
-        return Err(failed["message"]
-            .as_str()
-            .unwrap_or("the service did not answer")
-            .to_owned()
-            .into());
-    }
-    serde_json::from_value(value["value"].clone()).map_err(|error| error.to_string().into())
-}
-
-pub fn try_request(
-    asks: &mpsc::UnboundedSender<Ask>,
-    method: &'static str,
-    params: Value,
-) -> impl std::future::Future<Output = Result<Value, CallError>> {
-    let (reply, answer) = oneshot::channel();
-    let sent = asks.send(Ask::Request {
-        method,
-        params,
-        reply,
-    });
-    async move {
-        sent.map_err(|_| CallError::gone())?;
-        answer.await.map_err(|_| CallError::gone())?
-    }
+    Ask::Call(Method::of::<C>(params))
 }
 
 /// One batch of a streamed answer; the last has `done`, and `error` when it failed.
@@ -1018,28 +948,6 @@ impl Target {
         });
     }
 
-    /// Asks one of the core's methods, for a caller that branches on how it fails.
-    pub fn try_request(
-        &self,
-        method: &'static str,
-        params: Value,
-    ) -> Pin<Box<dyn Future<Output = Result<Value, CallError>> + Send>> {
-        match &self.place {
-            Place::This => Box::pin(try_request(&self.asks, method, params)),
-            Place::Account(host) => Box::pin(try_request_on(&self.asks, host, method, params)),
-        }
-    }
-
-    /// Asks one of the core's methods and waits for the answer.
-    pub fn request(
-        &self,
-        method: &'static str,
-        params: Value,
-    ) -> Pin<Box<dyn Future<Output = Result<Value, String>> + Send>> {
-        let called = self.try_request(method, params);
-        Box::pin(async move { Ok(called.await?) })
-    }
-
     /// Asks the place's core for the call `C`, and reads its answer as `C`'s answer.
     pub fn request_typed<C: Call>(
         &self,
@@ -1062,11 +970,10 @@ impl Target {
         C::Params: Serialize,
         C::Answer: DeserializeOwned,
     {
-        let asked = serde_json::to_value(params)
-            .map(|params| self.try_request(C::METHOD, params))
-            .map_err(|error| error.to_string());
+        let (reply, answer) = oneshot::channel();
+        self.ask(Ask::Request(Method::of::<C>(params), reply));
         async move {
-            let answer = asked?.await?;
+            let answer = answer.await.map_err(|_| CallError::gone())??;
             serde_json::from_value(answer).map_err(|error| {
                 let said = format!("the core's answer to {} did not read: {error}", C::METHOD);
                 eprintln!("sikemux: {said}");
@@ -1089,11 +996,6 @@ impl Target {
     /// Stops the core answering `read`, here or on any host.
     pub fn unwatch(&self, read: Read) {
         let _ = self.asks.send(Ask::Unwatch(read));
-    }
-
-    /// Tells the core something, with no answer waited for.
-    pub fn call(&self, method: &'static str, params: Value) {
-        self.ask(Ask::Call { method, params });
     }
 
     /// Sends the call `C` without waiting for its answer.
@@ -1136,8 +1038,7 @@ impl Target {
         let (sender, parts) = mpsc::unbounded_channel();
         self.ask(Ask::Stream {
             stream,
-            method: C::METHOD,
-            params: serde_json::to_value(params(stream)).unwrap_or(Value::Null),
+            method: Method::of::<C>(params(stream)),
             parts: sender,
         });
         Streaming {
@@ -1482,20 +1383,20 @@ async fn run(
                                     let watch = watches.set(Some(&host), key, watch);
                                     read_on(&linked, &host, key, watch, &current, &updates);
                                 }
-                                Ask::Stream { stream, method, params, parts } => {
+                                Ask::Stream { stream, method, parts } => {
                                     streamed.insert(stream, parts.clone());
                                     let linked = linked.clone();
                                     tokio::spawn(async move {
-                                        if let Err(error) = call_linked(&linked, &host, method, params).await {
+                                        if let Err(error) = call_linked(&linked, &host, method.name, method.params).await {
                                             let error = json!({ "category": "call", "message": error.message });
                                             let _ = parts.send(Part { items: Vec::new(), done: true, error: Some(error) });
                                         }
                                     });
                                 }
-                                Ask::Call { method, params } => {
+                                Ask::Call(method) => {
                                     let (linked, updates) = (linked.clone(), updates.clone());
                                     tokio::spawn(async move {
-                                        if let Err(error) = call_linked(&linked, &host, method, params).await {
+                                        if let Err(error) = call_linked(&linked, &host, method.name, method.params).await {
                                             let _ = updates.send(Update::Failed(error.into()));
                                         }
                                     });
@@ -1509,10 +1410,10 @@ async fn run(
                                         });
                                     });
                                 }
-                                Ask::Request { method, params, reply } => {
+                                Ask::Request(method, reply) => {
                                     let linked = linked.clone();
                                     tokio::spawn(async move {
-                                        let _ = reply.send(call_linked(&linked, &host, method, params).await);
+                                        let _ = reply.send(call_linked(&linked, &host, method.name, method.params).await);
                                     });
                                 }
                                 Ask::Terminal(session, ask) => match host_streams.get_mut(&host) {
@@ -1566,33 +1467,20 @@ async fn run(
                                 }
                                 _ => eprintln!("sikemux: that is not asked of another host"),
                             },
-                            Some(Ask::HostRequest { host, method, params, reply }) => {
-                                let linked = linked.clone();
-                                tokio::spawn(async move {
-                                    let answer = match linked {
-                                        Some(linked) => match linked.client(&host).await {
-                                            Ok(client) => client.call(method, params).await.map_err(CallError::from),
-                                            Err(error) => Err(CallError::from(error)),
-                                        },
-                                        None => Err(CallError::from("this app does not reach other hosts")),
-                                    };
-                                    let _ = reply.send(answer);
-                                });
-                            }
-                            Some(Ask::Stream { stream, method, params, parts }) => {
+                            Some(Ask::Stream { stream, method, parts }) => {
                                 streamed.insert(stream, parts.clone());
                                 let client = client.clone();
                                 tokio::spawn(async move {
-                                    if let Err(error) = client.call(method, params).await {
+                                    if let Err(error) = client.call(method.name, method.params).await {
                                         let error = json!({ "category": "call", "message": error.to_string() });
                                         let _ = parts.send(Part { items: Vec::new(), done: true, error: Some(error) });
                                     }
                                 });
                             }
-                            Some(Ask::Request { method, params, reply }) => {
+                            Some(Ask::Request(method, reply)) => {
                                 let client = client.clone();
                                 tokio::spawn(async move {
-                                    let answer = client.call(method, params).await;
+                                    let answer = client.call(method.name, method.params).await;
                                     let _ = reply.send(answer.map_err(CallError::from));
                                 });
                             }
@@ -1612,10 +1500,10 @@ async fn run(
                                 let (client, updates) = (client.clone(), updates.clone());
                                 tokio::spawn(async move { chat(&client, ask, &updates).await });
                             }
-                            Some(Ask::Call { method, params }) => {
+                            Some(Ask::Call(method)) => {
                                 let (client, updates) = (client.clone(), updates.clone());
                                 tokio::spawn(async move {
-                                    if let Err(error) = client.call(method, params).await {
+                                    if let Err(error) = client.call(method.name, method.params).await {
                                         let _ = updates.send(Update::Failed(error.to_string()));
                                     }
                                 });

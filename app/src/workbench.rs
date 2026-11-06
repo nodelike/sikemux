@@ -27,7 +27,7 @@ use gpui_kit::{
     ParentElement, Pixels, Render, SharedString, StyleRefinement, Styled, Subscription, Task,
     WeakEntity, Window,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::layout::{PaneKind, ProjectLayout, Tab};
 use sikemux_view::prefs::{Preferences, TabRailPage, WindowView};
@@ -595,10 +595,6 @@ impl Workbench {
             let _ = window.update(cx, |_, window, cx| window.remove_notification::<T>(cx));
         })
         .detach();
-    }
-
-    pub fn call(&self, method: &'static str, params: Value) {
-        Target::here(&self.asks).call(method, params);
     }
 
     pub fn call_typed<C: Call>(&self, params: C::Params)
