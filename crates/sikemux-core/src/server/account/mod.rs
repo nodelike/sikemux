@@ -7,6 +7,8 @@
 //! picture, and the core's remote access which account owns the host. A host
 //! with no browser signs in by a code approved elsewhere, and keeps no record.
 
+pub(crate) mod api;
+pub(crate) mod devices;
 mod profile;
 
 use crate::server::changed::What;
@@ -27,9 +29,10 @@ use crate::accounts::protocol::{AccountProfile, Challenge, DeviceRegistration, D
 use sikemux_view::device::AccountInfo;
 use sikemux_wire::protocol::HostRegistration;
 
+use self::api::as_host;
 use super::access::Peer;
 use super::changed::Topic;
-use super::hosts::account::as_host;
+use super::join::NAME_LIMIT;
 use super::{remote, Core, CoreError, CoreResult};
 use crate::accounts::client;
 
@@ -492,7 +495,7 @@ async fn register_host(core: &Core, peer: &Peer, access_token: &str) -> Result<S
     let registration = DeviceRegistration {
         key: host.key,
         role: DeviceRole::Host,
-        name: host.name.chars().take(64).collect(),
+        name: host.name.chars().take(NAME_LIMIT).collect(),
         platform: super::host::PLATFORM,
         channel: Some(host.channel.into()),
         nonce: challenge.nonce,

@@ -128,7 +128,7 @@ async fn probe(core: &Arc<Core>, alias: &str) -> Option<Found> {
             .is_some_and(|name| name == link.name && name != alias)
         {
             let renamed = serde_json::from_value(serde_json::json!({ "key": key, "name": alias }))
-                .map(|params| super::account::rename_device(core, params));
+                .map(|params| super::super::account::devices::rename_device(core, params));
             if let Ok(renaming) = renamed {
                 if let Err(error) = renaming.await {
                     eprintln!("sikemux core: {alias} keeps its own name: {error}");

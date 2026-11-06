@@ -2,10 +2,8 @@
 //! by a code its person approves on a device already signed in.
 
 use sikemux_wire::protocol::ask;
-use std::sync::OnceLock;
 use std::time::Duration;
 
-use reqwest::Client;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use sikemux_client::client::CoreClient;
@@ -14,26 +12,6 @@ use sikemux_core::accounts::host::{
     HostSignInStatus,
 };
 use sikemux_core::accounts::protocol::Device;
-
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-
-pub fn api(path: &str) -> String {
-    format!(
-        "{}{path}",
-        sikemux_core::accounts::api_base().trim_end_matches('/')
-    )
-}
-
-pub fn http() -> &'static Client {
-    static CLIENT: OnceLock<Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .user_agent(concat!("sikemux/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .expect("build the account server's HTTP client")
-    })
-}
 
 /// Signs this host in without a browser. `show` gets the code its person
 /// approves on a device already signed in. Answers with the account.
@@ -92,8 +70,9 @@ pub async fn sign_in_by_code(
 }
 
 async fn post<T: DeserializeOwned>(path: &str, body: &impl Serialize) -> Result<T, String> {
-    let response = http()
-        .post(api(path))
+    let base = sikemux_core::accounts::api_base();
+    let response = sikemux_core::accounts::client()?
+        .post(format!("{}{path}", base.trim_end_matches('/')))
         .json(body)
         .send()
         .await

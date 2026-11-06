@@ -11,7 +11,7 @@ use reqwest::Method;
 use ring::rand::{SecureRandom, SystemRandom};
 use sikemux_process::sync::Locked;
 
-use super::hosts::account::{as_host, host_request};
+use super::account::api::{as_host, host_request};
 use super::triggers::{self, HookDelivery};
 use super::{Core, CoreError, CoreResult};
 use crate::accounts::hooks::{

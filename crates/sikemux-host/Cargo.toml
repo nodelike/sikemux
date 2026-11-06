@@ -38,7 +38,6 @@ serde_json = { version = "1", features = ["preserve_order"] }
 semver = "1"
 uuid = { version = "1", features = ["v4", "v7"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "time", "sync", "io-util", "net"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "rustls-no-provider"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 sikemux-core = { path = "../sikemux-core" }
 sikemux-view = { path = "../sikemux-view" }

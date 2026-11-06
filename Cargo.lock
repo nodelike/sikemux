@@ -9354,7 +9354,6 @@ version = "0.6.1-nightly.4"
 dependencies = [
  "hex",
  "libc",
- "reqwest",
  "rustls",
  "semver",
  "serde",

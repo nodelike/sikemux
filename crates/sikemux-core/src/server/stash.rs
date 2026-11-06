@@ -20,10 +20,10 @@ use crate::accounts::protocol::{
     StashTaken, StashTarget, StashUpdate,
 };
 
+use super::account::api::{as_host, host_request, host_send, Upload};
 use super::changed::Topic;
 use super::connection::blocking;
 use super::drafts::Delivery;
-use super::hosts::account::{as_host, host_request, host_send, Upload};
 use super::{attachments, Core, CoreError, CoreResult};
 
 mod deliver;

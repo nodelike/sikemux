@@ -289,7 +289,7 @@ pub(super) fn apply_events(core: &Core, events: &[AccountEvent]) {
                     .is_some_and(|at| epoch_ms().saturating_sub(at) < NEW_DEVICE_NEWS_MS);
                 if let (true, Some(key), Some(core)) = (lately, &event.key, core.me.upgrade()) {
                     if Some(key) != own.as_ref() {
-                        crate::server::hosts::account::tell_joined(&core, key.clone());
+                        crate::server::account::devices::tell_joined(&core, key.clone());
                     }
                 }
             }

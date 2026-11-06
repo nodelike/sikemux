@@ -13,9 +13,9 @@ use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use tokio::sync::watch;
 
+use super::super::account::devices::{approve_host_sign_in, SignInCodeParams};
 use super::super::changed::Topic;
 use super::super::{session, spare, Core, CoreResult};
-use super::account::{self, SignInCodeParams};
 use sikemux_wire::protocol::{BuildChannel, SessionId};
 
 /// Long enough to type a password, download the core and sign in.
@@ -244,7 +244,7 @@ async fn approve_shown_code(
             Ok(())
         };
     };
-    let host = account::approve_host_sign_in(core, SignInCodeParams::new(code))
+    let host = approve_host_sign_in(core, SignInCodeParams::new(code))
         .await
         .map_err(|error| error.to_string())?;
     super::listed::note_installed(core, host.key, alias.to_owned());

@@ -327,12 +327,12 @@ calls! { core, client, method, params;
     "stopShare": Owner => answer(share::stop(&core, &parse::<share::StopShareParams>(params)?.id)?),
     "shares": Full, any_program => answer(share::list(&core)),
     "pairing" Pairing (NoParams) -> remote::Pairing: Owner, any_program => remote::pairing(&core),
-    "deviceChallenge": Owner => answer(super::hosts::account::device_challenge(&core).await?),
+    "deviceChallenge": Owner => answer(super::account::devices::device_challenge(&core).await?),
     "approveHostSignIn": Owner => {
-        answer(super::hosts::account::approve_host_sign_in(&core, parse(params)?).await?)
+        answer(super::account::devices::approve_host_sign_in(&core, parse(params)?).await?)
     },
     "deviceJoinTicket": Owner => {
-        answer(super::hosts::account::device_join_ticket(&core, parse(params)?).await?)
+        answer(super::account::devices::device_join_ticket(&core, parse(params)?).await?)
     },
     "signHostRequest": NoDevice => core.remote.host_request_signature(&parse(params)?),
     "signShareViewer": NoDevice => core.remote.share_viewer_signature(parse(params)?),
@@ -523,9 +523,9 @@ calls! { core, client, method, params;
     "whatsNew": Watch => answer(super::about::whats_new(&core)),
     "cliInstall": Watch => answer(super::cli_install::status().await?),
     "installCli": Owner, counted => answer(super::cli_install::install().await?),
-    "renameAccountDevice": Owner => answer(super::hosts::account::rename_device(&core, parse(params)?).await?),
-    "removeAccountDevice": Owner => answer(super::hosts::account::remove_device(&core, parse(params)?).await?),
-    "accountPhones": Owner => answer(super::hosts::account::phones(&core).await?),
+    "renameAccountDevice": Owner => answer(super::account::devices::rename_device(&core, parse(params)?).await?),
+    "removeAccountDevice": Owner => answer(super::account::devices::remove_device(&core, parse(params)?).await?),
+    "accountPhones": Owner => answer(super::account::devices::phones(&core).await?),
     "showFiles": Watch => {
         super::open_files::show(&core, client.id, parse(params)?)?;
         answer(())
