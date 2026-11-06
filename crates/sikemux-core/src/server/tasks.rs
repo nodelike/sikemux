@@ -52,6 +52,19 @@ const MAX_RERUNS: usize = 16;
 const INSTALL_WAIT: Duration = Duration::from_secs(10 * 60);
 const INSTALL_OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
 
+/// What an agent asked to find the project's processes is told, after the line naming the project.
+const FIND_TASKS: &str = "Read the README, AGENTS.md, Makefile, package.json and any scripts in folders like tool/, bin/ or scripts/.
+Then add a process for each command people really use (starting the app, running the tests, building) to sikemux.json's \"tasks\" list at the project root:
+each process has an \"id\", a \"label\", a \"command\" and, when it runs in a subfolder, a \"cwd\". Keep everything already in sikemux.json.
+Call guide with the config topic first for the format. Do not start long-running commands; tell me which processes you added and why.";
+
+/// What an agent is asked to find how a project is run and save it as processes.
+pub fn find_processes_prompt(name: &str) -> String {
+    format!(
+        "Find how {name} is run, tested and built, and save those as Sikemux processes.\n{FIND_TASKS}"
+    )
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct TrustedConfig {

@@ -12,8 +12,9 @@ use gpui_kit::{
     WeakEntity, Window,
 };
 use serde_json::{json, Value};
+use sikemux_core::server::mods::follows;
+pub use sikemux_core::server::mods::Moved;
 use sikemux_view::layout::PaneKind;
-use sikemux_wire::changed::Topic;
 
 use crate::core::Target;
 use crate::hosts::Place;
@@ -28,40 +29,7 @@ const GATHER: Duration = Duration::from_millis(300);
 const MAX_WATCHES: usize = 32;
 const MAX_PARAMS_BYTES: usize = 16 * 1024;
 
-/// What moved that a watch may read.
-#[derive(Clone, Copy)]
-pub enum Moved {
-    /// The core's view of the host: its agents and what waits on the person.
-    View,
-    Topic(Topic),
-}
-
-/// Whether a watch of `name` reads again when `moved` moves; a name no change is told for
-/// is read again on a timer of the page's own while the pane shows.
-fn follows(name: &str, moved: Moved) -> bool {
-    match moved {
-        Moved::View => matches!(name, "agents" | "inbox"),
-        Moved::Topic(Topic::Boards) => name == "board",
-        Moved::Topic(Topic::Tasks) => name == "tasks",
-        Moved::Topic(Topic::Runs) => name == "runs",
-        Moved::Topic(Topic::Usage) => name == "usage",
-        Moved::Topic(Topic::Questions) => name == "questions",
-        Moved::Topic(Topic::Git) => name.starts_with("git."),
-        Moved::Topic(_) => false,
-    }
-}
-
-const FOLLOWED: [Moved; 7] = [
-    Moved::View,
-    Moved::Topic(Topic::Boards),
-    Moved::Topic(Topic::Tasks),
-    Moved::Topic(Topic::Runs),
-    Moved::Topic(Topic::Usage),
-    Moved::Topic(Topic::Questions),
-    Moved::Topic(Topic::Git),
-];
-
-struct Watched {
+pub struct Watched {
     name: String,
     params: Value,
     /// The last answer the page was given, hashed, so an unchanged one is not sent again.
@@ -140,7 +108,7 @@ impl ModPane {
     pub fn moved(&mut self, moved: Moved, cx: &mut Context<Self>) {
         let mut any = false;
         for watch in self.watches.values_mut() {
-            if follows(&watch.name, moved) {
+            if follows(&watch.name) == Some(moved) {
                 watch.dirty = true;
                 any = true;
             }
@@ -235,7 +203,7 @@ impl ModPane {
                 .detach();
             }
             Some("write") => self.write(id, name, params, cx),
-            Some("watch") if FOLLOWED.iter().any(|moved| follows(&name, *moved)) => {
+            Some("watch") if follows(&name).is_some() => {
                 if self.watches.len() >= MAX_WATCHES {
                     return self.watched(id, Err("a mod watches at most 32 things".into()));
                 }

@@ -11,6 +11,7 @@ use tokio::sync::oneshot;
 use crate::icons::Icon;
 use crate::palette::{Mark, Row, Spec};
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::mods::{change_prompt, make_prompt};
 
 /// The palette's row that asks an agent for a new mod.
 const MAKE: &str = "mods:make";
@@ -186,13 +187,8 @@ impl Workbench {
             .map(|list| list.folder.display().to_string())
             .unwrap_or_else(|| "~/.config/sikemux/mods".to_owned());
         let prompt = match editing {
-            Some(shown) => format!(
-                "Change the Sikemux mod \"{}\" in {folder}/{}: {asked}\n\nFollow the sikemux-mods skill.",
-                shown.name, shown.id
-            ),
-            None => format!(
-                "Make a Sikemux mod: {asked}\n\nFollow the sikemux-mods skill: make it in a new folder of {folder}, then open it with ui_open."
-            ),
+            Some(shown) => change_prompt(&shown.name, &folder, &shown.id, &asked),
+            None => make_prompt(&asked, &folder),
         };
         let (started, agent) = oneshot::channel();
         let target = self.target();

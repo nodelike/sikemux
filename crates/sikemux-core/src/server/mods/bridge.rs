@@ -63,6 +63,29 @@ impl Asked {
     }
 }
 
+/// What makes a mod's read of a name out of date: this host's view, or a topic's change.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Moved {
+    View,
+    Topic(sikemux_wire::changed::Topic),
+}
+
+/// What a mod's watch of `name` reads again on; a name with nothing to follow is read again on
+/// a timer of the page's own while the pane shows.
+pub fn follows(name: &str) -> Option<Moved> {
+    use sikemux_wire::changed::Topic;
+    Some(match name {
+        "agents" | "inbox" => Moved::View,
+        "board" => Moved::Topic(Topic::Boards),
+        "tasks" => Moved::Topic(Topic::Tasks),
+        "runs" => Moved::Topic(Topic::Runs),
+        "usage" => Moved::Topic(Topic::Usage),
+        "questions" => Moved::Topic(Topic::Questions),
+        name if name.starts_with("git.") => Moved::Topic(Topic::Git),
+        _ => return None,
+    })
+}
+
 fn asked(core: &Core, name: &str) -> CoreResult<Asked> {
     let core_read = match name {
         "agents" => Some(Reach::Agents),

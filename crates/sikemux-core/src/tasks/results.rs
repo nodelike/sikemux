@@ -734,3 +734,69 @@ pub fn rerun_failed_command(command: &str, failures: &[TestFailure]) -> Option<S
         }
     }
 }
+
+fn relative(project: &str, path: &str) -> String {
+    match path
+        .strip_prefix(project)
+        .and_then(|rest| rest.strip_prefix('/'))
+    {
+        Some(rest) => rest.to_owned(),
+        None if path == project => ".".into(),
+        None => path.to_owned(),
+    }
+}
+
+/// What an agent is asked when the person hands it failing tests: only the failures, and how
+/// to check the fix.
+pub fn fix_prompt(
+    project: &str,
+    project_name: &str,
+    label: &str,
+    process: &str,
+    failures: &[TestFailure],
+) -> String {
+    let mut lines = vec![format!("These tests fail in {project_name} ({label}):")];
+    lines.extend(failures.iter().map(|failure| {
+        let place = failure.file.as_deref().map(|file| {
+            let file = relative(project, file);
+            match failure.line {
+                Some(line) => format!(" ({file}:{line})"),
+                None => format!(" ({file})"),
+            }
+        });
+        format!(
+            "- {} › {}: {}{}",
+            failure.class_name,
+            failure.name,
+            failure.message,
+            place.unwrap_or_default()
+        )
+    }));
+    lines.push(format!(
+        "Find the cause and fix it. Then run the process {} with process_start and check testResults in workspace_inspect.",
+        process
+    ));
+    lines.join("\n")
+}
+
+/// What an agent is asked when a process stopped with an error: it starts the process itself to
+/// see why.
+pub fn stopped_prompt(
+    project_name: &str,
+    label: &str,
+    stopped: &str,
+    command: &str,
+    cwd: &str,
+    process: &str,
+) -> String {
+    [
+        format!("The process \"{label}\" in {project_name} stopped: {stopped}."),
+        format!("It runs `{command}` in {cwd}."),
+        format!(
+            "Start it with process_start (processId {}) and read its output with process_read to see the error, then find the cause and fix it.",
+            process
+        ),
+        "Start it again afterwards and check that it keeps running.".to_owned(),
+    ]
+    .join("\n")
+}

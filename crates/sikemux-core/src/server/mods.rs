@@ -3,6 +3,21 @@
 //! reads and writes. The core lists them, follows their files and serves their pages.
 
 mod bridge;
+pub use bridge::{follows, Moved};
+
+/// What an agent is asked to make a mod from what the person wrote.
+pub fn make_prompt(asked: &str, folder: &str) -> String {
+    format!(
+        "Make a Sikemux mod: {asked}\n\nFollow the sikemux-mods skill: make it in a new folder of {folder}, then open it with ui_open."
+    )
+}
+
+/// What an agent is asked to change a mod from what the person wrote.
+pub fn change_prompt(name: &str, folder: &str, id: &str, asked: &str) -> String {
+    format!(
+        "Change the Sikemux mod \"{name}\" in {folder}/{id}: {asked}\n\nFollow the sikemux-mods skill."
+    )
+}
 
 use crate::server::changed::What;
 use std::collections::{BTreeMap, BTreeSet};

@@ -19,12 +19,6 @@ use crate::toast;
 use crate::ui::{self, Variant};
 use crate::workbench::Workbench;
 
-/// What an agent asked to find the project's processes is told, after the line naming the project.
-const FIND_TASKS: &str = "Read the README, AGENTS.md, Makefile, package.json and any scripts in folders like tool/, bin/ or scripts/.
-Then add a process for each command people really use (starting the app, running the tests, building) to sikemux.json's \"tasks\" list at the project root:
-each process has an \"id\", a \"label\", a \"command\" and, when it runs in a subfolder, a \"cwd\". Keep everything already in sikemux.json.
-Call guide with the config topic first for the format. Do not start long-running commands; tell me which processes you added and why.";
-
 /// A task held back by its checks, waiting on the person.
 pub struct RunCheck {
     project: String,
@@ -166,9 +160,7 @@ impl Workbench {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let text = format!(
-            "Find how {name} is run, tested and built, and save those as Sikemux processes.\n{FIND_TASKS}"
-        );
+        let text = sikemux_core::server::tasks::find_processes_prompt(name);
         crate::send_to::send(self, to, async move { Some(text) }, window, cx);
     }
 

@@ -428,67 +428,29 @@ fn project_path(bench: &Workbench) -> String {
         .to_owned()
 }
 
-fn relative(project: &str, path: &str) -> String {
-    match path
-        .strip_prefix(project)
-        .and_then(|rest| rest.strip_prefix('/'))
-    {
-        Some(rest) => rest.to_owned(),
-        None if path == project => ".".into(),
-        None => path.to_owned(),
-    }
-}
-
-/// What an agent is asked when the person hands it failing tests: only the failures, and how
-/// to check the fix.
+/// What an agent is asked when the person hands it failing tests.
 fn test_fix_request(bench: &Workbench, finished: &Finished, failures: &[TestFailure]) -> String {
     let project = project_path(bench);
-    let mut lines = vec![format!(
-        "These tests fail in {} ({}):",
-        crate::ui::path::file_name(Path::new(&project)),
-        finished.task.label
-    )];
-    lines.extend(failures.iter().map(|failure| {
-        let place = failure.file.as_deref().map(|file| {
-            let file = relative(&project, file);
-            match failure.line {
-                Some(line) => format!(" ({file}:{line})"),
-                None => format!(" ({file})"),
-            }
-        });
-        format!(
-            "- {} › {}: {}{}",
-            failure.class_name,
-            failure.name,
-            failure.message,
-            place.unwrap_or_default()
-        )
-    }));
-    lines.push(format!(
-        "Find the cause and fix it. Then run the process {} with process_start and check testResults in workspace_inspect.",
-        finished.task.id
-    ));
-    lines.join("\n")
+    sikemux_core::tasks::results::fix_prompt(
+        &project,
+        &crate::ui::path::file_name(Path::new(&project)).to_string(),
+        &finished.task.label,
+        &finished.task.id,
+        failures,
+    )
 }
 
-/// What an agent is asked when a process stopped with an error: it starts the process itself to read why.
+/// What an agent is asked when a process stopped with an error.
 fn failure_fix_request(bench: &Workbench, finished: &Finished) -> String {
     let task = finished.task;
-    [
-        format!(
-            "The process \"{}\" in {} stopped: {}.",
-            task.label,
-            crate::ui::path::file_name(Path::new(&project_path(bench))),
-            finished.stopped().unwrap_or_default()
-        ),
-        format!("It runs `{}` in {}.", task.command, task.cwd),
-        format!(
-            "Start it with process_start (processId {}) and read its output with process_read to see the error, then find the cause and fix it.",
-            task.id
-        ),
-        "Start it again afterwards and check that it keeps running.".to_owned(),
-    ]
-    .join("\n")
+    sikemux_core::tasks::results::stopped_prompt(
+        &crate::ui::path::file_name(Path::new(&project_path(bench))).to_string(),
+        &task.label,
+        &finished.stopped().unwrap_or_default(),
+        &task.command,
+        &task.cwd,
+        &task.id,
+    )
 }
 
 impl Workbench {
