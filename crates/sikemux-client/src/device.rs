@@ -22,7 +22,6 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// endpoint has gone stale; past it the device dials again from a fresh one.
 const REDIAL_TIMEOUT: Duration = Duration::from_secs(6);
 
-/// The endpoint and the hosts it has reached.
 struct Online {
     endpoint: Endpoint,
     generation: u64,
@@ -232,7 +231,6 @@ impl Device {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Whether the device was taken off the network.
     pub fn is_closed(&self) -> bool {
         self.lock().closed
     }

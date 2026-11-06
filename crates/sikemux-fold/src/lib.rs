@@ -100,7 +100,6 @@ struct Row {
     /// What a message to the agent held as it came, before its context and
     /// letters were read out of it.
     raw: Vec<ChatPart>,
-    /// The context it was sent with.
     sent_context: Vec<SentContext>,
     stream: Option<Stream>,
     sides: Vec<Side>,
@@ -277,14 +276,12 @@ impl Details {
     }
 }
 
-/// Where a subagent's card is.
 struct CardPlace {
     within: Option<String>,
     row: String,
     part: usize,
 }
 
-/// A chat as the core folds it.
 pub struct Fold {
     head: ChatHead,
     main: Transcript,
@@ -590,7 +587,6 @@ impl Fold {
         self.read_pickers();
     }
 
-    /// The head's model and effort pickers, read from the session's options.
     fn read_pickers(&mut self) {
         let (model, mut effort) = pickers::pickers(&self.head.setup["configOptions"]);
         if effort.is_none() && self.offers_effort {
@@ -1431,7 +1427,6 @@ impl Fold {
         self.note_main_change(within, position);
     }
 
-    /// Adds `part` to the agent's last message, or starts one for it.
     fn append_part(
         &mut self,
         index: u64,
@@ -2166,14 +2161,13 @@ impl Fold {
         self.settle_last_run();
     }
 
-    /// Whether the last run can now fold depends on the turn having ended.
+    /// Works out the last run's fold again, as it depends on the turn having ended.
     fn settle_last_run(&mut self) {
         if let Some(last) = self.main.rows.len().checked_sub(1) {
             self.settle_from = Some(self.settle_from.map_or(last, |from| from.min(last)));
         }
     }
 
-    /// The change a tool call made and what it printed, line by line.
     pub fn tool_detail(&self, tool_call_id: &str) -> Option<ToolDetail> {
         self.details.get(tool_call_id).cloned()
     }

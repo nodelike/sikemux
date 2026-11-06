@@ -69,7 +69,6 @@ impl From<core::ChatAttachment> for ChatAttachment {
     }
 }
 
-/// What the host sends without being asked.
 #[derive(uniffi::Enum)]
 pub enum CoreEvent {
     /// What changed in a chat, a list of the core's `ChatChange` as JSON.

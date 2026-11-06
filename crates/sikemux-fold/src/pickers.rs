@@ -4,7 +4,6 @@
 use serde_json::Value;
 use sikemux_wire::protocol::{ConfigChoice, ConfigPicker};
 
-/// The model and effort pickers among a session's `configOptions`.
 pub fn pickers(options: &Value) -> (Option<ConfigPicker>, Option<ConfigPicker>) {
     let selects: Vec<(&Value, ConfigPicker)> = options
         .as_array()

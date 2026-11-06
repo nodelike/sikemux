@@ -226,7 +226,6 @@ fn fail_pending(pending: &Pending) {
 }
 
 impl CoreClient {
-    /// Connects with a sink that queues everything on a channel.
     pub async fn connect(
         socket: &Path,
     ) -> Result<(Self, mpsc::UnboundedReceiver<ClientEvent>), ClientError> {
@@ -392,7 +391,6 @@ impl CoreClient {
         }
     }
 
-    /// Sends a request and reads the one kind of answer the core gives it.
     pub async fn ask<A: Ask>(&self, request: A) -> Result<A::Answer, ClientError> {
         A::answer(self.request(request.into()).await?).ok_or(ClientError::UnexpectedReply)
     }
@@ -558,7 +556,6 @@ impl CoreClient {
         self.remote(ask::RevokeDevice { id }).await
     }
 
-    /// One of the core's methods by name, answered with its JSON result.
     pub async fn call(
         &self,
         method: &str,

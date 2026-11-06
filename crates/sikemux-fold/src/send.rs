@@ -15,7 +15,6 @@ use sikemux_view::chat::{
 use super::event::ChatEvent;
 use super::{Fold, Row, Side, Transcript};
 
-/// How an agent's answers are read as markdown.
 const ANSWER: MarkdownOptions = MarkdownOptions {
     gfm: true,
     html_as_text: false,
@@ -33,7 +32,6 @@ const TYPED: MarkdownOptions = MarkdownOptions {
     ..ANSWER
 };
 
-/// How a role's texts are read into trees.
 fn reading(role: ChatRole) -> MarkdownOptions {
     match role {
         ChatRole::Assistant => ANSWER,
@@ -123,7 +121,6 @@ const OPTIONAL_HEAD: [&str; 12] = [
     "draft",
 ];
 
-/// A flush's changes and the rows they touched.
 pub type Flushed = Vec<ChatChange>;
 
 fn md_change(n: usize, o: Patch) -> Value {
@@ -149,7 +146,6 @@ fn units(text: &str) -> usize {
     text.encode_utf16().count()
 }
 
-/// The whole tree of the agent's `text`, read from scratch.
 pub(super) fn read(text: &str) -> PartTree {
     read_as(text, ANSWER)
 }
@@ -288,7 +284,6 @@ fn fields(row: &ChatMessage, names: impl IntoIterator<Item = &'static str>) -> V
     )
 }
 
-/// The changes to one row since the last flush.
 fn row_changes(
     transcript: &mut Transcript,
     position: usize,
@@ -422,7 +417,6 @@ fn flush_transcript(
 }
 
 impl Fold {
-    /// What changed since the last flush.
     pub fn flush(&mut self) -> Flushed {
         self.settle_runs();
         self.settle_activity();
@@ -471,7 +465,6 @@ impl Fold {
         out
     }
 
-    /// Whether anything waits to go out.
     pub fn is_dirty(&self) -> bool {
         !self.head_dirty.is_empty()
             || self.dropped.is_some()

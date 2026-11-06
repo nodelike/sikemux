@@ -21,19 +21,16 @@ pub enum UpdateKind {
     ConfigOptionUpdate,
     UsageUpdate,
     SessionInfoUpdate,
-    /// The chat moved to another of the person's accounts.
     AccountSwitched,
     /// Something the agent wants the person to know, outside its answer.
     Notice,
     TaskNotice,
     SubagentSpawned,
     SubagentStateUpdate,
-    /// The tokens a subagent has used so far.
     SubagentUsage,
     AsyncTaskSpawned,
     AsyncTaskProgress,
     AsyncTaskStateUpdate,
-    /// The session's saved history has all been told.
     HistoryLoaded,
     QueuedMessages,
     EarlierTurnsLost,
@@ -129,7 +126,6 @@ impl UpdateKind {
     }
 }
 
-/// A tool call first shown.
 pub fn tool_call(id: &str, kind: &str, title: &str, status: &str) -> Value {
     json!({
         "sessionUpdate": UpdateKind::ToolCall,
@@ -140,7 +136,6 @@ pub fn tool_call(id: &str, kind: &str, title: &str, status: &str) -> Value {
     })
 }
 
-/// A tool call shown already, brought to `status`.
 pub fn tool_update(id: &str, status: &str) -> Value {
     json!({ "sessionUpdate": UpdateKind::ToolCallUpdate, "toolCallId": id, "status": status })
 }
@@ -180,7 +175,6 @@ pub fn mcp_call(id: &str, status: &str, server: &str, tool: &str, arguments: &Va
     call
 }
 
-/// What a tool server's tool was asked.
 pub fn mcp_input(server: &str, tool: &str, arguments: &Value) -> Value {
     json!({ "server": server, "tool": tool, "arguments": arguments })
 }
@@ -216,7 +210,6 @@ pub fn diff_block(path: &str, old: Option<&str>, new: &str) -> Value {
     json!({ "type": "diff", "path": path, "oldText": old, "newText": new })
 }
 
-/// The steps an agent says it is working through.
 pub fn plan(entries: Vec<Value>) -> Value {
     json!({ "sessionUpdate": UpdateKind::Plan, "entries": entries })
 }
@@ -236,7 +229,6 @@ pub fn session_title(title: impl Serialize) -> Value {
     json!({ "sessionUpdate": UpdateKind::SessionInfoUpdate, "title": title })
 }
 
-/// The session's saved history has all been told.
 pub fn history_loaded() -> Value {
     json!({ "sessionUpdate": UpdateKind::HistoryLoaded })
 }
@@ -269,7 +261,6 @@ impl TurnUsage {
     }
 }
 
-/// A turn's answer, ending for `reason`.
 pub fn turn_answer(reason: StopReason) -> Value {
     json!({ "stopReason": reason })
 }
@@ -279,22 +270,18 @@ pub fn stop_reason(answer: &Value) -> Option<StopReason> {
     StopReason::deserialize(answer.get("stopReason")?).ok()
 }
 
-/// The update that sets the card of the subagent in `session` to `state`.
 pub fn subagent_state(session: &str, state: &str) -> Value {
     json!({ "sessionUpdate": UpdateKind::SubagentStateUpdate, "subagentSessionId": session, "state": state })
 }
 
-/// The update that says how many tokens the subagent in `session` has used.
 pub fn subagent_usage(session: &str, tokens: u64) -> Value {
     json!({ "sessionUpdate": UpdateKind::SubagentUsage, "subagentSessionId": session, "tokens": tokens })
 }
 
-/// A tool call's content holding `block`.
 pub fn content(block: Value) -> Value {
     json!({ "type": "content", "content": block })
 }
 
-/// A tool call's content holding `text`.
 pub fn text_content(text: &str) -> Value {
     content(json!({ "type": "text", "text": text }))
 }

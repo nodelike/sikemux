@@ -157,7 +157,6 @@ fn relays_from(settings: Vec<RelaySetting>) -> Vec<Relay> {
         .collect()
 }
 
-/// This phone on the network, known by its key.
 #[derive(uniffi::Object)]
 pub struct Device {
     online: Arc<sikemux_client::device::Device>,
@@ -347,7 +346,6 @@ impl Device {
     }
 }
 
-/// What the host said to a join ticket.
 #[derive(Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum JoinAnswer {
     /// `full` or `watch`.
@@ -484,7 +482,6 @@ fn flush(listener: &dyn CoreListener, events: &mut Vec<CoreEvent>) {
     }
 }
 
-/// An open session with one host's core.
 #[derive(uniffi::Object)]
 pub struct Connection {
     client: Mutex<Option<Arc<CoreClient>>>,
@@ -623,7 +620,6 @@ impl Connection {
         Ok(records::json(&page))
     }
 
-    /// No more of the chat's events reach this phone.
     pub async fn detach_chat(&self, agent_id: String) -> Result<(), MobileError> {
         self.ask(ask::AcpDetach { agent_id }).await
     }
@@ -748,7 +744,6 @@ impl Connection {
         self.ask(ask::AcpSetPermissionMode { agent_id, mode }).await
     }
 
-    /// Ends the chat's agent on the host.
     pub async fn stop_chat(&self, agent_id: String) -> Result<(), MobileError> {
         self.ask(ask::AcpStop { agent_id }).await
     }
@@ -847,7 +842,6 @@ impl Connection {
         .await
     }
 
-    /// The host sends this phone no more notifications.
     pub async fn clear_notifications(&self) -> Result<(), MobileError> {
         self.ask(ask::ClearNotifications).await
     }

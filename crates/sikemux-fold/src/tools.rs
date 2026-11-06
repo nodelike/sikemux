@@ -241,7 +241,6 @@ pub(super) fn rooted(folder: Option<&std::path::Path>, path: String) -> String {
     }
 }
 
-/// The call with the paths it names made whole against `folder`.
 pub(super) fn root_call(folder: Option<&std::path::Path>, mut call: ToolCall) -> ToolCall {
     call.path = call.path.map(|path| rooted(folder, path));
     call.row.path = call.row.path.take().map(|path| rooted(folder, path));
@@ -532,7 +531,6 @@ fn first_line(text: &str) -> String {
     }
 }
 
-/// An argument as short as a row can name it.
 fn short(value: &Value) -> Option<Value> {
     match value {
         Value::String(text) => {
@@ -594,7 +592,6 @@ pub(super) fn call(raw: &Map<String, Value>) -> ToolCall {
 }
 
 pub(super) trait WithRow {
-    /// The call with its row worked out again from the rest of it.
     fn with_row(self) -> Self;
 }
 

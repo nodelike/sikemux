@@ -193,7 +193,6 @@ fn answer_meta(rows: &[Row], start: usize, end: usize) -> RowMeta {
     }
 }
 
-/// Whether the row at `at` opens a run of the agent's messages.
 fn opens_run(rows: &[Row], at: usize) -> bool {
     rows[at].msg.role == ChatRole::Assistant
         && (at == 0

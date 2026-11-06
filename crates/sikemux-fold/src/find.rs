@@ -4,7 +4,6 @@
 use serde_json::Value;
 use sikemux_view::chat::{ChatMessage, ChatPart};
 
-/// What the reader looks for, and how.
 #[derive(Clone, Debug)]
 pub struct Query {
     pub text: String,
@@ -42,7 +41,6 @@ pub fn searchable(part: &ChatPart) -> Option<String> {
     Some(shown)
 }
 
-/// The words a tree node draws.
 fn visible(node: &Value, out: &mut String) {
     match node {
         Value::String(text) => out.push_str(text),

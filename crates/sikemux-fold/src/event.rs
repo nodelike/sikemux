@@ -11,7 +11,6 @@ pub enum ChatEventKind {
     Status,
     Ready,
     SessionUpdate,
-    /// What a person sent the agent.
     Prompt,
     TurnStarted,
     TurnCompleted,

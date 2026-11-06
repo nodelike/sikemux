@@ -34,7 +34,6 @@ pub fn key_from_text(text: &str) -> Option<SecretKey> {
     Some(SecretKey::from_bytes(&<[u8; 32]>::try_from(bytes).ok()?))
 }
 
-/// A new device key for an app that has none yet.
 pub fn new_key() -> SecretKey {
     SecretKey::generate()
 }
@@ -94,7 +93,6 @@ impl Linked {
         Ok((linked, heard))
     }
 
-    /// This app's key on the network.
     pub fn id(&self) -> String {
         self.device.id()
     }
