@@ -20,7 +20,7 @@ const PREVIEW_CHARS: usize = 30;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum Direction {
+pub enum FindDirection {
     #[default]
     Older,
     Newer,
@@ -53,7 +53,7 @@ pub struct FindParams {
     #[serde(default)]
     pub from: Option<FindAt>,
     #[serde(default)]
-    pub direction: Direction,
+    pub direction: FindDirection,
     #[serde(default)]
     pub limit: Option<usize>,
     #[serde(default)]
@@ -62,7 +62,7 @@ pub struct FindParams {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Hit {
+pub struct FindHit {
     pub row: String,
     pub from_event: u64,
     pub part: String,
@@ -73,14 +73,14 @@ pub struct Hit {
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Scanned {
+pub struct FindScanned {
     pub from_event: Option<u64>,
     pub to_event: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Counted {
+pub struct FindCounted {
     pub matches: u64,
     pub complete: bool,
 }
@@ -88,11 +88,11 @@ pub struct Counted {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FindAnswer {
-    pub hits: Vec<Hit>,
+    pub hits: Vec<FindHit>,
     /// Where to go on from; none once the chat's start, or end, is reached.
     pub next: Option<FindAt>,
-    pub scanned: Scanned,
-    pub counted: Counted,
+    pub scanned: FindScanned,
+    pub counted: FindCounted,
 }
 
 /// What a find reads its rows from: the next batch past an event, as clients are sent them.
@@ -110,13 +110,13 @@ pub(crate) fn step(rows: &impl Rows, params: &FindParams) -> Result<FindAnswer, 
         match_case: params.match_case,
         whole_word: params.whole_word,
     };
-    let older = params.direction == Direction::Older;
+    let older = params.direction == FindDirection::Older;
     let limit = params.limit.unwrap_or(HITS).clamp(1, MOST_HITS);
     let started = Instant::now();
     let mut at = params.from.clone();
     let mut counted = at.as_ref().map_or(0, |at| at.counted);
     let mut hits = Vec::new();
-    let mut scanned = Scanned::default();
+    let mut scanned = FindScanned::default();
     let mut read = 0;
     let mut complete = false;
     'reading: while read < STEP_BYTES && started.elapsed() < STEP_TIME && !rows.superseded() {
@@ -160,7 +160,7 @@ pub(crate) fn step(rows: &impl Rows, params: &FindParams) -> Result<FindAnswer, 
                 }
                 counted += 1;
                 if !params.count_only {
-                    hits.push(Hit {
+                    hits.push(FindHit {
                         row: row.id.clone(),
                         from_event: event,
                         part,
@@ -190,7 +190,7 @@ pub(crate) fn step(rows: &impl Rows, params: &FindParams) -> Result<FindAnswer, 
         hits,
         next,
         scanned,
-        counted: Counted {
+        counted: FindCounted {
             matches: counted,
             complete,
         },

@@ -7,8 +7,8 @@ use std::rc::Rc;
 use gpui_kit::{Context, Window};
 use sikemux_core::server::call;
 use sikemux_core::server::preferences::WorktreeDefaultParams;
-use sikemux_core::server::worktree::agent::ForAgent;
-use sikemux_core::server::worktree::agent::ForAgentParams;
+use sikemux_core::server::worktree::agent::AgentWorktreeParams;
+use sikemux_core::server::worktree::agent::MadeAgentWorktree;
 
 use super::{Chat, ComposeStage};
 use crate::core::ChatAsk;
@@ -77,12 +77,13 @@ impl Workbench {
             sends: false,
         };
         composing.refusal = None;
-        let made =
-            (self.chat_target(agent)).request_typed::<call::CreateAgentWorktree>(ForAgentParams {
+        let made = (self.chat_target(agent)).request_typed::<call::CreateAgentWorktree>(
+            AgentWorktreeParams {
                 agent_id: agent.to_owned(),
                 message,
                 repo: None,
-            });
+            },
+        );
         let agent = agent.to_owned();
         cx.spawn(async move |bench, cx| {
             let made = made.await;
@@ -97,7 +98,7 @@ impl Workbench {
     fn worktree_made(
         &mut self,
         agent: &str,
-        made: Result<ForAgent, String>,
+        made: Result<MadeAgentWorktree, String>,
         cx: &mut Context<Self>,
     ) {
         let Some(composing) = self

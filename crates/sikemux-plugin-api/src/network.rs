@@ -3,7 +3,7 @@
 
 use sikemux_base::http::Unreachable;
 
-use crate::Category;
+use crate::FailureCategory;
 
 pub(crate) fn unreachable_message(kind: Unreachable, service: &str) -> String {
     match kind {
@@ -13,10 +13,10 @@ pub(crate) fn unreachable_message(kind: Unreachable, service: &str) -> String {
 }
 
 /// The error category a client reads to keep showing what it last loaded.
-pub fn category(kind: Unreachable) -> Category {
+pub fn category(kind: Unreachable) -> FailureCategory {
     match kind {
-        Unreachable::Offline => Category::Offline,
-        Unreachable::Timeout => Category::Timeout,
+        Unreachable::Offline => FailureCategory::Offline,
+        Unreachable::Timeout => FailureCategory::Timeout,
     }
 }
 

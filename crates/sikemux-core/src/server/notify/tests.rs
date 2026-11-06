@@ -91,7 +91,7 @@ impl Host {
     }
 
     /// What went out to the server since the last look.
-    fn sent(&self) -> Vec<(Push, Notification)> {
+    fn sent(&self) -> Vec<(Push, NotificationCard)> {
         let outbox = self.core.remote.outbox();
         let pushes = outbox.waiting();
         outbox.take();

@@ -76,7 +76,10 @@ mod tests {
             .call(&ctx, "search", json!({ "query": "deploy" }))
             .await
             .expect_err("signed out");
-        assert_eq!(error.category, sikemux_plugin_api::Category::Unconfigured);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::Unconfigured
+        );
         assert!(!plugin.offers_agent_tools(&ctx, &[]).await.expect("answers"));
     }
 
@@ -87,7 +90,10 @@ mod tests {
             .call(&scratch("token"), "signIn", json!({ "token": "glpat-abc" }))
             .await
             .expect_err("refused");
-        assert_eq!(error.category, sikemux_plugin_api::Category::BadParams);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::BadParams
+        );
     }
 
     #[tokio::test]
@@ -97,6 +103,9 @@ mod tests {
             .call(&scratch("unknown"), "nonsense", Value::Null)
             .await
             .expect_err("refused");
-        assert_eq!(error.category, sikemux_plugin_api::Category::UnknownMethod);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::UnknownMethod
+        );
     }
 }

@@ -1,7 +1,7 @@
 use std::fmt;
 use std::io;
 
-use sikemux_plugin_api::{Category, PluginError};
+use sikemux_plugin_api::{FailureCategory, PluginError};
 
 #[derive(Debug)]
 pub enum AwsError {
@@ -91,10 +91,10 @@ impl From<AwsError> for PluginError {
             | AwsError::CliMissing(_)
             | AwsError::TokenExpired(_)
             | AwsError::NoCredentials(_)
-            | AwsError::NoProfiles => Category::own("aws"),
-            AwsError::NotFound(_) => Category::NotFound,
+            | AwsError::NoProfiles => FailureCategory::own("aws"),
+            AwsError::NotFound(_) => FailureCategory::NotFound,
             AwsError::ChooseProfile(_) | AwsError::UnknownProfile(..) | AwsError::BadArg(_) => {
-                Category::BadParams
+                FailureCategory::BadParams
             }
         };
         PluginError::new(category, error.to_string())

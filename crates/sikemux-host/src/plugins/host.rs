@@ -4,13 +4,15 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
 use serde_json::Value;
-use sikemux_plugin_api::{Category, Plugin, PluginContext, PluginError, PluginResult, StreamSink};
+use sikemux_plugin_api::{
+    FailureCategory, Plugin, PluginContext, PluginError, PluginResult, StreamSink,
+};
 use sikemux_process::sync::{Locked, Shared};
 use tokio::runtime::{Handle, Runtime};
 use tokio::task::JoinHandle;
 
 use super::builtin;
-use sikemux_core::server::plugins::{AgentTool, Failure, Manifest};
+use sikemux_core::server::plugins::{AgentTool, Manifest, PluginFailure};
 
 struct Loaded {
     plugin: Arc<dyn Plugin>,
@@ -100,12 +102,12 @@ impl PluginHost {
         })
     }
 
-    fn get(&self, id: &str) -> Result<&Loaded, Failure> {
+    fn get(&self, id: &str) -> Result<&Loaded, PluginFailure> {
         if !self.is_enabled(id) {
             return Err(failure(
                 id,
                 PluginError::new(
-                    Category::Disabled,
+                    FailureCategory::Disabled,
                     format!("`{id}` is switched off in Settings"),
                 ),
             ));
@@ -113,7 +115,10 @@ impl PluginHost {
         self.plugins.get(id).ok_or_else(|| {
             failure(
                 id,
-                PluginError::new(Category::NotInstalled, format!("no plugin named `{id}`")),
+                PluginError::new(
+                    FailureCategory::NotInstalled,
+                    format!("no plugin named `{id}`"),
+                ),
             )
         })
     }
@@ -256,18 +261,22 @@ impl PluginHost {
 
     /// Runs a tool by the name an agent knows it by. A plugin method that no
     /// tool names cannot be reached this way, nor can one the person approves.
-    pub async fn call_agent_tool(&self, name: &str, arguments: Value) -> Result<Value, Failure> {
+    pub async fn call_agent_tool(
+        &self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<Value, PluginFailure> {
         let (plugin, tool) = self.agent_tool(name).ok_or_else(|| {
-            Failure::new(
+            PluginFailure::new(
                 "sikemux",
-                Category::own("other"),
+                FailureCategory::own("other"),
                 format!("no plugin offers the tool `{name}`"),
             )
         })?;
         if tool.approve.is_some() {
-            return Err(Failure::new(
+            return Err(PluginFailure::new(
                 plugin,
-                Category::own("other"),
+                FailureCategory::own("other"),
                 format!("`{name}` runs only once the person approves it"),
             ));
         }
@@ -275,7 +284,12 @@ impl PluginHost {
         self.call(&plugin, &method, arguments).await
     }
 
-    pub async fn call(&self, id: &str, method: &str, params: Value) -> Result<Value, Failure> {
+    pub async fn call(
+        &self,
+        id: &str,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, PluginFailure> {
         let loaded = self.get(id)?;
         let plugin = Arc::clone(&loaded.plugin);
         let context = Arc::clone(&loaded.context);
@@ -287,11 +301,14 @@ impl PluginHost {
         let abort = task.abort_handle();
         let outcome = match tokio::time::timeout(call_timeout, task).await {
             Ok(Ok(result)) => result,
-            Ok(Err(stopped)) => Err(PluginError::new(Category::Stopped, stopped.to_string())),
+            Ok(Err(stopped)) => Err(PluginError::new(
+                FailureCategory::Stopped,
+                stopped.to_string(),
+            )),
             Err(_) => {
                 abort.abort();
                 Err(PluginError::new(
-                    Category::TimedOut,
+                    FailureCategory::TimedOut,
                     format!(
                         "`{method}` did not answer within {}s",
                         call_timeout.as_secs()
@@ -309,7 +326,7 @@ impl PluginHost {
         method: &str,
         params: Value,
         sink: StreamSink,
-    ) -> Result<(), Failure> {
+    ) -> Result<(), PluginFailure> {
         let loaded = self.get(id)?;
         let plugin = Arc::clone(&loaded.plugin);
         let context = Arc::clone(&loaded.context);
@@ -319,16 +336,19 @@ impl PluginHost {
             .spawn(async move { plugin.stream(&context, &method, params, sink).await });
         let _stopping = StopOnDrop(task.abort_handle());
         let outcome = match task.await {
-            Ok(Err(error)) if error.category == Category::StreamClosed => Ok(()),
+            Ok(Err(error)) if error.category == FailureCategory::StreamClosed => Ok(()),
             Ok(result) => result,
-            Err(stopped) => Err(PluginError::new(Category::Stopped, stopped.to_string())),
+            Err(stopped) => Err(PluginError::new(
+                FailureCategory::Stopped,
+                stopped.to_string(),
+            )),
         };
         outcome.map_err(|error| failure(id, error))
     }
 }
 
-fn failure(plugin: &str, error: PluginError) -> Failure {
-    Failure {
+fn failure(plugin: &str, error: PluginError) -> PluginFailure {
+    PluginFailure {
         plugin: plugin.to_owned(),
         category: error.category,
         message: error.message,
@@ -395,10 +415,10 @@ mod tests {
                         Ok(Value::Null)
                     }
                     "hang" => std::future::pending().await,
-                    "fail" => {
-                        Err(PluginError::new(Category::Unconfigured, "sign in first")
-                            .with_status(401))
-                    }
+                    "fail" => Err(
+                        PluginError::new(FailureCategory::Unconfigured, "sign in first")
+                            .with_status(401),
+                    ),
                     _ => Err(PluginError::unknown_method(method)),
                 }
             })

@@ -93,7 +93,7 @@ pub struct Workbench {
     pub agent_setup: crate::agents::setup::Setup,
     pub overlays: Overlays,
     /// The question over the window while a phone waits to connect.
-    pub pairing: crate::pairing::Pairing,
+    pub pairing: crate::pairing::RemotePairing,
     /// Whether this window has looked for what kept running while Sikemux was closed.
     pub kept_running_told: bool,
     /// Each waiting `sikemux open --wait`, with the tabs it opened that are still open.
@@ -375,7 +375,7 @@ impl Workbench {
             project_settings: HashMap::new(),
             kept_running_told: false,
             open_waits: Vec::new(),
-            pairing: crate::pairing::Pairing::new(cx),
+            pairing: crate::pairing::RemotePairing::new(cx),
             shown: Default::default(),
             picture: crate::picture::AccountPicture::default(),
             signing_in: false,

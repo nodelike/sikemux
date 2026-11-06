@@ -36,7 +36,7 @@ static NEXT_SCAN_ID: AtomicU64 = AtomicU64::new(1);
 static NEXT_CACHE_ACCESS: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Clone)]
-struct Entry {
+struct ProjectEntry {
     files: Arc<Vec<String>>,
     full_scan_at: Instant,
     scan_id: u64,
@@ -62,7 +62,7 @@ enum Pending {
 
 #[derive(Default)]
 struct Slot {
-    entry: Option<Entry>,
+    entry: Option<ProjectEntry>,
     pending: Pending,
     changes: VecDeque<Change>,
 }
@@ -350,7 +350,7 @@ impl Slot {
         if let Some(previous) = self.entry.take() {
             let (added, removed) = difference(&previous.files, &files);
             if added.is_empty() && removed.is_empty() {
-                self.entry = Some(Entry {
+                self.entry = Some(ProjectEntry {
                     full_scan_at,
                     ..previous
                 });
@@ -369,7 +369,7 @@ impl Slot {
                 self.changes.clear();
             }
         }
-        self.entry = Some(Entry {
+        self.entry = Some(ProjectEntry {
             files: Arc::new(files),
             full_scan_at,
             scan_id,
@@ -544,7 +544,9 @@ pub(crate) fn read(params: ProjectFilesParams) -> Result<ProjectFiles, String> {
 
 /// The project's files and folders that best match the query, for a client that keeps no
 /// list of its own.
-pub(crate) fn entries(params: ProjectEntriesParams) -> Result<Vec<crate::fuzzy::Entry>, String> {
+pub(crate) fn entries(
+    params: ProjectEntriesParams,
+) -> Result<Vec<crate::fuzzy::ProjectEntry>, String> {
     let repo = repo_key(&params.project)?;
     let cell = project_cache(&repo)?;
     let files = {

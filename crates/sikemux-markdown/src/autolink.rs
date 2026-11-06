@@ -3,7 +3,7 @@
 //! finds most of them while reading; the second follows the clean-up in
 //! `mdast-util-gfm-autolink-literal`, which catches the rest.
 
-use crate::{Element, Node};
+use crate::{MdElement, MdNode};
 
 fn is_word(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
@@ -168,15 +168,15 @@ fn mail_address(text: &str, at: usize) -> Option<Found> {
     })
 }
 
-fn link(href: String, label: String) -> Node {
-    Node::Element(Element::A {
+fn link(href: String, label: String) -> MdNode {
+    MdNode::Element(MdElement::A {
         href,
         title: None,
-        c: vec![Node::Text(label)],
+        c: vec![MdNode::Text(label)],
     })
 }
 
-fn replace(text: &str, find: fn(&str, usize) -> Option<Found>, out: &mut Vec<Node>) -> bool {
+fn replace(text: &str, find: fn(&str, usize) -> Option<Found>, out: &mut Vec<MdNode>) -> bool {
     let mut changed = false;
     let mut kept = 0;
     let mut at = 0;
@@ -186,20 +186,22 @@ fn replace(text: &str, find: fn(&str, usize) -> Option<Found>, out: &mut Vec<Nod
             continue;
         };
         if at > kept {
-            out.push(Node::Text(
+            out.push(MdNode::Text(
                 text.get(kept..at).unwrap_or_default().to_owned(),
             ));
         }
         out.push(link(found.href, found.label));
         if !found.trail.is_empty() {
-            out.push(Node::Text(found.trail));
+            out.push(MdNode::Text(found.trail));
         }
         changed = true;
         kept = found.end;
         at = found.end;
     }
     if changed && kept < text.len() {
-        out.push(Node::Text(text.get(kept..).unwrap_or_default().to_owned()));
+        out.push(MdNode::Text(
+            text.get(kept..).unwrap_or_default().to_owned(),
+        ));
     }
     changed
 }
@@ -393,12 +395,12 @@ fn read_address(text: &str, at: usize) -> Option<Found> {
     })
 }
 
-fn each_text(nodes: Vec<Node>, find: fn(&str, usize) -> Option<Found>, out: &mut Vec<Node>) {
+fn each_text(nodes: Vec<MdNode>, find: fn(&str, usize) -> Option<Found>, out: &mut Vec<MdNode>) {
     for node in nodes {
         match node {
-            Node::Text(text) => {
+            MdNode::Text(text) => {
                 if !replace(&text, find, out) {
-                    out.push(Node::Text(text));
+                    out.push(MdNode::Text(text));
                 }
             }
             other => out.push(other),
@@ -406,9 +408,9 @@ fn each_text(nodes: Vec<Node>, find: fn(&str, usize) -> Option<Found>, out: &mut
     }
 }
 
-pub fn link_addresses(text: String, out: &mut Vec<Node>) {
+pub fn link_addresses(text: String, out: &mut Vec<MdNode>) {
     let mut read = Vec::new();
-    each_text(vec![Node::Text(text)], read_address, &mut read);
+    each_text(vec![MdNode::Text(text)], read_address, &mut read);
     let mut webbed = Vec::new();
     each_text(read, web_address, &mut webbed);
     each_text(webbed, mail_address, out);

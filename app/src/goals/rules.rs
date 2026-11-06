@@ -6,7 +6,7 @@
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{div, AnyElement, Context, IntoElement, ParentElement, SharedString, Styled};
-use sikemux_core::server::board::CardView;
+use sikemux_core::server::board::BoardCard;
 use sikemux_view::memory::Seeding;
 
 use super::goal::quiet_section;
@@ -23,7 +23,7 @@ struct Listed {
     movable: Option<u64>,
 }
 
-pub(super) fn rules(pane: &GoalsPane, goal: &CardView, cx: &mut Context<GoalsPane>) -> AnyElement {
+pub(super) fn rules(pane: &GoalsPane, goal: &BoardCard, cx: &mut Context<GoalsPane>) -> AnyElement {
     let own = goal
         .rules
         .iter()

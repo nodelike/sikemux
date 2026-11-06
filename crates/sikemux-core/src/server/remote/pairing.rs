@@ -20,16 +20,16 @@ pub(crate) fn set_access(core: &Core, id: &str, access: DeviceAccess) -> CoreRes
 /// it or asking to be, for the owner's devices.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Pairing {
+pub struct RemotePairing {
     pub pending: Vec<PendingDevice>,
     pub devices: Vec<DeviceInfo>,
-    pub links: Vec<crate::server::hosts::LinkView>,
+    pub links: Vec<crate::server::hosts::LinkedHost>,
     pub pending_links: Vec<PendingDevice>,
 }
 
-pub(crate) fn pairing(core: &Core) -> Pairing {
+pub(crate) fn pairing(core: &Core) -> RemotePairing {
     let status = core.remote.status();
-    Pairing {
+    RemotePairing {
         pending: status.pending,
         devices: status.devices,
         links: crate::server::hosts::views(core),
@@ -44,7 +44,7 @@ pub struct PairingAnswer {
     access: DeviceAccess,
 }
 
-pub(crate) fn answer_pairing(core: &Core, answer: PairingAnswer) -> CoreResult<Pairing> {
+pub(crate) fn answer_pairing(core: &Core, answer: PairingAnswer) -> CoreResult<RemotePairing> {
     core.remote
         .answer(&answer.id, answer.allow.then_some(answer.access))?;
     announce(core);
@@ -78,7 +78,7 @@ pub(crate) fn set_require_approval(
     Ok(announce(core))
 }
 
-pub(crate) fn change_device(core: &Core, change: DeviceChange) -> CoreResult<Pairing> {
+pub(crate) fn change_device(core: &Core, change: DeviceChange) -> CoreResult<RemotePairing> {
     match change.access {
         Some(access) => set_access(core, &change.id, access)?,
         None => revoke(core, &change.id)?,

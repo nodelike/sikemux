@@ -14,17 +14,17 @@ use gpui_kit::{
 };
 use serde::Serialize;
 use serde_json::json;
-use sikemux_core::server::board::AddParams as BoardAddParams;
+use sikemux_core::server::board::BoardAddParams;
+use sikemux_core::server::board::BoardCard;
+use sikemux_core::server::board::BoardColumn;
 use sikemux_core::server::board::BoardParams;
-use sikemux_core::server::board::BoardView;
-use sikemux_core::server::board::CardView;
-use sikemux_core::server::board::Column;
-use sikemux_core::server::board::SettingsParams as BoardSettingsParams;
-use sikemux_core::server::board::Status as CardStatus;
-use sikemux_core::server::board::Ticket;
-use sikemux_core::server::board::UpdateParams as BoardUpdateParams;
+use sikemux_core::server::board::BoardSettingsParams;
+use sikemux_core::server::board::BoardUpdateParams;
+use sikemux_core::server::board::CardStatus;
+use sikemux_core::server::board::CardTicket;
+use sikemux_core::server::board::ProjectBoard;
 use sikemux_core::server::call::{self, Call};
-use sikemux_core::server::messages::log::Row as MessageRow;
+use sikemux_core::server::messages::log::MessageRow;
 use sikemux_core::server::messages::AgentMessagesParams;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -41,29 +41,29 @@ use crate::workbench::Workbench;
 
 pub mod panels;
 
-const COLUMNS: [(Column, &str); 4] = [
-    (Column::Open, "Open"),
-    (Column::Progress, "In progress"),
-    (Column::Needs, "Needs you"),
-    (Column::Done, "Done"),
+const COLUMNS: [(BoardColumn, &str); 4] = [
+    (BoardColumn::Open, "Open"),
+    (BoardColumn::Progress, "In progress"),
+    (BoardColumn::Needs, "Needs you"),
+    (BoardColumn::Done, "Done"),
 ];
 
 /// The column a card moving to `status` shows in until the core answers.
-fn column_moving_to(status: CardStatus) -> Column {
+fn column_moving_to(status: CardStatus) -> BoardColumn {
     match status {
-        CardStatus::Open => Column::Open,
-        CardStatus::Progress => Column::Progress,
-        CardStatus::Done => Column::Done,
+        CardStatus::Open => BoardColumn::Open,
+        CardStatus::Progress => BoardColumn::Progress,
+        CardStatus::Done => BoardColumn::Done,
     }
 }
 
 /// What a card dropped in `column` is moved to; none for the column the core alone fills.
-fn status_dropped_in(column: Column) -> Option<CardStatus> {
+fn status_dropped_in(column: BoardColumn) -> Option<CardStatus> {
     match column {
-        Column::Open => Some(CardStatus::Open),
-        Column::Progress => Some(CardStatus::Progress),
-        Column::Needs => None,
-        Column::Done => Some(CardStatus::Done),
+        BoardColumn::Open => Some(CardStatus::Open),
+        BoardColumn::Progress => Some(CardStatus::Progress),
+        BoardColumn::Needs => None,
+        BoardColumn::Done => Some(CardStatus::Done),
     }
 }
 
@@ -116,7 +116,7 @@ pub struct BoardPane {
     /// The project's folder, which the core's board calls take.
     pub folder: String,
     pub(crate) bench: WeakEntity<Workbench>,
-    pub(crate) board: Option<BoardView>,
+    pub(crate) board: Option<ProjectBoard>,
     find: Option<Entity<InputState>>,
     words: String,
     show: Show,
@@ -206,7 +206,7 @@ impl BoardPane {
         });
     }
 
-    fn take(&mut self, board: BoardView) {
+    fn take(&mut self, board: ProjectBoard) {
         if let Some(Open::Card(id)) = self.open {
             if !board.cards.iter().any(|card| card.id == id) {
                 self.open = None;
@@ -222,7 +222,7 @@ impl BoardPane {
     }
 
     /// Asks the core to change the board, then shows the board it answers.
-    pub(crate) fn ask<C: Call<Answer = BoardView> + 'static>(
+    pub(crate) fn ask<C: Call<Answer = ProjectBoard> + 'static>(
         &mut self,
         params: C::Params,
         then: impl FnOnce(&mut Self, &mut Context<Self>) + 'static,
@@ -270,27 +270,27 @@ impl BoardPane {
         );
     }
 
-    pub(crate) fn card(&self, id: u64) -> Option<&CardView> {
+    pub(crate) fn card(&self, id: u64) -> Option<&BoardCard> {
         self.board.as_ref()?.cards.iter().find(|card| card.id == id)
     }
 
-    pub(crate) fn cards(&self) -> &[CardView] {
+    pub(crate) fn cards(&self) -> &[BoardCard] {
         self.board
             .as_ref()
             .map_or(&[], |board| board.cards.as_slice())
     }
 
-    fn column_of(&self, card: &CardView) -> Column {
+    fn column_of(&self, card: &BoardCard) -> BoardColumn {
         self.moving
             .get(&card.id)
             .map_or(card.column, |status| column_moving_to(*status))
     }
 
-    fn shown(&self, card: &CardView) -> bool {
+    fn shown(&self, card: &BoardCard) -> bool {
         let wanted = self.words.trim().to_lowercase();
         let matches = |text: &str| text.to_lowercase().contains(&wanted);
         (self.show != Show::Tickets || card.ticket.is_some())
-            && (self.show != Show::Needs || self.column_of(card) == Column::Needs)
+            && (self.show != Show::Needs || self.column_of(card) == BoardColumn::Needs)
             && (wanted.is_empty()
                 || matches(&card.title)
                 || matches(&card.details)
@@ -306,7 +306,7 @@ impl BoardPane {
     fn lanes(&self) -> Vec<Lane> {
         let cards = self.cards();
         let parents: HashSet<u64> = cards.iter().filter_map(|card| card.parent).collect();
-        let mut shown: Vec<&CardView> = cards.iter().filter(|card| self.shown(card)).collect();
+        let mut shown: Vec<&BoardCard> = cards.iter().filter(|card| self.shown(card)).collect();
         shown.sort_by_key(|card| std::cmp::Reverse(card.updated_at));
         let mut lanes: Vec<Lane> = Vec::new();
         let mut alone = Lane {
@@ -375,7 +375,7 @@ impl BoardPane {
 
     fn fields_for(
         &self,
-        card: Option<&CardView>,
+        card: Option<&BoardCard>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Fields {
@@ -606,7 +606,7 @@ fn head(pane: &BoardPane, cx: &mut Context<BoardPane>) -> impl IntoElement {
     let from_tickets = cards.iter().filter(|card| card.ticket.is_some()).count();
     let needing = cards
         .iter()
-        .filter(|card| pane.column_of(card) == Column::Needs)
+        .filter(|card| pane.column_of(card) == BoardColumn::Needs)
         .count();
     let mut shows = vec![(Show::All, "All", cards.len())];
     if from_tickets > 0 {
@@ -831,7 +831,7 @@ fn lane_view(pane: &BoardPane, lane: Lane, cx: &mut Context<BoardPane>) -> AnyEl
         .map(|parent| owner(parent, cx));
     let (title, meta, select): (String, String, Option<u64>) = match lead {
         Some(parent) => {
-            let under: Vec<&CardView> = pane
+            let under: Vec<&BoardCard> = pane
                 .cards()
                 .iter()
                 .filter(|other| other.parent == Some(parent.id))
@@ -930,7 +930,7 @@ fn columns(pane: &BoardPane, ids: &[u64], cx: &mut Context<BoardPane>) -> impl I
         .flex()
         .gap(SPACE_2H)
         .children(COLUMNS.iter().map(|&(column, name)| {
-            let cards: Vec<&CardView> = ids
+            let cards: Vec<&BoardCard> = ids
                 .iter()
                 .filter_map(|id| pane.card(*id))
                 .filter(|card| pane.column_of(card) == column)
@@ -971,11 +971,11 @@ fn columns(pane: &BoardPane, ids: &[u64], cx: &mut Context<BoardPane>) -> impl I
         }))
 }
 
-fn card_view(pane: &BoardPane, card: &CardView, cx: &mut Context<BoardPane>) -> AnyElement {
+fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = card.id;
     let cards = pane.cards();
-    let question = (pane.column_of(card) == Column::Needs)
+    let question = (pane.column_of(card) == BoardColumn::Needs)
         .then(|| {
             let owner = card.owner.as_deref()?;
             let bench = pane.bench.upgrade()?;
@@ -993,7 +993,7 @@ fn card_view(pane: &BoardPane, card: &CardView, cx: &mut Context<BoardPane>) -> 
             .filter(|_| card.status != CardStatus::Done)
             .and_then(|run| run.note.clone())
     });
-    let under: Vec<&CardView> = cards
+    let under: Vec<&BoardCard> = cards
         .iter()
         .filter(|other| other.parent == Some(id))
         .collect();
@@ -1001,7 +1001,7 @@ fn card_view(pane: &BoardPane, card: &CardView, cx: &mut Context<BoardPane>) -> 
         .iter()
         .filter(|other| other.status == CardStatus::Done)
         .count();
-    let waits: Vec<&CardView> = card
+    let waits: Vec<&BoardCard> = card
         .waits_on
         .iter()
         .filter_map(|id| pane.card(*id))
@@ -1090,7 +1090,7 @@ fn card_view(pane: &BoardPane, card: &CardView, cx: &mut Context<BoardPane>) -> 
 
 /// The agent a card names, by its mark and name.
 /// A card's ticket: its key, what it is in its tracker, and a link to it there.
-pub(crate) fn ticket_line(ticket: &Ticket, cx: &gpui_kit::App) -> gpui_kit::Div {
+pub(crate) fn ticket_line(ticket: &CardTicket, cx: &gpui_kit::App) -> gpui_kit::Div {
     let url = ticket.url.clone();
     div()
         .flex()
@@ -1109,7 +1109,7 @@ pub(crate) fn ticket_line(ticket: &Ticket, cx: &gpui_kit::App) -> gpui_kit::Div 
         })
 }
 
-pub(crate) fn owner(card: &CardView, cx: &gpui_kit::App) -> AnyElement {
+pub(crate) fn owner(card: &BoardCard, cx: &gpui_kit::App) -> AnyElement {
     let t = Tokens::get(cx).clone();
     div()
         .flex()

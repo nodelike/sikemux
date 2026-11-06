@@ -2,18 +2,18 @@
 //! GitHub writes a reference to one: `owner/repo#12`, or `group/project!12` for a GitLab
 //! merge request.
 
-use crate::{Element, Node};
+use crate::{MdElement, MdNode};
 
-pub fn fold(node: Node) -> Node {
-    let Node::Element(Element::A { href, title, c }) = node else {
+pub fn fold(node: MdNode) -> MdNode {
+    let MdNode::Element(MdElement::A { href, title, c }) = node else {
         return node;
     };
     let named = match c.as_slice() {
-        [Node::Text(text)] if *text == href => name(&href),
+        [MdNode::Text(text)] if *text == href => name(&href),
         _ => None,
     };
-    let c = named.map_or(c, |name| vec![Node::Text(name)]);
-    Node::Element(Element::A { href, title, c })
+    let c = named.map_or(c, |name| vec![MdNode::Text(name)]);
+    MdNode::Element(MdElement::A { href, title, c })
 }
 
 /// How GitHub writes a reference to the pull request or issue at `href`, when it is one.

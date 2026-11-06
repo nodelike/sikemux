@@ -133,5 +133,5 @@ pub struct QueuedParams {
     pub ids: Vec<String>,
     /// A message sent with them, after them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub message: Option<super::queue::Message>,
+    pub message: Option<super::queue::QueuedMessageParams>,
 }

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::clock::epoch_ms;
 
 use super::failing::Broke;
-use super::{Adding, Board, Card, Notice, Status};
+use super::{Adding, Board, Card, CardStatus, Notice};
 use crate::text::clipped;
 
 /// Arrivals a card keeps; the oldest go first.
@@ -61,7 +61,7 @@ pub(super) fn holder(board: &Board, key: &Key) -> Option<u64> {
     board
         .cards
         .iter()
-        .find(|card| card.status != Status::Done && key.held_by(card))
+        .find(|card| card.status != CardStatus::Done && key.held_by(card))
         .map(|card| card.id)
 }
 

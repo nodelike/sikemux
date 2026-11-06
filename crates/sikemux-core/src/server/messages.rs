@@ -18,7 +18,7 @@ use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
 
-use self::log::{Entry, MessageLog, Outcome};
+use self::log::{MessageEntry, MessageLog, MessageOutcome};
 use super::chat::{self, Delivery};
 use super::connection::blocking;
 use super::kept::Kept;
@@ -64,7 +64,7 @@ const MAX_MISSED_PASTES: u8 = 3;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum Kind {
+pub enum MessageKind {
     Message,
     /// How a worker's turn ended, sent to its lead.
     Report,
@@ -75,7 +75,7 @@ pub enum Kind {
 }
 
 struct Letter {
-    kind: Kind,
+    kind: MessageKind,
     from_id: String,
     from_name: String,
     cli: String,
@@ -105,7 +105,7 @@ pub(crate) struct Answered {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Carried {
     pub to: String,
-    pub kind: Kind,
+    pub kind: MessageKind,
     pub from_id: String,
     pub from_name: String,
     pub cli: String,
@@ -176,7 +176,7 @@ impl Letter {
         Sender::of(&self.from_id).is_some_and(Sender::carries_work_on)
     }
 
-    fn from_sender(sender: Sender, kind: Kind, text: String, note: Option<String>) -> Self {
+    fn from_sender(sender: Sender, kind: MessageKind, text: String, note: Option<String>) -> Self {
         Self {
             kind,
             from_id: sender.id().to_owned(),
@@ -216,7 +216,7 @@ struct MailboxRecord {
 #[serde(rename_all = "camelCase")]
 struct Origin {
     from: String,
-    kind: Kind,
+    kind: MessageKind,
 }
 
 /// A message waiting for its agent, as the agent reads it.
@@ -240,7 +240,7 @@ fn joined(queued: &[Queued]) -> String {
 struct Sent {
     from: String,
     to: String,
-    kind: Kind,
+    kind: MessageKind,
     digest: u64,
     at: u64,
 }
@@ -298,7 +298,7 @@ impl State {
             .iter()
             .filter(|sent| {
                 sent.at > since
-                    && sent.kind != Kind::Question
+                    && sent.kind != MessageKind::Question
                     && ((sent.from == from && sent.to == to)
                         || (sent.from == to && sent.to == from))
             })
@@ -387,16 +387,16 @@ impl Mailbox {
         // however alike they read, and so do a board note, a trigger's firing
         // and Sikemux's word of what the person allowed.
         if let Some(repeat) =
-            repeat.filter(|_| letter.kind == Kind::Message && !letter.by_sikemux())
+            repeat.filter(|_| letter.kind == MessageKind::Message && !letter.by_sikemux())
         {
             return Ok(Admitted::Repeat {
                 seconds_ago: now.saturating_sub(repeat.at) / 1000,
             });
         }
-        if letter.kind == Kind::Message && state.looping(&letter.from_id, to) {
+        if letter.kind == MessageKind::Message && state.looping(&letter.from_id, to) {
             return Ok(Admitted::Held);
         }
-        let report = letter.kind == Kind::Report;
+        let report = letter.kind == MessageKind::Report;
         if pair.len() >= PAIR_LIMIT && !report {
             return Err(format!(
                 "You have sent {to_name} {PAIR_LIMIT} messages in the last {} minutes, so Sikemux holds the rest; two agents must not keep each other busy without end. Wait, or ask the person.",
@@ -482,14 +482,13 @@ impl Mailbox {
             let mut superseded = Vec::new();
             if let Some(Origin {
                 from,
-                kind: Kind::Report,
+                kind: MessageKind::Report,
             }) = &queued.origin
             {
                 let (older, kept) = std::mem::take(waiting).into_iter().partition(|waiting| {
-                    waiting
-                        .origin
-                        .as_ref()
-                        .is_some_and(|origin| origin.kind == Kind::Report && &origin.from == from)
+                    waiting.origin.as_ref().is_some_and(|origin| {
+                        origin.kind == MessageKind::Report && &origin.from == from
+                    })
                 });
                 *waiting = kept;
                 superseded = older;
@@ -586,7 +585,7 @@ pub(crate) fn task(
     };
     let brief = super::memory::brief(core, agent_id, Some(&text));
     wrapped(&Letter {
-        kind: Kind::Message,
+        kind: MessageKind::Message,
         from_id: lead_id.to_owned(),
         from_name: lead_name.to_owned(),
         cli: lead_cli.to_owned(),
@@ -625,25 +624,25 @@ pub(crate) async fn hand_task(
         text: task.clone(),
         origin: Some(Origin {
             from,
-            kind: Kind::Message,
+            kind: MessageKind::Message,
         }),
     };
     if mailbox.has_waiting(agent_id) {
-        log(core, agent_id, [&queued], Outcome::Waiting);
+        log(core, agent_id, [&queued], MessageOutcome::Waiting);
         mailbox.put_back(agent_id, vec![queued]);
         return Ok(());
     }
     match chat::letter(core, agent_id, task).await {
         Ok(delivered @ (Delivery::Steered | Delivery::NewTurn)) => {
             let outcome = match delivered {
-                Delivery::Steered => Outcome::Steered,
-                _ => Outcome::NewTurn,
+                Delivery::Steered => MessageOutcome::Steered,
+                _ => MessageOutcome::NewTurn,
             };
             log(core, agent_id, [&queued], outcome);
             Ok(())
         }
         Ok(Delivery::TurnEnded | Delivery::Refused) => {
-            log(core, agent_id, [&queued], Outcome::Waiting);
+            log(core, agent_id, [&queued], MessageOutcome::Waiting);
             mailbox.put_back(agent_id, vec![queued]);
             Ok(())
         }
@@ -652,27 +651,32 @@ pub(crate) async fn hand_task(
 }
 
 /// The latest messages between agents in `project`, newest first.
-pub(crate) fn logged(core: &Core, project: &str, limit: Option<usize>) -> Vec<Entry> {
+pub(crate) fn logged(core: &Core, project: &str, limit: Option<usize>) -> Vec<MessageEntry> {
     let limit = limit.unwrap_or(log::MAX_READ).min(log::MAX_READ);
     core.harness.mailbox.log.read(project, limit)
 }
 
 /// The project's messages between agents, one row each, newest first.
-pub(crate) fn logged_rows(core: &Core, project: &str) -> Vec<log::Row> {
+pub(crate) fn logged_rows(core: &Core, project: &str) -> Vec<log::MessageRow> {
     log::rows(&logged(core, project, None), |id| core.names.name(id))
 }
 
 /// Notes in the log of the project of agent `to` what became of messages
 /// for it.
-fn log<'a>(core: &Core, to: &str, queued: impl IntoIterator<Item = &'a Queued>, outcome: Outcome) {
+fn log<'a>(
+    core: &Core,
+    to: &str,
+    queued: impl IntoIterator<Item = &'a Queued>,
+    outcome: MessageOutcome,
+) {
     let queued: Vec<&Queued> = queued.into_iter().collect();
     let answers = queued.iter().any(|queued| {
         queued
             .origin
             .as_ref()
-            .is_some_and(|origin| origin.kind == Kind::Answer)
+            .is_some_and(|origin| origin.kind == MessageKind::Answer)
     });
-    if answers && !matches!(outcome, Outcome::Waiting | Outcome::Returned) {
+    if answers && !matches!(outcome, MessageOutcome::Waiting | MessageOutcome::Returned) {
         core.harness.questions.delivered(to);
     }
     let Some(project) = core.names.get(to).map(|named| named.project) else {
@@ -685,7 +689,7 @@ fn log<'a>(core: &Core, to: &str, queued: impl IntoIterator<Item = &'a Queued>, 
         let from = queued.origin.as_ref().map(|origin| origin.from.clone());
         core.harness.mailbox.log.append(
             &project,
-            &Entry {
+            &MessageEntry {
                 at,
                 from_name: from.as_deref().and_then(|from| core.names.name(from)),
                 from,
@@ -800,13 +804,13 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                     text: String::new(),
                     origin: Some(Origin {
                         from: from.clone(),
-                        kind: Kind::Message,
+                        kind: MessageKind::Message,
                     }),
                 };
-                log(&core, &target.agent_id, [&refused], Outcome::Refused);
+                log(&core, &target.agent_id, [&refused], MessageOutcome::Refused);
                 return Err(why.into());
             }
-            let mut letter = letter_from(&agents, Kind::Message, from, text, None);
+            let mut letter = letter_from(&agents, MessageKind::Message, from, text, None);
             if let Some(id) = answers.as_ref().filter(|_| target.reach != Reach::Remote) {
                 let name = target.name.as_deref().unwrap_or(&target.agent_id);
                 let asked = core
@@ -814,7 +818,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                     .questions
                     .asked_of(&letter.from_id, &target.agent_id, id)
                     .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
-                letter.kind = Kind::Answer;
+                letter.kind = MessageKind::Answer;
                 letter.note = Some(format!(
                     "Sent by {}, your lead in Sikemux, not by the person, answering the question you asked: {asked}",
                     letter.from_name
@@ -864,12 +868,12 @@ async fn carry(
     .await;
     let outcome = match &sent {
         Ok(answer) => match answer["delivery"].as_str() {
-            Some("steered") => Outcome::Steered,
-            Some("newTurn") => Outcome::NewTurn,
-            Some("repeat") => Outcome::Repeat,
-            _ => Outcome::Waiting,
+            Some("steered") => MessageOutcome::Steered,
+            Some("newTurn") => MessageOutcome::NewTurn,
+            Some("repeat") => MessageOutcome::Repeat,
+            _ => MessageOutcome::Waiting,
         },
-        Err(_) => Outcome::Refused,
+        Err(_) => MessageOutcome::Refused,
     };
     log(core, &target.agent_id, [&queued], outcome);
     sent
@@ -926,7 +930,7 @@ pub(crate) async fn from_host(
             .questions
             .asked_of(&letter.from_id, &target.agent_id, id)
             .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
-        letter.kind = Kind::Answer;
+        letter.kind = MessageKind::Answer;
         letter.note = Some(format!(
             "Sent by {}, your lead in Sikemux, not by the person, answering the question you asked: {asked}",
             letter.from_name
@@ -964,7 +968,7 @@ pub(crate) async fn from_hosts(
     };
     let letter = Letter::from_sender(
         Sender::Hosts,
-        Kind::Message,
+        MessageKind::Message,
         text,
         Some(HOSTS_NOTE.to_owned()),
     );
@@ -1010,7 +1014,7 @@ pub(crate) async fn question(
                 .ok_or("that agent is not running")?;
             Ok((
                 target,
-                letter_from(&agents, Kind::Question, from, text, Some(note)),
+                letter_from(&agents, MessageKind::Question, from, text, Some(note)),
             ))
         })
         .await
@@ -1038,7 +1042,7 @@ pub(crate) async fn answer(
         .map_err(|error| error.to_string())?
     };
     let mut letters = answers.into_iter().map(|(answered, text, note)| Letter {
-        kind: Kind::Answer,
+        kind: MessageKind::Answer,
         from_id: Sender::Person.id().to_owned(),
         from_name: Sender::Person.name().to_owned(),
         cli: "person".to_owned(),
@@ -1089,7 +1093,7 @@ pub(crate) async fn from_board(
     note: String,
 ) -> Result<Value, String> {
     let target = running(core, to).await?;
-    let letter = Letter::from_sender(Sender::Board, Kind::Message, text, Some(note));
+    let letter = Letter::from_sender(Sender::Board, MessageKind::Message, text, Some(note));
     deliver(core, &target, letter).await
 }
 
@@ -1108,7 +1112,7 @@ pub(crate) async fn from_trigger(
             .map_err(|error| format!("it is asleep and did not wake: {error}"))?;
         target = running(core, to).await?;
     }
-    let letter = Letter::from_sender(Sender::Trigger, Kind::Message, text, Some(note));
+    let letter = Letter::from_sender(Sender::Trigger, MessageKind::Message, text, Some(note));
     deliver(core, &target, letter).await
 }
 
@@ -1122,7 +1126,7 @@ pub(crate) async fn from_sikemux(
     let target = running(core, to).await?;
     let letter = Letter::from_sender(
         Sender::Sikemux,
-        Kind::Notice,
+        MessageKind::Notice,
         text,
         Some("Sent by Sikemux itself, not by the person or another agent.".to_owned()),
     );
@@ -1140,7 +1144,7 @@ pub(crate) async fn for_person(
     let target = running(core, to).await?;
     let letter = Letter::from_sender(
         Sender::Sikemux,
-        Kind::Message,
+        MessageKind::Message,
         text,
         Some(
             "Sent by Sikemux with the person's answer about an action it held for them.".to_owned(),
@@ -1154,7 +1158,7 @@ const AUTO_NOTE: &str = "Sent by Sikemux's Auto, which runs this project's board
 fn auto_letter(text: String) -> Letter {
     Letter::from_sender(
         Sender::Auto,
-        Kind::Message,
+        MessageKind::Message,
         text,
         Some(AUTO_NOTE.to_owned()),
     )
@@ -1187,7 +1191,7 @@ pub(crate) fn withdraw(core: &Core, agent_id: &str, mark: &str) {
         *waiting = kept;
         withdrawn
     });
-    log(core, agent_id, &withdrawn, Outcome::Dropped);
+    log(core, agent_id, &withdrawn, MessageOutcome::Dropped);
 }
 
 /// Whether a message holding `mark` still waits for the agent's turn to end.
@@ -1203,7 +1207,7 @@ pub(crate) fn is_waiting(core: &Core, agent_id: &str, mark: &str) -> bool {
 
 fn letter_from(
     agents: &[Listed],
-    kind: Kind,
+    kind: MessageKind,
     from: String,
     text: String,
     note: Option<String>,
@@ -1248,7 +1252,7 @@ pub(crate) async fn report_as(
             let note = format!(
                 "{name} is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to {name} if it needs more."
             );
-            let mut letter = letter_from(&agents, Kind::Report, worker, text, Some(note));
+            let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;
             Ok(target.map(|target| (target, letter)))
         })
@@ -1289,7 +1293,7 @@ async fn deliver_as(
     let handed = handed(core, target, letter, &queued).await;
     let outcome = handed
         .as_ref()
-        .map_or(Outcome::Refused, |(_, outcome)| *outcome);
+        .map_or(MessageOutcome::Refused, |(_, outcome)| *outcome);
     log(core, &target.agent_id, [&queued], outcome);
     handed.map(|(answer, _)| answer)
 }
@@ -1301,7 +1305,7 @@ async fn handed(
     target: &Listed,
     letter: Letter,
     queued: &Queued,
-) -> Result<(Value, Outcome), String> {
+) -> Result<(Value, MessageOutcome), String> {
     let name = target
         .name
         .clone()
@@ -1318,25 +1322,25 @@ async fn handed(
                     "You sent {name} the same text {seconds_ago} s ago, so it was not sent again."
                 ),
                 ),
-                Outcome::Repeat,
+                MessageOutcome::Repeat,
             ))
         }
         Admitted::Held => {
             let dropped = mailbox.hold(&letter.from_id, &target.agent_id, queued.clone());
-            log(core, &target.agent_id, &dropped, Outcome::Dropped);
+            log(core, &target.agent_id, &dropped, MessageOutcome::Dropped);
             return Ok((
                 answer(
                     "held",
                     format!("You and {name} keep messaging each other without either doing other work, so Sikemux holds this and has asked the person. It goes to {name} once one of you does other work or the person writes to one of you; carry on with your own work."),
                 ),
-                Outcome::Waiting,
+                MessageOutcome::Waiting,
             ));
         }
     }
     let mut woke = "";
     let mut held = None;
     let mut reach = target.reach;
-    let notice = letter.kind == Kind::Notice;
+    let notice = letter.kind == MessageKind::Notice;
     match target.reach {
         Reach::Chat | Reach::Terminal => {}
         Reach::Asleep if notice => held = Some("is asleep"),
@@ -1354,7 +1358,7 @@ async fn handed(
                 reach = Reach::Terminal;
             }
         }
-        Reach::Stopped if letter.answers.is_some() || letter.kind == Kind::Report => {
+        Reach::Stopped if letter.answers.is_some() || letter.kind == MessageKind::Report => {
             held = Some("has stopped")
         }
         Reach::Stopped => {
@@ -1378,23 +1382,23 @@ async fn handed(
             match reach {
                 Reach::Terminal => ready_terminal(core, &target.agent_id).map(|terminal| {
                     paste(core, &target.agent_id, terminal, vec![queued.clone()]);
-                    Outcome::Typed
+                    MessageOutcome::Typed
                 }),
                 _ => hand(core, &target.agent_id, &queued.text)
                     .await
                     .map(|delivered| match delivered {
-                        Delivery::Steered => Outcome::Steered,
-                        _ => Outcome::NewTurn,
+                        Delivery::Steered => MessageOutcome::Steered,
+                        _ => MessageOutcome::NewTurn,
                     }),
             };
         match delivered {
-            Ok(Outcome::Steered) => {
+            Ok(MessageOutcome::Steered) => {
                 return Ok((
                     answer(
                         "steered",
                         format!("{name} is working and reads this at its next step.{woke}"),
                     ),
-                    Outcome::Steered,
+                    MessageOutcome::Steered,
                 ))
             }
             Ok(outcome) => {
@@ -1418,18 +1422,18 @@ async fn handed(
                     "{name} {busy}, and a notice is only worth reading at once, so it was dropped."
                 ),
             ),
-            Outcome::Dropped,
+            MessageOutcome::Dropped,
         ));
     }
     let (waiting, superseded) = mailbox.wait(&target.agent_id, queued.clone());
-    log(core, &target.agent_id, &superseded, Outcome::Dropped);
+    log(core, &target.agent_id, &superseded, MessageOutcome::Dropped);
     let busy = held.unwrap_or_default();
     Ok((
         answer(
             "waiting",
             format!("{name} {busy}, so it gets this once it is free, with any others waiting ({waiting} now).{woke}"),
         ),
-        Outcome::Waiting,
+        MessageOutcome::Waiting,
     ))
 }
 
@@ -1539,7 +1543,12 @@ fn unpasted(core: &Core, agent_id: &str) {
         *state.missed_pastes.entry(agent_id.to_owned()).or_default() += 1;
         Some(pasted.texts)
     });
-    log(core, agent_id, returned.iter().flatten(), Outcome::Returned);
+    log(
+        core,
+        agent_id,
+        returned.iter().flatten(),
+        MessageOutcome::Returned,
+    );
 }
 
 /// Types what the person wrote to a terminal agent into its terminal once its CLI takes a
@@ -1618,7 +1627,7 @@ pub(crate) fn prompt_taken(core: &Core, agent_id: &str) {
         core,
         agent_id,
         taken.iter().flat_map(|pasted| &pasted.texts),
-        Outcome::Delivered,
+        MessageOutcome::Delivered,
     );
 }
 
@@ -1716,7 +1725,12 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 _ => deliver_later(core, agent_id, Pending::Asleep),
             }
         } else if core.workspaces.closed(&agent_id) {
-            log(core, &agent_id, &mailbox.take(&agent_id), Outcome::Dropped);
+            log(
+                core,
+                &agent_id,
+                &mailbox.take(&agent_id),
+                MessageOutcome::Dropped,
+            );
         }
     }
     if let Some(next) = next {
@@ -1742,7 +1756,7 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
                 let texts = mailbox.take(&agent_id);
                 if !texts.is_empty() {
                     match hand(&core, &agent_id, &joined(&texts)).await {
-                        Ok(_) => log(&core, &agent_id, &texts, Outcome::Delivered),
+                        Ok(_) => log(&core, &agent_id, &texts, MessageOutcome::Delivered),
                         Err(_) => mailbox.put_back(&agent_id, texts),
                     }
                 }
@@ -1776,7 +1790,7 @@ pub struct AgentMessagesParams {
 #[serde(rename_all = "camelCase")]
 pub struct AgentMessageRows {
     pub project: String,
-    pub rows: Vec<log::Row>,
+    pub rows: Vec<log::MessageRow>,
 }
 
 /// Runs `read` off the async threads on the project at `project`, which must be an absolute

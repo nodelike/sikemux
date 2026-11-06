@@ -14,7 +14,7 @@ use sikemux_view::chat::{ChatGoal, GoalMarker};
 use sikemux_view::slice::{SliceState, Wait, WaitOn};
 
 use super::{
-    add_card, holder, lease, slice, title_of, waits, Adding, Board, By, Card, Status,
+    add_card, holder, lease, slice, title_of, waits, Adding, Board, By, Card, CardStatus,
     MAX_TITLE_CHARS,
 };
 use crate::server::chat::feed::Feed;
@@ -517,7 +517,7 @@ pub(super) fn goal_state(core: &Core, board: &Board, goal: &Card) -> Option<Slic
 fn plain_state(core: &Core, board: &Board, goal: &Card) -> Option<SliceState> {
     let owner = goal.owner_id().filter(|_| goal.parent.is_none())?;
     Some(match goal.status {
-        Status::Done => SliceState::Done,
+        CardStatus::Done => SliceState::Done,
         _ if waits(core, &board.settings, goal).is_some() => SliceState::NeedsYou,
         _ if core.agent_now(owner).at_work() => SliceState::Moving,
         _ => SliceState::Waiting,
@@ -551,7 +551,7 @@ fn goals_held<'a>(
             continue;
         };
         let held = (board.cards.iter())
-            .filter(|card| card.status != Status::Done)
+            .filter(|card| card.status != CardStatus::Done)
             .filter(|card| {
                 card.owner_id() == Some(agent)
                     || (card.owner.is_none()
@@ -564,7 +564,7 @@ fn goals_held<'a>(
             continue;
         };
         let shown = chat_goal(core, &project, board, goal);
-        if goal.status != Status::Done && shown.state != SliceState::Done {
+        if goal.status != CardStatus::Done && shown.state != SliceState::Done {
             found.insert(agent.to_owned(), shown);
         }
     }
@@ -577,7 +577,8 @@ fn finished(core: &Core, goal: &Attached) -> bool {
     (state.boards.get(&goal.project))
         .and_then(|board| Some((board, board.card(goal.card).ok()?)))
         .is_some_and(|(board, card)| {
-            card.status == Status::Done || goal_state(core, board, card) == Some(SliceState::Done)
+            card.status == CardStatus::Done
+                || goal_state(core, board, card) == Some(SliceState::Done)
         })
 }
 
@@ -677,7 +678,7 @@ fn tell_owner_changes(core: &Core) {
         let seen = goals.owned.locked();
         for board in state.boards.values() {
             let owned = (board.cards.iter())
-                .filter(|card| card.owner.is_some() && card.status != Status::Done);
+                .filter(|card| card.owner.is_some() && card.status != CardStatus::Done);
             for card in owned {
                 let stands =
                     slice::state_of(core, board, card).or_else(|| plain_state(core, board, card));
@@ -722,7 +723,7 @@ fn push_head(core: &Core, agent: &str) {
 pub(super) fn plain_owner_closed(core: &Core, card: &Card) -> bool {
     card.slice.is_none()
         && card.parent.is_none()
-        && card.status != Status::Done
+        && card.status != CardStatus::Done
         && card.owner.is_some()
         && holder(core, card).is_none()
 }

@@ -30,7 +30,7 @@ use crate::accounts::protocol::PushKind;
 use crate::push::{self, MAX_PLAINTEXT};
 use crate::text::clipped_line;
 use sikemux_view::inbox::InboxItem;
-use sikemux_view::push::{Notification, NotificationCategory, NotificationKind};
+use sikemux_view::push::{NotificationCard, NotificationCategory, NotificationKind};
 use sikemux_wire::protocol::{
     AgentState, Attention, Event, NotifyPrefs, NotifyWhen, PendingDevice,
 };
@@ -906,7 +906,7 @@ fn address(draft: &Draft, host: &str, host_name: &str, target: &NotifyTarget) ->
     } else {
         format!("sikemux://device/{host}")
     };
-    let mut notification = Notification {
+    let mut notification = NotificationCard {
         v: 1,
         kind: draft.kind,
         channel: draft.kind.channel(),

@@ -15,7 +15,7 @@ use gpui_kit::{
 use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::chat::calls::QueuedParams;
-use sikemux_core::server::chat::queue::Message as QueuedMessage;
+use sikemux_core::server::chat::queue::QueuedMessageParams as QueuedMessage;
 use sikemux_view::prefs::{MidTurnSend, WindowView};
 use sikemux_wire::protocol::PermissionMode;
 
@@ -475,7 +475,7 @@ pub(super) fn composer(
     let label = bench.agent_name(&agent.provider).to_owned();
     let reads_models = matches!(
         kind.and_then(|kind| kind.chat),
-        Some(Driver::Claude | Driver::Codex)
+        Some(ChatDriver::Claude | ChatDriver::Codex)
     );
     let this = cx.weak_entity();
     let on_send: Act = {

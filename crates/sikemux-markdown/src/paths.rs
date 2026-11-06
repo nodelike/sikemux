@@ -3,7 +3,7 @@
 
 use std::ops::Range;
 
-use crate::{Element, Node};
+use crate::{MdElement, MdNode};
 
 /// Names a project spells out in full, which are files without an extension.
 pub const EXTENSIONLESS: [&str; 9] = [
@@ -126,13 +126,13 @@ pub fn names_whole_path(text: &str) -> bool {
 }
 
 /// A name in prose, as a path holding its own words.
-pub fn path(raw: &str, code: bool) -> Node {
+pub fn path(raw: &str, code: bool) -> MdNode {
     let shown = if code {
-        Node::Element(Element::Code { v: raw.to_owned() })
+        MdNode::Element(MdElement::Code { v: raw.to_owned() })
     } else {
-        Node::Text(raw.to_owned())
+        MdNode::Text(raw.to_owned())
     };
-    Node::Element(Element::Path {
+    MdNode::Element(MdElement::Path {
         href: raw.to_owned(),
         code,
         c: vec![shown],
@@ -140,10 +140,10 @@ pub fn path(raw: &str, code: bool) -> Node {
 }
 
 /// `text` into `out`, each name in it that could be a file marked as a path.
-pub fn mark_paths(text: String, out: &mut Vec<Node>) {
+pub fn mark_paths(text: String, out: &mut Vec<MdNode>) {
     let found = candidates(&text);
     if found.is_empty() {
-        return out.push(Node::Text(text));
+        return out.push(MdNode::Text(text));
     }
     let mut cursor = 0;
     for range in found {
@@ -151,7 +151,7 @@ pub fn mark_paths(text: String, out: &mut Vec<Node>) {
             .get(cursor..range.start)
             .filter(|before| !before.is_empty())
         {
-            out.push(Node::Text(before.to_owned()));
+            out.push(MdNode::Text(before.to_owned()));
         }
         if let Some(name) = text.get(range.clone()) {
             out.push(path(name, false));
@@ -159,7 +159,7 @@ pub fn mark_paths(text: String, out: &mut Vec<Node>) {
         cursor = range.end;
     }
     if let Some(after) = text.get(cursor..).filter(|after| !after.is_empty()) {
-        out.push(Node::Text(after.to_owned()));
+        out.push(MdNode::Text(after.to_owned()));
     }
 }
 

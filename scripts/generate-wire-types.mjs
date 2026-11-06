@@ -31,97 +31,9 @@ const SOURCES = (
     ),
 );
 
-/** Names the clients know a type by where the Rust one would clash or say too little. */
+/** What a type is called in TypeScript when the name in Rust says too little there. */
 const RENAMES = {
-  [`${VIEW}/push.rs`]: { Notification: "NotificationCard" },
-  [`${VIEW}/catalog.rs`]: { Driver: "ChatDriver" },
-  [`${VIEW}/memory.rs`]: { Rule: "MemoryRule" },
-  [`${CORE}/server/chat/queue.rs`]: { Message: "QueuedMessageParams" },
-  [`${CORE}/server/agent_accounts.rs`]: {
-    Resuming: "ChatAccountsParams",
-    Moving: "MoveChatParams",
-    Named: "NamedAccount",
-  },
-  [`${CORE}/server/messages.rs`]: { Kind: "MessageKind" },
-  [`${CORE}/server/messages/log.rs`]: {
-    Row: "MessageRow",
-    Outcome: "MessageOutcome",
-    Tone: "MessageTone",
-    Entry: "MessageEntry",
-  },
-  [`${CORE}/server/stash.rs`]: {
-    PromptParams: "StashPromptParams",
-    Stashed: "StashedPrompt",
-    ItemParams: "StashItemParams",
-    AttachParams: "AttachStashParams",
-    Attached: "AttachedStash",
-  },
-  [`${CORE}/server/worktree/agent.rs`]: {
-    ForAgentParams: "AgentWorktreeParams",
-    ForAgent: "MadeAgentWorktree",
-  },
-  [`${CORE}/fuzzy.rs`]: { Entry: "ProjectEntry" },
-  [`${CORE}/server/codehost/mod.rs`]: {
-    ReleasesParams: "CodeHostProjectParams",
-    TrackedParams: "TrackedContextParams",
-  },
-  [`${CORE}/server/plugins.rs`]: {
-    Outcome: "PluginOutcome",
-    Failure: "PluginFailure",
-  },
-  [`${PLUGIN_API}/error.rs`]: { Category: "FailureCategory" },
-  [`${CORE}/server/saved.rs`]: { SearchParams: "SessionSearchParams" },
-  [`${CORE}/server/chat/find.rs`]: {
-    Direction: "FindDirection",
-    Hit: "FindHit",
-    Scanned: "FindScanned",
-    Counted: "FindCounted",
-  },
   [`${WIRE}/changed.rs`]: { Topic: "CoreChangeTopic" },
-  [`${CORE}/server/board.rs`]: {
-    Status: "CardStatus",
-    Ticket: "CardTicket",
-    CardView: "BoardCard",
-    Column: "BoardColumn",
-    BoardView: "ProjectBoard",
-    AddParams: "BoardAddParams",
-    AddTicketParams: "BoardAddTicketParams",
-    TicketParams: "BoardTicketParams",
-    TicketCard: "BoardTicketCard",
-    UpdateParams: "BoardUpdateParams",
-    CardParams: "BoardCardParams",
-  },
-  [`${CORE}/server/board/hand_off.rs`]: { HandOffParams: "BoardHandOffParams" },
-  [`${CORE}/server/board/environments.rs`]: {
-    ProposalParams: "BoardProposalParams",
-  },
-  [`${CORE}/server/board/slice.rs`]: {
-    PassParams: "BoardPassParams",
-    NoteParams: "BoardNoteParams",
-  },
-  [`${CORE}/server/board/auto.rs`]: {
-    Stage: "RunStage",
-    Hold: "RunHold",
-    Settings: "BoardSettings",
-    SettingsParams: "BoardSettingsParams",
-    ReviewerParams: "BoardReviewerParams",
-    RunView: "CardRun",
-    PullView: "CardPull",
-    Run: "AutoRun",
-    Pull: "AutoPull",
-  },
-  [`${CORE}/server/remote/mod.rs`]: { LinkedHost: "StoredLink" },
-  [`${CORE}/server/remote/pairing.rs`]: { Pairing: "RemotePairing" },
-  [`${CORE}/server/hosts/mod.rs`]: { LinkView: "LinkedHost" },
-  [`${CORE}/releases.rs`]: { CommitAuthor: "ReleaseCommitAuthor" },
-  [`${PLUGIN_API}/ratelimit.rs`]: { Budget: "RateLimit" },
-  [`${MARKDOWN}/lib.rs`]: {
-    Options: "MarkdownOptions",
-    Node: "MdNode",
-    Element: "MdElement",
-    Align: "MdAlign",
-  },
-  [`${MARKDOWN}/doc.rs`]: { Op: "MdOp", Change: "MdChange" },
 };
 
 /** Fields the Rust keeps as JSON so phones read changes over the air, and the type that JSON has. */

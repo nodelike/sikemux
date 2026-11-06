@@ -16,7 +16,7 @@ use std::sync::Arc;
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-pub use sikemux_plugin_api::Category;
+pub use sikemux_plugin_api::FailureCategory;
 use sikemux_plugin_api::SignInStatus;
 use sikemux_view::plugins::Listed;
 
@@ -31,22 +31,22 @@ use super::{Core, CoreError, CoreResult};
 
 /// How a plugin call failed, as the window shows it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Failure {
+pub struct PluginFailure {
     pub plugin: String,
-    pub category: Category,
+    pub category: FailureCategory,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<u16>,
 }
 
-impl From<Failure> for String {
-    fn from(failure: Failure) -> Self {
+impl From<PluginFailure> for String {
+    fn from(failure: PluginFailure) -> Self {
         failure.message
     }
 }
 
-impl Failure {
-    pub fn new(plugin: &str, category: Category, message: impl Into<String>) -> Self {
+impl PluginFailure {
+    pub fn new(plugin: &str, category: FailureCategory, message: impl Into<String>) -> Self {
         Self {
             plugin: plugin.to_owned(),
             category,
@@ -59,9 +59,9 @@ impl Failure {
 /// What the core answers the window's `plugin` call with.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum Outcome {
+pub enum PluginOutcome {
     Value(Value),
-    Failed(Failure),
+    Failed(PluginFailure),
 }
 
 /// One line of a plugin stream on the tool endpoint.
@@ -70,10 +70,10 @@ pub enum Outcome {
 pub enum StreamEvent {
     Item { value: Value },
     End,
-    Error { error: Failure },
+    Error { error: PluginFailure },
 }
 
-pub type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, Failure>> + Send + 'a>>;
+pub type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, PluginFailure>> + Send + 'a>>;
 pub type Listing<'a> = Pin<Box<dyn Future<Output = Vec<Value>> + Send + 'a>>;
 /// Takes a stream's next item; false once nobody reads them, which ends it.
 pub type Sink = Box<dyn Fn(Value) -> bool + Send + Sync>;
@@ -123,15 +123,15 @@ impl std::fmt::Debug for Provided {
     }
 }
 
-fn plugins(core: &Core, plugin: &str) -> Result<&'static dyn Plugins, Failure> {
+fn plugins(core: &Core, plugin: &str) -> Result<&'static dyn Plugins, PluginFailure> {
     present(core.config.plugins, plugin)
 }
 
-fn present(plugins: Option<Provided>, plugin: &str) -> Result<&'static dyn Plugins, Failure> {
+fn present(plugins: Option<Provided>, plugin: &str) -> Result<&'static dyn Plugins, PluginFailure> {
     plugins.map(|provided| provided.0).ok_or_else(|| {
-        Failure::new(
+        PluginFailure::new(
             plugin,
-            Category::NotInstalled,
+            FailureCategory::NotInstalled,
             format!("Sikemux's {plugin} plugin is not available to its background process"),
         )
     })
@@ -152,7 +152,7 @@ pub(crate) async fn call(
     plugin: &str,
     method: &str,
     params: Value,
-) -> Result<Value, Failure> {
+) -> Result<Value, PluginFailure> {
     call_on(core.config.plugins, plugin, method, params).await
 }
 
@@ -162,7 +162,7 @@ pub(crate) async fn call_on(
     plugin: &str,
     method: &str,
     params: Value,
-) -> Result<Value, Failure> {
+) -> Result<Value, PluginFailure> {
     present(plugins, plugin)?.call(plugin, method, params).await
 }
 
@@ -176,7 +176,7 @@ pub(crate) struct WindowCall {
 
 /// A call from a plugin's pane. A pane signing in or out changes what its
 /// plugin offers agents, so they are told to list their tools again.
-pub(crate) async fn window_call(core: &Core, call: WindowCall) -> Outcome {
+pub(crate) async fn window_call(core: &Core, call: WindowCall) -> PluginOutcome {
     let outcome = match plugins(core, &call.plugin) {
         Ok(plugins) => {
             plugins
@@ -191,8 +191,8 @@ pub(crate) async fn window_call(core: &Core, call: WindowCall) -> Outcome {
     tell_agents_if_theirs(core, &call.plugin);
     sign_in_moved(core, &call.plugin, &call.method);
     match outcome {
-        Ok(value) => Outcome::Value(value),
-        Err(failure) => Outcome::Failed(failure),
+        Ok(value) => PluginOutcome::Value(value),
+        Err(failure) => PluginOutcome::Failed(failure),
     }
 }
 
@@ -324,7 +324,7 @@ pub(crate) async fn listed(core: &Core) -> Vec<Listed> {
                         listed.problem = status.message;
                     }
                 }
-                Err(failure) if failure.category == Category::UnknownMethod => {}
+                Err(failure) if failure.category == FailureCategory::UnknownMethod => {}
                 Err(failure) => {
                     listed.signed_in = Some(false);
                     listed.problem = Some(failure.message);
@@ -463,9 +463,11 @@ fn tool_ran(core: &Arc<Core>, tool: &str) {
 
 /// An agent cannot sign in on the person's behalf, so a signed-out plugin says
 /// who can fix it and where.
-pub(crate) fn explain(failure: &Failure) -> String {
-    let signed_out = matches!(failure.category, Category::Unconfigured | Category::Auth)
-        || matches!(failure.status, Some(401 | 403));
+pub(crate) fn explain(failure: &PluginFailure) -> String {
+    let signed_out = matches!(
+        failure.category,
+        FailureCategory::Unconfigured | FailureCategory::Auth
+    ) || matches!(failure.status, Some(401 | 403));
     if signed_out {
         format!(
             "{} is not signed in ({}). Ask the person to sign in from its pane in Sikemux, then try again; do not switch to another tool or MCP server for it.",
@@ -495,23 +497,23 @@ mod tests {
     use super::*;
     use crate::git::remote::with_real_ssh_host;
 
-    fn failure(category: Category, status: Option<u16>) -> Failure {
-        Failure {
+    fn failure(category: FailureCategory, status: Option<u16>) -> PluginFailure {
+        PluginFailure {
             status,
-            ..Failure::new("sikemux.signoz", category, "signoz: not configured")
+            ..PluginFailure::new("sikemux.signoz", category, "signoz: not configured")
         }
     }
 
     #[test]
     fn a_signed_out_plugin_tells_the_agent_who_can_fix_it() {
         for signed_out in [
-            failure(Category::Unconfigured, None),
-            failure(Category::Http, Some(401)),
+            failure(FailureCategory::Unconfigured, None),
+            failure(FailureCategory::Http, Some(401)),
         ] {
             assert!(explain(&signed_out).contains("Ask the person to sign in"));
         }
         assert_eq!(
-            explain(&failure(Category::BadParams, None)),
+            explain(&failure(FailureCategory::BadParams, None)),
             "sikemux.signoz: signoz: not configured"
         );
     }

@@ -4,13 +4,13 @@
 use std::io::{self, BufRead, Write};
 
 use serde::Deserialize;
-use sikemux_markdown::{parse, Options};
+use sikemux_markdown::{parse, MarkdownOptions};
 
 #[derive(Deserialize)]
 struct Request {
     text: String,
     #[serde(default)]
-    options: Options,
+    options: MarkdownOptions,
     #[serde(default)]
     skip: usize,
 }

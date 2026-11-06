@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use sikemux_plugin_api::{Category, PluginError};
+use sikemux_plugin_api::{FailureCategory, PluginError};
 use sikemux_view::plugins::TokenForm;
 use sikemux_wire::protocol::{CiAbilities, PullAbilities};
 
@@ -112,17 +112,17 @@ pub struct Approve {
 impl Manifest {
     pub fn from_json(source: &str) -> Result<Self, PluginError> {
         let manifest: Manifest = serde_json::from_str(source)
-            .map_err(|error| PluginError::new(Category::Manifest, error.to_string()))?;
+            .map_err(|error| PluginError::new(FailureCategory::Manifest, error.to_string()))?;
         if !is_valid_id(&manifest.id) {
             return Err(PluginError::new(
-                Category::Manifest,
+                FailureCategory::Manifest,
                 format!("`{}` is not a reverse-DNS plugin id", manifest.id),
             ));
         }
         if let Some(secs) = manifest.call_timeout_secs {
             if !(1..=MAX_CALL_TIMEOUT_SECS).contains(&secs) {
                 return Err(PluginError::new(
-                    Category::Manifest,
+                    FailureCategory::Manifest,
                     format!("callTimeoutSecs must be 1 to {MAX_CALL_TIMEOUT_SECS}, not {secs}"),
                 ));
             }
@@ -133,14 +133,14 @@ impl Manifest {
             .find(|name| !is_valid_variable(name))
         {
             return Err(PluginError::new(
-                Category::Manifest,
+                FailureCategory::Manifest,
                 format!("`{name}` is not an environment variable name"),
             ));
         }
         for (index, tool) in manifest.tools.iter().enumerate() {
             if !is_valid_tool_name(&tool.name) {
                 return Err(PluginError::new(
-                    Category::Manifest,
+                    FailureCategory::Manifest,
                     format!("`{}` is not a usable agent tool name", tool.name),
                 ));
             }
@@ -151,7 +151,7 @@ impl Manifest {
                 .any(|earlier| earlier.name == tool.name)
             {
                 return Err(PluginError::new(
-                    Category::Manifest,
+                    FailureCategory::Manifest,
                     format!("agent tool `{}` is declared twice", tool.name),
                 ));
             }
@@ -161,7 +161,7 @@ impl Manifest {
                 .find(|name| !tool.properties.contains_key(*name))
             {
                 return Err(PluginError::new(
-                    Category::Manifest,
+                    FailureCategory::Manifest,
                     format!(
                         "agent tool `{}` requires `{missing}`, which it never declares",
                         tool.name

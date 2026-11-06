@@ -178,14 +178,14 @@ pub fn matched(query: &str, text: &str) -> Vec<Range<usize>> {
 }
 
 #[derive(Clone, Debug, Serialize)]
-pub struct Entry {
+pub struct ProjectEntry {
     pub path: String,
     pub folder: bool,
 }
 
 /// The best `limit` of `files` and the folders that hold them for `query`, a file before a
 /// folder of the same name.
-pub fn rank_entries(query: &str, files: &[String], limit: usize) -> Vec<Entry> {
+pub fn rank_entries(query: &str, files: &[String], limit: usize) -> Vec<ProjectEntry> {
     let mut folders: Vec<&str> = files
         .iter()
         .flat_map(|file| file.match_indices('/').map(|(at, _)| &file[..at]))
@@ -199,7 +199,7 @@ pub fn rank_entries(query: &str, files: &[String], limit: usize) -> Vec<Entry> {
         .collect();
     rank_paths(query, &entries, limit)
         .into_iter()
-        .map(|place| Entry {
+        .map(|place| ProjectEntry {
             path: entries[place].clone(),
             folder: place >= files.len(),
         })

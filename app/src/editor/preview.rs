@@ -14,7 +14,7 @@ use gpui_kit::{
 };
 use gpui_transcript::{DocFind, Markdown, Pen, Query, Style};
 use serde_json::Value;
-use sikemux_markdown::{Doc, Op, Options};
+use sikemux_markdown::{Doc, MarkdownOptions, MdOp};
 use tokio::sync::mpsc::UnboundedSender;
 
 use super::{Document, FileKey, OpenAt};
@@ -44,7 +44,7 @@ pub(super) fn install(cx: &mut App) {
     cx.bind_keys([KeyBinding::new(find, FindInPreview, Some(CONTEXT))]);
 }
 
-const OPTIONS: Options = Options {
+const OPTIONS: MarkdownOptions = MarkdownOptions {
     gfm: true,
     html_as_text: false,
     file_links: true,
@@ -93,7 +93,7 @@ pub(super) fn first_mode(path: &Path) -> Mode {
 /// `text` as the tree the transcript draws.
 pub(crate) fn render(text: &str) -> Markdown {
     let blocks = match Doc::read(text, OPTIONS).into_iter().next() {
-        Some(Op::List { c, .. }) => Value::Array(c),
+        Some(MdOp::List { c, .. }) => Value::Array(c),
         _ => Value::Array(Vec::new()),
     };
     Markdown::new(&blocks, text.encode_utf16().count())

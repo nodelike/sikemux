@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// Which of the core's chat drivers runs an agent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Driver {
+pub enum ChatDriver {
     Claude,
     Codex,
     Muse,
@@ -54,5 +54,5 @@ pub struct CatalogAgent {
     /// The arguments that start its own sign-in; none when it has none.
     pub login: Option<Vec<String>>,
     /// The chat driver that runs it; none when it has no chat.
-    pub chat: Option<Driver>,
+    pub chat: Option<ChatDriver>,
 }

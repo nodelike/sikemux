@@ -55,7 +55,7 @@ impl NotificationKind {
 /// What the phone reads once it opens a sealed notification.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Notification {
+pub struct NotificationCard {
     pub v: u8,
     pub kind: NotificationKind,
     /// `None` for `clear`.

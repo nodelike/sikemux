@@ -17,7 +17,7 @@ use sikemux_wire::protocol::AgentStatus;
 
 use super::super::connection::blocking;
 use super::super::follow::{self, Happened};
-use super::super::messages::{self, Carried, Kind};
+use super::super::messages::{self, Carried, MessageKind};
 use super::super::names::Worker;
 use super::super::roster::{self, Reach};
 use super::super::{questions, Core, CoreResult};
@@ -396,7 +396,7 @@ pub(crate) async fn deliver(
         .ok_or("Sikemux no longer knows which host that agent runs on")?;
     let host_name = name_of(core, &foreign.host);
     let shown = shown(&foreign, core);
-    let keep = carried.kind == Kind::Report;
+    let keep = carried.kind == MessageKind::Report;
     let params = serde_json::to_value(&carried).map_err(|error| error.to_string())?;
     if goes_now(core, &foreign.host) {
         match ask(
@@ -462,7 +462,7 @@ pub(super) async fn deliver_here(
     if !teammate && !answer_copy {
         return Err("that agent is not one of a team this host shares with yours".into());
     }
-    let landed = if carried.kind == Kind::Report {
+    let landed = if carried.kind == MessageKind::Report {
         let mut landed = None;
         core.hosts
             .team

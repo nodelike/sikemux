@@ -33,13 +33,13 @@ pub(super) struct Forget {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Resuming {
+pub struct ChatAccountsParams {
     pub agent_id: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Moving {
+pub struct MoveChatParams {
     pub(super) agent_id: String,
     pub(super) account_id: String,
 }
@@ -48,12 +48,12 @@ pub struct Moving {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatAccounts {
-    account: Option<Named>,
-    others: Vec<Named>,
+    account: Option<NamedAccount>,
+    others: Vec<NamedAccount>,
 }
 
 #[derive(Serialize)]
-pub(super) struct Named {
+pub(super) struct NamedAccount {
     id: String,
     label: String,
 }
@@ -356,16 +356,16 @@ fn signed_out(core: &Core, provider: &str, config_path: Option<&str>) {
     core.changed(What::View);
 }
 
-pub(super) fn retry_failed(core: &Core, failed: Resuming) -> CoreResult<()> {
+pub(super) fn retry_failed(core: &Core, failed: ChatAccountsParams) -> CoreResult<()> {
     core.chats.running(&failed.agent_id)?.retry_failed()
 }
 
-pub(super) fn discard_failed(core: &Core, failed: Resuming) -> CoreResult<()> {
+pub(super) fn discard_failed(core: &Core, failed: ChatAccountsParams) -> CoreResult<()> {
     core.chats.running(&failed.agent_id)?.discard_failed()
 }
 
-pub(super) fn chat_accounts(core: &Core, chat: Resuming) -> CoreResult<ChatAccounts> {
-    let named = |account: ChatAccount| Named {
+pub(super) fn chat_accounts(core: &Core, chat: ChatAccountsParams) -> CoreResult<ChatAccounts> {
+    let named = |account: ChatAccount| NamedAccount {
         id: account.id,
         label: account.label,
     };

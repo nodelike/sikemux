@@ -6,7 +6,7 @@
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{mend::mend, parse, parse_blocks, Element, Options};
+use crate::{mend::mend, parse, parse_blocks, MarkdownOptions, MdElement};
 
 /// The line being written may still join the block before it, as a table row
 /// or a heading's underline does, so the last two blocks stay open.
@@ -18,7 +18,7 @@ const OPEN_BLOCKS: usize = 2;
 /// units, as clients slice it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(untagged)]
-pub enum Op {
+pub enum MdOp {
     /// The list at `p` keeps its first `at` entries and gains `c`.
     List {
         p: Vec<usize>,
@@ -30,12 +30,12 @@ pub enum Op {
 }
 
 /// The changes that turn one tree into the next, in order.
-pub type Patch = Vec<Op>;
+pub type Patch = Vec<MdOp>;
 
 /// What the core sends with a piece of an answer: the answer's length once it is added, and the
 /// changes that bring the tree up to it.
 #[derive(Clone, Debug, PartialEq, Serialize)]
-pub struct Change {
+pub struct MdChange {
     pub n: usize,
     pub o: Patch,
 }
@@ -54,12 +54,12 @@ fn shared_text(old: &str, new: &str) -> usize {
         .map_or(old.len().min(new.len()), |((at, _), _)| at)
 }
 
-fn text_op(path: Vec<usize>, old: &str, new: &str) -> Vec<Op> {
+fn text_op(path: Vec<usize>, old: &str, new: &str) -> Vec<MdOp> {
     let kept = shared_text(old, new);
     if kept == old.len() && kept == new.len() {
         return Vec::new();
     }
-    vec![Op::Text {
+    vec![MdOp::Text {
         p: path,
         at: units(old.get(..kept).unwrap_or_default()),
         s: new.get(kept..).unwrap_or_default().to_owned(),
@@ -67,7 +67,7 @@ fn text_op(path: Vec<usize>, old: &str, new: &str) -> Vec<Op> {
 }
 
 /// The changes inside `old` that make it `new`, when `new` is the same node grown.
-fn grown(path: Vec<usize>, old: &Value, new: &Value) -> Option<Vec<Op>> {
+fn grown(path: Vec<usize>, old: &Value, new: &Value) -> Option<Vec<MdOp>> {
     match (old, new) {
         (Value::String(a), Value::String(b)) => Some(text_op(path, a, b)),
         (Value::Array(a), Value::Array(b)) => Some(list_ops(path, a, b, 0)),
@@ -89,7 +89,7 @@ fn grown(path: Vec<usize>, old: &Value, new: &Value) -> Option<Vec<Op>> {
     }
 }
 
-fn list_ops(path: Vec<usize>, old: &[Value], new: &[Value], first: usize) -> Vec<Op> {
+fn list_ops(path: Vec<usize>, old: &[Value], new: &[Value], first: usize) -> Vec<MdOp> {
     let same = old.iter().zip(new).take_while(|(a, b)| a == b).count();
     if same == old.len() && same == new.len() {
         return Vec::new();
@@ -105,7 +105,7 @@ fn list_ops(path: Vec<usize>, old: &[Value], new: &[Value], first: usize) -> Vec
         None => (Vec::new(), same),
     };
     if from < old.len().max(new.len()) {
-        ops.push(Op::List {
+        ops.push(MdOp::List {
             p: path,
             at: first + from,
             c: new.get(from..).unwrap_or_default().to_vec(),
@@ -119,7 +119,7 @@ pub fn diff(old: &[Value], new: &[Value], first: usize) -> Patch {
     list_ops(Vec::new(), old, new, first)
 }
 
-fn values(blocks: Vec<Element>) -> Vec<Value> {
+fn values(blocks: Vec<MdElement>) -> Vec<Value> {
     blocks
         .into_iter()
         .filter_map(|block| serde_json::to_value(block).ok())
@@ -134,7 +134,7 @@ fn reaches_back(text: &str) -> bool {
 
 /// One message as it grows, and the blocks at its end its clients were last sent.
 pub struct Doc {
-    options: Options,
+    options: MarkdownOptions,
     text: String,
     units: usize,
     /// Where the open blocks start in `text`.
@@ -150,7 +150,7 @@ pub struct Doc {
 
 impl Doc {
     /// A message whose clients hold nothing of its tree yet.
-    pub fn new(options: Options) -> Self {
+    pub fn new(options: MarkdownOptions) -> Self {
         Self {
             options,
             text: String::new(),
@@ -164,8 +164,8 @@ impl Doc {
     }
 
     /// The whole tree of `text`, as one patch for a client that holds none of it.
-    pub fn read(text: &str, options: Options) -> Patch {
-        vec![Op::List {
+    pub fn read(text: &str, options: MarkdownOptions) -> Patch {
+        vec![MdOp::List {
             p: Vec::new(),
             at: 0,
             c: values(parse(text, options, 0)),
@@ -209,7 +209,7 @@ impl Doc {
         let last = starts.len().saturating_sub(1);
         let mended = starts
             .last()
-            .filter(|_| mending && !matches!(blocks.last(), Some(Element::Pre { .. })))
+            .filter(|_| mending && !matches!(blocks.last(), Some(MdElement::Pre { .. })))
             .and_then(|&start| Some((text.get(..start)?, mend(text.get(start..)?)?)));
         self.mended = mended.is_some();
         if let Some((before, block)) = mended {

@@ -12,7 +12,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::slice::Verdict;
 
 use super::slice::moved_by_evidence;
-use super::{State, Status};
+use super::{CardStatus, State};
 use crate::server::codehost::ci::{self, Shown};
 use crate::server::codehost::repo::{self as codehost, Checks, CI_START_WAIT_MS};
 use crate::server::Core;
@@ -60,7 +60,7 @@ fn waiting(state: &State) -> HashMap<String, Vec<Waiting>> {
         for card in board
             .cards
             .iter()
-            .filter(|card| card.status == Status::Progress)
+            .filter(|card| card.status == CardStatus::Progress)
         {
             let Some(slice) = &card.slice else {
                 continue;

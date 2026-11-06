@@ -28,7 +28,7 @@ use looks::*;
 use questions::*;
 use rows::*;
 use serde_json::{json, Value};
-use sikemux_view::catalog::Driver;
+use sikemux_view::catalog::ChatDriver;
 use sikemux_view::chat::{
     AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView,
     FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk,

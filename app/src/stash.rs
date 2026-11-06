@@ -17,11 +17,11 @@ use gpui_kit::{
 use serde_json::json;
 use sikemux_core::accounts::protocol::{StashItem, StashKind, StashPreview};
 use sikemux_core::server::call;
-use sikemux_core::server::stash::AttachParams;
-use sikemux_core::server::stash::ItemParams;
-use sikemux_core::server::stash::PromptParams;
+use sikemux_core::server::stash::AttachStashParams;
 use sikemux_core::server::stash::ShownStashItem;
 use sikemux_core::server::stash::ShownStashLink;
+use sikemux_core::server::stash::StashItemParams;
+use sikemux_core::server::stash::StashPromptParams;
 
 use crate::core::Target;
 use crate::icons::Icon;
@@ -239,7 +239,7 @@ impl Workbench {
         self.keep_draft(agent, cx);
         let target = self.chat_target(agent);
         for id in ids {
-            let asked = target.request_typed::<call::AttachStash>(AttachParams {
+            let asked = target.request_typed::<call::AttachStash>(AttachStashParams {
                 id,
                 agent_id: agent.to_owned(),
                 draft: None,
@@ -262,9 +262,10 @@ impl Workbench {
     /// empties the draft; the composer offers to put it back for a while.
     pub fn stash_prompt(&mut self, agent: &str, cx: &mut Context<Self>) {
         self.keep_draft(agent, cx);
-        let asked = (self.chat_target(agent)).request_typed::<call::StashPrompt>(PromptParams {
-            agent_id: agent.to_owned(),
-        });
+        let asked =
+            (self.chat_target(agent)).request_typed::<call::StashPrompt>(StashPromptParams {
+                agent_id: agent.to_owned(),
+            });
         let agent = agent.to_owned();
         cx.spawn(async move |bench, cx| {
             let answer = asked.await;
@@ -309,12 +310,12 @@ impl Workbench {
             composing.stashed = None;
         }
         let target = self.chat_target(agent);
-        let back = target.request_typed::<call::AttachStash>(AttachParams {
+        let back = target.request_typed::<call::AttachStash>(AttachStashParams {
             id: id.to_owned(),
             agent_id: agent.to_owned(),
             draft: None,
         });
-        let removed = ItemParams { id: id.to_owned() };
+        let removed = StashItemParams { id: id.to_owned() };
         cx.spawn(async move |bench, cx| {
             let answer = match back.await {
                 Ok(_) => target.request_typed::<call::RemoveStash>(removed).await,
@@ -336,7 +337,7 @@ impl Workbench {
     /// Takes stash item `id` off the account, on every device.
     pub fn remove_from_stash(&self, id: &str, cx: &mut Context<Self>) {
         let asked = Target::here(&self.asks)
-            .request_typed::<call::RemoveStash>(ItemParams { id: id.to_owned() });
+            .request_typed::<call::RemoveStash>(StashItemParams { id: id.to_owned() });
         cx.spawn(async move |bench, cx| {
             if let Err(error) = asked.await {
                 bench

@@ -175,14 +175,14 @@ mod tests {
             .await;
         assert_eq!(
             write.err().map(|error| error.category),
-            Some(sikemux_plugin_api::Category::own("query"))
+            Some(sikemux_plugin_api::FailureCategory::own("query"))
         );
         let unknown = database
             .call(&ctx, "agentTables", json!({ "database": "Nope" }))
             .await;
         assert_eq!(
             unknown.err().map(|error| error.category),
-            Some(sikemux_plugin_api::Category::NotFound)
+            Some(sikemux_plugin_api::FailureCategory::NotFound)
         );
     }
 

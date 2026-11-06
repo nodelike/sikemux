@@ -8,7 +8,7 @@ use gpui_kit::{
     div, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::board::CardView;
+use sikemux_core::server::board::BoardCard;
 use sikemux_view::slice::{
     Decision, GoalSummary, GoalSummaryView, LeftOut, LeftOutWhy, SourceKind, SourceLink,
     SummaryLine, SummarySource,
@@ -354,7 +354,7 @@ fn recorded_source(decision: &Decision) -> SummarySource {
 /// which stays only a suggestion until the person keeps it.
 pub(super) fn decided(
     pane: &GoalsPane,
-    goal: &CardView,
+    goal: &BoardCard,
     cx: &mut Context<GoalsPane>,
 ) -> Option<AnyElement> {
     let recorded: Vec<&Decision> = (goal.decisions.iter())

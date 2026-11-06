@@ -7,8 +7,8 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::board::CardView;
-use sikemux_core::server::board::SettingsParams as BoardSettingsParams;
+use sikemux_core::server::board::BoardCard;
+use sikemux_core::server::board::BoardSettingsParams;
 use sikemux_core::server::call;
 use sikemux_view::slice::{Gate, NextGate, Passer, SliceState, SliceView};
 
@@ -85,8 +85,8 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
 /// follow, below what the person reads first.
 fn quieter(
     pane: &GoalsPane,
-    goal: &CardView,
-    slices: &[(&CardView, &SliceView)],
+    goal: &BoardCard,
+    slices: &[(&BoardCard, &SliceView)],
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
     let counts = STATES
@@ -148,8 +148,8 @@ fn running_line(mark: AnyElement, words: String, cx: &Context<GoalsPane>) -> Any
 /// when nothing runs and nothing is next.
 fn running_and_next(
     pane: &GoalsPane,
-    goal: &CardView,
-    slices: &[(&CardView, &SliceView)],
+    goal: &BoardCard,
+    slices: &[(&BoardCard, &SliceView)],
     cx: &mut Context<GoalsPane>,
 ) -> Option<AnyElement> {
     let mut lines: Vec<AnyElement> = Vec::new();
@@ -265,7 +265,7 @@ fn landing(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> Option<AnyElement> 
     )
 }
 
-pub(super) fn count(slices: &[(&CardView, &SliceView)], state: SliceState) -> usize {
+pub(super) fn count(slices: &[(&BoardCard, &SliceView)], state: SliceState) -> usize {
     slices
         .iter()
         .filter(|(_, slice)| slice.state == state)
@@ -274,12 +274,12 @@ pub(super) fn count(slices: &[(&CardView, &SliceView)], state: SliceState) -> us
 
 /// The goal's lead, then the agents that own its slices.
 fn team(
-    goal: &CardView,
-    slices: &[(&CardView, &SliceView)],
+    goal: &BoardCard,
+    slices: &[(&BoardCard, &SliceView)],
     cx: &Context<GoalsPane>,
 ) -> AnyElement {
     let t = Tokens::get(cx);
-    let mut owners: Vec<&CardView> = Vec::new();
+    let mut owners: Vec<&BoardCard> = Vec::new();
     for (card, _) in slices {
         let other = card.owner.is_some() && card.owner != goal.owner;
         if other && !owners.iter().any(|known| known.owner == card.owner) {
@@ -331,7 +331,7 @@ fn team(
 
 /// One segment per slice, in the colour of its state.
 pub(super) fn strip(
-    slices: &[(&CardView, &SliceView)],
+    slices: &[(&BoardCard, &SliceView)],
     width: impl Into<gpui_kit::Length>,
     cx: &Context<GoalsPane>,
 ) -> AnyElement {
@@ -339,7 +339,7 @@ pub(super) fn strip(
 }
 
 /// A gate a slice waits at, as a short sentence: who does what to which slice.
-pub(super) fn step(cards: &[CardView], next: &NextGate) -> Option<String> {
+pub(super) fn step(cards: &[BoardCard], next: &NextGate) -> Option<String> {
     let card = cards.iter().find(|card| card.id == next.card)?;
     Some(step_words(next, &card.title, card.owner_name.as_deref()))
 }
@@ -377,7 +377,7 @@ pub(super) fn step_words(next: &NextGate, title: &str, owner: Option<&str>) -> S
 /// One slice: its state, title and what it waits on, then its ticket and owner.
 fn slice_row(
     pane: &GoalsPane,
-    card: &CardView,
+    card: &BoardCard,
     slice: &SliceView,
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {

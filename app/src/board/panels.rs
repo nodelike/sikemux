@@ -8,19 +8,19 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::board::CardParams as BoardCardParams;
-use sikemux_core::server::board::CardView;
+use sikemux_core::server::board::BoardCard;
+use sikemux_core::server::board::BoardCardParams;
+use sikemux_core::server::board::BoardReviewerParams;
+use sikemux_core::server::board::BoardUpdateParams;
+use sikemux_core::server::board::CardRun;
+use sikemux_core::server::board::CardStatus;
 use sikemux_core::server::board::Landing;
-use sikemux_core::server::board::ReviewerParams as BoardReviewerParams;
-use sikemux_core::server::board::RunView as CardRun;
-use sikemux_core::server::board::Stage;
-use sikemux_core::server::board::Status as CardStatus;
-use sikemux_core::server::board::UpdateParams as BoardUpdateParams;
+use sikemux_core::server::board::RunStage;
 use sikemux_core::server::call;
-use sikemux_core::server::messages::log::Outcome as MessageOutcome;
-use sikemux_core::server::messages::log::Row as MessageRow;
-use sikemux_core::server::messages::log::Tone as MessageTone;
-use sikemux_core::server::messages::Kind as MessageKind;
+use sikemux_core::server::messages::log::MessageOutcome;
+use sikemux_core::server::messages::log::MessageRow;
+use sikemux_core::server::messages::log::MessageTone;
+use sikemux_core::server::messages::MessageKind;
 
 use crate::board::{owner, short_title, BoardPane, Open};
 use crate::chat::model_picker;
@@ -60,14 +60,14 @@ fn run_label(run: &CardRun, status: CardStatus) -> &'static str {
         return "Back with you";
     }
     match run.stage {
-        Stage::Starting => "Starting",
-        Stage::Working => "Working",
-        Stage::Shipping => "Shipping",
-        Stage::Checking => "Checks running",
-        Stage::Reviewing => "Under review",
-        Stage::Fixing => "Fixing",
-        Stage::Merging => "Merging",
-        Stage::Watching => "Waits for you",
+        RunStage::Starting => "Starting",
+        RunStage::Working => "Working",
+        RunStage::Shipping => "Shipping",
+        RunStage::Checking => "Checks running",
+        RunStage::Reviewing => "Under review",
+        RunStage::Fixing => "Fixing",
+        RunStage::Merging => "Merging",
+        RunStage::Watching => "Waits for you",
     }
 }
 
@@ -165,7 +165,7 @@ fn settings_group(name: &'static str, cx: &mut Context<BoardPane>) -> gpui_kit::
 }
 
 /// The cards under `id`, and theirs, which it cannot be put under.
-fn below(cards: &[CardView], id: u64) -> Vec<u64> {
+fn below(cards: &[BoardCard], id: u64) -> Vec<u64> {
     let mut found = vec![id];
     let mut grew = true;
     while grew {
@@ -185,7 +185,7 @@ fn below(cards: &[CardView], id: u64) -> Vec<u64> {
 /// The card it goes under, and the cards it waits on, for a card or a new one.
 fn placing(
     pane: &BoardPane,
-    card: Option<&CardView>,
+    card: Option<&BoardCard>,
     cx: &mut Context<BoardPane>,
 ) -> Vec<AnyElement> {
     let cards = pane.cards();
@@ -371,7 +371,7 @@ fn text_fields(pane: &BoardPane, cx: &mut Context<BoardPane>) -> Vec<AnyElement>
     ]
 }
 
-fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> AnyElement {
+fn card_panel(pane: &BoardPane, card: BoardCard, cx: &mut Context<BoardPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = card.id;
     let title = match &card.ticket {
@@ -428,7 +428,7 @@ fn card_panel(pane: &BoardPane, card: CardView, cx: &mut Context<BoardPane>) -> 
     } else {
         ui::meta("Nobody yet", cx).into_any_element()
     };
-    let under: Vec<CardView> = pane
+    let under: Vec<BoardCard> = pane
         .cards()
         .iter()
         .filter(|other| other.parent == Some(id))

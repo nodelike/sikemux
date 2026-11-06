@@ -11,7 +11,7 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use serde_json::json;
-use sikemux_core::server::agent_accounts::Resuming;
+use sikemux_core::server::agent_accounts::ChatAccountsParams;
 use sikemux_core::server::call::{self, Call};
 use sikemux_view::chat::{ChatActivity, ChatConnection, FailureKind, ToolAction};
 
@@ -230,7 +230,9 @@ impl Workbench {
         let agent = agent.to_owned();
         crate::desk::spawn(async move {
             match signed.await {
-                Ok(_) => target.call_typed::<call::RetryFailed>(Resuming { agent_id: agent }),
+                Ok(_) => {
+                    target.call_typed::<call::RetryFailed>(ChatAccountsParams { agent_id: agent })
+                }
                 Err(error) => eprintln!("sikemux: the agent did not sign in: {error}"),
             }
         });
@@ -252,8 +254,8 @@ impl Workbench {
         }
     }
 
-    fn account_call<C: Call<Params = Resuming>>(&self, agent: &str) {
-        self.chat_target(agent).call_typed::<C>(Resuming {
+    fn account_call<C: Call<Params = ChatAccountsParams>>(&self, agent: &str) {
+        self.chat_target(agent).call_typed::<C>(ChatAccountsParams {
             agent_id: agent.to_owned(),
         });
     }

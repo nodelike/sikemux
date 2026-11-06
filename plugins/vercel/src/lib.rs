@@ -104,7 +104,10 @@ mod tests {
             .call(&ctx, "projects", json!({}))
             .await
             .expect_err("signed out");
-        assert_eq!(error.category, sikemux_plugin_api::Category::Unconfigured);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::Unconfigured
+        );
         assert!(!plugin.offers_agent_tools(&ctx, &[]).await.expect("answers"));
     }
 
@@ -115,6 +118,9 @@ mod tests {
             .call(&scratch("empty-token"), "signIn", json!({ "token": "  " }))
             .await
             .expect_err("no token");
-        assert_eq!(error.category, sikemux_plugin_api::Category::BadParams);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::BadParams
+        );
     }
 }

@@ -10,7 +10,7 @@ use gpui_kit::{
     ParentElement, Pixels, SharedString, Stateful, StatefulInteractiveElement, StyleRefinement,
     Styled, Window,
 };
-use sikemux_core::server::board::CardParams as BoardCardParams;
+use sikemux_core::server::board::BoardCardParams;
 use sikemux_core::server::board::HandOnParams as BoardHandOnParams;
 use sikemux_core::server::call;
 use sikemux_core::server::questions::AnswerParams;

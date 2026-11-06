@@ -171,7 +171,7 @@ mod tests {
             phone
         );
 
-        let notification: sikemux_view::push::Notification =
+        let notification: sikemux_view::push::NotificationCard =
             serde_json::from_value(vector["notification"].clone()).unwrap();
         let plaintext = serde_json::to_string(&notification).unwrap();
         assert_eq!(plaintext, text(&vector, "plaintext"));

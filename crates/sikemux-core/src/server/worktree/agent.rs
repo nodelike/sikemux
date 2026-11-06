@@ -17,7 +17,7 @@ use crate::tasks::config::{self, ConfigLoad};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ForAgentParams {
+pub struct AgentWorktreeParams {
     pub agent_id: String,
     /// What the agent was asked first, which names the branch.
     pub message: String,
@@ -28,7 +28,7 @@ pub struct ForAgentParams {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ForAgent {
+pub struct MadeAgentWorktree {
     pub worktree: AgentWorktree,
     pub cwd: PathBuf,
     /// Why the project's worktree setup did not all finish, when it did not.
@@ -139,7 +139,10 @@ fn read_back(cwd: &Path) -> Option<AgentWorktree> {
 
 /// Gives an agent a worktree of its own cut from where its checkout is now,
 /// moves it there, and starts it again there if it was running.
-pub(crate) async fn for_agent(core: &Arc<Core>, params: ForAgentParams) -> CoreResult<ForAgent> {
+pub(crate) async fn for_agent(
+    core: &Arc<Core>,
+    params: AgentWorktreeParams,
+) -> CoreResult<MadeAgentWorktree> {
     let agent = core
         .workspaces
         .view()
@@ -169,7 +172,7 @@ pub(crate) async fn for_agent(core: &Arc<Core>, params: ForAgentParams) -> CoreR
     if core.chats.stop(&params.agent_id) {
         launching::start_agent(core, None, &params.agent_id, false).await?;
     }
-    Ok(ForAgent {
+    Ok(MadeAgentWorktree {
         worktree,
         cwd: tree_cwd,
         setup_error,

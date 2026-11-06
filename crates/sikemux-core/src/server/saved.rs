@@ -239,7 +239,7 @@ pub(crate) async fn find(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SearchParams {
+pub struct SessionSearchParams {
     pub query: String,
     #[serde(default)]
     pub projects: Option<Vec<PathBuf>>,
@@ -251,7 +251,10 @@ pub struct SearchParams {
 
 /// The `agentSessions` call: the same search for the person's composer, which
 /// leaves out sessions open now.
-pub(crate) async fn call(core: &Arc<Core>, params: SearchParams) -> CoreResult<Vec<SessionMatch>> {
+pub(crate) async fn call(
+    core: &Arc<Core>,
+    params: SessionSearchParams,
+) -> CoreResult<Vec<SessionMatch>> {
     let core = core.clone();
     blocking(move || {
         let query = query_param(&json!({ "query": params.query }))?;

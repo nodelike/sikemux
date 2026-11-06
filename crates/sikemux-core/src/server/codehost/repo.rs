@@ -1,4 +1,4 @@
-//! Pull requests and their checks on the project's code host, through its
+//! AutoPull requests and their checks on the project's code host, through its
 //! plugin and the person's own sign-in to it, and what reviewers say on them.
 
 use std::collections::BTreeMap;
@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::log;
-use crate::server::board::Pull;
-use crate::server::plugins::{self, Category, CodeHostSpec, Failure, Provided};
+use crate::server::board::AutoPull;
+use crate::server::plugins::{self, CodeHostSpec, FailureCategory, PluginFailure, Provided};
 use crate::server::workspace::project_of;
 use crate::server::Core;
 use sikemux_plugin_api::codehost::{Repo as RemoteRepo, Resolved};
@@ -98,7 +98,7 @@ impl Repo {
     }
 }
 
-impl Pull {
+impl AutoPull {
     fn repo(&self, core: &Core) -> Result<Repo, String> {
         Ok(Repo {
             plugins: core.config.plugins,
@@ -111,7 +111,7 @@ impl Pull {
 }
 
 impl Repo {
-    pub(crate) async fn call(&self, method: &str, more: Value) -> Result<Value, Failure> {
+    pub(crate) async fn call(&self, method: &str, more: Value) -> Result<Value, PluginFailure> {
         plugins::call_on(self.plugins, self.host.plugin(), method, self.params(more)).await
     }
 }
@@ -220,7 +220,7 @@ pub(crate) async fn find(
 
 /// The repository the project at `project` is on, and the account that
 /// reaches it, as a failure its client reads when there is none.
-pub(crate) async fn of_project(core: &Arc<Core>, project: &str) -> Result<Repo, Failure> {
+pub(crate) async fn of_project(core: &Arc<Core>, project: &str) -> Result<Repo, PluginFailure> {
     let found = {
         let folder = PathBuf::from(project);
         let core = core.clone();
@@ -229,7 +229,8 @@ pub(crate) async fn of_project(core: &Arc<Core>, project: &str) -> Result<Repo, 
         })
         .await
     };
-    let unsupported = |message: &str| Failure::new("codehost", Category::Unsupported, message);
+    let unsupported =
+        |message: &str| PluginFailure::new("codehost", FailureCategory::Unsupported, message);
     let (Some(origin), picks) = found.map_err(|error| unsupported(&error.to_string()))? else {
         return Err(unsupported("this project has no origin remote"));
     };
@@ -238,9 +239,9 @@ pub(crate) async fn of_project(core: &Arc<Core>, project: &str) -> Result<Repo, 
             "this project's origin is on no code host Sikemux knows",
         ));
     };
-    find(core, &origin, &picks)
-        .await
-        .map_err(|message| Failure::new(host.plugin(), Category::Unconfigured, message))
+    find(core, &origin, &picks).await.map_err(|message| {
+        PluginFailure::new(host.plugin(), FailureCategory::Unconfigured, message)
+    })
 }
 
 impl Repo {
@@ -280,7 +281,7 @@ impl std::fmt::Display for RepoId {
     }
 }
 
-impl Pull {
+impl AutoPull {
     pub(crate) fn repo_id(&self) -> RepoId {
         RepoId {
             provider: plugin_of(&self.host),
@@ -422,11 +423,11 @@ pub(crate) async fn pulls_of(
     Ok(found.as_array().cloned().unwrap_or_default())
 }
 
-fn pull_of(repo: &Repo, found: &Value) -> Result<Pull, String> {
+fn pull_of(repo: &Repo, found: &Value) -> Result<AutoPull, String> {
     let number = found["number"]
         .as_u64()
         .ok_or("the code host answered without the pull request's number")?;
-    Ok(Pull {
+    Ok(AutoPull {
         host: repo.host.id().to_owned(),
         owner: repo.owner.clone(),
         name: repo.name.clone(),
@@ -443,7 +444,7 @@ pub(crate) async fn open(
     head: &str,
     base: &str,
     body: &str,
-) -> Result<Pull, String> {
+) -> Result<AutoPull, String> {
     let made = json!({ "title": title, "head": head, "base": base, "body": body });
     let error = match repo.call("createPull", made).await {
         Ok(found) => return pull_of(repo, &found),
@@ -484,7 +485,7 @@ pub(crate) enum Checks {
 /// How the CI runs on `sha` of `pull`'s repository went.
 pub(crate) async fn checks(
     core: &Core,
-    pull: &Pull,
+    pull: &AutoPull,
     branch: &str,
     sha: &str,
 ) -> Result<Checks, String> {
@@ -731,7 +732,7 @@ pub(crate) struct Looked {
     pub mark: String,
 }
 
-pub(crate) async fn look(core: &Core, pull: &Pull) -> Result<Looked, String> {
+pub(crate) async fn look(core: &Core, pull: &AutoPull) -> Result<Looked, String> {
     let repo = pull.repo(core)?;
     let found = repo.call("pull", json!({ "number": pull.number })).await?;
     Ok(Looked {
@@ -760,7 +761,7 @@ pub(crate) struct Feedback {
 /// The comments and reviews on the pull request that changed at or after `since`.
 pub(crate) async fn feedback(
     core: &Core,
-    pull: &Pull,
+    pull: &AutoPull,
     since: Option<&str>,
 ) -> Result<Vec<Feedback>, String> {
     let repo = pull.repo(core)?;
@@ -777,7 +778,7 @@ pub(crate) async fn feedback(
 /// said)`, then asks `reviewers` to look again where the host can.
 pub(crate) async fn answer(
     core: &Core,
-    pull: &Pull,
+    pull: &AutoPull,
     replies: &[(String, String, String)],
     reviewers: &[String],
 ) -> Result<(), String> {
@@ -790,7 +791,7 @@ pub(crate) async fn answer(
     Ok(repo.call("answerReview", answered).await.map(drop)?)
 }
 
-pub(crate) async fn close(core: &Core, pull: &Pull) -> Result<(), String> {
+pub(crate) async fn close(core: &Core, pull: &AutoPull) -> Result<(), String> {
     let repo = pull.repo(core)?;
     let closed = json!({ "number": pull.number, "state": "closed" });
     Ok(repo.call("setPullState", closed).await.map(drop)?)
@@ -798,14 +799,16 @@ pub(crate) async fn close(core: &Core, pull: &Pull) -> Result<(), String> {
 
 /// Merges the pull request at `sha`, the commit whose checks passed, the
 /// first way the repository allows.
-pub(crate) async fn merge(core: &Core, pull: &Pull, sha: &str) -> Result<(), String> {
+pub(crate) async fn merge(core: &Core, pull: &AutoPull, sha: &str) -> Result<(), String> {
     let repo = pull.repo(core)?;
     let mut refused = None;
     for method in repo.host.merges() {
         let asked = json!({ "number": pull.number, "method": method, "sha": sha });
         match repo.call("mergePull", asked).await {
             Ok(_) => return Ok(()),
-            Err(failure) if failure.category == Category::MergeMethod => refused = Some(failure),
+            Err(failure) if failure.category == FailureCategory::MergeMethod => {
+                refused = Some(failure)
+            }
             Err(failure) => return Err(failure.into()),
         }
     }

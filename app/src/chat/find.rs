@@ -8,11 +8,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{AppContext, Context, Entity, Focusable, Subscription, Window};
 use gpui_transcript::Query;
-use sikemux_core::server::chat::find::Direction as FindDirection;
 use sikemux_core::server::chat::find::FindAnswer;
 use sikemux_core::server::chat::find::FindAt;
+use sikemux_core::server::chat::find::FindDirection;
+use sikemux_core::server::chat::find::FindHit;
 use sikemux_core::server::chat::find::FindParams;
-use sikemux_core::server::chat::find::Hit as FindHit;
 
 use crate::core::ChatAsk;
 use crate::ui::FindBar;

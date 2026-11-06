@@ -49,26 +49,26 @@ mod wait;
 mod workflows;
 
 use super::checks::{project_check, Checker};
-pub(crate) use auto::Pull;
-use auto::Run;
+pub(crate) use auto::AutoPull;
+use auto::AutoRun;
 pub use auto::{
-    Hold, Landing, PullView, ReviewerChoice, ReviewerParams, RunView, Settings, SettingsParams,
-    Stage,
+    BoardReviewerParams, BoardSettings, BoardSettingsParams, CardPull, CardRun, Landing,
+    ReviewerChoice, RunHold, RunStage,
 };
 use environments::Step;
-pub use environments::{Environment, EnvironmentsProposal, Passes, ProposalParams, Recognise};
+pub use environments::{BoardProposalParams, Environment, EnvironmentsProposal, Passes, Recognise};
 pub(crate) use failing::ci_ruled;
 pub(crate) use finish::{ci_moved, waiting_on_ci};
 pub use goal::AssertParams;
 pub(crate) use hand_off::hand_off;
-pub use hand_off::{HandOffParams, HandOnParams, HandedOff};
+pub use hand_off::{BoardHandOffParams, HandOnParams, HandedOff};
 pub(crate) use lease::{person_hand_on, person_resume};
 pub(crate) use slice::DeployRan;
 pub(crate) use slice::{
     check_stands, follow, gate_key, gate_words, person_note, person_pass, screenshot_taken,
     slice_screenshots,
 };
-pub use slice::{NoteParams, PassParams};
+pub use slice::{BoardNoteParams, BoardPassParams};
 
 const FOLDER: &str = "boards";
 const MAX_CARDS: usize = 1000;
@@ -90,26 +90,26 @@ const ONLY_PERSON_ACCEPTS: &str =
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Status {
+pub enum CardStatus {
     Open,
     Progress,
     Done,
 }
 
-impl Status {
+impl CardStatus {
     fn words(self) -> &'static str {
         match self {
-            Status::Open => "open",
-            Status::Progress => "in progress",
-            Status::Done => "done",
+            CardStatus::Open => "open",
+            CardStatus::Progress => "in progress",
+            CardStatus::Done => "done",
         }
     }
 
     fn parse(text: &str) -> Result<Self, String> {
         match text.trim().to_lowercase().as_str() {
-            "open" => Ok(Status::Open),
-            "progress" | "in progress" | "in_progress" => Ok(Status::Progress),
-            "done" => Ok(Status::Done),
+            "open" => Ok(CardStatus::Open),
+            "progress" | "in progress" | "in_progress" => Ok(CardStatus::Progress),
+            "done" => Ok(CardStatus::Done),
             _ => Err("status must be open, progress or done".into()),
         }
     }
@@ -125,7 +125,7 @@ pub enum Tracker {
 /// The Jira or Linear ticket the person put a card on the board for.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Ticket {
+pub struct CardTicket {
     pub key: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -136,7 +136,7 @@ pub struct Ticket {
     /// The status last put on the ticket in its tracker, so each change goes
     /// there once.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub synced: Option<Status>,
+    pub synced: Option<CardStatus>,
     /// Why the last change did not reach the ticket.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sync_note: Option<String>,
@@ -163,7 +163,7 @@ struct Card {
     /// What the work must do to count as done, written only by the person.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     acceptance: String,
-    status: Status,
+    status: CardStatus,
     /// The agent working it, or that did.
     #[serde(flatten)]
     owner: Option<Owner>,
@@ -177,7 +177,7 @@ struct Card {
     #[serde(skip_serializing_if = "Option::is_none")]
     team: Option<Team>,
     result: Option<String>,
-    ticket: Option<Ticket>,
+    ticket: Option<CardTicket>,
     /// The trigger whose firing added it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     trigger: Option<u64>,
@@ -191,7 +191,7 @@ struct Card {
     arrivals: Vec<arrival::Arrival>,
     /// The run Auto gave the card, in a worktree of its own.
     #[serde(skip_serializing_if = "Option::is_none")]
-    auto: Option<Run>,
+    auto: Option<AutoRun>,
     /// Browser recordings its owner made while on it, oldest first, for a
     /// card that is not a slice; a slice keeps them as its evidence.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -223,7 +223,7 @@ struct Board {
     next: u64,
     cards: Vec<Card>,
     #[serde(default)]
-    settings: Settings,
+    settings: BoardSettings,
     /// Environments an agent proposed, until the person answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     environments_proposal: Option<environments::EnvironmentsProposal>,
@@ -264,7 +264,7 @@ impl Board {
 
     pub(crate) fn open_working_card(&self, agent: &str) -> Option<&Card> {
         (self.cards.iter())
-            .filter(|card| card.owner_id() == Some(agent) && card.status != Status::Done)
+            .filter(|card| card.owner_id() == Some(agent) && card.status != CardStatus::Done)
             .max_by_key(|card| card.work_rank())
     }
 
@@ -430,7 +430,7 @@ impl Board {
             .filter(|id| {
                 self.cards
                     .iter()
-                    .any(|other| other.id == *id && other.status != Status::Done)
+                    .any(|other| other.id == *id && other.status != CardStatus::Done)
             })
             .collect()
     }
@@ -443,7 +443,7 @@ impl Board {
             .collect();
         let done = under
             .iter()
-            .filter(|card| card.status == Status::Done)
+            .filter(|card| card.status == CardStatus::Done)
             .count();
         (done, under.len())
     }
@@ -542,7 +542,7 @@ pub(super) struct CardWork {
     /// When its ticket was last looked at in its tracker.
     pub ticket_looked: Option<u64>,
     /// The status its ticket last failed to move to, and when.
-    pub ticket_failed: Option<(Status, u64)>,
+    pub ticket_failed: Option<(CardStatus, u64)>,
 }
 
 impl State {
@@ -887,7 +887,7 @@ struct Adding {
     asserts: Vec<u64>,
     parent: Option<u64>,
     depends_on: Vec<u64>,
-    ticket: Option<Ticket>,
+    ticket: Option<CardTicket>,
     /// The trigger whose firing it is.
     trigger: Option<u64>,
     /// What CI kept failing on, on the project's branch.
@@ -955,7 +955,7 @@ struct Changes {
     acceptance: Option<String>,
     promise: Option<String>,
     asserts: Option<Vec<u64>>,
-    status: Option<Status>,
+    status: Option<CardStatus>,
     result: Option<String>,
     depends_on: Option<Vec<u64>>,
     parent: Option<Option<u64>>,
@@ -977,7 +977,7 @@ impl Changes {
             asserts: assertion_ids(params)?,
             status: match params.get("status") {
                 None | Some(Value::Null) => None,
-                Some(Value::String(status)) => Some(Status::parse(status)?),
+                Some(Value::String(status)) => Some(CardStatus::parse(status)?),
                 Some(_) => return Err("status must be open, progress or done".into()),
             },
             result: optional_text(params, "result")?,
@@ -1016,8 +1016,8 @@ impl Changes {
     }
 }
 
-impl TicketParams {
-    fn ticket(self) -> Result<Ticket, String> {
+impl BoardTicketParams {
+    fn ticket(self) -> Result<CardTicket, String> {
         let field = |name: &str, text: String, max: usize| -> Result<String, String> {
             let trimmed = text.trim();
             if trimmed.is_empty() || chars(&text) > max {
@@ -1041,7 +1041,7 @@ impl TicketParams {
         {
             return Err("a ticket's url must be a web address".into());
         }
-        Ok(Ticket {
+        Ok(CardTicket {
             key,
             url,
             source: self
@@ -1137,7 +1137,7 @@ impl Card {
     /// `owner` holds it from now, at work on it: its status, times and slice go together.
     fn hold(&mut self, owner: Owner) {
         self.owner = Some(owner);
-        self.status = Status::Progress;
+        self.status = CardStatus::Progress;
         self.updated_at = epoch_ms();
         self.acted_at = self.updated_at;
         if let Some(slice) = &mut self.slice {
@@ -1147,22 +1147,24 @@ impl Card {
 
     /// Which of an agent's cards it works now: the highest of these.
     fn work_rank(&self) -> (bool, u64) {
-        (self.status == Status::Progress, self.acted_at)
+        (self.status == CardStatus::Progress, self.acted_at)
     }
 
     /// Its ticket, when its tracker closed it with nothing of its slice
     /// landed, which leaves the card to the person.
-    fn ticket_done_unlanded(&self) -> Option<&Ticket> {
+    fn ticket_done_unlanded(&self) -> Option<&CardTicket> {
         self.ticket.as_ref().filter(|ticket| ticket.done_unlanded)
     }
 
     /// The run Auto has on it while the card is not done, handed back or not.
-    fn kept_run(&self) -> Option<&Run> {
-        self.auto.as_ref().filter(|_| self.status != Status::Done)
+    fn kept_run(&self) -> Option<&AutoRun> {
+        self.auto
+            .as_ref()
+            .filter(|_| self.status != CardStatus::Done)
     }
 
     /// The run Auto may move on: kept, and not handed back to the person.
-    fn run(&self) -> Option<&Run> {
+    fn run(&self) -> Option<&AutoRun> {
         self.kept_run().filter(|run| run.held.is_none())
     }
 
@@ -1240,12 +1242,12 @@ fn remember_team(core: &Core, board: &mut Board, id: u64) {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CardView {
+pub struct BoardCard {
     pub id: u64,
     pub title: String,
     pub details: String,
     pub acceptance: String,
-    pub status: Status,
+    pub status: CardStatus,
     pub owner: Option<String>,
     pub owner_name: Option<String>,
     pub owner_cli: Option<String>,
@@ -1259,11 +1261,11 @@ pub struct CardView {
     pub created_by: Option<String>,
     pub created_by_name: String,
     pub result: Option<String>,
-    pub ticket: Option<Ticket>,
+    pub ticket: Option<CardTicket>,
     /// The ticket of the nearest card above it that has one, which it is filed under.
     pub ticket_above: Option<String>,
-    pub column: Column,
-    pub auto: Option<RunView>,
+    pub column: BoardColumn,
+    pub auto: Option<CardRun>,
     /// Browser recordings, for a card that is not a slice; a slice's are in its evidence.
     pub recordings: Vec<InboxRecording>,
     /// For a slice of a goal: its promise, gates, evidence and notes.
@@ -1309,7 +1311,7 @@ pub struct CardView {
 /// Where a board shows a card: `needs` holds the cards waiting on the person.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum Column {
+pub enum BoardColumn {
     Open,
     Progress,
     Needs,
@@ -1318,12 +1320,12 @@ pub enum Column {
 
 /// The column a card shows in: done once done, else waiting on the person
 /// while anything on it does.
-fn column_of(core: &Core, settings: &Settings, card: &Card) -> Column {
+fn column_of(core: &Core, settings: &BoardSettings, card: &Card) -> BoardColumn {
     match card.status {
-        Status::Done => Column::Done,
-        _ if waits(core, settings, card).is_some() => Column::Needs,
-        Status::Open => Column::Open,
-        Status::Progress => Column::Progress,
+        CardStatus::Done => BoardColumn::Done,
+        _ if waits(core, settings, card).is_some() => BoardColumn::Needs,
+        CardStatus::Open => BoardColumn::Open,
+        CardStatus::Progress => BoardColumn::Progress,
     }
 }
 
@@ -1333,10 +1335,10 @@ fn ticket_above(board: &Board, card: &Card) -> Option<String> {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct BoardView {
+pub struct ProjectBoard {
     pub project: String,
-    pub cards: Vec<CardView>,
-    pub settings: Settings,
+    pub cards: Vec<BoardCard>,
+    pub settings: BoardSettings,
     /// Environments an agent proposed, waiting for the person's answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environments_proposal: Option<EnvironmentsProposal>,
@@ -1351,19 +1353,19 @@ pub struct BoardView {
 }
 
 /// How a goal with no slices and no owner stands, as its card's column does.
-fn state_by_column(column: Column) -> SliceState {
+fn state_by_column(column: BoardColumn) -> SliceState {
     match column {
-        Column::Done => SliceState::Done,
-        Column::Needs => SliceState::NeedsYou,
-        Column::Progress => SliceState::Moving,
-        Column::Open => SliceState::Waiting,
+        BoardColumn::Done => SliceState::Done,
+        BoardColumn::Needs => SliceState::NeedsYou,
+        BoardColumn::Progress => SliceState::Moving,
+        BoardColumn::Open => SliceState::Waiting,
     }
 }
 
-fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
+fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
     let team = team_of(core, board, card);
     let now = epoch_ms();
-    CardView {
+    BoardCard {
         id: card.id,
         title: card.title.clone(),
         details: card.details.clone(),
@@ -1388,7 +1390,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> CardView {
         ticket: card.ticket.clone(),
         ticket_above: ticket_above(board, card),
         column: column_of(core, &board.settings, card),
-        auto: card.auto.as_ref().map(Run::view),
+        auto: card.auto.as_ref().map(AutoRun::view),
         recordings: card.recordings.clone(),
         slice: card.slice.as_ref().map(|slice| {
             let wait = wait::of(core, board, card, now);
@@ -1431,8 +1433,8 @@ fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
         .filter(|_| title_is_chopped(&card.title, &card.details))
 }
 
-fn board_view(core: &Core, board: &Board) -> BoardView {
-    BoardView {
+fn board_view(core: &Core, board: &Board) -> ProjectBoard {
+    ProjectBoard {
         project: board.project.clone(),
         cards: board
             .cards
@@ -1536,7 +1538,7 @@ fn new_card(
     id: u64,
     adding: Adding,
     maker: Option<String>,
-    settings: &Settings,
+    settings: &BoardSettings,
 ) -> Card {
     let now = epoch_ms();
     let mut slice = adding
@@ -1550,7 +1552,7 @@ fn new_card(
         title: adding.title,
         details: adding.details,
         acceptance: adding.acceptance,
-        status: Status::Open,
+        status: CardStatus::Open,
         owner: None,
         parent: adding.parent,
         depends_on: adding.depends_on,
@@ -1695,14 +1697,14 @@ fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value,
         .get_mut(project)
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let card = board.card(id)?;
-    if card.owner_id() == Some(agent) && card.status == Status::Progress {
+    if card.owner_id() == Some(agent) && card.status == CardStatus::Progress {
         let card = board.card_mut(id)?;
         card.acted_at = epoch_ms();
         let view = agent_view(core, board, board.card(id)?, true);
         boards.save(&mut state, project);
         return Ok(view);
     }
-    if card.status == Status::Done {
+    if card.status == CardStatus::Done {
         return Err(format!("#{id} is done already"));
     }
     if let Some(owner) = holder(core, card).filter(|owner| *owner != agent) {
@@ -1742,7 +1744,7 @@ fn change_card(
         );
     }
     let seen = match (by, changes.status) {
-        (By::Agent(_), Some(Status::Done)) => {
+        (By::Agent(_), Some(CardStatus::Done)) => {
             slice::seen(core, project, id, project_check(core, project).as_ref())
         }
         _ => slice::Seen::unread(),
@@ -1797,7 +1799,7 @@ fn change_in(
                 "#{id} is {owner}'s; message {owner} with agent_send to change it"
             ));
         }
-        if changes.status == Some(Status::Progress) && before.status != Status::Progress {
+        if changes.status == Some(CardStatus::Progress) && before.status != CardStatus::Progress {
             return Err(format!("Claim #{id} with board_claim to start on it"));
         }
     }
@@ -1846,7 +1848,9 @@ fn change_in(
     let mut status = changes.status;
     let mut pending = None;
     let mut later = slice::Later::default();
-    if let (Some(Status::Done), By::Agent(agent), Some(slice)) = (status, by, card.slice.as_mut()) {
+    if let (Some(CardStatus::Done), By::Agent(agent), Some(slice)) =
+        (status, by, card.slice.as_mut())
+    {
         later = slice::Later::look_again(project);
         match slice.say_done(&label, seen.checking, confirmed, &settings) {
             Ok(slice::Said::Pending { note, recheck }) => {
@@ -1911,8 +1915,12 @@ fn change_in(
     }
     let mut passed: Vec<Step> = changes.pass.into_iter().collect();
     match status {
-        Some(Status::Open) => {
-            if let Some(run) = card.auto.take().filter(|_| before.status != Status::Done) {
+        Some(CardStatus::Open) => {
+            if let Some(run) = card
+                .auto
+                .take()
+                .filter(|_| before.status != CardStatus::Done)
+            {
                 dropped.push(finish::Dropped {
                     project: project.to_owned(),
                     id,
@@ -1922,21 +1930,21 @@ fn change_in(
             }
             to_open(card);
         }
-        Some(Status::Done) => match &mut card.slice {
+        Some(CardStatus::Done) => match &mut card.slice {
             Some(slice) => passed.extend(slice.close(match by {
                 By::Person => slice::PassedBy::Person,
                 By::Auto(_) | By::Agent(_) => slice::PassedBy::Core,
             })),
             None => mark_done(core, card, by, project, dropped, false),
         },
-        Some(Status::Progress) => {
-            if card.status == Status::Done {
+        Some(CardStatus::Progress) => {
+            if card.status == CardStatus::Done {
                 card.auto = None;
                 if let Some(slice) = &mut card.slice {
                     slice.restart();
                 }
             }
-            card.status = Status::Progress;
+            card.status = CardStatus::Progress;
         }
         None => {}
     }
@@ -1945,7 +1953,7 @@ fn change_in(
         .as_ref()
         .is_some_and(|slice| slice.waiting().is_none());
     let moved = slice::progress(project, card, passed, &settings);
-    if moved.done && card.status != Status::Done {
+    if moved.done && card.status != CardStatus::Done {
         mark_done(core, card, by, project, dropped, landed_before);
     }
     if card.status != before.status {
@@ -1957,12 +1965,12 @@ fn change_in(
     card.updated_at = epoch_ms();
     remember_team(core, board, id);
     let after = board.card(id)?.clone();
-    if after.status == Status::Done {
+    if after.status == CardStatus::Done {
         board.ci_failing.forget(&after.ci);
     }
     let run_dropped = before.kept_run().is_some()
         && after.status != before.status
-        && after.status != Status::Progress;
+        && after.status != CardStatus::Progress;
     let mut notices = Vec::new();
     if moves {
         for freed in slice::rebind(board) {
@@ -1989,7 +1997,7 @@ fn change_in(
         Some(passed) if by_owner => note = Some(passed.text),
         Some(passed) => notices.push(passed),
         None => {
-            if let (true, Some(changer), Some(owner), Status::Progress, false) = (
+            if let (true, Some(changer), Some(owner), CardStatus::Progress, false) = (
                 asked,
                 changer,
                 before.owner_id(),
@@ -2001,7 +2009,7 @@ fn change_in(
                         "{changer} moved your card {} back to Open, so it is no longer yours. Stop working on it unless they tell you otherwise.",
                         before.label()
                     )
-                } else if after.status == Status::Done {
+                } else if after.status == CardStatus::Done {
                     format!("{changer} marked your card {} done.", after.label())
                 } else {
                     format!(
@@ -2017,7 +2025,7 @@ fn change_in(
         }
     }
     notices.extend(unblocked(board, &blocked_before, by));
-    if after.status == Status::Open && before.status != Status::Open {
+    if after.status == CardStatus::Open && before.status != CardStatus::Open {
         offered.retain(|(other, card, _)| !(other == project && *card == id));
     }
     let mut view = agent_view(core, board, &after, true);
@@ -2045,7 +2053,7 @@ fn advance(
 
 /// Moves a card back to Open and nobody's, with its slice's work and gates.
 fn to_open(card: &mut Card) {
-    card.status = Status::Open;
+    card.status = CardStatus::Open;
     card.owner = None;
     card.team = None;
     if let Some(slice) = &mut card.slice {
@@ -2071,7 +2079,7 @@ fn mark_done(
             discard: false,
         });
     }
-    card.status = Status::Done;
+    card.status = CardStatus::Done;
     if let Some(slice) = &mut card.slice {
         slice.stalled = None;
     }
@@ -2111,7 +2119,7 @@ fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, Strin
         });
     }
     boards.save(&mut state, project);
-    if let (Some(owner), Status::Progress, false) = (
+    if let (Some(owner), CardStatus::Progress, false) = (
         removed.owner_id().map(str::to_owned),
         removed.status,
         dropping,
@@ -2134,7 +2142,7 @@ fn unblocked(board: &Board, blocked_before: &[u64], by: &By) -> Vec<Notice> {
         .cards
         .iter()
         .filter(|card| {
-            card.status == Status::Progress
+            card.status == CardStatus::Progress
                 && blocked_before.contains(&card.id)
                 && board.waits_on(card).is_empty()
         })
@@ -2230,10 +2238,10 @@ pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result
                     .and_then(|board| board.card(id).ok())
                     .is_some_and(|card| auto::own_run(card, &agent))
             };
-            if own_run && changes.status == Some(Status::Open) {
+            if own_run && changes.status == Some(CardStatus::Open) {
                 return Err("Auto runs this card, so it does not go back to Open. If you cannot do it, say why with ask and blocked true, and the card waits for the person.".into());
             }
-            let shipping = own_run && changes.status == Some(Status::Done);
+            let shipping = own_run && changes.status == Some(CardStatus::Done);
             if shipping {
                 changes.status = None;
                 if changes.is_empty() {
@@ -2293,21 +2301,21 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 2
             };
             let status = match card.status {
-                Status::Progress => 0,
-                Status::Open => 1,
-                Status::Done => 2,
+                CardStatus::Progress => 0,
+                CardStatus::Open => 1,
+                CardStatus::Done => 2,
             };
             (place, status, card.id)
         };
         let all_done = request.params.get("done") == Some(&Value::Bool(true));
-        let mut done: Vec<&Card> = board.cards.iter().filter(|card| card.status == Status::Done).collect();
+        let mut done: Vec<&Card> = board.cards.iter().filter(|card| card.status == CardStatus::Done).collect();
         done.sort_by_key(|card| std::cmp::Reverse(card.id));
         let hidden_done = if all_done { 0 } else { done.len().saturating_sub(RECENT_DONE) };
         let shown_done: Vec<u64> = done.iter().take(done.len() - hidden_done).map(|card| card.id).collect();
         let mut cards: Vec<&Card> = board
             .cards
             .iter()
-            .filter(|card| card.status != Status::Done || shown_done.contains(&card.id))
+            .filter(|card| card.status != CardStatus::Done || shown_done.contains(&card.id))
             .collect();
         cards.sort_by_key(|card| rank(card));
         let listed: Vec<Value> = cards
@@ -2366,7 +2374,7 @@ pub(crate) enum Waits {
     /// Its pull request waits for them, with nothing on its slice for them to pass.
     Review { url: Option<String> },
     /// Auto gave it back to them, for `need`, for the reason in `note`.
-    Held { need: Hold, note: Option<String> },
+    Held { need: RunHold, note: Option<String> },
     /// Its slice waits at a gate only the person passes, with its pull request.
     Gate {
         gate: Step,
@@ -2390,8 +2398,8 @@ pub(crate) enum Waits {
 
 /// What `card` waits on the person for, if anything: the one place every
 /// view of a card reads it from.
-fn waits(core: &Core, settings: &Settings, card: &Card) -> Option<Waits> {
-    if card.status == Status::Done {
+fn waits(core: &Core, settings: &BoardSettings, card: &Card) -> Option<Waits> {
+    if card.status == CardStatus::Done {
         return None;
     }
     let run = card.auto.as_ref();
@@ -2429,10 +2437,10 @@ fn waits(core: &Core, settings: &Settings, card: &Card) -> Option<Waits> {
             });
         }
     }
-    if run.is_some_and(|run| run.stage == Stage::Watching) {
+    if run.is_some_and(|run| run.stage == RunStage::Watching) {
         return Some(Waits::Review { url });
     }
-    (card.status == Status::Progress
+    (card.status == CardStatus::Progress
         && card
             .owner_id()
             .is_some_and(|owner| core.harness.questions.blocks_on_person(owner)))
@@ -2469,7 +2477,7 @@ impl Card {
             id: self.id,
             goal: Some(board.goal_above(self).id).filter(|goal| *goal != self.id),
             title: self.title.clone(),
-            done: self.status == Status::Done,
+            done: self.status == CardStatus::Done,
             owner: self.owner_id().map(str::to_owned),
             owner_name: self.owner_name(core),
             result: self.result.clone(),
@@ -2524,8 +2532,9 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
         .filter(|(board, card)| {
             waits(core, &board.settings, card).is_some_and(|waits| !matches!(waits, Waits::Answer))
-                || done_since
-                    .is_some_and(|since| card.status == Status::Done && card.updated_at >= since)
+                || done_since.is_some_and(|since| {
+                    card.status == CardStatus::Done && card.updated_at >= since
+                })
         })
         .map(|(board, card)| card.summary(core, board))
         .collect()
@@ -2608,7 +2617,7 @@ pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
     })
 }
 
-pub(crate) fn boards(core: &Core) -> Vec<BoardView> {
+pub(crate) fn boards(core: &Core) -> Vec<ProjectBoard> {
     let state = core.boards.state.locked();
     state
         .boards
@@ -2617,7 +2626,7 @@ pub(crate) fn boards(core: &Core) -> Vec<BoardView> {
         .collect()
 }
 
-pub(crate) fn project_view(core: &Core, project: &str) -> BoardView {
+pub(crate) fn project_view(core: &Core, project: &str) -> ProjectBoard {
     let state = core.boards.state.locked();
     match state.boards.get(project) {
         Some(board) => board_view(core, board),
@@ -2641,7 +2650,7 @@ pub struct BoardParams {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AddParams {
+pub struct BoardAddParams {
     pub project: String,
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2659,14 +2668,14 @@ pub struct AddParams {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ticket: Option<TicketParams>,
+    pub ticket: Option<BoardTicketParams>,
     /// The agent in this project that holds it at once, such as the one
     /// started to do it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
 }
 
-impl AddParams {
+impl BoardAddParams {
     fn adding(self) -> Result<Adding, String> {
         Ok(Adding {
             title: title_of(&self.title)?,
@@ -2676,7 +2685,7 @@ impl AddParams {
             asserts: distinct_ids(self.asserts)?,
             parent: self.parent.filter(|id| *id > 0),
             depends_on: distinct_cards(self.depends_on, "dependsOn")?,
-            ticket: self.ticket.map(TicketParams::ticket).transpose()?,
+            ticket: self.ticket.map(BoardTicketParams::ticket).transpose()?,
             ..Adding::default()
         })
     }
@@ -2684,7 +2693,7 @@ impl AddParams {
 
 /// The Jira or Linear ticket a card is put on the board for.
 #[derive(Serialize, Deserialize)]
-pub struct TicketParams {
+pub struct BoardTicketParams {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -2700,14 +2709,14 @@ pub struct TicketParams {
 /// of the tickets it waits on and holds up.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AddTicketParams {
+pub struct BoardAddTicketParams {
     pub project: String,
     pub title: String,
     #[serde(default)]
     pub details: String,
-    pub ticket: TicketParams,
+    pub ticket: BoardTicketParams,
     #[serde(default)]
-    pub subtasks: Vec<TicketCard>,
+    pub subtasks: Vec<BoardTicketCard>,
     #[serde(default)]
     pub blocked_by: Vec<String>,
     #[serde(default)]
@@ -2716,18 +2725,18 @@ pub struct AddTicketParams {
 
 /// A ticket under the one put on the board, made a card under its card.
 #[derive(Serialize, Deserialize)]
-pub struct TicketCard {
+pub struct BoardTicketCard {
     pub title: String,
     #[serde(default)]
     pub details: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ticket: Option<TicketParams>,
+    pub ticket: Option<BoardTicketParams>,
 }
 
 /// What the person changes of a card; what it leaves out stays as it is.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UpdateParams {
+pub struct BoardUpdateParams {
     pub project: String,
     pub id: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2744,7 +2753,7 @@ pub struct UpdateParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asserts: Option<Vec<u64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<Status>,
+    pub status: Option<CardStatus>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<String>,
     /// The cards it waits on, none to wait on nothing.
@@ -2755,7 +2764,7 @@ pub struct UpdateParams {
     pub parent: Option<u64>,
 }
 
-impl UpdateParams {
+impl BoardUpdateParams {
     fn changes(self) -> Result<Changes, String> {
         Ok(Changes {
             title: self.title.as_deref().map(title_of).transpose()?,
@@ -2776,13 +2785,13 @@ impl UpdateParams {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct CardParams {
+pub struct BoardCardParams {
     pub project: String,
     pub id: u64,
 }
 
 /// One project's board, empty when it has no cards yet.
-pub(crate) async fn board(core: &Arc<Core>, params: BoardParams) -> Result<BoardView, String> {
+pub(crate) async fn board(core: &Arc<Core>, params: BoardParams) -> Result<ProjectBoard, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
@@ -2792,7 +2801,10 @@ pub(crate) async fn board(core: &Arc<Core>, params: BoardParams) -> Result<Board
     .map_err(|error| error.to_string())
 }
 
-pub(crate) async fn person_add(core: &Arc<Core>, params: AddParams) -> Result<BoardView, String> {
+pub(crate) async fn person_add(
+    core: &Arc<Core>,
+    params: BoardAddParams,
+) -> Result<ProjectBoard, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
@@ -2823,7 +2835,11 @@ const MAX_TICKET_DETAILS_CHARS: usize = 4000;
 
 /// A ticket made a card: its title on one line and its description cut to
 /// what a card holds.
-fn ticket_card(title: &str, details: &str, ticket: Option<TicketParams>) -> Result<Adding, String> {
+fn ticket_card(
+    title: &str,
+    details: &str,
+    ticket: Option<BoardTicketParams>,
+) -> Result<Adding, String> {
     let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
     let details = if chars(details) <= MAX_TICKET_DETAILS_CHARS {
         details.to_owned()
@@ -2834,7 +2850,7 @@ fn ticket_card(title: &str, details: &str, ticket: Option<TicketParams>) -> Resu
     Ok(Adding {
         title: title_of(&clipped(&title, MAX_TITLE_CHARS))?,
         details: long_text("details", &details)?,
-        ticket: ticket.map(TicketParams::ticket).transpose()?,
+        ticket: ticket.map(BoardTicketParams::ticket).transpose()?,
         ..Adding::default()
     })
 }
@@ -2849,17 +2865,17 @@ fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<TicketHeld> {
                 .as_ref()
                 .is_some_and(|ticket| ticket.key.eq_ignore_ascii_case(key))
         })
-        .min_by_key(|card| card.status == Status::Done)?;
+        .min_by_key(|card| card.status == CardStatus::Done)?;
     let parent_done = card
         .parent
         .and_then(|parent| state.boards.get(project)?.card(parent).ok())
-        .is_some_and(|parent| parent.status == Status::Done);
+        .is_some_and(|parent| parent.status == CardStatus::Done);
     Some(TicketHeld {
         id: card.id,
         parent: card.parent,
         parent_done,
         depends_on: card.depends_on.clone(),
-        done: card.status == Status::Done,
+        done: card.status == CardStatus::Done,
     })
 }
 
@@ -2877,8 +2893,8 @@ struct TicketHeld {
 /// besides adding the ticket.
 pub(crate) async fn person_add_ticket(
     core: &Arc<Core>,
-    params: AddTicketParams,
-) -> Result<BoardView, String> {
+    params: BoardAddTicketParams,
+) -> Result<ProjectBoard, String> {
     let (view, notices) = {
         let core = core.clone();
         blocking(move || {
@@ -2979,8 +2995,8 @@ pub(crate) async fn person_add_ticket(
 
 pub(crate) async fn person_update(
     core: &Arc<Core>,
-    params: UpdateParams,
-) -> Result<BoardView, String> {
+    params: BoardUpdateParams,
+) -> Result<ProjectBoard, String> {
     let (view, notices) = {
         let core = core.clone();
         blocking(move || {
@@ -3001,8 +3017,8 @@ pub(crate) async fn person_update(
 /// with the board.
 pub(crate) async fn person_settings(
     core: &Arc<Core>,
-    params: SettingsParams,
-) -> Result<BoardView, String> {
+    params: BoardSettingsParams,
+) -> Result<ProjectBoard, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
@@ -3053,8 +3069,8 @@ pub(crate) async fn person_settings(
 
 pub(crate) async fn person_answer_proposal(
     core: &Arc<Core>,
-    params: ProposalParams,
-) -> Result<BoardView, String> {
+    params: BoardProposalParams,
+) -> Result<ProjectBoard, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
@@ -3128,8 +3144,8 @@ pub(crate) fn health_of(core: &Core, project: &str, environment: &str) -> Option
 /// the board.
 pub(crate) async fn person_retry(
     core: &Arc<Core>,
-    params: CardParams,
-) -> Result<BoardView, String> {
+    params: BoardCardParams,
+) -> Result<ProjectBoard, String> {
     let (project, id) = {
         let core = core.clone();
         blocking(move || {
@@ -3146,8 +3162,8 @@ pub(crate) async fn person_retry(
 
 pub(crate) async fn person_remove(
     core: &Arc<Core>,
-    params: CardParams,
-) -> Result<BoardView, String> {
+    params: BoardCardParams,
+) -> Result<ProjectBoard, String> {
     let (view, notices) = {
         let core = core.clone();
         blocking(move || {
@@ -3213,7 +3229,7 @@ fn offer(core: &Arc<Core>) -> Option<u64> {
                 continue;
             };
             let busy = board.cards.iter().any(|card| {
-                card.owner_id() == Some(agent.as_str()) && card.status == Status::Progress
+                card.owner_id() == Some(agent.as_str()) && card.status == CardStatus::Progress
             });
             if busy {
                 continue;
@@ -3223,7 +3239,7 @@ fn offer(core: &Arc<Core>) -> Option<u64> {
                 .cards
                 .iter()
                 .filter(|card| {
-                    card.status == Status::Open
+                    card.status == CardStatus::Open
                         && card.owner.is_none()
                         && board.waits_on(card).is_empty()
                         && !board
@@ -3303,7 +3319,7 @@ fn forget_stale_offers(core: &Core) {
             && boards
                 .get(project)
                 .and_then(|board| board.card(*id).ok())
-                .is_some_and(|card| card.status == Status::Open)
+                .is_some_and(|card| card.status == CardStatus::Open)
     });
 }
 
@@ -3392,7 +3408,7 @@ mod tests {
 
     fn done() -> Changes {
         Changes {
-            status: Some(Status::Done),
+            status: Some(CardStatus::Done),
             ..Changes::default()
         }
     }

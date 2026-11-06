@@ -32,11 +32,11 @@ use sikemux_view::slice::{
     SliceState, SliceView, Verdict, Wait,
 };
 
-use super::auto::{Landing, Settings};
+use super::auto::{BoardSettings, Landing};
 use super::environments::{ladder_steps, Passes, Step};
 use super::{
-    change_card, messages, project_at, project_view, send_notices, Board, BoardView, By, Card,
-    Changes, Checker, Notice, State, Status,
+    change_card, messages, project_at, project_view, send_notices, Board, By, Card, CardStatus,
+    Changes, Checker, Notice, ProjectBoard, State,
 };
 use crate::git::Git;
 use crate::server::connection::blocking;
@@ -253,7 +253,7 @@ impl Slice {
         promise: String,
         recordings: Vec<InboxRecording>,
         owner: Option<&str>,
-        settings: &Settings,
+        settings: &BoardSettings,
     ) -> Self {
         let mut slice = Self {
             promise,
@@ -287,7 +287,7 @@ impl Slice {
 
     /// The gate it waits at when that is the person's to pass and nothing it
     /// needs is missing.
-    pub(super) fn waits_on_person(&self, settings: &Settings) -> Option<&Step> {
+    pub(super) fn waits_on_person(&self, settings: &BoardSettings) -> Option<&Step> {
         self.waiting().filter(|gate| {
             passer(gate, settings) == Passer::Person && self.unmet(gate, settings).is_empty()
         })
@@ -307,7 +307,7 @@ impl Slice {
 
     /// The commit whose check the gate it waits at still needs, once the
     /// check has not said anything of it yet.
-    pub(super) fn awaits_check(&self, settings: &Settings) -> Option<&str> {
+    pub(super) fn awaits_check(&self, settings: &BoardSettings) -> Option<&str> {
         let gate = self.waiting()?;
         let work = self.work.as_ref()?;
         (needs_of(gate, settings).contains(&Need::PassingCheck) && work.check.is_none())
@@ -329,7 +329,7 @@ impl Slice {
 
     /// The gates after `gate` until the next only the person passes, and whether
     /// there is one.
-    pub(super) fn ahead(&self, gate: &Step, settings: &Settings) -> (Vec<&Step>, bool) {
+    pub(super) fn ahead(&self, gate: &Step, settings: &BoardSettings) -> (Vec<&Step>, bool) {
         let mut gates = Vec::new();
         for next in self
             .ladder
@@ -356,7 +356,7 @@ impl Slice {
 
     /// A check toward the gate it waits at failed since `since`, and whether
     /// its latest commit's check is on its way.
-    pub(super) fn failed_since(&self, since: u64, settings: &Settings) -> Option<bool> {
+    pub(super) fn failed_since(&self, since: u64, settings: &BoardSettings) -> Option<bool> {
         let gate = self.waiting()?;
         let latest = (self.evidence.iter().rev())
             .find(|evidence| toward(evidence) == *gate && evidence.verdict.is_some())?;
@@ -575,7 +575,7 @@ impl Slice {
         moved
     }
 
-    fn unmet(&self, gate: &Step, settings: &Settings) -> Vec<Need> {
+    fn unmet(&self, gate: &Step, settings: &BoardSettings) -> Vec<Need> {
         needs_of(gate, settings)
             .into_iter()
             .filter(|need| !self.met(*need))
@@ -813,7 +813,7 @@ impl Slice {
 
     /// Passes each gate in turn whose passer may pass it now and whose needs
     /// are met: the owner's once it said so, which git confirmed. The gates passed.
-    fn advance(&mut self, owner: Option<&str>, settings: &Settings) -> Vec<Step> {
+    fn advance(&mut self, owner: Option<&str>, settings: &BoardSettings) -> Vec<Step> {
         let mut passed = Vec::new();
         while let Some(gate) = self.waiting().cloned() {
             if !self.unmet(&gate, settings).is_empty() {
@@ -905,7 +905,7 @@ impl Slice {
     /// environment pass, the person's and its owner's as the person's when they
     /// merged it themselves, the rest as the core's. What a deploy passes still
     /// waits for one. Whether nothing is left.
-    pub(super) fn merged(&mut self, by_person: bool, settings: &Settings) -> bool {
+    pub(super) fn merged(&mut self, by_person: bool, settings: &BoardSettings) -> bool {
         if let Some(work) = &mut self.work {
             work.on_branch = true;
         }
@@ -945,7 +945,7 @@ impl Slice {
         &mut self,
         gate: &Step,
         label: &str,
-        settings: &Settings,
+        settings: &BoardSettings,
     ) -> Result<(), String> {
         match self.waiting() {
             Some(waiting) if waiting != gate => {
@@ -982,7 +982,7 @@ impl Slice {
         label: &str,
         checking: Checking,
         confirmed: Result<(), &str>,
-        settings: &Settings,
+        settings: &BoardSettings,
     ) -> Result<Said, Refused> {
         let Some(gate) = self.waiting().cloned() else {
             return Err(format!("{label} is done already").into());
@@ -1157,7 +1157,7 @@ impl Slice {
     }
 
     /// `held_up`: it waits on another card, or nobody holds it.
-    fn state(&self, held_up: bool, settings: &Settings) -> SliceState {
+    fn state(&self, held_up: bool, settings: &BoardSettings) -> SliceState {
         let Some(gate) = self.waiting() else {
             return SliceState::Done;
         };
@@ -1184,7 +1184,7 @@ impl Slice {
         held_up: bool,
         name: impl Fn(&str) -> String,
         wait: Option<Wait>,
-        settings: &Settings,
+        settings: &BoardSettings,
     ) -> SliceView {
         let waiting = self.waiting();
         let gates = self
@@ -1240,7 +1240,7 @@ impl Slice {
     }
 
     /// What `board_list` tells an agent of where it stands.
-    pub(super) fn list_into(&self, fields: &mut Map<String, Value>, settings: &Settings) {
+    pub(super) fn list_into(&self, fields: &mut Map<String, Value>, settings: &BoardSettings) {
         fields.insert("promise".into(), self.promise.clone().into());
         if let Some(gate) = self.waiting() {
             fields.insert("waitsAt".into(), gate_key(gate).into());
@@ -1383,7 +1383,7 @@ pub(super) fn progress(
     project: &str,
     card: &mut Card,
     mut passed: Vec<Step>,
-    settings: &Settings,
+    settings: &BoardSettings,
 ) -> Moved {
     let owner = card.owner_id().map(str::to_owned);
     let Some(slice) = card.slice.as_mut() else {
@@ -1417,7 +1417,11 @@ pub(super) fn progress(
 }
 
 /// What the owner hears of the gates its slice passed.
-pub(super) fn passed_notice(card: &Card, passed: &[Step], settings: &Settings) -> Option<Notice> {
+pub(super) fn passed_notice(
+    card: &Card,
+    passed: &[Step],
+    settings: &BoardSettings,
+) -> Option<Notice> {
     let owner = card.owner_id()?;
     if passed.is_empty() {
         return None;
@@ -1676,7 +1680,7 @@ pub(super) fn earlier_work(
 
 /// Auto takes the card: it becomes a slice, promising what its title says
 /// when it promised nothing, on the ladder for how Auto finishes it.
-pub(super) fn auto_slice(card: &mut Card, settings: &Settings) {
+pub(super) fn auto_slice(card: &mut Card, settings: &BoardSettings) {
     let ladder = ladder_of(settings, settings.landing == Landing::Core);
     let recordings = std::mem::take(&mut card.recordings);
     let slice = card
@@ -1810,7 +1814,7 @@ pub(super) fn fix_for(core: &Core, board: &mut Board, id: u64, refused: &Refused
 pub(super) fn settle_ladders(board: &mut Board) {
     let settings = board.settings.clone();
     for card in &mut board.cards {
-        if card.status == Status::Done {
+        if card.status == CardStatus::Done {
             continue;
         }
         let merges = card.auto.is_some() && settings.landing == Landing::Core;
@@ -1843,7 +1847,7 @@ pub(crate) fn deployed(core: &Arc<Core>, project: &str, agent: &str, ran: Deploy
             let slice = card.slice.as_ref()?;
             Some((
                 id,
-                card.status != Status::Done,
+                card.status != CardStatus::Done,
                 slice.head().map(str::to_owned),
             ))
         })
@@ -1910,7 +1914,7 @@ pub(crate) fn check_stands(
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct PassParams {
+pub struct BoardPassParams {
     pub project: String,
     pub card: u64,
     pub gate: Gate,
@@ -1921,7 +1925,7 @@ pub struct PassParams {
 
 /// What the person writes on a slice, on a piece of its evidence when given.
 #[derive(Serialize, Deserialize)]
-pub struct NoteParams {
+pub struct BoardNoteParams {
     pub project: String,
     pub card: u64,
     pub text: String,
@@ -1931,7 +1935,10 @@ pub struct NoteParams {
 
 /// The person passes the gate a slice waits at, when it is theirs to pass.
 /// Answers with the board.
-pub(crate) async fn person_pass(core: &Arc<Core>, params: PassParams) -> Result<BoardView, String> {
+pub(crate) async fn person_pass(
+    core: &Arc<Core>,
+    params: BoardPassParams,
+) -> Result<ProjectBoard, String> {
     let core = core.clone();
     if let Some(environment) = params.environment.clone() {
         let project = project_at(&core, &params.project)?;
@@ -1954,7 +1961,7 @@ pub(crate) async fn person_pass(core: &Arc<Core>, params: PassParams) -> Result<
 }
 
 /// Passes the step the person named, and what moves on from it.
-async fn pass_step(core: Arc<Core>, params: PassParams) -> Result<BoardView, String> {
+async fn pass_step(core: Arc<Core>, params: BoardPassParams) -> Result<ProjectBoard, String> {
     blocking(move || {
         let project = project_at(&core, &params.project)?;
         let changes = Changes {
@@ -1973,7 +1980,10 @@ async fn pass_step(core: Arc<Core>, params: PassParams) -> Result<BoardView, Str
 /// note goes to the agent whose work that evidence shows, else to the slice's
 /// owner, as a message from the person; the gate keeps waiting. Answers with
 /// the board.
-pub(crate) async fn person_note(core: &Arc<Core>, params: NoteParams) -> Result<BoardView, String> {
+pub(crate) async fn person_note(
+    core: &Arc<Core>,
+    params: BoardNoteParams,
+) -> Result<ProjectBoard, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
@@ -2020,7 +2030,7 @@ mod tests {
     use super::super::environments::{Environment, Passes, Recognise};
     use super::*;
 
-    fn settings() -> Settings {
+    fn settings() -> BoardSettings {
         let environment = |name: &str, passes| Environment {
             name: name.to_owned(),
             passes,
@@ -2029,13 +2039,13 @@ mod tests {
             }],
             health: None,
         };
-        Settings {
+        BoardSettings {
             environments: vec![
                 environment("Dev", Passes::Nobody),
                 environment("Staging", Passes::Check),
                 environment("Production", Passes::Production),
             ],
-            ..Settings::default()
+            ..BoardSettings::default()
         }
     }
 
@@ -2047,7 +2057,7 @@ mod tests {
         }
     }
 
-    fn passed_built(settings: &Settings) -> Slice {
+    fn passed_built(settings: &BoardSettings) -> Slice {
         let mut slice = Slice::new("It works.".to_owned(), Vec::new(), None, settings);
         slice.worked(&head("abc", true), true, Some("owner"), None);
         slice.checked(
@@ -2073,7 +2083,7 @@ mod tests {
 
     #[test]
     fn with_nothing_set_a_slice_takes_the_three_gates() {
-        let settings = Settings::default();
+        let settings = BoardSettings::default();
         let slice = Slice::new("It works.".to_owned(), Vec::new(), None, &settings);
         let expected = LADDER.map(Step::Gate);
         assert_eq!(slice.ladder, expected);
@@ -2092,7 +2102,7 @@ mod tests {
 
     #[test]
     fn where_the_person_lands_slices_landed_stays_on_the_ladder() {
-        let settings = Settings {
+        let settings = BoardSettings {
             landing: Landing::Person,
             ..settings()
         };
@@ -2197,7 +2207,7 @@ mod tests {
         let mut slice = passed_built(&settings);
         deploy(&mut slice, "Dev", Some(Verdict::Passed));
         slice.advance(Some("owner"), &settings);
-        slice.take_ladder(ladder_of(&Settings::default(), false));
+        slice.take_ladder(ladder_of(&BoardSettings::default(), false));
         assert_eq!(slice.waiting(), Some(&Step::Gate(Gate::LooksRight)));
     }
 }

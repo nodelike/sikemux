@@ -2,7 +2,7 @@
 //! schemas ride on every request. What the agent passes picks the method.
 
 use serde_json::Value;
-use sikemux_plugin_api::{Category, PluginError};
+use sikemux_plugin_api::{FailureCategory, PluginError};
 
 pub fn route(method: &str, mut input: Value) -> Result<(&str, Value), PluginError> {
     let given = |key: &str| input.get(key).is_some_and(|value| !value.is_null());
@@ -18,7 +18,7 @@ pub fn route(method: &str, mut input: Value) -> Result<(&str, Value), PluginErro
         "agentDashboards" if given("panelId") => {
             let Some(id) = input.get("id").filter(|id| !id.is_null()).cloned() else {
                 return Err(PluginError::new(
-                    Category::BadParams,
+                    FailureCategory::BadParams,
                     "panelId needs the dashboard's id as well",
                 ));
             };

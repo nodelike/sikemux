@@ -17,10 +17,10 @@ use gpui_kit::{
 };
 use serde::Serialize;
 use sikemux_core::server::board::goal::DecideParams as BoardDecideParams;
-use sikemux_core::server::board::BoardView;
-use sikemux_core::server::board::CardView;
-use sikemux_core::server::board::NoteParams as BoardNoteParams;
-use sikemux_core::server::board::PassParams as BoardPassParams;
+use sikemux_core::server::board::BoardCard;
+use sikemux_core::server::board::BoardNoteParams;
+use sikemux_core::server::board::BoardPassParams;
+use sikemux_core::server::board::ProjectBoard;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::memory::KeepSeededParams;
@@ -115,7 +115,7 @@ pub struct GoalsPane {
     asks: UnboundedSender<Ask>,
     bench: WeakEntity<Workbench>,
     /// Every project's board, once read.
-    boards: Option<Vec<BoardView>>,
+    boards: Option<Vec<ProjectBoard>>,
     /// The project in front of the workbench, which the view shows, as its board names it: its
     /// folder, which the core's board calls take.
     here: Option<String>,
@@ -252,7 +252,7 @@ impl GoalsPane {
         });
     }
 
-    fn take(&mut self, boards: Vec<BoardView>) {
+    fn take(&mut self, boards: Vec<ProjectBoard>) {
         self.boards = Some(boards);
         let gone = match self.at {
             At::Home | At::Overnight | At::Environments | At::Chat => false,
@@ -266,7 +266,7 @@ impl GoalsPane {
     }
 
     /// Takes one project's board as the core answered a change to it.
-    fn take_one(&mut self, board: BoardView) {
+    fn take_one(&mut self, board: ProjectBoard) {
         let mut boards = self.boards.take().unwrap_or_default();
         match boards.iter_mut().find(|kept| kept.project == board.project) {
             Some(kept) => *kept = board,
@@ -281,7 +281,7 @@ impl GoalsPane {
     }
 
     /// Asks the core to change the board, then shows the board it answers.
-    fn ask<C: Call<Answer = BoardView> + 'static>(
+    fn ask<C: Call<Answer = ProjectBoard> + 'static>(
         &mut self,
         params: C::Params,
         then: impl FnOnce(&mut Self) + 'static,
@@ -311,21 +311,21 @@ impl GoalsPane {
     }
 
     /// Every project's board, as read last.
-    fn boards(&self) -> &[BoardView] {
+    fn boards(&self) -> &[ProjectBoard] {
         self.boards.as_deref().unwrap_or_default()
     }
 
-    fn board_of(&self, project: &str) -> Option<&BoardView> {
+    fn board_of(&self, project: &str) -> Option<&ProjectBoard> {
         self.boards().iter().find(|board| board.project == project)
     }
 
     /// The board of the project the view shows.
-    fn board(&self) -> Option<&BoardView> {
+    fn board(&self) -> Option<&ProjectBoard> {
         self.board_of(self.here.as_deref()?)
     }
 
     /// The cards of the project the view shows.
-    fn cards(&self) -> &[CardView] {
+    fn cards(&self) -> &[BoardCard] {
         self.board().map_or(&[], |board| board.cards.as_slice())
     }
 
@@ -357,12 +357,12 @@ impl GoalsPane {
         self.changed(cx);
     }
 
-    fn card(&self, id: u64) -> Option<&CardView> {
+    fn card(&self, id: u64) -> Option<&BoardCard> {
         self.cards().iter().find(|card| card.id == id)
     }
 
     /// The slices under card `goal` of the project open, in the board's order.
-    fn slices(&self, goal: u64) -> Vec<(&CardView, &SliceView)> {
+    fn slices(&self, goal: u64) -> Vec<(&BoardCard, &SliceView)> {
         slices_of(self.cards(), goal)
     }
 
@@ -381,7 +381,7 @@ impl GoalsPane {
     }
 
     /// The goal an inbox item's card belongs to, as the core says, when it is a goal.
-    fn goal_of(&self, card: &InboxCard) -> Option<&CardView> {
+    fn goal_of(&self, card: &InboxCard) -> Option<&BoardCard> {
         let goal = card.goal.unwrap_or(card.id);
         let board = self.board_of(&card.project)?;
         goals_of(&board.cards)
@@ -522,13 +522,13 @@ impl GoalsPane {
     }
 
     /// What waits on the person about goal `goal`: on a card of it, or from an agent holding one.
-    fn needs_of(&self, goal: &CardView, cx: &Context<Self>) -> Vec<InboxItem> {
+    fn needs_of(&self, goal: &BoardCard, cx: &Context<Self>) -> Vec<InboxItem> {
         let Some(bench) = self.bench.upgrade() else {
             return Vec::new();
         };
         let mut items = Self::needs(bench.read(cx));
         items.extend(Self::questions(bench.read(cx)));
-        let cards: Vec<&CardView> = (self.cards().iter())
+        let cards: Vec<&BoardCard> = (self.cards().iter())
             .filter(|card| card.id == goal.id || card.parent == Some(goal.id))
             .collect();
         items.retain(|item| match &item.card {
@@ -547,7 +547,7 @@ impl GoalsPane {
 
     /// The name of the agent holding goal `goal` while it is at work, for a goal with no slices
     /// to say what moves.
-    fn working_on(&self, goal: &CardView) -> Option<String> {
+    fn working_on(&self, goal: &BoardCard) -> Option<String> {
         (goal.goal_slices.is_empty() && goal.goal_state == Some(SliceState::Moving))
             .then(|| goal.owner_name.clone())
             .flatten()
@@ -1073,7 +1073,7 @@ fn on_board(card: u64, cx: &mut Context<GoalsPane>) -> impl IntoElement {
 }
 
 /// The slices the core says goal `goal` holds among `cards`, in the board's order.
-fn slices_of(cards: &[CardView], goal: u64) -> Vec<(&CardView, &SliceView)> {
+fn slices_of(cards: &[BoardCard], goal: u64) -> Vec<(&BoardCard, &SliceView)> {
     let Some(goal) = cards.iter().find(|card| card.id == goal) else {
         return Vec::new();
     };
@@ -1085,19 +1085,19 @@ fn slices_of(cards: &[CardView], goal: u64) -> Vec<(&CardView, &SliceView)> {
 }
 
 /// Where a goal stands: as its slices do together, or for one with none, as its card does.
-fn goal_mark(goal: &CardView) -> SliceState {
+fn goal_mark(goal: &BoardCard) -> SliceState {
     goal.goal_state.unwrap_or(SliceState::Waiting)
 }
 
 /// What a goal goes by: the short name its summary gave it, else its card's title.
-fn goal_name(goal: &CardView) -> String {
+fn goal_name(goal: &BoardCard) -> String {
     goal.display_title
         .clone()
         .unwrap_or_else(|| goal.title.clone())
 }
 
 /// The cards the core says are goals.
-fn goals_of(cards: &[CardView]) -> Vec<&CardView> {
+fn goals_of(cards: &[BoardCard]) -> Vec<&BoardCard> {
     cards.iter().filter(|card| card.is_goal).collect()
 }
 
@@ -1142,7 +1142,7 @@ fn need_words(need: Need) -> &'static str {
 }
 
 /// Who passed gate `gate` of slice `card`, or may pass it.
-fn passer_name(gate: &GateView, card: &CardView) -> String {
+fn passer_name(gate: &GateView, card: &BoardCard) -> String {
     match gate.passer {
         Passer::Person => "you".into(),
         Passer::Core => "Sikemux".into(),
@@ -1164,7 +1164,7 @@ fn waiting(slice: &SliceView) -> Option<&GateView> {
 
 /// What a slice waits on, in a few words: what is under way and roughly how long it takes,
 /// else its gate's unmet needs, or who passes it.
-fn waiting_words(card: &CardView, slice: &SliceView) -> Option<String> {
+fn waiting_words(card: &BoardCard, slice: &SliceView) -> Option<String> {
     let gate = waiting(slice)?;
     let owner = card.owner_name.as_deref();
     if let Some(wait) = slice.wait.as_ref().and_then(|wait| wait_words(wait, owner)) {

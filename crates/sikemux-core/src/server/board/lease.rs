@@ -14,7 +14,7 @@ use sikemux_process::sync::Locked;
 
 use super::{
     hand_off, hand_off::HandOnParams, holder, name_of, project_at, project_view, take_on,
-    tell_clients, wait, BoardView, Card, CardParams, Status,
+    tell_clients, wait, BoardCardParams, Card, CardStatus, ProjectBoard,
 };
 use crate::server::connection::blocking;
 use crate::server::wake::sooner;
@@ -80,7 +80,7 @@ fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
     for board in state.boards.values() {
         for card in &board.cards {
             let started = card.slice.as_ref().is_some_and(|slice| slice.started);
-            let held = card.status == Status::Progress && card.auto.is_none() && started;
+            let held = card.status == CardStatus::Progress && card.auto.is_none() && started;
             let Some(owner) = card.owner_id().filter(|_| held) else {
                 continue;
             };
@@ -165,7 +165,7 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
         let Ok(card) = board.card_mut(slice.id) else {
             continue;
         };
-        if card.owner_id() != Some(slice.owner.as_str()) || card.status != Status::Progress {
+        if card.owner_id() != Some(slice.owner.as_str()) || card.status != CardStatus::Progress {
             continue;
         }
         let name = card.owner_name(core);
@@ -179,7 +179,7 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
             why,
         });
         card.owner = None;
-        card.status = Status::Open;
+        card.status = CardStatus::Open;
         card.updated_at = now;
         state
             .offered
@@ -195,7 +195,7 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
 /// The stalled slice the person acts on, by the project it is on.
 async fn stalled_card(
     core: &Arc<Core>,
-    params: &CardParams,
+    params: &BoardCardParams,
 ) -> Result<(String, Stalled, String), String> {
     let (core, folder, id) = (core.clone(), params.project.clone(), params.id);
     blocking(move || {
@@ -311,8 +311,8 @@ async fn bring_back(core: &Arc<Core>, stalled: &Stalled) -> Result<String, Strin
 /// The person resumes the owner a slice lost, which holds it again. Answers with the board.
 pub(crate) async fn person_resume(
     core: &Arc<Core>,
-    params: CardParams,
-) -> Result<BoardView, String> {
+    params: BoardCardParams,
+) -> Result<ProjectBoard, String> {
     let (project, stalled, label) = stalled_card(core, &params).await?;
     let agent = bring_back(core, &stalled).await?;
     give(core, &project, params.id, &agent)?;
@@ -328,8 +328,8 @@ pub(crate) async fn person_resume(
 pub(crate) async fn person_hand_on(
     core: &Arc<Core>,
     params: HandOnParams,
-) -> Result<BoardView, String> {
-    let card = CardParams {
+) -> Result<ProjectBoard, String> {
+    let card = BoardCardParams {
         project: params.project,
         id: params.id,
     };

@@ -226,12 +226,12 @@ async fn take(core: &Core, id: &str) -> CoreResult<()> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ItemParams {
+pub struct StashItemParams {
     pub id: String,
 }
 
 /// Takes an item out of the account's stash for good, on every device.
-pub(crate) async fn remove(core: &Core, params: ItemParams) -> CoreResult<()> {
+pub(crate) async fn remove(core: &Core, params: StashItemParams) -> CoreResult<()> {
     host_request(core, Method::DELETE, &item_path(&params.id)?, None).await?;
     core.changed(What::Read(Topic::Stash));
     Ok(())
@@ -256,7 +256,7 @@ pub(crate) struct Kept {
 }
 
 /// The item's file, kept on this host for the person to open.
-pub(crate) async fn keep(core: &Core, params: ItemParams) -> CoreResult<Kept> {
+pub(crate) async fn keep(core: &Core, params: StashItemParams) -> CoreResult<Kept> {
     let item = item(core, &params.id).await?;
     if !has_file(&item) {
         return Err(CoreError::from("that item has no file"));
@@ -267,7 +267,7 @@ pub(crate) async fn keep(core: &Core, params: ItemParams) -> CoreResult<Kept> {
 }
 
 /// A picture in the stash, in base64, for an app to show small.
-pub(crate) async fn picture(core: &Core, params: ItemParams) -> CoreResult<Value> {
+pub(crate) async fn picture(core: &Core, params: StashItemParams) -> CoreResult<Value> {
     let item = item(core, &params.id).await?;
     let mime = item.mime.clone().unwrap_or_default();
     if item.kind != StashKind::Image || !mime.starts_with("image/") {
@@ -285,7 +285,7 @@ pub(crate) async fn picture(core: &Core, params: ItemParams) -> CoreResult<Value
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AttachParams {
+pub struct AttachStashParams {
     pub id: String,
     pub agent_id: String,
     /// False when the app keeps its own draft: the item's file is only kept here, and the app
@@ -296,7 +296,7 @@ pub struct AttachParams {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Attached {
+pub struct AttachedStash {
     pub agent_id: String,
     /// Where the item's file was kept on this host, when it has one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -305,7 +305,7 @@ pub struct Attached {
     pub paths: Vec<PathBuf>,
 }
 
-impl Attached {
+impl AttachedStash {
     fn new(agent_id: String, paths: Vec<PathBuf>) -> Self {
         Self {
             agent_id,
@@ -317,21 +317,21 @@ impl Attached {
 
 /// Puts a stash item in the draft of one of this host's chats, unsent, and marks it used; or
 /// with `draft` false only keeps its file where the chat's agent can read it.
-pub(crate) async fn attach(core: &Core, params: AttachParams) -> CoreResult<Attached> {
+pub(crate) async fn attach(core: &Core, params: AttachStashParams) -> CoreResult<AttachedStash> {
     if core.workspaces.agent(&params.agent_id).is_none() {
         return Err(CoreError::from("that chat is no longer on this host"));
     }
     let item = item(core, &params.id).await?;
     if params.draft == Some(false) {
         let paths = files(core, &item).await?;
-        return Ok(Attached::new(params.agent_id, paths));
+        return Ok(AttachedStash::new(params.agent_id, paths));
     }
     let _delivering = Delivering::start(&item.id)
         .ok_or_else(|| CoreError::from("that item is already on its way to a chat"))?;
     let paths = into_draft(core, &item, &params.agent_id).await?;
     take(core, &item.id).await?;
     core.changed(What::Read(Topic::Stash));
-    Ok(Attached::new(params.agent_id, paths))
+    Ok(AttachedStash::new(params.agent_id, paths))
 }
 
 /// Downloads the item's file, when it has one, and adds it with the item's words to the
@@ -380,12 +380,12 @@ async fn files(core: &Core, item: &StashItem) -> CoreResult<Vec<PathBuf>> {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PromptParams {
+pub struct StashPromptParams {
     pub agent_id: String,
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct Stashed {
+pub struct StashedPrompt {
     pub id: String,
 }
 
@@ -395,7 +395,10 @@ const MAX_PROMPT_FILES: usize = 20;
 
 /// Keeps what is written in `agent_id`'s draft, its files and the links it holds as one prompt
 /// in the Stash, and empties the draft.
-pub(crate) async fn stash_prompt(core: &Core, params: PromptParams) -> CoreResult<Stashed> {
+pub(crate) async fn stash_prompt(
+    core: &Core,
+    params: StashPromptParams,
+) -> CoreResult<StashedPrompt> {
     let key = super::drafts::chat_key(&params.agent_id);
     let draft = core
         .drafts
@@ -441,7 +444,7 @@ pub(crate) async fn stash_prompt(core: &Core, params: PromptParams) -> CoreResul
     core.drafts.set(&key, String::new(), None)?;
     super::drafts::changed(core, vec![key]);
     core.changed(What::Read(Topic::Stash));
-    Ok(Stashed { id: prompt.id })
+    Ok(StashedPrompt { id: prompt.id })
 }
 
 /// Sends one of a prompt's files to the Stash, as part of prompt `id`.

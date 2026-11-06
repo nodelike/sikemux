@@ -16,7 +16,7 @@ use tokio::sync::Notify;
 use tokio::task::JoinSet;
 
 use super::connection::ClientId;
-use super::plugins::Failure;
+use super::plugins::PluginFailure;
 use super::Core;
 use crate::backoff::Backoff;
 
@@ -50,7 +50,7 @@ pub(crate) trait Shows: Sized + Send + Sync + 'static {
         core: Arc<Core>,
         key: Self::Key,
         with: Self::With,
-    ) -> impl Future<Output = Result<(Value, Duration), Failure>> + Send;
+    ) -> impl Future<Output = Result<(Value, Duration), PluginFailure>> + Send;
 
     /// The answers of `moved` changed, each with the slots that show it.
     fn moved(core: &Core, moved: Vec<(Self::Key, Vec<Self::Slot>)>);

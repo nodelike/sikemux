@@ -10,7 +10,7 @@ use reqwest::StatusCode;
 use sikemux_base::http::{unreachable, Unreachable};
 
 use crate::network;
-use crate::{http, Category, PluginError};
+use crate::{http, FailureCategory, PluginError};
 
 /// The service a plugin talks to, named once for every message it gives.
 pub trait Service: Sized + 'static {
@@ -160,27 +160,27 @@ impl<S: Service> From<ServiceError<S>> for PluginError {
     fn from(error: ServiceError<S>) -> Self {
         let message = error.to_string();
         match error {
-            ServiceError::Unconfigured => PluginError::new(Category::Unconfigured, message),
-            ServiceError::Auth(_) => PluginError::new(Category::Auth, message),
+            ServiceError::Unconfigured => PluginError::new(FailureCategory::Unconfigured, message),
+            ServiceError::Auth(_) => PluginError::new(FailureCategory::Auth, message),
             ServiceError::Forbidden(_) => PluginError::forbidden(message),
             ServiceError::RateLimited { .. } => {
-                PluginError::new(Category::RateLimited, message).with_status(429)
+                PluginError::new(FailureCategory::RateLimited, message).with_status(429)
             }
             ServiceError::Http { status, .. } => PluginError::http(status, message),
             ServiceError::BadArg(_) => PluginError::bad_params(message),
             ServiceError::NotFound(_) => {
-                PluginError::new(Category::NotFound, message).with_status(404)
+                PluginError::new(FailureCategory::NotFound, message).with_status(404)
             }
-            ServiceError::Unsupported(_) => PluginError::new(Category::Unsupported, message),
-            ServiceError::MergeMethod(_) => PluginError::new(Category::MergeMethod, message),
-            ServiceError::Keychain(_) => PluginError::new(Category::Keychain, message),
+            ServiceError::Unsupported(_) => PluginError::new(FailureCategory::Unsupported, message),
+            ServiceError::MergeMethod(_) => PluginError::new(FailureCategory::MergeMethod, message),
+            ServiceError::Keychain(_) => PluginError::new(FailureCategory::Keychain, message),
             ServiceError::Unreachable { kind, .. } => {
                 PluginError::new(network::category(kind), message)
             }
             ServiceError::Api(_) | ServiceError::Transport(_) => {
-                PluginError::new(Category::own(S::ID), message)
+                PluginError::new(FailureCategory::own(S::ID), message)
             }
-            ServiceError::Response(_) => PluginError::new(Category::Response, message),
+            ServiceError::Response(_) => PluginError::new(FailureCategory::Response, message),
             ServiceError::Of(_, never) => match never {},
         }
     }

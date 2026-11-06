@@ -11,7 +11,7 @@ use sikemux_view::inbox::ShipKind;
 use sikemux_view::slice::Gate;
 
 use super::slice::{Later, Seen};
-use super::{Board, By, Changes, Notice, State, Status};
+use super::{Board, By, CardStatus, Changes, Notice, State};
 use crate::server::Core;
 use crate::ship::{leads, Ship, Target};
 
@@ -93,7 +93,7 @@ pub struct EnvironmentsProposal {
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ProposalParams {
+pub struct BoardProposalParams {
     pub project: String,
     pub accept: bool,
 }
@@ -435,7 +435,7 @@ pub(super) fn answer_proposal(
 pub(super) fn settle_cards(core: &Core, state: &mut State, project: &str) -> Settled {
     let open: Vec<u64> = (state.boards.get(project).into_iter())
         .flat_map(|board| board.cards.iter())
-        .filter(|card| card.slice.is_some() && card.status != Status::Done)
+        .filter(|card| card.slice.is_some() && card.status != CardStatus::Done)
         .map(|card| card.id)
         .collect();
     let mut settled = Settled::default();

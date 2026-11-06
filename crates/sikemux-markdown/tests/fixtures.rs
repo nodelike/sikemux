@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sikemux_markdown::{parse, Options};
+use sikemux_markdown::{parse, MarkdownOptions};
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -29,7 +29,7 @@ fn the_frontend_fixtures_match_the_parser() {
     let mut stale = Vec::new();
     let mut cases = Vec::new();
     for fixture in fixtures {
-        let options: Options = serde_json::from_value(fixture.options.clone()).unwrap();
+        let options: MarkdownOptions = serde_json::from_value(fixture.options.clone()).unwrap();
         let blocks = serde_json::to_value(parse(&fixture.text, options, 0)).unwrap();
         if blocks != fixture.blocks {
             stale.push(fixture.text.clone());

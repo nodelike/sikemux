@@ -174,7 +174,7 @@ calls! { core, client, method, params;
     "dropQueued" DropQueued (chat_calls::QueuedParams) -> (): Full => {
         super::chat::queue::remove(&core, &params.agent_id, &params.ids)?
     },
-    "agentSessions" AgentSessions (saved::SearchParams) -> Vec<crate::sessions::search::SessionMatch>: Full, any_program => {
+    "agentSessions" AgentSessions (saved::SessionSearchParams) -> Vec<crate::sessions::search::SessionMatch>: Full, any_program => {
         saved::call(&core, params).await?
     },
     "workspace": Watch, any_program => answer(core.workspace_view()),
@@ -201,7 +201,7 @@ calls! { core, client, method, params;
     "moveAgentToFolder": Owner => answer(super::move_agent::move_to_folder(&core, parse(params)?).await?),
     "closeAgents": Owner => answer(workspace::close_agents(&core, parse(params)?)?),
     "closeChat" CloseChat (AgentParams) -> (): Full => workspace::close_agent(&core, params.agent_id)?,
-    "createAgentWorktree" CreateAgentWorktree (super::worktree::agent::ForAgentParams) -> super::worktree::agent::ForAgent: Owner, counted => {
+    "createAgentWorktree" CreateAgentWorktree (super::worktree::agent::AgentWorktreeParams) -> super::worktree::agent::MadeAgentWorktree: Owner, counted => {
         super::worktree::agent::for_agent(&core, params).await?
     },
     "agentReview": Watch, counted => answer(super::worktree::removal::review(&core, parse(params)?).await?),
@@ -292,7 +292,7 @@ calls! { core, client, method, params;
         answer(blocking(move || Ok(super::ssh::hosts(&reading))).await?)
     },
     "removeTrigger": Full => answer(super::triggers::remove(&core, parse::<super::triggers::TriggerParams>(params)?.trigger)),
-    "cancelResume" CancelResume (agent_accounts::Resuming) -> (): Full => super::chat::reset::cancel_by_person(&core, &params.agent_id),
+    "cancelResume" CancelResume (agent_accounts::ChatAccountsParams) -> (): Full => super::chat::reset::cancel_by_person(&core, &params.agent_id),
     "setAgentAccounts": Owner => {
         agent_accounts::set(&core, parse(params)?).await?;
         answer(())
@@ -312,12 +312,12 @@ calls! { core, client, method, params;
     "setAccountAutoSwitch": NoDevice, counted => {
         answer(agent_accounts::set_auto_switch(&core, parse(params)?).await?)
     },
-    "retryFailed" RetryFailed (agent_accounts::Resuming) -> (): Full => agent_accounts::retry_failed(&core, params)?,
-    "discardFailed" DiscardFailed (agent_accounts::Resuming) -> (): Full => agent_accounts::discard_failed(&core, params)?,
-    "chatAccounts" ChatAccounts (agent_accounts::Resuming) -> agent_accounts::ChatAccounts: Full => {
+    "retryFailed" RetryFailed (agent_accounts::ChatAccountsParams) -> (): Full => agent_accounts::retry_failed(&core, params)?,
+    "discardFailed" DiscardFailed (agent_accounts::ChatAccountsParams) -> (): Full => agent_accounts::discard_failed(&core, params)?,
+    "chatAccounts" ChatAccounts (agent_accounts::ChatAccountsParams) -> agent_accounts::ChatAccounts: Full => {
         agent_accounts::chat_accounts(&core, params)?
     },
-    "moveChatAccount" MoveChatAccount (agent_accounts::Moving) -> (): Full => super::chat::move_to_account(&core, &params.agent_id, &params.account_id)?,
+    "moveChatAccount" MoveChatAccount (agent_accounts::MoveChatParams) -> (): Full => super::chat::move_to_account(&core, &params.agent_id, &params.account_id)?,
     "authenticateChat": NoDevice => {
         let params: agent_accounts::Authenticate = parse(params)?;
         super::chat::authenticate(&core, &params.agent_id, params.method_id).await?;
@@ -326,7 +326,7 @@ calls! { core, client, method, params;
     "shareChat": Owner, counted => answer(share::share_chat_for(&core, parse(params)?)?),
     "stopShare": Owner => answer(share::stop(&core, &parse::<share::StopShareParams>(params)?.id)?),
     "shares": Full, any_program => answer(share::list(&core)),
-    "pairing" Pairing (NoParams) -> remote::Pairing: Owner, any_program => remote::pairing(&core),
+    "pairing" RemotePairing (NoParams) -> remote::RemotePairing: Owner, any_program => remote::pairing(&core),
     "deviceChallenge": Owner => answer(super::account::devices::device_challenge(&core).await?),
     "approveHostSignIn": Owner => {
         answer(super::account::devices::approve_host_sign_in(&core, parse(params)?).await?)
@@ -336,13 +336,13 @@ calls! { core, client, method, params;
     },
     "signHostRequest": NoDevice => core.remote.host_request_signature(&parse(params)?),
     "signShareViewer": NoDevice => core.remote.share_viewer_signature(parse(params)?),
-    "answerPairing" AnswerPairing (remote::PairingAnswer) -> remote::Pairing: Owner, counted => remote::answer_pairing(&core, params)?,
-    "changeDevice" ChangeDevice (remote::DeviceChange) -> remote::Pairing: Owner => remote::change_device(&core, params)?,
+    "answerPairing" AnswerPairing (remote::PairingAnswer) -> remote::RemotePairing: Owner, counted => remote::answer_pairing(&core, params)?,
+    "changeDevice" ChangeDevice (remote::DeviceChange) -> remote::RemotePairing: Owner => remote::change_device(&core, params)?,
     "projectFiles": Full => {
         let params = parse(params)?;
         answer(blocking(move || super::project_files::read(params).map_err(CoreError::from)).await?)
     },
-    "projectEntries" ProjectEntries (super::project_files::ProjectEntriesParams) -> Vec<crate::fuzzy::Entry>: Full => {
+    "projectEntries" ProjectEntries (super::project_files::ProjectEntriesParams) -> Vec<crate::fuzzy::ProjectEntry>: Full => {
         blocking(move || super::project_files::entries(params).map_err(CoreError::from)).await?
     },
     "searchStream": Full, counted => answer(super::streams::search_stream(&core, client, parse(params)?)?),
@@ -381,16 +381,16 @@ calls! { core, client, method, params;
     "removeMod": Owner => answer(super::mods::remove(&core, parse(params)?).await?),
     "addExampleMod": Owner => answer(super::mods::add_example(&core, parse(params)?).await?),
     "stash": Owner => answer(super::stash::list(&core, parse_or_default(params)?).await?),
-    "stashPrompt" StashPrompt (super::stash::PromptParams) -> super::stash::Stashed: Owner, counted => {
+    "stashPrompt" StashPrompt (super::stash::StashPromptParams) -> super::stash::StashedPrompt: Owner, counted => {
         super::stash::stash_prompt(&core, params).await?
     },
     "seeStash": Owner => answer(super::stash::see(&core, parse(params)?).await?),
     "stashFile": Owner, counted => answer(super::stash::keep(&core, parse(params)?).await?),
     "stashPicture": Owner, counted => answer(super::stash::picture(&core, parse(params)?).await?),
-    "attachStash" AttachStash (super::stash::AttachParams) -> super::stash::Attached: Owner, counted => {
+    "attachStash" AttachStash (super::stash::AttachStashParams) -> super::stash::AttachedStash: Owner, counted => {
         super::stash::attach(&core, params).await?
     },
-    "removeStash" RemoveStash (super::stash::ItemParams) -> (): Owner => super::stash::remove(&core, params).await?,
+    "removeStash" RemoveStash (super::stash::StashItemParams) -> (): Owner => super::stash::remove(&core, params).await?,
     "drafts": Watch => answer(core.drafts.get(parse_or_default::<super::drafts::DraftsParams>(params)?.keys.as_deref())),
     "setDraft" SetDraft (super::drafts::SetDraftParams) -> (): Owner => super::drafts::set(&core, params)?,
     "diagramLayout": Owner => answer(super::diagrams::layout(&core, parse(params)?)),
@@ -414,10 +414,10 @@ calls! { core, client, method, params;
     "themeFromColours": Watch => answer(super::themes::built_from_colours(parse(params)?)?),
     "themeFromPixels": Watch, counted => answer(super::wallpaper::theme_from_pixels(parse(params)?)?),
     "codeHostPulls": Watch => answer(super::codehost::pulls(&core, client.id, parse(params)?).await),
-    "codeHostTrackedContext" CodeHostTrackedContext (super::codehost::TrackedParams) -> plugins::Outcome: Watch => {
+    "codeHostTrackedContext" CodeHostTrackedContext (super::codehost::TrackedContextParams) -> plugins::PluginOutcome: Watch => {
         super::codehost::tracked_context(&core, params).await
     },
-    "codeHostTracked" CodeHostTracked (super::codehost::ReleasesParams) -> plugins::Outcome: Watch => {
+    "codeHostTracked" CodeHostTracked (super::codehost::CodeHostProjectParams) -> plugins::PluginOutcome: Watch => {
         super::codehost::tracked(&core, client.id, params).await
     },
     "hosts": Watch => answer(super::hosts::rows(&core)),
@@ -442,21 +442,21 @@ calls! { core, client, method, params;
     "agentMessageRows" AgentMessageRows (messages::AgentMessagesParams) -> messages::AgentMessageRows: Watch, any_program => {
         messages::agent_message_rows(&core, params).await?
     },
-    "boards" Boards (NoParams) -> Vec<board::BoardView>: Watch, any_program => board::boards(&core),
-    "board" Board (board::BoardParams) -> board::BoardView: Watch, any_program => board::board(&core, params).await?,
-    "boardAdd" BoardAdd (board::AddParams) -> board::BoardView: Full, counted => board::person_add(&core, params).await?,
-    "boardHandOff" BoardHandOff (board::HandOffParams) -> board::HandedOff: Full => board::hand_off(&core, params).await?,
-    "boardResumeOwner" BoardResumeOwner (board::CardParams) -> board::BoardView: Full => board::person_resume(&core, params).await?,
-    "boardHandOn" BoardHandOn (board::HandOnParams) -> board::BoardView: Full => board::person_hand_on(&core, params).await?,
-    "boardAddTicket" BoardAddTicket (board::AddTicketParams) -> board::BoardView: Full, counted => {
+    "boards" Boards (NoParams) -> Vec<board::ProjectBoard>: Watch, any_program => board::boards(&core),
+    "board" Board (board::BoardParams) -> board::ProjectBoard: Watch, any_program => board::board(&core, params).await?,
+    "boardAdd" BoardAdd (board::BoardAddParams) -> board::ProjectBoard: Full, counted => board::person_add(&core, params).await?,
+    "boardHandOff" BoardHandOff (board::BoardHandOffParams) -> board::HandedOff: Full => board::hand_off(&core, params).await?,
+    "boardResumeOwner" BoardResumeOwner (board::BoardCardParams) -> board::ProjectBoard: Full => board::person_resume(&core, params).await?,
+    "boardHandOn" BoardHandOn (board::HandOnParams) -> board::ProjectBoard: Full => board::person_hand_on(&core, params).await?,
+    "boardAddTicket" BoardAddTicket (board::BoardAddTicketParams) -> board::ProjectBoard: Full, counted => {
         board::person_add_ticket(&core, params).await?
     },
-    "boardUpdate" BoardUpdate (board::UpdateParams) -> board::BoardView: Full, counted => board::person_update(&core, params).await?,
-    "boardRemove" BoardRemove (board::CardParams) -> board::BoardView: Full => board::person_remove(&core, params).await?,
-    "boardSettings" BoardSettings (board::SettingsParams) -> board::BoardView: Full => {
+    "boardUpdate" BoardUpdate (board::BoardUpdateParams) -> board::ProjectBoard: Full, counted => board::person_update(&core, params).await?,
+    "boardRemove" BoardRemove (board::BoardCardParams) -> board::ProjectBoard: Full => board::person_remove(&core, params).await?,
+    "boardSettings" BoardSettings (board::BoardSettingsParams) -> board::ProjectBoard: Full => {
         board::person_settings(&core, params).await?
     },
-    "boardAnswerProposal" BoardAnswerProposal (board::ProposalParams) -> board::BoardView: Full => {
+    "boardAnswerProposal" BoardAnswerProposal (board::BoardProposalParams) -> board::ProjectBoard: Full => {
         board::person_answer_proposal(&core, params).await?
     },
     "goalSummary" GoalSummary (sikemux_view::slice::GoalSummaryParams) -> sikemux_view::slice::GoalSummaryView: Full => {
@@ -464,10 +464,10 @@ calls! { core, client, method, params;
     },
     "goals" Goals (NoParams) -> sikemux_view::goals::GoalsView: Watch, any_program => goals::view(&core),
     "setDesks" SetDesks (sikemux_view::goals::DesksParams) -> (): Owner => goals::set_desks(&core, client.id, params),
-    "boardAssert" BoardAssert (board::goal::AssertParams) -> board::BoardView: Full => {
+    "boardAssert" BoardAssert (board::goal::AssertParams) -> board::ProjectBoard: Full => {
         board::goal::person_assert(&core, params).await?
     },
-    "boardDecide" BoardDecide (board::goal::DecideParams) -> board::BoardView: Full => {
+    "boardDecide" BoardDecide (board::goal::DecideParams) -> board::ProjectBoard: Full => {
         board::goal::person_decide(&core, params).await?
     },
     "triage" Triage (super::triage::TriageParams) -> sikemux_view::start::Triage: Full => {
@@ -486,9 +486,9 @@ calls! { core, client, method, params;
         board::chat_goal::undo(&core, params.agent_id).await?
     },
     "chatGoalNotNow" ChatGoalNotNow (board::chat_goal::ChatGoalParams) -> (): Full => board::chat_goal::not_now(&core, &params.agent_id),
-    "boardRetry" BoardRetry (board::CardParams) -> board::BoardView: Full => board::person_retry(&core, params).await?,
-    "boardPass" BoardPass (board::PassParams) -> board::BoardView: Full => board::person_pass(&core, params).await?,
-    "boardNote" BoardNote (board::NoteParams) -> board::BoardView: Full => board::person_note(&core, params).await?,
+    "boardRetry" BoardRetry (board::BoardCardParams) -> board::ProjectBoard: Full => board::person_retry(&core, params).await?,
+    "boardPass" BoardPass (board::BoardPassParams) -> board::ProjectBoard: Full => board::person_pass(&core, params).await?,
+    "boardNote" BoardNote (board::BoardNoteParams) -> board::ProjectBoard: Full => board::person_note(&core, params).await?,
     "edits": Watch, any_program => answer(edits::read_edits(&core, parse(params)?).await?),
     "changeOwners": Watch, any_program => answer(edits::change_owners(&core, parse(params)?).await?),
     "commitStaged": Owner, counted => answer(edits::commit_staged(&core, parse(params)?).await?),

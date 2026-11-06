@@ -10,9 +10,9 @@ use std::sync::Arc;
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
-use super::auto::{Hold, Landing, Pull, Run, Settings, Stage};
+use super::auto::{AutoPull, AutoRun, BoardSettings, Landing, RunHold, RunStage};
 use super::review::{self, MAX_ROUNDS};
-use super::{blind, change_card, git, send_notices, By, Card, Changes, Status};
+use super::{blind, change_card, git, send_notices, By, Card, CardStatus, Changes};
 use crate::server::codehost::ci;
 use crate::server::codehost::repo::{self as codehost, Checks, Feedback, CI_START_WAIT_MS};
 use crate::server::connection::blocking;
@@ -41,7 +41,7 @@ pub(super) fn change_run(
     project: &str,
     id: u64,
     agent: &str,
-    change: impl FnOnce(&mut Card, &mut Run),
+    change: impl FnOnce(&mut Card, &mut AutoRun),
 ) -> bool {
     let mut state = core.boards.state.locked();
     let Some(card) = state
@@ -64,7 +64,7 @@ pub(super) fn change_run(
     true
 }
 
-pub(super) fn note(core: &Core, project: &str, id: u64, agent: &str, stage: Stage, note: &str) {
+pub(super) fn note(core: &Core, project: &str, id: u64, agent: &str, stage: RunStage, note: &str) {
     change_run(core, project, id, agent, |_, run| {
         run.stage = stage;
         run.held = None;
@@ -75,7 +75,7 @@ pub(super) fn note(core: &Core, project: &str, id: u64, agent: &str, stage: Stag
 /// Gives the card back to the person, for `need`, saying why. A run that never
 /// got its worktree leaves the card open and nobody's, for the person to start
 /// again.
-pub(crate) fn hold(core: &Core, project: &str, id: u64, agent: &str, need: Hold, why: String) {
+pub(crate) fn hold(core: &Core, project: &str, id: u64, agent: &str, need: RunHold, why: String) {
     let mut reviewer = None;
     change_run(core, project, id, agent, |card, run| {
         reviewer = run.reviewer.take();
@@ -96,7 +96,7 @@ pub(crate) fn hold(core: &Core, project: &str, id: u64, agent: &str, need: Hold,
 pub(super) struct Dropped {
     pub project: String,
     pub id: u64,
-    pub run: Run,
+    pub run: AutoRun,
     /// The card is to be done afresh, so its pull request and pushed branch
     /// go too.
     pub discard: bool,
@@ -171,8 +171,8 @@ pub(super) struct Step {
     pub project: String,
     pub id: u64,
     pub card: Card,
-    pub run: Run,
-    pub settings: Settings,
+    pub run: AutoRun,
+    pub settings: BoardSettings,
 }
 
 impl Step {
@@ -207,17 +207,17 @@ impl Step {
             .unwrap_or_else(|| "Its agent".to_owned())
     }
 
-    pub(super) fn hold(&self, core: &Core, need: Hold, why: String) {
+    pub(super) fn hold(&self, core: &Core, need: RunHold, why: String) {
         hold(core, &self.project, self.id, self.agent(), need, why);
     }
 
-    pub(super) fn note(&self, core: &Core, stage: Stage, text: &str) {
+    pub(super) fn note(&self, core: &Core, stage: RunStage, text: &str) {
         note(core, &self.project, self.id, self.agent(), stage, text);
     }
 }
 
 /// Runs `work` on the card unless a step of it is under way already.
-fn step<F, Fut>(core: &Arc<Core>, project: String, id: u64, stage: Option<Stage>, work: F)
+fn step<F, Fut>(core: &Arc<Core>, project: String, id: u64, stage: Option<RunStage>, work: F)
 where
     F: FnOnce(Arc<Core>, Step) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = ()> + Send + 'static,
@@ -225,7 +225,7 @@ where
     let step = {
         let mut state = core.boards.state.locked();
         if state.busy(&project, id) {
-            if stage == Some(Stage::Shipping) {
+            if stage == Some(RunStage::Shipping) {
                 state.work(&project, id).reship = true;
             }
             return;
@@ -292,7 +292,7 @@ pub(super) fn retry(core: &Arc<Core>, project: &str, id: u64) -> Result<(), Stri
         let run = card
             .auto
             .as_mut()
-            .filter(|run| run.held.is_some() || run.stage == Stage::Watching)
+            .filter(|run| run.held.is_some() || run.stage == RunStage::Watching)
             .ok_or("Auto has not given that card back to you")?;
         let ships = !run.worktree.is_empty();
         if ships {
@@ -318,11 +318,11 @@ pub(super) fn ship(core: &Arc<Core>, project: String, id: u64) {
         core,
         project,
         id,
-        Some(Stage::Shipping),
+        Some(RunStage::Shipping),
         |core, step| async move {
-            step.note(&core, Stage::Shipping, "Committing and pushing its work");
+            step.note(&core, RunStage::Shipping, "Committing and pushing its work");
             if let Err(why) = shipping(&core, &step).await {
-                step.hold(&core, Hold::Fix, why);
+                step.hold(&core, RunHold::Fix, why);
             }
         },
     );
@@ -479,12 +479,12 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
         run.review.asked.clear();
         match stop {
             Some(why) => {
-                run.stage = Stage::Watching;
-                run.held = stuck.is_some().then_some(Hold::Fix);
+                run.stage = RunStage::Watching;
+                run.held = stuck.is_some().then_some(RunHold::Fix);
                 run.note = Some(why);
             }
             None => {
-                run.stage = Stage::Checking;
+                run.stage = RunStage::Checking;
                 run.note = Some("Waiting for its checks".to_owned());
             }
         }
@@ -502,7 +502,7 @@ pub(crate) fn waiting_on_ci(core: &Core) -> Vec<ci::Shown> {
         .values()
         .flat_map(|board| &board.cards)
         .filter_map(|card| {
-            let run = card.run().filter(|run| run.stage == Stage::Checking)?;
+            let run = card.run().filter(|run| run.stage == RunStage::Checking)?;
             let pull = run.pull.as_ref()?;
             Some(ci::Shown {
                 id: pull.repo_id(),
@@ -524,7 +524,7 @@ pub(crate) fn ci_moved(core: &Core, repo: &ci::Shown) {
         .flat_map(|(project, board)| board.cards.iter().map(move |card| (project, card)))
         .filter(|(_, card)| {
             card.run().is_some_and(|run| {
-                run.stage == Stage::Checking
+                run.stage == RunStage::Checking
                     && run
                         .pull
                         .as_ref()
@@ -551,7 +551,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     let running = core.running_agents();
     let mut next = None;
     let mut checking_any = false;
-    let due: Vec<(String, u64, Stage)> = {
+    let due: Vec<(String, u64, RunStage)> = {
         let mut state = core.boards.state.locked();
         let mut due = Vec::new();
         let mut present = Vec::new();
@@ -564,7 +564,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                     continue;
                 }
                 let every = match run.stage {
-                    Stage::Checking => {
+                    RunStage::Checking => {
                         checking_any = true;
                         let looked = work.and_then(|work| work.looked);
                         let unread = work
@@ -586,16 +586,16 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                         }
                         continue;
                     }
-                    Stage::Watching => {
+                    RunStage::Watching => {
                         let quiet = work.map_or(0, |work| work.quiet);
                         REVIEW_EVERY_MS << quiet.min(MAX_QUIET_DOUBLINGS)
                     }
-                    Stage::Shipping | Stage::Merging | Stage::Starting => 0,
-                    Stage::Reviewing if run.verdict.is_some() || run.reviewer.is_none() => 0,
-                    Stage::Working | Stage::Fixing | Stage::Reviewing => {
+                    RunStage::Shipping | RunStage::Merging | RunStage::Starting => 0,
+                    RunStage::Reviewing if run.verdict.is_some() || run.reviewer.is_none() => 0,
+                    RunStage::Working | RunStage::Fixing | RunStage::Reviewing => {
                         let key = (project.clone(), card.id);
                         let watched = match (&run.reviewer, run.stage) {
-                            (Some(reviewer), Stage::Reviewing) => &reviewer.agent,
+                            (Some(reviewer), RunStage::Reviewing) => &reviewer.agent,
                             _ => &run.agent,
                         };
                         if running.contains(watched) {
@@ -638,33 +638,33 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     }
     for (project, id, stage) in due {
         match stage {
-            Stage::Checking | Stage::Merging => {
+            RunStage::Checking | RunStage::Merging => {
                 step(core, project, id, None, |core, step| async move {
                     checking(&core, step).await;
                 })
             }
-            Stage::Watching => step(core, project, id, None, |core, step| async move {
+            RunStage::Watching => step(core, project, id, None, |core, step| async move {
                 reviewing(&core, step).await;
             }),
-            Stage::Reviewing => step(core, project, id, None, |core, step| async move {
+            RunStage::Reviewing => step(core, project, id, None, |core, step| async move {
                 blind::settle(&core, step).await;
             }),
-            Stage::Shipping => ship(core, project, id),
-            Stage::Starting => step(core, project, id, None, |core, step| async move {
+            RunStage::Shipping => ship(core, project, id),
+            RunStage::Starting => step(core, project, id, None, |core, step| async move {
                 step.hold(
                     &core,
-                    Hold::Unblock,
+                    RunHold::Unblock,
                     "Sikemux's background process restarted while Auto was starting it".to_owned(),
                 );
             }),
-            Stage::Working | Stage::Fixing => {
+            RunStage::Working | RunStage::Fixing => {
                 step(core, project, id, None, |core, step| async move {
                     if core.running_agents().contains(step.agent()) {
                         return;
                     }
                     step.hold(
                         &core,
-                        Hold::Unblock,
+                        RunHold::Unblock,
                         format!(
                             "{} is no longer running, so it did not finish; Ship it again sends what it committed",
                             step.name(&core)
@@ -692,7 +692,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
                 .checks_unread = Some(epoch_ms());
             step.note(
                 core,
-                Stage::Checking,
+                RunStage::Checking,
                 &format!("Could not read its checks: {error}"),
             );
             return;
@@ -700,7 +700,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
     };
     let waited = epoch_ms().saturating_sub(step.run.checks_since.unwrap_or(0));
     match checks {
-        Checks::Running { .. } => step.note(core, Stage::Checking, "Its checks are running"),
+        Checks::Running { .. } => step.note(core, RunStage::Checking, "Its checks are running"),
         Checks::Passed => {
             step.checked(core, PULL_CHECKS, Verdict::Passed, "");
             passed(core, &step, &pull, &head).await
@@ -711,11 +711,11 @@ async fn checking(core: &Arc<Core>, step: Step) {
         }
         Checks::Stopped(why) => step.hold(
             core,
-            Hold::Unblock,
+            RunHold::Unblock,
             format!("Its checks were cancelled or never started:\n{why}"),
         ),
         Checks::None if waited < CI_START_WAIT_MS => {
-            step.note(core, Stage::Checking, "Waiting for its checks to start");
+            step.note(core, RunStage::Checking, "Waiting for its checks to start");
         }
         Checks::None => {
             let (owner, project) = (core.clone(), step.project.clone());
@@ -725,7 +725,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
             });
             match check {
             Ok(Some((label, command))) => {
-                step.note(core, Stage::Checking, &format!("Running {label}"));
+                step.note(core, RunStage::Checking, &format!("Running {label}"));
                 let (cwd, running) = (step.tree(), command.clone());
                 let checked = blocking(move || crate::server::checks::run_command(&cwd, &running).map_err(Into::into)).await;
                 match checked {
@@ -737,17 +737,17 @@ async fn checking(core: &Arc<Core>, step: Step) {
                         step.checked(core, &command, Verdict::Failed, &output);
                         failed(core, &step, &format!("The check command failed:\n{output}")).await;
                     }
-                    Err(error) => step.hold(core, Hold::Fix, format!("The check command did not run: {error}")),
+                    Err(error) => step.hold(core, RunHold::Fix, format!("The check command did not run: {error}")),
                 }
             }
             Ok(_) => step.note(
                 core,
-                Stage::Watching,
+                RunStage::Watching,
                 "No CI ran on its pull request and this project has no check command, so it waits for you",
             ),
             Err(error) => step.hold(
                 core,
-                Hold::Fix,
+                RunHold::Fix,
                 format!("The check command could not be read: {error}"),
             ),
             }
@@ -757,12 +757,12 @@ async fn checking(core: &Arc<Core>, step: Step) {
 
 /// The checks passed: the change merges once a reviewer approved this very
 /// commit, and goes to one first otherwise.
-async fn passed(core: &Arc<Core>, step: &Step, pull: &Pull, head: &str) {
+async fn passed(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: &str) {
     if step.run.approved.as_deref() == Some(head) {
         return merge(core, step, pull, head).await;
     }
     if let Some(why) = unanswered(core, step) {
-        step.note(core, Stage::Watching, &why);
+        step.note(core, RunStage::Watching, &why);
         return;
     }
     blind::begin(core, step, head).await;
@@ -773,7 +773,7 @@ async fn failed(core: &Arc<Core>, step: &Step, what: &str) {
     if step.run.fixed {
         step.hold(
             core,
-            Hold::Fix,
+            RunHold::Fix,
             format!(
                 "Its checks failed again after a fix:\n{}",
                 crate::git::tail(what)
@@ -804,18 +804,18 @@ pub(super) async fn ask(
     step: &Step,
     text: String,
     note: &str,
-    change: impl FnOnce(&mut Run),
+    change: impl FnOnce(&mut AutoRun),
 ) {
     let name = step.name(core);
     change_run(core, &step.project, step.id, step.agent(), |_, run| {
         change(run);
-        run.stage = Stage::Fixing;
+        run.stage = RunStage::Fixing;
         run.note = Some(note.to_owned());
     });
     if let Err(error) = messages::from_auto(core, step.agent().to_owned(), text).await {
         step.hold(
             core,
-            Hold::Unblock,
+            RunHold::Unblock,
             format!("{name} could not be reached: {error}"),
         );
     }
@@ -840,12 +840,12 @@ fn unanswered(core: &Core, step: &Step) -> Option<String> {
     ))
 }
 
-pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &Pull, head: &str) {
+pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: &str) {
     if let Some(why) = unanswered(core, step) {
-        step.note(core, Stage::Watching, &why);
+        step.note(core, RunStage::Watching, &why);
         return;
     }
-    step.note(core, Stage::Merging, "Merging its pull request");
+    step.note(core, RunStage::Merging, "Merging its pull request");
     let error = match codehost::merge(core, pull, head).await {
         Ok(()) => return merged(core, step, false).await,
         Err(error) => error,
@@ -859,7 +859,7 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &Pull, head: &str
     if step.run.rebased {
         step.hold(
             core,
-            Hold::Fix,
+            RunHold::Fix,
             format!("Its pull request did not merge: {error}"),
         );
         return;
@@ -884,7 +884,7 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &Pull, head: &str
                 run.rebased = true;
                 run.head = Some(head);
                 run.checks_since = Some(now);
-                run.stage = Stage::Checking;
+                run.stage = RunStage::Checking;
                 run.note = Some(format!(
                     "It did not merge, so Auto put it on the latest {} and waits for its checks again",
                     run.base
@@ -907,7 +907,7 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &Pull, head: &str
         }
         Ok(None) => step.hold(
             core,
-            Hold::Fix,
+            RunHold::Fix,
             format!(
                 "It did not merge and conflicts with the latest {}: {error}",
                 step.run.base
@@ -915,7 +915,7 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &Pull, head: &str
         ),
         Err(failure) => step.hold(
             core,
-            Hold::Fix,
+            RunHold::Fix,
             format!("It did not merge ({error}), and rebasing it failed: {failure}"),
         ),
     }
@@ -941,7 +941,7 @@ async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
         None => format!("Merged in {url}"),
     };
     let changes = Changes {
-        status: all_passed.then_some(Status::Done),
+        status: all_passed.then_some(CardStatus::Done),
         result: Some(result),
         ..Changes::default()
     };
@@ -996,7 +996,7 @@ async fn reviewing(core: &Arc<Core>, step: Step) {
         "closed" | "declined" | "superseded" => {
             return step.hold(
                 core,
-                Hold::Unblock,
+                RunHold::Unblock,
                 "Its pull request was closed without merging".to_owned(),
             );
         }
@@ -1018,7 +1018,7 @@ async fn reviewing(core: &Arc<Core>, step: Step) {
     } else if seen.rounds >= MAX_ROUNDS {
         step.hold(
             core,
-            Hold::Unblock,
+            RunHold::Unblock,
             format!(
                 "Reviewers left more comments after {} answered {MAX_ROUNDS} rounds of them; read them on {}, then Ship it again for more rounds",
                 step.name(core),

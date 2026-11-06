@@ -43,7 +43,7 @@ mod account;
 mod links;
 mod listening;
 mod pairing;
-pub use pairing::{ApprovalSetting, Pairing};
+pub use pairing::{ApprovalSetting, RemotePairing};
 mod push;
 
 pub(crate) use account::*;
@@ -104,7 +104,7 @@ struct Stored {
     /// Hosts on the account linked with this one, whose agents may start
     /// and reach agents here and the other way round.
     #[serde(default)]
-    links: Vec<LinkedHost>,
+    links: Vec<StoredLink>,
     /// The person asks to allow each new device and host, rather than let
     /// in whatever their account signed in.
     #[serde(default)]
@@ -210,7 +210,7 @@ where
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct LinkedHost {
+pub(crate) struct StoredLink {
     pub id: String,
     /// What this host calls it, which agents address it by.
     pub name: String,
@@ -266,7 +266,7 @@ impl Stored {
             owner: &'a Option<String>,
             devices: Vec<DeviceInfo>,
             joined_through: &'a BTreeMap<String, String>,
-            links: Vec<LinkedHost>,
+            links: Vec<StoredLink>,
             shares: &'a [StoredShare],
             revoked: &'a BTreeMap<String, u64>,
             require_approval: bool,
@@ -285,7 +285,7 @@ impl Stored {
             links: self
                 .links
                 .iter()
-                .map(|link| LinkedHost {
+                .map(|link| StoredLink {
                     last_seen: None,
                     addresses: Vec::new(),
                     ..link.clone()
@@ -686,7 +686,7 @@ impl Remote {
         };
         if let (Some(_), Some(addresses)) = (access, pending.host.clone()) {
             let device = &pending.device;
-            let added = LinkedHost {
+            let added = StoredLink {
                 id: device.device_id.clone(),
                 name: device.name.clone(),
                 platform: device.platform.clone(),

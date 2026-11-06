@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::{
-    add_card, lease, long_text, project_at, project_view, slice, title_of, Adding, BoardView, By,
+    add_card, lease, long_text, project_at, project_view, slice, title_of, Adding, By, ProjectBoard,
 };
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
@@ -26,7 +26,7 @@ const TITLE_CHARS: usize = 80;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct HandOffParams {
+pub struct BoardHandOffParams {
     pub project: String,
     /// What the person typed, which the agent is sent and the slice promises.
     pub text: String,
@@ -62,7 +62,7 @@ pub struct HandOnParams {
 pub struct HandedOff {
     pub card: u64,
     pub agent: String,
-    pub board: BoardView,
+    pub board: ProjectBoard,
 }
 
 /// The agent started and the card it holds, before it is sent its task.
@@ -77,7 +77,10 @@ struct Started {
 /// from where the project is now, with the card that tracks it. Nothing comes
 /// to the front: the work shows on the board, and reaches the person only
 /// when it needs them.
-pub(crate) async fn hand_off(core: &Arc<Core>, params: HandOffParams) -> Result<HandedOff, String> {
+pub(crate) async fn hand_off(
+    core: &Arc<Core>,
+    params: BoardHandOffParams,
+) -> Result<HandedOff, String> {
     let text = long_text("text", &params.text)?;
     if text.is_empty() {
         return Err("Say what should get done".into());

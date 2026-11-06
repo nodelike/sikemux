@@ -12,7 +12,7 @@ use sikemux_process::sync::Locked;
 
 use super::environments::{Environment, Passes};
 use super::review::Review;
-use super::{blind, finish, Board, Card, Owner, Status, Team};
+use super::{blind, finish, Board, Card, CardStatus, Owner, Team};
 use crate::server::calls::given;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
@@ -54,7 +54,7 @@ pub struct ReviewerChoice {
 /// How a project's board runs on its own.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
-pub struct Settings {
+pub struct BoardSettings {
     pub auto: bool,
     pub slots: u32,
     /// The app's launcher Auto's agents start with; none for the first that works.
@@ -72,7 +72,7 @@ pub struct Settings {
     pub environments: Vec<Environment>,
 }
 
-impl Settings {
+impl BoardSettings {
     fn environment(&self, name: &str) -> Option<&Environment> {
         self.environments.iter().find(|known| known.name == name)
     }
@@ -100,7 +100,7 @@ impl Settings {
     }
 }
 
-impl Default for Settings {
+impl Default for BoardSettings {
     fn default() -> Self {
         Self {
             auto: false,
@@ -129,7 +129,7 @@ fn known_provider(
 /// stays as it is, and a null clears it.
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SettingsParams {
+pub struct BoardSettingsParams {
     pub project: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto: Option<bool>,
@@ -158,7 +158,7 @@ pub struct SettingsParams {
         deserialize_with = "given",
         skip_serializing_if = "Option::is_none"
     )]
-    pub reviewer: Option<Option<ReviewerParams>>,
+    pub reviewer: Option<Option<BoardReviewerParams>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landing: Option<Landing>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -166,7 +166,7 @@ pub struct SettingsParams {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ReviewerParams {
+pub struct BoardReviewerParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launcher: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -175,7 +175,7 @@ pub struct ReviewerParams {
     pub model: Option<String>,
 }
 
-impl ReviewerParams {
+impl BoardReviewerParams {
     fn choice(self, knows: &impl Fn(&str) -> bool) -> Result<ReviewerChoice, String> {
         let launcher = text("launcher", self.launcher, MAX_LAUNCHER_CHARS)?
             .ok_or("reviewer.launcher must name the agent that reviews")?;
@@ -196,11 +196,11 @@ fn text(key: &str, text: Option<String>, max: usize) -> Result<Option<String>, S
     }
 }
 
-impl Settings {
+impl BoardSettings {
     /// These settings with what `params` changes, naming only providers Sikemux `knows`.
     pub(super) fn changed(
         &self,
-        params: SettingsParams,
+        params: BoardSettingsParams,
         knows: impl Fn(&str) -> bool,
     ) -> Result<Self, String> {
         let mut settings = self.clone();
@@ -242,7 +242,7 @@ impl Settings {
 /// what waits on the person and whether the work landed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum Stage {
+pub enum RunStage {
     /// Its worktree and agent are being made.
     Starting,
     Working,
@@ -264,28 +264,34 @@ pub enum Stage {
 /// What the person is needed for once Auto gives a card back to them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum Hold {
+pub enum RunHold {
     /// Something failed that needs mending.
     Fix,
     /// Something only the person can do, such as starting its agent again.
     Unblock,
 }
 
-impl Stage {
+impl RunStage {
     /// Its agent is at work, so it takes one of Auto's places.
     fn busy(self) -> bool {
-        matches!(self, Stage::Starting | Stage::Working | Stage::Fixing)
+        matches!(
+            self,
+            RunStage::Starting | RunStage::Working | RunStage::Fixing
+        )
     }
 
     /// A turn of its agent ending sends its work on.
     fn ships_on_turn_end(self) -> bool {
-        matches!(self, Stage::Working | Stage::Fixing | Stage::Watching)
+        matches!(
+            self,
+            RunStage::Working | RunStage::Fixing | RunStage::Watching
+        )
     }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Pull {
+pub(crate) struct AutoPull {
     pub host: String,
     pub owner: String,
     pub name: String,
@@ -296,7 +302,7 @@ pub(crate) struct Pull {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Run {
+pub(super) struct AutoRun {
     pub agent: String,
     #[serde(default)]
     pub repo: String,
@@ -308,13 +314,13 @@ pub(super) struct Run {
     pub base: String,
     #[serde(default)]
     pub start_sha: String,
-    pub stage: Stage,
+    pub stage: RunStage,
     /// Auto gave the card back to the person at `stage`, for the reason in `note`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub held: Option<Hold>,
+    pub held: Option<RunHold>,
     /// What is happening, or why the card is back with the person.
     pub note: Option<String>,
-    pub pull: Option<Pull>,
+    pub pull: Option<AutoPull>,
     /// The commit whose checks are awaited, and since when.
     pub head: Option<String>,
     pub checks_since: Option<u64>,
@@ -338,7 +344,7 @@ pub(super) struct Run {
     pub approved: Option<String>,
 }
 
-impl Run {
+impl AutoRun {
     fn starting(agent: String) -> Self {
         Self {
             agent,
@@ -347,7 +353,7 @@ impl Run {
             branch: String::new(),
             base: String::new(),
             start_sha: String::new(),
-            stage: Stage::Starting,
+            stage: RunStage::Starting,
             held: None,
             note: Some("Making its worktree".to_owned()),
             pull: None,
@@ -362,8 +368,8 @@ impl Run {
         }
     }
 
-    pub(super) fn view(&self) -> RunView {
-        RunView {
+    pub(super) fn view(&self) -> CardRun {
+        CardRun {
             agent: self.agent.clone(),
             repo: self.repo.clone(),
             worktree: self.worktree.clone(),
@@ -372,9 +378,9 @@ impl Run {
             start_sha: self.start_sha.clone(),
             stage: self.stage,
             held: self.held,
-            waits_on_person: self.held.is_some() || self.stage == Stage::Watching,
+            waits_on_person: self.held.is_some() || self.stage == RunStage::Watching,
             note: self.note.clone(),
-            pull: self.pull.as_ref().map(|pull| PullView {
+            pull: self.pull.as_ref().map(|pull| CardPull {
                 number: pull.number,
                 url: pull.url.clone(),
                 host: pull.host.clone(),
@@ -386,25 +392,25 @@ impl Run {
 /// A card's run as the app and devices read it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RunView {
+pub struct CardRun {
     pub agent: String,
     pub repo: String,
     pub worktree: String,
     pub branch: String,
     pub base: String,
     pub start_sha: String,
-    pub stage: Stage,
+    pub stage: RunStage,
     /// Auto gave the card back to the person, who is needed for this.
-    pub held: Option<Hold>,
+    pub held: Option<RunHold>,
     /// Auto gave it back, or its pull request waits for them.
     pub waits_on_person: bool,
     pub note: Option<String>,
-    pub pull: Option<PullView>,
+    pub pull: Option<CardPull>,
 }
 
 /// A run's pull request as the app and devices read it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PullView {
+pub struct CardPull {
     pub number: u64,
     pub url: String,
     pub host: String,
@@ -427,7 +433,7 @@ pub(super) fn running(core: &Core, board: &Board) -> usize {
 }
 
 fn takes(board: &Board, card: &Card) -> bool {
-    card.status == Status::Open
+    card.status == CardStatus::Open
         && card.owner.is_none()
         && card.auto.is_none()
         && card.created_by.is_none()
@@ -436,7 +442,7 @@ fn takes(board: &Board, card: &Card) -> bool {
         && !board
             .cards
             .iter()
-            .any(|other| other.parent == Some(card.id) && other.status != Status::Done)
+            .any(|other| other.parent == Some(card.id) && other.status != CardStatus::Done)
 }
 
 /// Whether some board has Auto on with work it could still do, which keeps
@@ -506,7 +512,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                 if let Ok(card) = board.card_mut(id) {
                     card.hold(Owner::starting(&agent));
                     card.team = None;
-                    card.auto = Some(Run::starting(agent.clone()));
+                    card.auto = Some(AutoRun::starting(agent.clone()));
                     super::slice::auto_slice(card, &settings);
                     starts.push((project.clone(), id, agent));
                     state_jobs.push((project.clone(), id));
@@ -534,7 +540,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     &project,
                     id,
                     &agent,
-                    Hold::Fix,
+                    RunHold::Fix,
                     format!("Auto could not start it: {error}"),
                 );
             }
@@ -542,7 +548,12 @@ pub(super) fn start_free(core: &Arc<Core>) {
     }
 }
 
-fn task(card: &Card, tree: &worktree::Tree, settings: &Settings, ticket: Option<String>) -> String {
+fn task(
+    card: &Card,
+    tree: &worktree::Tree,
+    settings: &BoardSettings,
+    ticket: Option<String>,
+) -> String {
     let mut text = format!(
         "Sikemux's Auto started you to do card #{} of this project's board on your own, in a git worktree nobody else works in.\n\nCard #{}: {}",
         card.id, card.id, card.title
@@ -647,7 +658,7 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
         run.branch = tree.branch.clone();
         run.base = tree.base.clone();
         run.start_sha = tree.start_sha.clone();
-        run.stage = Stage::Working;
+        run.stage = RunStage::Working;
         run.note = None;
     });
     if !placed {
@@ -690,7 +701,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
                 let run = card.kept_run()?;
-                (run.agent == agent_id && run.stage != Stage::Starting)
+                (run.agent == agent_id && run.stage != RunStage::Starting)
                     .then(|| (project.clone(), card.id, run.stage, run.held.is_some()))
             })
         })
@@ -703,7 +714,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         .names
         .name(agent_id)
         .unwrap_or_else(|| "Its agent".to_owned());
-    let held = |note: String| finish::hold(core, &project, id, agent_id, Hold::Unblock, note);
+    let held = |note: String| finish::hold(core, &project, id, agent_id, RunHold::Unblock, note);
     match ending {
         Ending::Finished => {
             let now = core.agent_now(agent_id);
@@ -743,7 +754,7 @@ fn worker_ended(core: &Arc<Core>, agent_id: &str) {
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
                 let run = card.run()?;
-                (run.agent == lead && matches!(run.stage, Stage::Working | Stage::Fixing))
+                (run.agent == lead && matches!(run.stage, RunStage::Working | RunStage::Fixing))
                     .then(|| (project.clone(), card.id))
             })
         })

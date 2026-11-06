@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use serde_json::{json, Map, Value};
-use sikemux_markdown::{Change, Doc, Op, Options, Patch};
+use sikemux_markdown::{Doc, MarkdownOptions, MdChange, MdOp, Patch};
 
 use sikemux_view::chat::{
     ChatActivity, ChatChange, ChatConnection, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView,
@@ -16,7 +16,7 @@ use super::event::ChatEvent;
 use super::{Fold, Row, Side, Transcript};
 
 /// How an agent's answers are read as markdown.
-const ANSWER: Options = Options {
+const ANSWER: MarkdownOptions = MarkdownOptions {
     gfm: true,
     html_as_text: false,
     file_links: true,
@@ -28,13 +28,13 @@ const ANSWER: Options = Options {
 
 /// What the person sent reads as the agent's text does, but shows any markup they typed as they
 /// typed it.
-const TYPED: Options = Options {
+const TYPED: MarkdownOptions = MarkdownOptions {
     html_as_text: true,
     ..ANSWER
 };
 
 /// How a role's texts are read into trees.
-fn reading(role: ChatRole) -> Options {
+fn reading(role: ChatRole) -> MarkdownOptions {
     match role {
         ChatRole::Assistant => ANSWER,
         ChatRole::User => TYPED,
@@ -127,16 +127,16 @@ const OPTIONAL_HEAD: [&str; 12] = [
 pub type Flushed = Vec<ChatChange>;
 
 fn md_change(n: usize, o: Patch) -> Value {
-    serde_json::to_value(Change { n, o }).unwrap_or_default()
+    serde_json::to_value(MdChange { n, o }).unwrap_or_default()
 }
 
-fn tree_of(patch: Vec<Op>, n: usize) -> PartTree {
+fn tree_of(patch: Vec<MdOp>, n: usize) -> PartTree {
     let blocks = patch
         .into_iter()
         .next()
         .and_then(|op| match op {
-            Op::List { c, .. } => Some(Value::Array(c)),
-            Op::Text { .. } => None,
+            MdOp::List { c, .. } => Some(Value::Array(c)),
+            MdOp::Text { .. } => None,
         })
         .unwrap_or_else(|| Value::Array(Vec::new()));
     PartTree {
@@ -154,7 +154,7 @@ pub(super) fn read(text: &str) -> PartTree {
     read_as(text, ANSWER)
 }
 
-fn read_as(text: &str, options: Options) -> PartTree {
+fn read_as(text: &str, options: MarkdownOptions) -> PartTree {
     tree_of(Doc::read(text, options), units(text))
 }
 

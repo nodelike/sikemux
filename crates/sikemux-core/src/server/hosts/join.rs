@@ -19,7 +19,7 @@ use sikemux_wire::protocol::PendingDevice;
 
 use super::super::join::{clean, NAME_LIMIT, PLATFORM_LIMIT};
 use super::super::notify::Signal;
-use super::super::remote::{self, LinkedHost, Pairing};
+use super::super::remote::{self, RemotePairing, StoredLink};
 use super::super::{Core, CoreError, CoreResult};
 use super::{addresses_of, adopt, dial, introduction, link};
 
@@ -45,7 +45,7 @@ pub(crate) struct LinkParams {
 
 /// Links this host with the one `params` names, and answers with this host's
 /// devices and links.
-pub(crate) async fn link_host(core: &Arc<Core>, params: LinkParams) -> CoreResult<Pairing> {
+pub(crate) async fn link_host(core: &Arc<Core>, params: LinkParams) -> CoreResult<RemotePairing> {
     link_with(core, params).await?;
     Ok(remote::pairing(core))
 }
@@ -105,7 +105,7 @@ pub(super) async fn link_with(core: &Arc<Core>, params: LinkParams) -> CoreResul
         ),
         platform => platform,
     };
-    core.remote.add_link(LinkedHost {
+    core.remote.add_link(StoredLink {
         id: ticket.host.clone(),
         name: if name.is_empty() {
             clean(reply["name"].as_str().unwrap_or("Host"), NAME_LIMIT)
@@ -198,7 +198,7 @@ pub(super) async fn answer(core: Arc<Core>, connection: Connection) {
             return;
         }
     } else {
-        let linked = core.remote.add_link(LinkedHost {
+        let linked = core.remote.add_link(StoredLink {
             id: host.clone(),
             name: if name.is_empty() { "Host".into() } else { name },
             platform,

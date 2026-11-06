@@ -6,7 +6,7 @@ use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled,
 };
-use sikemux_core::server::board::CardView;
+use sikemux_core::server::board::BoardCard;
 use sikemux_view::slice::{Evidence, GateState, GateView, Passer, Proof, SliceView, Verdict};
 
 use super::evidence;
@@ -139,7 +139,7 @@ fn stalled_line(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> Optio
 }
 
 /// Who owns the slice, which opens their chat, and its ticket.
-fn owner_line(card: &CardView, cx: &Context<GoalsPane>) -> AnyElement {
+fn owner_line(card: &BoardCard, cx: &Context<GoalsPane>) -> AnyElement {
     div()
         .pt(SPACE_1H)
         .flex()
@@ -164,7 +164,7 @@ fn owner_line(card: &CardView, cx: &Context<GoalsPane>) -> AnyElement {
 
 /// The gates in order, joined by a line that is green as far as they passed; under each, who
 /// passed it and when, or who may pass it and what it still needs.
-fn ladder(card: &CardView, slice: &SliceView, cx: &Context<GoalsPane>) -> AnyElement {
+fn ladder(card: &BoardCard, slice: &SliceView, cx: &Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx);
     let last = slice.gates.len().saturating_sub(1);
     div()
@@ -285,7 +285,7 @@ fn checks(slice: &SliceView, cx: &Context<GoalsPane>) -> Option<AnyElement> {
 /// The person's two answers to the gate waiting on them: pass it, or say what needs work.
 fn decide(
     pane: &GoalsPane,
-    card: &CardView,
+    card: &BoardCard,
     gate: &GateView,
     shown: Option<&Evidence>,
     cx: &mut Context<GoalsPane>,
@@ -334,7 +334,7 @@ fn pass_words(gate: &GateView) -> String {
 }
 
 /// What was written about the slice, newest first, each with the evidence it is pinned to.
-fn notes(card: &CardView, slice: &SliceView, cx: &Context<GoalsPane>) -> AnyElement {
+fn notes(card: &BoardCard, slice: &SliceView, cx: &Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx);
     div()
         .pt(SPACE_3)

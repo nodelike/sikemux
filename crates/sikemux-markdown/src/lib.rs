@@ -9,7 +9,7 @@ pub mod paths;
 mod reference;
 mod url;
 
-pub use doc::{diff, Change, Doc, Op, Patch};
+pub use doc::{diff, Doc, MdChange, MdOp, Patch};
 pub use reference::name as reference;
 
 use pulldown_cmark::{
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Options {
+pub struct MarkdownOptions {
     /// Tables, strikethrough, task lists, footnotes and bare addresses as links.
     #[serde(default)]
     pub gfm: bool,
@@ -49,46 +49,46 @@ pub struct Options {
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(untagged)]
-pub enum Node {
+pub enum MdNode {
     Text(String),
-    Element(Element),
+    Element(MdElement),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Align {
+pub enum MdAlign {
     Left,
     Center,
     Right,
 }
 
-type Cell = Vec<Node>;
+type Cell = Vec<MdNode>;
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "t", rename_all = "lowercase")]
-pub enum Element {
+pub enum MdElement {
     P {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     H {
         l: u8,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Quote {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Ul {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Ol {
         #[serde(skip_serializing_if = "Option::is_none")]
         start: Option<u64>,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Li {
         #[serde(skip_serializing_if = "Option::is_none")]
         checked: Option<bool>,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Pre {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,7 +97,7 @@ pub enum Element {
     },
     Hr,
     Table {
-        align: Vec<Option<Align>>,
+        align: Vec<Option<MdAlign>>,
         /// Missing when every heading cell is blank.
         #[serde(skip_serializing_if = "Option::is_none")]
         head: Option<Vec<Cell>>,
@@ -106,16 +106,16 @@ pub enum Element {
     /// Footnotes are numbered in the order they are first mentioned.
     Fndef {
         n: usize,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Em {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Strong {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Del {
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Code {
         v: String,
@@ -124,7 +124,7 @@ pub enum Element {
         href: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         title: Option<String>,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     Img {
         src: String,
@@ -142,30 +142,30 @@ pub enum Element {
         href: String,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         code: bool,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
     /// Blocks embedded HTML lines up to one side, as `<div align="center">` does.
     Div {
-        align: Align,
-        c: Vec<Node>,
+        align: MdAlign,
+        c: Vec<MdNode>,
     },
     /// A `<details>` fold from embedded HTML, open or not as it was written.
     Details {
         summary: String,
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         open: bool,
-        c: Vec<Node>,
+        c: Vec<MdNode>,
     },
 }
 
 /// Parses `text` and returns its top-level blocks from index `skip` on. A
 /// caller that already holds the blocks before `skip` gets only the rest.
-pub fn parse(text: &str, options: Options, skip: usize) -> Vec<Element> {
+pub fn parse(text: &str, options: MarkdownOptions, skip: usize) -> Vec<MdElement> {
     read(text, options, skip).0
 }
 
 /// Parses `text` into its top-level blocks, each with the byte in `text` it starts at.
-pub fn parse_blocks(text: &str, options: Options) -> (Vec<Element>, Vec<usize>) {
+pub fn parse_blocks(text: &str, options: MarkdownOptions) -> (Vec<MdElement>, Vec<usize>) {
     read(text, options, 0)
 }
 
@@ -194,7 +194,7 @@ pub fn words(text: &str) -> String {
     out
 }
 
-fn read(text: &str, options: Options, skip: usize) -> (Vec<Element>, Vec<usize>) {
+fn read(text: &str, options: MarkdownOptions, skip: usize) -> (Vec<MdElement>, Vec<usize>) {
     let mut flags = ParserOptions::empty();
     if options.gfm {
         flags |= ParserOptions::ENABLE_TABLES
@@ -229,7 +229,7 @@ fn read(text: &str, options: Options, skip: usize) -> (Vec<Element>, Vec<usize>)
 /// Text that came from markup the reader typed. It stays apart from the text
 /// around it so that nothing reads it as an address.
 enum Piece {
-    Node(Node),
+    MdNode(MdNode),
     Typed(String),
 }
 
@@ -257,7 +257,7 @@ enum Kind {
     },
     Html(String),
     Table {
-        align: Vec<Option<Align>>,
+        align: Vec<Option<MdAlign>>,
         head: Option<Vec<Cell>>,
         rows: Vec<Vec<Cell>>,
     },
@@ -268,7 +268,7 @@ enum Kind {
         open: bool,
     },
     /// A `<div>` or `<p>` from embedded HTML, and the side it lines its blocks up to.
-    Aligned(Option<Align>),
+    Aligned(Option<MdAlign>),
     Unsupported,
 }
 
@@ -278,9 +278,9 @@ struct Frame {
 }
 
 struct Builder {
-    options: Options,
+    options: MarkdownOptions,
     stack: Vec<Frame>,
-    blocks: Vec<Element>,
+    blocks: Vec<MdElement>,
     /// Where each of `blocks` starts in the text.
     starts: Vec<usize>,
     /// Where the block being read now starts.
@@ -340,11 +340,11 @@ fn tag_name(tag: &str) -> &str {
     inside.get(..end).unwrap_or_default()
 }
 
-fn aligned(side: &str) -> Option<Align> {
+fn aligned(side: &str) -> Option<MdAlign> {
     match side.trim().to_ascii_lowercase().as_str() {
-        "left" => Some(Align::Left),
-        "center" => Some(Align::Center),
-        "right" => Some(Align::Right),
+        "left" => Some(MdAlign::Left),
+        "center" => Some(MdAlign::Center),
+        "right" => Some(MdAlign::Right),
         _ => None,
     }
 }
@@ -353,30 +353,30 @@ fn nonempty(text: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
-fn align(alignment: Alignment) -> Option<Align> {
+fn align(alignment: Alignment) -> Option<MdAlign> {
     match alignment {
         Alignment::None => None,
-        Alignment::Left => Some(Align::Left),
-        Alignment::Center => Some(Align::Center),
-        Alignment::Right => Some(Align::Right),
+        Alignment::Left => Some(MdAlign::Left),
+        Alignment::Center => Some(MdAlign::Center),
+        Alignment::Right => Some(MdAlign::Right),
     }
 }
 
-fn plain_text(nodes: &[Node], out: &mut String) {
+fn plain_text(nodes: &[MdNode], out: &mut String) {
     for node in nodes {
         match node {
-            Node::Text(text) => out.push_str(text),
-            Node::Element(Element::Code { v } | Element::Pre { v, .. }) => out.push_str(v),
-            Node::Element(
-                Element::P { c }
-                | Element::H { c, .. }
-                | Element::Em { c }
-                | Element::Strong { c }
-                | Element::Del { c }
-                | Element::A { c, .. }
-                | Element::Path { c, .. },
+            MdNode::Text(text) => out.push_str(text),
+            MdNode::Element(MdElement::Code { v } | MdElement::Pre { v, .. }) => out.push_str(v),
+            MdNode::Element(
+                MdElement::P { c }
+                | MdElement::H { c, .. }
+                | MdElement::Em { c }
+                | MdElement::Strong { c }
+                | MdElement::Del { c }
+                | MdElement::A { c, .. }
+                | MdElement::Path { c, .. },
             ) => plain_text(c, out),
-            Node::Element(_) => {}
+            MdNode::Element(_) => {}
         }
     }
 }
@@ -404,12 +404,12 @@ impl Builder {
 
     fn push(&mut self, piece: Piece) {
         let Some(frame) = self.stack.last_mut() else {
-            if let Piece::Node(Node::Element(element)) = piece {
+            if let Piece::MdNode(MdNode::Element(element)) = piece {
                 self.finish_block(element);
             }
             return;
         };
-        if let (Piece::Node(Node::Text(more)), Some(Piece::Node(Node::Text(text)))) =
+        if let (Piece::MdNode(MdNode::Text(more)), Some(Piece::MdNode(MdNode::Text(text)))) =
             (&piece, frame.children.last_mut())
         {
             text.push_str(more);
@@ -421,15 +421,15 @@ impl Builder {
     fn push_text(&mut self, text: &str) {
         match self.stack.last_mut().map(|frame| &mut frame.kind) {
             Some(Kind::Code { text: code, .. } | Kind::Html(code)) => code.push_str(text),
-            _ => self.push(Piece::Node(Node::Text(text.to_owned()))),
+            _ => self.push(Piece::MdNode(MdNode::Text(text.to_owned()))),
         }
     }
 
-    fn push_element(&mut self, element: Element) {
-        self.push(Piece::Node(Node::Element(element)));
+    fn push_element(&mut self, element: MdElement) {
+        self.push(Piece::MdNode(MdNode::Element(element)));
     }
 
-    fn finish_block(&mut self, element: Element) {
+    fn finish_block(&mut self, element: MdElement) {
         if self.seen >= self.skip {
             self.blocks.push(element);
             self.starts.push(self.opening.unwrap_or_default());
@@ -437,7 +437,7 @@ impl Builder {
         self.seen += 1;
     }
 
-    fn children(&self, pieces: Vec<Piece>) -> Vec<Node> {
+    fn children(&self, pieces: Vec<Piece>) -> Vec<MdNode> {
         let outside_links = self.links_open == 0;
         let nodes = Self::nodes(
             pieces,
@@ -451,26 +451,26 @@ impl Builder {
         }
     }
 
-    fn nodes(pieces: Vec<Piece>, link_addresses: bool, file_paths: bool) -> Vec<Node> {
+    fn nodes(pieces: Vec<Piece>, link_addresses: bool, file_paths: bool) -> Vec<MdNode> {
         let mut nodes = Vec::with_capacity(pieces.len());
         for piece in pieces {
             match piece {
-                Piece::Node(Node::Text(text)) if link_addresses || file_paths => {
+                Piece::MdNode(MdNode::Text(text)) if link_addresses || file_paths => {
                     let mut linked = Vec::new();
                     if link_addresses {
                         autolink::link_addresses(text, &mut linked);
                     } else {
-                        linked.push(Node::Text(text));
+                        linked.push(MdNode::Text(text));
                     }
                     for node in linked {
                         match node {
-                            Node::Text(text) if file_paths => paths::mark_paths(text, &mut nodes),
+                            MdNode::Text(text) if file_paths => paths::mark_paths(text, &mut nodes),
                             node => nodes.push(node),
                         }
                     }
                 }
-                Piece::Node(node) => nodes.push(node),
-                Piece::Typed(text) => nodes.push(Node::Text(text)),
+                Piece::MdNode(node) => nodes.push(node),
+                Piece::Typed(text) => nodes.push(MdNode::Text(text)),
             }
         }
         nodes
@@ -566,18 +566,18 @@ impl Builder {
                     let mut c = Vec::new();
                     if self.options.html_images {
                         for image in self.html_images(inner) {
-                            c.push(Node::Element(image));
+                            c.push(MdNode::Element(image));
                         }
                     }
                     let words = strip_tags(inner);
                     if !words.is_empty() {
-                        c.push(Node::Text(words));
+                        c.push(MdNode::Text(words));
                     }
-                    let heading = Element::H { l: level, c };
+                    let heading = MdElement::H { l: level, c };
                     match attribute(tag, "align").and_then(|side| aligned(&side)) {
-                        Some(align) => self.push_element(Element::Div {
+                        Some(align) => self.push_element(MdElement::Div {
                             align,
-                            c: vec![Node::Element(heading)],
+                            c: vec![MdNode::Element(heading)],
                         }),
                         None => self.push_element(heading),
                     }
@@ -592,10 +592,10 @@ impl Builder {
                 "img" if self.options.html_images => {
                     for image in self.html_images(tag) {
                         pictures.push(match &link {
-                            Some(href) => Element::A {
+                            Some(href) => MdElement::A {
                                 href: href.clone(),
                                 title: None,
-                                c: vec![Node::Element(image)],
+                                c: vec![MdNode::Element(image)],
                             },
                             None => image,
                         });
@@ -607,7 +607,7 @@ impl Builder {
         self.flush_pictures(&mut pictures);
     }
 
-    fn flush_pictures(&mut self, pictures: &mut Vec<Element>) {
+    fn flush_pictures(&mut self, pictures: &mut Vec<MdElement>) {
         if pictures.is_empty() {
             return;
         }
@@ -634,11 +634,11 @@ impl Builder {
         match frame.kind {
             Kind::Details { summary, open } => {
                 let c = self.children(frame.children);
-                self.push_element(Element::Details { summary, open, c });
+                self.push_element(MdElement::Details { summary, open, c });
             }
             Kind::Aligned(Some(align)) => {
                 let c = self.children(frame.children);
-                self.push_element(Element::Div { align, c });
+                self.push_element(MdElement::Div { align, c });
             }
             _ => {
                 for piece in frame.children {
@@ -649,7 +649,7 @@ impl Builder {
         true
     }
 
-    fn html_images(&self, html: &str) -> Vec<Element> {
+    fn html_images(&self, html: &str) -> Vec<MdElement> {
         let lower = html.to_ascii_lowercase();
         let mut images = Vec::new();
         let mut from = 0;
@@ -664,7 +664,7 @@ impl Builder {
                 .map(|src| self.url(&src))
                 .filter(|src| !src.is_empty())
             {
-                images.push(Element::Img {
+                images.push(MdElement::Img {
                     src,
                     alt: attribute(tag, "alt").unwrap_or_default(),
                     title: attribute(tag, "title"),
@@ -685,9 +685,9 @@ impl Builder {
                     && self.links_open == 0
                     && paths::names_whole_path(&code) =>
             {
-                self.push(Piece::Node(paths::path(&code, true)));
+                self.push(Piece::MdNode(paths::path(&code, true)));
             }
-            Event::Code(code) => self.push_element(Element::Code {
+            Event::Code(code) => self.push_element(MdElement::Code {
                 v: code.into_string(),
             }),
             Event::InlineMath(math) | Event::DisplayMath(math) => self.push_text(&math),
@@ -696,7 +696,7 @@ impl Builder {
                 if self.options.html_as_text {
                     self.push(Piece::Typed(html.into_string()));
                 } else if self.options.html_layout && tag_name(&html.to_ascii_lowercase()) == "br" {
-                    self.push_element(Element::Br);
+                    self.push_element(MdElement::Br);
                 } else if self.options.html_images {
                     for image in self.html_images(&html) {
                         self.push_element(image);
@@ -705,11 +705,11 @@ impl Builder {
             }
             Event::FootnoteReference(label) => {
                 let n = self.footnote(&label);
-                self.push_element(Element::Fnref { n });
+                self.push_element(MdElement::Fnref { n });
             }
             Event::SoftBreak => self.push_text("\n"),
-            Event::HardBreak => self.push_element(Element::Br),
-            Event::Rule => self.push_element(Element::Hr),
+            Event::HardBreak => self.push_element(MdElement::Br),
+            Event::Rule => self.push_element(MdElement::Hr),
             Event::TaskListMarker(checked) => {
                 if let Some(Frame {
                     kind: Kind::Item(state),
@@ -793,41 +793,41 @@ impl Builder {
             return;
         };
         let element = match frame.kind {
-            Kind::Paragraph => Element::P {
+            Kind::Paragraph => MdElement::P {
                 c: self.children(frame.children),
             },
-            Kind::Heading(level) => Element::H {
+            Kind::Heading(level) => MdElement::H {
                 l: level,
                 c: self.children(frame.children),
             },
-            Kind::Quote => Element::Quote {
+            Kind::Quote => MdElement::Quote {
                 c: self.children(frame.children),
             },
-            Kind::List(Some(start)) => Element::Ol {
+            Kind::List(Some(start)) => MdElement::Ol {
                 start: (start != 1).then_some(start),
                 c: self.children(frame.children),
             },
-            Kind::List(None) => Element::Ul {
+            Kind::List(None) => MdElement::Ul {
                 c: self.children(frame.children),
             },
-            Kind::Item(checked) => Element::Li {
+            Kind::Item(checked) => MdElement::Li {
                 checked,
                 c: self.children(frame.children),
             },
-            Kind::FootnoteDefinition(n) => Element::Fndef {
+            Kind::FootnoteDefinition(n) => MdElement::Fndef {
                 n,
                 c: self.children(frame.children),
             },
-            Kind::Emphasis => Element::Em {
+            Kind::Emphasis => MdElement::Em {
                 c: self.children(frame.children),
             },
-            Kind::Strong => Element::Strong {
+            Kind::Strong => MdElement::Strong {
                 c: self.children(frame.children),
             },
-            Kind::Strikethrough => Element::Del {
+            Kind::Strikethrough => MdElement::Del {
                 c: self.children(frame.children),
             },
-            Kind::Link { href, title } => Element::A {
+            Kind::Link { href, title } => MdElement::A {
                 href,
                 title,
                 c: Self::nodes(frame.children, false, false),
@@ -835,13 +835,13 @@ impl Builder {
             Kind::Image { src, title } => {
                 let mut alt = String::new();
                 plain_text(&Self::nodes(frame.children, false, false), &mut alt);
-                Element::Img { src, alt, title }
+                MdElement::Img { src, alt, title }
             }
             Kind::Code { lang, mut text } => {
                 if !text.is_empty() && !text.ends_with('\n') {
                     text.push('\n');
                 }
-                Element::Pre { lang, v: text }
+                MdElement::Pre { lang, v: text }
             }
             Kind::Html(html) => {
                 if !self.options.html_as_text {
@@ -877,7 +877,7 @@ impl Builder {
                 }
                 return;
             }
-            Kind::Table { align, head, rows } => Element::Table { align, head, rows },
+            Kind::Table { align, head, rows } => MdElement::Table { align, head, rows },
             Kind::Details { .. } | Kind::Aligned(_) => return,
             Kind::Unsupported => {
                 for piece in frame.children {

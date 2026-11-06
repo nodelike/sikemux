@@ -31,7 +31,7 @@ pub(crate) struct Queued {
 
 /// A message as the person wrote it.
 #[derive(Serialize, Deserialize)]
-pub struct Message {
+pub struct QueuedMessageParams {
     pub text: String,
     #[serde(default)]
     pub paths: Vec<String>,
@@ -146,7 +146,7 @@ pub(crate) async fn steer(
     core: &Arc<Core>,
     agent_id: &str,
     ids: Vec<String>,
-    message: Option<Message>,
+    message: Option<QueuedMessageParams>,
 ) -> CoreResult<()> {
     let chat = core.chats.running(agent_id)?;
     let message = match message {

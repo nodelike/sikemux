@@ -16,7 +16,7 @@ use super::super::{Core, CoreResult};
 use super::calls::{self as asks, params_of, HostAsk};
 use super::code::{self, Code, Opened};
 use super::link::{Answer, Received};
-use super::{ask, find, LinkedHost};
+use super::{ask, find, StoredLink};
 
 /// Long enough to clone a large repository, or to take one from a bundle.
 const OPEN_WAIT: Duration = Duration::from_secs(10 * 60);
@@ -40,7 +40,7 @@ pub(crate) async fn open_on(core: &Arc<Core>, params: OpenOnParams) -> CoreResul
 /// how the uncommitted changes went.
 pub(crate) async fn open_there(
     core: &Arc<Core>,
-    link: &LinkedHost,
+    link: &StoredLink,
     path: PathBuf,
     uncommitted: bool,
 ) -> CoreResult<Value> {

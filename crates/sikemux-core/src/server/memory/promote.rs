@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use sikemux_process::sync::Locked;
-use sikemux_view::memory::{MemoryView, Rule, Stays};
+use sikemux_view::memory::{MemoryRule, MemoryView, Stays};
 
 use super::{project_at, run, tell_clients, view, Core, MemoryEntryParams};
 use crate::server::access::Peer;
@@ -138,7 +138,7 @@ pub(super) fn agents_file(folder: &str) -> Result<PathBuf, Stays> {
 }
 
 /// Why `rule`, kept for a folder whose AGENTS.md is `file`, cannot move there.
-pub(super) fn stays(rule: &Rule, file: &Result<PathBuf, Stays>) -> Option<Stays> {
+pub(super) fn stays(rule: &MemoryRule, file: &Result<PathBuf, Stays>) -> Option<Stays> {
     if rule.sensitive {
         return Some(Stays::Sensitive);
     }

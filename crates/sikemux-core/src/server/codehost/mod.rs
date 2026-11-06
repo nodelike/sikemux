@@ -24,7 +24,7 @@ pub(crate) mod repo;
 
 use super::changed::Topic;
 use super::connection::ClientId;
-use super::plugins::{Category, Failure, Outcome as Answer};
+use super::plugins::{FailureCategory, PluginFailure, PluginOutcome as Answer};
 use super::shown_cache::{self, ShownCache, Shows};
 use super::workspace::project_of;
 use super::Core;
@@ -84,7 +84,7 @@ struct Read {
 }
 
 impl Read {
-    fn of(repo: &Repo, list: impl Serialize, fresh: Duration) -> Result<Self, Failure> {
+    fn of(repo: &Repo, list: impl Serialize, fresh: Duration) -> Result<Self, PluginFailure> {
         Ok(Self {
             answer: shaped(repo, list)?,
             fresh,
@@ -129,7 +129,7 @@ impl Shows for Listed {
         FRESH
     }
 
-    async fn read(_: Arc<Core>, key: Key, repo: Repo) -> Result<(Value, Duration), Failure> {
+    async fn read(_: Arc<Core>, key: Key, repo: Repo) -> Result<(Value, Duration), PluginFailure> {
         let read = read(&repo, &key.list).await?;
         Ok((read.answer, read.fresh))
     }
@@ -158,13 +158,13 @@ impl Shows for Listed {
     }
 }
 
-fn listed_state(state: Option<String>) -> Result<String, Failure> {
+fn listed_state(state: Option<String>) -> Result<String, PluginFailure> {
     let state = state.unwrap_or_else(|| "open".to_owned());
     match state.as_str() {
         "open" | "closed" | "all" => Ok(state),
-        _ => Err(Failure::new(
+        _ => Err(PluginFailure::new(
             "codehost",
-            Category::Invalid,
+            FailureCategory::Invalid,
             format!("{state} is not open, closed or all"),
         )),
     }
@@ -177,7 +177,7 @@ pub(crate) struct PullsParams {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct ReleasesParams {
+pub struct CodeHostProjectParams {
     pub project: String,
 }
 
@@ -188,7 +188,11 @@ pub(crate) async fn pulls(core: &Arc<Core>, client: ClientId, params: PullsParam
     }
 }
 
-pub(crate) async fn tracked(core: &Arc<Core>, client: ClientId, params: ReleasesParams) -> Answer {
+pub(crate) async fn tracked(
+    core: &Arc<Core>,
+    client: ClientId,
+    params: CodeHostProjectParams,
+) -> Answer {
     answered(core, client, params.project, List::Tracked).await
 }
 
@@ -218,7 +222,7 @@ async fn answered(core: &Arc<Core>, client: ClientId, project: String, list: Lis
 }
 
 /// The repository the project at `project` shows, worked out again once a minute.
-async fn repo_of(core: &Arc<Core>, project: &str) -> Result<Repo, Failure> {
+async fn repo_of(core: &Arc<Core>, project: &str) -> Result<Repo, PluginFailure> {
     let found = core
         .code_host_lists
         .state
@@ -332,29 +336,34 @@ pub(crate) fn refs_moved(core: &Arc<Core>, projects: &[String]) {
     shown_cache::read_again::<Listed>(core, keys);
 }
 
-async fn read(repo: &Repo, list: &List) -> Result<Read, Failure> {
+async fn read(repo: &Repo, list: &List) -> Result<Read, PluginFailure> {
     match list {
         List::Pulls { state } => Read::of(repo, pull_list(repo, state).await?, FRESH),
         List::Tracked => Read::of(repo, tracked_list(repo).await?, FRESH),
     }
 }
 
-fn shaped(repo: &Repo, list: impl Serialize) -> Result<Value, Failure> {
-    serde_json::to_value(list)
-        .map_err(|error| Failure::new(&repo.id().to_string(), Category::Invalid, error.to_string()))
+fn shaped(repo: &Repo, list: impl Serialize) -> Result<Value, PluginFailure> {
+    serde_json::to_value(list).map_err(|error| {
+        PluginFailure::new(
+            &repo.id().to_string(),
+            FailureCategory::Invalid,
+            error.to_string(),
+        )
+    })
 }
 
-fn typed<T: DeserializeOwned>(repo: &Repo, found: Value) -> Result<T, Failure> {
+fn typed<T: DeserializeOwned>(repo: &Repo, found: Value) -> Result<T, PluginFailure> {
     serde_json::from_value(found).map_err(|error| {
-        Failure::new(
+        PluginFailure::new(
             &repo.id().to_string(),
-            Category::Invalid,
+            FailureCategory::Invalid,
             format!("the code host answered in an unknown shape: {error}"),
         )
     })
 }
 
-async fn pull_list(repo: &Repo, state: &str) -> Result<PullList, Failure> {
+async fn pull_list(repo: &Repo, state: &str) -> Result<PullList, PluginFailure> {
     let pulls: Vec<Pull> = typed(repo, repo.call("pulls", json!({ "state": state })).await?)?;
     let pulls = pulls
         .into_iter()
@@ -374,7 +383,7 @@ const CONTEXT_COMMENT: usize = 2_000;
 const CONTEXT_COMMENTS: usize = 5;
 
 #[derive(Serialize, Deserialize)]
-pub struct TrackedParams {
+pub struct TrackedContextParams {
     pub project: String,
     pub kind: TrackedKind,
     pub number: u64,
@@ -382,7 +391,7 @@ pub struct TrackedParams {
 
 /// The `codeHostTrackedContext` call: an issue or pull request as context an
 /// agent can work from, `{uri, title, text}`.
-pub(crate) async fn tracked_context(core: &Arc<Core>, params: TrackedParams) -> Answer {
+pub(crate) async fn tracked_context(core: &Arc<Core>, params: TrackedContextParams) -> Answer {
     let project = project_of(Path::new(&params.project), &core.workspaces.project_paths());
     let repo = match repo_of(core, &project).await {
         Ok(repo) => repo,
@@ -394,7 +403,7 @@ pub(crate) async fn tracked_context(core: &Arc<Core>, params: TrackedParams) -> 
     }
 }
 
-async fn context_of(repo: &Repo, kind: TrackedKind, number: u64) -> Result<Value, Failure> {
+async fn context_of(repo: &Repo, kind: TrackedKind, number: u64) -> Result<Value, PluginFailure> {
     let method = match kind {
         TrackedKind::Issue => "issue",
         TrackedKind::Pull => "pull",
@@ -524,7 +533,7 @@ fn own_branch(pull: &Pull, owner: &str) -> bool {
 
 /// The open issues and pull requests together, newest first. A host that
 /// lists pull requests among its issues has each kept once, as a pull request.
-async fn tracked_list(repo: &Repo) -> Result<Vec<TrackedItem>, Failure> {
+async fn tracked_list(repo: &Repo) -> Result<Vec<TrackedItem>, PluginFailure> {
     let (pulls, issues) = tokio::join!(
         repo.call("pulls", json!({ "state": "open" })),
         repo.call("issues", json!({ "state": "open", "page": 1 })),

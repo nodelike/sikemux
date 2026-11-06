@@ -43,7 +43,7 @@ pub fn install(cx: &mut App) {
 
 /// The question while a phone or host waits: the access a phone would get, the hosts asking to
 /// link, and the requests already told of.
-pub struct Pairing {
+pub struct RemotePairing {
     access: DeviceAccess,
     links: Vec<PendingDevice>,
     /// The phones on the account this host has not paired, asked about once after signing in.
@@ -53,7 +53,7 @@ pub struct Pairing {
     focus: FocusHandle,
 }
 
-impl Pairing {
+impl RemotePairing {
     pub fn new(cx: &mut App) -> Self {
         Self {
             access: DeviceAccess::Full,
@@ -236,7 +236,7 @@ pub fn offer_account_phones(bench: &mut Workbench, cx: &mut Context<Workbench>) 
 
 /// Hears what the core says of phones waiting, and reads again which hosts ask to link.
 pub fn remote_moved(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let asked = Target::here(&bench.asks).request_typed::<call::Pairing>(NoParams {});
+    let asked = Target::here(&bench.asks).request_typed::<call::RemotePairing>(NoParams {});
     cx.spawn(async move |bench, cx| {
         let Ok(pairing) = asked.await else {
             return;

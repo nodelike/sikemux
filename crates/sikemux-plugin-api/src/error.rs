@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 /// while the words in a failure's message may change.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Category {
+pub enum FailureCategory {
     /// Not signed in.
     Unconfigured,
     /// The service turned the sign-in down, so signing in again is what helps.
@@ -41,7 +41,7 @@ pub enum Category {
     Own(String),
 }
 
-impl Category {
+impl FailureCategory {
     pub fn own(name: &str) -> Self {
         Self::Own(name.to_owned())
     }
@@ -51,14 +51,14 @@ impl Category {
 /// puts the human-readable detail in `message`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct PluginError {
-    pub category: Category,
+    pub category: FailureCategory,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<u16>,
 }
 
 impl PluginError {
-    pub fn new(category: Category, message: impl Into<String>) -> Self {
+    pub fn new(category: FailureCategory, message: impl Into<String>) -> Self {
         Self {
             category,
             message: message.into(),
@@ -74,29 +74,32 @@ impl PluginError {
     /// Signed in, but this account may not do that. A client keeps the person
     /// signed in, unlike category `auth` or `http` with status 401.
     pub fn forbidden(message: impl Into<String>) -> Self {
-        Self::new(Category::Forbidden, message).with_status(403)
+        Self::new(FailureCategory::Forbidden, message).with_status(403)
     }
 
     pub fn http(status: u16, message: impl Into<String>) -> Self {
         if status == 403 {
             return Self::forbidden(message);
         }
-        Self::new(Category::Http, message).with_status(status)
+        Self::new(FailureCategory::Http, message).with_status(status)
     }
 
     pub fn unknown_method(method: &str) -> Self {
         Self::new(
-            Category::UnknownMethod,
+            FailureCategory::UnknownMethod,
             format!("no method named `{method}`"),
         )
     }
 
     pub fn bad_params(message: impl Into<String>) -> Self {
-        Self::new(Category::BadParams, message)
+        Self::new(FailureCategory::BadParams, message)
     }
 
     pub fn stream_closed() -> Self {
-        Self::new(Category::StreamClosed, "nobody is listening to this stream")
+        Self::new(
+            FailureCategory::StreamClosed,
+            "nobody is listening to this stream",
+        )
     }
 }
 

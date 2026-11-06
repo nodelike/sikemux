@@ -10,7 +10,7 @@ pub(crate) fn working_slice(board: &Board, agent: &str) -> Option<u64> {
         None => (board.cards.iter())
             .find(|slice| (slice.slice.as_ref()).is_some_and(|slice| slice.fix == Some(card.id)))?,
     };
-    (slice.status == Status::Progress && slice.owner_id() == Some(agent)).then_some(slice.id)
+    (slice.status == CardStatus::Progress && slice.owner_id() == Some(agent)).then_some(slice.id)
 }
 
 /// The owner's work on the slice it works now moved on to `head`. The slice's id.
@@ -74,7 +74,7 @@ pub(crate) fn file_fix(core: &Core, board: &mut Board, id: u64, sha: &str) -> Op
     let (owner, label) = (slice.owner_id()?.to_owned(), slice.label());
     let open = (slice.slice.as_ref()?.fix)
         .and_then(|fix| board.card(fix).ok())
-        .filter(|fix| fix.status != Status::Done)
+        .filter(|fix| fix.status != CardStatus::Done)
         .map(|fix| fix.id);
     let failed = format!(
         "The project's check failed on {}, the latest commit of {label}.",
@@ -181,7 +181,7 @@ fn lost(core: &Arc<Core>, project: &str) {
         board
             .cards
             .iter()
-            .filter(|card| card.status == Status::Progress)
+            .filter(|card| card.status == CardStatus::Progress)
             .filter_map(|card| {
                 let work = card.slice.as_ref()?.work.as_ref()?;
                 let owner = card.owner_id()?;
@@ -327,7 +327,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
                 let mut touched = Vec::new();
                 if let Some(board) = boards.get_mut(&project) {
                     let checking: Vec<u64> = (board.cards.iter())
-                        .filter(|card| card.status == Status::Progress && card.slice.is_some())
+                        .filter(|card| card.status == CardStatus::Progress && card.slice.is_some())
                         .map(|card| card.id)
                         .collect();
                     let mut refusals = Vec::new();

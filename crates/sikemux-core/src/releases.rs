@@ -81,11 +81,11 @@ struct Account {
 
 #[derive(Deserialize)]
 struct CommitDetail {
-    author: Option<CommitAuthor>,
+    author: Option<ReleaseCommitAuthor>,
 }
 
 #[derive(Deserialize)]
-struct CommitAuthor {
+struct ReleaseCommitAuthor {
     name: String,
 }
 

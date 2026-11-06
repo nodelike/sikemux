@@ -8,11 +8,11 @@ use gpui_kit::{
     div, px, AnyElement, AppContext, Context, Entity, IntoElement, ParentElement, SharedString,
     Styled, Window,
 };
+use sikemux_core::server::board::BoardProposalParams;
+use sikemux_core::server::board::BoardSettingsParams;
 use sikemux_core::server::board::Environment;
 use sikemux_core::server::board::Passes as EnvironmentPasses;
-use sikemux_core::server::board::ProposalParams as BoardProposalParams;
 use sikemux_core::server::board::Recognise as EnvironmentRecognise;
-use sikemux_core::server::board::SettingsParams as BoardSettingsParams;
 use sikemux_core::server::call;
 
 use super::goal::quiet_section;

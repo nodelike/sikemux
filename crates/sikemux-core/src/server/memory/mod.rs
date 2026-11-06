@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use sikemux_view::memory::{
-    FolderMemory, Knowledge, Learned, ListedRule, MemoryCheck, MemoryView, Rule, Seeding, Stale,
+    FolderMemory, Knowledge, Learned, ListedRule, MemoryCheck, MemoryRule, MemoryView, Seeding,
+    Stale,
 };
 
 use super::access::Peer;
@@ -53,7 +54,7 @@ const MAX_CHECK_CHARS: usize = 1000;
 struct Held {
     folder: String,
     next: u64,
-    rules: Vec<Rule>,
+    rules: Vec<MemoryRule>,
     knowledge: Vec<Knowledge>,
     /// The search of a project's past sessions for rules, kept on the
     /// project's own folder.
@@ -329,7 +330,7 @@ fn add(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<u
         .ok_or("the folder went while it was being written to")?;
     match new {
         NewMemory::Rule { sensitive, .. } => {
-            held.rules.push(Rule {
+            held.rules.push(MemoryRule {
                 id,
                 text,
                 sensitive,
@@ -618,7 +619,7 @@ fn params<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, String> {
     deny_unknown_fields
 )]
 enum ToolAdd {
-    Rule {
+    MemoryRule {
         text: String,
         #[serde(default)]
         goal: bool,
@@ -671,7 +672,7 @@ pub(crate) async fn tool_add(core: &Arc<Core>, request: &HarnessRequest) -> Resu
     let core = core.clone();
     run(move || {
         let new = match adding {
-            ToolAdd::Rule {
+            ToolAdd::MemoryRule {
                 text,
                 goal,
                 sensitive,

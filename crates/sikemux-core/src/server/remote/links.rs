@@ -13,7 +13,7 @@ impl Remote {
             .collect()
     }
 
-    pub(crate) fn links(&self) -> Vec<LinkedHost> {
+    pub(crate) fn links(&self) -> Vec<StoredLink> {
         let inner = self.inner.locked();
         if !inner.stored.enabled {
             return Vec::new();
@@ -22,7 +22,7 @@ impl Remote {
     }
 
     /// The linked host with this key, while remote access is on.
-    pub(crate) fn link(&self, id: &str) -> Option<LinkedHost> {
+    pub(crate) fn link(&self, id: &str) -> Option<StoredLink> {
         let inner = self.inner.locked();
         if !inner.stored.enabled {
             return None;
@@ -69,7 +69,7 @@ impl Remote {
     }
 
     /// Keeps a host this one is now linked with, replacing what it knew of it.
-    pub(crate) fn add_link(&self, link: LinkedHost) -> CoreResult<()> {
+    pub(crate) fn add_link(&self, link: StoredLink) -> CoreResult<()> {
         self.change(|stored| {
             stored.forget(&link.id);
             stored.links.push(link);

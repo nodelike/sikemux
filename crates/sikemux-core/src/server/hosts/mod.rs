@@ -41,7 +41,7 @@ use tokio::sync::Semaphore;
 
 use super::changed::Topic;
 use super::kept::Kept;
-use super::remote::{self, LinkedHost};
+use super::remote::{self, StoredLink};
 use super::wake::{sooner, Wake};
 use super::{Core, CoreError, CoreResult};
 use crate::backoff::Backoff;
@@ -198,7 +198,7 @@ impl Hosts {
 /// A linked host as Settings and phones list it.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LinkView {
+pub struct LinkedHost {
     pub id: String,
     pub name: String,
     pub platform: String,
@@ -209,12 +209,12 @@ pub struct LinkView {
     pub agents: usize,
 }
 
-pub(crate) fn views(core: &Core) -> Vec<LinkView> {
+pub(crate) fn views(core: &Core) -> Vec<LinkedHost> {
     let team = core.hosts.team.all();
     core.remote
         .links()
         .into_iter()
-        .map(|link| LinkView {
+        .map(|link| LinkedHost {
             connected: core.hosts.connected(&link.id).is_some(),
             agents: team.iter().filter(|agent| agent.host == link.id).count(),
             id: link.id,
@@ -227,10 +227,10 @@ pub(crate) fn views(core: &Core) -> Vec<LinkView> {
 }
 
 /// The linked host an agent names, by the name this host gives it or its key.
-pub(crate) fn find(core: &Core, wanted: &str) -> Result<LinkedHost, String> {
+pub(crate) fn find(core: &Core, wanted: &str) -> Result<StoredLink, String> {
     let links = core.remote.links();
     let wanted = wanted.trim();
-    let matching: Vec<&LinkedHost> = links
+    let matching: Vec<&StoredLink> = links
         .iter()
         .filter(|link| link.name.eq_ignore_ascii_case(wanted) || link.id == wanted)
         .collect();

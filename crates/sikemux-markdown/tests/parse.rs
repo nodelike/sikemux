@@ -1,9 +1,9 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing, clippy::string_slice)]
 
 use serde_json::{json, Value};
-use sikemux_markdown::{parse, Options};
+use sikemux_markdown::{parse, MarkdownOptions};
 
-const CHAT: Options = Options {
+const CHAT: MarkdownOptions = MarkdownOptions {
     gfm: true,
     html_as_text: false,
     file_links: true,
@@ -13,7 +13,7 @@ const CHAT: Options = Options {
     file_paths: false,
 };
 
-fn blocks(text: &str, options: Options) -> Value {
+fn blocks(text: &str, options: MarkdownOptions) -> Value {
     serde_json::to_value(parse(text, options, 0)).unwrap()
 }
 
@@ -184,9 +184,9 @@ fn links_that_could_run_code_are_emptied() {
 fn local_file_links_survive_only_in_the_chat() {
     let text = "[shot](file:///Users/me/a.png)";
     assert_eq!(chat(text)[0]["c"][0]["href"], "file:///Users/me/a.png");
-    let preview = Options {
+    let preview = MarkdownOptions {
         gfm: true,
-        ..Options::default()
+        ..MarkdownOptions::default()
     };
     assert_eq!(blocks(text, preview)[0]["c"][0]["href"], "");
 }
@@ -195,7 +195,7 @@ fn local_file_links_survive_only_in_the_chat() {
 fn markup_is_dropped_unless_it_was_typed() {
     let text = "a <b>bold</b> c\n\n<div>\nblock\n</div>";
     assert_eq!(chat(text), json!([{"t": "p", "c": ["a bold c"]}]));
-    let typed = Options {
+    let typed = MarkdownOptions {
         html_as_text: true,
         ..CHAT
     };
@@ -211,7 +211,7 @@ fn markup_is_dropped_unless_it_was_typed() {
 #[test]
 fn an_uploaded_picture_survives_when_asked_for() {
     let text = "<img width=\"92\" alt=\"A shot\" src=\"https://github.com/user-attachments/assets/1\" />\r\n\r\nUse theme colours, <img src='https://a.dev/2.png'> here.";
-    let prose = Options {
+    let prose = MarkdownOptions {
         html_images: true,
         ..CHAT
     };
@@ -230,7 +230,7 @@ fn an_uploaded_picture_survives_when_asked_for() {
 
 #[test]
 fn a_picture_in_markup_keeps_to_safe_addresses() {
-    let prose = Options {
+    let prose = MarkdownOptions {
         html_images: true,
         ..CHAT
     };
@@ -242,7 +242,7 @@ fn a_picture_in_markup_keeps_to_safe_addresses() {
 
 #[test]
 fn typed_markup_is_never_read_as_an_address() {
-    let typed = Options {
+    let typed = MarkdownOptions {
         html_as_text: true,
         ..CHAT
     };
@@ -260,7 +260,7 @@ fn typed_markup_is_never_read_as_an_address() {
 fn plain_commonmark_has_no_tables_strikes_or_bare_links() {
     let text = "| a |\n|---|\n\n~~x~~ https://a.dev";
     assert_eq!(
-        blocks(text, Options::default()),
+        blocks(text, MarkdownOptions::default()),
         json!([
             {"t": "p", "c": ["| a |\n|---|"]},
             {"t": "p", "c": ["~~x~~ https://a.dev"]},

@@ -10,7 +10,7 @@ use std::collections::{HashMap, VecDeque};
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::slice::{CheckRun, Verdict, Wait, WaitOn};
 
-use super::{eta, Board, Card, State, Status};
+use super::{eta, Board, Card, CardStatus, State};
 use crate::server::notify::GoalMoved;
 use crate::server::Core;
 
@@ -101,7 +101,7 @@ fn wait(on: WaitOn, since: u64, ends: Option<u64>, now: u64) -> Wait {
 }
 
 pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wait> {
-    if card.status == Status::Done {
+    if card.status == CardStatus::Done {
         return None;
     }
     let slice = card.slice.as_ref()?;

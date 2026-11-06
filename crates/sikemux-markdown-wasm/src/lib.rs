@@ -4,12 +4,12 @@
 //! gives both back with `give`.
 
 use serde::Deserialize;
-use sikemux_markdown::{parse as read, Options};
+use sikemux_markdown::{parse as read, MarkdownOptions};
 
 #[derive(Deserialize)]
 struct Request {
     text: String,
-    options: Options,
+    options: MarkdownOptions,
     skip: usize,
 }
 

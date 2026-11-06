@@ -17,7 +17,7 @@ use sikemux_view::inbox::{Inbox, InboxItem, InboxKind, InboxNeed};
 use sikemux_view::slice::{Passer, SliceState, WaitOn};
 use sikemux_wire::protocol::SessionId;
 
-use super::board::{self, BoardView, CardView, Column};
+use super::board::{self, BoardCard, BoardColumn, ProjectBoard};
 use super::changed::Topic;
 use super::connection::ClientId;
 use super::{inbox, Core};
@@ -193,8 +193,8 @@ pub(super) fn view(core: &Core) -> GoalsView {
 /// A goal's row while the view is put together, with what it was made from.
 struct Placed<'a> {
     row: GoalRow,
-    goal: &'a CardView,
-    board: &'a BoardView,
+    goal: &'a BoardCard,
+    board: &'a ProjectBoard,
 }
 
 impl Placed<'_> {
@@ -305,15 +305,15 @@ fn helpers_of(core: &Core) -> HashMap<String, Vec<String>> {
 /// The open agents working `goal`, its lead first: who holds it or a card under it and whom they
 /// started; and for each one that holds a slice, the slice's title.
 fn agents_of(
-    board: &BoardView,
-    goal: &CardView,
+    board: &ProjectBoard,
+    goal: &BoardCard,
     helpers: &HashMap<String, Vec<String>>,
     open: &HashSet<&str>,
 ) -> (Vec<String>, Vec<(String, String)>) {
     let parents: HashMap<u64, Option<u64>> = (board.cards.iter())
         .map(|card| (card.id, card.parent))
         .collect();
-    let under_goal = |card: &CardView| {
+    let under_goal = |card: &BoardCard| {
         let mut at = Some(card.id);
         while let Some(id) = at {
             if id == goal.id {
@@ -332,7 +332,7 @@ fn agents_of(
         if !agents.contains(owner) {
             agents.push(owner.clone());
         }
-        if card.slice.is_some() && card.column != Column::Done {
+        if card.slice.is_some() && card.column != BoardColumn::Done {
             owned.push((owner.clone(), card.title.clone()));
         }
     }
@@ -349,11 +349,11 @@ fn agents_of(
     (agents, owned)
 }
 
-fn state_of(goal: &CardView) -> SliceState {
+fn state_of(goal: &BoardCard) -> SliceState {
     goal.goal_state.unwrap_or(SliceState::Waiting)
 }
 
-fn slices_of(board: &BoardView, goal: &CardView) -> Vec<GoalSlice> {
+fn slices_of(board: &ProjectBoard, goal: &BoardCard) -> Vec<GoalSlice> {
     (board.cards.iter())
         .filter(|card| goal.goal_slices.contains(&card.id))
         .filter_map(|card| {

@@ -22,7 +22,7 @@ pub struct Learned {
 /// How agents must work here, such as "shadows, never glows".
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Rule {
+pub struct MemoryRule {
     /// The same for as long as it is kept, and never given to another.
     pub id: u64,
     pub text: String,
@@ -115,7 +115,7 @@ pub enum Stale {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListedRule {
-    pub rule: Rule,
+    pub rule: MemoryRule,
     /// Why it cannot move into AGENTS.md; none when it can.
     #[serde(default)]
     pub stays: Option<Stays>,

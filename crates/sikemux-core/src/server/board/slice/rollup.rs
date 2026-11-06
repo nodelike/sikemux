@@ -6,7 +6,7 @@ use super::*;
 /// or another agent takes one up.
 pub(crate) fn goal_stalled(board: &Board, goal: &Card) -> bool {
     let mut left = (board.held_by_goal(goal).into_iter())
-        .filter(|card| card.status != Status::Done)
+        .filter(|card| card.status != CardStatus::Done)
         .filter_map(|card| card.slice.as_ref())
         .peekable();
     left.peek().is_some() && left.all(|slice| slice.stalled.is_some())

@@ -8,7 +8,7 @@ use gpui_kit::{
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use sikemux_core::server::board::PassParams as BoardPassParams;
+use sikemux_core::server::board::BoardPassParams;
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::ship::HoldParams;
 use sikemux_view::inbox::{InboxItem, InboxKind};

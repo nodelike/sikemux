@@ -13,8 +13,8 @@ use std::time::Duration;
 
 use gpui_kit::{div, AnyElement, App, Context, Focusable, IntoElement, SharedString, Task, Window};
 use serde_json::json;
-use sikemux_core::server::board::AddParams as BoardAddParams;
-use sikemux_core::server::board::HandOffParams as BoardHandOffParams;
+use sikemux_core::server::board::BoardAddParams;
+use sikemux_core::server::board::BoardHandOffParams;
 use sikemux_core::server::call;
 use sikemux_core::server::triage::TriageParams;
 use sikemux_view::start::{Because, HardFact, StartMode};

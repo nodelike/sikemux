@@ -301,7 +301,10 @@ mod tests {
             .call(&ctx, "branches", json!({ "owner": "a", "name": "b" }))
             .await
             .expect_err("signed out");
-        assert_eq!(error.category, sikemux_plugin_api::Category::Unconfigured);
+        assert_eq!(
+            error.category,
+            sikemux_plugin_api::FailureCategory::Unconfigured
+        );
         std::fs::remove_dir_all(dir).ok();
     }
 }

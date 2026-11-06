@@ -10,7 +10,7 @@ use gpui_kit::{
     Styled, Subscription, Window,
 };
 use sikemux_core::server::board::AssertParams as BoardAssertParams;
-use sikemux_core::server::board::CardView;
+use sikemux_core::server::board::BoardCard;
 use sikemux_core::server::call;
 use sikemux_view::slice::{Assertion, Collect, SliceView};
 
@@ -64,7 +64,7 @@ fn kind_icon(kind: &Collect) -> Icon {
 }
 
 /// The number an assertion goes by: its place in the goal's list.
-pub(super) fn number(goal: &CardView, assertion: u64) -> Option<usize> {
+pub(super) fn number(goal: &BoardCard, assertion: u64) -> Option<usize> {
     goal.assertions
         .iter()
         .position(|kept| kept.id == assertion)
@@ -72,7 +72,7 @@ pub(super) fn number(goal: &CardView, assertion: u64) -> Option<usize> {
 }
 
 /// The numbers of the assertions, as "1, 3".
-pub(super) fn numbers(goal: &CardView, assertions: &[u64]) -> Option<String> {
+pub(super) fn numbers(goal: &BoardCard, assertions: &[u64]) -> Option<String> {
     let listed: Vec<String> = assertions
         .iter()
         .filter_map(|id| number(goal, *id))
@@ -197,7 +197,7 @@ impl GoalsPane {
 /// The goal's assertions in force, a line each, and the line that adds one.
 pub(super) fn section_of(
     pane: &GoalsPane,
-    goal: &CardView,
+    goal: &BoardCard,
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
@@ -320,7 +320,7 @@ pub(super) fn section_of(
 /// The goal's assertions a slice fulfils, each ticked once its evidence held up, then quietly
 /// those it named that no longer stand on its goal, so the person sees what was freed.
 pub(super) fn ticks(
-    goal: &CardView,
+    goal: &BoardCard,
     slice: &SliceView,
     cx: &Context<GoalsPane>,
 ) -> Option<AnyElement> {

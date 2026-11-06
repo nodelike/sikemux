@@ -14,7 +14,7 @@ use sikemux_view::slice::{
 };
 
 use crate::agent_catalog::AgentKind;
-use crate::server::board::{self, BoardView, CardView};
+use crate::server::board::{self, BoardCard, ProjectBoard};
 use crate::server::edits::footer;
 use crate::server::edits::git;
 use crate::server::{saved, Core};
@@ -144,7 +144,7 @@ pub(super) fn fact(
     }
 }
 
-fn top_of<'a>(cards: &'a [CardView], card: &'a CardView) -> &'a CardView {
+fn top_of<'a>(cards: &'a [BoardCard], card: &'a BoardCard) -> &'a BoardCard {
     let steps = std::iter::successors(Some(card), |card| {
         (card.parent).and_then(|id| cards.iter().find(|above| above.id == id))
     });
@@ -152,7 +152,7 @@ fn top_of<'a>(cards: &'a [CardView], card: &'a CardView) -> &'a CardView {
 }
 
 /// The cards of goal `id`: its own, and those under it at any depth.
-fn family(cards: &[CardView], id: u64) -> Vec<&CardView> {
+fn family(cards: &[BoardCard], id: u64) -> Vec<&BoardCard> {
     (cards.iter())
         .filter(|card| top_of(cards, card).id == id)
         .collect()
@@ -160,7 +160,12 @@ fn family(cards: &[CardView], id: u64) -> Vec<&CardView> {
 
 /// The agents of a goal, the lead first: who holds its cards, who added it, then those the lead
 /// started. An agent counts until it took up another goal.
-fn workers(core: &Core, board: &BoardView, goal: &CardView, cards: &[&CardView]) -> Vec<Worker> {
+fn workers(
+    core: &Core,
+    board: &ProjectBoard,
+    goal: &BoardCard,
+    cards: &[&BoardCard],
+) -> Vec<Worker> {
     let mut workers: Vec<Worker> = Vec::new();
     let mut add = |id: &str, name: Option<String>, since: u64| {
         if let Some(worker) = workers.iter_mut().find(|worker| worker.id == id) {
@@ -566,7 +571,7 @@ fn evidence_key(evidence: &Evidence) -> String {
 
 /// What the core recorded of the goal's cards: evidence, gates passed, notes and results, with
 /// any evidence still failing as a gap.
-fn card_facts(cards: &[&CardView], moments: &mut Vec<Moment>, gaps: &mut Vec<(usize, String)>) {
+fn card_facts(cards: &[&BoardCard], moments: &mut Vec<Moment>, gaps: &mut Vec<(usize, String)>) {
     for card in cards {
         if let Some(result) = &card.result {
             moments.push(fact(
@@ -648,8 +653,8 @@ fn card_facts(cards: &[&CardView], moments: &mut Vec<Moment>, gaps: &mut Vec<(us
 /// assertion some slice has not met is a gap.
 fn goal_facts(
     core: &Core,
-    goal: &CardView,
-    cards: &[&CardView],
+    goal: &BoardCard,
+    cards: &[&BoardCard],
     moments: &mut Vec<Moment>,
     gaps: &mut Vec<(usize, String)>,
 ) {

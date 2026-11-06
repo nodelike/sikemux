@@ -11,7 +11,7 @@ pub(crate) const AUTO_MERGES: [Gate; 2] = [Gate::Built, Gate::Landed];
 /// The ladder a project gives its slices: one Auto merges itself leaves out
 /// Looks right, and its environments, when it has them, take the place of
 /// what follows Built.
-pub(crate) fn ladder_of(settings: &Settings, auto_merges: bool) -> Vec<Step> {
+pub(crate) fn ladder_of(settings: &BoardSettings, auto_merges: bool) -> Vec<Step> {
     if !settings.environments.is_empty() {
         return ladder_steps(settings.landing == Landing::Person, &settings.environments);
     }
@@ -55,7 +55,7 @@ pub(crate) fn rule(step: &Step) -> Rule<'_> {
 
 /// Who passes `step` in a project set as `settings`: the one table of who
 /// passes what. An environment it no longer has is the person's.
-pub(crate) fn passer(step: &Step, settings: &Settings) -> Passer {
+pub(crate) fn passer(step: &Step, settings: &BoardSettings) -> Passer {
     match step {
         Step::Gate(Gate::Built) => Passer::Owner,
         Step::Gate(Gate::LooksRight) => Passer::Person,
@@ -80,7 +80,7 @@ pub(crate) fn gate_key(step: &Step) -> &str {
 
 /// What `step` needs in a project set as `settings`: its rule's, and the
 /// check on top for an environment that goes once the check passes.
-pub(crate) fn needs_of(step: &Step, settings: &Settings) -> Vec<Need> {
+pub(crate) fn needs_of(step: &Step, settings: &BoardSettings) -> Vec<Need> {
     let mut needs = rule(step).needs.to_vec();
     if let Step::Environment(name) = step {
         if settings.passes(name) == Some(Passes::Check) {

@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
-use super::auto::{Hold, Stage};
+use super::auto::{RunHold, RunStage};
 use super::finish::{self, change_run, Step};
 use super::review::MAX_ROUNDS;
 use super::{git, Card, State};
@@ -85,7 +85,7 @@ pub(super) fn reviewed_card<'a>(
 
 fn reviews(card: &Card, agent_id: &str) -> bool {
     card.run().is_some_and(|run| {
-        run.stage == Stage::Reviewing
+        run.stage == RunStage::Reviewing
             && run
                 .reviewer
                 .as_ref()
@@ -135,7 +135,7 @@ fn task(card: &Card, cwd: &Path, head: &str, from: &str, diff: &str, cut: bool) 
 pub(super) async fn begin(core: &Arc<Core>, step: &Step, head: &str) {
     let agent = crate::server::names::new_agent_id();
     let placed = change_run(core, &step.project, step.id, step.agent(), |_, run| {
-        run.stage = Stage::Reviewing;
+        run.stage = RunStage::Reviewing;
         run.verdict = None;
         run.note = Some("Starting an agent on another CLI to review it".to_owned());
         run.reviewer = Some(Reviewer {
@@ -161,7 +161,7 @@ pub(super) async fn begin(core: &Arc<Core>, step: &Step, head: &str) {
             core,
             step,
             &agent,
-            Some(Hold::Unblock),
+            Some(RunHold::Unblock),
             format!("Its reviewer did not start: {why}"),
         ),
     }
@@ -169,7 +169,7 @@ pub(super) async fn begin(core: &Arc<Core>, step: &Step, head: &str) {
 
 /// Takes the reviewer `agent` off the card's run, which goes back to the
 /// person for `held`, or else waits for them on its pull request.
-fn unseat(core: &Arc<Core>, step: &Step, agent: &str, held: Option<Hold>, note: String) {
+fn unseat(core: &Arc<Core>, step: &Step, agent: &str, held: Option<RunHold>, note: String) {
     let mut gone = None;
     change_run(core, &step.project, step.id, step.agent(), |_, run| {
         if run
@@ -180,7 +180,7 @@ fn unseat(core: &Arc<Core>, step: &Step, agent: &str, held: Option<Hold>, note: 
             gone = run.reviewer.take();
         }
         if held.is_none() {
-            run.stage = Stage::Watching;
+            run.stage = RunStage::Watching;
         }
         run.held = held;
         run.note = Some(note);
@@ -341,7 +341,7 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
     if rounds >= MAX_ROUNDS {
         step.hold(
             core,
-            Hold::Unblock,
+            RunHold::Unblock,
             format!(
                 "A reviewer still asked for changes after {} fixed {MAX_ROUNDS} rounds of them:\n{}",
                 step.name(core),
@@ -486,7 +486,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) -> b
             _ => format!("{name} stopped running before it gave a verdict"),
         },
     };
-    finish::hold(core, &project, id, &builder, Hold::Unblock, why);
+    finish::hold(core, &project, id, &builder, RunHold::Unblock, why);
     true
 }
 

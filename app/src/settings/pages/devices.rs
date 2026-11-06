@@ -16,7 +16,7 @@ use gpui_kit::{
 use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::hosts::LinkView as HostLink;
+use sikemux_core::server::hosts::LinkedHost as HostLink;
 use sikemux_core::server::remote::ApprovalSetting;
 use sikemux_wire::accounts::protocol::RevokeReason;
 use sikemux_wire::protocol::{
@@ -69,7 +69,7 @@ fn change_fields<R>(
 pub fn read_links(bench: &Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let asked = core::Target::here(&asks).request_typed::<call::Pairing>(NoParams {});
+        let asked = core::Target::here(&asks).request_typed::<call::RemotePairing>(NoParams {});
         let Ok(pairing) = asked.await else {
             return;
         };

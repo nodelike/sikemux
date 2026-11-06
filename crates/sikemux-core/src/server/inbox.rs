@@ -21,7 +21,7 @@ use sikemux_wire::protocol::{
     AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, SessionInfo,
 };
 
-use super::board::{self, Hold, Summary, Waits};
+use super::board::{self, RunHold, Summary, Waits};
 use super::connection::blocking;
 use super::display;
 use super::notify::provider_name;
@@ -70,7 +70,7 @@ enum Case {
     ProposedEnvironments,
     PullRequest,
     /// Auto handed the card back, for the person to fix something or unblock it.
-    HandedBack(Hold),
+    HandedBack(RunHold),
     /// The slice's ticket was closed in its tracker with nothing of it
     /// landed, where the person lands slices.
     TicketDone,
@@ -119,10 +119,10 @@ impl Case {
             Case::Ship(_) => (InboxKind::Ship, Wants::Person(Decide)),
             Case::PullRequest => (InboxKind::PullRequest, Wants::Person(Decide)),
             Case::SeededRules => (InboxKind::SeededRules, Wants::Person(Decide)),
-            Case::HandedBack(Hold::Unblock) | Case::Stalled => {
+            Case::HandedBack(RunHold::Unblock) | Case::Stalled => {
                 (InboxKind::Held, Wants::Person(Unblock))
             }
-            Case::HandedBack(Hold::Fix)
+            Case::HandedBack(RunHold::Fix)
             | Case::Looping
             | Case::CheckFailing
             | Case::StaleMemory => (InboxKind::Held, Wants::Person(Fix)),

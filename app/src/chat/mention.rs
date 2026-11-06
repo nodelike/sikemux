@@ -16,11 +16,11 @@ use gpui_kit::{
     Window,
 };
 use sikemux_core::server::call;
-use sikemux_core::server::codehost::ReleasesParams;
-use sikemux_core::server::codehost::TrackedParams;
+use sikemux_core::server::codehost::CodeHostProjectParams;
+use sikemux_core::server::codehost::TrackedContextParams;
 use sikemux_core::server::names::ClosedAgentsParams;
-use sikemux_core::server::plugins::{Category, Outcome};
-use sikemux_core::server::saved::SearchParams;
+use sikemux_core::server::plugins::{FailureCategory, PluginOutcome};
+use sikemux_core::server::saved::SessionSearchParams;
 use sikemux_core::server::stash::ShownStashItem;
 use sikemux_plugin_api::codehost::{TrackedItem, TrackedKind};
 use sikemux_wire::protocol::{ChatContext, ProjectInfo};
@@ -409,19 +409,19 @@ impl Workbench {
         let host = project.code_host.as_ref()?.label.clone();
         let path = project.path.to_string_lossy().into_owned();
         let answer = (self.chat_target(agent))
-            .request_typed::<call::CodeHostTracked>(ReleasesParams { project: path });
+            .request_typed::<call::CodeHostTracked>(CodeHostProjectParams { project: path });
         let composing = self.composing_mut(agent)?;
         composing.tracked = Some(Tracked::Reading);
         let agent = agent.to_owned();
         Some(cx.spawn(async move |this, cx| {
             let tracked = match answer.await {
-                Ok(Outcome::Failed(failed)) if failed.category == Category::Auth => {
+                Ok(PluginOutcome::Failed(failed)) if failed.category == FailureCategory::Auth => {
                     Tracked::Failed(
                         format!("Sign in to {host} in the Git pane to pick from its issues").into(),
                     )
                 }
-                Ok(Outcome::Failed(failed)) => Tracked::Failed(failed.message.into()),
-                Ok(Outcome::Value(items)) => Tracked::Listed(
+                Ok(PluginOutcome::Failed(failed)) => Tracked::Failed(failed.message.into()),
+                Ok(PluginOutcome::Value(items)) => Tracked::Listed(
                     serde_json::from_value::<Vec<TrackedItem>>(items)
                         .unwrap_or_default()
                         .into(),
@@ -527,7 +527,7 @@ impl Workbench {
         });
         let wanted = needle.trim().to_lowercase();
         let search = (!wanted.is_empty()).then(|| {
-            let params = SearchParams {
+            let params = SessionSearchParams {
                 query: wanted.clone(),
                 projects: Some(vec![PathBuf::from(&cwd)]),
                 limit: Some(EARLIER_SHOWN),
@@ -720,15 +720,16 @@ impl Workbench {
         }
         if let (Choice::Tracked(item), Some(project)) = (&choice, &project) {
             let id = tracked_id(item);
-            let answer = target.request_typed::<call::CodeHostTrackedContext>(TrackedParams {
-                project: project.to_string_lossy().into_owned(),
-                kind: item.kind,
-                number: item.number,
-            });
+            let answer =
+                target.request_typed::<call::CodeHostTrackedContext>(TrackedContextParams {
+                    project: project.to_string_lossy().into_owned(),
+                    kind: item.kind,
+                    number: item.number,
+                });
             let agent = agent.to_owned();
             cx.spawn(async move |this, cx| {
                 let context = match answer.await {
-                    Ok(Outcome::Value(context)) => {
+                    Ok(PluginOutcome::Value(context)) => {
                         serde_json::from_value::<ChatContext>(context).ok()
                     }
                     _ => None,

@@ -16,7 +16,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::memory::Learned;
 use sikemux_view::slice::{Assertion, Collect, Decision, GoalRule};
 
-use super::{goal_of, project_at, project_view, Board, BoardView, GoalRef};
+use super::{goal_of, project_at, project_view, Board, GoalRef, ProjectBoard};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::Core;
@@ -524,7 +524,7 @@ pub struct DecideParams {
 pub(crate) async fn person_decide(
     core: &Arc<Core>,
     params: DecideParams,
-) -> Result<BoardView, String> {
+) -> Result<ProjectBoard, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;
@@ -626,7 +626,7 @@ pub struct AssertParams {
 pub(crate) async fn person_assert(
     core: &Arc<Core>,
     params: AssertParams,
-) -> Result<BoardView, String> {
+) -> Result<ProjectBoard, String> {
     let core = core.clone();
     blocking(move || {
         let project = project_at(&core, &params.project)?;

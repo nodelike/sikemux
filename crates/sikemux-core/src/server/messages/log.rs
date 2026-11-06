@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
 
-use super::Kind;
+use super::MessageKind;
 
 const FOLDER: &str = "agent-messages";
 const MAX_FILE_BYTES: u64 = 256 * 1024;
@@ -20,7 +20,7 @@ pub(crate) const MAX_READ: usize = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum Outcome {
+pub enum MessageOutcome {
     /// Taken into the turn the agent was working on.
     Steered,
     /// Started a turn of the agent's.
@@ -42,7 +42,7 @@ pub enum Outcome {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Entry {
+pub(crate) struct MessageEntry {
     pub at: u64,
     /// The sending agent's id, or a [`super::Sender`]'s; unknown for a message that came back
     /// unread.
@@ -52,11 +52,11 @@ pub(crate) struct Entry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub kind: Option<Kind>,
+    pub kind: Option<MessageKind>,
     pub to: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub to_name: Option<String>,
-    pub outcome: Outcome,
+    pub outcome: MessageOutcome,
 }
 
 pub(crate) struct MessageLog {
@@ -90,7 +90,7 @@ impl MessageLog {
         ))
     }
 
-    pub(crate) fn append(&self, project: &str, entry: &Entry) {
+    pub(crate) fn append(&self, project: &str, entry: &MessageEntry) {
         let Some((current, old)) = self.files(project) else {
             return;
         };
@@ -121,7 +121,7 @@ impl MessageLog {
     }
 
     /// The project's latest entries, newest first, at most `limit`.
-    pub(crate) fn read(&self, project: &str, limit: usize) -> Vec<Entry> {
+    pub(crate) fn read(&self, project: &str, limit: usize) -> Vec<MessageEntry> {
         let Some((current, old)) = self.files(project) else {
             return Vec::new();
         };
@@ -131,7 +131,7 @@ impl MessageLog {
             let Ok(file) = std::fs::File::open(path) else {
                 continue;
             };
-            let mut lines: Vec<Entry> = std::io::BufReader::new(file)
+            let mut lines: Vec<MessageEntry> = std::io::BufReader::new(file)
                 .lines()
                 .map_while(Result::ok)
                 .filter_map(|line| serde_json::from_str(&line).ok())
@@ -150,7 +150,7 @@ impl MessageLog {
 /// Whether a message still waits for its agent, or never reached it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum Tone {
+pub enum MessageTone {
     Held,
     Failed,
 }
@@ -158,7 +158,7 @@ pub enum Tone {
 /// One message between agents, from being sent to what last became of it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Row {
+pub struct MessageRow {
     pub sent_at: u64,
     pub at: u64,
     /// The sending agent's id, or a [`super::Sender`]'s.
@@ -168,24 +168,24 @@ pub struct Row {
     pub from_name: Option<String>,
     pub to: String,
     pub to_name: Option<String>,
-    pub kind: Option<Kind>,
-    pub outcome: Outcome,
+    pub kind: Option<MessageKind>,
+    pub outcome: MessageOutcome,
     /// It waited for its agent before it got where it is.
     pub waited: bool,
-    pub tone: Option<Tone>,
+    pub tone: Option<MessageTone>,
 }
 
-fn still_going(outcome: Outcome) -> bool {
+fn still_going(outcome: MessageOutcome) -> bool {
     matches!(
         outcome,
-        Outcome::Typed | Outcome::Waiting | Outcome::Returned
+        MessageOutcome::Typed | MessageOutcome::Waiting | MessageOutcome::Returned
     )
 }
 
-fn tone(outcome: Outcome) -> Option<Tone> {
+fn tone(outcome: MessageOutcome) -> Option<MessageTone> {
     match outcome {
-        Outcome::Waiting | Outcome::Returned => Some(Tone::Held),
-        Outcome::Refused | Outcome::Dropped => Some(Tone::Failed),
+        MessageOutcome::Waiting | MessageOutcome::Returned => Some(MessageTone::Held),
+        MessageOutcome::Refused | MessageOutcome::Dropped => Some(MessageTone::Failed),
         _ => None,
     }
 }
@@ -194,17 +194,20 @@ fn tone(outcome: Outcome) -> Option<Tone> {
 /// and again when one that waited is delivered, taken back or dropped; a later line
 /// belongs to the oldest message still waiting for the same agent from the same sender.
 /// `name_of` gives an open agent's name now, ahead of the one it was logged with.
-pub(crate) fn rows(entries: &[Entry], name_of: impl Fn(&str) -> Option<String>) -> Vec<Row> {
+pub(crate) fn rows(
+    entries: &[MessageEntry],
+    name_of: impl Fn(&str) -> Option<String>,
+) -> Vec<MessageRow> {
     let name = |id: Option<&str>, logged: &Option<String>| {
         let id = id.filter(|id| super::Sender::of(id).is_none())?;
         name_of(id).or_else(|| logged.clone())
     };
-    let mut rows: Vec<Row> = Vec::with_capacity(entries.len());
+    let mut rows: Vec<MessageRow> = Vec::with_capacity(entries.len());
     let mut going: Vec<usize> = Vec::new();
     for entry in entries.iter().rev() {
         let later = matches!(
             entry.outcome,
-            Outcome::Delivered | Outcome::Returned | Outcome::Dropped
+            MessageOutcome::Delivered | MessageOutcome::Returned | MessageOutcome::Dropped
         );
         let earlier = later
             .then(|| {
@@ -218,7 +221,7 @@ pub(crate) fn rows(entries: &[Entry], name_of: impl Fn(&str) -> Option<String>) 
             .flatten();
         if let Some(waiting) = earlier {
             let row = &mut rows[going[waiting]];
-            row.waited |= !matches!(row.outcome, Outcome::Typed);
+            row.waited |= !matches!(row.outcome, MessageOutcome::Typed);
             row.outcome = entry.outcome;
             row.tone = tone(entry.outcome);
             row.at = entry.at;
@@ -230,7 +233,7 @@ pub(crate) fn rows(entries: &[Entry], name_of: impl Fn(&str) -> Option<String>) 
         if still_going(entry.outcome) {
             going.push(rows.len());
         }
-        rows.push(Row {
+        rows.push(MessageRow {
             sent_at: entry.at,
             at: entry.at,
             from: entry.from.clone(),
