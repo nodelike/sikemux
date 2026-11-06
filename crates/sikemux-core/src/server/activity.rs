@@ -13,7 +13,9 @@ pub(crate) enum Activity<'a> {
     Started,
     Working,
     /// Its turn ended. One the person stopped is nothing new to them.
-    Finished { cancelled: bool },
+    Finished {
+        cancelled: bool,
+    },
     NeedsYou,
     /// It ran into a problem, and said this about it.
     Problem(&'a str),

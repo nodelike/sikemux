@@ -25,11 +25,15 @@ use crate::launch::{discovery, AgentSpec};
 pub enum AgentStatus {
     Missing,
     /// A binary was found but does not run.
-    Broken { reason: String },
+    Broken {
+        reason: String,
+    },
     SignedOut,
     /// Installed and signed in. `account` is the kind of sign-in when the CLI says, never who.
     #[serde(rename_all = "camelCase")]
-    Ready { account: Option<String> },
+    Ready {
+        account: Option<String>,
+    },
     /// The agent has no reliable way to say whether it is signed in.
     Unknown,
 }

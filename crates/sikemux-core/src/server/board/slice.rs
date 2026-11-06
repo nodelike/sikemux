@@ -1277,7 +1277,9 @@ pub(super) enum Checking {
     Command,
     /// Its CI runs on the project's branch as pushed; `pushed` says whether
     /// that holds the slice's head.
-    Ci { pushed: bool },
+    Ci {
+        pushed: bool,
+    },
 }
 
 /// What git and the project's files say of a slice, read before the board is locked.
