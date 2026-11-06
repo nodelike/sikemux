@@ -566,6 +566,18 @@ impl Names {
                 .any(|closed| closed.ran.session_id == session_id)
     }
 
+    /// The agents here that run or recently ran `session_id`.
+    pub(crate) fn agents_of_session(&self, session_id: &str) -> HashSet<String> {
+        let book = self.book.locked();
+        let open = (book.agents.iter())
+            .filter(|entry| entry.session_id.as_deref() == Some(session_id))
+            .map(|entry| entry.agent_id.clone());
+        let closed = (book.closed_sessions.iter())
+            .filter(|closed| closed.ran.session_id == session_id)
+            .map(|closed| closed.agent_id.clone());
+        open.chain(closed).collect()
+    }
+
     pub(crate) fn note_session(&self, agent_id: &str, session_id: &str) {
         let mut book = self.book.locked();
         let Some(entry) = book.entry_mut(agent_id) else {

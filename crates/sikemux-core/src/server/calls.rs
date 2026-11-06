@@ -215,7 +215,7 @@ calls! { core, client, method, params;
     "savedSessions": Full, any_program => answer(saved_sessions::list(parse(params)?).await?),
     "recentSessions": Full, any_program => answer(saved_sessions::recent(parse(params)?).await?),
     "renameSession": Owner => answer(saved_sessions::rename(parse(params)?).await?),
-    "deleteSession": Owner => answer(saved_sessions::delete(parse(params)?).await?),
+    "deleteSession": Owner => answer(saved_sessions::delete(&core, parse(params)?).await?),
     "renameRecent" RenameRecent (saved_sessions::RecentRenamed) -> (): Owner => saved_sessions::rename_recent(&core, params).await?,
     "deleteRecent" DeleteRecent (saved_sessions::RecentChat) -> (): Owner => saved_sessions::delete_recent(&core, params).await?,
     "relocateSession": Owner => answer(saved_sessions::relocate(parse(params)?).await?),

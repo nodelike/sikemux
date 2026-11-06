@@ -3,7 +3,9 @@
 //! the person was to review or that they were handed back, which the run's
 //! own stage and `held` say now; a run that was finished goes, leaving the
 //! card as it is. Version 2: where Auto finished, merging or stopping at a
-//! pull request, became who passes Landed, Sikemux or the person.
+//! pull request, became who passes Landed, Sikemux or the person. Version 3
+//! changes nothing here: `lease::clear_old_stalls` clears stalls once the core
+//! knows which chats are open, which a file can't say.
 
 use serde_json::Value;
 

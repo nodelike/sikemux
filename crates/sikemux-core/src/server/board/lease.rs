@@ -190,6 +190,61 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
     }
 }
 
+/// Lets go of each unfinished card of `projects` that `lost` picks: it stays on the board with its
+/// slice's work and gates, nobody's and on no team, so nothing asks the person or an agent about it.
+fn let_go(core: &Core, projects: Vec<String>, lost: impl Fn(&Card) -> bool) {
+    let now = epoch_ms();
+    let mut state = core.boards.state.locked();
+    for project in projects {
+        let Some(board) = state.boards.get_mut(&project) else {
+            continue;
+        };
+        let mut changed = false;
+        for card in &mut board.cards {
+            if card.status == CardStatus::Done || !lost(card) {
+                continue;
+            }
+            card.lose_owner(now);
+            card.team = None;
+            if let Some(slice) = &mut card.slice {
+                slice.stalled = None;
+            }
+            changed = true;
+        }
+        if changed {
+            core.boards.save(&mut state, &project);
+        }
+    }
+}
+
+/// A chat deleted for good can't be resumed, so the cards it held or lost stop waiting on it.
+pub(crate) fn session_deleted(core: &Core, session_id: &str) {
+    let agents = core.names.agents_of_session(session_id);
+    if agents.is_empty() {
+        return;
+    }
+    let projects = core.boards.state.locked().boards.keys().cloned().collect();
+    let_go(core, projects, |card| {
+        let closed_owner = || card.owner_id().filter(|_| holder(core, card).is_none());
+        match stalled_of(core, card) {
+            Some(stalled) => agents.contains(&stalled.agent),
+            None => closed_owner().is_some_and(|owner| agents.contains(owner)),
+        }
+    });
+}
+
+/// Lets go of the cards stalled on chats that closed before this version, once, as weeks-old
+/// chats may be long gone. Only a chat closing from now on asks the person about its card.
+pub(super) fn clear_old_stalls(core: &Core) {
+    let projects = std::mem::take(&mut core.boards.state.locked().old_stalls);
+    if projects.is_empty() {
+        return;
+    }
+    let_go(core, projects, |card| {
+        stalled_of(core, card).is_some_and(|stalled| !core.agent_now(&stalled.agent).open())
+    });
+}
+
 /// The stalled slice the person acts on, by the project it is on.
 async fn stalled_card(
     core: &Arc<Core>,

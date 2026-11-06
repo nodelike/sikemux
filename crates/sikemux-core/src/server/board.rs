@@ -40,7 +40,7 @@ mod finish;
 pub(crate) mod git;
 pub mod goal;
 mod hand_off;
-mod lease;
+pub(crate) mod lease;
 mod migrate;
 pub(crate) mod offers;
 mod page;
@@ -211,7 +211,7 @@ struct Card {
 
 /// Bumped by a change to what a board file holds that an earlier file needs
 /// carried over to, which `migrate` does.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -528,6 +528,8 @@ struct State {
     /// Projects whose slices wait on a CI workflow's verdict.
     workflows: workflows::Watches,
     commands: commands::Runs,
+    /// Boards from before version 3, whose stalls `lease::clear_old_stalls` is yet to clear.
+    old_stalls: Vec<String>,
 }
 
 /// What the core keeps about a card only while it runs, never saved. It goes
@@ -729,6 +731,9 @@ impl Boards {
         let mut state = State::default();
         let mut upgraded = Vec::new();
         for mut board in kept::load_all_upgraded::<Board>(folder.as_deref(), migrate::carry_over) {
+            if board.version < 3 {
+                state.old_stalls.push(board.project.clone());
+            }
             if board.version < VERSION {
                 board.version = VERSION;
                 upgraded.push(board.project.clone());
@@ -754,6 +759,7 @@ impl Boards {
                 boards.save(&mut state, &project);
             }
         }
+        boards.wake.now();
         boards
     }
 
@@ -3132,6 +3138,7 @@ pub(crate) async fn person_remove(
 /// cards' tickets on, and sends the window the boards that changed. Runs when
 /// a board or the agents change, and again when a run or ticket is next due.
 pub(crate) fn settle(core: &Arc<Core>) {
+    lease::clear_old_stalls(core);
     let mut next = offers::offer(core);
     finish::clear_dropped(core);
     next = sooner(next, lease::settle(core));
@@ -3237,5 +3244,67 @@ mod tests {
 
         let (view, _) = change_card(&core, PROJECT, &creator, id, done()).unwrap();
         assert_eq!(view["status"], "done");
+    }
+
+    fn claimed_card(core: &Arc<Core>, owner: &str) -> u64 {
+        let adding = Adding {
+            title: "Work".to_owned(),
+            ..Adding::default()
+        };
+        let creator = By::Agent("creator".to_owned());
+        let (id, _) = add_card(core, PROJECT, &creator, adding, None).unwrap();
+        core.names.pin(HashSet::from([owner.to_owned()]));
+        claim_card(core, PROJECT, owner, id).unwrap();
+        id
+    }
+
+    fn stalled_on(core: &Core, id: u64) -> Option<String> {
+        let state = core.boards.state.locked();
+        let card = state.boards[PROJECT].card(id).unwrap();
+        lease::stalled_of(core, card).map(|stalled| stalled.agent)
+    }
+
+    /// On 2026-11-06 the notch kept asking to resume a chat the person had deleted for good.
+    #[test]
+    fn a_deleted_chats_card_stops_asking_for_it() {
+        let core = Core::new(Default::default(), None).unwrap();
+        core.name_agent("owner", Path::new(PROJECT), Some("claude"), None);
+        core.names.note_session("owner", "deleted");
+        let id = claimed_card(&core, "owner");
+        core.names.pin(HashSet::new());
+        assert_eq!(stalled_on(&core, id).as_deref(), Some("owner"));
+
+        lease::session_deleted(&core, "another");
+        assert_eq!(stalled_on(&core, id).as_deref(), Some("owner"));
+
+        lease::session_deleted(&core, "deleted");
+        assert_eq!(stalled_on(&core, id), None);
+        let state = core.boards.state.locked();
+        let card = state.boards[PROJECT].card(id).unwrap();
+        assert_eq!(card.status, CardStatus::Open);
+        assert_eq!(card.owner_id(), None);
+    }
+
+    /// The same day, cards of chats closed weeks before all came up as stalled at once.
+    #[test]
+    fn stalls_from_before_are_cleared_once_and_later_ones_still_ask() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let old = claimed_card(&core, "gone");
+        let live = claimed_card(&core, "live");
+        core.names.pin(HashSet::from(["live".to_owned()]));
+        core.boards
+            .state
+            .locked()
+            .old_stalls
+            .push(PROJECT.to_owned());
+
+        lease::clear_old_stalls(&core);
+        assert_eq!(stalled_on(&core, old), None);
+        assert_eq!(stalled_on(&core, live), None);
+
+        core.names.pin(HashSet::new());
+        assert_eq!(stalled_on(&core, live).as_deref(), Some("live"));
+        lease::clear_old_stalls(&core);
+        assert_eq!(stalled_on(&core, live).as_deref(), Some("live"));
     }
 }
