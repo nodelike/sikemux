@@ -2916,6 +2916,7 @@ export type Collect =
 /** How a project's board runs on its own. */
 export interface BoardSettings {
     auto: boolean;
+    /** How many of Auto's agents work at once. */
     slots: number;
     /** The app's launcher Auto's agents start with; none for the first that works. */
     launcher: string | null;
@@ -4362,6 +4363,7 @@ export interface DecideParams {
 
 export interface TriageParams {
     project: string;
+    /** What the person typed so far. */
     text: string;
 }
 
