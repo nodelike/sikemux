@@ -507,20 +507,14 @@ impl Workbench {
                 let params = json!({ "repo": repo, "path": path, "force": false });
                 let removed = bench.target().request("git.worktreeRemove", params);
                 let branch = branch.clone();
-                cx.spawn(async move |this, cx| {
-                    let removed = removed.await;
-                    let _ = this.update(cx, |bench, cx| {
-                        let note = match removed {
-                            Ok(_) => toast::success(format!("Removed worktree {branch}")),
-                            Err(error) => {
-                                toast::error(format!("Could not remove the worktree: {error}"))
-                                    .autohide(false)
-                            }
-                        };
-                        bench.notify(note, cx);
-                    });
-                })
-                .detach();
+                bench.report(
+                    removed,
+                    "Could not remove the worktree",
+                    move |bench, _, cx| {
+                        bench.notify(toast::success(format!("Removed worktree {branch}")), cx)
+                    },
+                    cx,
+                );
             },
             cx,
         );
@@ -568,18 +562,12 @@ impl Workbench {
         let started = self
             .target()
             .request("startPreview", json!({ "project": project }));
-        cx.spawn(async move |this, cx| {
-            if let Err(error) = started.await {
-                let _ = this.update(cx, |bench, cx| {
-                    bench.notify(
-                        toast::error(format!("The project preview did not start: {error}"))
-                            .autohide(false),
-                        cx,
-                    )
-                });
-            }
-        })
-        .detach();
+        self.report(
+            started,
+            "The project preview did not start",
+            |_, _, _| {},
+            cx,
+        );
     }
 
     /// Runs one of the person's commands for the strip in front, telling them

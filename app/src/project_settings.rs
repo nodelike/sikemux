@@ -26,7 +26,6 @@ use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_6, TEXT_2XS_H,
     TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
-use crate::toast;
 use crate::ui::{self, Button, Field, IconButton, Variant};
 use crate::workbench::Workbench;
 
@@ -122,17 +121,12 @@ impl Workbench {
             .target()
             .request("setCheck", json!({ "project": folder, "command": typed }));
         let folder = folder.to_owned();
-        cx.spawn(async move |bench, cx| {
-            let saved = saving.await;
-            let _ = bench.update(cx, |bench, cx| match saved {
-                Ok(_) => bench.reload_config(&folder, cx),
-                Err(error) => bench.notify(
-                    toast::error(format!("The check command was not saved: {error}")),
-                    cx,
-                ),
-            });
-        })
-        .detach();
+        self.report(
+            saving,
+            "The check command was not saved",
+            move |bench, _, cx| bench.reload_config(&folder, cx),
+            cx,
+        );
     }
 
     fn trust_config(&self, folder: &str, cx: &mut Context<Self>) {

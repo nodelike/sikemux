@@ -102,17 +102,12 @@ impl Workbench {
     pub fn add_example_mod(&self, id: &str, name: &str, cx: &mut Context<Self>) {
         let added = self.target().request("addExampleMod", json!({ "id": id }));
         let (id, name) = (id.to_owned(), name.to_owned());
-        cx.spawn(async move |bench, cx| match added.await {
-            Ok(_) => {
-                let _ = bench.update(cx, |bench, _| bench.open_mod(&id, &name));
-            }
-            Err(error) => {
-                let _ = bench.update(cx, |bench, cx| {
-                    bench.notify(crate::toast::error(error).autohide(false), cx)
-                });
-            }
-        })
-        .detach();
+        self.report(
+            added,
+            "The example mod was not added",
+            move |bench, _, _| bench.open_mod(&id, &name),
+            cx,
+        );
     }
 
     /// Shows `id` only in the project in front, or again in every project when it is pinned.

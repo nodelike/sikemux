@@ -380,31 +380,19 @@ impl Workbench {
                 require_approval: !on,
             },
         );
-        cx.spawn(async move |bench, cx| {
-            let set = set.await;
-            let _ = bench.update(cx, |bench, cx| match set {
-                Ok(_) => bench.read_approval(host, cx),
-                Err(error) => bench.notify(
-                    toast::error(format!("Require approval for new devices: {error}")),
-                    cx,
-                ),
-            });
-        })
-        .detach();
+        self.report(
+            set,
+            "Require approval for new devices",
+            move |bench, _, cx| bench.read_approval(host, cx),
+            cx,
+        );
     }
 
     /// Turns the account host `host`'s own updates on or off; its view then says which.
     pub fn set_host_updates(&self, host: String, on: bool, cx: &mut Context<Self>) {
         let set = core::Target::new(&self.asks, Place::Account(host))
             .request("setHostUpdates", json!({ "on": on }));
-        cx.spawn(async move |bench, cx| {
-            if let Err(error) = set.await {
-                let _ = bench.update(cx, |bench, cx| {
-                    bench.notify(toast::error(format!("Update automatically: {error}")), cx)
-                });
-            }
-        })
-        .detach();
+        self.report(set, "Update automatically", |_, _, _| {}, cx);
     }
 
     /// A new chat on the account host `host`, in the project in front there, with the agent the

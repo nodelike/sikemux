@@ -20,7 +20,6 @@ use crate::icons::Icon;
 use crate::theme::{
     Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_2XS_H, TEXT_XS,
 };
-use crate::toast;
 use crate::ui::{self, IconButton, Variant};
 use crate::workbench::Workbench;
 
@@ -392,21 +391,16 @@ fn rerun_failed(bench: &Workbench, execution: &str, cx: &mut Context<Workbench>)
     let rerun = bench
         .target()
         .request("taskRerunFailed", json!({ "executionId": execution }));
-    cx.spawn(async move |bench, cx| {
-        let answer = rerun.await;
-        let _ = bench.update(cx, |bench, cx| match answer {
-            Ok(answer) => {
-                if let Some(task) = answer["taskId"].as_str() {
-                    bench.pick_task(task, cx);
-                }
+    bench.report(
+        rerun,
+        "Could not rerun the failed tests",
+        |bench, answer, cx| {
+            if let Some(task) = answer["taskId"].as_str() {
+                bench.pick_task(task, cx);
             }
-            Err(error) => {
-                let note = toast::error(format!("Could not rerun the failed tests: {error}"));
-                bench.notify(note.autohide(false), cx)
-            }
-        });
-    })
-    .detach();
+        },
+        cx,
+    );
 }
 
 /// `FooTest` for a Java class, `price.test.ts` for a file a JavaScript runner names.

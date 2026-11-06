@@ -598,6 +598,27 @@ impl Workbench {
         });
     }
 
+    /// Waits for `asked`, then does `then` with what it answered, or tells the person why it
+    /// did not, after `what`, until they dismiss it.
+    pub fn report<T: 'static>(
+        &self,
+        asked: impl std::future::Future<Output = Result<T, String>> + 'static,
+        what: &'static str,
+        then: impl FnOnce(&mut Self, T, &mut Context<Self>) + 'static,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |bench, cx| {
+            let answer = asked.await;
+            let _ = bench.update(cx, |bench, cx| match answer {
+                Ok(answer) => then(bench, answer, cx),
+                Err(error) => {
+                    bench.notify(toast::error(format!("{what}: {error}")).autohide(false), cx)
+                }
+            });
+        })
+        .detach();
+    }
+
     /// Shows `note` for `shown`, longer than a notification hides itself after, then takes it away.
     pub fn notify_for<T: 'static>(
         &self,
