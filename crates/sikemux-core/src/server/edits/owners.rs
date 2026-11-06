@@ -490,13 +490,13 @@ pub(super) fn latest(core: &Core, dir: &Path, agent_id: &str) -> Option<Author> 
     core.edits
         .matching(&project, |edit| edit.agent_id == agent_id)
         .pop()
-        .map(|edit| author(core, &edit))
+        .map(|edit| author(core, &edit, &core.names.open_with(core.open_agents())))
 }
 
 /// What an agent no longer open, whose name is gone, is called.
 const GONE: &str = "an agent no longer open";
 
-fn author(core: &Core, edit: &Edit) -> Author {
+fn author(core: &Core, edit: &Edit, open: &HashSet<String>) -> Author {
     let name = |agent_id: &str| core.names.name(agent_id);
     let name = if edit.shared.is_empty() {
         name(&edit.agent_id)
@@ -522,7 +522,7 @@ fn author(core: &Core, edit: &Edit) -> Author {
         model: edit.model.clone(),
         feed: edit.feed.clone(),
         shared: edit.shared.clone(),
-        open: core.names.get(&edit.agent_id).is_some(),
+        open: core.names.still_open(&edit.agent_id, open),
     }
 }
 
@@ -565,10 +565,11 @@ impl<'a> Agents<'a> {
         files.retain(|file| !file.lines.is_empty() || !file.removed.is_empty());
         let mut numbers: Vec<Option<usize>> = vec![None; self.latest.len()];
         let mut authors = Vec::new();
+        let open = core.names.open_with(core.open_agents());
         files.sort_unstable_by(|a, b| a.path.cmp(&b.path));
         let mut renumber = |agent: &mut usize| {
             *agent = *numbers[*agent].get_or_insert_with(|| {
-                authors.push(author(core, self.latest[*agent]));
+                authors.push(author(core, self.latest[*agent], &open));
                 authors.len() - 1
             });
         };
@@ -930,4 +931,50 @@ pub(super) fn standing_for(owners: &Owners, core: &Core, agent_id: &str) -> Hash
         .filter(|(_, author)| author.agents().any(is_it))
         .map(|(at, _)| at)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::server::names::Starting;
+
+    /// `git_commit` refused a named file over lines of an agent long closed, with "Ask them with
+    /// agent_send", because the names the core keeps of a closed agent counted as it being open.
+    #[test]
+    fn a_closed_agents_lines_block_nobody_and_a_live_agents_do() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let give = |agent_id: &str, session: &str| {
+            let starting = Starting {
+                agent_id,
+                project: "/project".to_owned(),
+                provider: None,
+                resume_id: None,
+            };
+            let kept = ["closed", "first", "again"].map(str::to_owned);
+            core.names.give(starting, HashSet::from(kept));
+            core.names.note_session(agent_id, session);
+        };
+        give("closed", "gone");
+        give("first", "taken-up");
+        give("again", "taken-up");
+        let edit = |agent_id: &str| Edit {
+            at: 0,
+            agent_id: agent_id.to_owned(),
+            shared: Vec::new(),
+            name: None,
+            cli: "claude".to_owned(),
+            model: None,
+            feed: String::new(),
+            turn: None,
+            tool_call_id: String::new(),
+            path: String::new(),
+            lines: Lines::default(),
+            total: None,
+        };
+        let open = HashSet::from(["again".to_owned()]);
+        assert!(core.names.get("closed").is_some());
+        assert!(!author(&core, &edit("closed"), &open).open);
+        assert!(author(&core, &edit("again"), &open).open);
+        assert!(author(&core, &edit("first"), &open).open);
+    }
 }

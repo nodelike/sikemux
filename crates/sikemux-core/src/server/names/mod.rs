@@ -540,6 +540,20 @@ impl Names {
         }
     }
 
+    /// Whether the agent is among `open`, or closed with its session since taken
+    /// up again by one that is, under a new id.
+    pub(crate) fn still_open(&self, agent_id: &str, open: &HashSet<String>) -> bool {
+        if open.contains(agent_id) {
+            return true;
+        }
+        let Some(session) = self.last_session(agent_id) else {
+            return false;
+        };
+        (self.book.locked().agents.iter()).any(|entry| {
+            open.contains(&entry.agent_id) && entry.session_id.as_deref() == Some(&*session)
+        })
+    }
+
     /// Whether an agent here runs or recently ran `session_id`.
     pub(crate) fn knows_session(&self, session_id: &str) -> bool {
         let book = self.book.locked();

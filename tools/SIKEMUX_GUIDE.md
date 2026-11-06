@@ -971,9 +971,11 @@ Lines changed while your command and others' ran at once count as yours. With
 `paths` it commits only those files or folders: your lines there, and changes
 no other agent wrote, such as what your scripts, builds and formatters made,
 binary files too. Paths may be absolute, and the commit goes in the repository
-that holds them, even outside the project's checkout. A lockfile goes with the
-manifest change it records. A named file holding only another agent's lines
-fails the commit rather than leaving it half done. It returns the commit, its
+that holds them, even outside the project's checkout; from a folder of
+repositories, a relative path is found one level down. A lockfile goes with the
+manifest change it records. A named file holding only another open agent's lines
+fails the commit rather than leaving it half done; a closed agent's lines count
+as nobody's. It returns the commit, its
 files and what was left. Leave out any Co-Authored-By trailer naming Claude. Stage
 nothing yourself mid-task: what you `git add`, `git mv` or `git rm` early goes
 into the next agent's commit. Your shell is the person's zsh with

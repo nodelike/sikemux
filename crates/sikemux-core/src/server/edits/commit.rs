@@ -81,6 +81,9 @@ struct Taken {
 struct Left {
     path: String,
     by: Vec<String>,
+    /// Those among `by` still open, who can commit what the others left.
+    #[serde(skip)]
+    open: Vec<String>,
 }
 
 /// Why a commit was not made: none of the uncommitted lines were the agent's,
@@ -560,17 +563,22 @@ fn plan(
             planner.take(lock, follows || names(named, lock), &mut changes, &mut left)?;
         }
     }
-    let untaken: Vec<String> = named
+    let untaken: Vec<&Left> = named
         .iter()
         .filter(|path| paths.contains(path.as_str()))
         .filter(|path| !changes.iter().any(|change| change.path == **path))
         .filter_map(|path| left.iter().find(|left| left.path == *path))
-        .map(|left| format!("{} holds only lines {} wrote", left.path, said(&left.by)))
         .collect();
     if !untaken.is_empty() {
+        let held: Vec<String> = (untaken.iter())
+            .map(|left| format!("{} holds only lines {} wrote", left.path, said(&left.by)))
+            .collect();
+        let open: BTreeSet<&String> = untaken.iter().flat_map(|left| &left.open).collect();
+        let open: Vec<String> = open.into_iter().cloned().collect();
         return Err(format!(
-            "Nothing was committed: {}. Ask them with agent_send, or leave those paths out.",
-            untaken.join("; ")
+            "Nothing was committed: {}. Ask {} with agent_send, or leave those paths out.",
+            held.join("; "),
+            said(&open)
         ));
     }
     Ok(Plan {
@@ -688,6 +696,10 @@ impl Planner<'_> {
             .collect();
         let whole = may_whole && !authors.iter().any(|author| self.theirs(*author));
         let leave = |by: BTreeSet<Option<usize>>, left: &mut Vec<Left>| {
+            let open: Vec<String> = (by.iter().flatten())
+                .filter(|at| self.theirs(**at))
+                .map(|at| self.name(Some(*at)))
+                .collect();
             let mut by: BTreeSet<String> = by.into_iter().map(|at| self.name(at)).collect();
             if by.is_empty() {
                 by.insert(self.name(None));
@@ -695,6 +707,7 @@ impl Planner<'_> {
             left.push(Left {
                 path: path.to_owned(),
                 by: by.into_iter().collect(),
+                open,
             });
         };
         if !whole
