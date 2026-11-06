@@ -367,6 +367,7 @@
             {
               "t": "a",
               "href": "src/a.ts",
+              "file": true,
               "c": [
                 "the file I changed"
               ]
@@ -608,6 +609,7 @@
             {
               "t": "a",
               "href": "./docs/My%20Guide.md#setup",
+              "file": true,
               "c": [
                 "guide"
               ]
@@ -905,6 +907,7 @@
             {
               "t": "a",
               "href": "src/a.ts",
+              "file": true,
               "c": [
                 "the file I changed"
               ]
