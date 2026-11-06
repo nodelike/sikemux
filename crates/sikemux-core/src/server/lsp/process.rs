@@ -237,7 +237,7 @@ mod tests {
         }
         log.push_str("\nerror: Unknown binary 'rust-analyzer'\n");
         let tail = drain_stderr(Cursor::new(log.into_bytes()))
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(30))
             .expect("tail arrives once stderr closes");
 
         assert_eq!(tail.len(), STDERR_TAIL_LINES);

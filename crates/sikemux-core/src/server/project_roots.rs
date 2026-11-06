@@ -201,7 +201,7 @@ mod tests {
     use super::{scan_project_roots_sync, ProjectRoot};
 
     #[test]
-    fn frontend_self_index_field_includes_a_non_git_root() {
+    fn a_self_indexed_root_is_a_project_though_it_is_not_git() {
         let root = tempfile::tempdir().unwrap();
         let configured: ProjectRoot = serde_json::from_value(serde_json::json!({
             "path": root.path(),

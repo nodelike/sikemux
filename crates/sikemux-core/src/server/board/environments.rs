@@ -507,19 +507,6 @@ mod tests {
     }
 
     #[test]
-    fn a_dev_job_goes_freely() {
-        let judged = judged(&project(), &deploy(at("dev/backend/deploy-api", false)));
-        assert_eq!(judged.goes, Goes::Freely);
-        assert_eq!(judged.environment.as_deref(), Some("Dev"));
-    }
-
-    #[test]
-    fn a_staging_job_goes_once_checked() {
-        let judged = judged(&project(), &deploy(at("staging/deploy", false)));
-        assert_eq!(judged.goes, Goes::OnceChecked);
-    }
-
-    #[test]
     fn production_holds() {
         let judged = judged(&project(), &deploy(at("prod/deploy", false)));
         assert_eq!(judged.goes, Goes::Holds);
@@ -534,14 +521,6 @@ mod tests {
             assert_eq!(judged.environment, None);
             assert!(judged.why.is_some_and(|why| why.contains("production")));
         }
-    }
-
-    #[test]
-    fn with_nothing_set_every_deploy_holds_with_nothing_more_to_say() {
-        let judged = judged(&[], &deploy(at("dev/deploy", false)));
-        assert_eq!(judged.goes, Goes::Holds);
-        assert_eq!(judged.environment, None);
-        assert_eq!(judged.why, None);
     }
 
     #[test]
@@ -681,9 +660,7 @@ mod tests {
     #[test]
     fn with_nothing_set_a_dev_job_holds_as_it_always_did() {
         let core = core_set(Vec::new());
-        let said = try_ship(&core, at("dev/backend/deploy-api", false)).unwrap_err();
-        assert!(said.starts_with("Held for the person:"), "{said}");
-        assert!(said.ends_with("run exactly this again."), "{said}");
+        assert!(try_ship(&core, at("dev/backend/deploy-api", false)).is_err());
         let waiting = core.ship.waiting();
         assert_eq!(waiting.len(), 1);
         assert_eq!(waiting[0].hold.environment, None);

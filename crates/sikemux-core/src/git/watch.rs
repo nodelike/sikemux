@@ -518,7 +518,9 @@ mod tests {
     #[test]
     fn notify_rescan_flag_forces_a_complete_rescan() {
         let temp = tempfile::tempdir().unwrap();
-        let event = Event::new(EventKind::Any).set_flag(Flag::Rescan);
+        let event = Event::new(EventKind::Modify(ModifyKind::Any))
+            .add_path(temp.path().join("named.txt"))
+            .set_flag(Flag::Rescan);
         assert!(matches!(
             changes_for_event(temp.path(), event),
             Some(WatchMessage::Rescan)

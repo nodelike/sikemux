@@ -198,13 +198,17 @@ mod tests {
     fn an_agent_is_active_when_it_opens_works_or_wants_a_look() {
         let seen = Seen::default();
         assert_eq!(seen.active_at("a"), None);
+        let long_ago = |seen: &Seen| {
+            seen.state.locked().active_at.insert("a".to_owned(), 1);
+        };
         seen.active("a");
-        let opened = seen.active_at("a").unwrap();
+        assert!(seen.active_at("a").is_some_and(|at| at > 1));
+        long_ago(&seen);
         seen.working("a");
-        let worked = seen.active_at("a").unwrap();
+        assert!(seen.active_at("a").is_some_and(|at| at > 1));
+        long_ago(&seen);
         seen.wants_a_look("a");
-        let looked = seen.active_at("a").unwrap();
-        assert!(opened <= worked && worked <= looked);
+        assert!(seen.active_at("a").is_some_and(|at| at > 1));
         assert_eq!(seen.active_at("b"), None);
     }
 

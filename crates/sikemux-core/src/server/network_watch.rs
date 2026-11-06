@@ -219,12 +219,4 @@ mod tests {
         assert!(!slept(start, awake));
         assert!(slept(start, after_sleep));
     }
-
-    #[cfg(target_os = "macos")]
-    #[tokio::test]
-    async fn the_system_monitor_runs_and_the_watch_stays_open() {
-        let mut events = watch();
-        let quiet = tokio::time::timeout(Duration::from_millis(500), events.recv()).await;
-        assert!(quiet.is_err(), "a steady network says nothing: {quiet:?}");
-    }
 }

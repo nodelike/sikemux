@@ -429,12 +429,13 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
 
         std::fs::create_dir_all(&skills).unwrap();
-        std::thread::sleep(Duration::from_millis(900));
-        write_skill(&skills, "notes");
-        let added = heard
-            .recv_timeout(Duration::from_secs(10))
-            .expect("the new skill is reported");
-        assert_eq!(added.name, "notes");
+        let added = (0..30)
+            .find_map(|attempt| {
+                write_skill(&skills, &format!("notes-{attempt}"));
+                heard.recv_timeout(Duration::from_secs(1)).ok()
+            })
+            .expect("a new skill is reported");
+        assert!(added.name.starts_with("notes-"), "{}", added.name);
         assert_eq!(added.agent, "Claude");
     }
 

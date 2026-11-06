@@ -166,9 +166,13 @@ mod tests {
     }
 
     #[test]
-    fn only_named_valid_variables_are_forwarded() {
-        let env = forwarded_environment(&["PATH".into(), "PATH".into(), "BAD-KEY".into()]);
-        assert_eq!(env.keys().collect::<Vec<_>>(), ["PATH"]);
+    fn only_well_formed_variable_names_are_forwarded() {
+        for name in ["PATH", "_private", "a1"] {
+            assert!(valid_environment_key(name), "{name}");
+        }
+        for name in ["", "BAD-KEY", "1A", "A=B", "A B", &"x".repeat(129)] {
+            assert!(!valid_environment_key(name), "{name}");
+        }
     }
 
     #[test]

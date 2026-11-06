@@ -363,9 +363,21 @@ mod tests {
     }
 
     #[test]
-    fn production_trusts_only_its_own_key() {
-        let keys = TrustedKeys::production();
-        assert_eq!(keys.0.keys().collect::<Vec<_>>(), vec!["prod-1"]);
+    fn production_refuses_a_ticket_another_key_signed_in_its_name() {
+        let vector = vector();
+        let (production_key, _) = PRODUCTION_KEYS[0];
+        let ticket = vector.signed(|ticket| ticket.key_id = production_key.to_owned());
+        let expected = Expected {
+            owner: Some(&vector.ticket.account),
+            host: &vector.ticket.host,
+            phone: &vector.ticket.phone,
+            now: vector.ticket.issued_at + 30,
+            revoked_at_ms: None,
+        };
+        assert_eq!(
+            check(&ticket, &TrustedKeys::production(), &expected),
+            Err(Refusal::BadSignature)
+        );
     }
 
     #[test]

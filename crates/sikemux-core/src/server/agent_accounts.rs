@@ -583,14 +583,21 @@ mod tests {
     #[test]
     fn setup_adds_every_agent_it_can_install_but_did_not_find() {
         let ready = status::AgentStatus::Ready { account: None };
-        let all = setup_list(vec![agent("claude", ready, true)]);
-        let kinds: Vec<&str> = all.iter().map(|agent| agent.kind.as_str()).collect();
-        assert_eq!(
-            kinds,
-            ["claude", "codex", "hermes", "pi", "opencode", "omp", "grok"]
-        );
-        assert!(!all[1].available);
-        assert_eq!(all[1].status, status::AgentStatus::Missing);
+        let all = setup_list(vec![agent("claude", ready.clone(), true)]);
+        let installable = AGENTS.iter().filter(|def| def.install.is_some());
+        for def in installable {
+            let listed = all
+                .iter()
+                .filter(|agent| agent.kind == def.kind)
+                .collect::<Vec<_>>();
+            assert_eq!(listed.len(), 1, "{}", def.kind);
+            if def.kind == "claude" {
+                assert_eq!(listed[0].status, ready);
+            } else {
+                assert!(!listed[0].available, "{}", def.kind);
+                assert_eq!(listed[0].status, status::AgentStatus::Missing);
+            }
+        }
     }
 
     #[test]

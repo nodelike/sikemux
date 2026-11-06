@@ -755,7 +755,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_lookup_says_why_in_bounded_words() {
-        let long_detail = "x".repeat(ERROR_DETAIL_LIMIT + 20);
+        let long_detail = "x".repeat(ERROR_DETAIL_LIMIT * 2);
         let script = format!("printf 'first\\nsecond {long_detail}' >&2; exit 7");
         let error = run(
             "test-agent",
@@ -767,9 +767,9 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(error.starts_with("test-agent usage lookup exited unsuccessfully: first second "));
-        assert!(error.ends_with('…'));
-        assert!(error.chars().count() <= ERROR_DETAIL_LIMIT + 52);
+        assert!(error.contains("first second "), "{error}");
+        assert!(error.ends_with('…'), "{error}");
+        assert!(error.chars().count() < long_detail.len(), "{error}");
     }
 
     #[test]

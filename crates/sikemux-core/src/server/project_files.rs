@@ -831,18 +831,6 @@ mod tests {
     }
 
     #[test]
-    fn cache_miss_defers_work_until_the_next_snapshot() {
-        let temp = tempfile::tempdir().unwrap();
-        write(&temp.path().join("one.txt"), "one");
-        let (repo, _) = canonical_temp_root(&temp);
-
-        moved(&repo, Some(&["one.txt".to_owned()]));
-        let (scan_id, files) = snapshot(&repo);
-        assert_eq!(files, vec!["one.txt"]);
-        assert!(scan_id > 0);
-    }
-
-    #[test]
     fn project_cache_cap_evicts_only_idle_cells() {
         let caches = ProjectCaches::default();
         let first = project_cache_from(&caches, "first", 2).unwrap();

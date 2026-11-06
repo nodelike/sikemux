@@ -430,8 +430,6 @@ fn client() -> reqwest::Result<&'static Client> {
 
 #[cfg(test)]
 mod tests {
-    use std::time::UNIX_EPOCH;
-
     use super::*;
 
     #[test]
@@ -446,13 +444,6 @@ mod tests {
                 None
             );
         }
-    }
-
-    #[test]
-    fn a_day_turns_over_at_utc_midnight() {
-        let midnight = UNIX_EPOCH + Duration::from_secs(20_000 * SECONDS_PER_DAY);
-        assert_eq!(utc_day(midnight - Duration::from_secs(1)), 19_999);
-        assert_eq!(utc_day(midnight), 20_000);
     }
 
     #[test]

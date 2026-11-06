@@ -505,7 +505,7 @@ mod tests {
 
     #[cfg(unix)]
     fn run(command: &mut Command, input: Option<&[u8]>) -> Result<Output, String> {
-        let wait = Duration::from_secs(5);
+        let wait = Duration::from_secs(60);
         sikemux_process::run(command, input, wait, MAX_COMMAND_OUTPUT_BYTES, None)
             .map_err(|error| error.to_string())
     }

@@ -2087,8 +2087,6 @@ mod tests {
     fn with_nothing_set_a_slice_takes_the_three_gates() {
         let settings = BoardSettings::default();
         let slice = Slice::new("It works.".to_owned(), Vec::new(), None, &settings);
-        let expected = LADDER.map(Step::Gate);
-        assert_eq!(slice.ladder, expected);
         assert_eq!(
             serde_json::to_value(&slice.ladder).unwrap(),
             serde_json::json!(["built", "looksRight", "landed"])

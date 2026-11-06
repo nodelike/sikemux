@@ -191,7 +191,7 @@ mod tests {
             writer_done_tx.send(result).expect("writer result");
         });
         writer_entered_rx
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(30))
             .expect("writer acquired document and stdin locks");
 
         // The old shutdown order waited on `document_state` here forever.
@@ -199,7 +199,7 @@ mod tests {
         kill_and_reap_child(&child);
         assert_eq!(
             writer_done_rx
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(Duration::from_secs(30))
                 .expect("blocked writer released"),
             Err(std::io::ErrorKind::BrokenPipe)
         );

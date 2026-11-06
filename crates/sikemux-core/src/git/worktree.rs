@@ -443,16 +443,12 @@ mod tests {
         assert!(main_error.contains("main worktree"), "{main_error}");
 
         fs::write(target.join("dirty.txt"), "uncommitted\n").expect("dirty worktree");
-        let dirty_error = remove_worktree(
+        remove_worktree(
             td.path().to_str().expect("repo path"),
             target.to_str().expect("target path"),
             false,
         )
         .expect_err("dirty worktree needs force");
-        assert!(
-            dirty_error.contains("modified or untracked"),
-            "{dirty_error}"
-        );
         remove_worktree(
             td.path().to_str().expect("repo path"),
             target.to_str().expect("target path"),

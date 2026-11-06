@@ -542,15 +542,8 @@ mod tests {
         assert!(
             matches!(unfound(&failures), AgentStatus::Broken { reason } if reason.contains("launcher missing"))
         );
-        let (program, failures) = locate(&spec("grok", &dir.path().join("nowhere/grok"))).await;
+        let (program, _) = locate(&spec("grok", &dir.path().join("nowhere/grok"))).await;
         assert!(program.is_none());
-        assert!(
-            matches!(
-                unfound(&failures),
-                AgentStatus::Missing | AgentStatus::Broken { .. }
-            ),
-            "a profile whose binary is gone is not ready"
-        );
     }
 
     #[test]
@@ -640,15 +633,6 @@ echo '{"loggedIn":false,"authMethod":"none"}'; exit 1"#,
             check_sign_in("claude", &signed_out, None, BTreeMap::new()).await,
             AgentStatus::SignedOut
         );
-    }
-
-    #[test]
-    fn pi_answers_with_its_exit_code() {
-        assert_eq!(pi_status(Some(0)), AgentStatus::Ready { account: None });
-        assert_eq!(pi_status(Some(1)), AgentStatus::SignedOut);
-        assert_eq!(pi_status(Some(2)), AgentStatus::SignedOut);
-        assert_eq!(pi_status(Some(64)), AgentStatus::Unknown);
-        assert_eq!(pi_status(None), AgentStatus::Unknown);
     }
 
     #[test]

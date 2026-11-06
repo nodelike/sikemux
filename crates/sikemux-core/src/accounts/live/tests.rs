@@ -340,9 +340,20 @@ async fn the_network_coming_back_cuts_a_waiting_host_short() {
     peer.ready(0).await;
     peer.close(4429).await;
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    changed.send(()).unwrap();
-    let back = tokio::time::timeout(Duration::from_secs(5), server.greet(&account)).await;
+    // A change heard before the host begins its wait only ends the old connection.
+    let told_again = async {
+        loop {
+            changed.send(()).unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+    let back = tokio::time::timeout(OVER_LIMIT_WAIT / 2, async {
+        tokio::select! {
+            peer = server.greet(&account) => drop(peer),
+            () = told_again => {}
+        }
+    })
+    .await;
     assert!(
         back.is_ok(),
         "the host waits out its backoff instead of connecting now"

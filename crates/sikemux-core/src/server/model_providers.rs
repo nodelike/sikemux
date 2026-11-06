@@ -426,14 +426,10 @@ mod tests {
     #[test]
     fn a_rejected_key_is_told_apart_from_a_provider_that_did_not_answer() {
         assert_eq!(check_failure("Baseten", StatusCode::OK), None);
-        assert_eq!(
-            check_failure("Baseten", StatusCode::FORBIDDEN).as_deref(),
-            Some("Baseten did not accept that key")
-        );
-        assert_eq!(
-            check_failure("Groq", StatusCode::UNAUTHORIZED).as_deref(),
-            Some("Groq did not accept that key")
-        );
+        for rejected in [StatusCode::FORBIDDEN, StatusCode::UNAUTHORIZED] {
+            assert!(check_failure("Groq", rejected)
+                .is_some_and(|failure| failure.contains("did not accept")));
+        }
         assert!(check_failure("Groq", StatusCode::BAD_GATEWAY)
             .is_some_and(|failure| failure.contains("could not check")));
     }

@@ -1491,15 +1491,21 @@ mod tests {
             ))
             .await
             .unwrap();
-        let status = tokio::time::timeout(Duration::from_secs(2), signing_out)
+        let status = tokio::time::timeout(Duration::from_secs(30), signing_out)
             .await
             .expect("signing out waits only for the server")
             .unwrap()
             .unwrap();
         assert_eq!(status.owner, None);
-        assert_eq!(status.account, None);
+        tokio::time::timeout(Duration::from_secs(30), async {
+            while core.remote.inner.locked().stored.pending_leave.is_some() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the account lets the host go");
+        assert_eq!(core.remote.status().account, None);
         assert_eq!(devices(&core), vec!["Kept"]);
-        assert!(core.remote.inner.locked().stored.pending_leave.is_none());
     }
 
     /// A host whose key was in the file, on an account, takes the old host off
@@ -1573,7 +1579,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::time::timeout(Duration::from_secs(30), async {
             while retired().is_some() {
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }

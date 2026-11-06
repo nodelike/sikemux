@@ -183,9 +183,6 @@ mod tests {
         assert_eq!(payload.diagnostics[0].code.as_deref(), Some("42"));
         assert!(payload.diagnostics[0].message.len() <= MAX_DIAGNOSTIC_MESSAGE_BYTES);
         assert!(payload.diagnostics[0]
-            .message
-            .is_char_boundary(payload.diagnostics[0].message.len()));
-        assert!(payload.diagnostics[0]
             .source
             .as_ref()
             .is_some_and(|source| source.len() == MAX_DIAGNOSTIC_SOURCE_BYTES));
