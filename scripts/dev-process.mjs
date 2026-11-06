@@ -2,7 +2,6 @@ import { spawnSync } from "node:child_process";
 import { userInfo } from "node:os";
 import { join } from "node:path";
 
-/** Where a core listens, as `sikemux-core` names it. */
 export function coreSocket(name) {
   return join(userInfo().homedir, ".config", "sikemux", name);
 }

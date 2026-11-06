@@ -99,7 +99,6 @@ struct IslandView: View {
         .offset(x: shift)
     }
 
-    /// What sits beside the camera: the wings when closed, a header when open.
     @ViewBuilder
     private var band: some View {
         ZStack {
@@ -172,8 +171,6 @@ private struct BlurModifier: ViewModifier {
     func body(content: Content) -> some View { content.blur(radius: radius) }
 }
 
-/// Closed: the notch, with the marks of the first items in the inbox on its left
-/// and how many are in each state on its right.
 struct ClosedWings: View {
     let store: NotchStore
     let geometry: NotchGeometry
@@ -252,7 +249,6 @@ struct ClosedWings: View {
     }
 }
 
-/// A finished turn, for a moment, on either side of the notch.
 struct FinishedWings: View {
     static let wing: CGFloat = 150
 
@@ -285,7 +281,6 @@ struct FinishedWings: View {
     }
 }
 
-/// The two sides of the menu-bar band, split around the camera.
 struct HeaderBand<Leading: View, Trailing: View>: View {
     let geometry: NotchGeometry
     @ViewBuilder let leading: () -> Leading
@@ -301,7 +296,6 @@ struct HeaderBand<Leading: View, Trailing: View>: View {
     }
 }
 
-/// What needs you, in the band: who asks on the left of the camera, that it needs you on the right.
 struct AskHeader: View {
     let entry: Entry?
     let geometry: NotchGeometry
@@ -320,7 +314,6 @@ struct AskHeader: View {
     }
 }
 
-/// What needs you, answered without opening the island.
 struct AskBody: View {
     let store: NotchStore
     let island: IslandModel
@@ -360,7 +353,6 @@ struct ProjectLabel: View {
     }
 }
 
-/// What it waits on: the command it wants to run, or the question or note in its own words.
 struct AskDetail: View {
     let entry: Entry
     var darker = false

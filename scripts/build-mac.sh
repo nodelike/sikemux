@@ -17,7 +17,6 @@ ICON_ASSET="sikemux"
 source "$ROOT/scripts/release-shape.sh"
 CORE_LINK_TARGET="$(node scripts/app-metadata.mjs core-link)"
 
-# No signing material reaches the build.
 unset "${SIGNING_SECRETS[@]}"
 
 # The Release workflow compiles the app and packs it on separate machines, so
@@ -183,7 +182,6 @@ if ! grep -Fq "Missing SIKEMUX_TOOLS_AGENT_ID" <<<"$TOOLS_START"; then
   fail "bundled tools MCP server does not start"
 fi
 
-# The signed helpers must still start under the hardened runtime.
 for helper in "${PUBLISHED_HELPERS[@]}"; do
   "$ROOT/packaging/binaries/$helper-aarch64-apple-darwin" --version | grep -Fq "$helper" || fail "signed $helper does not start"
 done

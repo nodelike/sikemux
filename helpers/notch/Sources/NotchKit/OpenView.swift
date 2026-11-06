@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// The open island's band: tabs left of the camera, Sikemux right of it.
 struct OpenHeader: View {
     let store: NotchStore
     @Bindable var island: IslandModel
@@ -72,7 +71,6 @@ struct OpenHeader: View {
     }
 }
 
-/// The open island below its band: the inbox, or the composer.
 struct OpenBody: View {
     let store: NotchStore
     @Bindable var island: IslandModel

@@ -156,7 +156,6 @@ final class NotchStore {
         deviceAsked = [:]
     }
 
-    /// Shows what went wrong for a few seconds.
     func fail(_ message: String) {
         error = message
         errorTimer?.cancel()

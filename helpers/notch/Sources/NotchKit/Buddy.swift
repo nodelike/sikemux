@@ -28,7 +28,6 @@ final class BuddyArt {
     }()
     private var images: [String: NSImage] = [:]
 
-    /// The face the core gave an agent, drawn in `state`.
     func image(_ face: AgentFace, state: BuddyState) -> NSImage? {
         let key = "\(face.pack) \(face.shape) \(face.color) \(face.box) \(state.rawValue)"
         if let image = images[key] { return image }

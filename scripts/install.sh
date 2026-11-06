@@ -37,7 +37,6 @@ fi
 
 say() { printf '%s\n' "$*"; }
 note() { printf '  %s%s%s\n' "$DIM" "$*" "$RESET"; }
-# A finished step: what happened, then where or how in grey.
 done_step() { printf '%s  %s✓%s %-32s %s%s%s\n' "$CLEAR" "$ACCENT" "$RESET" "$1" "$DIM" "${2:-}" "$RESET"; }
 fail() {
   printf '%s\n  %s✗%s %s\n\n' "$CLEAR" "$RED" "$RESET" "$*" >&2

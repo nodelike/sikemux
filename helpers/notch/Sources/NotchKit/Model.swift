@@ -8,12 +8,10 @@ extension DeviceView {
     )
 }
 
-/// The marks beside a row and in the closed island's right wing.
 enum Mark: Hashable {
     case needs, working, done, failed, idle
 }
 
-/// One group on the closed island's right wing.
 enum Rollup: Hashable {
     case mark(Mark)
     case subagents
@@ -26,7 +24,6 @@ enum Rollup: Hashable {
     }
 }
 
-/// A permission an agent waits on, with the person's choices.
 struct Ask: Equatable {
     let attentionId: String
     /// The command it wants to run, or what the tool call is called when it is not a command.

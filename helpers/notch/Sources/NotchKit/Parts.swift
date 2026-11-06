@@ -263,7 +263,6 @@ struct CapsuleButton: View {
     }
 }
 
-/// A capsule that fills on hover, for icons and chips in the island.
 struct HoverCapsule<Label: View>: View {
     var selected = false
     var selectedFill = Color.white.opacity(0.12)
