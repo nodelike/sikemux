@@ -1,5 +1,7 @@
 //! The screenshots a slice keeps as evidence: when one is wanted, and its files.
 
+use serde_json::json;
+
 use super::*;
 
 /// The viewport presets, a phone's and a tablet's, a screenshot of a slice's page is also
@@ -108,4 +110,74 @@ pub(crate) fn keep_shots(
     if let Some(board) = core.boards.state.locked().boards.get_mut(project) {
         board.writing.retain(|writing| !paths.contains(writing));
     }
+}
+
+/// The agent's screenshot, and when its slice keeps screenshots as evidence, the same
+/// page taken beside it at each of [`SCREENSHOT_WIDTHS`], before the agent's call
+/// returns so nothing the agent does next meets its tab at another width.
+pub(crate) async fn slice_screenshots(
+    core: &Core,
+    request: &crate::cli::protocol::HarnessRequest,
+    agent_id: &str,
+    answer: &Value,
+) -> Vec<Value> {
+    let mut shots = vec![answer.clone()];
+    if wants_screenshot(core, agent_id) {
+        shots.extend(other_widths(core, request, agent_id).await);
+    }
+    shots
+}
+
+/// The page `request` took a screenshot of in `agent_id`'s tab, taken again at
+/// each of [`SCREENSHOT_WIDTHS`]. Each is only a resize, so the page does
+/// not reload; the tab is put back as it was held after both, whatever became
+/// of them.
+pub(crate) async fn other_widths(
+    core: &Core,
+    request: &crate::cli::protocol::HarnessRequest,
+    agent_id: &str,
+) -> Vec<Value> {
+    let mut shots = Vec::new();
+    let asked = |method: &str, params: Value, step: &str| crate::cli::protocol::HarnessRequest {
+        id: format!("{}-{step}", request.id),
+        project: request.project.clone(),
+        agent_id: Some(agent_id.to_owned()),
+        method: method.to_owned(),
+        params,
+    };
+    let held =
+        match crate::server::harness::forward(core, asked("browser.viewport", json!({}), "held"))
+            .await
+        {
+            Ok(size) => size.get("held").cloned().unwrap_or(Value::Null),
+            Err(error) => {
+                eprintln!("sikemux core: the page was not taken at other widths: {error}");
+                return shots;
+            }
+        };
+    for preset in SCREENSHOT_WIDTHS {
+        let mut params = json!({ "viewport": preset });
+        if request.params.get("fullPage") == Some(&Value::Bool(true)) {
+            params["fullPage"] = Value::Bool(true);
+        }
+        match crate::server::harness::forward(core, asked(&request.method, params, preset)).await {
+            Ok(shot) => shots.push(shot),
+            Err(error) => {
+                eprintln!("sikemux core: the page was not taken at the {preset} width: {error}")
+            }
+        }
+    }
+    let back = match &held {
+        Value::Null => json!({ "preset": "fit" }),
+        held => match held.get("preset") {
+            Some(preset) => json!({ "preset": preset }),
+            None => json!({ "width": held["width"], "height": held["height"] }),
+        },
+    };
+    if let Err(error) =
+        crate::server::harness::forward(core, asked("browser.viewport", back, "back")).await
+    {
+        eprintln!("sikemux core: the tab was not put back at its own width: {error}");
+    }
+    shots
 }

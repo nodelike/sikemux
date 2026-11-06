@@ -66,7 +66,7 @@ pub(crate) use lease::{person_hand_on, person_resume};
 pub(crate) use slice::DeployRan;
 pub(crate) use slice::{
     check_stands, follow, gate_key, gate_words, person_note, person_pass, screenshot_taken,
-    wants_screenshot, SCREENSHOT_WIDTHS,
+    slice_screenshots,
 };
 pub use slice::{NoteParams, PassParams};
 

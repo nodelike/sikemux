@@ -9,9 +9,10 @@ use std::sync::Arc;
 
 use serde_json::json;
 
+use super::slice::other_widths;
 use super::slice::{decode_shots, keep_shots};
 use crate::cli::protocol::HarnessRequest;
-use crate::server::harness::{forward, other_widths};
+use crate::server::harness::forward;
 use crate::server::ports::{self, PortOwner};
 use crate::server::Core;
 use crate::tasks::config::{self, ConfigLoad, Stated};
