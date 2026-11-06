@@ -1098,6 +1098,20 @@ fn open(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
     read(bench, key, window, cx);
 }
 
+/// What each per-file feature does once a file's text is first in its editor.
+fn opened(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Context<Workbench>) {
+    if key.place == Place::This {
+        lsp::attach(bench, key.path.clone(), window, cx);
+    }
+    git_moved(bench, key, cx);
+}
+
+/// What each per-file feature reads again when git moved under the file.
+fn git_moved(bench: &mut Workbench, key: &FileKey, cx: &mut Context<Workbench>) {
+    gutter::read_base(bench, key, cx);
+    blame::read(bench, key, cx);
+}
+
 /// Keeps the file `key`'s unsaved mark, language server, gutter and blame in step with its
 /// edits.
 fn follow_edits(
@@ -1174,11 +1188,7 @@ pub fn renamed(
         let _ = window.update(cx, |_, window, cx| {
             let _ = this.update(cx, |bench, cx| {
                 for (_, key) in moved {
-                    if key.place == Place::This {
-                        lsp::attach(bench, key.path.clone(), window, cx);
-                    }
-                    gutter::read_base(bench, &key, cx);
-                    blame::read(bench, &key, cx);
+                    opened(bench, &key, window, cx);
                 }
             });
         });
@@ -1303,11 +1313,7 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
                 None => return,
             };
             if first && loaded {
-                if key.place == Place::This {
-                    lsp::attach(bench, key.path.clone(), window, cx);
-                }
-                gutter::read_base(bench, &key, cx);
-                blame::read(bench, &key, cx);
+                opened(bench, &key, window, cx);
             } else {
                 gutter::changed(&bench.editors, &key, cx);
             }
@@ -1588,8 +1594,7 @@ pub fn git_changed(
         .cloned()
         .collect();
     for key in open {
-        gutter::read_base(bench, &key, cx);
-        blame::read(bench, &key, cx);
+        git_moved(bench, &key, cx);
     }
 }
 
