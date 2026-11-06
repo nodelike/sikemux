@@ -15,19 +15,17 @@ use sikemux_process::user_environment::UserEnvironment;
 
 use super::host::PluginHost;
 
-struct InCore(PluginHost);
-
-impl Plugins for InCore {
+impl Plugins for PluginHost {
     fn manifests(&self) -> Vec<&Manifest> {
-        self.0.manifests().collect()
+        self.manifests().collect()
     }
 
     fn set_disabled(&self, ids: Vec<String>) {
-        self.0.set_disabled(ids);
+        self.set_disabled(ids);
     }
 
     fn disabled(&self) -> Vec<String> {
-        self.0.disabled()
+        self.disabled()
     }
 
     fn relay_sign_in(&self, landed: &str) -> Result<(), String> {
@@ -35,15 +33,15 @@ impl Plugins for InCore {
     }
 
     fn offers_agent_tools(&self, plugin: &str) -> bool {
-        self.0.offers_agent_tools(plugin)
+        self.offers_agent_tools(plugin)
     }
 
     fn agent_environment(&self, project: &Path) -> BTreeMap<String, String> {
-        self.0.agent_environment(project)
+        self.agent_environment(project)
     }
 
     fn call<'a>(&'a self, plugin: &'a str, method: &'a str, params: Value) -> Answer<'a, Value> {
-        Box::pin(async move { self.0.call(plugin, method, params).await })
+        Box::pin(async move { self.call(plugin, method, params).await })
     }
 
     fn stream<'a>(
@@ -54,18 +52,16 @@ impl Plugins for InCore {
         sink: Sink,
     ) -> Answer<'a, ()> {
         Box::pin(async move {
-            self.0
-                .stream(plugin, method, params, StreamSink::new(sink))
-                .await
+            PluginHost::stream(self, plugin, method, params, StreamSink::new(sink)).await
         })
     }
 
     fn agent_tools<'a>(&'a self, remotes: &'a [String]) -> Listing<'a> {
-        Box::pin(async move { describe(self.0.agent_tools_for(remotes).await) })
+        Box::pin(async move { describe(self.agent_tools_for(remotes).await) })
     }
 
     fn gated(&self, name: &str) -> Option<Gated> {
-        let (plugin, tool) = self.0.agent_tool(name)?;
+        let (plugin, tool) = self.agent_tool(name)?;
         Some(Gated {
             plugin: plugin.to_owned(),
             method: tool.method.clone(),
@@ -74,7 +70,7 @@ impl Plugins for InCore {
     }
 
     fn call_agent_tool<'a>(&'a self, name: &'a str, arguments: Value) -> Answer<'a, Value> {
-        Box::pin(async move { self.0.call_agent_tool(name, arguments).await })
+        Box::pin(async move { self.call_agent_tool(name, arguments).await })
     }
 }
 
@@ -123,7 +119,7 @@ pub fn provide_to_core(data_dir: &Path) -> Option<Provided> {
     let plugins = match PluginHost::with_builtins(&data_dir.join("plugins")) {
         Ok(host) => {
             let _ = SHELL_VARIABLES.set(host.shell_variables());
-            let plugins: Box<dyn Plugins> = Box::new(InCore(host));
+            let plugins: Box<dyn Plugins> = Box::new(host);
             #[cfg(feature = "fake-plugins")]
             let plugins: Box<dyn Plugins> = Box::new(super::fake::Fake(plugins));
             Some(Provided(Box::leak(plugins)))
