@@ -302,5 +302,7 @@ else
   echo "the watch waits for /etc/sikemux/watch.env holding DISCORD_WEBHOOK_URL, the #alerts webhook" >&2
 fi
 
+deploy_hash "$here" >/usr/local/lib/sikemux/deploy.hash
+
 step "done"
 echo "citadel is ready for the first deploy"

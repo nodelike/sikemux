@@ -118,7 +118,9 @@
 - `server/api/schema.dbml` draws the schema the migrations build, for dbdiagram.io. After
   adding a migration run `pnpm schema:generate` in `server/` and commit it alongside; the
   API tests fail while it is stale.
-- Merging to `main` deploys anything under `server/` to production. You may push it,
+- Merging to `main` deploys the API and the web app to production. What `server/deploy`
+  holds reaches citadel only through `setup-citadel.sh`, and citadel's watch says on Discord
+  when the two differ. You may push it,
   run `server/deploy` scripts against citadel, and set up its config without asking,
   after `agentctl guard` passes. Never print secrets, and ask first before anything
   destructive or irreversible, such as dropping data or deleting accounts.

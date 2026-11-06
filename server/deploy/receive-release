@@ -182,6 +182,8 @@ sudo -n /usr/bin/systemctl restart sikemux-api
 
 if healthy; then
   say "$commit is live"
+  [ "$(cat "$target/DEPLOY" 2>/dev/null)" = "$(cat /usr/local/lib/sikemux/deploy.hash 2>/dev/null)" ] ||
+    say "server/deploy differs from what citadel has installed: run setup-citadel.sh"
   find "$RELEASES" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%T@ %p\n' | sort -rn | tail -n +$((KEEP + 1)) |
     cut -d' ' -f2- | while read -r old; do
       [ "$old" = "$previous" ] || [ "$old" = "$target" ] || rm -rf "$old"

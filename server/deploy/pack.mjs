@@ -1,7 +1,16 @@
 // Packs the built API and web app into dist/release.tar.gz, the one file a deploy uploads.
 // Run `pnpm build` first, with SIKEMUX_VERSION set to the commit being released.
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,6 +41,17 @@ for (const [to, from] of Object.entries(pieces)) {
   cpSync(from, join(release, to), { recursive: true });
 }
 writeFileSync(join(release, "RELEASE"), version);
+
+// What setup-citadel.sh would install from this commit, as `deploy_hash` in lib.sh works it out,
+// so citadel can say when what it runs is older. A deploy never installs these itself.
+const sha256 = (data) => createHash("sha256").update(data).digest("hex");
+const deployFolder = join(server, "deploy");
+const installed = readdirSync(deployFolder)
+  .filter((name) => name !== "pack.mjs")
+  .sort()
+  .map((name) => `${sha256(readFileSync(join(deployFolder, name)))}  ${name}\n`)
+  .join("");
+writeFileSync(join(release, "DEPLOY"), sha256(installed));
 
 // macOS tar otherwise adds ._ files that the server's tar would unpack as junk.
 execFileSync(
