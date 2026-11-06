@@ -97,7 +97,7 @@ jobs:
               echo "Skipped $name: nothing it checks changed" >>"$GITHUB_STEP_SUMMARY"
             fi
           }
-          area rust '^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$)'
+          area rust '^(app/|crates/|plugins/|packaging/linux/build-packages\.txt$|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$)'
           area simulator '^(helpers/sim/|crates/sikemux-simulator/|crates/sikemux-base/|crates/helper_build\.rs$|Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|scripts/lib/build\.mjs$|rust-toolchain\.toml$)'
           area helpers '^(helpers/(notch|voice)/|scripts/build-(notch|voice)-helper\.mjs$|scripts/generate-notch-(icons|sources)\.mjs$|scripts/lib/build\.mjs$|scripts/app-metadata\.mjs$)'
           area packaging '^(scripts/build-linux\.sh$|scripts/build-core\.mjs$|scripts/smoke-core\.mjs$|scripts/app-metadata\.mjs$|scripts/lib/build\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-core/resources/sikemux_pi_tools\.ts$)'
@@ -357,9 +357,6 @@ jobs:
         uses: ./.github/actions/apt-install
         with:
           packages: >-
-            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev
-            libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libssl-dev libzstd-dev clang pkg-config
-            libwebkit2gtk-4.1-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
             xvfb openbox x11-utils xdotool imagemagick mesa-vulkan-drivers fonts-dejavu-core
             xdg-desktop-portal xdg-desktop-portal-gtk dconf-gsettings-backend gsettings-desktop-schemas libglib2.0-bin
             gstreamer1.0-plugins-good gstreamer1.0-plugins-ugly ffmpeg
@@ -414,14 +411,9 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
-      # GPUI's, as Zed's script/linux lists them.
+      # Mostly GPUI's, as Zed's script/linux lists them.
       - name: Install the Linux packages
         uses: ./.github/actions/apt-install
-        with:
-          packages: >-
-            libwebkit2gtk-4.1-dev build-essential file
-            libasound2-dev libfontconfig-dev libfreetype-dev libwayland-dev libx11-xcb-dev libxcb1-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libssl-dev libzstd-dev clang pkg-config
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -441,7 +433,7 @@ jobs:
       # The packages are unsigned and go nowhere but this run.
       - name: Install what the app packs with
         if: needs.changes.outputs.packaging == 'true'
-        run: sudo apt-get install -y pkg-config libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev libfontconfig-dev libfreetype-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good dpkg-dev rpm patchelf
+        run: xargs sudo apt-get install -y <packaging/linux/pack-packages.txt
 
       - name: Pack the deb, rpm and AppImage
         if: needs.changes.outputs.packaging == 'true'

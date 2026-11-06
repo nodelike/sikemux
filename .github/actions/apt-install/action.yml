@@ -1,9 +1,10 @@
 name: Install Ubuntu packages
-description: Installs packages with apt and keeps the downloaded .deb files between runs, so a slow mirror costs one run, not every run.
+description: Installs what the app builds with and any other packages with apt, and keeps the downloaded .deb files between runs, so a slow mirror costs one run, not every run.
 inputs:
   packages:
-    description: The packages to install, separated by spaces or newlines
-    required: true
+    description: Packages to install beside packaging/linux/build-packages.txt, separated by spaces or newlines
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -13,7 +14,7 @@ runs:
       env:
         PACKAGES: ${{ inputs.packages }}
       run: |
-        list="$(tr -s ' \n' '\n' <<<"$PACKAGES" | sort | shasum -a 256 | cut -c1-16)"
+        list="$(cat packaging/linux/build-packages.txt - <<<"$PACKAGES" | tr -s ' \n' '\n' | sort | shasum -a 256 | cut -c1-16)"
         echo "prefix=apt-$ImageOS-$list-" >>"$GITHUB_OUTPUT"
         echo "week=$(date +%G-%V)" >>"$GITHUB_OUTPUT"
 
@@ -32,5 +33,5 @@ runs:
       run: |
         mkdir -p ~/apt-archives/partial
         sudo apt-get update
-        read -ra packages <<<"$(tr -s ' \n' ' ' <<<"$PACKAGES")"
+        read -ra packages <<<"$(cat packaging/linux/build-packages.txt - <<<"$PACKAGES" | tr -s ' \n' ' ')"
         sudo apt-get install -y -o Acquire::Retries=3 -o Dir::Cache::Archives="$HOME/apt-archives" "${packages[@]}"

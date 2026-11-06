@@ -566,7 +566,7 @@ jobs:
       - name: Install what the app builds and packs with
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libwebkit2gtk-4.1-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev libfontconfig-dev libfreetype-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good dpkg-dev rpm patchelf file
+          cat packaging/linux/build-packages.txt packaging/linux/pack-packages.txt | xargs sudo apt-get install -y
 
       - name: Build the deb, rpm and AppImage
         env:
