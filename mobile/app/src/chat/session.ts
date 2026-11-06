@@ -83,12 +83,6 @@ export type OpenTimes = {
   drawn: number;
 };
 
-/**
- * A permission request that just arrived is shown before the host's list of waiting requests,
- * which comes on its own schedule, has caught up with it.
- */
-const PERMISSION_GRACE_MS = 2000;
-
 function readFile(uri: string): Promise<ArrayBuffer> {
   return new File(uri).arrayBuffer();
 }
@@ -117,8 +111,6 @@ export class ChatSession {
   private turnSince: number;
 
   /** What the host lists as waiting, or null before it has said. */
-  private onHost: ReadonlySet<string> | null = null;
-  private arrived = new Map<string, number>();
   private hostUp: boolean | undefined;
 
   private connection: ConnectionLike | undefined;
@@ -138,7 +130,7 @@ export class ChatSession {
     this.feed = new Feed({
       frame: options.frame,
       store: options.store,
-      applied: (before, live) => this.applied(before, live),
+      applied: (before) => this.applied(before),
       emit: () => this.emit(),
       fellBehind: () => this.restart(),
     });
@@ -216,20 +208,11 @@ export class ChatSession {
     };
   };
 
-  /**
-   * What the host's own view says of this chat. A chat that comes back after it slept, stopped or
-   * restarted is taken up again, and only the requests the host still waits on are shown.
-   */
-  hostSaw = (info: ChatInfo | undefined, waiting: string[] | undefined) => {
+  /** What the host's own view says of this chat. A chat that comes back after it slept, stopped or restarted is taken up again. */
+  hostSaw = (info: ChatInfo | undefined) => {
     const up = info?.state === 'ready';
     const cameBack = this.hostUp === false && up;
     this.hostUp = up;
-    const next = waiting ? new Set(waiting) : null;
-    const same = next && this.onHost && next.size === this.onHost.size && [...next].every((id) => this.onHost?.has(id));
-    if (!same && (next || this.onHost)) {
-      this.onHost = next;
-      this.emit();
-    }
     if (cameBack && this.connection && this.attached !== 'attaching') this.restart();
   };
 
@@ -525,16 +508,10 @@ export class ChatSession {
   }
 
   private build(): ChatSnapshot {
-    const now = this.now();
     const chat = this.feed.chat;
-    const onHost = this.onHost;
     const answering = this.answering;
     const all = chat.permissions;
-    const permissions = all.filter(
-      (request) =>
-        !answering.has(request.requestId) &&
-        (!onHost || onHost.has(request.requestId) || now - (this.arrived.get(request.requestId) ?? -Infinity) < PERMISSION_GRACE_MS),
-    );
+    const permissions = all.filter((request) => !answering.has(request.requestId));
     const draft = this.draft;
     return {
       view: this.view(),
@@ -618,20 +595,13 @@ export class ChatSession {
   }
 
   /** What follows from the host's changes, and letting go of what this phone sent once the host shows it. */
-  private applied(before: ChatRows, live: boolean) {
+  private applied(before: ChatRows) {
     const chat = this.feed.chat;
     if (!before.running && chat.running) this.turnSince = this.now();
     if (!chat.running) this.stoppingTurn = false;
     if (chat.permissionMode !== before.permissionMode) this.mode = null;
     if (chat.queued !== before.queued || chat.running !== before.running) this.outbox.dropTaken();
     if (this.chosen.size && (chat.model !== before.model || chat.effort !== before.effort)) this.chosen = new Map();
-    if (live && chat.permissions !== before.permissions) {
-      for (const request of chat.permissions) {
-        if (before.permissions.some((held) => held.requestId === request.requestId)) continue;
-        this.arrived.set(request.requestId, this.now());
-        setTimeout(() => this.emit(), PERMISSION_GRACE_MS);
-      }
-    }
     this.outbox.settle(before.running && !chat.running);
     if (chat.draft !== before.draft) this.draft.takeIn();
   }
@@ -704,6 +674,8 @@ export class ChatSession {
           timed('resumed', attachment.inner.changesJson.length);
         } else {
           this.attached = 'missing';
+          // The chat kept on this phone may hold requests nothing on the host waits on any more.
+          feed.apply((chat) => ({ ...chat, permissions: [] }));
           this.outbox.failWaiting('the chat is gone from the host');
           this.emit();
           timed('missing', 0);

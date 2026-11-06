@@ -45,10 +45,8 @@ export function useChat(
   const info = snapshot?.chats.find((chat) => chat.agentId === agentId);
   // Before the hold, so the first attach knows whether the chat needs waking.
   useEffect(() => {
-    if (!snapshot) return;
-    const waiting = snapshot.attentions.filter((attention) => attention.agentId === agentId).map((attention) => attention.id);
-    session.hostSaw(info, waiting);
-  }, [session, snapshot, info, agentId]);
+    if (snapshot) session.hostSaw(info);
+  }, [session, snapshot, info]);
   useEffect(() => session.hold(connection), [session, connection]);
   // The phone may be closed for good once it leaves the app, with the chat still on screen.
   useEffect(() => {
