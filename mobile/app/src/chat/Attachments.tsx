@@ -7,12 +7,12 @@ import { Icon } from '@/ui/Icon';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 import { useHostFile } from './hostFiles';
 import { ImageViewer } from './ImageViewer';
+import { drawsImage } from './FileRef';
 import { sizeLabel } from './pick';
 import type { Attachment } from './uploads';
 
 /** The picture a composer tile asks the host for: enough pixels for its 58 points at 3x, and a little more. */
 const TILE_PIXELS = 240;
-const IMAGE_PATH = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
 
 function FileChip({ name, size, image, tall }: { name: string; size?: number; image?: boolean; tall?: boolean }) {
   const colors = useColors();
@@ -149,7 +149,7 @@ export function SentAttachments({ paths, sentFiles }: { paths: readonly string[]
     <View style={styles.sent}>
       {paths.map((path) => {
         const picked = sentFiles.get(path);
-        if (picked ? picked.kind === 'image' : IMAGE_PATH.test(path)) return <SentImage key={path} path={path} picked={picked} />;
+        if (picked ? picked.kind === 'image' : drawsImage(path)) return <SentImage key={path} path={path} picked={picked} />;
         return (
           <View key={path} accessible accessibilityLabel={`File ${basename(path)}`}>
             <FileChip name={picked?.name ?? basename(path)} size={picked?.size} />

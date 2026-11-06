@@ -41,7 +41,7 @@ function splitLocation(raw: string): { body: string; line?: number; column?: num
    of the few names a project spells out in full. Everything else needs a
    separator to tell it apart from an ordinary word. */
 const EXTENSIONLESS_NAMES = new Set(EXTENSIONLESS);
-const HAS_EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
+export const HAS_EXTENSION = /\.[A-Za-z0-9]{1,8}$/;
 
 function looksRelative(body: string): boolean {
     if (body.includes("/") || body.includes("\\")) return true;
