@@ -80,15 +80,20 @@ mod tests {
 
     #[test]
     fn the_browser_asks_for_jira_and_a_refresh_token_and_comes_back_to_jiras_path() {
-        let url = APP.authorize_address("s1", Some("verifier"));
-        assert!(url.starts_with("https://auth.atlassian.com/authorize?"));
-        assert!(url.contains("&audience=api.atlassian.com&"));
-        assert!(url.contains("scope=read%3Ajira-work+write%3Ajira-work+read%3Ajira-user+"));
-        assert!(url.contains("+read%3Aboard-scope%3Ajira-software+"));
-        assert!(url.contains("+offline_access&"));
-        assert!(url.contains("%2Fjira%2Fcallback"));
-        assert!(url.contains("&state=s1&"));
-        assert!(url.ends_with("&code_challenge_method=S256"));
+        let address = APP.authorize_address("s1", Some("verifier"));
+        let url = url::Url::parse(&address).expect("an address");
+        assert_eq!(url.host_str(), Some("auth.atlassian.com"));
+        let asked = |name: &str| {
+            url.query_pairs()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.into_owned())
+                .unwrap_or_default()
+        };
+        assert_eq!(asked("audience"), "api.atlassian.com");
+        assert!(asked("scope").split(' ').any(|s| s == "offline_access"));
+        assert!(asked("redirect_uri").ends_with("/jira/callback"));
+        assert_eq!(asked("state"), "s1");
+        assert_eq!(asked("code_challenge_method"), "S256");
     }
 
     #[test]

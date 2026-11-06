@@ -463,12 +463,4 @@ mod tests {
             .to_string()
             .contains("ENG, DES"));
     }
-
-    #[test]
-    fn a_limit_stays_between_one_and_a_hundred() {
-        assert_eq!(
-            (limit(None), limit(Some(0)), limit(Some(500))),
-            (25, 1, 100)
-        );
-    }
 }

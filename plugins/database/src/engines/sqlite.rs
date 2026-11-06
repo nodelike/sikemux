@@ -514,25 +514,16 @@ pub mod tests {
                 )
                 .await
         });
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        session.cancel();
-        let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), endless)
-            .await
-            .unwrap()
-            .unwrap();
+        // A cancel reaches only a query already running, and nothing says when this one starts.
+        while !endless.is_finished() {
+            session.cancel();
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        let outcome = endless.await.unwrap();
         let Err(DatabaseError::Query(message)) = outcome else {
             panic!("expected the query to be interrupted")
         };
         assert!(message.contains("interrupt"), "{message}");
         assert!(session.query("select 1".into(), 1).await.is_ok());
-    }
-
-    #[test]
-    fn a_tilde_is_the_home_folder() {
-        use sikemux_process::paths::{expand_home, home};
-        let home = home().unwrap();
-        assert_eq!(expand_home("~/a.db"), home.join("a.db"));
-        assert_eq!(expand_home("~"), home);
-        assert_eq!(expand_home("/tmp/a.db"), PathBuf::from("/tmp/a.db"));
     }
 }

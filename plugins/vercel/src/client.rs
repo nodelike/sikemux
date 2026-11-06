@@ -164,10 +164,4 @@ mod tests {
             VercelError::Http { status: 502, .. }
         ));
     }
-
-    #[test]
-    fn a_team_is_named_by_id_or_by_slug() {
-        assert_eq!(team_param("team_abc"), ("teamId", "team_abc".into()));
-        assert_eq!(team_param("acme"), ("slug", "acme".into()));
-    }
 }

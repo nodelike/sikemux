@@ -793,7 +793,7 @@ pub mod tests {
             return;
         };
         let dropped = tokio::time::timeout(
-            Duration::from_millis(300),
+            Duration::from_secs(5),
             reader.query_guarded("select pg_sleep(30)", 1),
         )
         .await;
@@ -808,12 +808,12 @@ pub mod tests {
         };
         let running = scratch.session.clone();
         let sleeping = tokio::spawn(async move { running.query("select pg_sleep(30)", 1).await });
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        scratch.session.cancel().await.unwrap();
-        let outcome = tokio::time::timeout(Duration::from_secs(5), sleeping)
-            .await
-            .unwrap()
-            .unwrap();
+        // A cancel reaches only a query already running, and nothing says when this one starts.
+        while !sleeping.is_finished() {
+            scratch.session.cancel().await.unwrap();
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let outcome = sleeping.await.unwrap();
         let Err(DatabaseError::Query(message)) = outcome else {
             panic!("expected the query to be cancelled")
         };

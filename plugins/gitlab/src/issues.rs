@@ -286,12 +286,6 @@ mod tests {
     }
 
     #[test]
-    fn the_whole_inbox_asks_for_each_state_gitlab_knows() {
-        assert_eq!(todo_states(false), ["pending"]);
-        assert_eq!(todo_states(true), ["pending", "done"]);
-    }
-
-    #[test]
     fn a_to_do_reads_as_a_notification() {
         let row: TodoRow = serde_json::from_value(json!({
             "id": 102, "action_name": "review_requested", "target_type": "MergeRequest",

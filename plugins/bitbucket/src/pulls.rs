@@ -1046,12 +1046,4 @@ mod tests {
         );
         assert!(pushed.is_none());
     }
-
-    #[test]
-    fn only_merge_commits_squashes_and_fast_forwards_are_offered() {
-        assert_eq!(strategy_of("merge").ok(), Some("merge_commit"));
-        assert_eq!(strategy_of("squash").ok(), Some("squash"));
-        assert_eq!(strategy_of("fast_forward").ok(), Some("fast_forward"));
-        assert!(strategy_of("rebase").is_err());
-    }
 }

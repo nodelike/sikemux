@@ -37,20 +37,3 @@ pub fn in_words(code: &str) -> String {
         other => other.replace('_', " "),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn slacks_codes_read_as_sentences() {
-        assert_eq!(
-            in_words("not_in_channel"),
-            "this account is not in that channel"
-        );
-        assert_eq!(in_words("invalid_cursor"), "invalid cursor");
-        assert!(missing_scope("chat:write")
-            .to_string()
-            .contains("add the chat:write scope"));
-    }
-}

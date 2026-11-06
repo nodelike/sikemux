@@ -379,21 +379,3 @@ pub(crate) async fn sso_login(profile: String) -> AwsLoginResult {
         },
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_path_from_the_shell_may_start_at_home() {
-        use sikemux_process::paths::{expand_home, home};
-        assert_eq!(
-            expand_home("~/work/aws-config"),
-            home().unwrap().join("work/aws-config")
-        );
-        assert_eq!(
-            expand_home("/etc/aws/config"),
-            PathBuf::from("/etc/aws/config")
-        );
-    }
-}

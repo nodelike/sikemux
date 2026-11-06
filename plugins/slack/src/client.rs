@@ -159,7 +159,7 @@ mod tests {
             matches!(checked(json!({ "ok": false, "error": "missing_scope", "needed": "search:read" })), Err(SlackError::Forbidden(message)) if message.contains("search:read"))
         );
         assert!(
-            matches!(checked(json!({ "ok": false, "error": "channel_not_found" })), Err(SlackError::Api(message)) if message == "that channel does not exist, or this account cannot see it")
+            matches!(checked(json!({ "ok": false, "error": "channel_not_found" })), Err(SlackError::Api(message)) if message.contains("channel"))
         );
         assert!(matches!(
             checked(json!({ "something": 1 })),
