@@ -2,23 +2,19 @@
 
 import { createHash } from "node:crypto";
 import {
-  chmodSync,
   copyFileSync,
   existsSync,
-  mkdirSync,
   readdirSync,
   readFileSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative } from "node:path";
 import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { building, root } from "./lib/build.mjs";
 
-const { fail, run, hostTriple, dropToolchainPaths, checkStarts } =
-  building("Simulator helper");
+const { fail, run, hostTriple, finishHelper } = building("Simulator helper");
 
 const simDir = join(root, "helpers", "sim");
 const idbDir = join(simDir, "idb");
@@ -188,24 +184,7 @@ function buildHelper() {
 
 buildFBControlCore();
 const built = buildHelper();
-const destination = args.includes("--dev")
-  ? join(root, "target", "debug", name)
-  : join(root, "packaging", "binaries", `${name}-${target}`);
-mkdirSync(dirname(destination), { recursive: true });
-copyFileSync(built, destination);
-chmodSync(destination, 0o755);
-run("strip", ["-x", destination]);
-
-dropToolchainPaths(destination);
-
-// Like the voice helper, signed ad hoc to run here and signed again by the release.
-if (!args.includes("--dev")) {
-  run("bash", [join(root, "scripts", "sign-helper.sh"), destination], {
-    env: { APPLE_SIGNING_IDENTITY: "-" },
-  });
-}
-
-checkStarts(destination, name);
+const destination = finishHelper(built, name, target, { dev });
 
 const size = (statSync(destination).size / 1024 / 1024).toFixed(1);
 console.log(

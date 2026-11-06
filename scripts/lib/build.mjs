@@ -1,6 +1,7 @@
 // What the scripts that build a program do alike.
 import { spawnSync } from "node:child_process";
-import { resolve } from "node:path";
+import { chmodSync, copyFileSync, mkdirSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 export const root = resolve(import.meta.dirname, "..", "..");
 
@@ -48,5 +49,35 @@ export function building(what) {
       fail(`unexpected --version output: ${version}`);
   }
 
-  return { fail, run, hostTriple, dropToolchainPaths, checkStarts };
+  /**
+   * Puts a built helper where it runs from, stripped. A release publishes it beside the app
+   * instead of bundling it: this ad hoc signature lets it run here, and the release signs it
+   * again before the app that pins its hash is built.
+   */
+  function finishHelper(built, name, target, { dev }) {
+    const destination = dev
+      ? join(root, "target", "debug", name)
+      : join(root, "packaging", "binaries", `${name}-${target}`);
+    mkdirSync(dirname(destination), { recursive: true });
+    copyFileSync(built, destination);
+    chmodSync(destination, 0o755);
+    run("strip", ["-x", destination]);
+    dropToolchainPaths(destination);
+    if (!dev) {
+      run("bash", [join(root, "scripts", "sign-helper.sh"), destination], {
+        env: { APPLE_SIGNING_IDENTITY: "-" },
+      });
+    }
+    checkStarts(destination, name);
+    return destination;
+  }
+
+  return {
+    fail,
+    run,
+    hostTriple,
+    dropToolchainPaths,
+    checkStarts,
+    finishHelper,
+  };
 }
