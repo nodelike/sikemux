@@ -25,6 +25,8 @@ use crate::icons::Icon;
 use crate::reads::Drafts;
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::layout::{ActivateProjectParams, HostParams};
+use sikemux_core::server::spare::NewTerminal;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub enum HostChoice {
@@ -266,8 +268,11 @@ impl Workbench {
                     };
                     bench.choose_host(after, cx);
                     if let Some(project) = opened["project"].as_str() {
-                        core::Target::new(&bench.asks, place)
-                            .call("activateProject", json!({ "project": project }));
+                        core::Target::new(&bench.asks, place).call_typed::<call::ActivateProject>(
+                            ActivateProjectParams {
+                                project: project.to_owned(),
+                            },
+                        );
                     }
                 }
                 Err(error) => bench.notify(
@@ -318,8 +323,11 @@ impl Workbench {
                 };
                 bench.choose_host(sending.after.clone(), cx);
                 if let Some(project) = sent["project"].as_str() {
-                    core::Target::new(&bench.asks, place)
-                        .call("activateProject", json!({ "project": project }));
+                    core::Target::new(&bench.asks, place).call_typed::<call::ActivateProject>(
+                        ActivateProjectParams {
+                            project: project.to_owned(),
+                        },
+                    );
                 }
             });
         })
@@ -431,10 +439,8 @@ impl Workbench {
     pub fn new_terminal_on(&mut self, host: &str, cx: &mut Context<Self>) {
         self.show_workbench(cx);
         self.take_keys_when_shown(crate::keyboard::TakesKeys::Terminal, cx);
-        core::Target::new(&self.asks, Place::Account(host.to_owned())).call(
-            "newTerminal",
-            crate::workbench::Strip::Terminals.with(json!({})),
-        );
+        core::Target::new(&self.asks, Place::Account(host.to_owned()))
+            .call_typed::<call::NewTerminal>(NewTerminal::loose());
         self.choose_host(HostChoice::Account(host.to_owned()), cx);
     }
 
@@ -572,7 +578,9 @@ impl Workbench {
     /// Puts the person on `choice`, which the rail and the tab list then follow.
     pub fn choose_host(&mut self, choice: HostChoice, cx: &mut Context<Self>) {
         self.show_workbench(cx);
-        self.call("chooseHost", json!({ "host": choice.key() }));
+        self.call_typed::<call::ChooseHost>(HostParams {
+            host: choice.key().to_string(),
+        });
         cx.notify();
     }
 }

@@ -405,7 +405,7 @@ impl Workbench {
     /// Opens the Stash's pane in the strip in front, and marks the stash seen.
     pub fn open_stash(&mut self) {
         if let Some(strip) = self.strip() {
-            self.open_in_front(OpenTab::new(strip.into(), PaneKind::Stash, "stash"));
+            self.open_in_front(OpenTab::new(strip.at(), PaneKind::Stash, "stash"));
         }
         self.see_stash();
     }

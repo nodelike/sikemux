@@ -1,5 +1,6 @@
 //! A tab's views side by side, as the core's layout splits them.
 
+use crate::core::Target;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -11,9 +12,7 @@ use gpui_kit::{
     DragMoveEvent, EmptyView, Hsla, InteractiveElement, IntoElement, MouseButton, ParentElement,
     Pixels, Point, SharedString, StatefulInteractiveElement, Styled, Window,
 };
-use serde_json::json;
 use sikemux_view::layout::{Pane, PaneKind, SplitDir, Tab};
-use sikemux_wire::protocol::SessionId;
 
 use crate::drag::DraggedTab;
 use crate::pane_kind::Separable;
@@ -21,6 +20,7 @@ use crate::text_size::Surface;
 use crate::theme::SPACE_1;
 use crate::workbench::{Strip, Workbench};
 use crate::{motion, ui};
+use sikemux_core::server::{call, layout};
 
 /// The room between two panes, which is also where a divider is dragged.
 pub const GAP: f32 = 10.;
@@ -111,12 +111,12 @@ enum Side {
 }
 
 impl Side {
-    fn word(self) -> &'static str {
+    fn in_core(self) -> layout::Side {
         match self {
-            Side::Left => "left",
-            Side::Right => "right",
-            Side::Top => "top",
-            Side::Bottom => "bottom",
+            Side::Left => layout::Side::Left,
+            Side::Right => layout::Side::Right,
+            Side::Top => layout::Side::Top,
+            Side::Bottom => layout::Side::Bottom,
         }
     }
 }
@@ -739,15 +739,20 @@ impl Workbench {
             self.panes.resizing = None;
             return;
         }
-        let params = json!({
-            "tab": resizing.tab,
-            "split": resizing.split,
-            "sizes": resizing.sizes,
-        });
+        let (tab, split, sizes) = (
+            resizing.tab.clone(),
+            resizing.split.clone(),
+            resizing.sizes.clone(),
+        );
         let Some(strip) = self.strip() else {
             return;
         };
-        self.call("resizeSplit", strip.with(params));
+        self.call_typed::<call::ResizeSplit>(layout::ResizeSplit {
+            at: strip.at(),
+            tab,
+            split,
+            sizes,
+        });
     }
 
     /// The view in focus in the tab in front, else its first.
@@ -791,36 +796,34 @@ impl Workbench {
             return;
         };
         let side = match dir {
-            SplitDir::Row => "right",
-            SplitDir::Column => "bottom",
-            SplitDir::Stack => "stack",
+            SplitDir::Row => layout::Side::Right,
+            SplitDir::Column => layout::Side::Bottom,
+            SplitDir::Stack => layout::Side::Stack,
         };
-        let asks = self.asks.clone();
-        let shell = crate::core::request(&self.asks, "stripShell", strip.with(json!({})));
+        let core = Target::here(&self.asks);
         cx.spawn(async move |bench, cx| {
-            let session = match shell.await.and_then(|shell| {
-                serde_json::from_value::<SessionId>(shell).map_err(|error| error.to_string())
-            }) {
+            let session = match core.request_typed::<call::StripShell>(strip.at()).await {
                 Ok(session) => session,
                 Err(error) => {
                     eprintln!("sikemux: no shell for the split: {error}");
                     return;
                 }
             };
-            let params = json!({
-                "tab": tab,
-                "pane": pane,
-                "side": side,
-                "kind": PaneKind::Terminal,
-                "target": session.to_string(),
-            });
-            let added = crate::core::request(&asks, "splitPane", strip.with(params)).await;
+            let added = core
+                .request_typed::<call::SplitPane>(layout::SplitPane {
+                    at: strip.at(),
+                    tab,
+                    pane,
+                    side,
+                    kind: Some(PaneKind::Terminal),
+                    target: Some(session.to_string()),
+                    from_tab: None,
+                    keep_front: false,
+                })
+                .await;
             let _ = bench.update(cx, |bench, cx| {
                 bench.panes.zoomed = None;
-                if let Some(added) = added
-                    .ok()
-                    .and_then(|added| added.as_str().map(str::to_owned))
-                {
+                if let Ok(added) = added {
                     bench.focus_pane(added, cx);
                 }
                 bench.parts.redraw_stage(cx);
@@ -904,8 +907,12 @@ impl Workbench {
         }
         sizes[at] += give;
         sizes[beyond] -= give;
-        let params = json!({ "tab": tab.id, "split": split, "sizes": sizes });
-        self.call("resizeSplit", strip.with(params));
+        self.call_typed::<call::ResizeSplit>(layout::ResizeSplit {
+            at: strip.at(),
+            tab: tab.id.clone(),
+            split,
+            sizes,
+        });
     }
 
     /// Lets the view in focus fill its tab, or puts the tab's other views back.
@@ -930,15 +937,16 @@ impl Workbench {
         target: &str,
         keep_front: bool,
     ) {
-        let params = json!({
-            "tab": tab,
-            "pane": pane,
-            "side": "right",
-            "kind": kind,
-            "target": target,
-            "keepFront": keep_front,
+        self.call_typed::<call::SplitPane>(layout::SplitPane {
+            at: strip.at(),
+            tab: tab.to_owned(),
+            pane: pane.to_owned(),
+            side: layout::Side::Right,
+            kind: Some(kind),
+            target: Some(target.to_owned()),
+            from_tab: None,
+            keep_front,
         });
-        self.call("splitPane", strip.with(params));
     }
 
     /// Notes the side of the view `pane` of `tab` that a tab dragged over it would take: the
@@ -1003,18 +1011,25 @@ impl Workbench {
         else {
             return;
         };
-        let params = json!({
-            "tab": aimed.tab,
-            "pane": aimed.pane,
-            "side": aimed.side.word(),
-            "fromTab": aimed.from,
+        self.call_typed::<call::SplitPane>(layout::SplitPane {
+            at: dropped.strip.at(),
+            tab: aimed.tab,
+            pane: aimed.pane,
+            side: aimed.side.in_core(),
+            kind: None,
+            target: None,
+            from_tab: Some(aimed.from),
+            keep_front: false,
         });
-        self.call("splitPane", dropped.strip.with(params));
         self.parts.redraw_stage(cx);
     }
 
     pub fn close_pane(&self, strip: &Strip, tab: &str, pane: &str) {
-        self.call("closePane", strip.with(json!({ "tab": tab, "pane": pane })));
+        self.call_typed::<call::ClosePane>(layout::PaneParams {
+            at: strip.at(),
+            tab: tab.to_owned(),
+            pane: pane.to_owned(),
+        });
     }
 
     /// The view of a split `tab` its menu can move out into a tab of its own, as the Mac's
@@ -1047,9 +1062,10 @@ impl Workbench {
     }
 
     pub fn separate_pane(&self, strip: &Strip, tab: &str, pane: &str) {
-        self.call(
-            "separatePane",
-            strip.with(json!({ "tab": tab, "pane": pane })),
-        );
+        self.call_typed::<call::SeparatePane>(layout::PaneParams {
+            at: strip.at(),
+            tab: tab.to_owned(),
+            pane: pane.to_owned(),
+        });
     }
 }

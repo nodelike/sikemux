@@ -1,11 +1,12 @@
 //! ⌘⇧P, the command deck: every command the window can do and the person's own
 //! commands, the ones used last first.
 
+use crate::core::Target;
 use gpui_kit::{App, Context, SharedString, Window};
 use serde_json::{json, Value};
+use sikemux_core::server::call;
 use sikemux_core::server::tasks::ConfigStatus;
 use sikemux_view::layout::PaneKind;
-use sikemux_wire::protocol::SessionId;
 use tokio::sync::oneshot;
 
 use sikemux_core::git::worktree::GitWorktree;
@@ -16,6 +17,7 @@ use crate::keymap;
 use crate::palette::{Row, Spec};
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::server::custom_command::RunCustomParams;
 
 const REMEMBERED: usize = 20;
 
@@ -283,6 +285,12 @@ fn worktree_rows(worktrees: &Vec<GitWorktree>) -> Vec<Row> {
     rows
 }
 
+/// What `run_command` runs: a custom command or a `sikemux.json` action, by id.
+pub(crate) enum Which {
+    Command(String),
+    Action(String),
+}
+
 impl Workbench {
     /// What is wrong with the project's `sikemux.json`, each as where in the file and why.
     fn config_errors(&self) -> Vec<String> {
@@ -410,7 +418,7 @@ impl Workbench {
                     Some(Pick::Builtin(id)) => keymap::dispatch(id, window, cx),
                     Some(Pick::Custom(id)) => bench.run_custom_command(id, cx),
                     Some(Pick::Action(id)) => {
-                        bench.run_command(json!({ "action": id }), row.title.to_string(), cx)
+                        bench.run_command(Which::Action(id.to_string()), row.title.to_string(), cx)
                     }
                     Some(Pick::Standalone(id)) => {
                         if let Some(command) = STANDALONE.iter().find(|command| command.id == id) {
@@ -586,36 +594,42 @@ impl Workbench {
             .into_iter()
             .find(|command| command.id == id)
             .map_or_else(|| id.to_owned(), |command| command.title);
-        self.run_command(json!({ "id": id }), title, cx);
+        self.run_command(Which::Command(id.to_owned()), title, cx);
     }
 
     /// Runs `which`, a custom command's id or a `sikemux.json` action's, for the strip in
     /// front, telling the person what one in the background printed.
-    pub(crate) fn run_command(&self, which: Value, title: String, cx: &mut Context<Self>) {
+    pub(crate) fn run_command(&self, which: Which, title: String, cx: &mut Context<Self>) {
         let Some(strip) = self.strip() else {
             return;
         };
-        if which.get("action").is_some() && !matches!(strip, Strip::Project(_)) {
+        if matches!(which, Which::Action(_)) && !matches!(strip, Strip::Project(_)) {
             return;
         }
-        let tab = self.tab().map(|tab| tab.id.clone());
-        let mut params = strip.with(json!({ "tab": tab, "pane": self.focused_view() }));
-        if let (Some(params), Some(which)) = (params.as_object_mut(), which.as_object()) {
-            params.extend(which.clone());
-        }
-        let ran = core::request(&self.asks, "runCustomCommand", params);
+        let (id, action) = match which {
+            Which::Command(id) => (Some(id), None),
+            Which::Action(id) => (None, Some(id)),
+        };
+        let ran =
+            Target::here(&self.asks).request_typed::<call::RunCustomCommand>(RunCustomParams {
+                at: strip.at(),
+                id,
+                action,
+                tab: self.tab().map(|tab| tab.id.clone()),
+                pane: self.focused_view(),
+            });
         cx.spawn(async move |this, cx| {
             let ran = ran.await;
             let _ = this.update(cx, |bench, cx| match ran {
                 Ok(ran) => {
-                    if let Ok(popup) = serde_json::from_value::<SessionId>(ran["popup"].clone()) {
+                    if let Some(popup) = ran.popup {
                         return bench.show_command_popup(title, popup, cx);
                     }
-                    let Some(result) = ran.get("result") else {
+                    let Some(result) = ran.result else {
                         return;
                     };
-                    let output = result["output"].as_str().unwrap_or_default().trim();
-                    let code = result["code"].as_i64().unwrap_or(-1);
+                    let output = result.output.trim();
+                    let code = result.code;
                     let said = if output.is_empty() {
                         format!("exit {code}")
                     } else {

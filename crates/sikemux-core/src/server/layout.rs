@@ -10,8 +10,7 @@ use std::future::Future;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use serde::Deserialize;
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::{CliOpenTarget, CliTargetKind};
@@ -691,16 +690,27 @@ pub(crate) fn show_terminal(
     )
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TabParams {
+pub struct TabParams {
     #[serde(flatten)]
-    at: At,
-    tab: String,
+    pub at: At,
+    pub tab: String,
     /// Where `moveTab` puts it, counted in the strip as it is now.
-    to: Option<usize>,
+    pub to: Option<usize>,
     /// The name `renameTab` gives it; an empty one gives back its own name.
-    title: Option<String>,
+    pub title: Option<String>,
+}
+
+impl TabParams {
+    pub fn new(at: At, tab: impl Into<String>) -> Self {
+        Self {
+            at,
+            tab: tab.into(),
+            to: None,
+            title: None,
+        }
+    }
 }
 
 /// Closes a tab. Agents it shows close with it, since an agent always has a
@@ -709,12 +719,12 @@ pub(crate) fn close_tab(core: &Arc<Core>, params: TabParams) -> CoreResult<()> {
     close(core, &params.at, &[params.tab])
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct TabsParams {
+pub struct TabsParams {
     #[serde(flatten)]
-    at: At,
-    tabs: Vec<String>,
+    pub at: At,
+    pub tabs: Vec<String>,
 }
 
 /// Closes several tabs of one strip at once, as `closeTab` closes one.
@@ -994,15 +1004,15 @@ pub(crate) fn move_tab(core: &Core, params: TabParams) -> CoreResult<()> {
     })
 }
 
-#[derive(Deserialize)]
-pub(crate) struct ProjectParams {
-    project: String,
+#[derive(Deserialize, Serialize)]
+pub struct ActivateProjectParams {
+    pub project: String,
 }
 
-#[derive(Deserialize)]
-pub(crate) struct HostParams {
+#[derive(Deserialize, Serialize)]
+pub struct HostParams {
     /// "this", "host:<key>" for another host on the account, or "ssh:<alias>".
-    host: String,
+    pub host: String,
 }
 
 /// Puts the asking client on a host: this one, another on the account, or an SSH host, whose
@@ -1044,26 +1054,50 @@ pub(crate) async fn choose_host(core: &Arc<Core>, params: HostParams) -> CoreRes
     })
 }
 
-#[derive(Deserialize)]
-pub(crate) struct OpenPaths {
-    targets: Vec<CliOpenTarget>,
+#[derive(Deserialize, Serialize)]
+pub struct OpenPaths {
+    pub targets: Vec<CliOpenTarget>,
     /// Opens the files without bringing their projects forward.
     #[serde(default)]
-    behind: bool,
+    pub behind: bool,
+}
+
+/// How one target of [`OpenPaths`] went: its project and tab, or why it did not open.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathOpened {
+    pub target_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// Opens what `sikemux open` or an agent's `ui_open` names: a folder's project, or a file
 /// in its project's editor, in the project holding it, else in the target's project root
 /// made a project. Answers each target's project and tab, or why it did not open.
-pub(crate) async fn open_paths(core: &Arc<Core>, params: OpenPaths) -> CoreResult<Value> {
+pub(crate) async fn open_paths(core: &Arc<Core>, params: OpenPaths) -> CoreResult<Vec<PathOpened>> {
     let mut answers = Vec::new();
     for target in params.targets {
+        let target_id = target.id.clone();
         answers.push(match open_path(core, &target, params.behind).await {
-            Ok((project, tab)) => json!({ "targetId": target.id, "project": project, "tab": tab }),
-            Err(error) => json!({ "targetId": target.id, "error": error.to_string() }),
+            Ok((project, tab)) => PathOpened {
+                target_id,
+                project: Some(project),
+                tab,
+                error: None,
+            },
+            Err(error) => PathOpened {
+                target_id,
+                project: None,
+                tab: None,
+                error: Some(error.to_string()),
+            },
         });
     }
-    Ok(Value::Array(answers))
+    Ok(answers)
 }
 
 async fn open_path(
@@ -1077,7 +1111,7 @@ async fn open_path(
             if !behind {
                 activate_project(
                     core,
-                    ProjectParams {
+                    ActivateProjectParams {
                         project: project.clone(),
                     },
                 )?;
@@ -1121,7 +1155,7 @@ async fn owning_project(core: &Arc<Core>, path: &Path, root: &str) -> CoreResult
     Ok(super::workspace::add_project(core, params).await?.id)
 }
 
-pub(crate) fn activate_project(core: &Core, params: ProjectParams) -> CoreResult<()> {
+pub(crate) fn activate_project(core: &Core, params: ActivateProjectParams) -> CoreResult<()> {
     edit(core, |layout| {
         strip(layout, &params.project)?;
         bring_forward(layout, &At::project(&params.project));
@@ -1129,9 +1163,9 @@ pub(crate) fn activate_project(core: &Core, params: ProjectParams) -> CoreResult
     })
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) enum Side {
+pub enum Side {
     Left,
     Right,
     Top,
@@ -1140,22 +1174,22 @@ pub(crate) enum Side {
     Stack,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct SplitPane {
+pub struct SplitPane {
     #[serde(flatten)]
-    at: At,
-    tab: String,
+    pub at: At,
+    pub tab: String,
     /// The view the new one goes beside, by id.
-    pane: String,
-    side: Side,
-    kind: Option<PaneKind>,
-    target: Option<String>,
+    pub pane: String,
+    pub side: Side,
+    pub kind: Option<PaneKind>,
+    pub target: Option<String>,
     /// A tab of the same strip whose pane moves into the split, closing the tab.
-    from_tab: Option<String>,
+    pub from_tab: Option<String>,
     /// Leaves the strip's tab in front where it is, for a split the person did not ask for.
     #[serde(default)]
-    keep_front: bool,
+    pub keep_front: bool,
 }
 
 /// Puts a view beside one of a tab's views: a new view of `kind` showing
@@ -1245,13 +1279,13 @@ fn first_view_id(pane: &Pane) -> String {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct PaneParams {
+pub struct PaneParams {
     #[serde(flatten)]
-    at: At,
-    tab: String,
-    pane: String,
+    pub at: At,
+    pub tab: String,
+    pub pane: String,
 }
 
 /// Closes one view of a tab; a tab left with nothing closes as `closeTab` does.
@@ -1334,15 +1368,15 @@ pub(crate) fn separate_pane(core: &Core, params: PaneParams) -> CoreResult<Strin
     })
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct ResizeSplit {
+pub struct ResizeSplit {
     #[serde(flatten)]
-    at: At,
-    tab: String,
-    split: String,
+    pub at: At,
+    pub tab: String,
+    pub split: String,
     /// Each pane's share, in any unit; the core keeps them in thousandths.
-    sizes: Vec<u16>,
+    pub sizes: Vec<u16>,
 }
 
 pub(crate) fn resize_split(core: &Core, params: ResizeSplit) -> CoreResult<()> {

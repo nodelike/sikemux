@@ -29,8 +29,8 @@ pub(crate) struct CommandParams {
     pub env: HashMap<String, String>,
 }
 
-#[derive(Serialize)]
-pub(crate) struct CommandResult {
+#[derive(Serialize, Deserialize)]
+pub struct CommandResult {
     pub code: i32,
     pub output: String,
 }
@@ -69,34 +69,34 @@ pub(crate) async fn run(params: CommandParams) -> CoreResult<CommandResult> {
     .await
 }
 
-#[derive(Deserialize)]
-pub(crate) struct RunCustomParams {
+#[derive(Serialize, Deserialize)]
+pub struct RunCustomParams {
     /// The strip in front it runs for: a project, the terminals of no project or an SSH host's.
     #[serde(flatten)]
-    at: At,
+    pub at: At,
     /// The command, by its id in the person's preferences.
     #[serde(default)]
-    id: Option<String>,
+    pub id: Option<String>,
     /// Or the project's `sikemux.json` action, by its id, which runs once the person trusts
     /// the file.
     #[serde(default)]
-    action: Option<String>,
+    pub action: Option<String>,
     /// The tab in front and its view in focus, which a split or replacing command goes
     /// beside or in place of.
-    tab: Option<String>,
-    pane: Option<String>,
+    pub tab: Option<String>,
+    pub pane: Option<String>,
 }
 
 /// What running a custom command did: the tab it opened or changed, the terminal to float
 /// over the window, or what it printed in the background.
-#[derive(Serialize, Default)]
-pub(crate) struct Ran {
+#[derive(Serialize, Deserialize, Default)]
+pub struct CommandRan {
     #[serde(skip_serializing_if = "Option::is_none")]
-    tab: Option<String>,
+    pub tab: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    popup: Option<SessionId>,
+    pub popup: Option<SessionId>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<CommandResult>,
+    pub result: Option<CommandResult>,
 }
 
 /// The project's `sikemux.json` action `id` as a command to run, once the person trusts the
@@ -171,7 +171,10 @@ fn running(core: &Core, at: &At) -> CoreResult<Running> {
 /// Runs one of the person's custom commands for the strip in front, as its placement says: a
 /// project's in its folder, the others in the home folder of this host. A split or replacing
 /// command with no view to go beside opens a tab.
-pub(crate) async fn run_custom(core: &Arc<Core>, params: RunCustomParams) -> CoreResult<Ran> {
+pub(crate) async fn run_custom(
+    core: &Arc<Core>,
+    params: RunCustomParams,
+) -> CoreResult<CommandRan> {
     let running = running(core, &params.at)?;
     let command = match (&params.action, &params.id) {
         (Some(action), _) => {
@@ -196,9 +199,9 @@ pub(crate) async fn run_custom(core: &Arc<Core>, params: RunCustomParams) -> Cor
         (CustomCommandPlacement::Background, _) => {}
         (CustomCommandPlacement::Popup, _) => {
             let id = super::spare::strip_command_shell(core, &at, command.command).await?;
-            return Ok(Ran {
+            return Ok(CommandRan {
                 popup: Some(id),
-                ..Ran::default()
+                ..CommandRan::default()
             });
         }
         (
@@ -208,17 +211,17 @@ pub(crate) async fn run_custom(core: &Arc<Core>, params: RunCustomParams) -> Cor
             let id = super::spare::strip_command_shell(core, &at, command.command).await?;
             let replace = placement == CustomCommandPlacement::Replace;
             let tab = super::layout::place_terminal(core, at, tab, &pane, id, replace)?;
-            return Ok(Ran {
+            return Ok(CommandRan {
                 tab: Some(tab),
-                ..Ran::default()
+                ..CommandRan::default()
             });
         }
         _ => {
             let id = super::spare::strip_command_shell(core, &at, command.command).await?;
             let tab = super::layout::show_terminal(core, at, id, Some(command.title))?;
-            return Ok(Ran {
+            return Ok(CommandRan {
                 tab: Some(tab),
-                ..Ran::default()
+                ..CommandRan::default()
             });
         }
     }
@@ -239,8 +242,8 @@ pub(crate) async fn run_custom(core: &Arc<Core>, params: RunCustomParams) -> Cor
         env,
     })
     .await?;
-    Ok(Ran {
+    Ok(CommandRan {
         result: Some(result),
-        ..Ran::default()
+        ..CommandRan::default()
     })
 }

@@ -17,9 +17,10 @@ const VIEW = "crates/sikemux-view/src";
 const CORE = "crates/sikemux-core/src";
 const PLUGIN_API = "crates/sikemux-plugin-api/src";
 const MARKDOWN = "crates/sikemux-markdown/src";
+const BASE = "crates/sikemux-base/src";
 const SOURCES = (
   await Promise.all(
-    [WIRE, VIEW, CORE, PLUGIN_API, MARKDOWN].map((crate) =>
+    [WIRE, VIEW, CORE, PLUGIN_API, MARKDOWN, BASE].map((crate) =>
       readdir(resolve(root, crate), { recursive: true }),
     ),
   )
@@ -27,7 +28,8 @@ const SOURCES = (
   files
     .filter((file) => file.endsWith(".rs"))
     .map(
-      (file) => `${[WIRE, VIEW, CORE, PLUGIN_API, MARKDOWN][index]}/${file}`,
+      (file) =>
+        `${[WIRE, VIEW, CORE, PLUGIN_API, MARKDOWN, BASE][index]}/${file}`,
     ),
 );
 
@@ -227,6 +229,7 @@ const KNOWN = {
     "skip",
     "alias",
     "deserialize_with",
+    "flatten",
   ],
   variant: ["rename", "other", "alias", "untagged"],
 };
@@ -506,6 +509,14 @@ function renameAll(name, rule, where) {
   }
 }
 
+/** The fields a `serde(flatten)` field puts beside its neighbours in the JSON. */
+function flattened(type, where) {
+  if (type.kind !== "named") fail(`${where} flattens what is not a struct`);
+  const inner = parse(byClientName(type.name));
+  if (inner.kind !== "struct") fail(`${where} flattens what is not a struct`);
+  return inner.fields;
+}
+
 function parseFields(body, file, rule, where) {
   return splitTop(body.slice(1, -1)).flatMap((member) => {
     const { docs, attrs, rest } = readMember(member);
@@ -516,6 +527,7 @@ function parseFields(body, file, rule, where) {
     only(settings, KNOWN.field, `${where}.${match[1]}`);
     if (settings.skip) return [];
     const type = parseType(match[2], file);
+    if (settings.flatten) return flattened(type, `${where}.${match[1]}`);
     return {
       name: settings.rename ?? renameAll(match[1], rule, where),
       rust: match[1],

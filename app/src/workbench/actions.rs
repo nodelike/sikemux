@@ -2,7 +2,7 @@
 //! it stands with what covers the window. The ids, labels and keys are the shared table's.
 
 use gpui_kit::{App, Context, Div, InteractiveElement, Stateful, Window};
-use serde_json::json;
+use sikemux_core::server::call;
 use sikemux_view::layout::SplitDir;
 use tokio::sync::mpsc;
 
@@ -10,6 +10,7 @@ use super::{same_kind, Workbench};
 use crate::core::Ask;
 use crate::keymap::{Minimize, RunProjectAction, ToggleFullScreen, Zoom};
 use crate::panes::Towards;
+use sikemux_core::server::calls::NoParams;
 
 /// How a command stands with what covers the window.
 #[derive(Clone, Copy, PartialEq)]
@@ -92,7 +93,7 @@ commands! {
     ToggleYolo = "agent.permissions" acts |bench, _, _| bench.toggle_yolo_in_front();
     /// The tab rail's terminals.
     FocusTerminals = "session.command" opens |bench, _, _| {
-        bench.call("showTerminals", json!({}));
+        bench.call_typed::<call::ShowTerminals>(NoParams {});
     };
     FocusFiles = "window.files" opens |bench, _, cx| bench.focus_files(cx);
     FocusAgents = "window.agents" opens Workbench::focus_agents;
@@ -215,7 +216,11 @@ commands! {
 pub(super) fn listen_others(shell: Stateful<Div>, cx: &Context<Workbench>) -> Stateful<Div> {
     shell
         .on_action(cx.listener(|bench, action: &RunProjectAction, _, cx| {
-            bench.run_command(json!({ "action": action.id }), action.label.clone(), cx)
+            bench.run_command(
+                crate::commands::Which::Action(action.id.clone()),
+                action.label.clone(),
+                cx,
+            )
         }))
         .on_action(cx.listener(|bench, open: &crate::editor::OpenAt, _, cx| {
             crate::editor::go(bench, open.clone(), cx)

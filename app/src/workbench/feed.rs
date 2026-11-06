@@ -1,5 +1,6 @@
 //! What a core sent: one path per update, whichever core it came from, and what follows it.
 
+use sikemux_core::server::call;
 use std::path::PathBuf;
 
 use gpui_kit::Context;
@@ -13,6 +14,7 @@ use crate::hosts::Place;
 use crate::reads::Read;
 use crate::toast;
 use crate::workbench::Workbench;
+use sikemux_core::server::layout::HostParams;
 
 impl Workbench {
     pub(crate) fn apply(&mut self, update: Update, cx: &mut Context<Self>) {
@@ -24,7 +26,9 @@ impl Workbench {
             Update::Connected(version) => {
                 // The app opens on this host, as the Mac's does, whichever host was last in front.
                 if self.connection.connected(version) {
-                    self.call("chooseHost", json!({ "host": "this" }));
+                    self.call_typed::<call::ChooseHost>(HostParams {
+                        host: "this".to_owned(),
+                    });
                     self.usage_wanted = true;
                 }
                 self.on_screen = None;

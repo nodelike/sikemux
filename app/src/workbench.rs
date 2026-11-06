@@ -48,7 +48,11 @@ use crate::search::SearchPane;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
 use crate::toast;
 use crate::{agents, home, rail, tabs, terminal};
+use serde::Serialize;
 use sikemux_core::server::agent_accounts::AccountUsage;
+use sikemux_core::server::call::Call;
+use sikemux_core::server::layout::{ActivateProjectParams, HostParams, TabParams, TabsParams};
+use sikemux_core::server::spare::{NewTerminal, SshParams};
 
 /// A click in the app's own window takes the keyboard back from a page holding it. On
 /// Linux a page is a window of another connection, which X would otherwise leave it with.
@@ -206,26 +210,14 @@ pub enum Strip {
     Terminals,
 }
 
-impl From<Strip> for At {
-    fn from(strip: Strip) -> Self {
-        match strip {
-            Strip::Project(project) => At::project(&project),
-            Strip::Host(alias) => At::host(&alias),
+impl Strip {
+    /// This strip, as the core's tab calls name it.
+    pub(crate) fn at(&self) -> At {
+        match self {
+            Strip::Project(project) => At::project(project),
+            Strip::Host(alias) => At::host(alias),
             Strip::Terminals => At::terminals(),
         }
-    }
-}
-
-impl Strip {
-    /// `params` naming this strip, as the core's tab calls take it.
-    pub(crate) fn with(&self, mut params: Value) -> Value {
-        let (key, id) = match self {
-            Strip::Project(id) => ("project", json!(id)),
-            Strip::Host(alias) => ("host", json!(alias)),
-            Strip::Terminals => ("terminals", json!(true)),
-        };
-        params[key] = id;
-        params
     }
 }
 
@@ -623,6 +615,13 @@ impl Workbench {
 
     pub fn call(&self, method: &'static str, params: Value) {
         Target::here(&self.asks).call(method, params);
+    }
+
+    pub fn call_typed<C: Call>(&self, params: C::Params)
+    where
+        C::Params: Serialize,
+    {
+        Target::here(&self.asks).call_typed::<C>(params);
     }
 
     /// The view of the host in front: another host's own, while one on the account is chosen,
@@ -1141,7 +1140,10 @@ impl Workbench {
             (Some(Strip::Host(alias)), _) => self.open_ssh_terminal(&alias, cx),
             (_, Some(project)) => {
                 self.take_keys_when_shown(TakesKeys::Terminal, cx);
-                self.call_in_front("newTerminal", json!({ "project": project.id }))
+                self.target().call_typed::<call::NewTerminal>(NewTerminal {
+                    project: project.id.clone(),
+                    terminals: false,
+                })
             }
             _ => {}
         }
@@ -1149,11 +1151,14 @@ impl Workbench {
 
     pub fn new_loose_terminal(&self, cx: &mut App) {
         self.take_keys_when_shown(TakesKeys::Terminal, cx);
-        self.call("newTerminal", Strip::Terminals.with(json!({})));
+        self.call_typed::<call::NewTerminal>(NewTerminal::loose());
     }
 
     pub fn activate_project(&self, id: &str) {
-        self.call_in_front("activateProject", json!({ "project": id }));
+        self.target()
+            .call_typed::<call::ActivateProject>(ActivateProjectParams {
+                project: id.to_owned(),
+            });
     }
 
     /// The strip in front: the terminals or SSH host shown instead of a project, else the
@@ -1241,57 +1246,71 @@ impl Workbench {
 
     pub fn activate_tab(&self, strip: &Strip, tab: &str) {
         if !self.closing(tab) {
-            self.call_in_front("activateTab", strip.with(json!({ "tab": tab })));
+            self.target()
+                .call_typed::<call::ActivateTab>(TabParams::new(strip.at(), tab));
         }
     }
 
     /// Moves a tab to `to` in its strip, counted as the strip is now.
     pub fn move_tab(&self, strip: &Strip, tab: &str, to: usize) {
         if !self.closing(tab) {
-            self.call_in_front("moveTab", strip.with(json!({ "tab": tab, "to": to })));
+            self.target().call_typed::<call::MoveTab>(TabParams {
+                to: Some(to),
+                ..TabParams::new(strip.at(), tab)
+            });
         }
     }
 
     /// Keeps a tab opened to look at, so the next one opens beside it.
     pub fn keep_tab(&self, strip: &Strip, tab: &str) {
         if !self.closing(tab) {
-            self.call_in_front("keepTab", strip.with(json!({ "tab": tab })));
+            self.target()
+                .call_typed::<call::KeepTab>(TabParams::new(strip.at(), tab));
         }
     }
 
     pub fn close_tabs(&self, strip: &Strip, tabs: &[String]) {
-        let tabs: Vec<&String> = tabs.iter().filter(|tab| !self.closing(tab)).collect();
+        let tabs: Vec<String> = (tabs.iter())
+            .filter(|tab| !self.closing(tab))
+            .cloned()
+            .collect();
         if tabs.is_empty() {
             return;
         }
         let asked = std::time::Instant::now();
         self.closing_tabs
             .borrow_mut()
-            .extend(tabs.iter().map(|tab| ((*tab).clone(), asked)));
-        self.call_in_front("closeTabs", strip.with(json!({ "tabs": tabs })));
+            .extend(tabs.iter().map(|tab| (tab.clone(), asked)));
+        self.target().call_typed::<call::CloseTabs>(TabsParams {
+            at: strip.at(),
+            tabs,
+        });
     }
 
     /// Names a tab; an empty name gives back the one its view gives it.
     pub fn rename_tab(&self, strip: &Strip, tab: &str, title: &str) {
         if !self.closing(tab) {
-            self.call_in_front(
-                "renameTab",
-                strip.with(json!({ "tab": tab, "title": title })),
-            );
+            self.target().call_typed::<call::RenameTab>(TabParams {
+                title: Some(title.to_owned()),
+                ..TabParams::new(strip.at(), tab)
+            });
         }
     }
 
     /// Opens a copy of a tab beside it, with new shells for its terminals.
     pub fn duplicate_tab(&self, strip: &Strip, tab: &str) {
         if !self.closing(tab) {
-            self.call_in_front("duplicateTab", strip.with(json!({ "tab": tab })));
+            self.target()
+                .call_typed::<call::DuplicateTab>(TabParams::new(strip.at(), tab));
         }
     }
 
     /// Opens a terminal to an SSH host, in that host's strip.
     pub fn open_ssh_terminal(&self, alias: &str, cx: &mut App) {
         self.take_keys_when_shown(TakesKeys::Terminal, cx);
-        self.call("openSshTerminal", json!({ "host": alias }));
+        self.call_typed::<call::OpenSshTerminal>(SshParams {
+            host: alias.to_owned(),
+        });
     }
 
     /// Brings the tab of the agent `id` to the front, in its project, opening one when none
@@ -1322,7 +1341,9 @@ impl Workbench {
                 .hosts()
                 .find_map(|(host, feed)| Some((host.clone(), project_on(feed.view.as_ref()?)?)))
             {
-                self.call("chooseHost", json!({ "host": format!("host:{host}") }));
+                self.call_typed::<call::ChooseHost>(HostParams {
+                    host: format!("host:{host}"),
+                });
                 Target::new(&self.asks, Place::Account(host))
                     .call_typed::<call::OpenTab>(tab(project));
             }

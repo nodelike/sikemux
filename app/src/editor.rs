@@ -575,7 +575,7 @@ pub fn go_in(
 ) {
     remember_here(bench, cx);
     let target = to.path.to_string_lossy().into_owned();
-    bench.open_here(OpenTab::new(strip.clone().into(), PaneKind::Files, target).titled(title));
+    bench.open_here(OpenTab::new(strip.at(), PaneKind::Files, target).titled(title));
     bench.editors.update(cx, |editors, cx| {
         editors.reveal = Some(to);
         cx.notify();

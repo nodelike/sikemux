@@ -264,13 +264,23 @@ pub(crate) fn opening_size(core: &Core) -> (u16, u16) {
     core.spares.held.locked().size.unwrap_or((80, 24))
 }
 
-#[derive(Deserialize)]
-pub(crate) struct NewTerminal {
+#[derive(Deserialize, Serialize)]
+pub struct NewTerminal {
     #[serde(default)]
-    project: String,
+    pub project: String,
     /// Opens it among the terminals of no project, in the home folder.
     #[serde(default)]
-    terminals: bool,
+    pub terminals: bool,
+}
+
+impl NewTerminal {
+    /// One among the terminals of no project.
+    pub fn loose() -> Self {
+        Self {
+            project: String::new(),
+            terminals: true,
+        }
+    }
 }
 
 /// Opens a terminal tab in `project` on the shell started ahead when it fits,
@@ -384,9 +394,9 @@ pub(crate) async fn command_shell(
     .await
 }
 
-#[derive(Deserialize)]
-pub(crate) struct SshParams {
-    host: String,
+#[derive(Deserialize, Serialize)]
+pub struct SshParams {
+    pub host: String,
 }
 
 impl SshParams {

@@ -3702,6 +3702,40 @@ export interface SessionMatch {
     snippets: string[];
 }
 
+export interface RunCustomParams {
+    project?: string;
+    host?: string;
+    terminals?: boolean;
+    /** The command, by its id in the person's preferences. */
+    id?: string | null;
+    /**
+     * Or the project's `sikemux.json` action, by its id, which runs once the person trusts
+     * the file.
+     */
+    action?: string | null;
+    /**
+     * The tab in front and its view in focus, which a split or replacing command goes
+     * beside or in place of.
+     */
+    tab: string | null;
+    pane: string | null;
+}
+
+/**
+ * What running a custom command did: the tab it opened or changed, the terminal to float
+ * over the window, or what it printed in the background.
+ */
+export interface CommandRan {
+    tab?: string;
+    popup?: number;
+    result?: CommandResult;
+}
+
+export interface CommandResult {
+    code: number;
+    output: string;
+}
+
 export interface AgentParams {
     agentId: string;
 }
@@ -3737,6 +3771,94 @@ export interface OpenTab {
      * its tab. In a strip out of sight the tab still comes first.
      */
     behind?: boolean;
+}
+
+export interface TabParams {
+    project?: string;
+    host?: string;
+    terminals?: boolean;
+    tab: string;
+    /** Where `moveTab` puts it, counted in the strip as it is now. */
+    to: number | null;
+    /** The name `renameTab` gives it; an empty one gives back its own name. */
+    title: string | null;
+}
+
+export interface TabsParams {
+    project?: string;
+    host?: string;
+    terminals?: boolean;
+    tabs: string[];
+}
+
+export interface ActivateProjectParams {
+    project: string;
+}
+
+export interface OpenPaths {
+    targets: CliOpenTarget[];
+    /** Opens the files without bringing their projects forward. */
+    behind?: boolean;
+}
+
+export interface CliOpenTarget {
+    id: string;
+    kind: CliTargetKind;
+    path: string;
+    projectRoot: string;
+    line?: number;
+    column?: number;
+}
+
+export type CliTargetKind = "file" | "directory";
+
+/** How one target of [`OpenPaths`] went: its project and tab, or why it did not open. */
+export interface PathOpened {
+    targetId: string;
+    project?: string;
+    tab?: string;
+    error?: string;
+}
+
+export interface HostParams {
+    /** "this", "host:<key>" for another host on the account, or "ssh:<alias>". */
+    host: string;
+}
+
+export interface SplitPane {
+    project?: string;
+    host?: string;
+    terminals?: boolean;
+    tab: string;
+    /** The view the new one goes beside, by id. */
+    pane: string;
+    side: Side;
+    kind: PaneKind | null;
+    target: string | null;
+    /** A tab of the same strip whose pane moves into the split, closing the tab. */
+    fromTab: string | null;
+    /** Leaves the strip's tab in front where it is, for a split the person did not ask for. */
+    keepFront?: boolean;
+}
+
+export type Side = "left" | "right" | "top" | "bottom" | "stack";
+
+export interface PaneParams {
+    project?: string;
+    host?: string;
+    terminals?: boolean;
+    tab: string;
+    pane: string;
+}
+
+export interface ResizeSplit {
+    project?: string;
+    host?: string;
+    terminals?: boolean;
+    tab: string;
+    split: string;
+    /** Each pane's share, in any unit; the core keeps them in thousandths. */
+    sizes: number[];
 }
 
 export interface ChatAccountsParams {
@@ -3824,6 +3946,23 @@ export interface SetDraftParams {
 export interface WorktreeDefaultParams {
     project: string;
     on: boolean;
+}
+
+export interface NewTerminal {
+    project?: string;
+    /** Opens it among the terminals of no project, in the home folder. */
+    terminals?: boolean;
+}
+
+/** The strip a call names: the terminals of no project, an SSH host's, or a project's. */
+export interface At {
+    project?: string;
+    host?: string;
+    terminals?: boolean;
+}
+
+export interface SshParams {
+    host: string;
 }
 
 export interface TrackedContextParams {
@@ -4759,9 +4898,24 @@ export interface CoreCalls {
     chatToolDetail: { params: ToolDetailParams; answer: ToolDetail };
     dropQueued: { params: QueuedParams; answer: null };
     agentSessions: { params: SessionSearchParams; answer: SessionMatch[] };
+    runCustomCommand: { params: RunCustomParams; answer: CommandRan };
     closeChat: { params: AgentParams; answer: null };
     createAgentWorktree: { params: AgentWorktreeParams; answer: MadeAgentWorktree };
     openTab: { params: OpenTab; answer: string };
+    keepTab: { params: TabParams; answer: null };
+    closeTab: { params: TabParams; answer: null };
+    activateTab: { params: TabParams; answer: null };
+    moveTab: { params: TabParams; answer: null };
+    closeTabs: { params: TabsParams; answer: null };
+    renameTab: { params: TabParams; answer: null };
+    duplicateTab: { params: TabParams; answer: string };
+    activateProject: { params: ActivateProjectParams; answer: null };
+    openPaths: { params: OpenPaths; answer: PathOpened[] };
+    chooseHost: { params: HostParams; answer: null };
+    splitPane: { params: SplitPane; answer: string };
+    closePane: { params: PaneParams; answer: null };
+    separatePane: { params: PaneParams; answer: string };
+    resizeSplit: { params: ResizeSplit; answer: null };
     cancelResume: { params: ChatAccountsParams; answer: null };
     retryFailed: { params: ChatAccountsParams; answer: null };
     discardFailed: { params: ChatAccountsParams; answer: null };
@@ -4777,6 +4931,10 @@ export interface CoreCalls {
     removeStash: { params: StashItemParams; answer: null };
     setDraft: { params: SetDraftParams; answer: null };
     setWorktreeDefault: { params: WorktreeDefaultParams; answer: null };
+    newTerminal: { params: NewTerminal; answer: string };
+    showTerminals: { params: NoParams; answer: null };
+    stripShell: { params: At; answer: number };
+    openSshTerminal: { params: SshParams; answer: string };
     codeHostTrackedContext: { params: TrackedContextParams; answer: PluginOutcome };
     codeHostTracked: { params: CodeHostProjectParams; answer: PluginOutcome };
     requireApproval: { params: NoParams; answer: ApprovalSetting };

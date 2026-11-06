@@ -1,5 +1,4 @@
 use sikemux_core::server::call;
-use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -34,6 +33,7 @@ use crate::toast;
 use crate::ui::{self, IconButton};
 use crate::workbench::{Strip, Workbench};
 use sikemux_core::git::status::GitChange;
+use sikemux_core::server::layout::TabParams;
 
 /// One thing in a folder, as the core listed it: folders first, then by name.
 #[derive(Clone, PartialEq)]
@@ -1152,24 +1152,23 @@ impl Workbench {
         let core = self.target();
         cx.spawn(async move |_, _| {
             for (at, old, path) in moved {
-                let tab = OpenTab::new(
-                    At::from(strip.clone()),
-                    PaneKind::Files,
-                    path.to_string_lossy(),
-                );
+                let tab = OpenTab::new(strip.at(), PaneKind::Files, path.to_string_lossy());
                 let Ok(tab) = core.request_typed::<call::OpenTab>(tab).await else {
                     continue;
                 };
                 let _ = core
-                    .request("moveTab", strip.with(json!({ "tab": tab, "to": at })))
+                    .request_typed::<call::MoveTab>(TabParams {
+                        to: Some(at),
+                        ..TabParams::new(strip.at(), tab)
+                    })
                     .await;
                 let _ = core
-                    .request("closeTab", strip.with(json!({ "tab": old })))
+                    .request_typed::<call::CloseTab>(TabParams::new(strip.at(), old))
                     .await;
             }
             if let Some(front) = front {
                 let _ = core
-                    .request("activateTab", strip.with(json!({ "tab": front })))
+                    .request_typed::<call::ActivateTab>(TabParams::new(strip.at(), front))
                     .await;
             }
         })

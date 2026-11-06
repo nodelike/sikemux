@@ -20,6 +20,7 @@ use sikemux_wire::protocol::{CallId, WindowAnswer, WindowCall};
 use crate::core::Ask;
 use crate::editor::OpenAt;
 use crate::workbench::Workbench;
+use sikemux_core::server::layout::OpenPaths;
 
 pub type Answer = Box<dyn FnOnce(Result<Value, String>) + Send>;
 
@@ -292,7 +293,7 @@ impl Workbench {
             }
         }
         let ids: Vec<String> = targets.iter().map(|target| target.id.clone()).collect();
-        let asked = target.request("openPaths", json!({ "targets": targets, "behind": behind }));
+        let asked = target.request_typed::<call::OpenPaths>(OpenPaths { targets, behind });
         async move {
             let mut outcome = CliOpenOutcome::default();
             let mut tabs = HashSet::new();
@@ -307,17 +308,14 @@ impl Workbench {
                         .collect();
                 }
                 Ok(answers) => {
-                    for answer in answers.as_array().into_iter().flatten() {
-                        let target_id = answer["targetId"].as_str().unwrap_or_default().to_owned();
-                        match answer["error"].as_str() {
-                            Some(message) => outcome.failed.push(CliOpenFailure {
-                                target_id,
-                                message: message.to_owned(),
-                            }),
+                    for answer in answers {
+                        let target_id = answer.target_id;
+                        match answer.error {
+                            Some(message) => {
+                                outcome.failed.push(CliOpenFailure { target_id, message })
+                            }
                             None => {
-                                if let Some(tab) = answer["tab"].as_str() {
-                                    tabs.insert(tab.to_owned());
-                                }
+                                tabs.extend(answer.tab);
                                 outcome.opened.push(target_id);
                             }
                         }
