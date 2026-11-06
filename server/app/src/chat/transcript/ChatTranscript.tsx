@@ -101,7 +101,11 @@ export function ChatTranscript({
   const runs = useMemo(
     () =>
       teamRows(state.messages, (id): RunOpen =>
-        openWork.has(`team-all/${id}`) ? "all" : openWork.has(`team/${id}`) ? "open" : "closed",
+        openWork.has(`team-all/${id}`)
+          ? "all"
+          : openWork.has(`team/${id}`)
+            ? "open"
+            : "closed",
       ),
     [state.messages, openWork],
   );
