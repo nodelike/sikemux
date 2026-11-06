@@ -2898,3 +2898,60 @@ mod window {
         assert_eq!(said(&view.rows[0]), huge);
     }
 }
+
+/// The changes a real chat sends and the view they add up to, which `shared/chat/rows.test.ts`
+/// applies, so the clients' applier and the fold cannot drift. Set `SIKEMUX_WRITE_VECTORS` to
+/// write the file again after a change to what the fold sends.
+#[test]
+fn the_change_vector_is_current() {
+    let mut chat = Chat::running();
+    let mut steps = vec![chat.flush()];
+    chat.prompt(json!({ "text": "Tidy the *rail*" }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "agent_message_chunk",
+        "content": { "type": "text", "text": "# Looking\n\nFirst " },
+    }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "agent_message_chunk",
+        "content": { "type": "text", "text": "I read **it**." },
+    }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "tool_call",
+        "toolCallId": "t1",
+        "title": "cargo test",
+        "kind": "execute",
+        "status": "in_progress",
+        "rawInput": { "command": "cargo test" },
+    }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "t1",
+        "status": "completed",
+    }));
+    steps.push(chat.flush());
+    chat.update(json!({
+        "sessionUpdate": "agent_message_chunk",
+        "content": { "type": "text", "text": "All done, and the rail is tidy now." },
+    }));
+    steps.push(chat.flush());
+    chat.turn_completed(Some("end_turn"));
+    steps.push(chat.flush());
+    let vector = serde_json::to_string_pretty(&json!({ "steps": steps, "view": chat.view() }))
+        .expect("the vector writes");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/vectors/changes.json");
+    if std::env::var_os("SIKEMUX_WRITE_VECTORS").is_some() {
+        std::fs::create_dir_all(concat!(env!("CARGO_MANIFEST_DIR"), "/vectors"))
+            .expect("the folder is made");
+        std::fs::write(path, format!("{vector}\n")).expect("the vector is written");
+    }
+    let kept = std::fs::read_to_string(path).expect("the vector is there");
+    assert_eq!(
+        kept.trim_end(),
+        vector,
+        "write it again with SIKEMUX_WRITE_VECTORS"
+    );
+}

@@ -1,0 +1,397 @@
+{
+  "steps": [
+    [
+      {
+        "op": "head",
+        "set": {
+          "error": null,
+          "failure": null,
+          "retrying": null,
+          "running": true,
+          "stopReason": null,
+          "turnOpening": {}
+        }
+      }
+    ],
+    [
+      {
+        "op": "head",
+        "set": {
+          "error": null,
+          "failure": null,
+          "running": true
+        }
+      },
+      {
+        "op": "row",
+        "row": {
+          "id": "m1",
+          "role": "user",
+          "parts": [
+            {
+              "kind": "text",
+              "id": "m1.0",
+              "text": "Tidy the *rail*",
+              "md": {
+                "blocks": [
+                  {
+                    "t": "p",
+                    "c": [
+                      "Tidy the ",
+                      {
+                        "t": "em",
+                        "c": [
+                          "rail"
+                        ]
+                      }
+                    ]
+                  }
+                ],
+                "n": 15
+              }
+            }
+          ],
+          "sentAt": 1000,
+          "fromEvent": 1
+        }
+      }
+    ],
+    [
+      {
+        "op": "head",
+        "set": {
+          "turnOpening": null
+        }
+      },
+      {
+        "op": "row",
+        "row": {
+          "id": "m2",
+          "role": "assistant",
+          "parts": [
+            {
+              "kind": "text",
+              "id": "m2.0",
+              "text": "# Looking\n\nFirst ",
+              "md": {
+                "blocks": [
+                  {
+                    "t": "h",
+                    "l": 1,
+                    "c": [
+                      "Looking"
+                    ]
+                  },
+                  {
+                    "t": "p",
+                    "c": [
+                      "First"
+                    ]
+                  }
+                ],
+                "n": 17
+              }
+            }
+          ],
+          "sentAt": 1000,
+          "opensTurn": {},
+          "fromEvent": 2
+        }
+      }
+    ],
+    [
+      {
+        "op": "text",
+        "row": "m2",
+        "part": "m2.0",
+        "text": "I read **it**.",
+        "md": {
+          "n": 31,
+          "o": [
+            {
+              "p": [
+                1,
+                0
+              ],
+              "at": 5,
+              "s": " I read "
+            },
+            {
+              "p": [
+                1
+              ],
+              "at": 1,
+              "c": [
+                {
+                  "t": "strong",
+                  "c": [
+                    "it"
+                  ]
+                },
+                "."
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    [
+      {
+        "op": "head",
+        "set": {
+          "activeTool": "m2.1"
+        }
+      },
+      {
+        "op": "part",
+        "row": "m2",
+        "part": {
+          "kind": "tool",
+          "id": "m2.1",
+          "tool": {
+            "toolCallId": "t1",
+            "title": "cargo test",
+            "kind": "execute",
+            "status": "in_progress",
+            "rawInput": {
+              "command": "cargo test"
+            },
+            "row": {
+              "action": "execute",
+              "target": "cargo test"
+            }
+          },
+          "startedAt": 1000
+        }
+      }
+    ],
+    [
+      {
+        "op": "head",
+        "set": {
+          "activeTool": null
+        }
+      },
+      {
+        "op": "part",
+        "row": "m2",
+        "part": {
+          "kind": "tool",
+          "id": "m2.1",
+          "tool": {
+            "toolCallId": "t1",
+            "title": "cargo test",
+            "kind": "execute",
+            "status": "completed",
+            "rawInput": {
+              "command": "cargo test"
+            },
+            "row": {
+              "action": "execute",
+              "target": "cargo test"
+            }
+          },
+          "startedAt": 1000,
+          "endedAt": 1000
+        }
+      }
+    ],
+    [
+      {
+        "op": "part",
+        "row": "m2",
+        "part": {
+          "kind": "text",
+          "id": "m2.2",
+          "text": "All done, and the rail is tidy now.",
+          "md": {
+            "blocks": [
+              {
+                "t": "p",
+                "c": [
+                  "All done, and the rail is tidy now."
+                ]
+              }
+            ],
+            "n": 35
+          }
+        }
+      }
+    ],
+    [
+      {
+        "op": "head",
+        "set": {
+          "permissions": [],
+          "retrying": null,
+          "running": false,
+          "stopReason": "end_turn",
+          "turnOpening": null
+        }
+      },
+      {
+        "op": "set",
+        "row": "m2",
+        "set": {
+          "endedAt": 1000,
+          "fold": {
+            "id": "m2",
+            "last": "m2",
+            "from": 2,
+            "shown": [
+              2
+            ],
+            "calls": 1,
+            "thought": false
+          },
+          "meta": {
+            "from": "m2",
+            "at": 1000
+          }
+        }
+      }
+    ]
+  ],
+  "view": {
+    "head": {
+      "connection": "connecting",
+      "running": false,
+      "turned": false,
+      "permissionMode": "workspace-write",
+      "stopReason": "end_turn",
+      "commands": [],
+      "capabilities": {
+        "steering": false,
+        "editing": false
+      },
+      "setup": {},
+      "permissions": [],
+      "tasks": [],
+      "runningSubagents": [],
+      "queued": [],
+      "triggers": [],
+      "earlierLost": false
+    },
+    "rows": [
+      {
+        "id": "m1",
+        "role": "user",
+        "parts": [
+          {
+            "kind": "text",
+            "id": "m1.0",
+            "text": "Tidy the *rail*",
+            "md": {
+              "blocks": [
+                {
+                  "t": "p",
+                  "c": [
+                    "Tidy the ",
+                    {
+                      "t": "em",
+                      "c": [
+                        "rail"
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "n": 15
+            }
+          }
+        ],
+        "sentAt": 1000,
+        "fromEvent": 1
+      },
+      {
+        "id": "m2",
+        "role": "assistant",
+        "parts": [
+          {
+            "kind": "text",
+            "id": "m2.0",
+            "text": "# Looking\n\nFirst I read **it**.",
+            "md": {
+              "blocks": [
+                {
+                  "t": "h",
+                  "l": 1,
+                  "c": [
+                    "Looking"
+                  ]
+                },
+                {
+                  "t": "p",
+                  "c": [
+                    "First I read ",
+                    {
+                      "t": "strong",
+                      "c": [
+                        "it"
+                      ]
+                    },
+                    "."
+                  ]
+                }
+              ],
+              "n": 31
+            }
+          },
+          {
+            "kind": "tool",
+            "id": "m2.1",
+            "tool": {
+              "toolCallId": "t1",
+              "title": "cargo test",
+              "kind": "execute",
+              "status": "completed",
+              "rawInput": {
+                "command": "cargo test"
+              },
+              "row": {
+                "action": "execute",
+                "target": "cargo test"
+              }
+            },
+            "startedAt": 1000,
+            "endedAt": 1000
+          },
+          {
+            "kind": "text",
+            "id": "m2.2",
+            "text": "All done, and the rail is tidy now.",
+            "md": {
+              "blocks": [
+                {
+                  "t": "p",
+                  "c": [
+                    "All done, and the rail is tidy now."
+                  ]
+                }
+              ],
+              "n": 35
+            }
+          }
+        ],
+        "sentAt": 1000,
+        "endedAt": 1000,
+        "opensTurn": {},
+        "meta": {
+          "from": "m2",
+          "at": 1000
+        },
+        "fold": {
+          "id": "m2",
+          "last": "m2",
+          "from": 2,
+          "shown": [
+            2
+          ],
+          "calls": 1,
+          "thought": false
+        },
+        "fromEvent": 2
+      }
+    ]
+  }
+}
