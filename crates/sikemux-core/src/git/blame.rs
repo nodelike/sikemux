@@ -1,35 +1,35 @@
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::log::relative_time;
 use super::{git_walk_permit, open_repo, run_blocking, run_git, Git};
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct BlameCommit {
     /// Full commit oid; all-zeros for not-yet-committed lines.
     sha: String,
     /// Short id for display (`1d3fa0b2`); empty when uncommitted.
     short: String,
-    author: String,
+    pub author: String,
     author_email: String,
     /// Pre-formatted relative time (`3 days ago`); empty when uncommitted.
-    time: String,
+    pub time: String,
     /// Raw author timestamp (unix seconds) — kept so the UI can re-format.
     timestamp: i64,
-    summary: String,
+    pub summary: String,
     /// True for lines that only exist in the working buffer (zero sha).
-    uncommitted: bool,
+    pub uncommitted: bool,
 }
 
 /// Compact per-file blame: the unique commits touched, plus a parallel array
 /// mapping each 0-based line to its commit's index in `commits`. The split
 /// keeps the IPC payload small (commit metadata isn't repeated per line) and
 /// lets the editor do O(1) cursor-line lookups with no further backend calls.
-#[derive(Serialize, Default)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct GitBlame {
-    commits: Vec<BlameCommit>,
-    lines: Vec<u32>,
+    pub commits: Vec<BlameCommit>,
+    pub lines: Vec<u32>,
 }
 
 fn is_zero_sha(s: &str) -> bool {

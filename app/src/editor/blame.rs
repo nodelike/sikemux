@@ -8,11 +8,12 @@ use gpui_kit::{
     canvas, point, px, Context, Entity, FontStyle, Hsla, IntoElement, Pixels, SharedString, Styled,
     Task, TextAlign, TextRun,
 };
-use serde_json::{json, Value};
 
 use super::{lsp, FileKey};
 use crate::theme;
 use crate::workbench::Workbench;
+use sikemux_core::git::blame::BlameCommit;
+use sikemux_core::server::git::call as git_call;
 
 /// How long typing pauses before the lines are blamed again.
 const DEBOUNCE: Duration = Duration::from_millis(1200);
@@ -36,16 +37,11 @@ pub(super) struct Note {
     uncommitted: bool,
 }
 
-fn note(commit: &Value) -> Note {
-    let uncommitted = commit["uncommitted"].as_bool().unwrap_or(false);
+fn note(commit: &BlameCommit) -> Note {
+    let uncommitted = commit.uncommitted;
     let text = match uncommitted {
         true => "You · Uncommitted changes".to_owned(),
-        false => format!(
-            "{}, {} · {}",
-            commit["author"].as_str().unwrap_or_default(),
-            commit["time"].as_str().unwrap_or_default(),
-            commit["summary"].as_str().unwrap_or_default()
-        ),
+        false => format!("{}, {} · {}", commit.author, commit.time, commit.summary),
     };
     let text = match text.chars().count() > MAX_NOTE {
         true => format!("{}…", text.chars().take(MAX_NOTE - 1).collect::<String>()),
@@ -99,22 +95,16 @@ fn blame(
                 cx.background_executor().timer(wait).await;
             }
             let contents = state.read_with(cx, |state, _| state.value().to_string());
-            let asked = json!({ "repo": project, "path": relative, "contents": contents });
-            let Ok(blamed) = target.request("git.blame", asked).await else {
+            let asked = git_call::Blame {
+                repo: project,
+                path: relative,
+                contents: Some(contents),
+            };
+            let Ok(blamed) = target.request_typed::<git_call::Blame>(asked).await else {
                 return;
             };
-            let notes: Vec<Note> = blamed["commits"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(note)
-                .collect();
-            let lines: Vec<u32> = blamed["lines"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|index| index.as_u64().unwrap_or(0) as u32)
-                .collect();
+            let notes: Vec<Note> = blamed.commits.iter().map(note).collect();
+            let lines = blamed.lines;
             let _ = editors.update(cx, |editors, cx| {
                 if let Some(document) = editors.open.get_mut(&key) {
                     document.blame.notes = Rc::new(notes);

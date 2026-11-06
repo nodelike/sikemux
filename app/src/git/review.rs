@@ -2,6 +2,7 @@
 //! under it while open, every card's rows in one virtualised list.
 
 use crate::git::WhoWrote;
+use sikemux_core::server::git::call as git_call;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -11,8 +12,6 @@ use gpui_kit::{
     ListAlignment, ListOffset, ListState, ParentElement, Pixels, ScrollEvent, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
-use serde_json::json;
-use sikemux_core::git::diff::DiffRow;
 use sikemux_core::git::status::{GitChange, GitFile};
 
 use super::pane::{status_mark, GitPane, Side};
@@ -314,14 +313,16 @@ impl Review {
                     base,
                     head,
                 } = &section.compared;
-                let params = json!({ "repo": repo, "path": path, "baseRev": base, "headRev": head, "full": section.whole });
-                let answer = core.request("git.fileDiff", params);
+                let answer = core.request_typed::<git_call::FileDiff>(git_call::FileDiff {
+                    repo: repo.clone(),
+                    path: path.clone(),
+                    base_rev: base.clone(),
+                    head_rev: head.clone(),
+                    full: section.whole,
+                });
                 let (path, side) = (path.clone(), section.side);
                 cx.spawn(async move |pane, cx| {
-                    let diff = answer.await.and_then(|rows| {
-                        serde_json::from_value::<Vec<DiffRow>>(rows)
-                            .map_err(|error| error.to_string())
-                    });
+                    let diff = answer.await;
                     pane.update(cx, |pane, cx| {
                         let notes = Notes::of(&pane.owners_of(side), &path);
                         pane.review

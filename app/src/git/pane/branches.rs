@@ -9,7 +9,7 @@ use gpui_kit::{
 };
 use std::collections::HashMap;
 
-use serde_json::{json, Value};
+use serde_json::json;
 use sikemux_core::git::branches::GitBranch;
 use sikemux_core::git::remote::{GitRemote, GitRemoteBranch};
 use sikemux_plugin_api::codehost::{PullList, PullState};
@@ -23,6 +23,9 @@ use crate::theme::{
     SPACE_5, TEXT_2XS, TEXT_3XS, TEXT_LG, TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui;
+use serde::Serialize;
+use sikemux_core::server::call::Call;
+use sikemux_core::server::git::call as git_call;
 
 #[derive(Clone, PartialEq)]
 pub(super) enum BranchEntry {
@@ -151,13 +154,13 @@ impl GitPane {
 
     /// Reads the remotes, and the open remote's branches, again.
     pub(super) fn read_remotes(&mut self, cx: &mut Context<Self>) {
-        let answer = self.core.request("git.remotes", self.repo_call(json!({})));
+        let answer = self
+            .core
+            .request_typed::<git_call::Remotes>(git_call::Remotes {
+                repo: self.repo.clone(),
+            });
         cx.spawn(async move |pane, cx| {
-            let remotes: Vec<GitRemote> = answer
-                .await
-                .ok()
-                .and_then(|remotes| serde_json::from_value(remotes).ok())
-                .unwrap_or_default();
+            let remotes: Vec<GitRemote> = answer.await.unwrap_or_default();
             pane.update(cx, |pane, cx| {
                 pane.branches.remotes = remotes;
                 pane.branches.remotes_read = true;
@@ -209,14 +212,14 @@ impl GitPane {
     }
 
     fn read_remote_branches(&mut self, remote: String, cx: &mut Context<Self>) {
-        let params = self.repo_call(json!({ "remote": remote }));
-        let answer = self.core.request("git.remoteBranches", params);
+        let answer =
+            self.core
+                .request_typed::<git_call::RemoteBranches>(git_call::RemoteBranches {
+                    repo: self.repo.clone(),
+                    remote: remote.clone(),
+                });
         cx.spawn(async move |pane, cx| {
-            let branches: Vec<GitRemoteBranch> = answer
-                .await
-                .ok()
-                .and_then(|branches| serde_json::from_value(branches).ok())
-                .unwrap_or_default();
+            let branches: Vec<GitRemoteBranch> = answer.await.unwrap_or_default();
             pane.update(cx, |pane, cx| {
                 if pane.branches.open.as_deref() == Some(remote.as_str()) {
                     pane.branches.remote_branches = branches;
@@ -267,9 +270,11 @@ impl GitPane {
         self.choose_branch(next, cx);
     }
 
-    fn git(&mut self, label: String, method: &'static str, extra: Value, cx: &mut Context<Self>) {
-        let params = self.repo_call(extra);
-        self.run(label, method, params, cx, |pane, answer, cx| {
+    fn git<C>(&mut self, label: String, call: C, cx: &mut Context<Self>)
+    where
+        C: Call<Params = C> + Serialize,
+    {
+        self.run(label, call, cx, |pane, answer, cx| {
             if answer.is_ok() {
                 pane.read_remotes(cx);
             }
@@ -279,19 +284,23 @@ impl GitPane {
     pub(super) fn checkout(&mut self, name: String, cx: &mut Context<Self>) {
         self.git(
             format!("checking out {name}"),
-            "git.checkout",
-            json!({ "branch": name }),
+            git_call::Checkout {
+                repo: self.repo.clone(),
+                branch: name.clone(),
+            },
             cx,
         );
     }
 
     fn merge(&mut self, reference: String, squash: bool, cx: &mut Context<Self>) {
-        let (label, method) = if squash {
-            (format!("squash merging {reference}…"), "git.mergeSquash")
+        let (repo, branch) = (self.repo.clone(), reference.clone());
+        if squash {
+            let label = format!("squash merging {reference}…");
+            self.git(label, git_call::MergeSquash { repo, branch }, cx);
         } else {
-            (format!("merging {reference}…"), "git.merge")
-        };
-        self.git(label, method, json!({ "branch": reference }), cx);
+            let label = format!("merging {reference}…");
+            self.git(label, git_call::Merge { repo, branch }, cx);
+        }
     }
 
     fn merge_menu(&mut self, reference: String, cx: &mut Context<Self>) {
@@ -327,8 +336,11 @@ impl GitPane {
                 if !name.is_empty() {
                     pane.git(
                         "creating branch…".into(),
-                        "git.branchCreate",
-                        json!({ "name": name, "startPoint": start }),
+                        git_call::BranchCreate {
+                            repo: pane.repo.clone(),
+                            name: name.clone(),
+                            start_point: start.clone(),
+                        },
                         cx,
                     );
                 }
@@ -361,8 +373,11 @@ impl GitPane {
                 if !name.is_empty() && name != old {
                     pane.git(
                         format!("renaming branch {old} → {name}"),
-                        "git.branchRename",
-                        json!({ "oldName": old, "newName": name }),
+                        git_call::BranchRename {
+                            repo: pane.repo.clone(),
+                            old_name: old.clone(),
+                            new_name: name.clone(),
+                        },
                         cx,
                     );
                 }
@@ -399,8 +414,11 @@ impl GitPane {
                                 "{}deleting branch {name}",
                                 if force { "force " } else { "" }
                             ),
-                            "git.branchDelete",
-                            json!({ "name": name, "force": force }),
+                            git_call::BranchDelete {
+                                repo: pane.repo.clone(),
+                                name: name.clone(),
+                                force,
+                            },
                             cx,
                         )
                     },
@@ -425,8 +443,12 @@ impl GitPane {
     fn checkout_remote(&mut self, remote: String, branch: GitRemoteBranch, cx: &mut Context<Self>) {
         self.git(
             format!("checking out {}", branch.full_ref),
-            "git.checkoutRemoteBranch",
-            json!({ "remote": remote, "branch": branch.name, "localName": branch.tracked_by }),
+            git_call::CheckoutRemoteBranch {
+                repo: self.repo.clone(),
+                remote: remote.clone(),
+                branch: branch.name.clone(),
+                local_name: branch.tracked_by.clone(),
+            },
             cx,
         );
     }
@@ -438,8 +460,11 @@ impl GitPane {
         }
         self.git(
             format!("setting upstream of {current}"),
-            "git.setUpstream",
-            json!({ "branch": current, "upstream": branch.full_ref }),
+            git_call::SetUpstream {
+                repo: self.repo.clone(),
+                branch: current.clone(),
+                upstream: Some(branch.full_ref.clone()),
+            },
             cx,
         );
     }
@@ -458,8 +483,11 @@ impl GitPane {
             move |pane, cx| {
                 pane.git(
                     format!("deleting {full}"),
-                    "git.deleteRemoteBranch",
-                    json!({ "remote": remote, "branch": name }),
+                    git_call::DeleteRemoteBranch {
+                        repo: pane.repo.clone(),
+                        remote: remote.clone(),
+                        branch: name.clone(),
+                    },
                     cx,
                 )
             },
@@ -477,11 +505,13 @@ impl GitPane {
                 if url.is_empty() || url == was {
                     return;
                 }
-                let params = pane.repo_call(json!({ "name": name, "url": url }));
                 pane.run(
                     format!("setting url for {name}"),
-                    "git.remoteSetUrl",
-                    params,
+                    git_call::RemoteSetUrl {
+                        repo: pane.repo.clone(),
+                        name: name.clone(),
+                        url: url.clone(),
+                    },
                     cx,
                     |pane, _, cx| pane.read_remotes(cx),
                 );
@@ -500,12 +530,14 @@ impl GitPane {
                 if name.is_empty() || name == was {
                     return;
                 }
-                let params = pane.repo_call(json!({ "oldName": was, "newName": name }));
                 let (old, new) = (was.clone(), name.clone());
                 pane.run(
                     format!("renaming {was} → {name}"),
-                    "git.remoteRename",
-                    params,
+                    git_call::RemoteRename {
+                        repo: pane.repo.clone(),
+                        old_name: was.clone(),
+                        new_name: name.clone(),
+                    },
                     cx,
                     move |pane, _, cx| {
                         if pane.branches.open.as_deref() == Some(old.as_str()) {
@@ -526,11 +558,12 @@ impl GitPane {
             "Removes the local remote configuration. Won't touch the upstream repo.",
             "remove",
             move |pane, cx| {
-                let params = pane.repo_call(json!({ "name": name }));
                 pane.run(
                     format!("removing remote {name}"),
-                    "git.remoteRemove",
-                    params,
+                    git_call::RemoteRemove {
+                        repo: pane.repo.clone(),
+                        name: name.clone(),
+                    },
                     cx,
                     |pane, _, cx| pane.read_remotes(cx),
                 );
@@ -544,7 +577,14 @@ impl GitPane {
             Some(remote) => format!("fetching {remote}…"),
             None => "fetching all remotes…".to_owned(),
         };
-        self.git(label, "git.fetch", json!({ "remote": remote }), cx);
+        self.git(
+            label,
+            git_call::Fetch {
+                repo: self.repo.clone(),
+                remote: remote.clone(),
+            },
+            cx,
+        );
     }
 
     /// Does what Enter does on the entry: checks a branch out, or opens a remote.

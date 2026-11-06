@@ -48,6 +48,9 @@ use crate::toast;
 use crate::track::{self, Scrolled, Slide};
 use crate::ui::{self, Cheatsheet, Choice, Choices, Confirm, Prompt};
 use crate::workbench::Workbench;
+use serde::Serialize;
+use sikemux_core::server::call::Call;
+use sikemux_core::server::git::call as git_call;
 use sikemux_view::owners::{
     AgentOwner, CheckoutParams, CommitLines, CommitParams, CommitsParams, Owners,
 };
@@ -807,14 +810,14 @@ impl GitPane {
                 }
                 self.asked_commit = Some(hash.clone());
                 self.read_commit_lines(&hash, cx);
-                let params = self.repo_call(json!({ "rev": hash }));
-                let answer = self.core.request("git.commitFiles", params);
+                let answer =
+                    self.core
+                        .request_typed::<git_call::CommitFiles>(git_call::CommitFiles {
+                            repo: self.repo.clone(),
+                            rev: hash.clone(),
+                        });
                 cx.spawn(async move |pane, cx| {
-                    let paths: Vec<String> = answer
-                        .await
-                        .ok()
-                        .and_then(|paths| serde_json::from_value(paths).ok())
-                        .unwrap_or_default();
+                    let paths = answer.await.unwrap_or_default();
                     pane.update(cx, |pane, cx| {
                         if pane.asked_commit.as_deref() == Some(hash.as_str()) {
                             let repo = pane.repo.clone();
@@ -926,9 +929,23 @@ impl GitPane {
         self.rows.scroll_to_reveal_item(files[next]);
     }
 
+    /// Runs the git operation `call`, as [`run_method`] does.
+    pub(super) fn run<C>(
+        &mut self,
+        label: impl Into<SharedString>,
+        call: C,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, Result<Value, String>, &mut Context<Self>) + 'static,
+    ) where
+        C: Call<Params = C> + Serialize,
+    {
+        let params = serde_json::to_value(call).unwrap_or_default();
+        self.run_method(label, C::METHOD, params, cx, then);
+    }
+
     /// Runs one git operation at a time, saying in the head what it is while it runs and
     /// what went wrong if it fails.
-    fn run(
+    fn run_method(
         &mut self,
         label: impl Into<SharedString>,
         method: &'static str,
@@ -955,7 +972,9 @@ impl GitPane {
                 pane.settle(logged, &answer);
                 match &answer {
                     Err(error) => pane.fail(error, cx),
-                    Ok(Value::String(said)) if method != "git.aiMessage" => pane.done(said, cx),
+                    Ok(Value::String(said)) if method != git_call::AiMessage::METHOD => {
+                        pane.done(said, cx)
+                    }
                     Ok(_) => {}
                 }
                 then(pane, answer, cx);
@@ -1022,24 +1041,12 @@ impl GitPane {
         self.say(toast::success(format!("Copied {what}")), cx);
     }
 
-    fn repo_call(&self, extra: Value) -> Value {
-        let mut params = json!({ "repo": self.repo });
-        if let (Some(params), Value::Object(extra)) = (params.as_object_mut(), extra) {
-            params.extend(extra);
-        }
-        params
-    }
-
     /// Moves files between the groups at once; git's next overview confirms the move
     /// or puts them back. Clicks in quick succession wait their turn.
-    fn shift(
-        &mut self,
-        paths: Vec<String>,
-        side: Side,
-        method: &'static str,
-        params: Value,
-        cx: &mut Context<Self>,
-    ) {
+    fn shift<C>(&mut self, paths: Vec<String>, side: Side, call: C, cx: &mut Context<Self>)
+    where
+        C: Call<Params = C> + Serialize,
+    {
         if paths.is_empty() {
             return;
         }
@@ -1049,8 +1056,8 @@ impl GitPane {
         self.queue.push_back(Move {
             paths,
             side,
-            method,
-            params,
+            method: C::METHOD,
+            params: serde_json::to_value(call).unwrap_or_default(),
         });
         self.list(cx);
         self.next_move(cx);
@@ -1093,37 +1100,51 @@ impl GitPane {
     }
 
     fn stage(&mut self, file: &GitFile, cx: &mut Context<Self>) {
-        let params = self.repo_call(json!({ "path": file.path }));
         self.shift(
             vec![file.path.clone()],
             Side::Staged,
-            "git.stage",
-            params,
+            git_call::Stage {
+                repo: self.repo.clone(),
+                path: file.path.clone(),
+            },
             cx,
         );
     }
 
     fn unstage(&mut self, file: &GitFile, cx: &mut Context<Self>) {
-        let params = self.repo_call(json!({ "path": file.path }));
         self.shift(
             vec![file.path.clone()],
             Side::Unstaged,
-            "git.unstage",
-            params,
+            git_call::Unstage {
+                repo: self.repo.clone(),
+                path: file.path.clone(),
+            },
             cx,
         );
     }
 
     fn stage_all(&mut self, cx: &mut Context<Self>) {
         let paths = self.paths(GitFile::has_unstaged);
-        let params = self.repo_call(json!({}));
-        self.shift(paths, Side::Staged, "git.stageAll", params, cx);
+        self.shift(
+            paths,
+            Side::Staged,
+            git_call::StageAll {
+                repo: self.repo.clone(),
+            },
+            cx,
+        );
     }
 
     fn unstage_all(&mut self, cx: &mut Context<Self>) {
         let paths = self.paths(GitFile::is_staged);
-        let params = self.repo_call(json!({}));
-        self.shift(paths, Side::Unstaged, "git.unstageAll", params, cx);
+        self.shift(
+            paths,
+            Side::Unstaged,
+            git_call::UnstageAll {
+                repo: self.repo.clone(),
+            },
+            cx,
+        );
     }
 
     fn paths(&self, wanted: fn(&GitFile) -> bool) -> Vec<String> {
@@ -1149,8 +1170,11 @@ impl GitPane {
                 }
             }
             self.range = None;
-            let params = self.repo_call(json!({ "paths": paths }));
-            self.shift(paths, Side::Staged, "git.stagePaths", params, cx);
+            let call = git_call::StagePaths {
+                repo: self.repo.clone(),
+                paths: paths.clone(),
+            };
+            self.shift(paths, Side::Staged, call, cx);
             return;
         }
         match self.chosen().map(|(side, file)| (side, file.clone())) {
@@ -1348,11 +1372,13 @@ impl GitPane {
             body,
             "discard",
             move |pane, cx| {
-                let params = pane.repo_call(json!({ "paths": [path], "mode": "unstaged" }));
                 pane.run(
                     format!("discarding {path}"),
-                    "git.discardFiles",
-                    params,
+                    git_call::DiscardFiles {
+                        repo: pane.repo.clone(),
+                        paths: vec![path.clone()],
+                        mode: "unstaged".to_owned(),
+                    },
                     cx,
                     |_, _, _| {},
                 );
@@ -1390,11 +1416,13 @@ impl GitPane {
             format!("{fate}Staged changes are kept. This can't be undone."),
             "discard all",
             move |pane, cx| {
-                let params = pane.repo_call(json!({ "paths": paths, "mode": "unstaged" }));
                 pane.run(
                     format!("discarding {count}"),
-                    "git.discardFiles",
-                    params,
+                    git_call::DiscardFiles {
+                        repo: pane.repo.clone(),
+                        paths: paths.clone(),
+                        mode: "unstaged".to_owned(),
+                    },
                     cx,
                     |_, _, _| {},
                 );
@@ -1412,11 +1440,13 @@ impl GitPane {
                     "",
                     move |pane, message, cx| {
                         let message = (!message.is_empty()).then_some(message);
-                        let params = pane.repo_call(json!({ "mode": mode, "message": message }));
                         pane.run(
                             format!("stashing ({mode})"),
-                            "git.stashPush",
-                            params,
+                            git_call::StashPush {
+                                repo: pane.repo.clone(),
+                                mode: mode.to_owned(),
+                                message: message.clone(),
+                            },
                             cx,
                             |_, _, _| {},
                         );
@@ -1483,11 +1513,13 @@ impl GitPane {
                     body.clone(),
                     yes,
                     move |pane, cx| {
-                        let params = pane.repo_call(json!({ "paths": paths, "mode": mode }));
                         pane.run(
                             format!("discarding {files} ({mode})"),
-                            "git.discardFiles",
-                            params,
+                            git_call::DiscardFiles {
+                                repo: pane.repo.clone(),
+                                paths: paths.clone(),
+                                mode: mode.to_owned(),
+                            },
                             cx,
                             |_, _, _| {},
                         );
@@ -1667,13 +1699,11 @@ impl GitPane {
     fn read_stashes(&mut self, cx: &mut Context<Self>) {
         let answer = self
             .core
-            .request("git.stashList", self.repo_call(json!({})));
+            .request_typed::<git_call::StashList>(git_call::StashList {
+                repo: self.repo.clone(),
+            });
         cx.spawn(async move |pane, cx| {
-            let stashes: Vec<GitStash> = answer
-                .await
-                .ok()
-                .and_then(|stashes| serde_json::from_value(stashes).ok())
-                .unwrap_or_default();
+            let stashes: Vec<GitStash> = answer.await.unwrap_or_default();
             pane.update(cx, |pane, cx| {
                 pane.stashes = stashes;
                 cx.notify();
@@ -1688,10 +1718,14 @@ impl GitPane {
         if self.review.commit().is_none() {
             self.review.reread();
         }
-        let answer = self.core.request("git.overview", self.repo_call(json!({})));
+        let answer = self
+            .core
+            .request_typed::<git_call::Overview>(git_call::Overview {
+                repo: self.repo.clone(),
+            });
         cx.spawn(async move |pane, cx| {
             if let Ok(overview) = answer.await {
-                let overview = serde_json::from_value(overview).map_err(|error| error.to_string());
+                let overview = Ok(overview);
                 pane.update(cx, |pane, cx| pane.overview(&overview, cx))
                     .ok();
             }
@@ -1717,11 +1751,13 @@ impl GitPane {
                         if url.is_empty() {
                             return;
                         }
-                        let params = pane.repo_call(json!({ "name": name, "url": url }));
                         pane.run(
                             format!("adding remote {name}"),
-                            "git.remoteAdd",
-                            params,
+                            git_call::RemoteAdd {
+                                repo: pane.repo.clone(),
+                                name: name.clone(),
+                                url: url.clone(),
+                            },
                             cx,
                             |pane, _, cx| pane.read_remotes(cx),
                         );
@@ -1754,36 +1790,31 @@ impl GitPane {
     }
 
     fn stash_menu_of(&mut self, stash: &GitStash, cx: &mut Context<Self>) {
-        let call = |method: &'static str, label: String, extra: Value| {
-            let (refname, sha) = (stash.refname.clone(), stash.sha.clone());
-            move |pane: &mut GitPane, cx: &mut Context<GitPane>| {
-                let mut params = json!({ "refname": refname, "sha": sha });
-                if let (Some(params), Value::Object(extra)) =
-                    (params.as_object_mut(), extra.clone())
-                {
-                    params.extend(extra);
-                }
-                let params = pane.repo_call(params);
-                pane.run(label.clone(), method, params, cx, |pane, _, cx| {
-                    pane.read_stashes(cx)
-                });
-            }
+        let (repo, refname, sha) = (self.repo.clone(), stash.refname.clone(), stash.sha.clone());
+        let apply = {
+            let call = git_call::StashApply {
+                repo: repo.clone(),
+                refname: refname.clone(),
+                sha: sha.clone(),
+            };
+            stash_step(format!("applying {refname}"), call)
         };
-        let apply = call(
-            "git.stashApply",
-            format!("applying {}", stash.refname),
-            json!({}),
-        );
-        let pop = call(
-            "git.stashPop",
-            format!("popping {}", stash.refname),
-            json!({}),
-        );
-        let drop = call(
-            "git.stashDrop",
-            format!("dropping {}", stash.refname),
-            json!({}),
-        );
+        let pop = {
+            let call = git_call::StashPop {
+                repo: repo.clone(),
+                refname: refname.clone(),
+                sha: sha.clone(),
+            };
+            stash_step(format!("popping {refname}"), call)
+        };
+        let drop = {
+            let call = git_call::StashDrop {
+                repo,
+                refname: refname.clone(),
+                sha,
+            };
+            stash_step(format!("dropping {refname}"), call)
+        };
         let (branched, renamed) = (stash.clone(), stash.clone());
         let refname = stash.refname.clone();
         self.menu(
@@ -1793,27 +1824,63 @@ impl GitPane {
                 Pick::new('p', "pop stash", pop).hint("apply + drop"),
                 Pick::new('b', "create branch from stash", move |pane, cx| {
                     let stash = branched.clone();
-                    pane.prompt(format!("Branch from {}", stash.refname), "branch name", "", move |pane, name, cx| {
-                        if name.is_empty() {
-                            return;
-                        }
-                        let params = pane.repo_call(json!({ "refname": stash.refname, "sha": stash.sha, "name": name }));
-                        pane.run(format!("branching from {}", stash.refname), "git.stashBranch", params, cx, |pane, _, cx| pane.read_stashes(cx));
-                    }, cx);
+                    pane.prompt(
+                        format!("Branch from {}", stash.refname),
+                        "branch name",
+                        "",
+                        move |pane, name, cx| {
+                            if name.is_empty() {
+                                return;
+                            }
+                            pane.run(
+                                format!("branching from {}", stash.refname),
+                                git_call::StashBranch {
+                                    repo: pane.repo.clone(),
+                                    refname: stash.refname.clone(),
+                                    sha: stash.sha.clone(),
+                                    name: name.clone(),
+                                },
+                                cx,
+                                |pane, _, cx| pane.read_stashes(cx),
+                            );
+                        },
+                        cx,
+                    );
                 }),
                 Pick::new('r', "rename stash", move |pane, cx| {
                     let stash = renamed.clone();
-                    pane.prompt(format!("Rename {}", stash.refname), "", stash.message.clone(), move |pane, message, cx| {
-                        if message.is_empty() || message == stash.message {
-                            return;
-                        }
-                        let params = pane.repo_call(json!({ "refname": stash.refname, "sha": stash.sha, "newMessage": message }));
-                        pane.run(format!("renaming {}", stash.refname), "git.stashRename", params, cx, |pane, _, cx| pane.read_stashes(cx));
-                    }, cx);
+                    pane.prompt(
+                        format!("Rename {}", stash.refname),
+                        "",
+                        stash.message.clone(),
+                        move |pane, message, cx| {
+                            if message.is_empty() || message == stash.message {
+                                return;
+                            }
+                            pane.run(
+                                format!("renaming {}", stash.refname),
+                                git_call::StashRename {
+                                    repo: pane.repo.clone(),
+                                    refname: stash.refname.clone(),
+                                    sha: stash.sha.clone(),
+                                    new_message: message.clone(),
+                                },
+                                cx,
+                                |pane, _, cx| pane.read_stashes(cx),
+                            );
+                        },
+                        cx,
+                    );
                 }),
                 Pick::new('d', "drop stash", move |pane, cx| {
                     let drop = drop.clone();
-                    pane.ask(format!("Drop {refname}?"), "This permanently deletes the stash entry.", "drop", move |pane, cx| drop(pane, cx), cx);
+                    pane.ask(
+                        format!("Drop {refname}?"),
+                        "This permanently deletes the stash entry.",
+                        "drop",
+                        move |pane, cx| drop(pane, cx),
+                        cx,
+                    );
                 })
                 .destructive(),
             ],
@@ -1871,11 +1938,13 @@ impl GitPane {
                 if name.is_empty() {
                     return;
                 }
-                let params = pane.repo_call(json!({ "name": name, "startPoint": hash }));
                 pane.run(
                     format!("creating {name} from {hash}"),
-                    "git.branchCreate",
-                    params,
+                    git_call::BranchCreate {
+                        repo: pane.repo.clone(),
+                        name: name.clone(),
+                        start_point: Some(hash.clone()),
+                    },
                     cx,
                     |_, _, _| {},
                 );
@@ -1901,11 +1970,13 @@ impl GitPane {
                     format!("{mode} reset"),
                     mode == "hard",
                     move |pane, cx| {
-                        let params = pane.repo_call(json!({ "rev": hash, "mode": mode }));
                         pane.run(
                             format!("reset --{mode} {hash}"),
-                            "git.reset",
-                            params,
+                            git_call::Reset {
+                                repo: pane.repo.clone(),
+                                rev: hash.clone(),
+                                mode: mode.to_owned(),
+                            },
                             cx,
                             |_, _, _| {},
                         );
@@ -1940,11 +2011,12 @@ impl GitPane {
             "revert",
             false,
             move |pane, cx| {
-                let params = pane.repo_call(json!({ "rev": hash }));
                 pane.run(
                     format!("reverting {hash}"),
-                    "git.revert",
-                    params,
+                    git_call::Revert {
+                        repo: pane.repo.clone(),
+                        rev: hash.clone(),
+                    },
                     cx,
                     |_, _, _| {},
                 );
@@ -1967,7 +2039,7 @@ impl GitPane {
             return;
         }
         let params = json!({ "dir": self.repo, "message": message });
-        self.run(
+        self.run_method(
             "Commit staged changes",
             "commitStaged",
             params,
@@ -2048,8 +2120,7 @@ impl GitPane {
             Some((kind, label, model)) => (Some(kind), label, Some(model)),
             None => (None, "Hermes".to_owned(), None),
         };
-        let params = self.repo_call(json!({ "provider": provider, "model": model }));
-        self.run(format!("Generate message with {label}"), "git.aiMessage", params, cx, move |pane, answer, cx| {
+        self.run(format!("Generate message with {label}"), git_call::AiMessage { repo: self.repo.clone(), provider: provider.clone(), model: model.clone() }, cx, move |pane, answer, cx| {
             pane.generating = false;
             let Ok(Value::String(message)) = answer else {
                 return;
@@ -2066,32 +2137,44 @@ impl GitPane {
     }
 
     fn fetch(&mut self, cx: &mut Context<Self>) {
-        let params = self.repo_call(json!({ "remote": null }));
         self.run(
             "fetching all remotes…",
-            "git.fetch",
-            params,
+            git_call::Fetch {
+                repo: self.repo.clone(),
+                remote: None,
+            },
             cx,
             |_, _, _| {},
         );
     }
 
     fn pull(&mut self, cx: &mut Context<Self>) {
-        let params = self.repo_call(json!({}));
-        self.run("pulling…", "git.pull", params, cx, |_, _, _| {});
+        self.run(
+            "pulling…",
+            git_call::Pull {
+                repo: self.repo.clone(),
+            },
+            cx,
+            |_, _, _| {},
+        );
     }
 
     fn push(&mut self, cx: &mut Context<Self>) {
-        let params = self.repo_call(json!({}));
-        self.run("pushing…", "git.push", params, cx, |_, _, _| {});
+        self.run(
+            "pushing…",
+            git_call::Push {
+                repo: self.repo.clone(),
+            },
+            cx,
+            |_, _, _| {},
+        );
     }
 
     fn pull_request(&mut self, cx: &mut Context<Self>) {
-        let params = self.repo_call(json!({}));
-        self.run(
+        self.run_method(
             "opening PR…",
             "git.pullRequestUrl",
-            params,
+            json!({ "repo": self.repo }),
             cx,
             |_, answer, cx| {
                 if let Ok(Value::String(url)) = answer {
@@ -3664,4 +3747,19 @@ pub fn hover(
 
 fn first_line(text: &str) -> String {
     text.trim().lines().next().unwrap_or_default().to_owned()
+}
+
+/// What a stash's menu row does: runs `call`, then reads the stashes again.
+fn stash_step<C>(
+    label: String,
+    call: C,
+) -> impl Fn(&mut GitPane, &mut Context<GitPane>) + Clone + 'static
+where
+    C: Call<Params = C> + Serialize + Clone + 'static,
+{
+    move |pane, cx| {
+        pane.run(label.clone(), call.clone(), cx, |pane, _, cx| {
+            pane.read_stashes(cx)
+        });
+    }
 }

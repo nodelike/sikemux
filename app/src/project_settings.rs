@@ -28,6 +28,8 @@ use crate::theme::{
 };
 use crate::ui::{self, Button, Field, IconButton, Variant};
 use crate::workbench::Workbench;
+use sikemux_core::git::status::DiscoveredRepo;
+use sikemux_core::server::git::call as git_call;
 
 #[derive(Clone, Copy, Default, PartialEq)]
 enum Page {
@@ -51,7 +53,7 @@ pub struct ProjectSettings {
     /// What the core last said of the project's sikemux.json.
     config: Option<Value>,
     /// The repositories directly inside the project's folder.
-    repos: Option<Vec<Value>>,
+    repos: Option<Vec<DiscoveredRepo>>,
     check: Entity<InputState>,
     /// Whether the check field has been given the command sikemux.json names.
     check_filled: bool,
@@ -223,14 +225,14 @@ fn make(bench: &mut Workbench, folder: String, window: &mut Window, cx: &mut Con
         },
     );
     bench.reload_config(&folder, cx);
-    let finding = bench
-        .target()
-        .request("git.discoverRepos", json!({ "root": folder }));
+    let finding =
+        bench
+            .target()
+            .request_typed::<git_call::DiscoverRepos>(git_call::DiscoverRepos {
+                root: folder.clone(),
+            });
     cx.spawn(async move |bench, cx| {
-        let repos = finding
-            .await
-            .ok()
-            .and_then(|found| found.as_array().cloned());
+        let repos = finding.await.ok();
         let _ = bench.update(cx, |bench, cx| {
             if let Some(settings) = bench.settings_of(&folder) {
                 settings.repos = Some(repos.unwrap_or_default());
@@ -887,27 +889,27 @@ fn git(
                 }
                 .to_owned(),
                 match only {
-                    true => repos[0]["name"].as_str().unwrap_or_default().to_owned(),
+                    true => repos[0].name.clone(),
                     false => "the Git pane lists them".to_owned(),
                 },
                 0,
                 None,
             );
             let listed = repos.iter().map(|repo| {
-                let path = repo["path"].as_str().unwrap_or_default().to_owned();
-                let branch = repo["branch"].as_str().unwrap_or_default();
+                let path = repo.path.clone();
+                let branch = repo.branch.as_str();
                 choice(
                     SharedString::from(format!("repo-{path}")),
                     chosen.as_deref() == Some(path.as_str()),
                     Some(Icon::Git),
-                    repo["name"].as_str().unwrap_or_default().to_owned(),
+                    repo.name.clone(),
                     if branch.is_empty() {
                         "no commits"
                     } else {
                         branch
                     }
                     .to_owned(),
-                    repo["changes"].as_u64().unwrap_or(0),
+                    repo.changes as u64,
                     Some(path),
                 )
             });

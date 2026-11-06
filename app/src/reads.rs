@@ -36,6 +36,8 @@ use crate::core::Ask;
 use crate::hosts::{Feed, Feeds};
 use crate::theme;
 use crate::workbench::Workbench;
+use sikemux_core::server::call::Call;
+use sikemux_core::server::git::call as git_call;
 
 /// One thing the window asks a core and acts on the answer of, kept up by a `Target::watch` or
 /// asked once by a `Target::answer`.
@@ -127,8 +129,11 @@ impl Read {
             Read::Runs => ("taskRuns", &[Topic::Runs]),
             Read::ProjectConfig => ("projectConfig", &[Topic::Tasks]),
             Read::Ports => ("ports", &[Topic::Ports]),
-            Read::GitProjectRepo => ("git.projectRepo", &[Topic::Git, Topic::Preferences]),
-            Read::GitOverview => ("git.overview", &[Topic::Git]),
+            Read::GitProjectRepo => (
+                git_call::ProjectRepo::METHOD,
+                &[Topic::Git, Topic::Preferences],
+            ),
+            Read::GitOverview => (git_call::Overview::METHOD, &[Topic::Git]),
             Read::GitDraft | Read::Drafts | Read::HostDrafts => ("drafts", &[Topic::Drafts]),
             Read::WorktreePulls => ("codeHostPulls", &[Topic::CodeHost]),
             Read::WorktreeMerged => ("worktreeMerged", &[Topic::Git]),

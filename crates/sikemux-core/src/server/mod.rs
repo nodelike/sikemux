@@ -35,7 +35,7 @@ mod faces;
 mod follow;
 mod from_app;
 mod gestures;
-mod git;
+pub mod git;
 mod goal_summary;
 mod goals;
 mod handover;

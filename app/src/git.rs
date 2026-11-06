@@ -15,7 +15,7 @@ use gpui_kit::{
     IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled,
     StyledText, Task, Window,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use sikemux_core::git::diff::{changes, DiffRow, ROW_ADDED, ROW_DELETED, ROW_HIDDEN};
 use sikemux_core::git::log::GitOverview;
 use sikemux_core::git::status::DiscoveredRepo;
@@ -31,6 +31,7 @@ use crate::syntax::LineRuns;
 use crate::theme::{Tokens, TEXT_2XS};
 use crate::workbench::Workbench;
 use crate::{syntax, tabs, theme, ui};
+use sikemux_core::server::git::call as git_call;
 
 /// What the Git tab holds: the local workbench pane.
 pub struct GitTab {
@@ -149,16 +150,11 @@ pub fn file_at(
     rev: &str,
     path: &str,
 ) -> impl Future<Output = Result<String, String>> {
-    let answer = target.request(
-        "git.fileAt",
-        json!({ "repo": repo, "rev": rev, "path": path }),
-    );
-    async move {
-        match answer.await? {
-            Value::String(text) => Ok(text),
-            other => Err(format!("the core answered git.fileAt with {other}")),
-        }
-    }
+    target.request_typed::<git_call::FileAt>(git_call::FileAt {
+        repo: repo.to_owned(),
+        rev: rev.to_owned(),
+        path: path.to_owned(),
+    })
 }
 
 /// Which file a diff compares, and between what.

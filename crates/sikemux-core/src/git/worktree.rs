@@ -1,23 +1,23 @@
 use std::path::{Component, Path, PathBuf};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{git_ok, open_repo, run_blocking};
 
-#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct GitWorktree {
-    path: String,
-    head: Option<String>,
-    branch: Option<String>,
-    reference: Option<String>,
-    detached: bool,
-    locked: bool,
-    lock_reason: Option<String>,
-    prunable: bool,
-    prune_reason: Option<String>,
-    bare: bool,
-    current: bool,
-    is_main: bool,
+    pub path: String,
+    pub head: Option<String>,
+    pub branch: Option<String>,
+    pub reference: Option<String>,
+    pub detached: bool,
+    pub locked: bool,
+    pub lock_reason: Option<String>,
+    pub prunable: bool,
+    pub prune_reason: Option<String>,
+    pub bare: bool,
+    pub current: bool,
+    pub is_main: bool,
 }
 
 fn worktree_path(path: &str) -> Result<PathBuf, String> {

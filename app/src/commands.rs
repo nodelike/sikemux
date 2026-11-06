@@ -8,6 +8,9 @@ use sikemux_view::layout::PaneKind;
 use sikemux_wire::protocol::SessionId;
 use tokio::sync::oneshot;
 
+use sikemux_core::git::worktree::GitWorktree;
+use sikemux_core::server::git::call as git_call;
+
 use crate::core;
 use crate::keymap;
 use crate::palette::{Row, Spec};
@@ -247,17 +250,15 @@ fn action_rows(config: &Value, cx: &App) -> Vec<Row> {
 
 /// The deck's rows for each worktree of the project's repository: open it as a project, and
 /// remove it unless it is the main checkout or the one in front.
-fn worktree_rows(worktrees: &Value) -> Vec<Row> {
+fn worktree_rows(worktrees: &Vec<GitWorktree>) -> Vec<Row> {
     let mut rows = Vec::new();
-    for worktree in worktrees.as_array().into_iter().flatten() {
-        let Some(path) = worktree["path"].as_str() else {
-            continue;
-        };
-        if worktree["bare"].as_bool() == Some(true) {
+    for worktree in worktrees {
+        let path = worktree.path.as_str();
+        if worktree.bare {
             continue;
         }
-        let current = worktree["current"].as_bool() == Some(true);
-        let branch = worktree["branch"].as_str().unwrap_or("detached");
+        let current = worktree.current;
+        let branch = worktree.branch.as_deref().unwrap_or("detached");
         let title = if current {
             "Open current worktree".to_owned()
         } else {
@@ -268,7 +269,7 @@ fn worktree_rows(worktrees: &Value) -> Vec<Row> {
                 .meta("worktrees")
                 .also(path),
         );
-        if !current && worktree["is_main"].as_bool() != Some(true) {
+        if !current && !worktree.is_main {
             rows.push(
                 Row::new(
                     Pick::RemoveWorktree(path).key(),
@@ -462,7 +463,7 @@ impl Workbench {
         let config = target.request("projectConfig", json!({ "project": folder }));
         let listed = self
             .git_repo()
-            .map(|repo| target.request("git.worktrees", json!({ "repo": repo })));
+            .map(|repo| target.request_typed::<git_call::Worktrees>(git_call::Worktrees { repo }));
         cx.spawn(async move |this, cx| {
             let config = config.await.ok();
             let worktrees = match listed {
@@ -504,8 +505,13 @@ impl Workbench {
                 if !yes {
                     return;
                 }
-                let params = json!({ "repo": repo, "path": path, "force": false });
-                let removed = bench.target().request("git.worktreeRemove", params);
+                let removed = bench.target().request_typed::<git_call::WorktreeRemove>(
+                    git_call::WorktreeRemove {
+                        repo: repo.clone(),
+                        path: path.clone(),
+                        force: false,
+                    },
+                );
                 let branch = branch.clone();
                 bench.report(
                     removed,
