@@ -2657,7 +2657,7 @@
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>A secret question</b><div class="note">The agent asked for something secret, such as a password or a token, so the question came straight to the person. Under its words sits a field with Send beside it that grows with its lines, so a multi-line paste such as a private key or an env file keeps its line breaks. Its text is never drawn: a line under it says how many lines and characters it holds. Below that is a dim line under a lock saying the answer stays private: the agent reads it from a file only the person's account can open, and it never shows in the chat. The field is never the composer, so the composer keeps no Answering chip and no draft of it, and nothing is corrected, suggested or saved to the keyboard or the password manager. Any answers the agent offered still sit above it as rows. Once sent, the answer folds into Answered, kept private, here and in the transcript afterwards, never its text. A watching phone shows the question without the field.</div></figcaption>
+      <figcaption><b>A secret question</b><div class="note">Empty, the field reads "Type or paste the answer". The agent asked for something secret, such as a password or a token, so the question came straight to the person. Under its words sits a field with Send beside it that grows with its lines, so a multi-line paste such as a private key or an env file keeps its line breaks. Its text is never drawn: a line under it says how many lines and characters it holds. Below that is a dim line under a lock saying the answer stays private: the agent reads it from a file only the person's account can open, and it never shows in the chat. The field is never the composer, so the composer keeps no Answering chip and no draft of it, and nothing is corrected, suggested or saved to the keyboard or the password manager. Any answers the agent offered still sit above it as rows. Once sent, the answer folds into Answered, kept private, here and in the transcript afterwards, never its text. A watching phone shows the question without the field.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3152,6 +3152,15 @@ expected 1 write, got 2</div>
       Tests  1 failed | 213 passed (214)<span class="cp">{{IconCopy:12}}</span></div>
               <div class="more">Show all 38 lines</div>
               <div class="exit">exit 1</div>
+            </div>
+            <div class="term-box">
+              <div class="cmdline"><b>$</b><span>git status --short</span><span class="cp">{{IconCopy:12}}</span></div>
+              <div class="more">No output</div>
+            </div>
+            <div class="term-box">
+              <div class="cmdline"><b>$</b><span>pnpm build</span><span class="cp">{{IconCopy:12}}</span></div>
+              <div class="out">dist/assets/index.js  359 kB</div>
+              <div class="more">The rest of the output was not kept</div>
             </div>
             <div class="tools-body" style="padding-top:0"><div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target">ptyController.ts</span><span class="end"><span class="add">+2</span><span class="del">−1</span></span></div></div>
           </div>
