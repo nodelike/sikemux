@@ -8,7 +8,15 @@ use gpui_kit::{
     div, px, AnyElement, App, AppContext, Context, Entity, IntoElement, ParentElement,
     SharedString, Styled, Subscription, Window,
 };
-use serde_json::{json, Value};
+
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use sikemux_core::launch::providers::{Helper, Kind};
+use sikemux_core::server::call::{self, Call};
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::model_providers::{
+    Check, CheckParams, ConnectParams, HelperParams, ModelProvider, ProviderParams,
+};
 
 use crate::core;
 use crate::settings::rows::{self, Choice};
@@ -20,8 +28,8 @@ use crate::ui::numbers::compact;
 use crate::workbench::Workbench;
 
 pub struct Fields {
-    providers: Vec<Value>,
-    helper: Option<Value>,
+    providers: Vec<ModelProvider>,
+    helper: Option<Helper>,
     /// The provider whose key is being typed into `key`.
     editing: Option<String>,
     key: Entity<InputState>,
@@ -30,7 +38,7 @@ pub struct Fields {
     checking: bool,
     helper_model: Entity<InputState>,
     /// The helper's agent and who pays for it, made again whenever the helper changes.
-    helper_choices: Option<(Option<Value>, Choice, Option<Choice>)>,
+    helper_choices: Option<(Option<Helper>, Choice, Option<Choice>)>,
     _entering: Vec<Subscription>,
 }
 
@@ -89,15 +97,15 @@ fn fields<'a>(bench: &Workbench, cx: &'a App) -> Option<&'a Fields> {
 pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
-        let providers = core::request(&asks, "modelProviders", json!({})).await;
-        let helper = core::request(&asks, "modelHelper", json!({})).await;
+        let here = core::Target::here(&asks);
+        let providers = here
+            .request_typed::<call::ModelProviders>(NoParams {})
+            .await;
+        let helper = here.request_typed::<call::ModelHelper>(NoParams {}).await;
         let _ = bench.update(cx, |bench, cx| {
             change_fields(bench, cx, |fields, _| {
-                fields.providers = providers
-                    .ok()
-                    .and_then(|providers| providers.as_array().cloned())
-                    .unwrap_or_default();
-                fields.helper = helper.ok().filter(|helper| !helper.is_null());
+                fields.providers = providers.unwrap_or_default();
+                fields.helper = helper.ok().flatten();
                 fields.checking = false;
                 fields.helper_choices = None;
             });
@@ -107,20 +115,22 @@ pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
 }
 
 /// Runs `method` on provider `id`, then reads the providers again; a failure stays on its row.
-fn change(
+fn change<C: Call + 'static>(
     bench: &mut Workbench,
     id: String,
-    method: &'static str,
-    params: Value,
+    params: C::Params,
     cx: &mut Context<Workbench>,
-) {
+) where
+    C::Params: Serialize,
+    C::Answer: DeserializeOwned + 'static,
+{
     change_fields(bench, cx, |fields, _| {
         fields.busy = Some(id.clone());
         fields.failure = None;
     });
-    let asks = bench.asks.clone();
+    let asked = core::Target::here(&bench.asks).request_typed::<C>(params);
     cx.spawn(async move |bench, cx| {
-        let answer = core::request(&asks, method, params).await;
+        let answer = asked.await;
         let _ = bench.update(cx, |bench, cx| {
             change_fields(bench, cx, |fields, _| {
                 fields.busy = None;
@@ -142,13 +152,7 @@ fn connect(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     }) else {
         return;
     };
-    change(
-        bench,
-        id.clone(),
-        "modelProviderConnect",
-        json!({ "id": id, "key": key }),
-        cx,
-    );
+    change::<call::ModelProviderConnect>(bench, id.clone(), ConnectParams { id, key }, cx);
 }
 
 fn edit(
@@ -168,20 +172,14 @@ fn edit(
 }
 
 /// The model a check asks about: the provider's coding model, else the first a local runner has.
-fn checked_model(provider: &Value) -> Option<String> {
-    provider["model"]
-        .as_str()
-        .or_else(|| provider["models"][0].as_str())
-        .map(str::to_owned)
+fn checked_model(provider: &ModelProvider) -> Option<String> {
+    let served = provider.models.as_ref().and_then(|models| models.first());
+    provider.choices.model.as_ref().or(served).cloned()
 }
 
 /// Which of Claude Code and Codex a chat can move onto the provider, in words.
-fn chats_on(bench: &Workbench, provider: &Value) -> String {
-    let agents: Vec<String> = provider["agents"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
+fn chats_on(bench: &Workbench, provider: &ModelProvider) -> String {
+    let agents: Vec<String> = (provider.agents.iter())
         .map(|agent| bench.agent_name(agent).to_owned())
         .collect();
     match agents.split_last() {
@@ -196,22 +194,21 @@ fn chats_on(bench: &Workbench, provider: &Value) -> String {
 
 /// Context, price per million tokens and tool calls, in a few words. A check outranks
 /// what models.dev says.
-fn model_words(provider: &Value, model: &str) -> Vec<String> {
+fn model_words(provider: &ModelProvider, model: &str) -> Vec<String> {
     let name = model.strip_suffix("[1m]").unwrap_or(model);
-    let facts = &provider["facts"][name];
-    let check = &provider["checks"][name];
+    let facts = provider.choices.facts.get(name);
     let mut words = Vec::new();
-    if let Some(context) = facts["context"].as_f64() {
-        words.push(format!("{} context", compact(context)));
+    if let Some(facts) = facts {
+        words.push(format!("{} context", compact(facts.context as f64)));
+        if let (Some(input), Some(output)) = (facts.input, facts.output) {
+            words.push(format!("${input}/${output} per 1M"));
+        }
     }
-    if let (Some(input), Some(output)) = (facts["input"].as_f64(), facts["output"].as_f64()) {
-        words.push(format!("${input}/${output} per 1M"));
-    }
-    if !check.is_null() {
+    if let Some(check) = provider.checks.get(name) {
         words.push(check_words(check).into());
-    } else if !facts.is_null() {
+    } else if let Some(facts) = facts {
         words.push(
-            if facts["toolCall"] == true {
+            if facts.tool_call {
                 "lists tool calls"
             } else {
                 "no tool calls"
@@ -222,24 +219,22 @@ fn model_words(provider: &Value, model: &str) -> Vec<String> {
     words
 }
 
-fn check_words(check: &Value) -> &'static str {
-    match check["works"] == true {
+fn check_words(check: &Check) -> &'static str {
+    match check.works {
         true => "works with agents",
         false => "tool calls failed",
     }
 }
 
 /// The model it starts on with what models.dev says of it, and each model checked so far.
-fn model_lines(provider: &Value) -> Vec<String> {
+fn model_lines(provider: &ModelProvider) -> Vec<String> {
     let mut lines = Vec::new();
-    if let Some(model) = provider["model"].as_str() {
+    if let Some(model) = provider.choices.model.as_deref() {
         let words = [vec![model.to_owned()], model_words(provider, model)].concat();
         lines.push(format!("Starts on {}", words.join(" · ")));
     }
-    for (model, check) in provider["checks"].as_object().into_iter().flatten() {
-        let day = check["at"]
-            .as_i64()
-            .and_then(chrono::DateTime::from_timestamp_millis)
+    for (model, check) in &provider.checks {
+        let day = chrono::DateTime::from_timestamp_millis(check.at as i64)
             .map(|at| {
                 at.with_timezone(&chrono::Local)
                     .format("%b %-d, %Y")
@@ -269,9 +264,13 @@ fn button(
         })
 }
 
-fn check_button(provider: &Value, busy: bool, this: &Entity<Workbench>) -> Option<ui::Button> {
+fn check_button(
+    provider: &ModelProvider,
+    busy: bool,
+    this: &Entity<Workbench>,
+) -> Option<ui::Button> {
     let model = checked_model(provider)?;
-    let id = provider["id"].as_str().unwrap_or_default().to_owned();
+    let id = provider.id.clone();
     let label = if busy {
         "Checking…"
     } else {
@@ -284,11 +283,13 @@ fn check_button(provider: &Value, busy: bool, this: &Entity<Workbench>) -> Optio
         busy,
         this,
         move |bench, _, cx| {
-            change(
+            change::<call::ModelProviderCheck>(
                 bench,
                 id.clone(),
-                "modelProviderCheck",
-                json!({ "id": id, "model": model }),
+                CheckParams {
+                    id: id.clone(),
+                    model: model.clone(),
+                },
                 cx,
             )
         },
@@ -310,14 +311,14 @@ fn lines(about: Vec<String>, failed: bool, cx: &App) -> AnyElement {
 fn keyed_row(
     bench: &Workbench,
     fields: &Fields,
-    provider: &Value,
+    provider: &ModelProvider,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let id = provider["id"].as_str().unwrap_or_default().to_owned();
-    let label = provider["label"].as_str().unwrap_or_default().to_owned();
-    let connected = provider["connected"] == true;
+    let id = provider.id.clone();
+    let label = provider.label.clone();
+    let connected = provider.connected;
     let editing = fields.editing.as_deref() == Some(id.as_str());
     let busy = fields.busy.as_deref() == Some(id.as_str());
     let failed = fields
@@ -332,9 +333,9 @@ fn keyed_row(
                 "Connected. Agents started from now on can use it. {}",
                 chats_on(bench, provider)
             );
-            let added = (provider["custom"] == true)
-                .then(|| provider["openai"].as_str())
-                .flatten()
+            let added = provider
+                .custom
+                .then_some(provider.openai.as_str())
                 .map(|url| {
                     let url = url.split_once("://").map_or(url, |(_, rest)| rest);
                     format!("Added by you, at {url}")
@@ -352,14 +353,9 @@ fn keyed_row(
         }
         (None, false) => None,
     };
-    let sign_up = provider["signUpUrl"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
-    let (method, word) = match provider["custom"] == true {
-        true => ("modelProviderRemove", "Remove"),
-        false => ("modelProviderDisconnect", "Disconnect"),
-    };
+    let sign_up = provider.sign_up_url.clone();
+    let custom = provider.custom;
+    let word = if custom { "Remove" } else { "Disconnect" };
     let controls = div()
         .flex()
         .items_center()
@@ -375,13 +371,23 @@ fn keyed_row(
                     busy,
                     this,
                     move |bench, _, cx| {
-                        change(
-                            bench,
-                            disconnect.clone(),
-                            method,
-                            json!({ "id": disconnect }),
-                            cx,
-                        )
+                        let params = ProviderParams {
+                            id: disconnect.clone(),
+                        };
+                        match custom {
+                            true => change::<call::ModelProviderRemove>(
+                                bench,
+                                disconnect.clone(),
+                                params,
+                                cx,
+                            ),
+                            false => change::<call::ModelProviderDisconnect>(
+                                bench,
+                                disconnect.clone(),
+                                params,
+                                cx,
+                            ),
+                        }
                     },
                 ))
         })
@@ -466,26 +472,21 @@ fn row(
 fn local_row(
     bench: &Workbench,
     fields: &Fields,
-    provider: &Value,
+    provider: &ModelProvider,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let id = provider["id"].as_str().unwrap_or_default().to_owned();
-    let label = provider["label"].as_str().unwrap_or_default().to_owned();
-    let connected = provider["connected"] == true;
+    let id = provider.id.clone();
+    let label = provider.label.clone();
+    let connected = provider.connected;
     let busy = fields.busy.as_deref() == Some(id.as_str());
-    let models: Vec<&str> = provider["models"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
+    let models: Vec<&str> = (provider.models.iter().flatten())
+        .map(String::as_str)
         .collect();
     let about = match (connected, models.is_empty()) {
         (false, _) => {
-            let host = provider["openai"]
-                .as_str()
-                .and_then(|url| url.split("://").nth(1))
+            let host = (provider.openai.split("://").nth(1))
                 .and_then(|rest| rest.split('/').next())
                 .unwrap_or_default();
             vec![format!("Nothing is answering at {host}.")]
@@ -512,12 +513,9 @@ fn local_row(
         Some(message) => lines(vec![message], true, cx),
         None => lines(about, false, cx),
     };
-    let sign_up = provider["signUpUrl"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
+    let sign_up = provider.sign_up_url.clone();
     let checking = fields.checking;
-    let custom = provider["custom"] == true;
+    let custom = provider.custom;
     let controls = div()
         .flex()
         .items_center()
@@ -561,11 +559,12 @@ fn local_row(
                 busy,
                 this,
                 move |bench, _, cx| {
-                    change(
+                    change::<call::ModelProviderRemove>(
                         bench,
                         removing.clone(),
-                        "modelProviderRemove",
-                        json!({ "id": removing }),
+                        ProviderParams {
+                            id: removing.clone(),
+                        },
                         cx,
                     )
                 },
@@ -575,26 +574,19 @@ fn local_row(
 }
 
 /// Keeps what helpers run on in the core.
-fn save_helper(bench: &mut Workbench, helper: Option<Value>, cx: &mut Context<Workbench>) {
+fn save_helper(bench: &mut Workbench, helper: Option<Helper>, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.helper = helper.clone());
-    let _ = bench.asks.send(core::Ask::Call {
-        method: "setModelHelper",
-        params: json!({ "helper": helper }),
-    });
+    bench.call_typed::<call::SetModelHelper>(HelperParams { helper });
 }
 
 fn save_model(bench: &mut Workbench, model: String, cx: &mut Context<Workbench>) {
     let Some(mut helper) = fields(bench, cx).and_then(|fields| fields.helper.clone()) else {
         return;
     };
-    if helper["model"].as_str().unwrap_or_default() == model {
+    if helper.model.as_deref().unwrap_or_default() == model {
         return;
     }
-    let object = helper.as_object_mut().expect("a helper is an object");
-    match model.is_empty() {
-        true => object.remove("model"),
-        false => object.insert("model".into(), json!(model)),
-    };
+    helper.model = Some(model).filter(|model| !model.is_empty());
     save_helper(bench, Some(helper), cx);
 }
 
@@ -624,10 +616,7 @@ pub(in crate::settings::pages) fn rebuild_choices(
         return;
     };
     let agents = chat_agents(bench);
-    let agent = helper
-        .as_ref()
-        .and_then(|helper| helper["agent"].as_str())
-        .map(str::to_owned);
+    let agent = helper.as_ref().map(|helper| helper.agent.clone());
     let chosen = agent
         .as_ref()
         .and_then(|agent| agents.iter().position(|(kind, _)| kind == agent))
@@ -643,7 +632,11 @@ pub(in crate::settings::pages) fn rebuild_choices(
             let helper = at
                 .checked_sub(1)
                 .and_then(|at| kinds.get(at))
-                .map(|agent| json!({ "agent": agent }));
+                .map(|agent| Helper {
+                    agent: agent.clone(),
+                    provider: None,
+                    model: None,
+                });
             save_helper(bench, helper, cx);
         },
         window,
@@ -655,24 +648,15 @@ pub(in crate::settings::pages) fn rebuild_choices(
                 fields
                     .providers
                     .iter()
-                    .filter(|provider| provider["connected"] == true)
-                    .filter(|provider| {
-                        provider["agents"]
-                            .as_array()
-                            .is_some_and(|agents| agents.iter().any(|each| each == agent.as_str()))
-                    })
-                    .filter_map(|provider| {
-                        Some((
-                            provider["id"].as_str()?.to_owned(),
-                            provider["label"].as_str()?.to_owned(),
-                        ))
-                    })
+                    .filter(|provider| provider.connected)
+                    .filter(|provider| provider.agents.contains(&agent))
+                    .map(|provider| (provider.id.clone(), provider.label.clone()))
                     .collect()
             })
             .unwrap_or_default();
         let current = helper
             .as_ref()
-            .and_then(|helper| helper["provider"].as_str());
+            .and_then(|helper| helper.provider.as_deref());
         let chosen = current
             .and_then(|current| routes.iter().position(|(id, _)| id == current))
             .map_or(0, |at| at + 1);
@@ -689,11 +673,7 @@ pub(in crate::settings::pages) fn rebuild_choices(
                 else {
                     return;
                 };
-                let object = helper.as_object_mut().expect("a helper is an object");
-                match at.checked_sub(1).and_then(|at| ids.get(at)) {
-                    Some(id) => object.insert("provider".into(), json!(id)),
-                    None => object.remove("provider"),
-                };
+                helper.provider = at.checked_sub(1).and_then(|at| ids.get(at)).cloned();
                 save_helper(bench, Some(helper), cx);
             },
             window,
@@ -702,18 +682,15 @@ pub(in crate::settings::pages) fn rebuild_choices(
     });
     let model = helper
         .as_ref()
-        .and_then(|helper| helper["model"].as_str())
-        .unwrap_or_default()
-        .to_owned();
+        .and_then(|helper| helper.model.clone())
+        .unwrap_or_default();
     let route = fields(bench, cx).and_then(|fields| {
         let helper = helper.as_ref()?;
         let route = fields
             .providers
             .iter()
-            .find(|each| each["id"] == helper["provider"])?;
-        route["defaults"][helper["agent"].as_str()?]
-            .as_str()
-            .map(str::to_owned)
+            .find(|each| Some(&each.id) == helper.provider.as_ref())?;
+        route.choices.defaults.get(&helper.agent).cloned()
     });
     let placeholder = route.unwrap_or_else(|| "The agent's own".into());
     change_fields(bench, cx, |fields, cx| {
@@ -757,25 +734,25 @@ pub fn render(
     this: &Entity<Workbench>,
     cx: &App,
 ) -> Vec<AnyElement> {
-    let of_kind = |kind: &str| -> Vec<&Value> {
-        let mut providers: Vec<&Value> = fields
+    let of_kind = |kind: Kind| -> Vec<&ModelProvider> {
+        let mut providers: Vec<&ModelProvider> = fields
             .providers
             .iter()
-            .filter(|provider| provider["kind"] == kind)
+            .filter(|provider| provider.kind == kind)
             .collect();
-        providers.sort_by_key(|provider| provider["custom"] != true);
+        providers.sort_by_key(|provider| !provider.custom);
         providers
     };
-    let connected = |providers: &[&Value]| {
+    let connected = |providers: &[&ModelProvider]| {
         providers
             .iter()
-            .filter(|provider| provider["connected"] == true)
+            .filter(|provider| provider.connected)
             .count()
     };
-    let keyed = |kind: &str, title: &'static str, sub: &'static str, cx: &App| {
+    let keyed = |kind: Kind, title: &'static str, sub: &'static str, cx: &App| {
         let providers = of_kind(kind);
         let count = connected(&providers);
-        let adds = (kind == "api").then(|| {
+        let adds = (kind == Kind::Api).then(|| {
             let this = this.clone();
             div().flex().px(SPACE_4).py(SPACE_2H).child(
                 ui::Button::new("provider-add-own", "Add provider", ui::Variant::Outline)
@@ -806,19 +783,19 @@ pub fn render(
     };
     let section = match page {
         Page::Plans => keyed(
-        "plan",
+            Kind::Plan,
         "Coding plans",
         "Monthly subscriptions made for coding agents. Once its key is saved here, a plan's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain.",
         cx,
     ),
         Page::Providers => keyed(
-        "api",
+            Kind::Api,
         "API providers",
         "Hosted models you pay the provider for by the token. Once its key is saved here, a provider's models show in every chat's model picker, run by an agent that can use them. Keys stay in your Keychain.",
         cx,
     ),
         Page::LocalModels => {
-    let local = of_kind("local");
+    let local = of_kind(Kind::Local);
     let running = connected(&local);
     rows::section(
         "Local models",

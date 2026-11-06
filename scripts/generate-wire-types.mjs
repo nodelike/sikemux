@@ -36,6 +36,18 @@ const SOURCES = (
 /** What a type is called in TypeScript when the name in Rust says too little there. */
 const RENAMES = {
   [`${WIRE}/changed.rs`]: { Topic: "CoreChangeTopic" },
+  [`${CORE}/launch/providers.rs`]: { Kind: "ProviderKind", Helper: "ModelHelper" },
+  [`${CORE}/server/model_providers/checks.rs`]: { Check: "ModelCheck" },
+  [`${CORE}/server/model_providers/adding.rs`]: {
+    Reading: "ProviderReading",
+    Entered: "ProviderEntered",
+  },
+  [`${CORE}/server/model_providers.rs`]: {
+    CheckParams: "ModelCheckParams",
+    ConnectParams: "ModelConnectParams",
+    HelperParams: "ModelHelperParams",
+    ProviderParams: "ModelProviderParams",
+  },
 };
 
 /** Fields the Rust keeps as JSON so phones read changes over the air, and the type that JSON has. */

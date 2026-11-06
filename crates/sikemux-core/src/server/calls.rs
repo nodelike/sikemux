@@ -231,24 +231,16 @@ calls! { core, client, method, params;
         answer(())
     },
     "agentSignOut": Owner => answer(agent_sign_in::sign_out(parse(params)?).await?),
-    "modelProviders": Full, any_program => answer(model_providers::list(&core).await?),
-    "modelProviderModels": Full, any_program => {
-        answer(model_providers::models(&core, parse(params)?).await?)
-    },
-    "modelHelper": Full, any_program => answer(model_providers::helper(&core).await?),
-    "modelProviderCheck": Owner => answer(model_providers::check(&core, parse(params)?).await?),
-    "modelProviderConnect": Owner, counted => {
-        answer(model_providers::connect(&core, parse(params)?).await?)
-    },
-    "modelProviderDisconnect": Owner => {
-        answer(model_providers::disconnect(&core, parse(params)?).await?)
-    },
-    "modelProviderRead": Owner => answer(model_providers::read(&core, parse(params)?).await?),
-    "modelProviderAdd": Owner => answer(model_providers::add(&core, parse(params)?).await?),
-    "modelProviderRemove": Owner => {
-        answer(model_providers::remove(&core, parse(params)?).await?)
-    },
-    "setModelHelper": Owner => answer(model_providers::set_helper(&core, parse(params)?).await?),
+    "modelProviders" ModelProviders (NoParams) -> Vec<model_providers::ModelProvider>: Full, any_program => model_providers::list(&core).await?,
+    "modelProviderModels" ModelProviderModels (model_providers::ProviderParams) -> model_providers::ServedModels: Full, any_program => model_providers::models(&core, params).await?,
+    "modelHelper" ModelHelper (NoParams) -> Option<crate::launch::providers::Helper>: Full, any_program => model_providers::helper(&core).await?,
+    "modelProviderCheck" ModelProviderCheck (model_providers::CheckParams) -> model_providers::Check: Owner => model_providers::check(&core, params).await?,
+    "modelProviderConnect" ModelProviderConnect (model_providers::ConnectParams) -> (): Owner, counted => model_providers::connect(&core, params).await?,
+    "modelProviderDisconnect" ModelProviderDisconnect (model_providers::ProviderParams) -> (): Owner => model_providers::disconnect(&core, params).await?,
+    "modelProviderRead" ModelProviderRead (model_providers::adding::Entered) -> model_providers::adding::Reading: Owner => model_providers::read(&core, params).await?,
+    "modelProviderAdd" ModelProviderAdd (model_providers::adding::Entered) -> model_providers::ModelProvider: Owner => model_providers::add(&core, params).await?,
+    "modelProviderRemove" ModelProviderRemove (model_providers::ProviderParams) -> (): Owner => model_providers::remove(&core, params).await?,
+    "setModelHelper" SetModelHelper (model_providers::HelperParams) -> (): Owner => model_providers::set_helper(&core, params).await?,
     "agentAccounts": Full, any_program => answer(core.workspaces.accounts().unwrap_or_default().with_built_ins()),
     "agentStatus": Full, any_program => answer(agent_accounts::status(&core, parse(params)?).await?),
     "installedAgents": Full, any_program => answer(agent_accounts::installed(&core).await?),

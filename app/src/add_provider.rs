@@ -13,7 +13,6 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement,
     Styled, Subscription, Window,
 };
-use serde_json::{json, Value};
 
 use crate::agents::setup::{self, Installing};
 use crate::chat::model_picker::{Move, Moving};
@@ -24,6 +23,9 @@ use crate::theme::{Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, SPACE_3, TEXT_2
 use crate::toast;
 use crate::ui::{self, dialog};
 use crate::workbench::Workbench;
+use sikemux_core::server::call;
+use sikemux_core::server::model_providers::adding::{Entered, Reading};
+use sikemux_core::server::model_providers::ModelProvider;
 use sikemux_wire::protocol::ErrorKind;
 
 /// How long typing rests before the URL and key are checked.
@@ -42,7 +44,7 @@ pub struct AddProvider {
     /// The name the core suggested last, which the field keeps until the person types their own.
     suggested: String,
     /// The core's check of the URL and key it was asked about.
-    read: Option<(Asked, Value)>,
+    read: Option<(Asked, Reading)>,
     reading: bool,
     adding: bool,
     failure: Option<String>,
@@ -120,7 +122,7 @@ impl AddProvider {
     }
 
     /// The check of the URL and key the fields hold now, once the core has given it.
-    fn current(&self, cx: &App) -> Option<&Value> {
+    fn current(&self, cx: &App) -> Option<&Reading> {
         let (asked, read) = self.read.as_ref()?;
         (*asked == self.asked(cx)).then_some(read)
     }
@@ -188,9 +190,16 @@ fn settle(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
         }
         let (url, key) = asked.clone();
         let read = target
-            .try_request("modelProviderRead", json!({ "baseUrl": url, "key": key }))
+            .try_request_typed::<call::ModelProviderRead>(Entered {
+                base_url: url,
+                key: Some(key),
+                label: None,
+            })
             .await
-            .unwrap_or_else(|failure| json!({ "failure": readable(failure) }));
+            .unwrap_or_else(|failure| Reading {
+                failure: Some(readable(failure)),
+                ..Reading::default()
+            });
         let _ = bench.update_in(cx, |bench, window, cx| {
             let Some(adding) = bench.overlays.adding_provider.as_mut() else {
                 return;
@@ -199,7 +208,7 @@ fn settle(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
                 return;
             }
             adding.reading = false;
-            if let Some(label) = read["label"].as_str() {
+            if let Some(label) = read.label.as_deref() {
                 let typed = adding.name.read(cx).value().trim().to_owned();
                 if typed.is_empty() || typed == adding.suggested {
                     adding
@@ -208,8 +217,8 @@ fn settle(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
                 }
                 adding.suggested = label.to_owned();
             }
-            let works = read["failure"].is_null() && read["models"].is_array();
-            let agent = read["runsWith"].as_str().map(str::to_owned);
+            let works = read.failure.is_none() && read.models.is_some();
+            let agent = read.runs_with.clone();
             let here = matches!(adding.target.place(), Place::This);
             adding.read = Some((asked, read));
             if let Some(agent) = agent.filter(|agent| works && here && !bench.has_agent(agent)) {
@@ -234,23 +243,25 @@ fn add(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) 
         return;
     };
     let label = adding.label(cx);
-    if adding.adding || !read["failure"].is_null() || !read["models"].is_array() || label.is_empty()
-    {
+    if adding.adding || read.failure.is_some() || read.models.is_none() || label.is_empty() {
         return;
     }
     let (url, key) = adding.asked(cx);
     adding.adding = true;
-    let added = adding.target.try_request(
-        "modelProviderAdd",
-        json!({ "baseUrl": url, "key": key, "label": label }),
-    );
+    let added = adding
+        .target
+        .try_request_typed::<call::ModelProviderAdd>(Entered {
+            base_url: url,
+            key: Some(key),
+            label: Some(label),
+        });
     cx.notify();
     cx.spawn_in(window, async move |bench, cx| {
         let added = added.await;
         let moved = bench.update_in(cx, |bench, window, cx| {
             let moved = match added {
                 Ok(provider) => {
-                    let label = provider["label"].as_str().unwrap_or("the provider");
+                    let label = &provider.label;
                     window.push_notification(
                         toast::success(format!(
                             "Added {label}; its models are in every chat's model menu"
@@ -286,12 +297,10 @@ fn add(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) 
 /// Where a chat goes to run on `provider`: the agent Sikemux runs it with, on that agent's
 /// account, starting on the provider's model for it, else its first. A provider serving no
 /// model leaves the chat where it is, as the agent could not start on it.
-fn onto(bench: &Workbench, provider: &Value) -> Option<Moving> {
-    let agent = provider["runsWith"].as_str()?;
-    let model = provider["defaults"][agent]
-        .as_str()
-        .or_else(|| provider["models"][0].as_str())
-        .map(str::to_owned)?;
+fn onto(bench: &Workbench, provider: &ModelProvider) -> Option<Moving> {
+    let agent = provider.runs_with.as_deref()?;
+    let served = provider.models.as_ref().and_then(|models| models.first());
+    let model = provider.choices.defaults.get(agent).or(served).cloned()?;
     Some(Moving {
         provider: agent.to_owned(),
         profile: bench
@@ -299,7 +308,7 @@ fn onto(bench: &Workbench, provider: &Value) -> Option<Moving> {
             .current(agent)
             .map(|profile| profile.id.clone()),
         model: Some(model),
-        model_provider: provider["id"].as_str().map(str::to_owned),
+        model_provider: Some(provider.id.clone()),
     })
 }
 
@@ -316,12 +325,8 @@ fn readable(failure: CallError) -> String {
 }
 
 /// Why the agent Sikemux picked runs the provider, from the APIs it speaks.
-fn reason(name: &str, read: &Value) -> String {
-    let speaks = |api: &str| {
-        read["speaks"]
-            .as_array()
-            .is_some_and(|all| all.iter().any(|each| each == api))
-    };
+fn reason(name: &str, read: &Reading) -> String {
+    let speaks = |api: &str| read.speaks.iter().any(|each| each == api);
     if speaks("anthropic") {
         format!("{name} speaks Anthropic's API, which Claude Code uses.")
     } else if speaks("responses") {
@@ -377,12 +382,12 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let name = adding.label(cx);
     let models = read
         .as_ref()
-        .and_then(|read| read["models"].as_array())
+        .and_then(|read| read.models.as_ref())
         .map(Vec::len);
     let failure = adding
         .failure
         .clone()
-        .or_else(|| read.as_ref()?["failure"].as_str().map(str::to_owned));
+        .or_else(|| read.as_ref()?.failure.clone());
     let ready = models.is_some() && failure.is_none() && !adding.adding && !name.is_empty();
     let keyed = !adding.asked(cx).1.is_empty();
     let check = match (&failure, models, adding.reading) {
@@ -401,7 +406,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement
     let runs = read
         .as_ref()
         .filter(|_| ready || adding.adding)
-        .and_then(|read| Some((read["runsWith"].as_str()?.to_owned(), read)))
+        .and_then(|read| Some((read.runs_with.clone()?, read)))
         .map(|(agent, read)| {
             let label = bench.agent_name(&agent).to_owned();
             let state = match (

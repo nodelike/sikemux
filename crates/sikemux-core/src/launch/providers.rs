@@ -184,7 +184,7 @@ impl Custom {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct KeySpec {
     /// Every name an agent looks for this key under.
@@ -193,7 +193,7 @@ pub struct KeySpec {
     pub check: String,
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AnthropicApi {
     pub url: String,
@@ -253,7 +253,7 @@ pub struct Wiring {
 
 /// What helpers run on: workers started without a model named, and Claude
 /// Code's own subagents when the chat runs where the helpers do.
-#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Clone, Debug, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Helper {
     pub agent: String,

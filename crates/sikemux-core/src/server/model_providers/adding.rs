@@ -26,39 +26,39 @@ const MAX_LABEL_CHARS: usize = 60;
 /// The paths an OpenAI- or Anthropic-compatible API serves under its base URL.
 const ENDPOINTS: [&str; 4] = ["/chat/completions", "/responses", "/messages", "/models"];
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Entered {
-    base_url: String,
+pub struct Entered {
+    pub base_url: String,
     #[serde(default)]
-    key: Option<String>,
+    pub key: Option<String>,
     /// The name the person gave it, in place of the one read from its URL.
     #[serde(default)]
-    label: Option<String>,
+    pub label: Option<String>,
 }
 
 /// The provider at a base URL, checked with the key entered or saved. Never the key.
-#[derive(Serialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Reading {
+pub struct Reading {
     /// Its name: the catalogue's, the one entered, or one from its domain.
     #[serde(skip_serializing_if = "Option::is_none")]
-    label: Option<String>,
+    pub label: Option<String>,
     /// The base URL as Sikemux keeps it, without a trailing slash or endpoint.
     #[serde(skip_serializing_if = "Option::is_none")]
-    base_url: Option<String>,
-    has_key: bool,
+    pub base_url: Option<String>,
+    pub has_key: bool,
     /// The catalogue's provider at that URL.
     #[serde(skip_serializing_if = "Option::is_none")]
-    known_id: Option<String>,
-    speaks: Vec<&'static str>,
+    pub known_id: Option<String>,
+    pub speaks: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    runs_with: Option<&'static str>,
+    pub runs_with: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    models: Option<Vec<String>>,
+    pub models: Option<Vec<String>>,
     /// Why it cannot be added as it stands.
     #[serde(skip_serializing_if = "Option::is_none")]
-    failure: Option<String>,
+    pub failure: Option<String>,
 }
 
 /// The provider entered, the key it came with or was saved with, and what it
@@ -84,8 +84,10 @@ pub(crate) async fn read(core: &Arc<Core>, entered: Entered) -> CoreResult<Readi
         known_id: provider
             .filter(|_| examined.known)
             .map(|provider| provider.id.clone()),
-        speaks: provider.map(Provider::speaks).unwrap_or_default(),
-        runs_with: provider.and_then(Provider::runs_with),
+        speaks: provider
+            .map(|provider| provider.speaks().into_iter().map(str::to_owned).collect())
+            .unwrap_or_default(),
+        runs_with: provider.and_then(Provider::runs_with).map(str::to_owned),
         models: examined.served.as_ref().ok().cloned(),
         failure: examined.served.err(),
     })

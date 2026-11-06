@@ -3979,6 +3979,134 @@ export interface RecentChat {
     cwd: string | null;
 }
 
+export interface ModelProvider {
+    id: string;
+    label: string;
+    kind: ProviderKind;
+    signUpUrl: string;
+    key?: KeySpec;
+    /** Base URL of its OpenAI-compatible API. */
+    openai: string;
+    anthropic?: AnthropicApi;
+    /** The person added it, rather than Sikemux's catalogue holding it. */
+    custom?: boolean;
+    /** A keyed provider has its key saved; a local runner is answering. */
+    connected: boolean;
+    /** What a running local runner has installed. */
+    models?: string[];
+    /** The agents Sikemux can run on it in place of their makers' accounts. */
+    agents: string[];
+    /** The agent Sikemux runs it with. */
+    runsWith: string | null;
+    speaks: string[];
+    /** Whether each model checked so far calls tools the way agents need. */
+    checks: Record<string, ModelCheck>;
+    /** The coding model it starts helpers and checks on. */
+    model?: string;
+    /** The model each agent's chat starts on. */
+    defaults: Record<string, string>;
+    /** What models.dev says of these models, by API name. */
+    facts: Record<string, ModelFacts>;
+}
+
+export type ProviderKind = "api" | "plan" | "local";
+
+export interface KeySpec {
+    /** Every name an agent looks for this key under. */
+    env: string[];
+    /** Answers 401 or 403 to a key the provider does not know. */
+    check: string;
+}
+
+export interface AnthropicApi {
+    url: string;
+    auth: AnthropicAuth;
+}
+
+/**
+ * How the Anthropic-compatible API wants the key: Claude Code sends
+ * `ANTHROPIC_AUTH_TOKEN` as a bearer token and `ANTHROPIC_API_KEY` as `x-api-key`.
+ */
+export type AnthropicAuth = "bearer" | "x-api-key";
+
+export interface ModelCheck {
+    works: boolean;
+    /** When it was checked, in Unix milliseconds. */
+    at: number;
+    detail?: string;
+}
+
+export interface ModelFacts {
+    context: number;
+    /** USD per million tokens; a plan's models cost nothing more. */
+    input?: number;
+    output?: number;
+    /** Only a hint: a check is the final word. */
+    toolCall: boolean;
+}
+
+export interface ModelProviderParams {
+    id: string;
+}
+
+/** The models a provider serves, with what it starts chats on. */
+export interface ServedModels {
+    models: string[];
+    /** The coding model it starts helpers and checks on. */
+    model?: string;
+    /** The model each agent's chat starts on. */
+    defaults: Record<string, string>;
+    /** What models.dev says of these models, by API name. */
+    facts: Record<string, ModelFacts>;
+}
+
+/**
+ * What helpers run on: workers started without a model named, and Claude
+ * Code's own subagents when the chat runs where the helpers do.
+ */
+export interface ModelHelper {
+    agent: string;
+    provider?: string;
+    model?: string;
+}
+
+export interface ModelCheckParams {
+    id: string;
+    model: string;
+}
+
+export interface ModelConnectParams {
+    id: string;
+    key: string;
+}
+
+export interface ProviderEntered {
+    baseUrl: string;
+    key?: string | null;
+    /** The name the person gave it, in place of the one read from its URL. */
+    label?: string | null;
+}
+
+/** The provider at a base URL, checked with the key entered or saved. Never the key. */
+export interface ProviderReading {
+    /** Its name: the catalogue's, the one entered, or one from its domain. */
+    label?: string;
+    /** The base URL as Sikemux keeps it, without a trailing slash or endpoint. */
+    baseUrl?: string;
+    hasKey: boolean;
+    /** The catalogue's provider at that URL. */
+    knownId?: string;
+    speaks: string[];
+    runsWith?: string;
+    models?: string[];
+    /** Why it cannot be added as it stands. */
+    failure?: string;
+}
+
+export interface ModelHelperParams {
+    helper: ModelHelper | null;
+}
+
 /** Brings forward the tab of `at` showing `target`, opening one when none does. */
 export interface OpenTab {
     /** The project whose strip it opens in, unless `host` or `terminals` names another. */
@@ -5416,6 +5544,16 @@ export interface CoreCalls {
     removeAgentWorktree: { params: RemoveWorktreeParams; answer: WorktreeRemoved };
     renameRecent: { params: RecentRenamed; answer: null };
     deleteRecent: { params: RecentChat; answer: null };
+    modelProviders: { params: NoParams; answer: ModelProvider[] };
+    modelProviderModels: { params: ModelProviderParams; answer: ServedModels };
+    modelHelper: { params: NoParams; answer: ModelHelper | null };
+    modelProviderCheck: { params: ModelCheckParams; answer: ModelCheck };
+    modelProviderConnect: { params: ModelConnectParams; answer: null };
+    modelProviderDisconnect: { params: ModelProviderParams; answer: null };
+    modelProviderRead: { params: ProviderEntered; answer: ProviderReading };
+    modelProviderAdd: { params: ProviderEntered; answer: ModelProvider };
+    modelProviderRemove: { params: ModelProviderParams; answer: null };
+    setModelHelper: { params: ModelHelperParams; answer: null };
     openTab: { params: OpenTab; answer: string };
     keepTab: { params: TabParams; answer: null };
     closeTab: { params: TabParams; answer: null };

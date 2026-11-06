@@ -13,7 +13,6 @@ use gpui_kit::{
     IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
     Styled, Subscription, WeakEntity, Window,
 };
-use serde_json::{json, Value};
 use sikemux_wire::protocol::ConfigPicker;
 
 use crate::agents::setup::Installing;
@@ -26,6 +25,10 @@ use crate::theme::{
 use crate::ui;
 use crate::ui::list_picker::{self, Choose, Close, Dismiss, Next, Previous};
 use crate::workbench::Workbench;
+use sikemux_core::launch::providers::Kind;
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::model_providers::{ModelProvider, ProviderParams};
 
 const CONTEXT: &str = "ModelPicker";
 
@@ -76,7 +79,7 @@ struct Route {
     local: bool,
     models: Vec<String>,
     agents: Vec<String>,
-    provider: Value,
+    provider: Rc<ModelProvider>,
 }
 
 impl Route {
@@ -137,27 +140,27 @@ pub struct Menu {
 /// Context, price per million tokens and tool calls, in a few words, as Settings words them.
 fn facts(route: &Route, model: &str) -> Vec<String> {
     let name = model.strip_suffix("[1m]").unwrap_or(model);
-    let facts = &route.provider["facts"][name];
-    let check = &route.provider["checks"][name];
+    let facts = route.provider.choices.facts.get(name);
     let mut words = Vec::new();
-    if let Some(context) = facts["context"].as_f64() {
+    if let Some(facts) = facts {
+        let context = facts.context as f64;
         words.push(format!("{} context", crate::ui::numbers::compact(context)));
+        if let (Some(input), Some(output)) = (facts.input, facts.output) {
+            words.push(format!("${input}/${output} per 1M"));
+        }
     }
-    if let (Some(input), Some(output)) = (facts["input"].as_f64(), facts["output"].as_f64()) {
-        words.push(format!("${input}/${output} per 1M"));
-    }
-    if !check.is_null() {
+    if let Some(check) = route.provider.checks.get(name) {
         words.push(
-            if check["works"] == true {
+            if check.works {
                 "works with agents"
             } else {
                 "tool calls failed"
             }
             .into(),
         );
-    } else if !facts.is_null() {
+    } else if let Some(facts) = facts {
         words.push(
-            if facts["toolCall"] == true {
+            if facts.tool_call {
                 "lists tool calls"
             } else {
                 "no tool calls"
@@ -166,16 +169,6 @@ fn facts(route: &Route, model: &str) -> Vec<String> {
         );
     }
     words
-}
-
-fn strings(value: &Value) -> Vec<String> {
-    value
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::to_owned)
-        .collect()
 }
 
 impl Menu {
@@ -213,33 +206,37 @@ impl Menu {
     /// Reads the connected providers, asking each that does not list its models for them.
     fn read_routes(target: core::Target, current: Option<String>, cx: &mut Context<Self>) {
         cx.spawn(async move |menu, cx| {
-            let Ok(providers) = target.request("modelProviders", json!({})).await else {
+            let Ok(providers) = target
+                .request_typed::<call::ModelProviders>(NoParams {})
+                .await
+            else {
                 return;
             };
             let mut routes = Vec::new();
-            for provider in providers.as_array().into_iter().flatten() {
-                if provider["connected"] != true {
+            for provider in providers {
+                if !provider.connected {
                     continue;
                 }
-                let id = provider["id"].as_str().unwrap_or_default().to_owned();
-                let models = match provider["models"].as_array() {
-                    Some(models) => Value::Array(models.clone()),
+                let id = provider.id.clone();
+                let models = match &provider.models {
+                    Some(models) => models.clone(),
                     None => target
-                        .request("modelProviderModels", json!({ "id": id }))
+                        .request_typed::<call::ModelProviderModels>(ProviderParams {
+                            id: id.clone(),
+                        })
                         .await
-                        .map(|served| served["models"].clone())
+                        .map(|served| served.models)
                         .unwrap_or_default(),
                 };
-                let models = strings(&models);
                 if models.is_empty() && current.as_deref() != Some(id.as_str()) {
                     continue;
                 }
                 routes.push(Route {
-                    label: provider["label"].as_str().unwrap_or_default().to_owned(),
-                    local: provider["kind"] == "local",
+                    label: provider.label.clone(),
+                    local: provider.kind == Kind::Local,
                     models,
-                    agents: strings(&provider["agents"]),
-                    provider: provider.clone(),
+                    agents: provider.agents.clone(),
+                    provider: Rc::new(provider),
                     id,
                 });
             }

@@ -26,7 +26,7 @@ const ASK: &str = "What is the weather in Paris right now? Use the tool.";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct Check {
+pub struct Check {
     pub works: bool,
     /// When it was checked, in Unix milliseconds.
     pub at: u64,

@@ -55,7 +55,7 @@ mod local_peer;
 mod lsp;
 pub mod memory;
 pub mod messages;
-mod model_providers;
+pub mod model_providers;
 pub mod mods;
 pub mod move_agent;
 pub mod names;
