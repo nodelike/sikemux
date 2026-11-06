@@ -63,6 +63,7 @@ jobs:
     outputs:
       rust: ${{ steps.areas.outputs.rust }}
       simulator: ${{ steps.areas.outputs.simulator }}
+      helpers: ${{ steps.areas.outputs.helpers }}
       packaging: ${{ steps.areas.outputs.packaging }}
     steps:
       - name: Checkout
@@ -100,6 +101,7 @@ jobs:
           }
           area rust '^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$)'
           area simulator '^(helpers/sim/|crates/sikemux-simulator/|Cargo\.(toml|lock)$|scripts/build-sim-(helper|fixture)\.mjs$|rust-toolchain\.toml$)'
+          area helpers '^(helpers/(notch|voice)/|scripts/build-(notch|voice)-helper\.mjs$|scripts/generate-notch-(icons|sources)\.mjs$|scripts/lib/build\.mjs$|scripts/app-metadata\.mjs$)'
           area packaging '^(scripts/build-linux\.sh$|scripts/build-core\.mjs$|scripts/install\.sh$|scripts/package-host\.sh$|scripts/smoke-host-install\.sh$|brand/linux/|packaging/linux/|crates/sikemux-core/resources/sikemux_pi_tools\.ts$)'
 
   # The same check as `pnpm deps:audit`: any vulnerability fails it, and so does any unsound or
@@ -527,3 +529,35 @@ jobs:
           SIKEMUX_SIM_EXECUTABLE: ${{ github.workspace }}/target/debug/sikemux-sim
           SIKEMUX_SIM_FIXTURE: ${{ github.workspace }}/helpers/sim/.build/fixture/Build/Products/Debug-iphonesimulator/SimFixture.app
         run: cargo test -p sikemux-simulator --lib -- --ignored --test-threads=1
+
+  # Nothing else compiles these before a release, and the wire check only proves the notch's
+  # generated Swift is fresh, not that the helper still builds against it.
+  helpers:
+    name: Notch and voice helpers
+    needs: changes
+    if: needs.changes.outputs.helpers == 'true'
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: Install the generators' dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the helpers
+        run: pnpm check:helpers
