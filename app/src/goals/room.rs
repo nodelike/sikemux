@@ -29,7 +29,7 @@ use super::{state_dot, At, FindGoal, GoalsPane, NextGoal, OpenChosen, PreviousGo
 use crate::core;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3};
-use crate::theme::{SPACE_3H, TEXT_2XS_H, TEXT_XS, TEXT_XS_H};
+use crate::theme::{SPACE_0, SPACE_3H, SPACE_4, TEXT_2XS_H, TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H};
 use crate::ui::{self, Row};
 use crate::workbench::Workbench;
 
@@ -52,11 +52,9 @@ const ROW_LEAD: f32 = 51.;
 /// The room a title keeps before the row's end columns start to go.
 const TITLE_MIN_W: f32 = 300.;
 const FIND_W: f32 = 190.;
-/// The least each keeps on a narrow row: the find box shows all its placeholder, and how much
-/// happened still says more than its number.
+/// The least each keeps on a narrow row; the find box shows all its placeholder.
 const FIND_MIN_W: f32 = 140.;
 const SCOPE_MIN_W: f32 = 56.;
-const HAPPENED_MIN_W: f32 = 76.;
 /// How long after one read the goals are read again, however often the core says they moved.
 const READ_SPACING: Duration = Duration::from_millis(500);
 /// How often the clocks on the rows are drawn again.
@@ -129,6 +127,70 @@ impl Fit {
             + column(self.bar, BAR_W)
             + column(self.desk, DESK_W)
             + column(self.clock, CLOCK_W)
+    }
+}
+
+/// How the numbers over the list stand, as the width runs out.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StatsFit {
+    Full,
+    /// Only the line saying how many need the person stays under its number.
+    NoSmallLines,
+    SmallNumbers,
+    /// All six on one row of number and name, which wraps if even that won't fit.
+    Compact,
+}
+
+/// How the part of Home above the rows stands at the rows' width, from what its words take at
+/// the normal text size. All of these widths are of the rows; the rest of the head is a little
+/// wider or narrower, by the padding each part keeps.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Head {
+    stats: StatsFit,
+    tab_words: bool,
+    happened_words: bool,
+    /// Too little room for the find box beside how much happened at their smallest, and beside
+    /// the project chip too, so they take a line each.
+    ends_tight: bool,
+    ends_tight_with_project: bool,
+}
+
+impl Head {
+    const STATS_FULL_W: f32 = 470.;
+    const STATS_NO_SMALL_LINES_W: f32 = 430.;
+    const STATS_SMALL_NUMBERS_W: f32 = 350.;
+    const TAB_WORDS_W: f32 = 490.;
+    /// What the tabs take with their words, and as marks and counts with one tab's words.
+    const TABS_W: f32 = 425.;
+    const TABS_MARKS_W: f32 = 245.;
+    const HAPPENED_W: f32 = 190.;
+    const HAPPENED_SHORT_W: f32 = 82.;
+
+    fn of(row_width: f32) -> Head {
+        let stats = match row_width {
+            width if width >= Self::STATS_FULL_W => StatsFit::Full,
+            width if width >= Self::STATS_NO_SMALL_LINES_W => StatsFit::NoSmallLines,
+            width if width >= Self::STATS_SMALL_NUMBERS_W => StatsFit::SmallNumbers,
+            _ => StatsFit::Compact,
+        };
+        let tab_words = row_width >= Self::TAB_WORDS_W;
+        let (room, tabs) = match tab_words {
+            true => (row_width - 16., Self::TABS_W),
+            false => (row_width, Self::TABS_MARKS_W),
+        };
+        let beside_tabs = room >= tabs + FIND_MIN_W + Self::HAPPENED_SHORT_W;
+        let happened_words = match beside_tabs {
+            true => room >= tabs + FIND_W + Self::HAPPENED_W,
+            false => room >= FIND_MIN_W + Self::HAPPENED_W,
+        };
+        let ends_smallest = FIND_MIN_W + Self::HAPPENED_SHORT_W + f32::from(SPACE_1);
+        Head {
+            stats,
+            tab_words,
+            happened_words,
+            ends_tight: room < ends_smallest,
+            ends_tight_with_project: room < ends_smallest + SCOPE_MIN_W + f32::from(SPACE_1),
+        }
     }
 }
 
@@ -233,6 +295,8 @@ pub(super) struct Room {
     entries: Vec<Entry>,
     /// What the rows' width, as last drawn, leaves room for.
     fit: Rc<Cell<Fit>>,
+    /// What the same width leaves room for above the rows.
+    head: Rc<Cell<Head>>,
     counts: Counts,
     stats: Stats,
     rows: ListState,
@@ -269,6 +333,7 @@ impl Room {
             chosen: None,
             entries: Vec::new(),
             fit: Rc::new(Cell::new(Fit::WIDEST_FIRST[0])),
+            head: Rc::new(Cell::new(Head::of(f32::MAX))),
             counts: Counts::default(),
             stats: Stats::default(),
             rows,
@@ -779,19 +844,23 @@ pub(super) fn draw(
 }
 
 /// The six numbers over the list. Clicking one ranks the list by it; again goes back.
-fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
+fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let fit = pane.room.head.get().stats;
+    if fit == StatsFit::Compact {
+        return compact_stats(pane, cx).into_any_element();
+    }
     let t = Tokens::get(cx).clone();
     let (counts, stats, rank) = (pane.room.counts, pane.room.stats, pane.room.rank);
+    let small = fit == StatsFit::SmallNumbers;
     let sub = |words: String, tint: Option<Hsla>| {
         ui::text(words, TEXT_2XS_H, FontWeight::NORMAL)
-            .truncate()
             .mt(px(1.))
             .text_color(tint.unwrap_or(t.text_tertiary))
     };
     let stat = |id: &'static str,
                 value: usize,
                 label: &'static str,
-                under: Div,
+                under: Option<Div>,
                 ranks: Option<Rank>,
                 first: bool,
                 cx: &mut Context<GoalsPane>| {
@@ -799,22 +868,26 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
         div()
             .id(id)
             .flex_1()
-            .min_w_0()
             .cursor_pointer()
             .when(!first, |stat| {
-                stat.pl(px(18.)).border_l_1().border_color(t.border)
+                stat.pl(px(if small { 12. } else { 18. }))
+                    .border_l_1()
+                    .border_color(t.border)
             })
             .child(
-                ui::text(value.to_string(), STAT_SIZE, FontWeight::NORMAL)
-                    .line_height(relative(1.1))
-                    .letter_spacing(-0.03)
-                    .font_features(theme::tabular())
-                    .text_color(t.text_primary),
+                ui::text(
+                    value.to_string(),
+                    if small { TEXT_XL } else { STAT_SIZE },
+                    FontWeight::NORMAL,
+                )
+                .line_height(relative(1.1))
+                .letter_spacing(-0.03)
+                .font_features(theme::tabular())
+                .text_color(t.text_primary),
             )
             .child(
                 ui::text(label, TEXT_XS, FontWeight::NORMAL)
-                    .truncate()
-                    .mt(px(5.))
+                    .mt(px(if small { 2. } else { 5. }))
                     .text_color(if lit {
                         t.text_primary
                     } else {
@@ -822,22 +895,23 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
                     })
                     .when(lit, |label| label.underline()),
             )
-            .child(under)
+            .children(under)
             .on_click(cx.listener(move |pane, _, _, cx| pane.set_rank(ranks, cx)))
     };
     let needing = (counts.needs > 0).then_some(t.warn);
     let working = (stats.working > 0).then_some(t.live);
+    let small_line = |words: &str| (fit == StatsFit::Full).then(|| sub(words.to_owned(), None));
     div()
         .flex()
         .flex_none()
-        .pt(px(22.))
-        .pb(px(18.))
-        .px(px(28.))
+        .pt(px(if small { 16. } else { 22. }))
+        .pb(px(if small { 12. } else { 18. }))
+        .px(px(if small { 16. } else { 28. }))
         .child(stat(
             "stat-goals",
             counts.active,
             "Goals",
-            sub(format!("{} need you", counts.needs), needing),
+            Some(sub(format!("{} need you", counts.needs), needing)),
             None,
             true,
             cx,
@@ -846,7 +920,7 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
             "stat-agents",
             stats.agents,
             "Agents",
-            sub(format!("{} working", stats.working), working),
+            (fit == StatsFit::Full).then(|| sub(format!("{} working", stats.working), working)),
             Some(Rank::Agents),
             false,
             cx,
@@ -855,7 +929,7 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
             "stat-terminals",
             stats.desk.terminals,
             "Terminals",
-            sub("running".into(), None),
+            small_line("running"),
             Some(Rank::Terminals),
             false,
             cx,
@@ -864,7 +938,7 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
             "stat-pages",
             stats.desk.pages,
             "Browser tabs",
-            sub("open".into(), None),
+            small_line("open"),
             Some(Rank::Pages),
             false,
             cx,
@@ -873,7 +947,7 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
             "stat-sims",
             stats.desk.simulators,
             "Sims",
-            sub("attached".into(), None),
+            small_line("attached"),
             Some(Rank::Simulators),
             false,
             cx,
@@ -882,17 +956,89 @@ fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
             "stat-files",
             stats.desk.files,
             "Files",
-            sub("on desks".into(), None),
+            small_line("on desks"),
             Some(Rank::Files),
             false,
             cx,
         ))
+        .into_any_element()
 }
 
-/// What on a row too narrow for everything shrinks before the rest does.
-fn gives_way_first<E: Styled>(mut element: E) -> E {
-    element.style().flex_shrink = Some(100.);
-    element.flex_basis(gpui_kit::Length::Auto)
+/// The six numbers as one row of number and name, with how many need the person after the first.
+fn compact_stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
+    let t = Tokens::get(cx).clone();
+    let (counts, stats, rank) = (pane.room.counts, pane.room.stats, pane.room.rank);
+    let needing = if counts.needs > 0 {
+        t.warn
+    } else {
+        t.text_tertiary
+    };
+    let need_you = ui::text(
+        format!("{} need you", counts.needs),
+        TEXT_XS,
+        FontWeight::NORMAL,
+    )
+    .ml(SPACE_1H)
+    .text_color(needing);
+    let mut need_you = Some(need_you);
+    let items = [
+        ("stat-goals", counts.active, "Goals", None),
+        ("stat-agents", stats.agents, "Agents", Some(Rank::Agents)),
+        (
+            "stat-terminals",
+            stats.desk.terminals,
+            "Terminals",
+            Some(Rank::Terminals),
+        ),
+        (
+            "stat-pages",
+            stats.desk.pages,
+            "Browser tabs",
+            Some(Rank::Pages),
+        ),
+        (
+            "stat-sims",
+            stats.desk.simulators,
+            "Sims",
+            Some(Rank::Simulators),
+        ),
+        ("stat-files", stats.desk.files, "Files", Some(Rank::Files)),
+    ];
+    div()
+        .flex()
+        .flex_wrap()
+        .flex_none()
+        .gap_x(SPACE_3)
+        .gap_y(SPACE_0)
+        .pt(SPACE_3H)
+        .pb(SPACE_2)
+        .px(SPACE_4)
+        .children(items.map(|(id, value, label, ranks)| {
+            let lit = ranks.is_some() && ranks == rank;
+            div()
+                .id(id)
+                .flex()
+                .flex_none()
+                .items_baseline()
+                .gap(SPACE_1)
+                .cursor_pointer()
+                .child(
+                    ui::text(value.to_string(), TEXT_SM, FontWeight::MEDIUM)
+                        .font_features(theme::tabular())
+                        .text_color(t.text_primary),
+                )
+                .child(
+                    ui::text(label, TEXT_XS, FontWeight::NORMAL)
+                        .text_color(if lit {
+                            t.text_primary
+                        } else {
+                            t.text_secondary
+                        })
+                        .when(lit, |label| label.underline()),
+                )
+                .children(need_you.take())
+                .on_click(cx.listener(move |pane, _, _, cx| pane.set_rank(ranks, cx)))
+        }))
 }
 
 /// The filter tabs, then how much happened while the person was away and the find box, which
@@ -969,10 +1115,11 @@ fn tools(
             .on_click(cx.listener(|pane, _, _, cx| pane.narrow_to(None, cx)))
     });
     let find = pane.find_field(window, cx);
+    let head = pane.room.head.get();
     let spacing = f32::from(SPACE_1);
     let ends_min = FIND_MIN_W
         + if happened > 0 {
-            HAPPENED_MIN_W + 2. * f32::from(SPACE_2) + spacing
+            Head::HAPPENED_SHORT_W + spacing
         } else {
             0.
         }
@@ -981,26 +1128,39 @@ fn tools(
         } else {
             0.
         };
+    let ends_wrap = match (scope.is_some(), happened > 0) {
+        (true, _) => head.ends_tight_with_project,
+        (false, true) => head.ends_tight,
+        (false, false) => false,
+    };
     div()
         .flex()
         .flex_wrap()
         .flex_none()
         .items_center()
-        .gap(SPACE_1)
-        .px(px(22.))
+        .gap_x(if head.tab_words { SPACE_1 } else { SPACE_0 })
+        .gap_y(SPACE_1)
+        .px(px(if head.tab_words { 22. } else { 14. }))
         .pb(SPACE_2H)
         .children(tabs.map(|(id, filter, label, count, state)| {
             let on = filter == chosen;
+            let words = head.tab_words || on;
+            let shown = match (words, state) {
+                (true, _) => Some(label),
+                (false, None) => Some("All"),
+                (false, Some(_)) => None,
+            };
             div()
                 .id(id)
                 .flex()
                 .flex_none()
                 .items_center()
-                .gap(px(7.))
+                .gap(px(if head.tab_words { 7. } else { 5. }))
                 .h(px(26.))
-                .px(SPACE_2H)
+                .px(if head.tab_words { SPACE_2H } else { SPACE_1 })
                 .rounded(RADIUS_2)
                 .cursor_pointer()
+                .when(!words, |tab| tab.tooltip(ui::tooltip(label.to_owned())))
                 .text_color(if on { t.text_primary } else { t.text_tertiary })
                 .when(on, |tab| tab.bg(t.surface_chosen))
                 .hover(move |tab| {
@@ -1012,7 +1172,7 @@ fn tools(
                     }
                 })
                 .children(state.map(|state| state_dot(state, 9., cx)))
-                .child(ui::text(label, TEXT_XS_H, FontWeight::NORMAL))
+                .children(shown.map(|shown| ui::text(shown, TEXT_XS_H, FontWeight::NORMAL)))
                 .child(
                     ui::text(count.to_string(), TEXT_2XS_H, FontWeight::NORMAL)
                         .font_features(theme::tabular())
@@ -1025,21 +1185,27 @@ fn tools(
                 .flex()
                 .flex_1()
                 .flex_basis(px(0.))
-                .min_w(px(ends_min))
+                .min_w(px(if ends_wrap { FIND_MIN_W } else { ends_min }))
+                .when(ends_wrap, |ends| ends.flex_wrap())
                 .items_center()
                 .justify_end()
                 .gap(SPACE_1)
                 .when(happened > 0, |ends| {
                     let said = format!("{happened} happened while you were away");
+                    let shown = match head.happened_words {
+                        true => said.clone(),
+                        false => format!("{happened} happened"),
+                    };
                     ends.child(
-                        gives_way_first(div().id("goals-overnight"))
-                            .min_w(px(HAPPENED_MIN_W))
+                        div()
+                            .id("goals-overnight")
+                            .flex_none()
                             .mx(SPACE_2)
                             .cursor_pointer()
                             .text_color(t.text_tertiary)
                             .hover(move |link| link.text_color(t.text_secondary))
-                            .tooltip(ui::tooltip(said.clone()))
-                            .child(ui::text(said, TEXT_2XS_H, FontWeight::NORMAL).truncate())
+                            .tooltip(ui::tooltip(said))
+                            .child(ui::text(shown, TEXT_2XS_H, FontWeight::NORMAL))
                             .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Overnight, cx))),
                     )
                 })
@@ -1066,7 +1232,7 @@ fn rows(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
     })
     .size_full();
     let clear = crate::see_through::clear(cx);
-    let fit = pane.room.fit.clone();
+    let (fit, head) = (pane.room.fit.clone(), pane.room.head.clone());
     div()
         .id("goals-rows")
         .key_context("GoalsList")
@@ -1092,9 +1258,10 @@ fn rows(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
         .child(
             canvas(
                 |_, _, _| {},
-                move |bounds, _, window, _| {
-                    let now = Fit::of(f32::from(bounds.size.width));
-                    if fit.replace(now) != now {
+                move |bounds, _, window, cx| {
+                    let width = f32::from(bounds.size.width) / theme::text_scale(cx);
+                    let (now, above) = (Fit::of(width), Head::of(width));
+                    if fit.replace(now) != now || head.replace(above) != above {
                         window.refresh();
                     }
                 },
