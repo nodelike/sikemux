@@ -15,8 +15,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use sikemux_process::paths::account_dir;
 use sikemux_process::user_environment::shell_var;
-use sikemux_pty::launch::account_dir;
 
 pub use sikemux_wire::protocol::PermissionMode;
 

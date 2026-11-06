@@ -163,32 +163,6 @@ pub fn status_label(status: &AgentStatus) -> &'static str {
     }
 }
 
-/// The folder an account keeps its sign-in in: the path itself, or the folder of the
-/// config file it names.
-fn account_folder(path: &str) -> String {
-    let home = sikemux_process::paths::home()
-        .map(|home| home.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let path = match path.trim().strip_prefix("~/") {
-        Some(rest) => format!("{home}/{rest}"),
-        None => path.trim().to_owned(),
-    };
-    let config = [
-        "config.toml",
-        "config.yml",
-        "settings.json",
-        "settings.local.json",
-    ];
-    let named = std::path::Path::new(&path);
-    match named.file_name().and_then(|name| name.to_str()) {
-        Some(name) if config.contains(&name) => named
-            .parent()
-            .map(|folder| folder.to_string_lossy().into_owned())
-            .unwrap_or(path.clone()),
-        _ => path.clone(),
-    }
-}
-
 /// `word` as the shell reads it back whole.
 fn quoted(word: &str) -> String {
     format!("'{}'", word.replace('\'', "'\\''"))
@@ -226,7 +200,10 @@ pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
         .collect();
     let account = match (variable, folder) {
         (Some(variable), Some(folder)) => {
-            format!("{variable}={} ", quoted(&account_folder(folder)))
+            format!(
+                "{variable}={} ",
+                quoted(&sikemux_process::paths::account_dir(folder).to_string_lossy())
+            )
         }
         _ => String::new(),
     };

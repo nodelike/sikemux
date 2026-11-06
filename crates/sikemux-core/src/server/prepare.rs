@@ -3,10 +3,11 @@ use std::path::PathBuf;
 
 use portable_pty::CommandBuilder;
 use serde::{Deserialize, Serialize};
+use sikemux_process::paths::account_dir;
 use sikemux_process::vars;
 use sikemux_pty::launch::{
-    account_dir, configure_interactive_command, configure_pty_environment, validate_direct_command,
-    LaunchKind, PtyContext,
+    configure_interactive_command, configure_pty_environment, validate_direct_command, LaunchKind,
+    PtyContext,
 };
 use sikemux_pty::shell::{
     configure_shell_integration, configure_task_command, inherited_ssh_environment,

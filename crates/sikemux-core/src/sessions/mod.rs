@@ -127,7 +127,7 @@ pub fn apply_process_config(command: &mut Command, agent: &str, config_path: Opt
     let (Some(variable), Some(path)) = (crate::launch::account_variable(agent), config_path) else {
         return;
     };
-    command.env(variable, sikemux_pty::launch::account_dir(path));
+    command.env(variable, sikemux_process::paths::account_dir(path));
 }
 
 pub fn apply_login_environment(command: &mut Command) {

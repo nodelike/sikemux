@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use portable_pty::CommandBuilder;
 use sikemux_process::vars;
@@ -98,20 +98,6 @@ fn quote_shell_word(value: &str, kind: Option<ShellKind>) -> String {
         Some(ShellKind::PowerShell) => format!("'{}'", value.replace('\'', "''")),
         _ if cfg!(windows) => format!("'{}'", value.replace('\'', "''")),
         _ => sikemux_process::single_quoted(value),
-    }
-}
-
-/// The account folder a profile's config path names: the path itself, or the
-/// folder of the config file it points at.
-pub fn account_dir(config_path: &str) -> PathBuf {
-    let path = sikemux_process::paths::expand_home(config_path.trim());
-    let names_config_file = matches!(
-        path.file_name().and_then(|name| name.to_str()),
-        Some("config.toml" | "config.yml" | "settings.json" | "settings.local.json")
-    );
-    match path.parent() {
-        Some(parent) if names_config_file => parent.to_path_buf(),
-        _ => path,
     }
 }
 
