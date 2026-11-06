@@ -17,6 +17,7 @@ use sikemux_view::slice::{NamedFile, Verdict};
 use super::slice::{moved_by_evidence, short};
 use super::{CardStatus, Notice, State};
 use crate::git::Git;
+use crate::server::changed::What;
 use crate::server::Core;
 
 /// Commands running at once, across projects. Each project runs one at a time,
@@ -167,6 +168,7 @@ fn compare_files(
     super::slice::rebind(board);
     core.boards.save(&mut state, project);
     drop(state);
+    core.changed(What::View);
     super::send_notices(core, notices);
     looked
 }
@@ -207,8 +209,12 @@ pub(super) fn due(core: &Arc<Core>) {
                 super::goal::forget_moved_on(board).then(|| project.clone())
             })
             .collect();
+        let any_forgotten = !forgot.is_empty();
         for project in forgot {
             core.boards.save(&mut state, &project);
+        }
+        if any_forgotten {
+            core.changed(What::View);
         }
         let waiting = waiting(&state);
         let runs = &mut state.commands;

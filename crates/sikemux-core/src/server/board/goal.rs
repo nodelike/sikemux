@@ -26,6 +26,7 @@ use sikemux_view::slice::{
 
 use super::{goal_of, project_at, project_view, Board, GoalRef, ProjectBoard};
 use crate::cli::protocol::HarnessRequest;
+use crate::server::changed::What;
 use crate::server::connection::blocking;
 use crate::server::Core;
 use crate::text::{clipped, to_keep};
@@ -589,10 +590,15 @@ fn keep_change(
         }
     };
     card.updated_at = epoch_ms();
-    if matches!(list, List::Assertions) {
+    let asserting = matches!(list, List::Assertions);
+    if asserting {
         super::slice::rebind(board);
     }
     core.boards.save(&mut state, project);
+    drop(state);
+    if asserting {
+        core.changed(What::View);
+    }
     Ok(said)
 }
 
@@ -1058,6 +1064,7 @@ pub(crate) async fn person_answer_command(
             core.boards.save(&mut state, &project);
             (settled, told)
         };
+        core.changed(What::View);
         settled.later.run(&core);
         let mut notices = settled.notices;
         notices.extend(told);
