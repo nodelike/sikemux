@@ -613,7 +613,8 @@ impl Feed {
         inner.holding = true;
     }
 
-    /// Sends every client the chat as it stands once the history is in.
+    /// Sends every client what it was kept from once the history is in: only that when it
+    /// can keep the rows it holds, else the chat as it stands.
     pub(crate) fn let_out(&self) {
         let mut inner = self.inner.locked();
         if !inner.holding {
@@ -621,6 +622,7 @@ impl Feed {
         }
         self.flush_locked(&mut inner);
         inner.holding = false;
+        let since = inner.replay.seq;
         if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
             self.fold(&mut inner).set_earlier_lost();
         }
@@ -628,14 +630,14 @@ impl Feed {
         let seq = inner.replay.delivered();
         self.fold(&mut inner).number(seq + 1);
         let older = Self::holds_older(&inner);
-        let view = self.fold(&mut inner).view(older);
-        let frame = self.frame(
-            seq,
-            &[ChatChange::View {
-                view: Box::new(view),
-            }],
-        );
-        if let Some(frame) = frame {
+        let fold = self.fold(&mut inner);
+        let changes =
+            (fold.catch_up(since).or_else(|| fold.added_since(since))).unwrap_or_else(|| {
+                vec![ChatChange::View {
+                    view: Box::new(fold.view(older)),
+                }]
+            });
+        if let Some(frame) = self.frame(seq, &changes) {
             inner
                 .subscribers
                 .retain(|_, subscriber| subscriber.client.send(frame.clone()));
@@ -1160,6 +1162,65 @@ mod tests {
         let first = 60 - sikemux_fold::TAIL_TURNS;
         assert_eq!(prompts(&view.rows), asks(first..60));
         assert_eq!(view.older_before, Some(first as u64 * 2));
+    }
+
+    /// A client watching a chat through its sleep holds its rows already, so its waking sends only
+    /// what is new. A whole view would replace them with the window, which a long last turn
+    /// leaves holding only the message just sent.
+    #[tokio::test]
+    async fn a_chat_waking_under_a_long_turn_keeps_the_rows_its_client_holds() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::server::Core::new(Default::default(), None).unwrap();
+        let (client, mut frames) = ClientConn::inside(&core, crate::server::access::Peer::Local);
+        let feed = Feed::new(
+            "agent".into(),
+            PermissionMode::WorkspaceWrite,
+            Some(dir.path()),
+        );
+        feed.subscribe(&client);
+        feed.prompted(Some("first"), "first", &[], &[]);
+        feed.emit(
+            ChatEventKind::SessionUpdate,
+            text("agent_message_chunk", Some("long"), &"x".repeat(1_200_000)),
+        );
+        feed.emit(
+            ChatEventKind::TurnCompleted,
+            json!({ "stopReason": "end_turn" }),
+        );
+        feed.rest();
+        while frames.try_recv().is_ok() {}
+
+        feed.hold();
+        feed.prompted(Some("second"), "second", &[], &[]);
+        feed.let_out();
+
+        let mut heard = Vec::new();
+        while let Ok(frame) = frames.try_recv() {
+            let frame = sikemux_wire::protocol::read_frame_sync(&mut &frame[..])
+                .unwrap()
+                .unwrap();
+            if let Ok(ServerMessage::Event {
+                event: Event::Chat { changes, .. },
+            }) = serde_json::from_slice(&frame.payload)
+            {
+                let changes: Vec<ChatChange> = serde_json::from_value(changes).unwrap();
+                heard.extend(changes);
+            }
+        }
+        assert!(
+            !heard
+                .iter()
+                .any(|change| matches!(change, ChatChange::View { .. })),
+            "the rows it holds are not replaced"
+        );
+        let sent: Vec<_> = heard
+            .into_iter()
+            .filter_map(|change| match change {
+                ChatChange::Row { row, .. } => Some(row),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(prompts(&sent), ["second"]);
     }
 
     fn prompts(rows: &[sikemux_view::chat::ChatMessage]) -> Vec<String> {

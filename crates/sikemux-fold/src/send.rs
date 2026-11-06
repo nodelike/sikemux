@@ -698,6 +698,19 @@ impl Fold {
         if rows.first().is_some_and(|row| row.v > since) {
             return None;
         }
+        Some(self.changes_since(since, start, true))
+    }
+
+    /// What a client that goes on holding its rows missed, for when the window holds none of
+    /// them. None when more changed than the window holds, and it needs the view whole.
+    pub fn added_since(&self, since: u64) -> Option<Vec<ChatChange>> {
+        let start = self.window_start();
+        let within = !self.main.rows[..start].iter().any(|row| row.v > since);
+        within.then(|| self.changes_since(since, start, false))
+    }
+
+    fn changes_since(&self, since: u64, start: usize, keep: bool) -> Vec<ChatChange> {
+        let rows = &self.main.rows[start..];
         let mut head = self.head.clone();
         head.activity = self.activity();
         head.active_tool = self.active_tool();
@@ -707,15 +720,15 @@ impl Fold {
                 fields.entry(name).or_insert(Value::Null);
             }
         }
-        let mut out = vec![
-            ChatChange::Head {
-                set,
-                follows: Some(since),
-            },
-            ChatChange::Keep {
+        let mut out = vec![ChatChange::Head {
+            set,
+            follows: Some(since),
+        }];
+        if keep {
+            out.push(ChatChange::Keep {
                 rows: rows.iter().map(|row| row.msg.id.clone()).collect(),
-            },
-        ];
+            });
+        }
         for row in rows.iter().filter(|row| row.v > since) {
             out.push(ChatChange::Row {
                 row: whole_row(row),
@@ -731,7 +744,7 @@ impl Fold {
                 });
             }
         }
-        Some(out)
+        out
     }
 
     /// The rows `events` hold that `wanted` asks for, folded from the whole turns they ran

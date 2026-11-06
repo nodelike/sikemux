@@ -543,6 +543,23 @@ impl<R: Row> Transcript<R> {
         self.asked_later = false;
     }
 
+    /// Rows too few to fill the view can't scroll, so nothing else would ever ask for those above.
+    fn ask_earlier_when_short(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.asked_earlier || self.drawn.as_ref().is_none_or(|drawn| drawn.start > 0) {
+            return;
+        }
+        let top = self.list.viewport_bounds().top();
+        let first_shows = (self.rows.first())
+            .and_then(|row| self.row_tops.borrow().get(row.id()).copied())
+            .is_some_and(|first| first >= top);
+        if first_shows {
+            self.asked_earlier = true;
+            if let Some(ask) = self.on_reach_top.clone() {
+                ask(window, cx);
+            }
+        }
+    }
+
     /// Where the reader is, as a row and how far into it. A list scrolled to its end says only
     /// that it is at the end, which rows added below would move, scrolling the reader past them.
     fn place_now(&self) -> ListOffset {
@@ -966,10 +983,15 @@ impl<R: Row> Render for Transcript<R> {
             .key_context(CONTEXT)
             .on_action(cx.listener(|this, _: &Copy, _, cx| this.copy(cx)))
             .child(rows.size_full())
-            .on_children_prepainted(move |_, _, cx| {
+            .on_children_prepainted(move |_, window, cx| {
                 let moved = moved.clone();
-                cx.defer(move |cx| {
-                    moved.update(cx, |_, cx| cx.emit(ViewMoved)).ok();
+                window.defer(cx, move |window, cx| {
+                    moved
+                        .update(cx, |this, cx| {
+                            cx.emit(ViewMoved);
+                            this.ask_earlier_when_short(window, cx);
+                        })
+                        .ok();
                 });
             })
     }
