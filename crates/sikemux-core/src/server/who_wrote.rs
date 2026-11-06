@@ -16,6 +16,7 @@ use crate::trailers::{self, Agent};
 
 use super::codehost::repo as codehost;
 use super::connection::blocking;
+use super::edits::commit::repo_below;
 use super::edits::note::{self, Note, Wrote};
 use super::edits::{commit_lines, owners_at};
 use super::edits::{footer, git};
@@ -520,8 +521,9 @@ fn ranges(lines: &[(u64, u64)]) -> String {
 }
 
 /// The checkout a target that is an absolute path lies in, which may not be
-/// the project's own, else the project.
-fn checkout_dir(project: &Path, target: &str) -> PathBuf {
+/// the project's own, or that a path holds from a folder of repositories, else
+/// the project.
+fn checkout_dir(project: &Path, target: &str) -> Result<PathBuf, String> {
     let path = target.split(char::is_whitespace).next().unwrap_or(target);
     let path = path
         .rsplit_once(':')
@@ -529,11 +531,12 @@ fn checkout_dir(project: &Path, target: &str) -> PathBuf {
         .map_or(path, |(path, _)| path);
     let path = Path::new(path);
     if !path.is_absolute() {
-        return project.to_owned();
+        return Ok(repo_below(project, path)?.unwrap_or_else(|| project.to_owned()));
     }
-    path.ancestors()
+    Ok(path
+        .ancestors()
         .find(|folder| folder.is_dir())
-        .map_or_else(|| project.to_owned(), Path::to_owned)
+        .map_or_else(|| project.to_owned(), Path::to_owned))
 }
 
 /// The agents the edit record has uncommitted lines of in `path`, among
@@ -681,9 +684,10 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         .filter(|target| !target.is_empty())
         .ok_or("target must be a CI run, a commit, a file, file:line, file:start-end, or a test")?
         .to_owned();
-    let dir = checkout_dir(Path::new(&request.project), &target);
+    let project = PathBuf::from(&request.project);
     let core_for_owners = core.clone();
     let (top, origin, asked, uncommitted) = blocking(move || {
+        let dir = checkout_dir(&project, &target)?;
         let top = PathBuf::from(git(&dir, &["rev-parse", "--show-toplevel"])?.trim());
         let origin = git(&top, &["remote", "get-url", "origin"])
             .ok()

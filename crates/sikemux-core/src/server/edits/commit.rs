@@ -140,7 +140,7 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         .collect();
     let core = core.clone();
     blocking(move || {
-        let dir = checkout_for(&project, &named)?;
+        let (dir, named) = checkout_for(&project, &named)?;
         let (committed, nothing_committed) = match &message {
             Some(message) => match commit(&core, &dir, &agent_id, message, &named) {
                 Ok(committed) => (Some(committed), None),
@@ -195,34 +195,87 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     .and_then(|done| serde_json::to_value(done).map_err(|error| error.to_string()))
 }
 
-/// The checkout to commit in: the one holding the `named` paths, which may
-/// lie outside the project's own, else the project's.
-fn checkout_for(project: &Path, named: &[String]) -> Result<PathBuf, String> {
+/// The checkout to commit in, the one holding the `named` paths, which may lie
+/// outside the project's own, else the project's, with those paths as they lie
+/// there: from a folder of repositories, one of them holds the paths.
+fn checkout_for(project: &Path, named: &[String]) -> Result<(PathBuf, Vec<String>), String> {
     let mut tops = BTreeSet::new();
+    let mut found = Vec::with_capacity(named.len());
     for path in named {
         let place = Path::new(path);
         let folder = place
             .ancestors()
             .find(|folder| folder.is_dir())
             .unwrap_or(project);
-        let top = git(folder, &["rev-parse", "--show-toplevel"])
-            .map_err(|_| format!("{path} is not in a git checkout"))?;
+        let (path, top) = match git(folder, &["rev-parse", "--show-toplevel"]) {
+            Ok(top) => (path.clone(), top),
+            Err(_) => {
+                let repo = repo_below(project, place)?
+                    .ok_or_else(|| format!("{path} is not in a git checkout"))?;
+                let inside = place.strip_prefix(project).unwrap_or(place);
+                let top = git(&repo, &["rev-parse", "--show-toplevel"])?;
+                (repo.join(inside).to_string_lossy().into_owned(), top)
+            }
+        };
+        found.push(path);
         tops.insert(PathBuf::from(top.trim()));
     }
     match tops.len() {
         0 => match git(project, &["rev-parse", "--show-toplevel"]) {
-            Ok(_) => Ok(project.to_owned()),
+            Ok(_) => Ok((project.to_owned(), found)),
             Err(_) => Err(format!(
                 "{} is not in a git checkout; name the paths to commit, inside the repository that holds them",
                 project.display()
             )),
         },
-        1 => Ok(tops.into_iter().next().unwrap_or_default()),
+        1 => Ok((tops.into_iter().next().unwrap_or_default(), found)),
         _ => Err(format!(
             "Nothing was committed: the paths lie in {} checkouts ({}). Commit each checkout's paths in a call of its own.",
             tops.len(),
             tops.iter()
                 .map(|top| top.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+}
+
+/// For a `folder` outside any repository whose repositories lie one level down:
+/// the one holding `path`, given from the folder or whole. None when none does.
+pub(crate) fn repo_below(folder: &Path, path: &Path) -> Result<Option<PathBuf>, String> {
+    let Some(inside) = path
+        .strip_prefix(folder)
+        .ok()
+        .or_else(|| path.is_relative().then_some(path))
+        .filter(|inside| !inside.as_os_str().is_empty())
+    else {
+        return Ok(None);
+    };
+    if git(folder, &["rev-parse", "--show-toplevel"]).is_ok() {
+        return Ok(None);
+    }
+    let committed = format!("HEAD:{}", inside.display());
+    let mut holding: Vec<PathBuf> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|repo| repo.join(".git").exists())
+        .filter(|repo| {
+            repo.join(inside).symlink_metadata().is_ok()
+                || git(repo, &["cat-file", "-e", &committed]).is_ok()
+        })
+        .collect();
+    holding.sort();
+    match holding.len() {
+        0 | 1 => Ok(holding.pop()),
+        _ => Err(format!(
+            "{} is in {} repositories here: {}. Name it from the one you mean.",
+            inside.display(),
+            holding.len(),
+            holding
+                .iter()
+                .map(|repo| repo.display().to_string())
                 .collect::<Vec<_>>()
                 .join(", ")
         )),
@@ -983,6 +1036,7 @@ fn merge(top: &Path, shared: &str, before: Option<&str>, committed: &str) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::server::edits::tests_git::git_in;
 
     #[test]
     fn a_line_others_may_have_written_does_not_split_an_agents_change() {
@@ -1008,6 +1062,35 @@ mod tests {
         );
         assert_eq!(content.as_deref(), Some(&new[..]));
         assert!(tally.left.is_empty());
+    }
+
+    /// 13 `git_commit` calls from ~/proj/swishx, whose repositories lie one level down, failed with
+    /// ".../lib/ads/ads.types.ts is not in a git checkout".
+    #[test]
+    fn a_path_in_a_folder_of_repositories_is_found_one_level_down() {
+        let folder = tempfile::tempdir().unwrap();
+        let folder = std::fs::canonicalize(folder.path()).unwrap();
+        for repo in ["api", "web"] {
+            let repo = folder.join(repo);
+            std::fs::create_dir_all(repo.join("lib")).unwrap();
+            git_in(&repo, &["init", "-q"]);
+            std::fs::write(repo.join("shared.ts"), "").unwrap();
+        }
+        std::fs::write(folder.join("api/lib/only.ts"), "").unwrap();
+        let named = |path: &str| vec![folder.join(path).to_string_lossy().into_owned()];
+
+        let (dir, paths) = checkout_for(&folder, &named("lib/only.ts")).unwrap();
+        assert_eq!(dir, folder.join("api"));
+        assert_eq!(paths, named("api/lib/only.ts"));
+
+        let several = checkout_for(&folder, &named("shared.ts")).unwrap_err();
+        assert!(
+            several.contains("api") && several.contains("web"),
+            "{several}"
+        );
+
+        let nowhere = checkout_for(&folder, &named("missing.ts")).unwrap_err();
+        assert!(nowhere.contains("is not in a git checkout"), "{nowhere}");
     }
 
     fn author(agent_id: &str, shared: &[&str]) -> super::super::owners::Author {
