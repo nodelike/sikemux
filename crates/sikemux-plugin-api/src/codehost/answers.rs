@@ -8,7 +8,7 @@ use crate::store::{Account, Accounts};
 use crate::{Service, ServiceError};
 
 use super::asks::PatchQuery;
-use super::{ChangedFile, JobLog, LogExcerpt, LogLine};
+use super::{ChangedFile, JobLog, LogExcerpt, LogLine, Pull, PullStage};
 
 const PATCH_LINES: usize = 400;
 const MAX_PATCH_LINES: usize = 1000;
@@ -170,6 +170,12 @@ pub fn commit_hash<S>(sha: &str) -> Result<&str, ServiceError<S>> {
         )));
     }
     Ok(sha)
+}
+
+/// The pull requests that hold a commit, the merged one first, as `commitPulls` promises.
+pub fn merged_first(mut pulls: Vec<Pull>) -> Vec<Pull> {
+    pulls.sort_by_key(|pull| pull.state != PullStage::Merged);
+    pulls
 }
 
 /// The server and path of a git remote, in any of the ways a remote can be

@@ -13,7 +13,7 @@ use sikemux_plugin_api::codehost::asks::{
     RepoRef, SetPullState,
 };
 use sikemux_plugin_api::codehost::{
-    ChangedFile, Comment, CommitAuthor, Pull, PullCommit, Review, TimelineItem,
+    ChangedFile, Comment, CommitAuthor, Pull, PullCommit, PullStage, Review, TimelineItem,
 };
 
 use crate::client;
@@ -75,11 +75,11 @@ struct PullRow {
 }
 
 /// `closed` covers a pull request declined or superseded.
-fn state_of(raw: &str) -> &'static str {
+fn state_of(raw: &str) -> PullStage {
     match raw {
-        "OPEN" => "open",
-        "MERGED" => "merged",
-        _ => "closed",
+        "OPEN" => PullStage::Open,
+        "MERGED" => PullStage::Merged,
+        _ => PullStage::Closed,
     }
 }
 
@@ -113,7 +113,7 @@ fn pull_of(repo: &RepoRef, row: PullRow) -> Pull {
         number: row.id,
         title: row.title,
         body: row.description.unwrap_or_default(),
-        state: state_of(&row.state).into(),
+        state: state_of(&row.state),
         draft: row.draft,
         author: login_of(row.author.as_ref()),
         avatar_url: avatar_of(row.author.as_ref()),
@@ -221,12 +221,11 @@ pub async fn of_commit(data_dir: &Path, input: CommitRef) -> BitbucketResult<Vec
         answers::commit_hash(&input.sha)?
     ))?;
     let rows: Vec<PullRow> = client::get_all(data_dir, &path, &[], 1).await?;
-    let mut pulls: Vec<Pull> = rows
-        .into_iter()
-        .map(|row| pull_of(&input.repo, row))
-        .collect();
-    pulls.sort_by_key(|pull| pull.state != "merged");
-    Ok(pulls)
+    Ok(answers::merged_first(
+        rows.into_iter()
+            .map(|row| pull_of(&input.repo, row))
+            .collect(),
+    ))
 }
 
 fn pull_path(repo: &RepoRef, number: u64, rest: &str) -> BitbucketResult<String> {
@@ -888,7 +887,7 @@ mod tests {
                 "merge_commit": { "hash": "abc123" }
             })),
         );
-        assert_eq!(merged.state, "merged");
+        assert_eq!(merged.state, PullStage::Merged);
         assert_eq!(merged.merged_at.as_deref(), Some("2026-01-02T00:00:00Z"));
         assert_eq!(merged.merged_by.as_deref(), Some("ada"));
         assert_eq!(merged.merge_commit_sha.as_deref(), Some("abc123"));
@@ -898,7 +897,7 @@ mod tests {
                 json!({ "id": 5, "title": "t", "state": "DECLINED", "created_on": "x", "updated_on": "y" }),
             ),
         );
-        assert_eq!(declined.state, "closed");
+        assert_eq!(declined.state, PullStage::Closed);
         assert!(declined.merged_at.is_none());
     }
 

@@ -353,14 +353,22 @@ pub struct Comment {
     pub url: Option<String>,
 }
 
+/// Where a code host says a pull request stands. A draft is still open.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PullStage {
+    Open,
+    Closed,
+    Merged,
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Pull {
     pub number: u64,
     pub title: String,
     pub body: String,
-    /// `open`, `merged`, or `closed`.
-    pub state: String,
+    pub state: PullStage,
     pub draft: bool,
     pub author: Option<String>,
     pub avatar_url: Option<String>,
@@ -604,9 +612,9 @@ pub enum PullState {
 
 impl Pull {
     pub fn listed_state(&self) -> PullState {
-        if self.state == "merged" || self.merged_at.is_some() {
+        if self.state == PullStage::Merged || self.merged_at.is_some() {
             PullState::Merged
-        } else if self.state != "open" {
+        } else if self.state != PullStage::Open {
             PullState::Closed
         } else if self.draft {
             PullState::Draft

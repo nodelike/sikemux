@@ -12,7 +12,7 @@ use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::{
     CommitRef, FilesQuery, Merge, NewPull, NewReview, PullQuery, PullRef, SetPullState,
 };
-use sikemux_plugin_api::codehost::{ChangedFile, Label, Pull, PullCommit, Review};
+use sikemux_plugin_api::codehost::{ChangedFile, Label, Pull, PullCommit, PullStage, Review};
 
 use crate::client;
 use crate::error::{GitlabError, GitlabResult};
@@ -68,13 +68,12 @@ pub struct MergeRequestRow {
     web_url: String,
 }
 
-fn state_of(raw: &str) -> String {
+fn state_of(raw: &str) -> PullStage {
     match raw {
-        "opened" | "locked" => "open",
-        "merged" => "merged",
-        _ => "closed",
+        "opened" | "locked" => PullStage::Open,
+        "merged" => PullStage::Merged,
+        _ => PullStage::Closed,
     }
-    .into()
 }
 
 /// GitLab's reasons a merge request can or cannot merge, in GitHub's merge-state words.
@@ -203,9 +202,9 @@ pub async fn of_commit(data_dir: &Path, input: CommitRef) -> GitlabResult<Vec<Pu
         answers::commit_hash(&input.sha)?
     ))?;
     let rows: Vec<MergeRequestRow> = client::get_all(data_dir, &path, &[], 1).await?;
-    let mut pulls: Vec<Pull> = rows.into_iter().map(pull_of).collect();
-    pulls.sort_by_key(|pull| pull.state != "merged");
-    Ok(pulls)
+    Ok(answers::merged_first(
+        rows.into_iter().map(pull_of).collect(),
+    ))
 }
 
 pub async fn get(data_dir: &Path, input: PullRef) -> GitlabResult<Pull> {
@@ -468,11 +467,11 @@ mod tests {
         assert_eq!(
             (
                 pull.number,
-                pull.state.as_str(),
+                pull.state,
                 pull.head.as_deref(),
                 pull.base.as_deref()
             ),
-            (42, "open", Some("fix/vat"), Some("main"))
+            (42, PullStage::Open, Some("fix/vat"), Some("main"))
         );
         assert_eq!(
             (pull.mergeable, pull.merge_state.as_deref()),
@@ -502,7 +501,7 @@ mod tests {
             "merge_user": { "username": "irwan" }, "squash_commit_sha": "abc", "changes_count": "1000+",
             "labels": ["plain"], "web_url": "u"
         })));
-        assert_eq!(pull.state, "merged");
+        assert_eq!(pull.state, PullStage::Merged);
         assert_eq!(pull.merged_by.as_deref(), Some("irwan"));
         assert_eq!(pull.merge_commit_sha.as_deref(), Some("abc"));
         assert_eq!(pull.head_label.as_deref(), Some("project 8:patch-1"));

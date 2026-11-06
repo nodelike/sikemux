@@ -12,7 +12,7 @@ use sikemux_plugin_api::codehost::asks::{
     SetPullState,
 };
 use sikemux_plugin_api::codehost::{
-    ChangedFile, CommitAuthor, Label, Pull, PullCommit, PullCounts, Review,
+    ChangedFile, CommitAuthor, Label, Pull, PullCommit, PullCounts, PullStage, Review,
 };
 
 use crate::client;
@@ -72,13 +72,15 @@ struct PullRow {
     milestone: Option<MilestoneRow>,
 }
 
-/// `open`, `merged` or `closed`. GitHub reports a merged pull request as
-/// closed, which hides the one outcome people look for.
-fn state_of(row: &PullRow) -> String {
+/// GitHub reports a merged pull request as closed, which hides the one outcome
+/// people look for.
+fn state_of(row: &PullRow) -> PullStage {
     if row.merged.unwrap_or(false) || row.merged_at.is_some() {
-        "merged".to_string()
+        PullStage::Merged
+    } else if row.state == "open" {
+        PullStage::Open
     } else {
-        row.state.clone()
+        PullStage::Closed
     }
 }
 
@@ -257,17 +259,14 @@ pub async fn get(data_dir: &Path, input: PullRef) -> GithubResult<Pull> {
 
 /// The pull requests that hold the commit `sha`, the merged one first.
 pub async fn of_commit(data_dir: &Path, input: CommitRef) -> GithubResult<Vec<Pull>> {
-    if !input.sha.chars().all(|c| c.is_ascii_hexdigit()) || input.sha.len() < 7 {
-        return Err(GithubError::BadArg(format!(
-            "`{}` is not a commit hash",
-            input.sha
-        )));
-    }
-    let path = input.repo.path(&format!("/commits/{}/pulls", input.sha))?;
+    let path = input.repo.path(&format!(
+        "/commits/{}/pulls",
+        answers::commit_hash(&input.sha)?
+    ))?;
     let rows: Vec<PullRow> = client::API.get(data_dir, &path, &[]).await?;
-    let mut pulls: Vec<Pull> = rows.into_iter().map(Pull::from).collect();
-    pulls.sort_by_key(|pull| pull.state != "merged");
-    Ok(pulls)
+    Ok(answers::merged_first(
+        rows.into_iter().map(Pull::from).collect(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -546,11 +545,11 @@ mod tests {
     fn a_merged_pull_request_says_merged_rather_than_closed() {
         let mut merged = base();
         merged["merged"] = json!(true);
-        assert_eq!(state_of(&row(merged)), "merged");
+        assert_eq!(state_of(&row(merged)), PullStage::Merged);
 
         let mut by_date = base();
         by_date["merged_at"] = json!("2026-01-02T00:00:00Z");
-        assert_eq!(state_of(&row(by_date)), "merged");
+        assert_eq!(state_of(&row(by_date)), PullStage::Merged);
     }
 
     #[test]
