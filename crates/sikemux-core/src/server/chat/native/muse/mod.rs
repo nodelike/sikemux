@@ -124,7 +124,6 @@ impl Driver {
     }
 }
 
-/// What answers one of Muse's approvals.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Asked {
     session: String,
@@ -379,7 +378,6 @@ fn attachment(name: &str, uri: &str) -> Value {
     image.unwrap_or_else(|| json!({ "type": "text", "text": file_link(Some(name), uri) }))
 }
 
-/// Muse's input for the prompt.
 fn input(parts: Vec<Part>) -> Vec<Value> {
     let said = |text: String| json!({ "type": "text", "text": text });
     parts
@@ -413,7 +411,6 @@ impl Muse {
         Ok(input(parts(prompt)?))
     }
 
-    /// Sends `input` as turn `turn`.
     async fn send_turn(&self, turn: u64, prompt: &Prompt, input: Vec<Value>) -> Result<(), String> {
         let id = command_id();
         let mut params = json!({

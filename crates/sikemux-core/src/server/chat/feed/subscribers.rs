@@ -29,9 +29,8 @@ const SLOW_BYTES: usize = 512 * 1024;
 /// How often a client that fell behind is looked at again.
 const CATCH_UP: Duration = Duration::from_millis(50);
 
-/// One frame's worth of streamed updates travels as a single event. Each
-/// notification on its own costs a script eval in the webview, and an adapter
-/// sends one per token.
+/// One frame's worth of streamed updates travels as a single event, since an agent
+/// sends one update per token.
 const FLUSH: Duration = Duration::from_millis(16);
 
 impl Feed {

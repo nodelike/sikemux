@@ -101,7 +101,6 @@ impl RpcAgent for Session {
     }
 }
 
-/// What answers one of Codex's questions.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Asked {
     id: Value,
@@ -272,7 +271,6 @@ impl Codex {
         ))
     }
 
-    /// Sends a request that begins turn `turn` in Codex.
     async fn send_turn(
         &self,
         turn: u64,

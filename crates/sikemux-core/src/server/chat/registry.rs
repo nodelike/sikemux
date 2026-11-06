@@ -169,7 +169,6 @@ impl Chats {
         self.chats.locked().len()
     }
 
-    /// Whether every chat can let go of its agent now.
     pub(crate) fn all_handable(&self) -> bool {
         self.all().iter().all(|chat| chat.handable())
     }

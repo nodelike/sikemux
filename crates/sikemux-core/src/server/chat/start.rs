@@ -157,7 +157,6 @@ fn bring_up(
     }
 }
 
-/// Holds the chat's agent back until the person writes in the chat or something is sent to it.
 fn wait_for_person(chat: &Chat) {
     chat.feed.wait_for_person();
     chat.unstarted.store(true, Ordering::Release);

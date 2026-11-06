@@ -7,7 +7,6 @@ use std::collections::VecDeque;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-/// How work an agent reported on ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
     Completed,

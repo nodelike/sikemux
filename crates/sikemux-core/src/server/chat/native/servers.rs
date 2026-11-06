@@ -6,7 +6,6 @@ use serde_json::{Map, Value};
 use crate::launch::tools::TOOLS_SERVER;
 use sikemux_wire::protocol::ChatLaunch;
 
-/// Whether Sikemux's own tools are among `servers`.
 pub(super) fn offers_sikemux_tools(servers: &[McpServer]) -> bool {
     servers.iter().any(|server| {
         let name = match server {

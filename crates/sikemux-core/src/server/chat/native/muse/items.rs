@@ -83,7 +83,6 @@ fn edits(tool: &str) -> bool {
     matches!(tool, "write_file" | "edit_file")
 }
 
-/// The update that first shows a tool call.
 fn tool_call(item: &Value, cwd: &str) -> Value {
     let id = text_or_empty(item, "itemId");
     let tool = text_or_empty(item, "tool");
@@ -190,7 +189,6 @@ fn absolute(path: &str, cwd: &str) -> String {
     }
 }
 
-/// What a finished tool call printed.
 fn output(item: &Value) -> &str {
     text_or_empty(item, "visibleOutput")
 }
@@ -551,7 +549,6 @@ impl Items {
         out
     }
 
-    /// The updates for an item that finished.
     pub fn completed(
         &mut self,
         session: &str,

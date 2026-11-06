@@ -104,7 +104,6 @@ impl Rpc {
         }
     }
 
-    /// Where the requests stand, for a connection that goes on after this one.
     pub fn state(&self) -> RpcState {
         RpcState {
             next_id: self.next_id.load(Ordering::Acquire),
@@ -237,7 +236,6 @@ impl Rpc {
         }
     }
 
-    /// Fails every request still waiting, once the agent is gone.
     pub fn close(&self) {
         self.pending.close();
     }

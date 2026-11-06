@@ -924,7 +924,7 @@ pub fn resumed_model(records: &[Value]) -> Option<String> {
     })
 }
 
-/// The updates to replay, in order, as (session_id, update) pairs: root session id for top-level records, `<sid>:replay-subagent:<toolUseId>` children with subagent_spawned / subagent_state_update exactly as §11.2, user records as user_message_chunk with messageId = record uuid (after stripLocalCommandMetadata), assistant records via content_chunk/tool_call/tool_result, TodoWrite → plan, skipping Agent/Task calls, synthetic login/usage-limit handling.
+/// The updates to replay, in order, as (session_id, update) pairs: root session id for top-level records, `<sid>:replay-subagent:<toolUseId>` children for subagents, user records as user_message_chunk with messageId = record uuid (after stripLocalCommandMetadata), assistant records via content_chunk/tool_call/tool_result, TodoWrite → plan, skipping Agent/Task calls, synthetic login/usage-limit handling.
 pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, Value)> {
     let mut replay = Replay {
         root: session_id.to_string(),
@@ -1044,7 +1044,6 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
     replay.finish()
 }
 
-/// Drops the bytes of every picture in `value`, keeping what it was.
 fn drop_pictures(value: &mut Value) {
     match value {
         Value::Array(items) => items.iter_mut().for_each(drop_pictures),

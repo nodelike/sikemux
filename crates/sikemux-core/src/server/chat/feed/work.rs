@@ -38,7 +38,6 @@ impl Work {
             .is_some_and(|session| self.subagent_sessions.contains(session))
     }
 
-    /// Whether `payload` starts a subagent of the chat itself not heard of before.
     pub(super) fn starts_own_subagent(&self, payload: &Value) -> bool {
         let id = payload
             .pointer("/update/subagentSessionId")
@@ -46,7 +45,6 @@ impl Work {
         !self.in_subagent(payload) && id.is_some_and(|id| !self.subagent_sessions.contains(id))
     }
 
-    /// Notes what `payload` starts or ends.
     pub(super) fn note(&mut self, payload: &Value) {
         let Some(update) = payload.get("update") else {
             return;

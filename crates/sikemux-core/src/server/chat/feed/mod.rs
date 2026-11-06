@@ -74,7 +74,6 @@ struct Inner {
     replay: Replay,
     /// The chat folded into rows, while a client watches it or a turn runs.
     fold: Option<Fold>,
-    /// The agent always offers an effort picker.
     offers_effort: bool,
     flush_scheduled: bool,
     settle_scheduled: bool,
@@ -151,8 +150,6 @@ fn queued_view(queued: &[Queued]) -> Vec<QueuedMessage> {
         .collect()
 }
 
-/// A fold for a chat, showing an effort picker from the start when its agent
-/// always offers one.
 fn new_fold(
     permission_mode: PermissionMode,
     offers_effort: bool,
@@ -267,7 +264,6 @@ impl Feed {
         self.account(&inner);
     }
 
-    /// Takes up a feed an earlier core let go of.
     pub(crate) fn restored(agent_id: String, state: FeedState) -> Arc<Self> {
         let mut replay = state.replay;
         replay.history = state.history.map(History::reopen);
@@ -390,8 +386,6 @@ impl Feed {
         inner.fold.as_mut().expect("just built")
     }
 
-    /// Writes the newest event to the history once it has had a while to
-    /// take in more.
     fn settle_later(self: &Arc<Self>, inner: &mut Inner) {
         if inner.settle_scheduled || !inner.replay.keeps_history() {
             return;
@@ -493,7 +487,6 @@ impl Feed {
         true
     }
 
-    /// Whether messages wait to go to the agent once its turn settles.
     pub(crate) fn has_queued(&self) -> bool {
         !self.inner.locked().queued.is_empty()
     }
@@ -627,8 +620,6 @@ impl Feed {
         }
     }
 
-    /// Shows an effort picker from the start, as agents that offer effort on
-    /// every model do.
     /// Makes the paths the chat's agent names whole against `cwd`, and numbers the lines
     /// of its edits from where they sit in their files.
     pub(crate) fn work_in(&self, cwd: PathBuf) {
@@ -759,7 +750,6 @@ impl Feed {
         self.inner.locked().reach = Some((session.to_owned(), reach));
     }
 
-    /// How far into the CLI's record of `session` the history reaches, when it follows it.
     pub(crate) fn reach(&self, session: &str) -> Option<Reach> {
         let inner = self.inner.locked();
         let (followed, reach) = inner.reach.as_ref()?;
@@ -771,7 +761,6 @@ impl Feed {
         self.inner.locked().title.clone()
     }
 
-    /// What the chat said from index `from` on, or over its last `turns`.
     pub(crate) fn excerpt(&self, from: Option<u64>, turns: usize, max_bytes: usize) -> Excerpt {
         self.viewed();
         let mut inner = self.inner.locked();
@@ -794,7 +783,6 @@ impl Feed {
         inner.replay.turn_start()
     }
 
-    /// What the agent wrote last in its latest turn.
     pub(crate) fn last_answer(&self) -> Option<String> {
         let mut inner = self.inner.locked();
         inner.replay.reload();
@@ -915,7 +903,6 @@ impl Feed {
         }
     }
 
-    /// One step of `client`'s find through this run of the chat.
     pub(crate) fn find(
         &self,
         client: ClientId,
@@ -984,7 +971,6 @@ impl Feed {
         Err("that part of the chat changed; ask again".into())
     }
 
-    /// A tool call's change and output, line by line, for a client that opened its row.
     pub(crate) fn tool_detail(&self, tool_call_id: &str) -> Option<ToolDetail> {
         let mut inner = self.inner.locked();
         if let Some(detail) = self.fold(&mut inner).tool_detail(tool_call_id) {

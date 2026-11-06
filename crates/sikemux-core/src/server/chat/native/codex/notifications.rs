@@ -103,7 +103,6 @@ pub(super) struct TurnStatus<'a> {
     pub status: &'a str,
 }
 
-/// A turn Codex says ended, and how.
 #[derive(Clone, Deserialize, Serialize)]
 pub(super) struct EndedTurn {
     pub id: String,

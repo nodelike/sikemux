@@ -25,12 +25,10 @@ use super::turns::{self, Ended, Prompted, Turns};
 /// What one message from the agent does to the chat. `Own` is what only this
 /// agent does.
 pub(super) enum Effect<Own> {
-    /// A session update, for the session with this id.
     Update(String, Value),
     End(u64, TurnEnd),
     WorkStarted,
     WorkEnded(StopReason),
-    /// Ask the agent to stop the turn with this id.
     Interrupt(String),
     Own(Own),
 }
@@ -302,7 +300,6 @@ impl<S: RpcAgent> Driver<S> {
             .map_err(|error| error_text(&error))
     }
 
-    /// What became of a steer.
     pub async fn steered(sent: Result<Option<Sent>, String>) -> Result<Steered, String> {
         let Some(sent) = sent? else {
             return Ok(Steered::PromptRequired);

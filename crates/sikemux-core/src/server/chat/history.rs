@@ -598,7 +598,6 @@ mod tests {
         }
     }
 
-    /// The events from `lo` up to `hi`, by the number each carries.
     fn read(history: &History, lo: u64, hi: u64) -> Vec<u64> {
         history
             .reader()

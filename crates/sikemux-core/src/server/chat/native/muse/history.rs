@@ -43,7 +43,6 @@ pub(super) fn turns(items: &[Value]) -> Vec<String> {
     turns
 }
 
-/// The subagent sessions `items` opened.
 pub(super) fn subagents(items: &[Value]) -> Vec<String> {
     items
         .iter()

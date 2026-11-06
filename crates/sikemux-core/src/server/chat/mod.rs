@@ -128,8 +128,6 @@ pub(crate) enum ChatCommand {
     SwitchAccount {
         account: ChatAccount,
     },
-    /// Takes the conversation back to before the person's message
-    /// `message_id` and sends `text` in its place.
     Edit {
         message_id: String,
         text: String,
@@ -157,7 +155,6 @@ pub(crate) enum ChatCommand {
     },
 }
 
-/// What became of a message from another agent.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Delivery {
     NewTurn,
@@ -627,7 +624,6 @@ impl Chat {
         }
     }
 
-    /// The work nobody here asked for is over.
     pub(crate) fn work_ended(&self, stop_reason: StopReason) {
         if self.end_unprompted() {
             self.emit(ChatEventKind::TurnCompleted, turn_answer(stop_reason));
@@ -705,7 +701,6 @@ impl Chat {
         was
     }
 
-    /// Resolves once no turn is running.
     pub(crate) async fn turn_ended(&self) {
         loop {
             let over = self.turn_over.notified();
@@ -716,7 +711,6 @@ impl Chat {
         }
     }
 
-    /// Whether a prompt this side sent is being answered.
     pub(crate) fn prompted(&self) -> bool {
         self.turn.locked().turn == Turn::Prompted
     }
@@ -729,7 +723,6 @@ impl Chat {
         was
     }
 
-    /// Whether the agent works on a turn nobody here prompted.
     pub(crate) fn unprompted(&self) -> bool {
         self.turn.locked().turn == Turn::Unprompted
     }
@@ -992,7 +985,6 @@ impl Chat {
         }
     }
 
-    /// The chat waits for the person before its agent starts.
     pub(crate) fn unstarted(&self) -> bool {
         self.unstarted.load(Ordering::Acquire)
     }
@@ -1003,7 +995,6 @@ impl Chat {
             || (self.saved_shown.load(Ordering::Acquire) && !*self.saved_reading.borrow())
     }
 
-    /// Answers once the saved history being read into the chat is all there.
     pub(crate) async fn until_saved_read(&self) {
         let _ = self
             .saved_reading
@@ -1012,7 +1003,6 @@ impl Chat {
             .await;
     }
 
-    /// Sends the prompt a failed turn stopped again, as the person asked.
     pub(crate) fn retry_failed(&self) -> CoreResult<()> {
         self.offline_failed.store(false, Ordering::Release);
         self.send(ChatCommand::RetryFailed)
@@ -1228,7 +1218,6 @@ pub(crate) struct HandedChat {
     pub subscribers: Vec<Arc<ClientConn>>,
 }
 
-/// What becomes of a chat when the core replaces itself.
 pub(crate) enum HandOver {
     Live(Box<HandedChat>),
     /// Started again on its session, saying why.

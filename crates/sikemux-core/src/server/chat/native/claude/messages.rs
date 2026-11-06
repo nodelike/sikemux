@@ -36,7 +36,6 @@ pub(crate) enum Message {
     Other,
 }
 
-/// Claude Code's answer to a request this side made.
 #[derive(Deserialize)]
 pub(crate) struct ControlResponse {
     pub request_id: String,
@@ -90,7 +89,6 @@ pub(crate) struct OutputUsage {
     pub output_tokens: Option<u64>,
 }
 
-/// How a turn ended.
 #[derive(Deserialize)]
 pub(crate) struct TurnResult {
     pub subtype: Option<String>,

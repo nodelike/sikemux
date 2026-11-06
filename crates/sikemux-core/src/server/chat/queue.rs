@@ -14,7 +14,6 @@ use sikemux_wire::protocol::ChatContext;
 use super::super::{Core, CoreResult};
 use super::{Chat, ChatCommand};
 
-/// At most this many messages wait behind a turn.
 pub(crate) const MAX_QUEUED: usize = 20;
 
 /// How long the messages wait after a turn ends, for word that the network
@@ -172,7 +171,6 @@ pub(crate) async fn steer(
     Ok(())
 }
 
-/// Takes back the waiting messages `ids`.
 pub(crate) fn remove(core: &Core, agent_id: &str, ids: &[String]) -> CoreResult<()> {
     core.chats.running(agent_id)?.feed.take_queued(Some(ids));
     Ok(())

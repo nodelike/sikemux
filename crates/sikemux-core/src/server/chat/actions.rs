@@ -131,7 +131,6 @@ pub(crate) fn page(
     )?)
 }
 
-/// One step of `client`'s find through a chat: what it found, and where to go on from.
 pub(crate) fn find(
     core: &Core,
     client: ClientId,
@@ -143,8 +142,6 @@ pub(crate) fn find(
         .find(client, &params)?)
 }
 
-/// The change a chat's tool call made and what it printed, for a client that
-/// opened the call's row.
 pub(crate) fn tool_detail(
     core: &Core,
     agent_id: &str,
@@ -347,7 +344,6 @@ pub(crate) fn accounts(
     Ok((launch.account, others))
 }
 
-/// Moves the agent's chat to `account_id`, one of the accounts [`accounts`] offers.
 pub(crate) fn move_to_account(core: &Core, agent_id: &str, account_id: &str) -> CoreResult<()> {
     let (_, others) = accounts(core, agent_id)?;
     let account = others

@@ -135,7 +135,6 @@ impl Session {
         }
     }
 
-    /// The effects of one notification from Muse.
     pub fn handle(&mut self, notification: Notification) -> Vec<Effect> {
         let Some(session) = notification.session_id().map(str::to_owned) else {
             return self.unreadable(notification);

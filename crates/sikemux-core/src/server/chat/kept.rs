@@ -70,8 +70,6 @@ impl KeptAgent {
 }
 
 impl KeptChat {
-    /// Takes the keys and the person's shell variables out of the launch,
-    /// keeping only their names.
     fn seal(&mut self) {
         let keys = providers::key_names();
         for (name, value) in std::mem::take(&mut self.launch.env) {
@@ -224,7 +222,6 @@ pub(crate) struct Keeper {
 }
 
 impl Keeper {
-    /// Writes the chat whose feed is `feed` down in `dir`.
     pub(crate) fn new(dir: Option<&Path>, feed: &str) -> Self {
         let (notes, read) = watch::channel(Note::Nothing);
         if let Some(dir) = dir {

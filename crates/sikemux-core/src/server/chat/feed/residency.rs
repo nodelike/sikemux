@@ -86,7 +86,6 @@ impl Feed {
         });
     }
 
-    /// A client read the chat just now.
     pub(super) fn viewed(&self) {
         self.viewed.store(epoch_ms(), Ordering::Relaxed);
     }

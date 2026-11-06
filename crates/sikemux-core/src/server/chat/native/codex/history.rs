@@ -69,7 +69,6 @@ pub(super) fn message_turns(turns: &[Value]) -> HashMap<String, String> {
         .collect()
 }
 
-/// The subagent threads a thread's history started.
 pub(super) fn subagent_threads(turns: &[Value]) -> Vec<String> {
     let mut threads = Vec::new();
     for turn in turns {

@@ -33,7 +33,6 @@ use super::rpc::{error_text, Incoming, Rpc, RpcState, Sent, ANSWER_WAIT};
 use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling, TurnEnd};
 
-/// What answers one of the agent's permission requests.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Asked {
     id: Value,
@@ -93,12 +92,10 @@ struct Driver {
     rpc: Rpc,
     sink: Sink,
     turns: Arc<Mutex<Turns>>,
-    /// The names of the tool servers the chat handed its agent.
     servers: Arc<[String]>,
 }
 
 impl Driver {
-    /// Sends a request and waits on its answer, for at most `wait`.
     async fn call(
         &self,
         method: &str,
@@ -113,7 +110,6 @@ impl Driver {
             .map_err(|error| describe(&error))
     }
 
-    /// Settles turn `turn` with the agent's answer to its prompt.
     fn answered(&self, turn: u64, answer: Result<Value, Value>) {
         let end = match answer {
             Ok(response) => match response.get("_meta").and_then(air::failure) {
@@ -150,8 +146,6 @@ impl Driver {
         Box::new(move |chosen| driver.answer_permission(reply, chosen))
     }
 
-    /// Tells the agent the option the person chose for the permission
-    /// request `reply` names, or that they never chose.
     fn answer_permission(&self, reply: Asked, chosen: Option<String>) {
         let outcome = match chosen {
             Some(option_id) => {
@@ -163,7 +157,6 @@ impl Driver {
             .respond(reply.id, json!(RequestPermissionResponse::new(outcome)));
     }
 
-    /// The answer to a request sent with `purpose`.
     fn purpose_answered(&self, purpose: Purpose, result: Answered) {
         match purpose {
             Purpose::Prompt(turn) => self.answered(turn, result),
@@ -242,7 +235,6 @@ struct AcpState {
     kept: Kept,
 }
 
-/// How an agent takes up a session it ran before.
 #[derive(Clone, Copy)]
 enum Reopens {
     /// `session/load`, replaying its history.

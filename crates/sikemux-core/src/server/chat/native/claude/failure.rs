@@ -32,12 +32,10 @@ pub(super) fn is_synthetic(message: &Value) -> bool {
     text(message, "model") == Some(SYNTHETIC_MODEL)
 }
 
-/// Whether what Claude said asks the person to sign in.
 pub(super) fn asks_sign_in(said: &str) -> bool {
     said.contains("Please run /login")
 }
 
-/// Whether what Claude said is that the account is out of usage.
 pub(super) fn out_of_usage(said: &str) -> bool {
     let said = said.trim_start();
     USAGE_LIMIT_PREFIXES

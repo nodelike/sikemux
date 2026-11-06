@@ -35,7 +35,7 @@ impl ToolInfo {
     }
 }
 
-/// §4.2 title/kind/content/locations for a tool_use (name, input) in folder `cwd`.
+/// The title, kind, content and locations for a tool_use, in folder `cwd`.
 pub fn tool_info(name: &str, input: &Value, cwd: &Path) -> ToolInfo {
     let field = |key: &str| input.get(key);
     match name {
@@ -200,7 +200,6 @@ pub fn is_plan_tool(name: &str) -> bool {
     name == "TodoWrite" || is_task_tool(name)
 }
 
-/// Agent/Task (subagent-spawning) tools.
 pub fn is_subagent_tool(name: &str) -> bool {
     name == "Agent" || name == "Task"
 }
@@ -245,7 +244,7 @@ fn insert_info(update: &mut Map<String, Value>, info: ToolInfo) {
     }
 }
 
-/// §4.4: the completion `tool_call_update` for a tool_result block, given the tool's name/input and the message-level `tool_use_result` (only when the user message had exactly one tool_result).
+/// The completion `tool_call_update` for a tool_result block, given the tool's name/input and the message-level `tool_use_result` (only when the user message had exactly one tool_result).
 ///
 /// For plan tools this is only the bare status/rawOutput resolution when a
 /// permission request had surfaced them as a tool call; otherwise callers do not send one.
@@ -909,7 +908,7 @@ pub fn markdown_escape(text: &str) -> String {
     format!("{fence}\n{text}{newline}{fence}")
 }
 
-/// §4.6 `plan` update from a TodoWrite input.
+/// The `plan` update from a TodoWrite input.
 pub fn todo_plan(input: &Value) -> Option<Value> {
     let todos = input.get("todos")?.as_array()?;
     let entries = todos
@@ -934,7 +933,7 @@ fn plan_entry(content: Option<&Value>, status: Option<&Value>) -> Value {
     )
 }
 
-/// §3.3 updates for one Anthropic content block (text/image/thinking) of role "assistant"|"user", with messageId; tool blocks are not handled here.
+/// The updates for one Anthropic content block (text/image/thinking) of role "assistant"|"user", with messageId; tool blocks are not handled here.
 ///
 /// A bare JSON string is treated as plain message text.
 pub fn content_chunk(block: &Value, role: &str, message_id: Option<&str>) -> Option<Value> {
@@ -988,7 +987,7 @@ pub fn content_chunk(block: &Value, role: &str, message_id: Option<&str>) -> Opt
     Some(Value::Object(update))
 }
 
-/// The task list built from TaskCreate/TaskUpdate/TaskList results and the task hooks (§4.6).
+/// The task list built from TaskCreate/TaskUpdate/TaskList results and the task hooks.
 #[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct TaskPlan {
     tasks: Vec<(String, TaskEntry)>,

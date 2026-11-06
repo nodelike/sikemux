@@ -23,7 +23,6 @@ use super::subagents::{Route, Subagents};
 
 pub(super) type Effect = rpc_driver::Effect<std::convert::Infallible>;
 
-/// How to answer one of Codex's requests.
 pub(super) enum Reply {
     Ask(Question),
     /// Codex asks something with request_user_input, which goes the way of
@@ -204,7 +203,6 @@ impl Session {
         }
     }
 
-    /// The effects of one notification from Codex.
     pub fn handle(&mut self, method: &str, params: &Value) -> Vec<Effect> {
         let mut out = Vec::new();
         let mut replay = Vec::new();

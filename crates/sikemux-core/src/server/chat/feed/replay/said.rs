@@ -58,7 +58,6 @@ pub(crate) struct Excerpt {
     pub next: u64,
 }
 
-/// The most of a chat's title that is kept.
 const MAX_TITLE_CHARS: usize = 256;
 
 /// A title as the chat shows it: one line of bounded length without markdown's marks, or

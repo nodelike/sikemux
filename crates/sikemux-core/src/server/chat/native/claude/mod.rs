@@ -41,7 +41,6 @@ pub(crate) use config::saved_window;
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
 
-/// Where a session starts: a new one under a chosen id, or a saved one.
 enum Start<'a> {
     New(&'a str),
     Resume(&'a str),
@@ -306,7 +305,6 @@ fn user_message(uuid: &str, content: Vec<Value>, priority: Option<&str>) -> Valu
 }
 
 impl Claude {
-    /// Starts `claude` on `start` and shakes hands with it.
     async fn spawn(
         launch: &ChatLaunch,
         sink: &Sink,

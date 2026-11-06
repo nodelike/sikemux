@@ -28,7 +28,6 @@ pub struct ToolDetailParams {
     pub tool_call_id: String,
 }
 
-/// A person's message `message_id` written again as `text`, sent with the files at `paths`.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditParams {
@@ -127,7 +126,6 @@ pub(crate) async fn prompt_chat(core: &Arc<Core>, mut params: PromptChatParams) 
     prompt_awake(core, params)
 }
 
-/// Messages waiting behind an agent's turn, by id.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QueuedParams {

@@ -364,7 +364,6 @@ pub(super) fn user_blocks(item: &Value) -> Vec<Value> {
         .collect()
 }
 
-/// A finished item as it is replayed from the thread's history.
 pub(super) fn replayed(item: &Value, read: &impl Fn(&str) -> Option<String>) -> Vec<Value> {
     match text(item, "type") {
         "agentMessage" => vec![agent_text(text(item, "text"), item["id"].as_str())],
@@ -521,7 +520,6 @@ impl Items {
     }
 }
 
-/// A turn's plan as the chat shows it.
 pub(super) fn plan(steps: &[PlanStep]) -> Value {
     update::plan(
         steps
@@ -538,7 +536,6 @@ pub(super) fn usage(usage: &Value) -> Option<Value> {
     Some(update::usage(used, size))
 }
 
-/// The tokens a turn used.
 pub(super) fn turn_usage(token_usage: &Value) -> Option<Value> {
     let last = token_usage.get("last")?;
     let count = |key: &str| last[key].as_u64().unwrap_or(0);

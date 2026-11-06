@@ -101,7 +101,6 @@ pub(crate) fn slim(value: &mut Value) {
     }
 }
 
-/// How a turn this side started ended.
 pub(crate) enum TurnEnd {
     /// The `turn_completed` payload, such as `{"stopReason": "end_turn"}`.
     Completed(Value),
@@ -139,7 +138,6 @@ impl TurnEnd {
     }
 }
 
-/// What became of a message put into the running turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Steered {
     Injected,
@@ -157,7 +155,6 @@ impl Steered {
     }
 }
 
-/// What woke the chat's loop.
 enum Woke {
     Command(Option<ChatCommand>),
     Closed(String),
@@ -260,7 +257,6 @@ impl std::ops::Deref for Sink {
 }
 
 impl Sink {
-    /// Says in the chat that something the person asked for went wrong.
     pub fn error(&self, message: impl std::fmt::Display) {
         self.chat.emit(ChatEventKind::Error, error_message(message));
     }
@@ -275,7 +271,6 @@ impl Sink {
         self.chat.prompted()
     }
 
-    /// The agent's CLI said which version it is.
     pub fn cli_version(&self, version: &str) {
         self.chat.note_cli_version(version);
     }
@@ -286,7 +281,6 @@ impl Sink {
         self.chat.work_started();
     }
 
-    /// The work nobody here asked for is over.
     pub fn work_ended(&self, stop_reason: StopReason) {
         self.chat.work_ended(stop_reason);
     }
@@ -512,10 +506,8 @@ pub(crate) trait Backend: Sized + Send {
         prompt: Prompt,
     ) -> impl std::future::Future<Output = Result<Steered, String>> + Send + 'static;
 
-    /// Asks the running turn to stop.
     fn cancel(&mut self) -> impl std::future::Future<Output = Result<(), String>> + Send;
 
-    /// Applies one of the app's permission modes.
     fn set_permission_mode(
         &mut self,
         mode: PermissionMode,
@@ -1074,7 +1066,6 @@ impl<B: Backend> Running<'_, B> {
         ControlFlow::Continue(())
     }
 
-    /// Another agent's message goes into the running turn.
     fn letter(&mut self, text: String, reply: tokio::sync::oneshot::Sender<Delivery>) {
         let prompt = Prompt {
             message_id: None,
@@ -1281,7 +1272,6 @@ impl<B: Backend> Running<'_, B> {
         let _ = reply.send(result.map(|options| json!({ "configOptions": options })));
     }
 
-    /// The person's message goes into the running turn.
     fn steer(
         &mut self,
         text: String,

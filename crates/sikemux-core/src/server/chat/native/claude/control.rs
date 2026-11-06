@@ -62,7 +62,6 @@ impl Control {
         &self.writer
     }
 
-    /// Sends `request`, whose `subtype` names it, and waits for its answer.
     pub async fn request(&self, request: Value) -> Result<Value, String> {
         let id = request_id();
         let subtype = request["subtype"].as_str().unwrap_or("request").to_owned();
@@ -89,7 +88,6 @@ impl Control {
         self.pending.settle(&response.request_id, result)
     }
 
-    /// Answers one of Claude's own requests.
     pub fn respond(&self, request_id: &str, response: Value) {
         let _ = self.writer.send(&json!({
             "type": "control_response",

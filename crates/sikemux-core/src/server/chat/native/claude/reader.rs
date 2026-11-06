@@ -149,7 +149,6 @@ fn usage_total(usage: &Value) -> Option<u64> {
     })
 }
 
-/// The commands the chat offers, from the list Claude Code sends.
 pub(crate) fn available_commands(commands: &Value) -> Value {
     let commands: Vec<Value> = commands
         .as_array()
@@ -615,12 +614,10 @@ impl Reader {
             .ask(asked, reply, |reply| self.asking.responder(reply));
     }
 
-    /// What answers Claude's permission requests.
     pub fn asking(&self) -> Asking {
         self.asking.clone()
     }
 
-    /// The answer to a control request sent with `purpose`.
     fn purpose_answered(&self, purpose: &Purpose, result: Answered) {
         if *purpose == Purpose::Title {
             let title = result
@@ -1571,9 +1568,6 @@ impl Reads for Reader {
     }
 }
 
-/// Claude's permission requests still waiting on the person, by Claude's
-/// own request id, and how the answer goes back.
-/// What answers one of Claude's permission requests.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Asked {
@@ -1583,6 +1577,7 @@ pub(crate) struct Asked {
     request: Value,
 }
 
+/// Claude's permission requests still waiting on the person, by Claude's own request id.
 #[derive(Clone)]
 pub(crate) struct Asking {
     control: Control,

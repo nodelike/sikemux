@@ -3,7 +3,6 @@
 
 use serde_json::{json, Value};
 
-/// One command in the list the chat offers.
 pub(super) fn offered(name: &str, description: &str, hint: Option<&str>) -> Value {
     json!({
         "name": name,

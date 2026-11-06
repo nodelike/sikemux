@@ -22,7 +22,6 @@ pub(crate) fn is_command(text: &str) -> bool {
     text.trim_start().starts_with('/')
 }
 
-/// A slash command's name and what follows it.
 pub(crate) fn command_parts(text: &str) -> Option<(&str, &str)> {
     let text = text.trim().strip_prefix('/')?.trim_start();
     let name = text.split_whitespace().next()?;

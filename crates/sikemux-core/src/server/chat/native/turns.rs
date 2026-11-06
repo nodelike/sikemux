@@ -14,7 +14,6 @@ use crate::acp::failure::Failure;
 use super::super::states::{Outcome, Subagent};
 use super::session::TurnEnd;
 
-/// The turn this side prompted.
 #[derive(Serialize, Deserialize)]
 pub(super) struct Prompted {
     pub number: u64,
@@ -26,7 +25,6 @@ pub(super) struct Prompted {
     title: Option<String>,
 }
 
-/// What became of a turn the agent said ended.
 pub(super) enum Ended {
     Prompted(Prompted),
     Unprompted,
@@ -34,7 +32,6 @@ pub(super) enum Ended {
     Neither,
 }
 
-/// What a turn the agent said it started is to the chat.
 pub(super) enum Started {
     /// The prompted turn, which the person stopped before its id was known
     /// when `cancelled`.
@@ -125,7 +122,6 @@ impl Turns {
         }
     }
 
-    /// The agent said turn `id` began.
     pub fn began(&mut self, id: &str) -> Started {
         if self.stale.contains(id) {
             return Started::Neither;
@@ -152,7 +148,6 @@ impl Turns {
         }
     }
 
-    /// Whether this side prompted a turn the agent has not named yet.
     pub fn unnamed(&self) -> bool {
         self.prompted.as_ref().is_some_and(|turn| turn.id.is_none())
     }
@@ -194,7 +189,6 @@ impl Turns {
         Ended::Neither
     }
 
-    /// The agent said turn `id` ended.
     pub fn completed(&mut self, id: &str) -> Ended {
         if self.stale.remove(id) {
             return Ended::Neither;
@@ -223,7 +217,6 @@ impl Turns {
         Some(turn)
     }
 
-    /// Whether what the agent says of turn `id` comes too late to show.
     pub fn is_stale(&self, id: &str) -> bool {
         self.stale.contains(id)
     }

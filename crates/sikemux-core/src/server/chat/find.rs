@@ -104,7 +104,6 @@ pub(crate) trait Rows {
     fn superseded(&self) -> bool;
 }
 
-/// One step of a find through `rows`.
 pub(crate) fn step(rows: &impl Rows, params: &FindParams) -> Result<FindAnswer, String> {
     let query = Query {
         text: params.query.clone(),
@@ -233,7 +232,6 @@ fn beyond(row: &ChatMessage, here: &FindAt, at: &FindAt, older: bool) -> bool {
     }
 }
 
-/// The words around a hit, a few either side.
 fn preview(text: &str, start: usize, end: usize) -> String {
     let units: Vec<u16> = text.encode_utf16().collect();
     let shown = |range: std::ops::Range<usize>| String::from_utf16_lossy(&units[range]);

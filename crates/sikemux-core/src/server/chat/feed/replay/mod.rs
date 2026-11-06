@@ -163,7 +163,6 @@ pub(super) fn asks(event: &ChatEvent, request_id: &str) -> bool {
         && event.payload.get("requestId").and_then(Value::as_str) == Some(request_id)
 }
 
-/// Whether `event` is where the person's message `message_id` starts.
 fn names_message(event: &ChatEvent, message_id: &str) -> bool {
     match event.kind {
         ChatEventKind::Prompt => event.payload.get("messageId"),
@@ -568,10 +567,6 @@ impl Replay {
         merged
     }
 
-    /// Forgets the person's message `message_id` and everything after it,
-    /// looking for it on disk when it is older than the replay. When neither
-    /// holds it, it is gone only if the replay dropped events it never wrote
-    /// down, and then everything kept came after it.
     /// What the person's message `message_id` told the agent alone, to tell it again.
     pub(crate) fn for_agent_of(&self, message_id: &str) -> Vec<ChatContext> {
         let names = |event: &ChatEvent| names_message(event, message_id);
@@ -592,6 +587,10 @@ impl Replay {
             .unwrap_or_default()
     }
 
+    /// Forgets the person's message `message_id` and everything after it,
+    /// looking for it on disk when it is older than the replay. When neither
+    /// holds it, it is gone only if the replay dropped events it never wrote
+    /// down, and then everything kept came after it.
     pub(crate) fn rewind(&mut self, message_id: &str) {
         let names = |event: &ChatEvent| names_message(event, message_id);
         let index = match self.entries.iter().find(|entry| names(&entry.event)) {

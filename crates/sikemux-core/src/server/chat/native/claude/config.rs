@@ -29,7 +29,6 @@ const OWN_EFFORTS: &[(&str, &str)] = &[
 
 const DEFAULT_WINDOW: u64 = 200_000;
 
-/// The permission mode Claude Code runs in for each of the app's modes.
 pub(crate) fn permission_mode(mode: PermissionMode) -> &'static str {
     match mode {
         PermissionMode::Bypass => "bypassPermissions",
