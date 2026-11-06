@@ -40,7 +40,12 @@ const SCENES = [
   { name: 'assumed', route: `/device/${CORE}/chat/chat-login-check` },
   { name: 'new-chat', route: `/device/${CORE}/new` },
   { name: 'prompt-strip', route: `/device/${CORE}/chat/chat-release`, tapPart: 'Write release notes for this week from t' },
-  { name: 'prompt-edit', route: `/device/${CORE}/chat/chat-release`, tapPart: 'Write release notes for this week from t', tapLabel: 'Edit message' },
+  {
+    name: 'prompt-edit',
+    route: `/device/${CORE}/chat/chat-release`,
+    tapPart: 'Write release notes for this week from t',
+    tapLabel: 'Edit message',
+  },
 ].filter((scene) => only.length === 0 || only.includes(scene.name));
 
 if (existsSync(PANE_IMAGE_FILE)) execFileSync('sips', ['-Z', '1600', PANE_IMAGE_FILE, '--out', PANE], { stdio: 'ignore' });
@@ -143,7 +148,11 @@ for (const scene of SCENES) {
     await page.waitForTimeout(800);
   }
   if (scene.tapLabel) {
-    await page.getByLabel(scene.tapLabel).first().click({ timeout: 5000 }).catch(() => problems.push(`no ${scene.tapLabel} on ${scene.name}`));
+    await page
+      .getByLabel(scene.tapLabel)
+      .first()
+      .click({ timeout: 5000 })
+      .catch(() => problems.push(`no ${scene.tapLabel} on ${scene.name}`));
     await page.waitForTimeout(800);
   }
   await page.evaluate(separateGradients);
