@@ -48,7 +48,6 @@ pub(crate) struct Summaries {
     titles: Mutex<Vec<(Goal, String)>>,
 }
 
-/// What the file of one goal holds.
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Written {
@@ -81,7 +80,6 @@ impl Summaries {
         }
     }
 
-    /// The short name a summary gave goal `card` of `project`, when one has.
     pub(crate) fn title(&self, project: &str, card: u64) -> Option<String> {
         (self.titles.locked().iter())
             .find(|((known, id), _)| *id == card && known == project)

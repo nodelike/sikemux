@@ -23,11 +23,9 @@ use crate::launch::{discovery, AgentSpec};
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum AgentStatus {
-    /// No binary was found.
     Missing,
     /// A binary was found but does not run.
     Broken { reason: String },
-    /// Installed, with no usable credentials.
     SignedOut,
     /// Installed and signed in. `account` is the kind of sign-in when the CLI says, never who.
     #[serde(rename_all = "camelCase")]
@@ -350,7 +348,6 @@ async fn check_sign_in(
     }
 }
 
-/// Whether an account of an agent that keeps separate ones is signed in.
 pub(crate) async fn account_sign_in(
     provider: &str,
     program: &Path,
@@ -450,7 +447,6 @@ fn parse_codex_status(result: &Value) -> AccountStatus {
     }
 }
 
-/// Who a Claude account is signed in as, asked of Claude's own CLI.
 pub(crate) async fn claude_account(
     program: &Path,
     config_path: Option<&str>,
@@ -477,7 +473,6 @@ pub(crate) async fn claude_account(
     Ok(status)
 }
 
-/// Who a Codex account is signed in as, asked of Codex's own app server.
 pub(crate) async fn codex_account(
     program: &Path,
     config_path: Option<&str>,
@@ -487,7 +482,6 @@ pub(crate) async fn codex_account(
     ))
 }
 
-/// Who an account is signed in as, asked of the agent's own CLI.
 async fn account(
     provider: &str,
     program: &Path,

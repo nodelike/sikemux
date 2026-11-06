@@ -136,7 +136,6 @@ impl ClientConn {
         self.closed.load(Ordering::Acquire)
     }
 
-    /// The bytes sent to the client that it has not read yet.
     pub(crate) fn backlog(&self) -> usize {
         self.queued.load(Ordering::Acquire)
     }
@@ -181,7 +180,6 @@ impl ClientConn {
         });
     }
 
-    /// Answers a request with what its kind of request is answered with.
     pub(crate) fn answer<A: Ask>(&self, request_id: RequestId, result: CoreResult<A::Answer>) {
         self.respond(request_id, result.map(A::reply));
     }

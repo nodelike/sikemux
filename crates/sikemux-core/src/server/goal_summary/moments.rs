@@ -23,7 +23,6 @@ use crate::sessions::transcript::{self, Said};
 use crate::text::clipped;
 use crate::trailers;
 
-/// The most agents of one goal read.
 const MAX_AGENTS: usize = 8;
 const MAX_MOMENTS: usize = 90;
 /// What all moments may hold together, about ten thousand tokens.
@@ -108,7 +107,6 @@ pub(super) struct Gathered {
     pub lead_label: String,
 }
 
-/// One agent of a goal and when it worked on it.
 struct Worker {
     id: String,
     name: Option<String>,

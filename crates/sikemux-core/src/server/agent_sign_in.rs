@@ -96,7 +96,6 @@ fn first_url(line: &str) -> Option<&str> {
     Some(rest[..end].trim_end_matches(['.', ',', ')']))
 }
 
-/// The pages the sign-ins running now opened.
 pub(super) fn pages() -> Vec<Page> {
     sign_ins()
         .values()

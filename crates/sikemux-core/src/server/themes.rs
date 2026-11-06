@@ -65,7 +65,6 @@ pub fn default_palette() -> Palette {
     palette(&Preferences::default())
 }
 
-/// The picked theme with the colours worked out from it for drawing.
 /// The person's theme as the core resolved it, kept until their preferences change.
 pub(crate) struct Look {
     palette: Mutex<Palette>,
@@ -96,7 +95,6 @@ impl Look {
         self.terminal_colors.locked().clone()
     }
 
-    /// The tokens of the theme in use, by name.
     pub(crate) fn tokens_by_name(&self) -> std::collections::BTreeMap<String, String> {
         by_name(&self.palette.locked().tokens)
     }
@@ -636,7 +634,6 @@ pub(crate) struct ThemeFromColoursParams {
     accent: Option<String>,
 }
 
-/// The palette of the theme `params` names, or of the person's pick.
 pub(crate) fn palette_for(core: &Core, params: ThemeParams) -> Palette {
     match params.id {
         Some(theme_id) => palette(&Preferences {

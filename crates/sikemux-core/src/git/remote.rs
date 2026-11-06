@@ -74,7 +74,6 @@ pub struct GitRemote {
     pub url: String,
 }
 
-/// Each remote with its fetch URL, by name.
 pub async fn git_remotes(repo: String) -> Result<Vec<GitRemote>, String> {
     run_blocking(move || -> Result<Vec<GitRemote>, String> {
         let repo = open_repo(&repo)?;
@@ -283,9 +282,6 @@ pub async fn git_remote_branches(
             ],
         )?;
 
-        // Build the local-branch → upstream map once so we can annotate each
-        // remote branch with its tracking local. The cheap form:
-        // `git for-each-ref refs/heads --format='%(refname:short)\t%(upstream:short)'`.
         let mut upstreams: std::collections::HashMap<String, String> = Default::default();
         if let Ok(locals) = git_ok(
             &repo,
@@ -348,8 +344,6 @@ pub async fn git_checkout_remote_branch(
     run_blocking(move || -> Result<(), String> {
         let full_ref = format!("{remote}/{branch}");
         let local = local_name.unwrap_or_else(|| branch.clone());
-        // If the local already exists, just `checkout <local>`; otherwise
-        // create-and-track.
         let exists = git_ok(
             &repo,
             &[

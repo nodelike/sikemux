@@ -189,7 +189,6 @@ impl Triggers {
         (firing, next)
     }
 
-    /// The chats with triggers that prompt them.
     fn agents(&self) -> Vec<String> {
         let mut agents: Vec<String> = self
             .state

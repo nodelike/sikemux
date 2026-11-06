@@ -300,7 +300,6 @@ fn clone(url: &str, into: &Path) -> Result<(), String> {
     }
 }
 
-/// Deletes a skill from the library.
 pub fn remove(data_dir: &Path, name: &str) -> Result<(), String> {
     check_name(name)?;
     let folder = library(data_dir).join(name);

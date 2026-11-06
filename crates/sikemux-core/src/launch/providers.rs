@@ -58,7 +58,6 @@ pub fn routed_agents() -> impl Iterator<Item = &'static str> {
     routed.into_iter().map(|(_, kind)| kind)
 }
 
-/// The API `agent` speaks to a provider Sikemux points it at.
 fn routed_api(agent: &str) -> Option<RoutedApi> {
     Some(agent_catalog::agent(agent)?.routed.as_ref()?.api)
 }
@@ -75,7 +74,6 @@ pub(crate) struct ChatRoute<'a> {
     pub(crate) model: &'a str,
     /// The model as the agent names it.
     pub(crate) agent_model: String,
-    /// Whether the model reads pictures.
     pub(crate) images: bool,
     /// Where the extension that tells OMP of the provider is kept.
     pub(crate) omp_extension: &'a Path,
@@ -226,7 +224,6 @@ fn catalogued(id: &str) -> Option<&'static Arc<Provider>> {
     CATALOGUE.iter().find(|provider| provider.id == id)
 }
 
-/// Every variable a launch can carry a provider's key in.
 pub fn key_names() -> BTreeSet<&'static str> {
     catalogue()
         .iter()
@@ -287,7 +284,6 @@ impl Helper {
         }
     }
 
-    /// The model Claude Code's subagents take in a chat of `agent` on `provider`.
     fn subagent_model(&self, agent: &str, provider: Option<&str>) -> Option<&str> {
         (agent == "claude" && self.agent == agent && self.provider.as_deref() == provider)
             .then_some(self.model.as_deref())
@@ -398,7 +394,6 @@ impl Provider {
             .unwrap_or(true)
     }
 
-    /// `model` as `agent` names it.
     pub fn agent_model(&self, agent: &str, model: &str) -> String {
         let model = self.api_model(agent, model);
         match routed_api(agent) {

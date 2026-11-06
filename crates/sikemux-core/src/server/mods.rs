@@ -41,7 +41,6 @@ const MAX_NAME_CHARS: usize = 60;
 const MAX_DESCRIPTION_CHARS: usize = 400;
 const MAX_DECLARED: usize = 64;
 
-/// What a mod's `mod.json` says.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Manifest {
@@ -91,7 +90,6 @@ pub struct ModInfo {
     pub off: bool,
 }
 
-/// A mod Sikemux ships for the person to copy.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ModExample {

@@ -70,7 +70,6 @@ impl Spawning {
     }
 }
 
-/// The agents running here and those the window is opening.
 /// The agents that keep their names, with those being opened now.
 fn open(core: &Core) -> HashSet<String> {
     let mut open = core.open_agents();
@@ -598,7 +597,6 @@ async fn hand_task(core: &Arc<Core>, started: Started, prompt: String) {
     .await;
 }
 
-/// A terminal agent the window is asked to open.
 struct Opening {
     agent_id: String,
     name: String,
@@ -782,7 +780,6 @@ async fn spawn_terminal(
     }))
 }
 
-/// How a worker's turn, or the worker, came to an end.
 pub(crate) enum Ending {
     Finished,
     Stopped,
@@ -848,7 +845,6 @@ pub(crate) fn terminal_turn_ended(core: &Core, agent_id: &str, ending: Ending) {
     }
 }
 
-/// What the lead is told about the worker's turn.
 fn report(core: &Core, worker: &str, ending: Ending, answer: Option<TerminalAnswer>) -> String {
     let because = |reason: Option<String>| match reason.filter(|reason| !reason.trim().is_empty()) {
         Some(reason) => format!(": {reason}"),

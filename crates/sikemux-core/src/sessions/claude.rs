@@ -86,8 +86,6 @@ pub(super) fn claude_sessions(cwd: &str, config_path: Option<&str>) -> Vec<Agent
             .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl")),
     );
     paths.truncate(MAX_AGENT_TRANSCRIPTS_INSPECTED);
-    // Titles come from reading each transcript, so fan the per-file work out
-    // across rayon's pool instead of scanning sessions one at a time.
     let mut out: Vec<AgentSession> = paths
         .par_iter()
         .filter_map(|(path, stamp)| claude_session(path, *stamp))
@@ -370,8 +368,8 @@ fn claude_transcript(root: &Path, cwd: Option<&str>, id: &str) -> Option<PathBuf
         .find_map(|project| written(project.join(&file_name)))
 }
 
-/// Mirrors the Claude ACP adapter: a main-thread assistant message fills the
-/// window with everything it read and wrote.
+/// A main-thread assistant message fills the window with everything it read
+/// and wrote.
 fn claude_context_line(line: &str) -> Option<SessionContext> {
     if !line.contains("\"type\":\"assistant\"") {
         return None;

@@ -36,11 +36,11 @@ pub(super) struct Server {
     // has the full text to compare.
     pub(super) last_change: Mutex<HashMap<String, u64>>,
     // Backend-owned open-document refcounts + monotonically increasing LSP
-    // versions. The frontend can have several editor panes pointed at the same
+    // versions. A client can have several editor panes pointed at the same
     // URI; the server must still see exactly one didOpen and one didClose.
     pub(super) open_docs: Mutex<HashMap<String, OpenDoc>>,
-    // Paths with a currently published non-empty diagnostic set. The UI owns
-    // the diagnostic values; native retains only bounded keys/versions so a
+    // Paths with a currently published non-empty diagnostic set. Clients own
+    // the diagnostic values; the core retains only bounded keys/versions so a
     // server shutdown can emit deterministic clear events.
     pub(super) diagnostic_paths: Mutex<HashMap<String, Option<i64>>>,
     pub(super) shutdown: std::sync::atomic::AtomicBool,

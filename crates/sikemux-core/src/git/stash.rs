@@ -172,7 +172,6 @@ pub async fn git_stash_rename(
         // the now-shifted original. A failure can leave a harmless duplicate but
         // can never remove the only ordinary stash reference.
         let r = resolve_stash_ref(&repo, &refname, &sha)?;
-        // Grab the underlying commit SHA for the stash so we can re-store.
         let sha = git_ok(&repo, &["rev-parse", "--verify", "--end-of-options", &r])?.trim().to_string();
         if sha.is_empty() {
             return Err(format!("could not resolve {r}"));

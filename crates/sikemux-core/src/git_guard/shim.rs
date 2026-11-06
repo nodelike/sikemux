@@ -343,7 +343,6 @@ fn asked(ship: &crate::ship::Ship, cwd: &Path, follows: bool) -> Asked {
     }
 }
 
-/// Tells the core how the deploy it named `went` ended.
 fn tell_ran(went: &str, cwd: &Path, exit: Option<i32>) {
     if let Some(endpoint) = footer::endpoint() {
         let _ = crate::cli::client::attempt(
@@ -508,7 +507,6 @@ fn real(name: &str) -> Option<PathBuf> {
         .find(|found| !is_shim(found))
 }
 
-/// The git this shim stands in for, never the shim itself.
 fn real_git() -> Option<PathBuf> {
     std::env::var_os(vars::REAL_GIT)
         .map(PathBuf::from)

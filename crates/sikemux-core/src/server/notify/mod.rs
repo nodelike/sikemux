@@ -84,7 +84,6 @@ pub(crate) enum Signal {
         agent_id: String,
         message: String,
     },
-    /// An agent's question now waits on the person.
     Question {
         id: String,
         agent_id: String,
@@ -96,7 +95,6 @@ pub(crate) enum Signal {
         id: String,
         agent_id: String,
     },
-    /// A device waits for someone to let it pair.
     Pairing(PendingDevice),
     PairingSettled {
         id: String,
@@ -177,7 +175,6 @@ impl Notifier {
         (state.left_at, state.away)
     }
 
-    /// What the person calls this host.
     pub(crate) fn host_name(&self) -> String {
         self.host_name
             .get()

@@ -160,7 +160,6 @@ pub(super) fn shown<'a>(
         .collect()
 }
 
-/// The projects saved chats are looked for in.
 pub(super) fn recent_projects(saved: &Saved) -> Vec<String> {
     saved
         .projects

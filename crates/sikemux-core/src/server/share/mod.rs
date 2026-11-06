@@ -35,12 +35,10 @@ use seal::Seal;
 /// The shortest and longest a share may stay open.
 const MIN_LIFETIME_MS: u64 = 60_000;
 const MAX_LIFETIME_MS: u64 = 7 * 24 * 60 * 60_000;
-/// How many turns one older page holds.
 const PAGE_TURNS: u32 = 20;
 /// The largest pasted picture a viewer is sent.
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
 
-/// What the app shows of one share.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareView {
@@ -66,7 +64,6 @@ pub enum ShareState {
     Refused,
 }
 
-/// One share the core runs.
 struct Running {
     stored: StoredShare,
     seal: Arc<Seal>,
@@ -92,7 +89,6 @@ impl Drop for Running {
     }
 }
 
-/// What reaches the share connection.
 pub(super) enum ToLink {
     Open(String),
     Close(String),
@@ -204,7 +200,6 @@ fn tell(core: &Arc<Core>, inner: &mut Inner, message: ToLink) {
     tokio::spawn(link::run(Arc::downgrade(core), base, receiver));
 }
 
-/// Starts sharing `stored`: attaches its client and asks the server to open it.
 fn begin(core: &Arc<Core>, inner: &mut Inner, stored: StoredShare) -> CoreResult<()> {
     let seal = Seal::new(&stored.id, &stored.key).ok_or("the share's key is not valid")?;
     let (client, mut frames) = ClientConn::inside(
@@ -531,7 +526,6 @@ pub(crate) struct StopShareParams {
     pub(crate) id: String,
 }
 
-/// Shares the chat `params` names for as long as they say.
 pub(crate) fn share_chat_for(core: &Arc<Core>, params: ShareChatParams) -> CoreResult<ShareView> {
     share_chat(core, &params.agent_id, params.lifetime_ms, params.title)
 }

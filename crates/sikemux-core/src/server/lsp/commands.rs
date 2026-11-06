@@ -50,10 +50,9 @@ pub(crate) async fn lsp_start(
 ) -> LspResult<()> {
     validate_server_identity(&project, &language)?;
     let server_key = ServerKey::new(&project, &language);
-    // The initialize handshake blocks up to 20 s on slow servers; off the
-    // Tauri worker pool so unrelated IPC isn't starved. The start lock spans
-    // admission, process initialization, and registry insertion, making the
-    // cap a hard pre-spawn admission limit rather than an eventual backstop.
+    // The initialize handshake blocks up to 20 s on slow servers, so it runs off the
+    // async threads. The start lock spans admission, process initialization, and registry
+    // insertion, making the cap a hard pre-spawn admission limit rather than an eventual backstop.
     task::spawn_blocking(move || -> LspResult<()> {
         let _guard = start_lock().locked();
         if live_server_exists(&server_key) {

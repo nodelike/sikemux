@@ -98,9 +98,8 @@ pub(crate) struct PreparedLaunch {
     pub setup: bool,
 }
 
-/// The command the app's `pty_spawn` builds, minus the parts only the app can
-/// do: it applies the browser integration to `direct_command` and passes its
-/// environment in `env`.
+/// The command a terminal starts with, minus the parts only the app can do: it applies the
+/// browser integration to `direct_command` and passes its environment in `env`.
 pub(crate) fn prepare_terminal(
     launch: &LaunchIdentity,
     spawn: TerminalSpawn,
@@ -226,7 +225,7 @@ pub(crate) fn prepare_terminal(
     })
 }
 
-/// The command the app's `task_spawn` builds. Blocks on the first call while
+/// The command a task starts with. Blocks on the first call while
 /// the login shell's environment is captured.
 pub(crate) fn prepare_task(
     launch: &LaunchIdentity,

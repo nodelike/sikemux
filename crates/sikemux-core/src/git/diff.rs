@@ -39,7 +39,6 @@ impl Change {
     }
 }
 
-/// The runs of lines that differ between `old` and `new`, in order.
 pub fn changes(old: &str, new: &str) -> Vec<Change> {
     if old == new {
         return Vec::new();

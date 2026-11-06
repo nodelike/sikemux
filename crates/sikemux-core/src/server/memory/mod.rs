@@ -404,7 +404,6 @@ fn keep(core: &Core, project: &str, new: NewMemory, learned: Learned) -> Result<
     }
 }
 
-/// Changes a rule or knowledge, or a goal's rule on its card.
 fn amend(
     core: &Core,
     project: &str,

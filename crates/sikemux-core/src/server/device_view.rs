@@ -38,7 +38,6 @@ pub(crate) struct DeviceViews {
 }
 
 impl Core {
-    /// Something may watch the device view now, so it wakes to send it.
     pub(crate) fn view_watched(&self) {
         self.device_view.watched.notify_one();
     }
@@ -74,7 +73,6 @@ impl Core {
         }
     }
 
-    /// Every chat and agent terminal running here.
     /// Every session, with what the app calls its agent and whether the
     /// person has seen what the agent last did.
     pub(crate) fn session_infos(&self) -> Vec<sikemux_wire::protocol::SessionInfo> {
@@ -227,8 +225,7 @@ impl Core {
         Some((frame, moving))
     }
 
-    /// Sends every paired device what it shows of this host, when that changed
-    /// since they were last sent it.
+    /// The clients sent the device view: every paired device, and local clients that asked.
     fn view_watchers(&self) -> Vec<Arc<ClientConn>> {
         self.clients()
             .into_iter()
@@ -255,7 +252,8 @@ impl Core {
         *self.device_view.shown_load.locked() != Some(load::shown(load))
     }
 
-    /// Whether anything in the view moves by itself.
+    /// Sends every paired device what it shows of this host, when that changed since they were
+    /// last sent it. Answers whether anything in the view moves by itself.
     fn publish_device_view(&self) -> bool {
         let devices = self.view_watchers();
         if devices.is_empty() {

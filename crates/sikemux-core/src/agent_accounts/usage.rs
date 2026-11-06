@@ -391,7 +391,6 @@ pub(crate) async fn codex_usage(
         .map(|result| parse_codex_usage_result(&result))
 }
 
-/// Asks a short-lived `codex app-server` one question and returns its answer.
 pub(super) async fn codex_app_server(
     executable: &Path,
     config_path: Option<&str>,

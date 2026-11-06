@@ -234,7 +234,6 @@ pub(crate) async fn own_home(core: &Core, launch: &mut ChatLaunch) -> bool {
     true
 }
 
-/// A chat to start: on which launcher, where, and how.
 pub(crate) struct Launch {
     pub agent_id: String,
     pub launcher: String,

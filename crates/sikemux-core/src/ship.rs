@@ -375,7 +375,6 @@ fn matches(rule: &Rule, args: &[String]) -> bool {
         }
 }
 
-/// Which programs of a command line a check looks at.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Looks {
     Every,
@@ -451,7 +450,6 @@ pub(crate) fn leads(listed: &str, words: &[String]) -> bool {
             .all(|(word, want)| plain(word) == *want)
 }
 
-/// When a Sikemux tool's call leaves this machine.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ToolShip {
     /// Every call does.

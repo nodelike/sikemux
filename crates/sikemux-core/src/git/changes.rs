@@ -72,7 +72,6 @@ fn git_stage_sync(repo: String, path: String) -> Result<(), String> {
     let r = open_repo(&repo)?;
     let mut index = r.index().map_err(|e| e.message().to_string())?;
     let p = Path::new(&path);
-    // If the file is gone, stage the deletion; else add the worktree content.
     let abs = Path::new(&repo).join(p);
     if !abs.exists() {
         index.remove_path(p).map_err(|e| e.message().to_string())?;
@@ -176,7 +175,6 @@ pub async fn git_stage_paths(repo: String, paths: Vec<String>) -> Result<(), Str
         let mut index = r.index().map_err(|e| e.message().to_string())?;
         for path in &paths {
             let relative = Path::new(path);
-            // A file that is gone stages as a deletion.
             if Path::new(&repo).join(relative).exists() {
                 index
                     .add_path(relative)

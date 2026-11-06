@@ -78,7 +78,6 @@ pub struct SearchRange {
 pub struct SearchHit {
     pub line: u32,
     pub text: String,
-    /// True when `text` was truncated to fit MAX_MATCH_TEXT_BYTES.
     #[serde(default)]
     pub truncated_text: bool,
     pub ranges: Vec<SearchRange>,
@@ -124,7 +123,6 @@ pub struct ReplaceResults {
     pub file_count: usize,
     pub match_count: usize,
     pub errors: Vec<ReplaceError>,
-    /// True when no writes were performed (dry_run).
     pub dry_run: bool,
     pub elapsed_ms: u64,
 }
@@ -201,9 +199,6 @@ fn clip_text_and_ranges(
         let text = String::from_utf8_lossy(bytes).into_owned();
         return (text, false, ranges);
     }
-    // Anchor a window starting ~64 bytes before the first hit so the user
-    // sees some leading context. Bias rightward only when the hit is past
-    // the cap; otherwise start from byte 0.
     let first_hit = ranges.first().map(|r| r.start as usize).unwrap_or(0);
     let window_start = if first_hit > MAX_MATCH_TEXT_BYTES.saturating_sub(64) {
         first_hit.saturating_sub(64)
@@ -212,7 +207,6 @@ fn clip_text_and_ranges(
     };
     let window_end = (window_start + MAX_MATCH_TEXT_BYTES).min(bytes.len());
 
-    // Round window edges to char boundaries so from_utf8_lossy stays sane.
     let window_start = floor_char_boundary(bytes, window_start);
     let window_end = floor_char_boundary(bytes, window_end);
 
@@ -355,10 +349,9 @@ fn clear_generation(repo: &str, generation: &Generation) {
 
 fn build_walker(repo: &str) -> ignore::WalkParallel {
     WalkBuilder::new(repo)
-        // Honor .gitignore so generated/vendored dirs (and per-project
-        // codegen output) don't get walked. should_skip_dir still applies
-        // for things never tracked by git (build artifacts, .git itself,
-        // editor caches, etc.).
+        // Honors .gitignore so generated and vendored folders are not searched. The file
+        // picker's walk in project_files.rs ignores it on purpose, to list files like .env.
+        // should_skip_dir still applies to what git never tracks, such as build output.
         .hidden(false)
         .git_ignore(true)
         .git_exclude(true)
@@ -391,7 +384,6 @@ fn repo_relative(repo: &str, path: &Path) -> Option<String> {
 
 // ---- search command (streaming) ----------------------------------------
 
-/// What `searchStream` is asked to find.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SearchParams {
@@ -495,7 +487,6 @@ fn run_search(
 
     impl<'a> ParallelVisitor for Visitor<'a> {
         fn visit(&mut self, entry: Result<DirEntry, ignore::Error>) -> WalkState {
-            // Cheap fast-path bails before any per-entry work.
             if !self.generation.is_current() {
                 self.cancelled.store(true, Ordering::Relaxed);
                 return WalkState::Quit;
@@ -606,7 +597,6 @@ fn run_search(
 // atomically via tempfile. dry_run skips step 2's write/rename so the UI
 // can preview the destructive op.
 
-/// What `searchReplace` is asked to change.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ReplaceParams {
@@ -793,15 +783,10 @@ fn run_replace(
                 });
             }
 
-            // Fast no-match short-circuit: skips both the alloc + rename
-            // dance for files that survived globbing but have no hits.
             if !rewrite_re.is_match(&original) {
                 return Ok(None);
             }
 
-            // Count + rewrite in one pass: replace_all does the work; we
-            // re-count separately via find_iter (cheap on bytes we just
-            // matched against in cache) for the per-file count report.
             let match_count = rewrite_re.find_iter(&original).count();
             let rewritten = rewrite_re
                 .replace_all(&original, replace.as_bytes())

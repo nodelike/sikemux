@@ -52,7 +52,6 @@ impl AgentSpec {
         }
     }
 
-    /// The program this agent runs as.
     pub async fn program(&self) -> Result<PathBuf, String> {
         discovery::resolve(&self.provider, self.executable_path.as_deref()).await
     }

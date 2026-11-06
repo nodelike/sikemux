@@ -25,7 +25,6 @@ use words::{ANIME, NATURE};
 
 const FILE: &str = "agent-names.json";
 
-/// The id a new agent goes by.
 pub(crate) fn new_agent_id() -> String {
     format!("agent-{}", uuid::Uuid::new_v4().simple())
 }
@@ -166,7 +165,6 @@ pub struct ClosedAgent {
     pub buddy: Option<AgentBuddy>,
 }
 
-/// An agent another agent starts.
 pub(crate) struct Worker<'a> {
     pub agent_id: &'a str,
     pub lead: &'a str,
@@ -179,7 +177,6 @@ pub(crate) struct Worker<'a> {
     pub reports: bool,
 }
 
-/// An agent that wants a name.
 pub(crate) struct Starting<'a> {
     pub agent_id: &'a str,
     pub project: String,
@@ -300,7 +297,6 @@ impl Names {
         }
     }
 
-    /// Gives each agent the name it goes by.
     pub(crate) fn fill(&self, agents: &mut [sikemux_wire::protocol::WorkspaceAgent]) {
         let book = self.book.locked();
         let names: HashMap<&str, &str> = book

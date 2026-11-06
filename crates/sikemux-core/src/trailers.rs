@@ -49,7 +49,6 @@ pub struct PendingNote {
 pub struct Agent {
     pub name: String,
     pub cli: String,
-    /// The version of the agent's CLI.
     pub cli_version: Option<String>,
     pub model: Option<String>,
     /// The version of Sikemux the agent ran in.
@@ -111,7 +110,6 @@ pub struct Commit<'a> {
     pub parents: &'a [String],
 }
 
-/// The footer naming `agents` in `commit`, signed with the host's `key`.
 pub fn footer(agents: &[Agent], commit: &Commit, key: Option<&SecretKey>) -> Vec<String> {
     let agents: Vec<Agent> = agents
         .iter()
@@ -361,7 +359,6 @@ pub fn into_message_file(text: &str, footer: &[String]) -> Option<String> {
     Some(format!("{}{gap}{comments}{cut}", append(content, footer)))
 }
 
-/// Whether the commit message file already ends in a signed footer.
 pub fn is_signed(text: &str) -> bool {
     message_file(text).is_some_and(|(content, _, _)| read(content).1.is_some())
 }
@@ -392,7 +389,6 @@ fn line_starts(text: &str) -> impl Iterator<Item = usize> + '_ {
         .filter(move |at| *at < text.len())
 }
 
-/// `message` without the footer lines of its trailer block.
 fn without_footer(message: &str) -> String {
     let Some((before, last)) = message.rsplit_once("\n\n") else {
         return message.to_owned();

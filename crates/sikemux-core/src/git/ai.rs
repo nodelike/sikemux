@@ -48,7 +48,6 @@ fn clean_commit_message(raw: &str) -> Result<String, String> {
     Ok(lines.join("\n"))
 }
 
-/// Build the AI prompt from a stat + diff.
 fn commit_message_prompt(repo: &str, stat: &str, diff: &str, compacted: bool) -> String {
     let branch = git_ok(repo, &["branch", "--show-current"])
         .unwrap_or_default()

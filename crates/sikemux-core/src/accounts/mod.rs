@@ -80,8 +80,6 @@ impl HostRequest {
     }
 }
 
-/// Where the accounts API is. Dev builds talk to a server on this computer,
-/// or to `SIKEMUX_API_URL`.
 /// The client for the accounts server and the sign-in it relies on. A request waits up to
 /// 20 seconds unless it sets its own deadline.
 pub fn client() -> Result<&'static reqwest::Client, String> {
@@ -96,6 +94,8 @@ pub fn client() -> Result<&'static reqwest::Client, String> {
     .map_err(|_| unreachable())
 }
 
+/// Where the accounts API is. Dev builds talk to a server on this computer,
+/// or to `SIKEMUX_API_URL`.
 pub fn api_base() -> String {
     if cfg!(debug_assertions) {
         std::env::var(sikemux_process::vars::API_URL)

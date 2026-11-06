@@ -84,7 +84,7 @@ fn begin(core: &Arc<Core>, project: &str) -> Result<(), String> {
 }
 
 /// The rules the person repeats in `project`'s past sessions, as the model
-/// found them, without those kept already. None when nothing could be read
+/// found them, without those kept already. Empty when nothing could be read
 /// or no model answered in a way that can be read.
 fn find(core: &Core, project: &str) -> Vec<SeededRule> {
     let sessions = saved::typed_in(core, project, READ_BUDGET);
@@ -256,7 +256,6 @@ pub(crate) async fn again(
     run(move || Ok(view(&core, &project, &peer))).await
 }
 
-/// A project's offer, for the inbox.
 pub(crate) struct Offer {
     pub project: String,
     pub rules: Vec<SeededRule>,

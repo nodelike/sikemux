@@ -76,7 +76,6 @@ pub(crate) fn show(core: &Arc<Core>, client: ClientId, shown: ShowFiles) -> Core
     rewatch(core, &mut state)
 }
 
-/// Watches exactly the folders that hold an open file.
 fn rewatch(core: &Arc<Core>, state: &mut State) -> CoreResult<()> {
     let wanted: HashSet<PathBuf> = state
         .by_client

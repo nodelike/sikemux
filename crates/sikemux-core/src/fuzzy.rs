@@ -177,7 +177,6 @@ pub fn matched(query: &str, text: &str) -> Vec<Range<usize>> {
     }
 }
 
-/// A project's file or folder, as `rank_entries` finds it.
 #[derive(Clone, Debug, Serialize)]
 pub struct Entry {
     pub path: String,

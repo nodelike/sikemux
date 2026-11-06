@@ -43,7 +43,6 @@ impl Diagrams {
         }
     }
 
-    /// The arrangement kept under `key`, if any.
     pub(crate) fn get(&self, key: &str) -> Option<Value> {
         let mut held = self.held.locked();
         let stored = held.get_mut(key)?;
@@ -94,12 +93,10 @@ pub(crate) struct DiagramParams {
     layout: Option<Value>,
 }
 
-/// The arrangement kept under the key, as the apps read it.
 pub(crate) fn layout(core: &Core, params: DiagramParams) -> Value {
     json!({ "layout": core.diagrams.get(&params.key) })
 }
 
-/// Keeps the arrangement under the key, or forgets it.
 pub(crate) fn set_layout(core: &Core, params: DiagramParams) -> CoreResult<Value> {
     core.diagrams.set(&params.key, params.layout)?;
     Ok(json!({}))

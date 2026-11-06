@@ -402,7 +402,6 @@ pub(crate) struct Core {
     /// The files clients have open, watched wherever they are.
     pub(crate) open_files: open_files::OpenFiles,
     pub(crate) layouts: layout::Layouts,
-    /// Who this host is signed in to Sikemux as.
     pub(crate) account: account::Account,
     /// The rail numbers running loose terminals have.
     rail_numbers: Mutex<BTreeSet<u32>>,
@@ -419,7 +418,6 @@ pub(crate) struct Core {
     pub(crate) hosts: hosts::Hosts,
     /// The faces agents wear, and the style the person picked for them.
     pub(crate) faces: faces::Faces,
-    /// How the person wants Sikemux to behave.
     pub(crate) preferences: preferences::Prefs,
     /// What the person has typed and not sent yet, by what it is for.
     pub(crate) drafts: drafts::Drafts,
@@ -1072,7 +1070,6 @@ pub async fn serve(config: ServerConfig) -> Result<(), ServerError> {
     run_core(core, listener, lock).await
 }
 
-/// The agents' tool endpoint, when this core publishes one.
 pub(crate) async fn start_tools(core: &Arc<Core>) -> Option<tools::ToolEndpoint> {
     let path = core.config.cli_endpoint.clone()?;
     tools::ToolEndpoint::start(core.clone(), path)

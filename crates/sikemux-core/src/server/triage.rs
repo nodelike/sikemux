@@ -116,7 +116,6 @@ fn triaged(project: &Path, text: &str) -> Triage {
 #[serde(rename_all = "camelCase")]
 pub struct TriageParams {
     pub project: String,
-    /// What the person typed so far.
     pub text: String,
 }
 

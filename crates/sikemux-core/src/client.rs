@@ -94,7 +94,6 @@ fn read_frozen(stream: &mut StdUnixStream) -> Result<Option<FrozenReply>, Client
     Ok(Some(serde_json::from_slice(&frame.payload)?))
 }
 
-/// How a restart the core agreed to went.
 pub enum Restart {
     /// The core at `pid` runs again from its own binary, with every session and chat.
     Done { pid: u32 },
@@ -372,7 +371,6 @@ pub fn wait_for_core(socket: &Path, timeout: Duration) -> Result<CoreHello, Clie
     found.unwrap_or(Err(ClientError::StartTimeout(timeout)))
 }
 
-/// Finds the core at `socket`, or starts one with `args` after its socket.
 pub fn ensure_running(
     socket: &Path,
     binary: &Path,

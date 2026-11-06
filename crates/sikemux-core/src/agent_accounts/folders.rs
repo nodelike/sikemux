@@ -185,7 +185,6 @@ fn make_account(provider: &str, name: &str, home: &Path) -> Result<String, Strin
     Ok(format!("~/{folder}"))
 }
 
-/// A new Claude account's `.claude.json`, seeded from the default one under `home`.
 pub(crate) fn seed_claude_account(home: &Path, directory: &Path) -> Result<(), String> {
     let default = std::fs::read(home.join(".claude.json"))
         .ok()

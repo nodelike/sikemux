@@ -23,7 +23,6 @@ use sikemux_wire::protocol::ChatAccount;
 const MAX_PROFILES: usize = 64;
 const MAX_TEXT: usize = 4_096;
 
-/// One account with one agent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
@@ -129,7 +128,6 @@ impl Book {
             .unwrap_or_else(|| format!("{BUILT_IN}{provider}"))
     }
 
-    /// The agent `provider` on the account in `config_path`.
     pub fn spec(&self, provider: &str, config_path: Option<&str>) -> AgentSpec {
         self.profiles
             .iter()
@@ -228,10 +226,10 @@ pub fn cli(
     command
 }
 
-/// The core's calls about accounts and their limits, all of them the app's own.
 /// What an agent that keeps no accounts of its own answers when asked for one.
 pub const NO_ACCOUNTS: &str = "Only Claude and Codex keep separate accounts";
 
+/// The core's calls about accounts and their limits, all of them the app's own.
 pub const METHODS: [&str; 16] = [
     "agentAccounts",
     "setAgentAccounts",

@@ -14,7 +14,6 @@ pub(crate) fn agent_of(request: &HarnessRequest, tool: &str) -> Result<String, S
         .ok_or_else(|| format!("{tool} needs the calling agent's id"))
 }
 
-/// The project the calling agent belongs to.
 pub(crate) fn project_of(core: &Core, request: &HarnessRequest) -> String {
     request
         .agent_id

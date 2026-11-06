@@ -104,7 +104,6 @@ pub(crate) fn silence(heartbeat_ms: i64) -> Duration {
     u64::try_from(heartbeat_ms).map_or(HEARTBEAT, Duration::from_millis) * 2
 }
 
-/// The wait a server's `bye` asks for.
 pub(crate) fn asked_wait(reconnect_after_ms: i64) -> Duration {
     Duration::from_millis(u64::try_from(reconnect_after_ms).unwrap_or_default())
 }

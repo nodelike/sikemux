@@ -91,7 +91,6 @@ impl Spares {
         }
     }
 
-    /// The project in front may have changed.
     pub(crate) fn front_changed(&self) {
         self.changed(&mut self.held.locked());
     }
@@ -211,8 +210,6 @@ async fn start(
     core.spares.wake.now();
 }
 
-/// Starts a shell in a project's folder, as a terminal of that project, and
-/// types `startup` into it.
 async fn shell(
     core: &Arc<Core>,
     project: &str,
@@ -365,7 +362,6 @@ pub(crate) async fn command_terminal(
     super::layout::show_terminal(core, At::project(&project), id, Some(title))
 }
 
-/// A new shell in `project`'s folder running `startup`.
 pub(crate) async fn command_shell(
     core: &Arc<Core>,
     project: &str,

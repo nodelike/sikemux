@@ -41,7 +41,6 @@ pub(super) fn written(path: PathBuf) -> Option<PathBuf> {
 pub(crate) enum Said {
     /// What the agent was sent: by the person, or another agent's message.
     Asked(String),
-    /// Text the agent wrote.
     Message(String),
     Tool {
         id: String,
@@ -218,7 +217,6 @@ pub(super) fn text(value: &Value) -> Option<&str> {
     value.as_str().filter(|text| !text.trim().is_empty())
 }
 
-/// The text parts of a message's content, joined.
 pub(super) fn texts(content: &Value) -> Option<String> {
     if let Some(text) = text(content) {
         return Some(text.to_owned());

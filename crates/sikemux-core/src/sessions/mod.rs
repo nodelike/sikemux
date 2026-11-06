@@ -243,7 +243,6 @@ fn push_texts(content: &Value, by: search::Speaker, prose: &mut dyn search::Hear
     }
 }
 
-/// Read up to `n` bytes from the start of `file` as lossy UTF-8.
 fn read_prefix(file: &mut fs::File, n: u64) -> Option<String> {
     file.seek(SeekFrom::Start(0)).ok()?;
     let mut buf = Vec::new();
@@ -251,7 +250,6 @@ fn read_prefix(file: &mut fs::File, n: u64) -> Option<String> {
     Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
-/// Read from `start` to the end of `file` as lossy UTF-8.
 fn read_suffix(file: &mut fs::File, start: u64) -> Option<String> {
     file.seek(SeekFrom::Start(start)).ok()?;
     let mut buf = Vec::new();
@@ -272,7 +270,6 @@ pub(crate) fn is_compressed(path: &Path) -> bool {
         .is_some_and(|path| path.ends_with(COMPRESSED_JSONL))
 }
 
-/// A transcript's lines, decompressed when it is compressed.
 fn transcript_lines(path: &Path) -> Option<Box<dyn BufRead>> {
     let file = fs::File::open(path).ok()?;
     if is_compressed(path) {

@@ -356,7 +356,6 @@ fn sweeping(args: &[String], private_index: bool) -> Option<&'static str> {
     }
 }
 
-/// The flags before a `--`.
 fn flags_before_paths(args: &[String]) -> impl Iterator<Item = &str> {
     args.iter()
         .map(String::as_str)

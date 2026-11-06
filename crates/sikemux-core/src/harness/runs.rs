@@ -312,7 +312,6 @@ impl Runs {
             .collect()
     }
 
-    /// The execution a key already names, if any.
     pub fn keyed(&self, project: &str, key: &str, task_id: &str) -> Result<Option<String>, String> {
         let Some(entry) = self
             .keys

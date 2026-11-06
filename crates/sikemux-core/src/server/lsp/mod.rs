@@ -33,7 +33,6 @@ use super::changed::Topic;
 use super::connection::ClientId;
 use super::{Core, CoreError, CoreResult};
 
-/// Takes each file's diagnostics as a server publishes them.
 pub(crate) type Publish = Arc<dyn Fn(LspDiagnosticsPayload) + Send + Sync>;
 
 /// What went wrong, and which language and program when a server is not installed.
@@ -204,7 +203,6 @@ fn answer(value: impl Serialize) -> CoreResult<Value> {
     Ok(serde_json::to_value(value)?)
 }
 
-/// Closes documents nobody holds any more.
 fn close_all(keys: Vec<held::DocKey>) {
     if keys.is_empty() {
         return;
@@ -238,7 +236,6 @@ pub(crate) fn orphan(client: ClientId) {
     });
 }
 
-/// The documents to carry through a hand-over.
 pub(crate) fn carry() -> Vec<held::Carried> {
     held::carry()
 }

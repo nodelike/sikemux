@@ -178,7 +178,6 @@ fn start(core: &Arc<Core>) -> Option<RecommendedWatcher> {
     Some(watcher)
 }
 
-/// Reads the sessions written to once their writes settle.
 async fn listen(owner: Weak<Core>, mut heard: mpsc::UnboundedReceiver<Vec<PathBuf>>) {
     let mut pending: HashMap<Group, Touched> = HashMap::new();
     let mut due: Option<(Instant, Instant)> = None;
@@ -260,7 +259,6 @@ fn route(core: &Arc<Core>, paths: &[PathBuf], pending: &mut HashMap<Group, Touch
     any
 }
 
-/// Reads again the sessions a group's files say changed.
 async fn refresh(core: &Arc<Core>, group: Group, touched: Touched) {
     let rows = if touched.listing {
         listed(group.clone()).await
@@ -405,7 +403,6 @@ async fn listed(group: Group) -> Vec<AgentSession> {
     .unwrap_or_default()
 }
 
-/// Reads the group's sessions again and settles its agents on them.
 async fn scan(core: &Weak<Core>, group: &Group) {
     let rows = listed(group.clone()).await;
     let Some(core) = core.upgrade() else {

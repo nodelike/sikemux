@@ -35,7 +35,6 @@ pub(crate) trait Shows: Sized + Send + Sync + 'static {
     type Slot: Clone + Eq + Hash + Send + Sync + 'static;
     /// What reading a key again needs beside the key.
     type With: Clone + Send + Sync + 'static;
-    /// The longest a failing read waits before it is tried again.
     const LONGEST_BACKOFF: Duration;
 
     fn cache(core: &Core) -> &ShownCache<Self>;
@@ -119,7 +118,6 @@ impl<S: Shows> ShownCache<S> {
         })
     }
 
-    /// The kept keys `pick` picks.
     pub(crate) fn keys(&self, pick: impl Fn(&S::Key) -> bool) -> Vec<S::Key> {
         self.state
             .locked()
@@ -130,7 +128,6 @@ impl<S: Shows> ShownCache<S> {
             .collect()
     }
 
-    /// Every kept answer, with its key.
     pub(crate) fn each(&self, mut see: impl FnMut(&S::Key, &Value)) {
         for (key, kept) in &self.state.locked().kept {
             see(key, &kept.answer);
@@ -302,7 +299,6 @@ pub(crate) fn read_again_settled<S: Shows>(core: &Arc<Core>, keys: Vec<S::Key>) 
     });
 }
 
-/// Reads `keys` again now.
 pub(crate) fn read_again<S: Shows>(core: &Arc<Core>, keys: Vec<S::Key>) {
     if keys.is_empty() {
         return;

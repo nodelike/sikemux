@@ -30,8 +30,6 @@ pub(crate) struct MoveToFolder {
     path: PathBuf,
 }
 
-/// Moves an agent into the project at a folder, as `move_agent` does, making the folder a
-/// project first when it is not one.
 fn movable(core: &Core, agent_id: &str) -> CoreResult<WorkspaceAgent> {
     let agent = core.workspaces.agent_or_gone(agent_id)?;
     if agent.worktree.is_some() {
@@ -40,6 +38,8 @@ fn movable(core: &Core, agent_id: &str) -> CoreResult<WorkspaceAgent> {
     Ok(agent)
 }
 
+/// Moves an agent into the project at a folder, as `move_agent` does, making the folder a
+/// project first when it is not one.
 pub(crate) async fn move_to_folder(
     core: &Arc<Core>,
     params: MoveToFolder,

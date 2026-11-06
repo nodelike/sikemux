@@ -31,7 +31,6 @@ pub(crate) fn terminal_folder(core: &Core, session: &SessionInfo) -> Option<std:
     Some(core.workspaces.project_info(id)?.path)
 }
 
-/// How an agent can be reached.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Reach {
     Chat,

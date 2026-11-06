@@ -32,7 +32,6 @@ pub(crate) struct Streams {
 }
 
 impl Streams {
-    /// Opens `stream` on `client`'s connection.
     pub(crate) fn open(&self, client: Arc<ClientConn>, stream: u64) -> CoreResult<Arc<Stream>> {
         let stop = Arc::new(AtomicBool::new(false));
         {
@@ -117,7 +116,6 @@ impl Stream {
         self.end(last, None);
     }
 
-    /// Sends what is left and ends the stream with `error`.
     pub(crate) fn fail(&self, error: Value) {
         self.end(None, Some(error));
     }
@@ -183,7 +181,6 @@ pub(crate) struct SearchStreamParams {
     search: crate::server::search::SearchParams,
 }
 
-/// Starts a search whose files arrive as the client's stream `stream`.
 pub(crate) fn search_stream(
     core: &Core,
     client: &ClientConn,

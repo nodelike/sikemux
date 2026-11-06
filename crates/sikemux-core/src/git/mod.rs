@@ -162,7 +162,6 @@ impl<'a> Git<'a> {
         self
     }
 
-    /// Uses `index` in place of the checkout's own index.
     pub fn index(self, index: &std::path::Path) -> Self {
         self.env("GIT_INDEX_FILE", index)
     }
@@ -275,7 +274,6 @@ pub fn main_checkout(path: &std::path::Path) -> Option<std::path::PathBuf> {
     common.parent().map(std::path::Path::to_path_buf)
 }
 
-/// Where `repo`'s remote named origin is, when it has one.
 pub fn origin(repo: &std::path::Path) -> Option<String> {
     Git::quick(repo)
         .trimmed(&["remote", "get-url", "origin"])

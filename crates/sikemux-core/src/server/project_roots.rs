@@ -73,9 +73,6 @@ pub(crate) fn resolve(params: ResolveParams) -> Resolved {
     }
 }
 
-// DFS within `root` up to `remaining` levels deep. Within the walk, only
-// git repos are emitted; repos are also terminal — we never descend into
-// one.
 fn walk(
     root: &Path,
     depth: i64,
@@ -181,8 +178,6 @@ fn scan_project_roots_sync(roots: Vec<ProjectRoot>) -> Result<Vec<RootEntry>, St
                     path: root_path,
                 });
             }
-            // If the root itself is a git repo, don't enumerate its
-            // insides — it's already the project.
             continue;
         }
         walk(

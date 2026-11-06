@@ -135,7 +135,6 @@ pub(crate) fn cut(repo: &Path, branch: &str, start: &str) -> Result<(String, Pat
     Ok((branch, path))
 }
 
-/// Takes away a worktree and its branch.
 pub(crate) fn remove(repo: &Path, path: &Path, branch: &str) {
     let target = path.to_string_lossy().into_owned();
     if let Err(error) = Git::quick(repo).trimmed(&["worktree", "remove", "--force", &target]) {
@@ -237,7 +236,6 @@ fn matches_part(pattern: &str, name: &str) -> bool {
     rest.is_empty()
 }
 
-/// A card's own checkout.
 pub(crate) struct Tree {
     pub repo: PathBuf,
     pub path: PathBuf,

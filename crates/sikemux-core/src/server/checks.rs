@@ -75,7 +75,6 @@ impl Checker {
         }
     }
 
-    /// The check as an agent or the person is told of it.
     pub(crate) fn label(&self) -> String {
         match self {
             Checker::Named(check) => check.label(),
@@ -107,11 +106,9 @@ struct Checks {
     checked: HashMap<String, Vec<String>>,
     /// The broken projects the person was told of.
     shown: HashSet<String>,
-    /// Each project's CI check that waits, by project.
     ci: HashMap<String, CiWait>,
 }
 
-/// A project's CI check while it waits.
 struct CiWait {
     /// The code-host repository its runs are read from, once something it
     /// waits on is pushed.
@@ -172,7 +169,6 @@ impl Checks {
         }
     }
 
-    /// The code-host repositories CI checks wait on.
     pub(crate) fn ci_repos(&self) -> Vec<Shown> {
         self.ci
             .values()
@@ -820,17 +816,14 @@ impl ProjectChecks {
         self.state.locked().ci_repos()
     }
 
-    /// The runs on `repo` moved, so the checks waiting on its CI look again now.
     pub(crate) fn ci_moved(&self, repo: &Shown) {
         self.state.locked().ci_moved(repo);
     }
 
-    /// `project`'s refs moved, as a push moves them, so its CI check looks again.
     pub(crate) fn refs_moved(&self, project: &str) {
         self.state.locked().refs_moved(project);
     }
 
-    /// The projects broken long enough that the person should hear of it.
     pub(crate) fn failing(&self) -> Vec<Failing> {
         self.state.locked().failing().cloned().collect()
     }

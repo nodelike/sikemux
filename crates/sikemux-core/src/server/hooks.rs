@@ -39,7 +39,6 @@ struct LinkState {
     again: bool,
 }
 
-/// Gives this host a new webhook.
 pub(crate) async fn register_hook(core: &Arc<Core>) -> CoreResult<AddedHook> {
     let mut secret = [0u8; 32];
     SystemRandom::new()

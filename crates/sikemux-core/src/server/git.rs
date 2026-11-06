@@ -58,7 +58,6 @@ pub(super) fn reads(method: &str) -> bool {
     row(method).is_some_and(|row| matches!(row.program, Program::Anyone))
 }
 
-/// Refuses a device a repository outside the workspace's projects.
 async fn confine(core: &Core, peer: &Peer, repo: &str) -> CoreResult<()> {
     if !matches!(peer, Peer::Device { .. }) {
         return Ok(());

@@ -448,7 +448,6 @@ fn transcript_key(kind: AgentKind, session: &str) -> String {
 }
 
 impl ActivityLog {
-    /// Counts the tokens the agent's transcript reported since it was last read.
     fn record_new_tokens(&self, place: &Place, at_ms: i64) {
         let Some(transcript) = &place.transcript else {
             return;
@@ -934,7 +933,6 @@ fn summarize(
     })
 }
 
-/// Sets each day's level of one measure.
 fn level(
     days: &mut [ActivityDay],
     value: impl Fn(&ActivityDay) -> f64,

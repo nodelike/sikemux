@@ -120,7 +120,6 @@ pub async fn newest(channel: UpdateChannel) -> Result<Newest, String> {
     newest.ok_or_else(|| failure.unwrap_or_else(|| "no feed answered".into()))
 }
 
-/// The key every release is signed with.
 pub fn release_key() -> Result<PublicKey, String> {
     let manifest: toml::Value = toml::from_str(APP_MANIFEST).map_err(|error| error.to_string())?;
     let encoded = manifest

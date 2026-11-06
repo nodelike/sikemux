@@ -34,7 +34,6 @@ const MAX_TITLE_CHARS: usize = 80;
 const SCREEN_LINES: usize = 40;
 const REPORT_SCREEN_LINES: usize = 30;
 
-/// Something that happened to an agent.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Happened {
     Working,
@@ -420,7 +419,6 @@ fn read_chat(core: &Core, target: &Listed, cursor: Option<&str>) -> Result<Value
     Ok(answer)
 }
 
-/// The last lines of a terminal agent's screen.
 fn screen_tail(core: &Core, agent_id: &str, lines: usize) -> Option<String> {
     let session = core.agent_session(agent_id)?;
     let (screen, _) = super::agent::screen_text(&session);

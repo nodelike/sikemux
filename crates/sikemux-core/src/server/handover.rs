@@ -414,7 +414,6 @@ impl Inherited {
         true
     }
 
-    /// Closes what was handed over but not taken.
     fn close_unclaimed(&self) {
         for fd in self.open.keys() {
             if !self.claimed.contains(fd) {
@@ -429,8 +428,6 @@ impl Inherited {
     }
 }
 
-/// Brings state an older core wrote up to the current format, one format at
-/// a time.
 fn migrate(mut state: Value) -> Result<Value, String> {
     loop {
         let format = state
@@ -812,7 +809,6 @@ fn window_size(fd: RawFd) -> Option<(u16, u16)> {
     (rc == 0 && size.ws_row > 0 && size.ws_col > 0).then_some((size.ws_row, size.ws_col))
 }
 
-/// Starts a core from what an earlier one handed over, then serves.
 pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(), ServerError> {
     let state = read_state(&recovery.directory);
     let socket = state

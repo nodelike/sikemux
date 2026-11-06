@@ -68,7 +68,6 @@ pub(crate) fn for_chat(core: &Core, cwd: &Path) -> Option<String> {
     Some(format!("{HEADING}\n\n{NOTE}\n\n{}", body(core, reader)?))
 }
 
-/// Who a brief is for.
 struct Reader {
     project: String,
     /// The goal its card sits under.

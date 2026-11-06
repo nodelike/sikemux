@@ -34,7 +34,6 @@ pub fn permission_args(agent: &AgentEntry, mode: PermissionMode) -> Vec<String> 
     args.iter().map(|arg| (*arg).to_owned()).collect()
 }
 
-/// The arguments `provider`'s CLI starts with in a terminal for `run`.
 pub fn args(provider: &str, run: &TerminalRun<'_>) -> Vec<String> {
     let Some(agent) = agent_catalog::agent(provider) else {
         return Vec::new();

@@ -212,7 +212,6 @@ pub(crate) fn set(core: &Core, key: &str, value: Value) -> CoreResult<Preference
     Ok(core.preferences.get())
 }
 
-/// Whether a new chat in the project starts in a worktree of its own.
 pub(crate) fn set_worktree_default(core: &Core, params: WorktreeDefaultParams) -> CoreResult<()> {
     let mut defaults = core.preferences.get().agent_worktree_defaults;
     match params.on {

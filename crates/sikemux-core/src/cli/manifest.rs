@@ -14,7 +14,6 @@ static SERVED: LazyLock<Result<Value, String>> = LazyLock::new(|| {
     Ok(json!({ "manifest": manifest, "guide": GUIDE }))
 });
 
-/// What `tools.manifest` answers.
 pub fn served() -> Result<Value, String> {
     SERVED.clone()
 }

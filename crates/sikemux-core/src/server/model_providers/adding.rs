@@ -26,7 +26,6 @@ const MAX_LABEL_CHARS: usize = 60;
 /// The paths an OpenAI- or Anthropic-compatible API serves under its base URL.
 const ENDPOINTS: [&str; 4] = ["/chat/completions", "/responses", "/messages", "/models"];
 
-/// What the person entered for a provider.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Entered {

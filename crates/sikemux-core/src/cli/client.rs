@@ -28,7 +28,6 @@ pub enum Failure {
     Sent(String),
 }
 
-/// The endpoint the file at `path` describes.
 pub fn read_endpoint(path: &Path) -> Result<CliEndpointDescriptor, String> {
     let file = std::fs::File::open(path).map_err(|_| "Sikemux is not running".to_owned())?;
     serde_json::from_reader(file).map_err(|_| "Sikemux CLI endpoint is invalid".to_owned())

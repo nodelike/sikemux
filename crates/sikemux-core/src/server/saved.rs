@@ -193,7 +193,6 @@ fn day(unix_ms: u64) -> String {
     at.get(..10).unwrap_or(&at).to_owned()
 }
 
-/// What `agent_sessions` answers.
 pub(crate) async fn find(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let query = query_param(&request.params)?;
     let limit = limit_param(&request.params)?;

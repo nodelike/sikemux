@@ -64,7 +64,6 @@ pub(crate) fn sequence_mark() -> u64 {
     sequence().load(Ordering::Acquire)
 }
 
-/// Carries on from the sequence an earlier core reached.
 pub(crate) fn continue_sequence(mark: u64) {
     sequence().fetch_max(mark, Ordering::AcqRel);
 }

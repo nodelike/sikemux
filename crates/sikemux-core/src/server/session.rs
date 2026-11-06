@@ -415,7 +415,6 @@ pub(crate) fn start_adopted(
     }
 }
 
-/// Starts the readers a failed hand-over stopped.
 pub(crate) fn thaw(core: &Arc<Core>, session: Arc<Session>) {
     if session.reader_frozen.swap(false, Ordering::AcqRel) {
         tokio::spawn(read_output(core.clone(), session));
@@ -1294,7 +1293,6 @@ pub(crate) fn detach_all(session: &Session) {
     }
 }
 
-/// The client drew every frame of the stream up to `frame`.
 pub(crate) fn ack(session: &Session, stream: StreamId, frame: u32) {
     {
         let mut subscribers = session.subscribers.locked();
@@ -1449,7 +1447,6 @@ pub(crate) struct TypeWhenReadyParams {
     draft: String,
 }
 
-/// Leaves `params.draft` at the prompt of a terminal the caller may type into, once it is ready.
 pub(crate) fn type_when_asked(
     core: &Core,
     client: &ClientConn,
@@ -1466,7 +1463,6 @@ pub(crate) fn type_when_asked(
     Ok(json!({}))
 }
 
-/// What sits unsent at the terminal's prompt.
 pub(crate) fn draft_at_prompt(core: &Core, params: SessionParams) -> CoreResult<Value> {
     let session = core.session(params.id).ok_or(NOT_HERE)?;
     Ok(json!({ "draft": prompt_draft(&session) }))

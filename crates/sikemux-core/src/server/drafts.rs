@@ -37,7 +37,6 @@ struct Stored {
     at: u64,
 }
 
-/// A draft as the apps read it.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Draft {
     pub text: String,
@@ -103,7 +102,6 @@ impl Delivery {
     }
 }
 
-/// The key a chat's draft is kept under.
 pub(crate) fn chat_key(agent: &str) -> String {
     format!("chat:{agent}")
 }

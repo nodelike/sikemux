@@ -209,9 +209,6 @@ pub async fn git_checkout_smart(repo: String, branch: String) -> Result<String, 
     .await
 }
 
-/// Create a new branch starting at `start_point` (default HEAD) and check it
-/// out. Mirrors `git checkout -b name [start_point]` — the usual "branch
-/// from where I am right now" flow.
 pub async fn git_branch_create(
     repo: String,
     name: String,

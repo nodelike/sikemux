@@ -148,7 +148,6 @@ impl Keeper {
         }
     }
 
-    /// Forgets what was kept for the question `id`, which is gone.
     pub(crate) fn forget(&mut self, id: &str) {
         self.kept.remove(id);
         if let Some(sender) = &self.sender {

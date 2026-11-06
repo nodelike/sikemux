@@ -163,7 +163,6 @@ impl Faces {
         Ok(style.clone())
     }
 
-    /// Puts on each agent the face it wears.
     pub(crate) fn fill(&self, agents: &mut [WorkspaceAgent]) {
         let style = self.style();
         for agent in agents {
@@ -172,7 +171,6 @@ impl Faces {
     }
 }
 
-/// Sets the style the person picked and shows it on every device.
 pub(crate) fn set_style_shown(core: &Core, style: FaceStyleChange) -> CoreResult<FaceStyle> {
     let style = core.faces.set_style(style)?;
     core.changed(What::View);

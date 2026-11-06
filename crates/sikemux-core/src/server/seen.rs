@@ -84,7 +84,6 @@ impl Seen {
         state.active_at.insert(agent_id.to_owned(), epoch_ms());
     }
 
-    /// The agent began a turn of work.
     pub(crate) fn started(&self, agent_id: &str) {
         let mut state = self.state.locked();
         let now = epoch_ms();
@@ -130,7 +129,6 @@ impl Seen {
         self.state.locked().show(client, View::default());
     }
 
-    /// Whether some client has the agent on screen.
     pub(crate) fn viewed(&self, agent_id: &str) -> bool {
         self.state.locked().viewed(agent_id)
     }

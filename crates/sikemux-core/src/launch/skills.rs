@@ -64,7 +64,6 @@ pub fn skill_args(
     })
 }
 
-/// The `skills.paths` in the person's global OpenCode config.
 pub fn opencode_user_paths() -> Vec<String> {
     let config_home = shell_var("XDG_CONFIG_HOME")
         .map(PathBuf::from)

@@ -132,7 +132,6 @@ fn parse_blame_porcelain(out: &str) -> GitBlame {
             continue;
         }
 
-        // Metadata line for the current commit.
         if let Some(rest) = line.strip_prefix("author ") {
             if let Some(m) = meta.get_mut(&cur) {
                 m.author = rest.to_string();
@@ -325,7 +324,6 @@ mod tests {
         git(td.path(), &["add", "f.txt"]);
         git(td.path(), &["commit", "-m", "seed"]);
 
-        // Disk blame: every line attributed to the single seed commit.
         let on_disk = git_blame(repo_arg(td.path()), "f.txt".into(), None)
             .await
             .expect("blame disk");
@@ -337,7 +335,6 @@ mod tests {
         assert_eq!(c.summary, "seed");
         assert_eq!(c.short.len(), 8);
 
-        // Buffer blame: an appended line shows as not-yet-committed.
         let buffer = "one\ntwo\nthree\nfour\n".to_string();
         let blame = git_blame(repo_arg(td.path()), "f.txt".into(), Some(buffer))
             .await

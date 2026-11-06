@@ -404,7 +404,6 @@ pub(crate) fn stream(
     Ok(json!({ "stream": id }))
 }
 
-/// The tools an agent working in `project` is offered.
 pub(crate) async fn agent_tools(core: &Core, project: &str) -> Result<Value, String> {
     let Some(Provided(plugins)) = core.config.plugins else {
         return Ok(Value::Array(Vec::new()));

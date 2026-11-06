@@ -152,7 +152,6 @@ pub(crate) async fn config_trusted(
     }
 }
 
-/// The trust questions waiting on the person.
 pub(crate) fn asks(core: &Core) -> Vec<TrustQuestion> {
     (core.tasks.state.locked().asking.values())
         .map(|asked| TrustQuestion {

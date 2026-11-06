@@ -37,7 +37,6 @@ const ANSWER_GRACE: Duration = Duration::from_secs(1);
 const UPDATES_OFF: &str =
     "updates are off for this host; turn them on in Sikemux, or with `sudo sikemux update --on`";
 
-/// Where an update stands, as every client shows it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum UpdateState {
@@ -122,7 +121,6 @@ pub(crate) struct Updates {
     quiet: Notify,
 }
 
-/// The app an update replaces.
 #[derive(Clone)]
 enum OwnApp {
     /// The macOS app bundle this core was started from.
@@ -224,7 +222,6 @@ impl Updates {
         self.wake.notify_one();
     }
 
-    /// A chat may have come to rest.
     pub(crate) fn chats_changed(&self) {
         self.quiet.notify_waiters();
     }

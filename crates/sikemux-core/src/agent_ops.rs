@@ -112,7 +112,6 @@ pub(crate) trait AgentOps: Sync {
         Some(sessions::file_stamp(found.place.as_deref()?))
     }
 
-    /// What was said in `found`.
     fn prose(&self, found: &Found, prose: &mut dyn Hear) -> Option<()>;
 
     /// Renames a session kept in files or a database Sikemux can write. None when
@@ -267,7 +266,6 @@ pub(crate) trait AgentOps: Sync {
         None
     }
 
-    /// How what an agent in a terminal said is read from its transcript.
     fn transcript_said(&self) -> Option<SaidReader> {
         None
     }
@@ -283,7 +281,6 @@ pub(crate) trait AgentOps: Sync {
         None
     }
 
-    /// The arguments its CLI signs an account out with.
     fn account_sign_out(&self) -> Option<&'static [&'static str]> {
         None
     }

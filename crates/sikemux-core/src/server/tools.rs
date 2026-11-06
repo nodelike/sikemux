@@ -33,7 +33,6 @@ const MAX_CONNECTIONS: usize = 128;
 const REQUEST_READ_DEADLINE: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const OPEN_ACCEPT_TIMEOUT: Duration = Duration::from_secs(60);
-/// Items a plugin stream may get ahead of the window by before it is ended.
 const CUT_SHORT: &str = "Sikemux started updating its background process while answering this call, so it may already have happened; check before trying it again";
 
 pub(crate) struct ToolEndpoint {

@@ -67,14 +67,14 @@ impl From<&str> for Error {
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// Runs `files.<method>` with `params`, reading at most `piece` bytes of a
-/// file at once. Blocks on the disk.
 /// What a `files.*` method answered, and the file it saved when it saved one whole.
 pub struct Ran {
     pub answer: Value,
     pub saved: Option<PathBuf>,
 }
 
+/// Runs `files.<method>` with `params`, reading at most `piece` bytes of a
+/// file at once. Blocks on the disk.
 pub fn run(method: &str, params: Value, piece: u64) -> Result<Ran> {
     fn answer(value: impl Serialize) -> Result<Value> {
         serde_json::to_value(value).map_err(|error| format!("json: {error}").into())
@@ -265,7 +265,6 @@ enum Kind {
     Dir,
 }
 
-/// Which paths exist, and which of those are folders.
 fn kinds(params: KindsParams) -> Result<Vec<Option<Kind>>> {
     if params.paths.len() > MAX_KINDS {
         return Err(format!("invalid argument: one ask may name at most {MAX_KINDS} paths").into());

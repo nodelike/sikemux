@@ -97,7 +97,6 @@ pub(crate) struct TrustAsk {
     grant: Grant,
 }
 
-/// A trust question put to the person.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Asked {
@@ -206,7 +205,6 @@ impl Tasks {
         self.state.locked().tests.get(execution_id).cloned()
     }
 
-    /// Forgets what is kept for runs no longer known.
     fn retain(&self, known: impl Fn(&str) -> bool) {
         let mut state = self.state.locked();
         state.tests.retain(|id, _| known(id));
@@ -880,7 +878,6 @@ pub(crate) struct StartParams {
     fix: bool,
 }
 
-/// Puts right what the checks found, so the task can start.
 fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Result<(), String> {
     for check in found.iter().filter(|check| !check.item.ok()) {
         match &check.item {

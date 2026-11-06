@@ -20,7 +20,6 @@ pub const RESUME_FORMAT: u32 = 9;
 /// Every hand-over format a core of this build takes over from.
 pub const READS_FORMATS: [u32; 6] = [4, 5, 6, 7, 8, RESUME_FORMAT];
 
-/// The argument that makes a core binary print its [`UpgradeInfo`].
 pub const UPGRADE_INFO_ARG: &str = "--upgrade-info";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,7 +35,6 @@ pub enum FrozenRequest {
         #[serde(default)]
         force: bool,
     },
-    /// Stop every session and exit.
     StopEverything,
     /// Replace this core with its own binary in the same process, keeping
     /// every session and chat as [`Self::Upgrade`] does, and waiting however
@@ -110,7 +108,6 @@ impl UpgradeInfo {
         }
     }
 
-    /// Whether the binary takes over from a core writing `format`.
     pub fn reads(&self, format: u32) -> bool {
         if self.reads_formats.is_empty() {
             self.resume_format == format

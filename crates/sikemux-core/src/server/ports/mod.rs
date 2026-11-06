@@ -356,7 +356,6 @@ pub(crate) fn settle(core: &Arc<Core>) {
     });
 }
 
-/// The port a local preview URL points at.
 fn preview_port(url: &str) -> Option<u16> {
     let parsed = url::Url::parse(url).ok()?;
     let host = parsed.host_str()?;

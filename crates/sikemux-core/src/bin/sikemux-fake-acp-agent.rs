@@ -45,7 +45,6 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
-/// What a session was started with.
 #[derive(Clone, Default)]
 struct Session {
     cwd: Option<PathBuf>,
@@ -164,7 +163,6 @@ fn prompt_text(params: &Value) -> String {
         .to_owned()
 }
 
-/// Runs `command` in the session's folder, answering what it printed.
 fn run_command(session: &Session, command: &str) -> String {
     let mut shell = sikemux_process::user_environment::command("/bin/sh");
     shell.args(["-c", command]);
@@ -182,7 +180,6 @@ fn run_command(session: &Session, command: &str) -> String {
     }
 }
 
-/// Calls one of Sikemux's agent tools over the endpoint the session names.
 fn call_tool(session: &Session, method: &str, params: &str) -> String {
     match tool_answer(session, method, params) {
         Ok(answer) => format!("tool answered: {answer}"),

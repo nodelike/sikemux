@@ -53,13 +53,11 @@ impl Updating {
         *self.frozen.borrow()
     }
 
-    /// Resolves once the core starts handing itself over.
     pub(crate) async fn until_frozen(&self) {
         let mut frozen = self.frozen.subscribe();
         let _ = frozen.wait_for(|frozen| *frozen).await;
     }
 
-    /// Hears each time the core freezes or thaws.
     pub(crate) fn watch(&self) -> watch::Receiver<bool> {
         self.frozen.subscribe()
     }
@@ -176,7 +174,6 @@ pub(crate) async fn answer(
     }
 }
 
-/// What a hand-over replaces the core with.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Replacement {
     /// Another build, as an update puts in place.

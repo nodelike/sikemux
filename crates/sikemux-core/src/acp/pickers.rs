@@ -6,7 +6,6 @@ use serde_json::{json, Value};
 
 pub use sikemux_fold::pickers::pickers;
 
-/// One choice of a select option.
 pub fn choice(value: &str, name: &str, description: Option<&str>) -> Value {
     let mut choice = json!({ "value": value, "name": name });
     if let Some(description) = description {
@@ -81,7 +80,6 @@ pub fn level_name(level: &str) -> String {
         .join(" ")
 }
 
-/// The first of a session's config options `matches` picks.
 pub fn config_option(setup: &Value, matches: impl Fn(&Value) -> bool) -> Option<&Value> {
     setup
         .get("configOptions")?
@@ -90,7 +88,6 @@ pub fn config_option(setup: &Value, matches: impl Fn(&Value) -> bool) -> Option<
         .find(|option| matches(option))
 }
 
-/// The id of the option that sets how hard the model thinks.
 pub fn effort_config_id(setup: &Value) -> Option<&str> {
     config_option(setup, sikemux_fold::pickers::is_effort)?
         .get("id")?
@@ -106,13 +103,11 @@ pub fn choices_offer(choices: &Value, value: &str) -> bool {
     })
 }
 
-/// Whether a select option offers the value.
 pub fn offers(setup: &Value, config_id: &str, value: &str) -> bool {
     config_option(setup, |option| option["id"] == config_id)
         .is_some_and(|option| choices_offer(&option["options"], value))
 }
 
-/// The value a select option currently holds.
 pub fn current_choice(setup: &Value, config_id: &str) -> Option<String> {
     config_option(setup, |option| option["id"] == config_id)?
         .get("currentValue")?

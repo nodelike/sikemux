@@ -15,7 +15,6 @@ use crate::server::codehost::repo;
 use crate::server::Core;
 use crate::sessions::asked::prose_of;
 
-/// The most pull requests of one goal looked up.
 const MAX_PULLS: usize = 8;
 const LOOKUP_TIME: Duration = Duration::from_secs(10);
 /// What comes before a pull request's number in what people write.

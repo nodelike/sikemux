@@ -70,8 +70,7 @@ impl AiStreamDecoder {
         if let Some(suffix) = text.strip_prefix(&self.message) {
             self.emit(suffix)
         } else {
-            // The command's final snapshot is authoritative. The frontend
-            // replaces its streamed draft with the returned cleaned message.
+            // The command's final snapshot is authoritative over what streamed before it.
             self.message.clear();
             self.message.push_str(text);
             Ok(())
@@ -703,7 +702,6 @@ pub(super) fn run_ai_commit_model(
     }
 }
 
-/// Puts `command` on the account kept in `account`, when one is named.
 fn on_account(command: &mut Command, provider: &str, account: Option<&str>) {
     if account.is_some() {
         if let Some((variable, folder)) = crate::launch::account_environment(provider, account) {

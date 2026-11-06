@@ -12,7 +12,6 @@ use sikemux_process::sync::Locked;
 use super::super::connection::ClientId;
 use super::types::{LspPos, LspTextChange};
 
-/// A document as a language server knows it.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub(crate) struct DocKey {
     pub project: String,
@@ -42,7 +41,6 @@ fn held() -> &'static Mutex<Held> {
     HELD.get_or_init(Default::default)
 }
 
-/// A document carried through a hand-over.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Carried {

@@ -243,7 +243,6 @@ pub struct AttachParams {
     pub draft: Option<bool>,
 }
 
-/// What attaching an item put in the chat's draft.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Attached {
@@ -341,7 +340,6 @@ pub struct Stashed {
 
 /// The most a prompt's text can be, as the accounts server takes it.
 const MAX_PROMPT_CHARS: usize = 16_000;
-/// The most files a prompt can carry.
 const MAX_PROMPT_FILES: usize = 20;
 
 /// Keeps what is written in `agent_id`'s draft, its files and the links it holds as one prompt

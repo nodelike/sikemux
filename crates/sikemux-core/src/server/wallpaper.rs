@@ -156,7 +156,7 @@ fn clusters(rgba: &[u8]) -> Result<Vec<Cluster>, String> {
         .collect())
 }
 
-/// The first of `clusters` that `better` puts above all the rest.
+/// The cluster with the highest `key`, the earliest of any tied.
 fn first_best(clusters: &[Cluster], key: impl Fn(&Cluster) -> f64) -> Option<Cluster> {
     clusters
         .iter()
@@ -293,7 +293,6 @@ pub(crate) fn pixels(params: &PixelsParams) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// The theme a wallpaper's pixels make.
 pub(crate) fn theme_from_pixels(params: PixelsParams) -> CoreResult<Theme> {
     let rgba = pixels(&params)?;
     let (colours, accent) = colours(&rgba)?;

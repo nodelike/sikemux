@@ -404,7 +404,7 @@ fn codex_transcript(sessions: &Path, id: &str) -> Option<PathBuf> {
         })
 }
 
-/// Mirrors the Codex ACP adapter: the last turn's total against the model's window.
+/// The last turn's total against the model's window.
 fn codex_context_line(line: &str) -> Option<SessionContext> {
     if !line.contains("\"token_count\"") {
         return None;

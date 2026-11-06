@@ -106,7 +106,6 @@ pub(crate) struct RemoveParams {
     task_id: String,
 }
 
-/// Takes a task the person added off the project.
 pub(crate) async fn remove(core: &Arc<Core>, params: RemoveParams) -> CoreResult<Value> {
     let core = core.clone();
     blocking(move || {

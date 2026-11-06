@@ -25,12 +25,10 @@ use sikemux_wire::protocol::Event;
 pub(super) const GATHER: Duration = Duration::from_secs(20);
 const GOAL_LIFE_MS: u64 = 30 * 60_000;
 
-/// How a goal moved.
 pub(crate) struct GoalMoved {
     pub project: String,
     pub goal: u64,
     pub title: String,
-    /// The titles of the slices that landed.
     pub landed: Vec<String>,
     pub finished: bool,
     pub slip: Option<Slip>,

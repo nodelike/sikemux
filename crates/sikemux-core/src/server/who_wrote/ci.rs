@@ -49,7 +49,6 @@ const COMMON_FOLDERS: [&str; 24] = [
     "scripts",
     "bin",
 ];
-/// The CI run a target names.
 pub(super) enum Asked {
     /// A run by its address on the code host, or its id.
     Run(String),

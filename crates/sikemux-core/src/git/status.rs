@@ -184,7 +184,6 @@ fn read_head(repo: &Repository) -> GitStatus {
         files: Vec::new(),
     };
 
-    // branch + upstream tracking
     if let Ok(head) = repo.head() {
         if let Ok(name) = head.shorthand() {
             status.branch = name.to_string();

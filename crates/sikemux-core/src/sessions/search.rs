@@ -423,7 +423,6 @@ fn starts_word(text: &str, at: usize) -> bool {
         .is_some_and(char::is_alphanumeric)
 }
 
-/// Who wrote a message in a saved session.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Speaker {
     /// What the person typed.

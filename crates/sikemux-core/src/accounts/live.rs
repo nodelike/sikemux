@@ -41,14 +41,12 @@ pub enum Link {
     Offline,
 }
 
-/// What the live connection needs from the host it speaks for.
 pub trait Account: Send + Sync + 'static {
     /// The device key and its signature over [`super::live_message`] for
     /// `nonce`, which must pass [`super::check_live`].
     fn sign_live(&self, nonce: &str) -> Option<(String, String)>;
     /// Answering [`Want::Stop`] ends the connection for good.
     fn want(&self) -> Want;
-    /// The id of the last event applied.
     fn cursor(&self) -> i64;
     /// Applies `events`, oldest first, all newer than the cursor, and moves
     /// the cursor to the last.
@@ -61,7 +59,6 @@ pub trait Account: Send + Sync + 'static {
     /// The server took this device off the account. `None` when it no longer
     /// knows the key at all.
     fn removed(&self, reason: Option<RevokeReason>);
-    /// What the server did with a push from the [`Outbox`].
     fn pushed(&self, push: Push, result: PushResult);
 }
 
@@ -188,7 +185,6 @@ pub fn url(base: &str) -> String {
     socket_url(base, "/v1/live")
 }
 
-/// The WebSocket at `path` on the accounts API at `base`.
 pub fn socket_url(base: &str, path: &str) -> String {
     let base = base.trim_end_matches('/');
     let base = if let Some(rest) = base.strip_prefix("https://") {

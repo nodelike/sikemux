@@ -171,7 +171,6 @@ fn failure_note(modules: &[Value]) -> Option<String> {
     })
 }
 
-/// The `agentReview` call.
 /// Whether the agent's branch is merged into the one it was cut from: it has commits of its
 /// own, and that branch has every one of them.
 pub(crate) async fn merged(core: &Arc<Core>, params: WorktreeParams) -> CoreResult<bool> {
@@ -197,6 +196,7 @@ pub(crate) async fn merged(core: &Arc<Core>, params: WorktreeParams) -> CoreResu
     .await
 }
 
+/// The `agentReview` call.
 pub(crate) async fn review(core: &Arc<Core>, params: WorktreeParams) -> CoreResult<Review> {
     let (_, worktree) = worktree_of(core, &params.agent_id)?;
     let summary = board::agent_card(core, &params.agent_id)

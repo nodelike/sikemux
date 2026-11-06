@@ -2,8 +2,6 @@
 
 use super::*;
 
-/// The project as the core knows it, with the panes the window shows when
-/// one is open.
 pub(super) const PAGE_IN_REPLY: &str = "The person sees the page in your reply, above the text you write next. Do not describe or restate it; write only what it does not already say.";
 pub(super) const PAGE_ON_DESK: &str =
     "The page is open on your desk, beside your terminal, where the person can see it.";

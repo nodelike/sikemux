@@ -10,13 +10,10 @@ use super::Core;
 use crate::server::changed::What;
 
 pub(crate) enum Activity<'a> {
-    /// It began a turn of work.
     Started,
-    /// It is still at the work it began.
     Working,
     /// Its turn ended. One the person stopped is nothing new to them.
     Finished { cancelled: bool },
-    /// It waits on the person.
     NeedsYou,
     /// It ran into a problem, and said this about it.
     Problem(&'a str),

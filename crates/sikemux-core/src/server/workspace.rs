@@ -167,7 +167,6 @@ struct Recent {
     provider: String,
     session_id: String,
     title: String,
-    /// The project it belongs to.
     project: PathBuf,
     /// The folder it ran in: the project, or a worktree of it.
     cwd: PathBuf,
@@ -799,7 +798,6 @@ impl Workspaces {
         }
     }
 
-    /// The project of every agent in the workspace, by agent id.
     /// Each worker's lead, by the worker's id.
     pub(crate) fn agent_leads(&self) -> HashMap<String, String> {
         self.published
@@ -1079,12 +1077,10 @@ impl Workspaces {
         running
     }
 
-    /// Whether the agent is no longer in the workspace.
     pub(crate) fn closed(&self, agent_id: &str) -> bool {
         self.agent(agent_id).is_none()
     }
 
-    /// Whether the agent is in the workspace, and if so whether it is asleep.
     /// Whether the agent runs in its CLI's own terminal rather than as a chat.
     pub(crate) fn in_terminal(&self, agent_id: &str) -> bool {
         self.agent(agent_id).is_some_and(|agent| agent.terminal)
@@ -1276,7 +1272,6 @@ pub(crate) struct CreateAgentParams {
     agent: Map<String, Value>,
 }
 
-/// Adds an agent to the workspace, or replaces the one with its id.
 pub(crate) fn create_agent(core: &Core, params: CreateAgentParams) -> CoreResult<WorkspaceAgent> {
     core.workspaces.put_agent(params.agent)
 }
@@ -1348,7 +1343,6 @@ pub(crate) struct CloseAgentsParams {
     agent_ids: Vec<String>,
 }
 
-/// Takes agents out of the workspace.
 pub(crate) fn close_agents(core: &Core, params: CloseAgentsParams) -> CoreResult<()> {
     close(core, &params.agent_ids)
 }
@@ -1381,8 +1375,6 @@ pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
     Ok(())
 }
 
-/// Titles the agent from what its chat said, as [`Workspaces::note_title`]
-/// does.
 /// Whether the agent has no title of its own yet, only its agent's or account's name.
 fn untitled(saved: &Saved, agent: &WorkspaceAgent) -> bool {
     let profile = |id: &str| {

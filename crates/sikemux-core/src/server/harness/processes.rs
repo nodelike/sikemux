@@ -2,7 +2,6 @@
 
 use super::*;
 
-/// Stops one run and waits for its process to go.
 pub(crate) async fn stop_run(core: &Arc<Core>, execution_id: &str) -> Result<Run, String> {
     let kill = core
         .harness
@@ -97,7 +96,6 @@ pub(crate) async fn stop_runs(core: &Arc<Core>, selector: RunSelector) {
     }
 }
 
-/// What a start names: the task id, and for a command task what it runs.
 /// An absolute `cwd` inside the project, as the relative one tasks take.
 pub(super) fn within_project(project: &str, cwd: &str) -> String {
     let real = |path: &str| std::fs::canonicalize(path).unwrap_or_else(|_| PathBuf::from(path));
@@ -232,7 +230,6 @@ pub(super) fn begin_start(
     })
 }
 
-/// Records how a launch ended.
 pub(super) fn launch_finished(
     core: &Core,
     execution_id: &str,

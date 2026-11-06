@@ -36,8 +36,6 @@ use super::{board, follow, saved, spawn};
 use super::{session, Core};
 use crate::skills;
 
-/// MCP hosts give up on a tool call after about a minute, so a start answers
-/// well before that with whatever state it reached.
 mod inspect;
 mod pages;
 mod processes;
@@ -57,6 +55,8 @@ use tally::*;
 pub(crate) use waits::WaitSlot;
 use waits::*;
 
+/// MCP hosts give up on a tool call after about a minute, so a start answers
+/// well before that with whatever state it reached.
 const START_BUDGET: Duration = Duration::from_secs(30);
 /// A chatty task adds at most one output event per this long.
 const OUTPUT_EVENT_GAP: Duration = Duration::from_millis(250);

@@ -173,7 +173,6 @@ async fn on_store<T: Send + 'static>(
     blocking(move || Ok(work(store(&core)?))).await
 }
 
-/// The key of a connected provider.
 pub(crate) async fn key(core: &Arc<Core>, id: &str) -> Option<String> {
     let id = id.to_owned();
     on_store(core, move |store| store.key(&id))
@@ -239,7 +238,6 @@ struct ListedModel {
     id: String,
 }
 
-/// Why an API at a base URL listed no models.
 enum Unlisted {
     Refused,
     Unreachable,
@@ -247,7 +245,6 @@ enum Unlisted {
     NotAList,
 }
 
-/// What the OpenAI-compatible API at `base_url` lists.
 async fn model_list(
     base_url: &str,
     key: Option<&str>,

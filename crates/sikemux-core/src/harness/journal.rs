@@ -214,7 +214,6 @@ impl Journals {
         )
     }
 
-    /// Something that happened to one of the project's agents.
     pub fn append_agent(&mut self, project: &str, kind: &str, agent_id: &str) -> JournalEntry {
         self.add(
             project,

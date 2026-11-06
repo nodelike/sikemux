@@ -128,7 +128,6 @@ pub(crate) fn view(
     on_linked_host(core, fitted(layout, workspace, sessions))
 }
 
-/// The paired devices with what they have in front of their own.
 pub(crate) fn fronted(core: &Core) -> HashSet<String> {
     core.layouts.fronts.locked().keys().cloned().collect()
 }
@@ -596,7 +595,6 @@ fn strip_at<'a>(
     }
 }
 
-/// Puts the strip `at` names in front.
 /// Whether the strip `at` names is the one the person has in front.
 fn in_front(layout: &Layout, at: &At) -> bool {
     if layout.chosen_host.is_some() {

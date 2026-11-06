@@ -20,7 +20,6 @@ pub fn api_name(name: &str) -> &str {
     long_of(name).unwrap_or(name)
 }
 
-/// Whether a model's name or label says it has the long context.
 pub fn names_long_window(name: &str) -> bool {
     name.to_ascii_lowercase()
         .split(|char: char| !char.is_ascii_alphanumeric())

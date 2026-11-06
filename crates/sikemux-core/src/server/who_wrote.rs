@@ -61,7 +61,6 @@ pub(crate) struct AgentOwner {
     /// The CLI's own session, which resuming the agent needs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    /// The project its session ran in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
     /// The lines it wrote in the commit, as the commit's note says, when the
@@ -407,7 +406,6 @@ fn test_in(top: &Path, file: String, name: &str) -> Result<Found, String> {
     Ok(found)
 }
 
-/// The commits that last changed lines `start` to `end` of `path`.
 fn blame(top: &Path, path: &str, (start, end): (u64, u64)) -> Result<Found, String> {
     let range = format!("{start},{end}");
     let out = git(top, &["blame", "--porcelain", "-L", &range, "--", path])?;
@@ -516,7 +514,6 @@ fn test(top: &Path, target: &str) -> Result<Found, String> {
     Ok(found)
 }
 
-/// A commit as git describes it.
 struct Described {
     hash: String,
     short: String,
@@ -721,7 +718,6 @@ enum Asked {
     Ci(ci::Asked),
 }
 
-/// What `who_wrote` answers.
 pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let target = request
         .params

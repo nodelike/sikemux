@@ -23,7 +23,6 @@ const CONNECTION_WORDS: [&str; 10] = [
     "network is unreachable",
 ];
 
-/// Whether an agent's error reads as the network failing it.
 pub fn sounds_offline(said: &str) -> bool {
     let said = said.to_lowercase();
     CONNECTION_WORDS.iter().any(|words| said.contains(words))
