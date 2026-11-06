@@ -27,7 +27,6 @@ pub fn expand_home(path: &str) -> PathBuf {
     }
 }
 
-/// The path the environment variable `name` holds.
 pub fn env_path(name: &str) -> Option<PathBuf> {
     std::env::var_os(name)
         .filter(|path| !path.is_empty())

@@ -2,7 +2,6 @@
 
 /// The window's program, which is also the command agents run.
 pub const APP_PROGRAM: &str = "sikemux";
-/// The core's program.
 pub const CORE_PROGRAM: &str = "sikemux-host";
 pub const APP_EXECUTABLE: &str = if cfg!(windows) {
     "sikemux.exe"

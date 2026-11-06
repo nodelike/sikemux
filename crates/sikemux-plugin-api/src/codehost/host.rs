@@ -48,7 +48,6 @@ macro_rules! code_host {
             )*
         }
 
-        /// Answers the code host method `method`.
         pub async fn dispatch(
             host: &dyn CodeHost,
             dir: &Path,
@@ -61,7 +60,6 @@ macro_rules! code_host {
             }
         }
 
-        /// Whether the code host method `method` only reads.
         pub fn reads(method: &str) -> bool {
             match method {
                 $($name => code_host!(@read $($read)?),)*
@@ -69,7 +67,6 @@ macro_rules! code_host {
             }
         }
 
-        /// Whether the code host method `method` changes something on the host.
         pub fn writes(method: &str) -> bool {
             match method {
                 $($name => !code_host!(@read $($read)?),)*

@@ -262,7 +262,6 @@ pub fn processes() -> Vec<(u32, u32, u64)> {
     system::processes()
 }
 
-/// The variable `key` in `pid`'s environment.
 pub fn environment_value(pid: u32, key: &str) -> Option<String> {
     system::environment_value(pid, key)
 }

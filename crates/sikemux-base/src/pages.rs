@@ -9,7 +9,6 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Serialize;
 
-/// The folder under the data folder pages are kept in.
 pub const FOLDER: &str = "pages";
 
 const MIB: u64 = 1024 * 1024;

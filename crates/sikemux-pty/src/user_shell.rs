@@ -26,7 +26,7 @@ const LOGIN_ENV_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5)
 /// Keys the PTY layer owns. Importing these would let a profile rename the
 /// terminal, redirect shell integration, or hand a pane the capture shell's
 /// own working directory and launchd-scoped temp dir. `PATH` is excluded
-/// because `fix_path_from_login_shell` already unions it process-wide.
+/// because `login_shell_path` carries it.
 ///
 /// This list is about keys whose *values* would be wrong in a pane, not about
 /// identity: `configure_pty_environment` scrubs `OPTIONAL_PTY_ENV` after the
@@ -58,7 +58,7 @@ const LOGIN_ENV_SIKEMUX_OWNED: &[&str] = &[
 /// What the user's shell profile exports, captured once per app run.
 ///
 /// A macOS GUI app inherits launchd's environment, never the user's profile.
-/// `fix_path_from_login_shell` recovers `PATH` from it; this recovers the
+/// `login_shell_path` recovers `PATH` from it; this recovers the
 /// rest. That matters most for a PTY launched with a direct command — an agent
 /// CLI running as the PTY's own process with no shell in between — because it
 /// reads no profile at all. An API key or token the user keeps in `.zshrc` is
@@ -67,7 +67,7 @@ const LOGIN_ENV_SIKEMUX_OWNED: &[&str] = &[
 ///
 /// `-i` is the load-bearing flag: zsh sources `.zshrc` only when interactive,
 /// and that is where people put exports. `-l` alone reads `.zprofile` and
-/// misses them, which is why the `PATH` capture above cannot be reused.
+/// misses them.
 pub fn login_shell_environment() -> &'static HashMap<String, String> {
     #[cfg(unix)]
     {
@@ -125,13 +125,10 @@ fn login_shell_capture() -> &'static LoginShellCapture {
     LATE_CAPTURE.get().unwrap_or(first)
 }
 
-/// Populate the `login_shell_environment` cache from the startup thread.
-///
-/// `fix_path_from_login_shell` already filled it — both halves come out of one
-/// capture — so this is free once that has run. It stays as its own call
-/// because the cache is first *needed* inside `pty_spawn`, an async command,
-/// and initialising it there would park an async runtime worker for up to
-/// `LOGIN_ENV_TIMEOUT` with concurrent spawns queued behind it.
+/// Populate the `login_shell_environment` cache from the startup thread. The
+/// first terminal spawn would otherwise fill it on an async runtime worker,
+/// parking it for up to `LOGIN_ENV_TIMEOUT` with concurrent spawns queued
+/// behind it.
 pub fn warm_login_shell_environment() {
     let _ = login_shell_environment();
 }
@@ -332,8 +329,8 @@ fn resolve_configured_shell(
 }
 
 /// The executable a newly spawned interactive PTY will use. Keep health
-/// reporting and PTY launch on this one platform policy so the frontend never
-/// configures integration for a different shell than native will execute.
+/// reporting and PTY launch on this one platform policy so a client never
+/// configures integration for a different shell than the one that runs.
 pub fn configured_shell() -> String {
     let sikemux_shell = std::env::var("SIKEMUX_SHELL").ok();
     let unix_shell = std::env::var("SHELL").ok();

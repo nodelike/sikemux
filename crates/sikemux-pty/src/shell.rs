@@ -54,7 +54,6 @@ impl Drop for AdoptedDirectory {
 }
 
 impl ShellLaunchIntegration {
-    /// Where the startup files live, if this shell has any.
     pub fn files_directory(&self) -> Option<&Path> {
         match self.files.as_ref()? {
             IntegrationFiles::Created(directory) => Some(directory.path()),

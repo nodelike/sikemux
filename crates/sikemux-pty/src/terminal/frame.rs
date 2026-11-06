@@ -24,7 +24,6 @@ pub struct View {
 }
 
 impl View {
-    /// The number of the last frame this view was sent.
     pub fn frame(&self) -> u32 {
         self.frame
     }

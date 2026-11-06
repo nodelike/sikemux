@@ -85,7 +85,6 @@ pub async fn fetch_image(
     Some((body, mime))
 }
 
-/// The answer's bytes, or nothing when it fails or holds more than `max_bytes`.
 pub async fn fetch_bounded(request: RequestBuilder, max_bytes: usize) -> Option<Vec<u8>> {
     let response = request.send().await.ok()?;
     if !response.status().is_success()

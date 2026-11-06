@@ -63,7 +63,6 @@ macro_rules! recorded_helper {
     };
 }
 
-/// A file as the build recorded it: where it is published, its size and its SHA-256.
 #[derive(Clone, Debug, Deserialize)]
 pub struct PinnedFile {
     pub path: String,
@@ -82,7 +81,6 @@ impl PinnedFile {
         })
     }
 
-    /// Where release `version` publishes the file.
     pub fn release_url(&self, version: &str) -> String {
         format!(
             "https://github.com/nodelike/sikemux/releases/download/v{version}/{}",

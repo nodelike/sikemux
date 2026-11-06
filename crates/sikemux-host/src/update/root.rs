@@ -263,7 +263,6 @@ fn lock(dir: &Path) -> Result<File, String> {
     Ok(lock)
 }
 
-/// Whether `core` is the file this process runs from.
 fn same_file(core: &Path) -> bool {
     match (fs::metadata(core), fs::metadata("/proc/self/exe")) {
         (Ok(core), Ok(own)) => core.dev() == own.dev() && core.ino() == own.ino(),

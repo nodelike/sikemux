@@ -209,7 +209,6 @@ fn reads_powershell(shell: &str) -> Option<bool> {
 }
 
 impl Terminal {
-    /// The bytes to write to the program for `input`, if it takes any.
     pub fn encode(&self, input: &TerminalInput) -> Vec<u8> {
         let mode = *self.term.mode();
         let mut out = Vec::new();

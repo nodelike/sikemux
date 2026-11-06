@@ -179,7 +179,6 @@ pub enum CliServerResponse {
     },
 }
 
-/// What the window opened of a CLI `open`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CliOpenOutcome {

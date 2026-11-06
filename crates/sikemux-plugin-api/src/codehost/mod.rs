@@ -70,7 +70,6 @@ pub struct Signed {
     pub scopes: Vec<String>,
     /// The sign-in may start, re-run and stop CI runs, not only read them.
     pub can_write_ci: bool,
-    /// It can be signed in to through the browser.
     pub browser_sign_in: bool,
 }
 
@@ -604,7 +603,6 @@ pub enum PullState {
 }
 
 impl Pull {
-    /// How it stands, whichever way its code host says so.
     pub fn listed_state(&self) -> PullState {
         if self.state == "merged" || self.merged_at.is_some() {
             PullState::Merged

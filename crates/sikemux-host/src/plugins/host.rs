@@ -166,7 +166,6 @@ impl PluginHost {
             .is_some_and(|loaded| !loaded.manifest.tools.is_empty())
     }
 
-    /// Every shell variable a loaded plugin reads.
     pub fn shell_variables(&self) -> Vec<String> {
         self.plugins
             .values()
@@ -249,7 +248,6 @@ impl PluginHost {
         offered
     }
 
-    /// The tool an agent knows by `name`, beside the plugin that answers it.
     pub fn agent_tool(&self, name: &str) -> Option<(&str, &AgentTool)> {
         self.agent_tools()
             .into_iter()

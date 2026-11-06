@@ -61,7 +61,6 @@ fn models_verified(dir: &Path) -> bool {
     std::fs::read_to_string(dir.join(VERIFIED_MARKER)).is_ok_and(|hash| hash == manifest_hash())
 }
 
-/// Why the models or the helper are not in place.
 #[derive(Debug)]
 pub enum Missing {
     /// The network is unreachable; the download carries on when it is back.

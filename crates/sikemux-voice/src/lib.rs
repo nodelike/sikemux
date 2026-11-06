@@ -62,13 +62,11 @@ pub enum VoiceEvent {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Stage {
-    /// The speech model and the helper are downloading.
     Download,
     #[serde(other)]
     Preparing,
 }
 
-/// Why dictation failed.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Reason {
@@ -131,7 +129,6 @@ pub struct Status {
 }
 
 impl Voice {
-    /// Dictation keeping its models in `dir` and reporting on `events`.
     pub fn new(dir: PathBuf, events: mpsc::UnboundedSender<VoiceEvent>) -> Self {
         Voice {
             dir,

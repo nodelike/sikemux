@@ -35,7 +35,6 @@ impl Terminal {
         Some((cells, wrapped))
     }
 
-    /// The cursor's row and column on the screen.
     pub fn cursor(&self) -> (u16, u16) {
         let point = self.term.grid().cursor.point;
         (point.line.0.max(0) as u16, point.column.0 as u16)

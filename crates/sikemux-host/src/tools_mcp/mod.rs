@@ -237,7 +237,6 @@ impl Offer {
         (changed, served)
     }
 
-    /// What `tools/list` answers with what is held now.
     fn declarations(&self) -> Vec<Value> {
         declarations(&self.manifest(), &held(&self.plugins).unwrap_or_default())
     }
@@ -280,7 +279,6 @@ fn declarations(manifest: &Manifest, plugins: &[Tool]) -> Vec<Value> {
     tools
 }
 
-/// One request to the app: a harness method and its params.
 type Relay<'a> = dyn Fn(&str, &Value) -> Result<Value, String> + Send + Sync + 'a;
 
 /// A tool call waits for Sikemux to come back from a restart. Anything that
@@ -468,7 +466,6 @@ impl Calls {
             .insert(id.to_string(), (name.to_owned(), false));
     }
 
-    /// Marks the call cancelled, and names its tool.
     fn cancel(&self, id: &Value) -> Option<String> {
         let mut calls = self.0.locked();
         let (name, cancelled) = calls.get_mut(&id.to_string())?;

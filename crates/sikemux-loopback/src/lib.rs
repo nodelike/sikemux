@@ -33,7 +33,6 @@ impl std::error::Error for LoopbackError {}
 
 pub type LoopbackResult<T> = Result<T, LoopbackError>;
 
-/// Where the service sends the browser back to, for the callback at `path`.
 pub fn redirect_uri(path: &str) -> String {
     format!("http://localhost:{PORT}{path}")
 }
@@ -60,13 +59,11 @@ pub fn challenge(verifier: &str) -> String {
 
 /// What the browser is shown once it came back.
 pub enum Finish {
-    /// A page saying the sign-in to this service is done.
     Page(&'static str),
     /// Sent on to `done`, or to `refused` when the sign-in was turned down.
     Redirect { done: String, refused: String },
 }
 
-/// Where the browser comes back to with a code.
 pub struct Callback {
     v4: TcpListener,
     v6: Option<TcpListener>,
@@ -168,7 +165,6 @@ impl Callback {
         }
     }
 
-    /// Where the service sends the browser back to.
     pub fn redirect_uri(&self) -> &str {
         &self.redirect_uri
     }

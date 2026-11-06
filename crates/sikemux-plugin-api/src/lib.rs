@@ -33,7 +33,6 @@ pub type PluginFuture<'a, T> = Pin<Box<dyn Future<Output = PluginResult<T>> + Se
 
 /// What `plugin!` writes for a plugin.
 pub trait Manifested {
-    /// The plugin's `manifest.json`, which the core reads.
     fn manifest(&self) -> &str;
 }
 

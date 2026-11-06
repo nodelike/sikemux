@@ -1,7 +1,7 @@
 //! Pure, manifest-driven coding-agent screen detection.
 //!
-//! This module deliberately knows nothing about PTYs, terminal parsers, Tauri,
-//! or frontend state. Callers freeze the live bottom-buffer text (and any OSC
+//! This module deliberately knows nothing about PTYs, terminal parsers
+//! or client state. Callers freeze the live bottom-buffer text (and any OSC
 //! title/progress metadata) and pass that snapshot to [`ManifestRegistry`].
 //! Keeping this boundary pure makes the matching policy deterministic and
 //! fixture-testable while the PTY remains free to choose its locking strategy.

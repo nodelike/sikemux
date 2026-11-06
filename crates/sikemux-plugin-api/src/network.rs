@@ -5,7 +5,6 @@ use sikemux_base::http::Unreachable;
 
 use crate::Category;
 
-/// The plain words for a service that could not be reached.
 pub(crate) fn unreachable_message(kind: Unreachable, service: &str) -> String {
     match kind {
         Unreachable::Offline => format!("Can't reach {service}. Check your connection."),

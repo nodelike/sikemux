@@ -11,7 +11,6 @@ pub fn text(value: &Value, path: &str) -> String {
     at(value, path).as_str().unwrap_or_default().to_string()
 }
 
-/// The text at `path`, when there is some.
 pub fn some_text(value: &Value, path: &str) -> Option<String> {
     at(value, path)
         .as_str()

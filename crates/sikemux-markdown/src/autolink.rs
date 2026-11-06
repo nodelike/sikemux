@@ -406,7 +406,6 @@ fn each_text(nodes: Vec<Node>, find: fn(&str, usize) -> Option<Found>, out: &mut
     }
 }
 
-/// Splits `text` around every address in it.
 pub fn link_addresses(text: String, out: &mut Vec<Node>) {
     let mut read = Vec::new();
     each_text(vec![Node::Text(text)], read_address, &mut read);

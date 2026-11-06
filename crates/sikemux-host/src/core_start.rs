@@ -34,7 +34,6 @@ pub enum Upgrade {
 }
 
 pub enum StartError {
-    /// No core answered.
     Unreachable(ClientError),
     /// A core of another protocol answers at the socket and could not be
     /// moved to this build, so this app cannot talk to it.

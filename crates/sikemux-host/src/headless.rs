@@ -34,7 +34,6 @@ pub const COMMANDS: &[&str] = &[
     "update",
 ];
 
-/// Runs `command` with the arguments after it.
 pub fn run(command: &str, args: &[String]) -> i32 {
     crate::install_tls_crypto();
     let result = match command {
@@ -445,7 +444,6 @@ fn print_status(status: &Status) {
     }
 }
 
-/// How the core's update status reads in one line.
 fn updates_row(updates: &Value) -> String {
     let text = |key: &str| updates[key].as_str().unwrap_or_default().to_owned();
     if updates["automatic"] == Value::Bool(false) {

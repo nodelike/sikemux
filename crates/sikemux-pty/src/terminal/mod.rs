@@ -255,7 +255,6 @@ impl Terminal {
         let _ = self.process(sequence.as_bytes(), colors);
     }
 
-    /// Keeps at most `lines` of history, dropping the oldest beyond it.
     pub fn set_history_limit(&mut self, lines: usize) {
         self.history.set_limit(lines);
         self.version += 1;

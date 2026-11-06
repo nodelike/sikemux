@@ -20,7 +20,6 @@ fn folder() -> Option<PathBuf> {
     Some(sikemux_process::paths::config_dir()?.join("dev/plugins"))
 }
 
-/// How long a stream waits between the lines it sends.
 const TICK: std::time::Duration = std::time::Duration::from_millis(400);
 
 fn signed_out(plugin: &str) -> Failure {

@@ -43,7 +43,6 @@ pub enum ServiceError<S> {
     RateLimited {
         resets_in_secs: Option<u64>,
     },
-    /// The service answered with an error of its own and this message.
     Api(String),
     Http {
         status: u16,

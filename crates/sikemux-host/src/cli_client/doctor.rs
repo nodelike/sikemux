@@ -3,9 +3,6 @@
 use super::*;
 
 /// Prints the most recent panic and hang autopsies and where to read the rest of them.
-///
-/// This reads the reports straight off disk rather than asking the app, so it
-/// still answers while the app is the thing that is stuck.
 pub(super) fn doctor() -> Result<i32, String> {
     let directory = crate::hang_reports::autopsy_dir().ok_or("home directory is unavailable")?;
     print!(

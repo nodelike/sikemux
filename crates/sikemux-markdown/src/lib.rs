@@ -291,7 +291,6 @@ struct Builder {
     footnotes: Vec<String>,
 }
 
-/// The value of `name="…"` or `name='…'` in one HTML tag.
 fn attribute(tag: &str, name: &str) -> Option<String> {
     let lower = tag.to_ascii_lowercase();
     let mut from = 0;
@@ -316,7 +315,6 @@ fn attribute(tag: &str, name: &str) -> Option<String> {
     None
 }
 
-/// The words in a run of HTML, with its tags taken out and its spaces collapsed.
 fn strip_tags(html: &str) -> String {
     let mut out = String::new();
     let mut inside = false;
@@ -609,7 +607,6 @@ impl Builder {
         self.flush_pictures(&mut pictures);
     }
 
-    /// Puts the pictures read so far in a paragraph of their own.
     fn flush_pictures(&mut self, pictures: &mut Vec<Element>) {
         if pictures.is_empty() {
             return;

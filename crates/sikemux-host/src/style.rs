@@ -40,7 +40,6 @@ pub fn red(text: &str) -> String {
     paint("31", text)
 }
 
-/// A finished step: what happened, then the detail in grey.
 pub fn done(what: &str, detail: &str) {
     if detail.is_empty() {
         println!("  {} {what}", accent("✓"));

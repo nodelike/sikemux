@@ -78,7 +78,6 @@ impl FakeSikemux {
     }
 }
 
-/// Stands in for the app when a test must not reach it.
 fn unreachable_app(method: &str, _: &Value) -> Result<Value, String> {
     Err(format!("{method} should not reach the app"))
 }

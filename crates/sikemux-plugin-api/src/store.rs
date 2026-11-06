@@ -217,7 +217,6 @@ impl<V: Clone> Held<V> {
 pub trait Account: Clone {
     fn id(&self) -> &str;
 
-    /// Whether a call naming `name` means this account.
     fn is_named(&self, name: &str) -> bool {
         self.id() == name
     }
@@ -359,7 +358,6 @@ pub struct DefaultChoice {
     pub id: String,
 }
 
-/// Makes a signed-in account the one used when a call names none.
 pub async fn set_default<C, S>(
     data_dir: &Path,
     choice: DefaultChoice,
