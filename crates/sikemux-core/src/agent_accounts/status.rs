@@ -588,10 +588,17 @@ mod tests {
             check_sign_in("pi", &ready, None, BTreeMap::new()).await,
             AgentStatus::Ready { account: None }
         );
-        let signed_out = fake_cli(dir.path(), "exit 1");
+        for not_ready in ["exit 1", "exit 2"] {
+            let signed_out = fake_cli(dir.path(), not_ready);
+            assert_eq!(
+                check_sign_in("pi", &signed_out, None, BTreeMap::new()).await,
+                AgentStatus::SignedOut
+            );
+        }
+        let older = fake_cli(dir.path(), "exit 64");
         assert_eq!(
-            check_sign_in("pi", &signed_out, None, BTreeMap::new()).await,
-            AgentStatus::SignedOut
+            check_sign_in("pi", &older, None, BTreeMap::new()).await,
+            AgentStatus::Unknown
         );
     }
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { router } from 'expo-router';
 
 import { signOutHere } from './leave';
 
@@ -31,11 +32,17 @@ beforeEach(() => {
 });
 
 describe('signOutHere', () => {
-  it('signs out of Clerk only after asking every paired host to forget it, while the hosts can still check who asks', async () => {
+  it('leaves nothing of the account behind and signs out of Clerk only after every paired host is asked to forget it', async () => {
     const order: string[] = [];
     hub.forget.mockImplementation(async (core) => void order.push(core));
+    const home = vi.spyOn(router, 'dismissTo');
     await signOutHere(async () => void order.push('clerk'), { confirmed: true });
     expect(order).toEqual(['host-a', 'host-b', 'clerk']);
+    expect(live.stopLive).toHaveBeenCalledTimes(1);
+    expect(token.forgetPush).toHaveBeenCalledTimes(1);
+    expect(setting.choose).toHaveBeenCalledWith(undefined);
+    expect(live.forgetCursor).toHaveBeenCalledTimes(1);
+    expect(home).toHaveBeenCalledWith('/');
   });
 
   it('keeps the device key when the server took the phone off the account', async () => {

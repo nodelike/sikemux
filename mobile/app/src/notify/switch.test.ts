@@ -33,6 +33,14 @@ beforeEach(async () => {
 });
 
 describe('turnOn', () => {
+  it('records the choice, sends the token and shares a key with each connected host once the system allows it', async () => {
+    vi.spyOn(Notifications, 'requestPermissionsAsync').mockResolvedValue({ granted: true } as never);
+    await expect(turnOn(session)).resolves.toBe(true);
+    expect(await notificationsChoice()).toBe('on');
+    expect(token.syncPushToken).toHaveBeenCalledWith(session);
+    expect(hub.shareKeys).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the choice but sends nothing when the system says no', async () => {
     await expect(turnOn(session)).resolves.toBe(false);
     expect(await notificationsChoice()).toBe('on');
@@ -50,6 +58,15 @@ describe('turnOn', () => {
 });
 
 describe('turnOff', () => {
+  it('takes the key back from every connected host, clears the cards and has the server forget the token', async () => {
+    await turnOff(session);
+    expect(await notificationsChoice()).toBe('off');
+    expect(keys.withdrawKey).toHaveBeenCalledWith('host-a', { id: 'a' });
+    expect(keys.withdrawKey).toHaveBeenCalledWith('host-b', { id: 'b' });
+    expect(native.notifier.removeAll).toHaveBeenCalledTimes(1);
+    expect(token.stopPush).toHaveBeenCalledWith(session);
+  });
+
   it('stays off when the server cannot be told', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     token.stopPush.mockRejectedValueOnce(new Error('offline'));
