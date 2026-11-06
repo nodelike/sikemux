@@ -82,9 +82,9 @@ fn validate_agent_id(value: &str) -> Result<String, String> {
     Ok(agent_id.to_owned())
 }
 
-/// macOS has no way to ask for a signal when the parent dies, so the sidecar
+/// macOS has no way to ask for a signal when the parent dies, so this server
 /// watches for the reparenting that follows instead. Without this an agent that
-/// is killed rather than closed leaves its sidecar running forever.
+/// is killed rather than closed leaves its server running forever.
 #[cfg(unix)]
 fn watch_parent() {
     // SAFETY: `getppid` takes nothing and cannot fail.

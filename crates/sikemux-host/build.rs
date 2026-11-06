@@ -45,7 +45,7 @@ fn collect_files(path: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-/// The app and its sidecar are compiled separately, at different times and
+/// The app and its core are compiled separately, at different times and
 /// with different features, so they compare this instead of build times.
 fn core_source_fingerprint() -> String {
     let mut files = Vec::new();

@@ -1,11 +1,11 @@
 {
-  "comment": "Single source of truth for the agent tool surface. The core serves these to the sidecar, which keeps a compiled-in copy for when the core cannot be reached and serves them over MCP; scripts/generate-agent-tools.mjs emits the Rust method lists, and pnpm agent-tools:check proves every method still has a handler. Edit here, then run pnpm agent-tools:generate.",
+  "comment": "Single source of truth for the agent tool surface. The core serves these to the tools MCP server, which keeps a compiled-in copy for when the core cannot be reached and serves them over MCP; scripts/generate-agent-tools.mjs emits the Rust method lists, and pnpm agent-tools:check proves every method still has a handler. Edit here, then run pnpm agent-tools:generate.",
   "guide": {
     "file": "SIKEMUX_GUIDE.md",
     "name": "guide",
     "row": {"verb": "read", "kind": "read", "icon": "logo", "target": ["the guide: {topic}", "the guide"]},
     "description": "Read before your first process or browser click. Topics go deeper.",
-    "comment": "The sidecar answers it from the guide the core serves with this manifest, so it has no harness method."
+    "comment": "The tools MCP server answers it from the guide the core serves with this manifest, so it has no harness method."
   },
   "tools": [
     {

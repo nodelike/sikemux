@@ -1,4 +1,4 @@
-//! The core on its own, without the rest of the `sikemux` sidecar, for tests
+//! The core on its own, without the rest of `sikemux-host`, for tests
 //! that need a core in a process of its own: `sikemux-core core …`.
 
 #[cfg(unix)]

@@ -222,7 +222,7 @@ pub struct PendingDevice {
     pub expires_at: u64,
 }
 
-/// Which build of the sidecar a core runs. `source` fingerprints the code
+/// Which build of the core's program a core runs. `source` fingerprints the code
 /// the core is compiled from, so two compilations of the same code are the
 /// same build although they finished at different times.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

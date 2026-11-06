@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The built sidecar, started with --tools-mcp, must list its tools, serve its
+// The built core, started with --tools-mcp, must list its tools, serve its
 // guide, and relay a browser call to a stand-in for the app over the harness socket.
 
 import { spawn } from "node:child_process";
@@ -56,8 +56,8 @@ function fakeSikemux(received) {
   });
 }
 
-function session(sidecar, environment) {
-  const child = spawn(sidecar, ["--tools-mcp"], {
+function session(core, environment) {
+  const child = spawn(core, ["--tools-mcp"], {
     env: environment,
     stdio: ["pipe", "pipe", "inherit"],
   });
@@ -89,8 +89,8 @@ function session(sidecar, environment) {
   };
 }
 
-async function exercise(sidecar, environment, received) {
-  const mcp = session(sidecar, environment);
+async function exercise(core, environment, received) {
+  const mcp = session(core, environment);
   try {
     const start = await mcp.request("initialize", {
       protocolVersion: "2025-06-18",
@@ -106,7 +106,7 @@ async function exercise(sidecar, environment, received) {
     );
     for (const expected of EXPECTED_TOOLS) {
       if (!names.has(expected))
-        throw new Error(`the sidecar does not expose ${expected}`);
+        throw new Error(`the core does not expose ${expected}`);
     }
 
     const guide = await mcp.request("tools/call", {
@@ -117,7 +117,7 @@ async function exercise(sidecar, environment, received) {
       guide.isError ||
       !guide.content[0].text.includes("Working inside Sikemux")
     )
-      throw new Error("the sidecar does not carry its guide");
+      throw new Error("the core does not carry its guide");
 
     const navigated = await mcp.request("tools/call", {
       name: "browser_navigate",
@@ -129,7 +129,7 @@ async function exercise(sidecar, environment, received) {
         JSON.stringify(STATE)
     )
       throw new Error(
-        `the sidecar relayed the wrong answer: ${JSON.stringify(navigated.content)}`,
+        `the core relayed the wrong answer: ${JSON.stringify(navigated.content)}`,
       );
 
     const call = received.find(
@@ -149,7 +149,7 @@ async function exercise(sidecar, environment, received) {
   }
 }
 
-export async function smokeCore(sidecar) {
+export async function smokeCore(core) {
   const received = [];
   const server = await fakeSikemux(received);
   const directory = mkdtempSync(join(tmpdir(), "sikemux-smoke-"));
@@ -166,7 +166,7 @@ export async function smokeCore(sidecar) {
       }),
     );
     await exercise(
-      sidecar,
+      core,
       {
         ...process.env,
         SIKEMUX_CLI_ENDPOINT: endpoint,
@@ -182,13 +182,13 @@ export async function smokeCore(sidecar) {
 }
 
 if (process.argv[1]?.endsWith("smoke-core.mjs")) {
-  const sidecar = process.argv[2];
-  if (!sidecar) {
-    console.error("usage: smoke-core.mjs <sidecar>");
+  const core = process.argv[2];
+  if (!core) {
+    console.error("usage: smoke-core.mjs <core>");
     process.exit(2);
   }
   try {
-    await smokeCore(sidecar);
+    await smokeCore(core);
     console.log("✓ core smoke passed");
   } catch (error) {
     console.error(`core smoke failed: ${error.message}`);
