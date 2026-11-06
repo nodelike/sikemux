@@ -103,20 +103,12 @@ fn push_as(
         .map_err(|_| "git_push pushes a branch; this checkout is not on one".to_owned())?
         .trim()
         .to_owned();
-    let tracking = format!("refs/remotes/{remote}/{branch}");
-    remote_git(
-        &top,
-        &["fetch", "--quiet", remote, &format!("+{branch}:{tracking}")],
-    )?;
     let head = line(git(&top, &["rev-parse", "HEAD"])?);
-    let base = line(git(&top, &["rev-parse", &tracking])?);
-    let ahead = git(&top, &["rev-list", "--count", &format!("{head}..{base}")])?;
-    if ahead.trim() != "0" {
-        return Err(format!(
-            "{remote}/{branch} has commits this branch lacks; pull them first, then push"
-        ));
-    }
-    let unpushed = unpushed(&top, &base, &head, whose)?;
+    let base = match on_remote(&top, remote, &branch)? {
+        true => Some(fetched_tip(&top, remote, &branch, &head)?),
+        false => last_on_remote(&top, remote, &head)?,
+    };
+    let unpushed = unpushed(&top, base.as_deref(), &head, whose)?;
     if !unpushed.iter().any(|commit| commit.mine) {
         return Err(match unpushed.is_empty() {
             true => "Nothing to push: every commit here is on the remote".to_owned(),
@@ -150,13 +142,17 @@ fn push_as(
         )?;
         return Ok(pushed);
     }
+    let cannot_go_alone = || {
+        format!(
+            "Your commits build on other agents' unpushed ones, so they cannot go alone: {}. Ask them to push, or push when the person says to.",
+            kept(&unpushed).join("; ")
+        )
+    };
+    let base = base.ok_or_else(cannot_go_alone)?;
     let tip = replay(signing, &top, &base, &ours, WITHOUT_THEIRS)?;
     let rebuilt = replay(signing, &top, &tip, &theirs, WITHOUT_THEIRS)?;
     if tree(&top, &rebuilt)? != tree(&top, &head)? {
-        return Err(format!(
-            "Your commits build on other agents' unpushed ones, so they cannot go alone: {}. Ask them to push, or push when the person says to.",
-            kept(&unpushed).join("; ")
-        ));
+        return Err(cannot_go_alone());
     }
     remote_git(
         &top,
@@ -174,6 +170,62 @@ fn push_as(
         )),
         ..pushed
     })
+}
+
+fn on_remote(top: &Path, remote: &str, branch: &str) -> Result<bool, String> {
+    let found = git_remote_output(
+        top,
+        &[
+            "ls-remote",
+            "--heads",
+            remote,
+            &format!("refs/heads/{branch}"),
+        ],
+    )?;
+    Ok(!found.trim().is_empty())
+}
+
+/// The tip of `branch` on the remote, once it is known to hold nothing `head` lacks.
+fn fetched_tip(top: &Path, remote: &str, branch: &str, head: &str) -> Result<String, String> {
+    let tracking = format!("refs/remotes/{remote}/{branch}");
+    remote_git(
+        top,
+        &["fetch", "--quiet", remote, &format!("+{branch}:{tracking}")],
+    )?;
+    let base = line(git(top, &["rev-parse", &tracking])?);
+    let ahead = git(top, &["rev-list", "--count", &format!("{head}..{base}")])?;
+    if ahead.trim() != "0" {
+        return Err(format!(
+            "{remote}/{branch} has commits this branch lacks; pull them first, then push"
+        ));
+    }
+    Ok(base)
+}
+
+/// For a branch the remote lacks: the newest commit of `head` that any of the
+/// remote's branches holds, none when the remote shares nothing with it.
+fn last_on_remote(top: &Path, remote: &str, head: &str) -> Result<Option<String>, String> {
+    remote_git(top, &["fetch", "--quiet", remote])?;
+    let not_on_remote = git(
+        top,
+        &[
+            "rev-list",
+            "--reverse",
+            "--topo-order",
+            head,
+            "--not",
+            &format!("--remotes={remote}"),
+        ],
+    )?;
+    let Some(oldest) = not_on_remote.lines().next() else {
+        return Ok(Some(head.to_owned()));
+    };
+    Ok(git(
+        top,
+        &["rev-parse", "--verify", "--quiet", &format!("{oldest}^")],
+    )
+    .ok()
+    .map(line))
 }
 
 /// Moves `branch` from `head` to `rebuilt`, the same files with the pushed
@@ -240,15 +292,15 @@ fn kept(unpushed: &[Unpushed]) -> Vec<String> {
         .collect()
 }
 
-/// The commits on `head` that `base` lacks, oldest first, each with whether
-/// it is the caller's and who wrote it, as `whose` says.
+/// The commits on `head` that `base` lacks, all of them with no `base`, oldest
+/// first, each with whether it is the caller's and who wrote it, as `whose` says.
 fn unpushed(
     top: &Path,
-    base: &str,
+    base: Option<&str>,
     head: &str,
     whose: impl Fn(&str) -> Result<(bool, String), String>,
 ) -> Result<Vec<Unpushed>, String> {
-    let range = format!("{base}..{head}");
+    let range = base.map_or_else(|| head.to_owned(), |base| format!("{base}..{head}"));
     let merges = git(top, &["rev-list", "--merges", "--count", &range])?;
     if merges.trim() != "0" {
         return Err("The unpushed commits include a merge; push those by hand".into());
@@ -448,11 +500,15 @@ fn tree(top: &Path, commit: &str) -> Result<String, String> {
 /// Runs git against a remote, which may ask over the network and run the
 /// repository's push hooks, so it gets longer than git run locally.
 fn remote_git(top: &Path, args: &[&str]) -> Result<(), String> {
+    git_remote_output(top, args).map(drop)
+}
+
+fn git_remote_output(top: &Path, args: &[&str]) -> Result<String, String> {
     crate::git::Git::at(top)
         .timeout(PUSH_WAIT)
         .limit(PUSH_OUTPUT_LIMIT)
         .stdout(args)
-        .map(drop)
+        .map(|out| String::from_utf8_lossy(&out).into_owned())
 }
 
 #[cfg(test)]
@@ -464,6 +520,45 @@ mod tests {
         std::fs::write(dir.join(file), text).unwrap();
         git_in(dir, &["add", file]);
         git_in(dir, &["commit", "-qm", subject]);
+    }
+
+    /// `git_commit` with push failed with "couldn't find remote ref" on
+    /// bench/compare-compilers and others, which were not on the remote yet.
+    #[test]
+    fn a_branch_the_remote_lacks_is_published_with_only_the_callers_commits() {
+        let root = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(root.path()).unwrap();
+        let remote = root.join("remote.git");
+        let work = root.join("work");
+        git_in(&root, &["init", "-q", "--bare", "-b", "main", "remote.git"]);
+        git_in(&root, &["clone", "-q", &remote.to_string_lossy(), "work"]);
+        git_in(&work, &["checkout", "-q", "-b", "main"]);
+        commit(&work, "base.txt", "base\n", "base");
+        git_in(&work, &["push", "-q", "origin", "main"]);
+        git_in(&work, &["checkout", "-q", "-b", "fresh"]);
+        commit(&work, "a.txt", "a\n", "mine: a");
+        commit(&work, "b.txt", "b\n", "theirs: b");
+        let whose = |commit: &str| {
+            let subject = git_in(&work, &["log", "-1", "--format=%s", commit]);
+            Ok((subject.starts_with("mine"), "someone".to_owned()))
+        };
+        let signing = Signing {
+            key: None,
+            hosts: Vec::new(),
+        };
+        let pushed = push_as(&work, "origin", whose, &signing).unwrap();
+        assert_eq!(pushed.pushed.len(), 1);
+        assert_eq!(pushed.kept.len(), 1);
+        assert_eq!(
+            git_in(&remote, &["log", "--format=%s", "fresh"]),
+            "mine: a\nbase"
+        );
+
+        git_in(
+            &work,
+            &["remote", "set-url", "origin", "/nowhere/remote.git"],
+        );
+        assert!(push_as(&work, "origin", whose, &signing).is_err());
     }
 
     #[test]
