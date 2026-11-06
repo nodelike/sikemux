@@ -1,8 +1,8 @@
 #![cfg(unix)]
 
 //! A real core, git shim and fake agent: an agent's commits stay its own after
-//! a rebase by hand, a landing and a push, and a footer copied onto another
-//! commit still counts for nothing.
+//! a rebase by hand, a landing and a push, a footer copied onto another commit
+//! still counts for nothing, and an agent can wake one held by a stop.
 
 mod folded;
 
@@ -295,4 +295,54 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
         .await
         .expect("who wrote it");
     assert_eq!(owners(&wrote)[0].0, "person", "{wrote}");
+}
+
+/// Everything stopped, the person writes to one agent, and that agent messages another that is
+/// still held asleep: it wakes for the message rather than waiting for the person to open it.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_agent_the_person_set_going_again_wakes_one_held_by_stopping_everything() {
+    let root = tempfile::tempdir().expect("temp dir");
+    let root = std::fs::canonicalize(root.path()).expect("canonical");
+    let project = root.join("project");
+    std::fs::create_dir_all(root.join("home")).expect("home");
+    std::fs::create_dir(&project).expect("project");
+    let socket: PathBuf = root.join("core.sock");
+
+    let mut stopping = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    let accounts = json!({
+        "profiles": [{
+            "id": "fake",
+            "name": "Fake",
+            "provider": "opencode",
+            "accent": "#a277ff",
+            "executablePath": FAKE_AGENT,
+        }],
+    });
+    app.call("setAgentAccounts", accounts)
+        .await
+        .expect("accounts");
+    let added = json!({ "id": "widget", "name": "widget", "path": project });
+    app.call("addProject", added).await.expect("the project");
+    let (lead, _) = app
+        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .await
+        .expect("the lead starts");
+    let (held, _) = app
+        .start_chat("opencode:fake".into(), "widget".into(), None)
+        .await
+        .expect("the other starts");
+    let _ = app.ask(ask::Shutdown { stop_all: true }).await;
+    stopping.0.wait().expect("the core stops");
+    drop(app);
+
+    let _core = start_core(&root, &socket);
+    let (app, _events) = CoreClient::connect(&socket).await.expect("connect");
+    app.ask(ask::RegisterWindow).await.expect("the window");
+    let mut lead = Agent::open(&socket, &lead).await;
+    let answer = lead
+        .tool("agent.send", json!({ "to": held, "text": "carry on" }))
+        .await
+        .expect("the message");
+    assert!(answer.to_string().contains("woke it first"), "{answer}");
 }

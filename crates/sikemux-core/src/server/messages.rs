@@ -1435,7 +1435,7 @@ async fn handed(
         Reach::Chat | Reach::Terminal => {}
         Reach::Asleep if notice => held = Some("is asleep"),
         Reach::Asleep if !core.window.is_open() => held = Some("is asleep while Sikemux is closed"),
-        Reach::Asleep if core.workspaces.held(&target.agent_id) => {
+        Reach::Asleep if core.workspaces.held(&target.agent_id) && !lifts_hold(core, &letter) => {
             held = Some("was put to sleep when the person stopped everything")
         }
         Reach::Asleep => {
@@ -1525,6 +1525,18 @@ async fn handed(
         ),
         MessageOutcome::Waiting,
     ))
+}
+
+/// Whether this letter may wake an agent held since the person stopped everything: the person
+/// wrote it, or an agent they have set going again did. Mail left from the stop never may.
+fn lifts_hold(core: &Core, letter: &Letter) -> bool {
+    match Sender::of(&letter.from_id) {
+        Some(sender) => sender == Sender::Person,
+        None => {
+            core.workspaces.agent(&letter.from_id).is_some()
+                && !core.workspaces.held(&letter.from_id)
+        }
+    }
 }
 
 /// When the agent will have rested since its last turn, unless it has.

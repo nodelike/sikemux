@@ -770,8 +770,8 @@ impl Workspaces {
             .then(|| agent.title.trim().to_owned())
     }
 
-    /// Holds every agent asleep until the person opens or messages it, as
-    /// the person stops everything.
+    /// Holds every agent asleep until the person, or an agent they set going
+    /// again, opens or messages it, as the person stops everything.
     pub(crate) fn hold_all(&self) {
         let _ = self.change(|saved| {
             for kept in &mut saved.agents {
@@ -781,7 +781,8 @@ impl Workspaces {
         });
     }
 
-    /// Whether the agent waits for the person to open or message it.
+    /// Whether the agent waits to be opened or messaged by the person, or by an
+    /// agent they set going again.
     pub(crate) fn held(&self, agent_id: &str) -> bool {
         (self.published.locked().saved.kept(agent_id)).is_some_and(|kept| kept.held)
     }
