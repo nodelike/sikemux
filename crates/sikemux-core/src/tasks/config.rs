@@ -213,7 +213,8 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for Stated<T> {
             Given(T),
         }
         match Either::deserialize(deserializer)? {
-            Either::Off(_) => Ok(Stated::Off),
+            Either::Off(false) => Ok(Stated::Off),
+            Either::Off(true) => Err(serde::de::Error::custom("only false turns this off")),
             Either::Given(value) => Ok(Stated::Given(value)),
         }
     }
