@@ -5,7 +5,6 @@ use crate::rail::Edge;
 use crate::trust::Trust;
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::SessionChoice;
-use sikemux_view::changed::Topic;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::cell::Cell;
