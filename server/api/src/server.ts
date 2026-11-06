@@ -20,7 +20,6 @@ import { FcmProvider } from "./push/fcm.ts";
 import { Pusher } from "./push/send.ts";
 import { RelayAccess } from "./relay/access.ts";
 import { attachShares } from "./share/server.ts";
-import { backfillLinks } from "./stash/backfill.ts";
 import { StashFiles } from "./stash/files.ts";
 
 /** How long a stop waits for requests in flight before closing them anyway. */
@@ -161,12 +160,6 @@ export function startServer(config: Config, log: Logger) {
     pusher,
     watchers: [shares, relayAccess, hooks],
   });
-  backfillLinks(database.db, log).catch((error: unknown) =>
-    log.error(
-      { err: error },
-      "keeping the links of earlier stashed items failed",
-    ),
-  );
   let sweeping = false;
   const clerkSweep = setInterval(() => {
     if (!clerk || sweeping) return;

@@ -184,7 +184,7 @@ if healthy; then
   say "$commit is live"
   find "$RELEASES" -mindepth 1 -maxdepth 1 -type d ! -name '.*' -printf '%T@ %p\n' | sort -rn | tail -n +$((KEEP + 1)) |
     cut -d' ' -f2- | while read -r old; do
-      [ "$old" = "$previous" ] || rm -rf "$old"
+      [ "$old" = "$previous" ] || [ "$old" = "$target" ] || rm -rf "$old"
     done
   exit 0
 fi

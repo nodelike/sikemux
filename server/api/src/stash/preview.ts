@@ -6,7 +6,7 @@ import https from "node:https";
 import type { StashLink, StashPreview } from "@sikemux/protocol";
 
 const TIMEOUT_MS = 5_000;
-/** Pages read at once, across every request and the backfill; past this a page is not read. */
+/** Pages read at once, across every request; past this a page is not read. */
 const READS_AT_ONCE = 8;
 const MAX_BYTES = 1024 * 1024;
 const MAX_REDIRECTS = 3;

@@ -42,6 +42,11 @@ const ciWorkflow = fs.readFileSync(".github/workflows/ci.yml", "utf8");
 const hakari = fs.readFileSync(".config/hakari.toml", "utf8");
 const fail = (message) => { throw new Error(message); };
 
+const backups = fs.readFileSync("server/deploy/backup-database", "utf8");
+const promised = JSON.parse(fs.readFileSync("server/protocol/src/release.json", "utf8")).account.backupDays;
+const prunedHours = Number(/^prune_older_than=(\d+)h$/m.exec(backups)?.[1]);
+if (Math.ceil(prunedHours / 24) !== promised) fail(`backups are deleted after ${prunedHours}h, but the app promises ${promised} days`);
+
 for (const gate of ["fmt", "hakari", "clippy", "no-plugins", "gpui-clippy", "gpui-test"]) {
   if (!ciWorkflow.includes(`run: scripts/check-rust.sh ${gate}\n`)) fail(`CI does not run the ${gate} gate pnpm check runs`);
 }
