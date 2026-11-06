@@ -17,9 +17,8 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::cli::protocol::{
-    is_browser_method, is_sim_method, validate_harness, HarnessRequest, COMMIT_FOOTER_METHOD,
-    COMMIT_MADE_METHOD, CORE_REPLY_TIMEOUT, GIT_GUARD_METHOD, PLUGINS_CHANGED_METHOD,
-    SHIP_CHECK_METHOD, SHIP_RAN_METHOD, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD,
+    validate_harness, HarnessRequest, COMMIT_FOOTER_METHOD, COMMIT_MADE_METHOD, CORE_REPLY_TIMEOUT,
+    GIT_GUARD_METHOD, PLUGINS_CHANGED_METHOD, SHIP_CHECK_METHOD, SHIP_RAN_METHOD,
     TOOLS_MANIFEST_METHOD,
 };
 use crate::harness::command::{command_cwd, command_label, command_task_id, COMMAND_TASK_PREFIX};
@@ -37,6 +36,7 @@ use super::{session, Core};
 use crate::skills;
 
 mod inspect;
+mod methods;
 pub mod pages;
 mod processes;
 mod skills_tool;
@@ -44,6 +44,7 @@ mod tally;
 mod waits;
 
 use inspect::*;
+use methods::tool_word;
 pub(crate) use pages::read_page;
 use pages::*;
 use processes::*;
@@ -72,24 +73,6 @@ const PLUGIN_SETTLE: Duration = Duration::from_secs(1);
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 const TOOL_CALLS_FILE: &str = "agent-tool-calls.json";
 const WINDOW_GONE: &str = "Sikemux's window closed before it answered";
-/// Tools that act as the agent calling them, or with a sign-in or a view
-/// the caller does not hold itself, so a call from outside every agent's
-/// processes is refused rather than answered for no one.
-const AGENT_METHODS: [&str; 9] = [
-    "agent.",
-    "board.",
-    "memory.",
-    "git.",
-    "review.",
-    "browser.",
-    "sim.",
-    "plugins.call",
-    "app.console",
-];
-/// What a reviewer Auto started blind may not do: start agents, read saved
-/// sessions, who wrote what, or the board, any of which could show it the
-/// builder's side.
-const BLIND_REFUSED: [&str; 4] = ["agent.spawn", "agent.sessions", "agent.wrote", "board."];
 /// What agents do goes in the same journal as tasks, for `agent_wait` alone.
 pub(crate) const AGENT_EVENT: &str = "agent.";
 
@@ -473,21 +456,10 @@ fn with_fields(run: &Run, fields: Value) -> Value {
     value
 }
 
-fn purpose(method: &str) -> &'static str {
-    match method {
-        "workspace.inspect" => "inspect the workspace",
-        "ui.open" => "open things in it",
-        "app.console" => "read its console",
-        method if is_browser_method(method) => "use the browser",
-        method if is_sim_method(method) => "drive the iOS Simulator",
-        _ => "use this tool",
-    }
-}
-
 fn no_answer(method: &str) -> String {
     format!(
         "{} got no answer from Sikemux within {} s. Check that the Sikemux window is open and responsive, then retry.",
-        method.replace('.', "_"),
+        tool_word(method),
         CORE_REPLY_TIMEOUT.as_secs()
     )
 }
@@ -509,15 +481,13 @@ pub(crate) async fn answer_of(
 }
 
 pub(crate) async fn forward(core: &Core, request: HarnessRequest) -> Result<Value, String> {
-    let in_window = ["browser.", "sim."]
-        .iter()
-        .any(|prefix| request.method.starts_with(prefix));
-    let pinned = request.agent_id.as_deref().filter(|_| in_window);
+    let method = methods::of(&request.method);
+    let pinned = request.agent_id.as_deref().filter(|_| method.pinned);
     let call = core.window.call(
         WindowCall::Harness {
             request: serde_json::to_value(&request).map_err(|error| error.to_string())?,
         },
-        purpose(&request.method),
+        method.purpose,
         false,
         pinned,
     )?;
@@ -550,15 +520,10 @@ pub(crate) async fn call(
             .ok()
             .flatten(),
     };
-    if request.agent_id.is_none()
-        && grant.is_none()
-        && AGENT_METHODS
-            .iter()
-            .any(|prefix| request.method.starts_with(prefix))
-    {
+    if request.agent_id.is_none() && grant.is_none() && methods::of(&request.method).as_agent {
         return Err(format!(
             "{} works only for an agent Sikemux started, and this call came from outside every agent's processes; start this agent from Sikemux again",
-            request.method.replace('.', "_")
+            tool_word(&request.method)
         ));
     }
     let tool = tool_name(&request);
@@ -586,15 +551,11 @@ async fn dispatch(
         .to_string_lossy()
         .into_owned();
     if let Some(agent_id) = &request.agent_id {
-        messages::used_tool(core, agent_id, &request.method.replace('.', "_"));
-        if core.names.is_blind(agent_id)
-            && BLIND_REFUSED
-                .iter()
-                .any(|refused| request.method.starts_with(refused))
-        {
+        messages::used_tool(core, agent_id, &tool_word(&request.method));
+        if core.names.is_blind(agent_id) && methods::of(&request.method).blind_refused {
             return Err(format!(
                 "You review a card blind for Auto, so {} is not yours to use; judge the change from the card, the diff and your folder",
-                request.method.replace('.', "_")
+                tool_word(&request.method)
             ));
         }
     }

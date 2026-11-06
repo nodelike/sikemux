@@ -6,16 +6,7 @@ use super::*;
 /// method. Listing plugin tools is not a call.
 pub(super) fn tool_name(request: &HarnessRequest) -> Option<String> {
     match request.method.as_str() {
-        "plugins.tools"
-        | PLUGINS_CHANGED_METHOD
-        | TOOLS_MANIFEST_METHOD
-        | COMMIT_FOOTER_METHOD
-        | COMMIT_MADE_METHOD
-        | GIT_GUARD_METHOD
-        | SHIP_CHECK_METHOD
-        | SHIP_RAN_METHOD
-        | SIM_OFFERED_METHOD
-        | SIM_CANCEL_METHOD => None,
+        method if !methods::of(method).counted => None,
         "plugins.call" => request
             .params
             .get("tool")
