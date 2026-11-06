@@ -44,8 +44,8 @@ pub(crate) use native::Steered;
 use native::{ended_status, SessionEnd};
 use prompt::bounded_text;
 use sikemux_wire::protocol::{
-    ask, AgentState, Attention, AttentionKind, ChatAccount, ChatAttachment, ChatContext, ChatInfo,
-    ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId,
+    ask, AgentState, AgentStatus, Attention, AttentionKind, ChatAccount, ChatAttachment,
+    ChatContext, ChatInfo, ChatLaunch, ChatMark, ChatStart, ChatState, Event, RequestId,
 };
 
 use super::activity::Activity;
@@ -1085,7 +1085,10 @@ impl Chat {
             unread: false,
             active_at: None,
             group: Default::default(),
-            status: Default::default(),
+            status: match self.state_now() {
+                AgentState::Working => AgentStatus::Working,
+                _ => AgentStatus::default(),
+            },
             next_trigger: None,
             called_at: None,
             attention_rank: 0,

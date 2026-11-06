@@ -27,11 +27,12 @@ pub(crate) fn status_label(status: AgentStatus) -> &'static str {
     }
 }
 
-/// `asking` says the agent waits on the person to answer its question.
+/// `asking` says the agent waits on the person to answer its question. `status` comes in as
+/// [`Chat::info`](super::chat::Chat::info) left it, `Working` while the chat says it is at work.
 pub(crate) fn show_chat(chat: &mut ChatInfo, asking: bool) {
     chat.status = if asking || !chat.pending_permissions.is_empty() {
         AgentStatus::Blocked
-    } else if chat.running || chat.subagents > 0 {
+    } else if chat.status == AgentStatus::Working {
         AgentStatus::Working
     } else if chat.unread {
         AgentStatus::Done
