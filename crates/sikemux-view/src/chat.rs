@@ -668,7 +668,7 @@ pub struct ChatMessage {
     /// The agent began a turn with it, without a prompt before it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub opens_turn: Option<TurnStart>,
-    /// What its row says beneath it: on a prompt, and on the last message of an answer.
+    /// What the last message of an answer says beneath it. A prompt's time is `sent_at`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<RowMeta>,
     /// The finished turn it belongs to, when that turn folds its work away.
@@ -683,16 +683,16 @@ pub struct ChatMessage {
     pub from_event: Option<u64>,
 }
 
-/// The line under a prompt, or under the last message of an answer.
+/// The line under the last message of an answer.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RowMeta {
-    /// The first message of the answer it closes, or its own id on a prompt.
+    /// The first message of the answer it closes.
     pub from: String,
     /// Tokens a second the answer was written at, estimated from its characters.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rate: Option<f64>,
-    /// When a prompt was sent, or when an answer's turn finished.
+    /// When the answer's turn finished.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<u64>,
     /// How long the turn took, from the prompt that started it to its finish.

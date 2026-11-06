@@ -1632,7 +1632,7 @@ export interface ChatMessage {
     endedAt?: number;
     /** The agent began a turn with it, without a prompt before it. */
     opensTurn?: TurnStart;
-    /** What its row says beneath it: on a prompt, and on the last message of an answer. */
+    /** What the last message of an answer says beneath it. A prompt's time is `sent_at`. */
     meta?: RowMeta;
     /** The finished turn it belongs to, when that turn folds its work away. */
     fold?: WorkFold;
@@ -2008,13 +2008,13 @@ export interface RequestHeader {
     value: string;
 }
 
-/** The line under a prompt, or under the last message of an answer. */
+/** The line under the last message of an answer. */
 export interface RowMeta {
-    /** The first message of the answer it closes, or its own id on a prompt. */
+    /** The first message of the answer it closes. */
     from: string;
     /** Tokens a second the answer was written at, estimated from its characters. */
     rate?: number;
-    /** When a prompt was sent, or when an answer's turn finished. */
+    /** When the answer's turn finished. */
     at?: number;
     /** How long the turn took, from the prompt that started it to its finish. */
     took?: number;

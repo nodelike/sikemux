@@ -39,6 +39,8 @@ const SCENES = [
   { name: 'question', route: `/device/${CORE}/chat/chat-release` },
   { name: 'assumed', route: `/device/${CORE}/chat/chat-login-check` },
   { name: 'new-chat', route: `/device/${CORE}/new` },
+  { name: 'prompt-strip', route: `/device/${CORE}/chat/chat-release`, tapPart: 'Write release notes for this week from t' },
+  { name: 'prompt-edit', route: `/device/${CORE}/chat/chat-release`, tapPart: 'Write release notes for this week from t', tapLabel: 'Edit message' },
 ].filter((scene) => only.length === 0 || only.includes(scene.name));
 
 if (existsSync(PANE_IMAGE_FILE)) execFileSync('sips', ['-Z', '1600', PANE_IMAGE_FILE, '--out', PANE], { stdio: 'ignore' });
@@ -101,9 +103,9 @@ const stop = () => {
 process.on('exit', stop);
 
 async function ready() {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  for (let attempt = 0; attempt < 400; attempt += 1) {
     try {
-      if ((await fetch(origin)).ok) return;
+      if ((await fetch(origin, { signal: AbortSignal.timeout(5000) })).ok) return;
     } catch {}
     await new Promise((settle) => setTimeout(settle, 1000));
   }
@@ -134,6 +136,14 @@ for (const scene of SCENES) {
   await page.waitForTimeout(3000);
   if (scene.tap) {
     await page.getByText(scene.tap, { exact: true }).first().click();
+    await page.waitForTimeout(800);
+  }
+  if (scene.tapPart) {
+    await page.getByText(scene.tapPart).first().click();
+    await page.waitForTimeout(800);
+  }
+  if (scene.tapLabel) {
+    await page.getByLabel(scene.tapLabel).first().click({ timeout: 5000 }).catch(() => problems.push(`no ${scene.tapLabel} on ${scene.name}`));
     await page.waitForTimeout(800);
   }
   await page.evaluate(separateGradients);

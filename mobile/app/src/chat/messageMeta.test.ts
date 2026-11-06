@@ -12,7 +12,7 @@ const message = (id: string, role: ChatMessage['role'], text: string, fields: Pa
 
 describe("a message's strip", () => {
   const messages = [
-    message('u1', 'user', 'Fix it', { meta: { from: 'u1', at: 1_000 } }),
+    message('u1', 'user', 'Fix it', { sentAt: 1_000 }),
     message('a1', 'assistant', 'Looking.'),
     message('a2', 'assistant', 'Fixed.', { meta: { from: 'a1', at: 61_000, took: 60_000 } }),
   ];

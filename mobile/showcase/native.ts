@@ -249,6 +249,7 @@ const HOST_CALLS: { [M in keyof CoreCalls]?: (params: CoreCalls[M]['params']) =>
     return { value: { uri: item?.url ?? '', title: `#${number} ${item?.title ?? ''}`, text: item?.title ?? '' } };
   },
   promptChat: () => ({}),
+  editMessage: () => null,
 };
 
 class Connection {

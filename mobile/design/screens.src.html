@@ -879,7 +879,7 @@
   .msg-strip { display: flex; align-items: center; gap: 8px; height: 24px; margin-top: 6px; color: var(--ink-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
   .msg-strip .cp { width: 24px; height: 24px; display: grid; place-items: center; }
   .msg-strip .rate { margin-left: auto; font-family: var(--mono); font-style: italic; }
-  .msg-strip.mine { justify-content: flex-end; }
+  .msg-strip.mine { justify-content: flex-end; align-self: flex-end; margin-top: -2px; }
   .msg-edit { align-self: flex-end; width: 84%; margin: 12px 0 8px; padding: 9px 13px 8px; border-radius: 12px; border: 1px solid var(--border-selected); background: color-mix(in oklab, var(--rail-2) 72%, transparent); display: flex; flex-direction: column; gap: 8px; }
   .msg-edit .ta { color: var(--ink); font-size: 14px; line-height: 1.57; }
   .msg-edit .acts { display: flex; justify-content: flex-end; gap: 6px; }
@@ -3257,6 +3257,38 @@ expected 1 write, got 2</div>
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Tapping a message</b><div class="note">A tap on a message, yours or the agent's answer, shows the strip the Mac shows under it on hover: Copy, when it was sent or finished and how long the turn took, and roughly how fast it wrote. Another tap, or a tap on another message, hides it. An answer is all of its prose across the tool calls in between, so its strip sits under its last part. The text itself is selectable where it stands: a long press selects it. Code blocks wear the Mac's title bar, with the file or language the fence names and a copy button, and a patch in a fence is tinted by sign with the changed words marked. A path in the prose reads as the Mac's file ref; the phone cannot ask the host whether it is there, so only a name with a folder and an extension counts. A picture it names on the host opens over the whole screen, and one it links to is drawn in place.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Birch</b><i>·</i><em>Download size on the hero</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="msg-user">Show the download size next to the button.</div>
+          <div class="msg-strip mine"><span class="cp">{{IconCopy:15}}</span><span class="cp">{{IconPencil:15}}</span><span class="when">Today, 21:05</span></div>
+          <div class="work"><span class="work-sum"><span class="claude">{{IconClaude:17}}</span>Worked for 14s <span class="calls">· 2 tool calls</span>{{IconChevron:10}}</span></div>
+          <div class="prose" style="margin-top:0">Done. <span class="fref link"><span class="g">{{IconFile:12}}</span>src/lib/release.ts</span> reads the size from the latest release at build time:</div>
+          <div class="code-box"><div class="title">{{IconFile:11}}<span class="nm">ts</span><span class="cp">{{IconCopy:12}}</span></div><pre>const dmg = assets.find((a) =&gt;
+  a.name.endsWith("_aarch64.dmg"));</pre></div>
+          <div class="code-box"><div class="title"><span class="nm"></span><span class="cp">{{IconCopy:12}}</span></div><div class="md-diff"><div class="ln d"><b>-</b><span>const size = <mark>"16 MB"</mark>;</span></div><div class="ln a"><b>+</b><span>const size = <mark>formatBytes(dmg.size)</mark>;</span></div></div></div>
+        </div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div class="ta ph">Ask about this project</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="ring"><i class="ctx claude" style="--p:58"></i></span>
+              <span class="spacer"></span>
+              <span class="send">{{IconArrowUp:16}}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>The strip under your message</b><div class="note">A tap on a message of yours opens its strip under the bubble, at its right edge, and a tap again closes it: Copy, then the pencil while the message can be written again (see Editing a message), then when it was sent. A tap on another message moves the strip there.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

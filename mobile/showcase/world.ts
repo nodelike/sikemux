@@ -397,7 +397,7 @@ export function chatRows(chat: DemoChat): ChatMessage[] {
     if ('ask' in step) {
       const id = next('m');
       asked = at;
-      rows.push({ id, role: 'user', parts: [{ kind: 'text', id: next('part'), text: step.ask }], sentAt: at, meta: { from: id, at } });
+      rows.push({ id, role: 'user', promptId: id, parts: [{ kind: 'text', id: next('part'), text: step.ask }], sentAt: at });
       return;
     }
     const part = step.part.kind === 'tool' ? { ...step.part, startedAt: at, endedAt: at + 2_000 } : step.part;
@@ -430,7 +430,7 @@ export function chatHead(chat: DemoChat): ChatView['head'] {
     turned: true,
     permissionMode: chat.permissionMode as PermissionMode,
     commands: [],
-    capabilities: {},
+    capabilities: { editing: true },
     setup: {},
     ...PICKERS[chat.provider],
     permissions: asking ? [asking] : [],

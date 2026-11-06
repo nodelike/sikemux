@@ -127,12 +127,12 @@ pub fn line(
         .and_then(|meta| meta.at)
         .or(message.sent_at)
         .and_then(sent);
-    let took = meta.and_then(|meta| meta.took).filter(|_| !user);
+    let took = meta.and_then(|meta| meta.took);
     let when = at.map(|at| match took {
         Some(took) => format!("{at} · took {}", crate::ui::time::took(took)),
         None => at,
     });
-    let speed = meta.and_then(|meta| meta.rate).filter(|_| !user).map(rate);
+    let speed = meta.and_then(|meta| meta.rate).map(rate);
     Some(
         div()
             .h(px(24.))
