@@ -61,7 +61,10 @@ pub fn challenge(verifier: &str) -> String {
 pub enum Finish {
     Page(&'static str),
     /// Sent on to `done`, or to `refused` when the sign-in was turned down.
-    Redirect { done: String, refused: String },
+    Redirect {
+        done: String,
+        refused: String,
+    },
 }
 
 pub struct Callback {

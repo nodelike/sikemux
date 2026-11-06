@@ -17,4 +17,3 @@ pub async fn projects(session: &Session) -> RundeckResult<Vec<RundeckProject>> {
     out.sort_by_key(|project| project.name.to_lowercase());
     Ok(out)
 }
-

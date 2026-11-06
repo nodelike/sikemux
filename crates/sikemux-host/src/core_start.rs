@@ -37,7 +37,10 @@ pub enum StartError {
     Unreachable(ClientError),
     /// A core of another protocol answers at the socket and could not be
     /// moved to this build, so this app cannot talk to it.
-    Incompatible { pid: u32, reason: String },
+    Incompatible {
+        pid: u32,
+        reason: String,
+    },
 }
 
 /// Makes sure a core this app can talk to answers at the launch's socket:
