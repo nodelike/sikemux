@@ -6,7 +6,8 @@ use std::rc::Rc;
 
 use gpui_kit::{Context, SharedString, Window};
 use serde_json::json;
-use sikemux_wire::protocol::{AgentStatus, LauncherInfo, PermissionMode};
+use sikemux_view::workspace::LauncherInfo;
+use sikemux_wire::protocol::{AgentStatus, PermissionMode};
 
 use crate::icons::Icon;
 use crate::palette::{Choice, Mark, Row, Spec};

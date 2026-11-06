@@ -142,7 +142,7 @@ impl Core {
     }
 
     /// The face each agent wears, by agent id; one showing its logo has none.
-    pub(crate) fn agent_faces(&self) -> HashMap<String, sikemux_wire::protocol::AgentFace> {
+    pub(crate) fn agent_faces(&self) -> HashMap<String, sikemux_view::workspace::AgentFace> {
         let mut agents = self.workspaces.view().agents;
         self.names.fill(&mut agents);
         self.faces.fill(&mut agents);
@@ -154,7 +154,7 @@ impl Core {
 
     /// The workspace as clients are sent it, each agent under its name and
     /// in its face.
-    pub(crate) fn workspace_view(&self) -> sikemux_wire::protocol::Workspace {
+    pub(crate) fn workspace_view(&self) -> sikemux_view::workspace::Workspace {
         let preferences = self.preferences.get();
         let mut workspace = self.workspaces.view();
         workspace.palette = self.look.tokens_by_name();

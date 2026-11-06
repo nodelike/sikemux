@@ -8,7 +8,6 @@ mod event;
 mod frame;
 mod message;
 mod session;
-mod workspace;
 
 pub use agent::*;
 pub use chats::*;
@@ -17,7 +16,6 @@ pub use event::*;
 pub use frame::*;
 pub use message::*;
 pub use session::*;
-pub use workspace::*;
 
 pub const PROTOCOL: &str = "sikemux-core";
 pub const PROTOCOL_VERSION: u32 = 14;

@@ -13,7 +13,6 @@ use sikemux_client::client::{Attached, ClientEvent, CoreClient, EventSink, Reply
 use sikemux_core::client::{ensure_running, probe};
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use sikemux_pty::launch::{LaunchKind, PtyContext};
-use sikemux_pty::output_log::OutputQuery;
 use sikemux_pty::task::{TaskSource, TaskSpawnRequest};
 use sikemux_wire::grid::{decode_frame, Screen, MODE_ALT_SCREEN, MODE_MOUSE_ANY};
 use sikemux_wire::protocol::{
@@ -136,7 +135,6 @@ struct Stream {
     output: HashMap<SessionId, Vec<u8>>,
     screens: HashMap<StreamId, (SessionId, Screen)>,
     exits: HashMap<SessionId, Event>,
-    task_notices: Vec<SessionId>,
     agent_states: Vec<AgentStateEvent>,
 }
 
@@ -147,7 +145,6 @@ impl Stream {
             output: HashMap::new(),
             screens: HashMap::new(),
             exits: HashMap::new(),
-            task_notices: Vec::new(),
             agent_states: Vec::new(),
         }
     }
@@ -168,7 +165,6 @@ impl Stream {
             ClientEvent::Event(event @ Event::Exited { id, .. }) => {
                 self.exits.insert(id, event);
             }
-            ClientEvent::Event(Event::TaskOutput { id }) => self.task_notices.push(id),
             ClientEvent::Event(Event::AgentState(state)) => self.agent_states.push(state),
             ClientEvent::Event(_) | ClientEvent::DeviceView(_) | ClientEvent::WindowCall { .. } => {
             }
@@ -598,7 +594,7 @@ async fn kill_terminates_the_whole_process_tree() {
 }
 
 #[tokio::test]
-async fn task_output_can_be_paged_after_the_task_exits() {
+async fn a_finished_task_is_kept_and_attachable() {
     let core = start_core();
     let (client, mut stream) = core.connect().await;
     let dir = tempfile::tempdir().expect("task dir");
@@ -607,21 +603,7 @@ async fn task_output_can_be_paged_after_the_task_exits() {
         .await
         .expect("spawn");
     stream.until_exit(&client, id).await;
-    let page = client
-        .ask(ask::TaskOutput {
-            id,
-            query: OutputQuery {
-                limit: 8192,
-                ..OutputQuery::default()
-            },
-        })
-        .await
-        .expect("task output");
-    assert_eq!(page.bytes, b"alpha\r\nbeta\r\n");
-    assert!(!page.has_more);
-    while !stream.task_notices.contains(&id) {
-        stream.pump(&client).await;
-    }
+    stream.until_output(&client, id, "beta").await;
     let session = client
         .ask(ask::List)
         .await
@@ -634,15 +616,6 @@ async fn task_output_can_be_paged_after_the_task_exits() {
         .attach(id)
         .await
         .expect("a finished task is attachable");
-
-    let shell = client.spawn(launch(), terminal(None)).await.expect("spawn");
-    assert!(client
-        .ask(ask::TaskOutput {
-            id: shell,
-            query: OutputQuery::default()
-        })
-        .await
-        .is_err());
 }
 
 #[test]

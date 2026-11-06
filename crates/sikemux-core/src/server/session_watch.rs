@@ -17,7 +17,7 @@ use tokio::time::Instant;
 use crate::agent_accounts::Book;
 use crate::agent_catalog::AgentKind;
 use crate::sessions::{self, AgentSession};
-use sikemux_wire::protocol::WorkspaceAgent;
+use sikemux_view::workspace::WorkspaceAgent;
 
 use super::connection::blocking;
 use super::Core;

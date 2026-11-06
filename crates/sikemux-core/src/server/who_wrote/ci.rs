@@ -15,7 +15,7 @@ use super::{git, remember, Found};
 use crate::server::codehost::log;
 use crate::server::codehost::repo::{self as codehost, Conclusion, Repo};
 use crate::server::Core;
-use sikemux_wire::protocol::CodeHostChoice;
+use sikemux_view::workspace::CodeHostChoice;
 
 const ASK_BUDGET: Duration = Duration::from_secs(10);
 const LOG_BUDGET: Duration = Duration::from_secs(20);

@@ -136,30 +136,8 @@ pub(super) async fn run(
                     client.answer::<ask::Kill>(request_id, result);
                 });
             }
-            Request::TaskOutput(ask::TaskOutput { id, query }) => {
-                tokio::spawn(async move {
-                    let result = match session_or_missing(&core, id) {
-                        Ok(target) => blocking(move || session::task_output(&target, &query)).await,
-                        Err(_) => {
-                            Err("Process output expired or the process no longer exists".into())
-                        }
-                    };
-                    client.answer::<ask::TaskOutput>(request_id, result);
-                });
-            }
             Request::Shutdown(ask::Shutdown { stop_all }) => {
                 tokio::spawn(shutdown(core, client, request_id, stop_all));
-            }
-            Request::StopAll => {
-                tokio::spawn(async move {
-                    let draining = core.clone();
-                    let result = blocking(move || {
-                        draining.drain();
-                        Ok(())
-                    })
-                    .await;
-                    client.answer::<ask::StopAll>(request_id, result);
-                });
             }
             Request::RegisterWindow => {
                 core.window.register(client.clone());
@@ -168,10 +146,6 @@ pub(super) async fn run(
                 crate::waiting::wake(&core.config.socket);
                 core.changed(What::Agents);
                 client.answer::<ask::RegisterWindow>(request_id, Ok(()));
-            }
-            Request::PluginsChanged => {
-                core.harness.plugins_changed();
-                client.answer::<ask::PluginsChanged>(request_id, Ok(()));
             }
             Request::Attach(ask::Attach { id }) => {
                 let result = match session_or_missing(&core, id) {
@@ -248,30 +222,10 @@ pub(super) async fn run(
                 }
                 Err(error) => client.respond(request_id, Err(error)),
             },
-            Request::TerminalWaitFor(ask::TerminalWaitFor { id, containing }) => {
-                match session_or_missing(&core, id) {
-                    Ok(target) => {
-                        let shown = session::line_shown(&target, containing);
-                        drop(target);
-                        tokio::spawn(async move {
-                            let line = shown.await.unwrap_or(None);
-                            client.answer::<ask::TerminalWaitFor>(request_id, Ok(line));
-                        });
-                    }
-                    Err(error) => client.respond(request_id, Err(error)),
-                }
-            }
             Request::TerminalClear(ask::TerminalClear { id }) => {
                 let result =
                     session_or_missing(&core, id).map(|target| session::clear(&core, &target));
                 client.answer::<ask::TerminalClear>(request_id, result);
-            }
-            Request::ShellAtPrompt(ask::ShellAtPrompt { id }) => {
-                let result = match session_or_missing(&core, id) {
-                    Ok(target) => blocking(move || Ok(target.shell_at_prompt())).await,
-                    Err(error) => Err(error),
-                };
-                client.answer::<ask::ShellAtPrompt>(request_id, result);
             }
             Request::Detach(ask::Detach { stream }) => {
                 if let Some(target) = client
@@ -555,9 +509,6 @@ pub(super) async fn run(
                 core.view_watched();
                 client.answer::<ask::WatchView>(request_id, Ok(()));
                 core.send_device_view(&client);
-            }
-            Request::Attentions => {
-                client.answer::<ask::Attentions>(request_id, Ok(core.chats.attentions()));
             }
             Request::Host => {
                 tokio::spawn(async move {

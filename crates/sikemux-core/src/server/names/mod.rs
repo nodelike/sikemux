@@ -20,7 +20,7 @@ use sikemux_process::sync::Locked;
 use super::connection::blocking;
 use super::kept::Kept;
 use super::{Core, CoreResult};
-use sikemux_wire::protocol::AgentBuddy;
+use sikemux_view::workspace::AgentBuddy;
 use words::{ANIME, NATURE};
 
 const FILE: &str = "agent-names.json";
@@ -299,7 +299,7 @@ impl Names {
         }
     }
 
-    pub(crate) fn fill(&self, agents: &mut [sikemux_wire::protocol::WorkspaceAgent]) {
+    pub(crate) fn fill(&self, agents: &mut [sikemux_view::workspace::WorkspaceAgent]) {
         let book = self.book.locked();
         let names: HashMap<&str, &str> = book
             .agents

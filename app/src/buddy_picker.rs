@@ -8,7 +8,7 @@ use gpui_kit::{
     div, img, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
 };
-use sikemux_wire::protocol::{AgentFace, WorkspaceAgent};
+use sikemux_view::workspace::{AgentFace, WorkspaceAgent};
 
 use crate::faces::{self, Pack};
 use crate::icons::Icon;
@@ -20,7 +20,7 @@ use crate::ui::{self, dialog};
 use crate::workbench::Workbench;
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
-use sikemux_wire::protocol::AgentBuddy;
+use sikemux_view::workspace::AgentBuddy;
 
 /// Which agent's face is being picked, and the pack whose shapes it shows.
 pub struct BuddyPicker {

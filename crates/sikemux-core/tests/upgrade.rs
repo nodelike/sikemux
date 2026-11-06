@@ -26,7 +26,6 @@ use sikemux_core::cli::protocol::{
 };
 use sikemux_core::client::{await_deferred_upgrade, await_upgrade, frozen_request, probe};
 use sikemux_core::frozen::{FrozenReply, FrozenRequest};
-use sikemux_pty::output_log::OutputQuery;
 use sikemux_view::chat::{PermissionKind, StopReason};
 use sikemux_wire::grid::{decode_frame, Screen};
 use sikemux_wire::protocol::{
@@ -453,17 +452,14 @@ async fn an_upgrade_keeps_every_session_and_the_harness() {
         .find(|session| session.task_execution_id.as_deref() == Some(running_id.as_str()))
         .expect("the running task")
         .id;
-    let page = client
-        .ask(ask::TaskOutput {
+    let text = client
+        .ask(ask::TerminalText {
             id: running_pty,
-            query: OutputQuery {
-                limit: 8192,
-                ..OutputQuery::default()
-            },
+            range: None,
         })
         .await
         .expect("task output");
-    assert!(String::from_utf8_lossy(&page.bytes).contains("task-out"));
+    assert!(text.contains("task-out"));
 
     assert_eq!(
         descriptor(&core.endpoint),

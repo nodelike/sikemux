@@ -38,10 +38,6 @@ pub enum Event {
         id: SessionId,
         link: SshLink,
     },
-    /// A task session has new output to page through with `TaskOutput`.
-    TaskOutput {
-        id: SessionId,
-    },
     AgentState(AgentStateEvent),
     /// Sent only to the clients that started or attached to the chat: what
     /// changed in it, a list of `ChatChange` as JSON. `seq`

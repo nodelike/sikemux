@@ -1,6 +1,6 @@
 //! What a chat offers to pick before its agent starts.
 
-use sikemux_wire::protocol::ConfigPicker;
+use sikemux_view::workspace::ConfigPicker;
 
 use super::*;
 

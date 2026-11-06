@@ -18,7 +18,8 @@ use sikemux_core::server::hosts::HostReach;
 use sikemux_view::device::AccountInfo;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::prefs::{Preferences, TabRailPage, TabRailScope};
-use sikemux_wire::protocol::{AgentGroup, AgentStatus, ProjectInfo};
+use sikemux_view::workspace::ProjectInfo;
+use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
 use crate::agents::rows::AgentRow;
 use crate::hosts::install_pane::{SetUp, Words};

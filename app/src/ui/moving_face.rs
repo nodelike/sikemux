@@ -7,7 +7,8 @@ use gpui::{
     div, img, px, AnyElement, App, Context, ElementId, Global, Image, IntoElement, ParentElement,
     Render, Styled, Window,
 };
-use sikemux_wire::protocol::{AgentFace, AgentGroup};
+use sikemux_view::workspace::AgentFace;
+use sikemux_wire::protocol::AgentGroup;
 
 use super::clock::{self, Slot};
 

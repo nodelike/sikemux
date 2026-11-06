@@ -12,7 +12,7 @@ use super::workspace::AddProjectParams;
 use super::{launching, session, Core, CoreError, CoreResult};
 use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::relocate::relocate;
-use sikemux_wire::protocol::WorkspaceAgent;
+use sikemux_view::workspace::WorkspaceAgent;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]

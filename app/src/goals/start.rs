@@ -17,7 +17,8 @@ use sikemux_core::server::board::BoardHandOffParams;
 use sikemux_core::server::call;
 use sikemux_core::server::triage::TriageParams;
 use sikemux_view::start::{Because, HardFact, StartMode};
-use sikemux_wire::protocol::{ChatContext, LauncherInfo, ProjectInfo, FOR_AGENT_URI};
+use sikemux_view::workspace::{LauncherInfo, ProjectInfo};
+use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
 use tokio::sync::oneshot;
 
 use super::GoalsPane;

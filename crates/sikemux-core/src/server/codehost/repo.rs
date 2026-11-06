@@ -14,7 +14,7 @@ use crate::server::plugins::{self, CodeHostSpec, FailureCategory, PluginFailure,
 use crate::server::workspace::project_of;
 use crate::server::Core;
 use sikemux_plugin_api::codehost::{Repo as RemoteRepo, Resolved};
-use sikemux_wire::protocol::{CodeHostChoice, ProjectCodeHost, ProjectPull, PullChecks};
+use sikemux_view::workspace::{CodeHostChoice, ProjectCodeHost, ProjectPull, PullChecks};
 
 /// A code host the core reaches through its plugin, as the plugin's manifest
 /// describes it.

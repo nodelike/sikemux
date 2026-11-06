@@ -6,7 +6,8 @@ use gpui_kit::{App, ClickEvent, ClipboardItem, Context, WeakEntity, Window};
 use percent_encoding::{utf8_percent_encode, AsciiSet, NON_ALPHANUMERIC};
 
 use serde_json::{json, Value};
-use sikemux_wire::protocol::{PermissionMode, PinnedChat, WorkspaceAgent};
+use sikemux_view::workspace::{PinnedChat, WorkspaceAgent};
+use sikemux_wire::protocol::PermissionMode;
 
 use crate::icons::Icon;
 use crate::toast;

@@ -45,7 +45,8 @@ use gpui_kit::{
     SharedString, Styled, StyledText, Svg, Window,
 };
 
-use sikemux_wire::protocol::{AgentFace, AgentGroup};
+use sikemux_view::workspace::AgentFace;
+use sikemux_wire::protocol::AgentGroup;
 
 use crate::icons::{self, Icon};
 use crate::theme::{self, Tokens, TEXT_2XS, TEXT_LG};

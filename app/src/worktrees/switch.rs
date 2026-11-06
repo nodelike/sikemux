@@ -9,7 +9,7 @@ use gpui_kit::{
     div, px, AnyElement, App, Hsla, InteractiveElement, IntoElement, ParentElement, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
-use sikemux_wire::protocol::AgentWorktree;
+use sikemux_view::workspace::AgentWorktree;
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_0, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS};

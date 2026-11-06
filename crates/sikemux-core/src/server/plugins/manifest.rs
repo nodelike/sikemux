@@ -5,7 +5,7 @@ use serde_json::{Map, Value};
 
 use sikemux_plugin_api::{FailureCategory, PluginError};
 use sikemux_view::plugins::TokenForm;
-use sikemux_wire::protocol::{CiAbilities, PullAbilities};
+use sikemux_view::workspace::{CiAbilities, PullAbilities};
 
 const MAX_ID_LENGTH: usize = 128;
 const MAX_TOOL_NAME_LENGTH: usize = 64;

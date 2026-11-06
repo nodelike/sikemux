@@ -36,10 +36,8 @@ use sikemux_view::chat::{
 };
 use sikemux_view::layout::PaneKind;
 use sikemux_view::questions::{AgentQuestion, QuestionState};
-use sikemux_wire::protocol::{
-    AgentStatus, ChatAttachment, ChatContext, ChatMark, ConfigPicker, PermissionMode,
-    WorkspaceAgent,
-};
+use sikemux_view::workspace::{ConfigPicker, WorkspaceAgent};
+use sikemux_wire::protocol::{AgentStatus, ChatAttachment, ChatContext, ChatMark, PermissionMode};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::agents::rows::AgentRow;

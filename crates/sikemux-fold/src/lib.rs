@@ -590,7 +590,7 @@ impl Fold {
     fn read_pickers(&mut self) {
         let (model, mut effort) = pickers::pickers(&self.head.setup["configOptions"]);
         if effort.is_none() && self.offers_effort {
-            effort = Some(sikemux_wire::protocol::ConfigPicker {
+            effort = Some(sikemux_view::workspace::ConfigPicker {
                 id: "effort".into(),
                 current: String::new(),
                 choices: Vec::new(),

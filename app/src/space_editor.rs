@@ -13,7 +13,7 @@ use gpui_kit::{
     ParentElement, Render, SharedString, StatefulInteractiveElement, Styled, Subscription,
     WeakEntity, Window,
 };
-use sikemux_wire::protocol::{ProjectInfo, SpaceInfo};
+use sikemux_view::workspace::{ProjectInfo, SpaceInfo};
 
 use crate::icons::Icon;
 use crate::theme::{Tokens, RADIUS_2, SPACE_0, SPACE_1, SPACE_2, TEXT_3XS_H, TEXT_XS};

@@ -12,7 +12,7 @@ use super::connection::blocking;
 use serde::Deserialize;
 use serde_json::Value;
 use sikemux_process::sync::Locked;
-use sikemux_wire::protocol::{ProjectCodeHost, ProjectGit, ProjectPull, PullChecks};
+use sikemux_view::workspace::{ProjectCodeHost, ProjectGit, ProjectPull, PullChecks};
 
 use super::changed::Topic;
 use crate::git::{

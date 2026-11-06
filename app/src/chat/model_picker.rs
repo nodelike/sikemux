@@ -13,7 +13,7 @@ use gpui_kit::{
     IntoElement, ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement,
     Styled, Subscription, WeakEntity, Window,
 };
-use sikemux_wire::protocol::ConfigPicker;
+use sikemux_view::workspace::ConfigPicker;
 
 use crate::agents::setup::Installing;
 use crate::core;

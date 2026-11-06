@@ -660,7 +660,7 @@ impl Core {
         resume_id: Option<&str>,
     ) -> (
         names::AgentName,
-        Option<Option<sikemux_wire::protocol::AgentBuddy>>,
+        Option<Option<sikemux_view::workspace::AgentBuddy>>,
     ) {
         let starting = names::Starting {
             agent_id,
@@ -820,7 +820,6 @@ impl Core {
             if let Some(session) = core.session(id) {
                 session::mark_task_output_noticed(&session);
             }
-            core.changed(What::Event(&Event::TaskOutput { id }));
             harness::note_output(&core, id);
         });
     }

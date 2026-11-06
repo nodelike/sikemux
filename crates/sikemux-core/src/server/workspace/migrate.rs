@@ -12,9 +12,8 @@ use serde_json::Value;
 use sikemux_wire::protocol::PermissionMode;
 
 use super::{check_agent, dress, is_chat_provider, Kept, Saved};
-use sikemux_wire::protocol::{
-    ChatAccount, CodeHostChoice, PinnedChat, ProjectInfo, SpaceInfo, WorkspaceAgent,
-};
+use sikemux_view::workspace::{CodeHostChoice, PinnedChat, ProjectInfo, SpaceInfo, WorkspaceAgent};
+use sikemux_wire::protocol::ChatAccount;
 
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]

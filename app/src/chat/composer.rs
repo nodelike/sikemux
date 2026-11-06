@@ -14,7 +14,7 @@ use gpui_kit::{
     SharedString, StatefulInteractiveElement, Styled, Transformation, Window,
 };
 use sikemux_view::chat::{Compactions, ContextUsage};
-use sikemux_wire::protocol::ConfigPicker;
+use sikemux_view::workspace::ConfigPicker;
 
 use crate::chat::model_picker::Picked;
 use crate::icons::Icon;

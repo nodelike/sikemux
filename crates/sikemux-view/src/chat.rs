@@ -270,11 +270,11 @@ pub struct ChatHead {
     pub setup: Value,
     /// The model the session runs on, and the ones it can switch to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<sikemux_wire::protocol::ConfigPicker>,
+    pub model: Option<crate::workspace::ConfigPicker>,
     /// How hard the model thinks. An agent that always offers it has one
     /// with no choices until its session says them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<sikemux_wire::protocol::ConfigPicker>,
+    pub effort: Option<crate::workspace::ConfigPicker>,
     pub permissions: Vec<PermissionAsk>,
     pub tasks: Vec<AsyncTask>,
     /// The chat's own subagents still at work.

@@ -4,7 +4,8 @@ use gpui_kit::{AnyElement, App};
 use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::inbox::TeamLink;
 use sikemux_view::layout::PaneKind;
-use sikemux_wire::protocol::{AgentFace, AgentGroup, AgentStatus};
+use sikemux_view::workspace::AgentFace;
+use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
 use crate::workbench::{shows, Workbench};
 
@@ -94,7 +95,7 @@ impl Workbench {
     pub(crate) fn agent_row(
         &self,
         view: &DeviceView,
-        agent: &sikemux_wire::protocol::WorkspaceAgent,
+        agent: &sikemux_view::workspace::WorkspaceAgent,
     ) -> AgentRow {
         let shown = view
             .inbox
@@ -152,7 +153,7 @@ impl Workbench {
 
     /// Whether the agent has a title of its own: the person named it, or it is neither empty,
     /// its kind nor its account's name. Until then its @name stands as its title.
-    pub fn titled(&self, agent: &sikemux_wire::protocol::WorkspaceAgent) -> bool {
+    pub fn titled(&self, agent: &sikemux_view::workspace::WorkspaceAgent) -> bool {
         let title = agent.title.trim();
         let account = (agent.profile_id.as_deref())
             .and_then(|id| self.accounts.profile(id))
@@ -161,7 +162,7 @@ impl Workbench {
     }
 
     /// What the agent is called in its header, tab and rail row.
-    pub fn title_of(&self, agent: &sikemux_wire::protocol::WorkspaceAgent) -> String {
+    pub fn title_of(&self, agent: &sikemux_view::workspace::WorkspaceAgent) -> String {
         match &agent.name {
             Some(name) if !self.titled(agent) => format!("@{name}"),
             _ => agent.title.clone(),

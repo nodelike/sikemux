@@ -448,13 +448,6 @@ async fn stopping_a_chat_ends_it() {
         .await
         .expect("a send starts the stopped chat again, on the program it ran");
     assert_eq!(client.ask(ask::AcpList).await.expect("list").len(), 1);
-
-    client
-        .acp_start(chat_launch("agent-g", "workspace-write"))
-        .await
-        .expect("start again");
-    client.ask(ask::StopAll).await.expect("stop all");
-    assert!(client.ask(ask::AcpList).await.expect("list").is_empty());
 }
 
 #[tokio::test(flavor = "multi_thread")]

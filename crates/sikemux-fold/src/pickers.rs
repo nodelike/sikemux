@@ -2,7 +2,7 @@
 //! options in a session's `configOptions`.
 
 use serde_json::Value;
-use sikemux_wire::protocol::{ConfigChoice, ConfigPicker};
+use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
 
 pub fn pickers(options: &Value) -> (Option<ConfigPicker>, Option<ConfigPicker>) {
     let selects: Vec<(&Value, ConfigPicker)> = options

@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::inbox::InboxNeed;
 use crate::slice::{NextGate, SliceState};
-use sikemux_wire::protocol::{AgentFace, AgentGroup, AgentStatus, SessionId};
+use crate::workspace::AgentFace;
+use sikemux_wire::protocol::{AgentGroup, AgentStatus, SessionId};
 
 /// What the `goals` call answers.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

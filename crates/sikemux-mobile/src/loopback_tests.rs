@@ -337,12 +337,13 @@ fn closing_a_connection_fails_what_waits_on_it_and_tells_the_app_nothing_more() 
             .expect("the accounts");
         let deadline = Instant::now() + WAIT;
         while !app
-            .ask(ask::Workspace)
+            .call("workspace", serde_json::json!({}))
             .await
-            .expect("the workspace")
-            .launchers
+            .expect("the workspace")["launchers"]
+            .as_array()
+            .expect("the launchers")
             .iter()
-            .any(|launcher| launcher.id == "opencode:slow")
+            .any(|launcher| launcher["id"] == "opencode:slow")
         {
             assert!(Instant::now() < deadline, "the slow agent is never offered");
             tokio::time::sleep(Duration::from_millis(20)).await;

@@ -1,10 +1,6 @@
 //! Where an agent stands for the person, and how the workspace shows it.
 
-use std::path::PathBuf;
-
 use serde::{Deserialize, Serialize};
-
-use super::{PermissionMode, SessionId};
 
 /// Where an agent stands for the person, in the order lists show the groups:
 /// waiting on them first. Only a running turn is Working; subagents and
@@ -86,110 +82,6 @@ impl AgentState {
     pub fn busy(self) -> bool {
         matches!(self, AgentState::Working | AgentState::Blocked)
     }
-}
-
-/// The checkout an agent was given, as its workspace record keeps it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentWorktree {
-    /// The main checkout, which git commands about the worktree run against.
-    pub repo: PathBuf,
-    pub path: PathBuf,
-    pub branch: String,
-    /// The branch the project was on when the worktree was cut, if any.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub base: Option<String>,
-    pub start_sha: String,
-}
-
-/// The character an agent wears: a pack and shape when the person picked one,
-/// and a slot in the pack's palette, which the core gives out.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentBuddy {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub color: Option<u32>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pack: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub shape: Option<String>,
-}
-
-/// An agent in the workspace, kept whether or not it runs now.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct WorkspaceAgent {
-    pub id: String,
-    /// The CLI it runs, such as `claude`.
-    pub provider: String,
-    /// What the core calls it, such as Otter, open or asleep. The core fills
-    /// it in; clients only read it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    /// Its project, by id.
-    pub project: String,
-    pub cwd: PathBuf,
-    pub title: String,
-    /// The person named it, so the agent's own titles no longer replace it.
-    #[serde(default)]
-    pub renamed: bool,
-    /// The agent that started it, when one did.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lead: Option<String>,
-    /// The provider's session, which resumes it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resume_id: Option<String>,
-    pub permission_mode: PermissionMode,
-    /// The person's account it runs on, by profile id.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub profile_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// The model provider it runs on in place of its maker's account.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_provider: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-    /// Never put to sleep while idle.
-    #[serde(default)]
-    pub keep_alive: bool,
-    /// Stopped, and woken again on its saved conversation when opened.
-    #[serde(default)]
-    pub asleep: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub worktree: Option<AgentWorktree>,
-    /// The character drawn for it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub buddy: Option<AgentBuddy>,
-    /// The face it wears in place of its CLI's logo, from `buddy` and the
-    /// person's face style; none while it shows the logo. The core fills it
-    /// in; clients only read it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub face: Option<AgentFace>,
-    /// The terminal session running it, for an agent in a terminal.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pty_id: Option<SessionId>,
-    /// It runs in its CLI in a terminal rather than as a chat, whether or not that terminal
-    /// runs now. One whose terminal ended starts it again once a client shows it.
-    #[serde(default)]
-    pub terminal: bool,
-    /// Unix milliseconds.
-    #[serde(default)]
-    pub created_at: u64,
-}
-
-/// The face an agent wears, drawn by each client from the same art.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentFace {
-    pub pack: String,
-    pub shape: String,
-    /// Which of the pack's colours, in the order its palette lists them.
-    pub color: u32,
-    /// The part of the shape's 24-unit square its drawing fills, as an SVG
-    /// viewBox.
-    #[serde(rename = "box")]
-    pub view_box: String,
 }
 
 /// The app's `agent_state_changed` payload.

@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-pub(crate) use sikemux_wire::protocol::AgentWorktree;
+pub(crate) use sikemux_view::workspace::AgentWorktree;
 
 use crate::git::{main_checkout, Git};
 use crate::tasks::detect::PERSONAL_TASKS;

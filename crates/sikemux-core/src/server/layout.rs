@@ -15,7 +15,8 @@ use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::{CliOpenTarget, CliTargetKind};
 use sikemux_view::layout::{Layout, Pane, PaneKind, SplitDir, Tab};
-use sikemux_wire::protocol::{SessionId, SessionInfo, Workspace};
+use sikemux_view::workspace::Workspace;
+use sikemux_wire::protocol::{SessionId, SessionInfo};
 
 use super::kept::Kept;
 use super::{Core, CoreError, CoreResult};

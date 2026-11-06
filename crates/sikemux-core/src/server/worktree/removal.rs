@@ -13,7 +13,8 @@ use crate::git::Git;
 use crate::server::connection::blocking;
 use crate::server::{board, ports, tasks};
 use crate::server::{Core, CoreError, CoreResult};
-use sikemux_wire::protocol::{AgentState, WorkspaceAgent};
+use sikemux_view::workspace::WorkspaceAgent;
+use sikemux_wire::protocol::AgentState;
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]

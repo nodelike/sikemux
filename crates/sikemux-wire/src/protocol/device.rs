@@ -252,3 +252,12 @@ pub enum NetworkChange {
     /// The Mac woke from sleep.
     Woke,
 }
+
+/// A picture shown behind the panes, shrunk to suit a phone.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackdropImage {
+    /// Changes whenever the picture does, so a device fetches it only then.
+    pub id: String,
+    pub data_url: String,
+}

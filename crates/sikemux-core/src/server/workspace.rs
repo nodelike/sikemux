@@ -26,9 +26,12 @@ use crate::launch::providers::{Helper, Providers, Wiring};
 use crate::launch::{skills, AgentSpec, PermissionMode};
 use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRequest};
 use sikemux_view::device::RecentInfo;
+use sikemux_view::workspace::{
+    AgentBuddy, Backdrop, LauncherInfo, PinnedChat, ProjectInfo, SpaceInfo, Workspace,
+    WorkspaceAgent,
+};
 use sikemux_wire::protocol::{
-    AgentBuddy, Backdrop, BackdropImage, ChatAccount, ChatInfo, ChatLaunch, ChatState,
-    LauncherInfo, PinnedChat, ProjectInfo, SessionInfo, SpaceInfo, Workspace, WorkspaceAgent,
+    BackdropImage, ChatAccount, ChatInfo, ChatLaunch, ChatState, SessionInfo,
 };
 
 use super::calls::given;

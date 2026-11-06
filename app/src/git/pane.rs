@@ -25,7 +25,7 @@ use sikemux_core::git::stash::GitStash;
 use sikemux_core::git::status::{GitChange, GitFile};
 use sikemux_core::server::call;
 use sikemux_core::server::drafts::SetDraftParams;
-use sikemux_wire::protocol::ProjectCodeHost;
+use sikemux_view::workspace::ProjectCodeHost;
 
 use branches::{branch_card, branches_page, Branches};
 use history::{commit_card, commit_row, graph, Graph, Inks};

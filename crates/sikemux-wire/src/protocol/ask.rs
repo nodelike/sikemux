@@ -3,13 +3,12 @@
 use std::path::PathBuf;
 
 use crate::grid::{FindOptions, FindResult, GridPoint};
-use crate::pty::output_log::{OutputPage, OutputQuery};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    AllowedDevice, Attention, ChatAccount, ChatAttachment, ChatContext, ChatInfo, ChatLaunch,
-    ChatMark, ChatStart, DeviceAccess, HostInfo, HostRegistration, LaunchIdentity, NotifyPrefs,
+    AllowedDevice, ChatAccount, ChatAttachment, ChatContext, ChatInfo, ChatLaunch, ChatMark,
+    ChatStart, DeviceAccess, HostInfo, HostRegistration, LaunchIdentity, NotifyPrefs,
     PermissionMode, Request, Response, SessionId, SessionInfo, SpawnTarget, StreamId,
 };
 
@@ -92,16 +91,6 @@ pub struct TerminalFind {
     pub inclusive: bool,
 }
 
-/// Answers with the first line on the session's screen that contains
-/// `containing`, once one shows, or with none when the session ends first.
-/// Needs no client to watch the terminal.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TerminalWaitFor {
-    pub id: SessionId,
-    pub containing: String,
-}
-
 /// Moves the cursor's line to the top of the screen and drops the history
 /// above it, without telling the program.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -115,20 +104,6 @@ pub struct TerminalClear {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResetModes {
-    pub id: SessionId,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TaskOutput {
-    pub id: SessionId,
-    pub query: OutputQuery,
-}
-
-/// Whether the session's shell is at its prompt, running nothing.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ShellAtPrompt {
     pub id: SessionId,
 }
 
@@ -437,17 +412,13 @@ macro_rules! unit_requests {
 
 unit_requests! {
     List,
-    StopAll,
     RegisterWindow,
-    PluginsChanged,
     AcpList,
     RemoteStatus,
     Unpair,
     ClearNotifications,
     BackdropImage,
     WatchView,
-    Workspace,
-    Attentions,
     Host,
 }
 
@@ -471,11 +442,8 @@ requests! {
     TerminalLines,
     TerminalText,
     TerminalFind,
-    TerminalWaitFor,
     TerminalClear,
     ResetModes,
-    TaskOutput,
-    ShellAtPrompt,
     Shutdown,
     AcpStart,
     AcpAttach,
@@ -551,9 +519,7 @@ done! {
     TerminalInput,
     TerminalClear,
     ResetModes,
-    StopAll,
     RegisterWindow,
-    PluginsChanged,
     Shutdown,
     AcpDetach,
     AcpWake,
@@ -580,9 +546,6 @@ answers! {
     List -> Vec<SessionInfo> { sessions => Sessions { sessions } }
     TerminalText -> String { text => TerminalText { text } }
     TerminalFind -> FindResult { result => Found { result } }
-    TerminalWaitFor -> Option<String> { line => TerminalLine { line } }
-    ShellAtPrompt -> bool { at_prompt => ShellAtPrompt { at_prompt } }
-    TaskOutput -> OutputPage { page => TaskOutput { page } }
     AcpStart -> ChatStart { start => ChatStarted { start } }
     AcpAttach -> ChatAttachment { attachment => ChatAttached { attachment } }
     AcpHistory -> Value { page => ChatHistory { page } }
@@ -600,8 +563,6 @@ answers! {
     AllowDevices -> Box<super::RemoteStatus> { status => Remote { status } }
     SignRegistration -> HostRegistration { registration => Registration { registration } }
     BackdropImage -> Option<String> { data_url => BackdropImage { data_url } }
-    Workspace -> super::Workspace { workspace => Workspace { workspace } }
-    Attentions -> Vec<Attention> { attentions => Attentions { attentions } }
     Host -> HostInfo { host => Host { host } }
     StartChat -> (String, ChatStart) { (agent_id, start) => ChatBegun { agent_id, start } }
     ResumeChat -> (String, ChatStart) { (agent_id, start) => ChatBegun { agent_id, start } }

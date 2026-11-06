@@ -6,14 +6,13 @@ use std::path::PathBuf;
 
 use crate::grid::FindResult;
 use crate::pty::launch::{PtyContext, PtyDirectCommand};
-use crate::pty::output_log::OutputPage;
 use crate::pty::task::TaskSpawnRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    ask, Attention, BuildChannel, BuildIdentity, CallId, ChatAttachment, ChatInfo, ChatStart,
-    Event, HostInfo, RemoteStatus, RequestId, SessionId, SessionInfo, StreamId, Workspace,
+    ask, BuildChannel, BuildIdentity, CallId, ChatAttachment, ChatInfo, ChatStart, Event, HostInfo,
+    RemoteStatus, RequestId, SessionId, SessionInfo, StreamId,
 };
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -60,19 +59,11 @@ pub enum Request {
     TerminalLines(ask::TerminalLines),
     TerminalText(ask::TerminalText),
     TerminalFind(ask::TerminalFind),
-    TerminalWaitFor(ask::TerminalWaitFor),
     TerminalClear(ask::TerminalClear),
     ResetModes(ask::ResetModes),
-    TaskOutput(ask::TaskOutput),
-    ShellAtPrompt(ask::ShellAtPrompt),
-    /// Kills every session and keeps running.
-    StopAll,
     /// This connection is the app's window from now on, replacing any other.
     /// Tool calls that need the window are sent to it.
     RegisterWindow,
-    /// The person did something in a plugin, such as signing in, that may
-    /// change the tools it offers agents.
-    PluginsChanged,
     Shutdown(ask::Shutdown),
     AcpStart(ask::AcpStart),
     AcpAttach(ask::AcpAttach),
@@ -115,9 +106,6 @@ pub enum Request {
     /// paired devices get it.
     WatchView,
     FocusAgent(ask::FocusAgent),
-    Workspace,
-    /// What agents wait on a person for now.
-    Attentions,
     /// The computer this core runs on, so a device can name it.
     Host,
     StartChat(ask::StartChat),
@@ -297,20 +285,11 @@ pub enum Response {
     TerminalText {
         text: String,
     },
-    TerminalLine {
-        line: Option<String>,
-    },
     Found {
         result: FindResult,
     },
     Sessions {
         sessions: Vec<SessionInfo>,
-    },
-    TaskOutput {
-        page: OutputPage,
-    },
-    ShellAtPrompt {
-        at_prompt: bool,
     },
     ChatStarted {
         start: ChatStart,

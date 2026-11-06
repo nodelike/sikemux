@@ -20,7 +20,7 @@ use sikemux_core::git::diff::{changes, DiffRow, ROW_ADDED, ROW_DELETED, ROW_HIDD
 use sikemux_core::git::log::GitOverview;
 use sikemux_core::git::status::DiscoveredRepo;
 use sikemux_view::layout::PaneKind;
-use sikemux_wire::protocol::ProjectCodeHost;
+use sikemux_view::workspace::ProjectCodeHost;
 
 use sikemux_view::owners::{CommitLines, FileOwners, Owners};
 

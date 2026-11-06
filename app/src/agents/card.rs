@@ -11,7 +11,7 @@ use gpui_kit::{
 };
 use serde_json::json;
 use sikemux_plugin_api::codehost::PullList;
-use sikemux_wire::protocol::WorkspaceAgent;
+use sikemux_view::workspace::WorkspaceAgent;
 
 use crate::agents::rows::AgentRow;
 use crate::icons::Icon;

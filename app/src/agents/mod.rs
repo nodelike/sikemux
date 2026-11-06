@@ -16,7 +16,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Transformation, Window,
 };
 use sikemux_view::device::RecentInfo;
-use sikemux_wire::protocol::LauncherInfo;
+use sikemux_view::workspace::LauncherInfo;
 
 use crate::agents::menu::AgentMenu;
 use crate::agents::rows::AgentRow;

@@ -23,7 +23,8 @@ use sikemux_core::server::plugins::{FailureCategory, PluginOutcome};
 use sikemux_core::server::saved::SessionSearchParams;
 use sikemux_core::server::stash::ShownStashItem;
 use sikemux_plugin_api::codehost::{TrackedItem, TrackedKind};
-use sikemux_wire::protocol::{ChatContext, ProjectInfo};
+use sikemux_view::workspace::ProjectInfo;
+use sikemux_wire::protocol::ChatContext;
 
 use super::Composing;
 use crate::icons::Icon;

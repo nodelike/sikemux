@@ -147,7 +147,6 @@ fn view_shows(event: &Event) -> bool {
         | Event::ChatBegun { .. }
         | Event::TerminalTitle { .. } => true,
         Event::ShellMetadata(_)
-        | Event::TaskOutput { .. }
         | Event::Chat { .. }
         | Event::DeviceView { .. }
         | Event::Remote { .. }

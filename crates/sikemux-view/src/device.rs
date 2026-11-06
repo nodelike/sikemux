@@ -2,9 +2,10 @@
 
 use std::path::PathBuf;
 
+use crate::workspace::Workspace;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sikemux_wire::protocol::{Attention, ChatInfo, SessionInfo, Workspace};
+use sikemux_wire::protocol::{Attention, ChatInfo, SessionInfo};
 
 use crate::layout::Layout;
 

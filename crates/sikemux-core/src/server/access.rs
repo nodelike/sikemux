@@ -110,8 +110,6 @@ pub(crate) fn rule(request: &Request) -> Rule {
         | Request::TerminalLines(_)
         | Request::TerminalText(_)
         | Request::TerminalFind(_)
-        | Request::TerminalWaitFor(_)
-        | Request::TaskOutput(_)
         | Request::AcpList
         | Request::AcpAttach(_)
         | Request::AcpHistory(_)
@@ -121,11 +119,8 @@ pub(crate) fn rule(request: &Request) -> Rule {
         | Request::SetNotifications(_)
         | Request::ClearNotifications
         | Request::SetForeground(_)
-        | Request::Workspace
-        | Request::Attentions
         | Request::Host => (Needs::Watch, Program::Anyone),
         Request::AcpWake(_) | Request::AcpPermissionReply(_) => (Needs::Watch, Program::App),
-        Request::ShellAtPrompt(_) => (Needs::Full, Program::Anyone),
         Request::Spawn(_)
         | Request::Resize(_)
         | Request::Kill(_)
@@ -144,11 +139,10 @@ pub(crate) fn rule(request: &Request) -> Rule {
         | Request::StartChat(_)
         | Request::ResumeChat(_)
         | Request::AcpSwitchAccount(_) => (Needs::Full, Program::App),
-        Request::StopAll | Request::Shutdown(_) | Request::RemoteStatus | Request::WatchView => {
+        Request::Shutdown(_) | Request::RemoteStatus | Request::WatchView => {
             (Needs::NoDevice, Program::Anyone)
         }
         Request::RegisterWindow
-        | Request::PluginsChanged
         | Request::SetRemoteAccess(_)
         | Request::SetDeviceAccess(_)
         | Request::RevokeDevice(_)
@@ -249,7 +243,6 @@ mod tests {
     fn no_device_reaches_the_core_itself() {
         for request in [
             Request::Shutdown(ask::Shutdown { stop_all: true }),
-            Request::StopAll,
             Request::RegisterWindow,
             Request::SetRemoteAccess(ask::SetRemoteAccess { enabled: false }),
             Request::RevokeDevice(ask::RevokeDevice { id: "other".into() }),

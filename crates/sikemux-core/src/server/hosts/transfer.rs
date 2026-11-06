@@ -24,7 +24,7 @@ use super::{ask, find, open};
 use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::{carry, delete, SavedRef};
 use sikemux_view::layout::Tab;
-use sikemux_wire::protocol::{AgentBuddy, WorkspaceAgent};
+use sikemux_view::workspace::{AgentBuddy, WorkspaceAgent};
 
 /// Long enough to send a project's chats over a slow link.
 const TAKE_WAIT: Duration = Duration::from_secs(10 * 60);

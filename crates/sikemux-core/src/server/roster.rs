@@ -6,7 +6,8 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
-use sikemux_wire::protocol::{AgentStatus, ChatInfo, ChatState, SessionInfo, WorkspaceAgent};
+use sikemux_view::workspace::WorkspaceAgent;
+use sikemux_wire::protocol::{AgentStatus, ChatInfo, ChatState, SessionInfo};
 
 use crate::cli::protocol::HarnessRequest;
 

@@ -31,9 +31,8 @@ use serde_json::{json, Value};
 use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::layout::{PaneKind, ProjectLayout, Tab};
 use sikemux_view::prefs::{Preferences, TabRailPage, WindowView};
-use sikemux_wire::protocol::{
-    LauncherInfo, NoticeGoal, ProjectInfo, RemoteStatus, SessionId, SessionInfo,
-};
+use sikemux_view::workspace::{LauncherInfo, ProjectInfo};
+use sikemux_wire::protocol::{NoticeGoal, RemoteStatus, SessionId, SessionInfo};
 use tokio::sync::mpsc;
 
 use crate::battery::Battery;
@@ -871,7 +870,7 @@ impl Workbench {
     }
 
     /// The agent as the core of the host it runs on keeps it.
-    fn kept_agent(&self, agent: &str) -> Option<&sikemux_wire::protocol::WorkspaceAgent> {
+    fn kept_agent(&self, agent: &str) -> Option<&sikemux_view::workspace::WorkspaceAgent> {
         self.view_at(self.chat_target(agent).place())?
             .workspace
             .agents

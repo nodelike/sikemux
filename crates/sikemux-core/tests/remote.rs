@@ -18,6 +18,7 @@ use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig, ServerError};
 use sikemux_view::chat::{ChatChange, ChatPage, ChatRole};
 use sikemux_view::device::DeviceView;
+use sikemux_view::workspace::Workspace;
 use sikemux_wire::grid::{decode_frame, Screen};
 use sikemux_wire::protocol::{
     Attention, AttentionKind, BackdropImage, BuildIdentity, ChatAttachment, ChatLaunch, ChatMark,
@@ -216,6 +217,14 @@ async fn until_disconnected(client: &CoreClient) {
     }
 }
 
+async fn workspace_of(client: &CoreClient) -> Workspace {
+    let answer = client
+        .call("workspace", serde_json::json!({}))
+        .await
+        .expect("workspace");
+    serde_json::from_value(answer).expect("the core's workspace reads back")
+}
+
 fn refusal(result: Result<impl std::fmt::Debug, ClientError>) -> String {
     match result {
         Err(ClientError::Core(message)) => message,
@@ -375,7 +384,8 @@ async fn a_watching_device_reads_but_cannot_drive_or_reach_the_core() {
     assert_eq!(session.expect("the app's terminal").started_by, None);
     assert!(refusal(client.ask(ask::Kill { id }).await).contains("watch"));
     assert!(refusal(client.write(id, b"exit\n").await).contains("watch"));
-    assert!(refusal(client.ask(ask::StopAll).await).contains("only Sikemux on this host"));
+    assert!(refusal(client.ask(ask::Shutdown { stop_all: true }).await)
+        .contains("only Sikemux on this host"));
     assert!(refusal(client.set_remote_access(false).await).contains("only Sikemux on this host"));
     assert!(app
         .ask(ask::List)
@@ -736,7 +746,7 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
         Ok(ChatAttachment::Live { .. })
     ));
 
-    let workspace = client.ask(ask::Workspace).await.expect("workspace");
+    let workspace = workspace_of(&client).await;
     assert_eq!(
         workspace.palette.get("ground").map(String::as_str),
         Some("#0f0f13"),
@@ -752,11 +762,7 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
     })
     .await
     .expect("publish backdrop");
-    let backdrop = client
-        .ask(ask::Workspace)
-        .await
-        .expect("workspace")
-        .backdrop;
+    let backdrop = workspace_of(&client).await.backdrop;
     assert!(backdrop.texture);
     assert_eq!(backdrop.image.as_deref(), Some("pane-1"));
     let data_url = client
@@ -900,10 +906,8 @@ async fn a_sleeping_chat_shows_its_history_and_wakes_when_the_person_writes() {
             shown_with(&elsewhere, &claude, "echo").await,
             "Claude answered"
         );
-        let session = other
-            .ask(ask::Workspace)
+        let session = workspace_of(&other)
             .await
-            .expect("workspace")
             .agents
             .into_iter()
             .find(|agent| agent.id == claude)
@@ -991,7 +995,7 @@ async fn a_device_starts_a_chat_agent_the_app_published_and_talks_to_it() {
     let (client, events) = remote::connect(&endpoint, core_addr(&status))
         .await
         .expect("the phone connects");
-    let workspace = client.ask(ask::Workspace).await.expect("workspace");
+    let workspace = workspace_of(&client).await;
     assert_eq!(workspace.projects[0].name, "tmp");
     let fake = workspace
         .launchers
@@ -1061,15 +1065,7 @@ async fn a_watching_device_cannot_start_a_chat() {
     let (client, _events) = remote::connect(&endpoint, core_addr(&status))
         .await
         .expect("the watcher connects");
-    assert_eq!(
-        client
-            .ask(ask::Workspace)
-            .await
-            .expect("workspace")
-            .projects
-            .len(),
-        1
-    );
+    assert_eq!(workspace_of(&client).await.projects.len(), 1);
     let refused = client
         .start_chat("opencode:fake".into(), "sess-tmp".into(), None)
         .await;
@@ -1264,9 +1260,8 @@ async fn a_watching_device_sees_a_permission_request_it_never_attached_to_and_an
     } = attention;
     assert_eq!(kind, AttentionKind::Permission);
     assert_eq!(waiting, agent_id);
-    let listed = watcher.ask(ask::Attentions).await.expect("attentions");
     assert_eq!(
-        listed
+        view.attentions
             .iter()
             .map(|attention| attention.id.clone())
             .collect::<Vec<_>>(),
@@ -1286,11 +1281,6 @@ async fn a_watching_device_sees_a_permission_request_it_never_attached_to_and_an
         .await
         .expect("the watch answers");
     until_view(&mut watcher_events, |view| view.attentions.is_empty()).await;
-    assert!(watcher
-        .ask(ask::Attentions)
-        .await
-        .expect("attentions")
-        .is_empty());
     Chat::new(driver_events, &agent_id)
         .until_said(&option)
         .await;

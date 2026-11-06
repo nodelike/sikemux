@@ -7,7 +7,7 @@ use gpui_kit::{App, Context, Window};
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::{Pane, PaneKind};
-use sikemux_wire::protocol::ProjectInfo;
+use sikemux_view::workspace::ProjectInfo;
 
 use crate::tabs;
 use crate::workbench::{Strip, Workbench};
