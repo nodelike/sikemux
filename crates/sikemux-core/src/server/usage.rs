@@ -14,8 +14,8 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 
-use crate::server::activity_log::{ReportedDay, ReportedTokens};
-use crate::server::Core;
+use super::activity_log::{ReportedDay, ReportedTokens};
+use super::Core;
 use sikemux_view::prefs::{Preferences, UpdateChannel};
 use sikemux_wire::protocol::BuildChannel;
 
@@ -183,7 +183,7 @@ pub(crate) async fn serve(core: Arc<Core>, data_dir: PathBuf) {
     if std::env::var_os("DO_NOT_TRACK").is_some_and(|value| !value.is_empty() && value != "0") {
         return;
     }
-    let host = crate::server::host::info();
+    let host = super::host::info();
     let mut every_hour = tokio::time::interval(HOST_CHECK_INTERVAL);
     loop {
         tokio::select! {
@@ -392,7 +392,7 @@ fn platform() -> Platform {
     let (distro, release) = os_release();
     Platform {
         os: std::env::consts::OS,
-        os_version: release.or_else(crate::server::host::os_version),
+        os_version: release.or_else(super::host::os_version),
         distro,
         arch: std::env::consts::ARCH,
     }

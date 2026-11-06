@@ -48,7 +48,6 @@ mod text;
 #[cfg(unix)]
 pub mod timeout;
 pub mod trailers;
-pub mod usage;
 #[cfg(unix)]
 pub mod waiting;
 

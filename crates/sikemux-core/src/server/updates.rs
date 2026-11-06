@@ -135,10 +135,10 @@ enum OwnApp {
 /// replace itself. A build made anywhere else, such as a local build, never
 /// updates, so a release can never take its place.
 fn own_app() -> Option<OwnApp> {
-    if crate::usage::Install::Host.published() {
+    if super::usage::Install::Host.published() {
         return installed_host().then_some(OwnApp::Host);
     }
-    if !crate::usage::Install::App.published() {
+    if !super::usage::Install::App.published() {
         return None;
     }
     if cfg!(target_os = "macos") {
@@ -191,7 +191,7 @@ fn own_platform() -> String {
 /// A published Linux app that is a deb or an rpm was put in place by the
 /// installer, which updates it.
 fn installer_command(channel: UpdateChannel) -> Option<String> {
-    if !cfg!(target_os = "linux") || !crate::usage::Install::App.published() || own_app().is_some()
+    if !cfg!(target_os = "linux") || !super::usage::Install::App.published() || own_app().is_some()
     {
         return None;
     }
@@ -714,6 +714,6 @@ pub(crate) fn swap(bundle: &Path, archive: &Path) -> Result<(), String> {
 
 impl super::part::Part for Updates {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
-        vec![super::part::serving(core, serve)]
+        vec![tokio::spawn(serve(core.clone()))]
     }
 }

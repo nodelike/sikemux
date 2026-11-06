@@ -99,6 +99,7 @@ pub mod triage;
 mod triggers;
 pub mod updates;
 mod upgrade;
+mod usage;
 mod wait_for;
 mod wake;
 mod wallpaper;
@@ -1100,7 +1101,7 @@ pub(crate) async fn run_core(
         skill_library::watch_global(&core);
         mods::watch(&core);
         account::start(&core);
-        tokio::spawn(crate::usage::serve(core.clone(), data_dir.to_owned()));
+        tokio::spawn(usage::serve(core.clone(), data_dir.to_owned()));
     }
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
