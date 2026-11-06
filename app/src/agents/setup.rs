@@ -219,11 +219,7 @@ pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
         .chain(args.iter().cloned())
         .collect::<Vec<_>>()
         .join(" ");
-    let variable = match agent.kind.as_str() {
-        "claude" => Some("CLAUDE_CONFIG_DIR"),
-        "codex" => Some("CODEX_HOME"),
-        _ => None,
-    };
+    let variable = sikemux_core::launch::account_variable(&agent.kind);
     let words: Vec<String> = std::iter::once(program)
         .chain(args)
         .map(|word| quoted(&word))

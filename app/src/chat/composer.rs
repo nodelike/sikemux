@@ -976,7 +976,9 @@ fn context_meter(
     let signal = match percent {
         p if p >= 90. => t.danger,
         p if p >= 70. => t.warn,
-        _ if matches!(provider, "claude" | "codex") => theme::brand(provider),
+        _ if sikemux_core::agent_catalog::agent(provider).is_some_and(|agent| agent.usage) => {
+            theme::brand(provider)
+        }
         _ => t.accent,
     };
     let percent_ink = if percent >= 70. {

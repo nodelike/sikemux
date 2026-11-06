@@ -279,20 +279,13 @@ fn black(alpha: f32) -> Hsla {
     }
 }
 
+/// The agent's colour in the catalog, Sikemux's own, or a neutral one for a kind it does not list.
 pub fn brand(provider: &str) -> Hsla {
-    hex(match provider {
-        "claude" => 0xd97757,
-        "codex" => 0x7a9dff,
-        "hermes" => 0xe0a050,
-        "pi" => 0x7dd3fc,
-        "opencode" => 0xa78bfa,
-        "omp" => 0xf97316,
-        "grok" => 0xfcfcfc,
-        "muse" => 0x0081fb,
-        "sikemux" => 0xa277ff,
-        _ => 0x8b8898,
-    })
-    .into()
+    match sikemux_core::agent_catalog::agent(provider) {
+        Some(agent) => color(agent.brand),
+        None if provider == "sikemux" => hex(0xa277ff).into(),
+        None => hex(0x8b8898).into(),
+    }
 }
 
 pub fn tabular() -> FontFeatures {

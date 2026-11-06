@@ -20,10 +20,6 @@ const INSTALL: &str = "install:";
 const OPEN: &str = "open:";
 const RESUME: &str = "resume:";
 
-/// Agents whose accounts the core signs in to itself; the rest sign in with their own
-/// command, in the sheet Settings › Installed shows.
-const SIGNS_IN: [&str; 2] = ["claude", "codex"];
-
 impl Workbench {
     pub fn toggle_agent_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.project().map(|project| project.id.clone()) else {
@@ -114,8 +110,7 @@ impl Workbench {
         let mut sign_ins = Vec::new();
         for launcher in self.launchers().iter().chain(self.terminal_launchers()) {
             let kind = kind_of(&launcher.provider);
-            let signs_in = SIGNS_IN.contains(&launcher.provider.as_str())
-                || kind.is_some_and(|kind| kind.login.is_some());
+            let signs_in = kind.is_some_and(|kind| kind.accounts || kind.login.is_some());
             let bypasses = kind.is_some_and(|kind| kind.bypass);
             let new = || {
                 Row::new(
@@ -215,7 +210,14 @@ fn sign_in(
     let Some(provider) = launcher_of(bench, launcher).map(|known| known.provider.clone()) else {
         return;
     };
-    if SIGNS_IN.contains(&provider.as_str()) {
+    // An agent with accounts is signed in by the core; the rest sign in with their own command,
+    // in the sheet Settings › Installed shows.
+    if bench
+        .reads
+        .catalog
+        .kind(&provider)
+        .is_some_and(|kind| kind.accounts)
+    {
         bench.call_typed::<call::SignInLauncher>(LauncherParams {
             launcher: launcher.to_owned(),
         });
