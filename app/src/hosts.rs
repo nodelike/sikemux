@@ -10,7 +10,7 @@ use std::path::Path;
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::{App, Context, SharedString};
-use serde_json::{json, Value};
+use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::hosts::HostRow;
@@ -28,10 +28,10 @@ use crate::workbench::{Strip, Workbench};
 use sikemux_core::server::account::devices::DeviceParams;
 use sikemux_core::server::hosts::install::InstallParams;
 use sikemux_core::server::hosts::open::OpenOnParams;
-use sikemux_core::server::hosts::transfer::SendParams;
+use sikemux_core::server::hosts::transfer::{SendParams, SessionSent};
 use sikemux_core::server::layout::{ActivateProjectParams, HostParams};
 use sikemux_core::server::spare::NewTerminal;
-use sikemux_core::server::updates::HostUpdatesParams;
+use sikemux_core::server::updates::{HostUpdatesParams, UpdateState, UpdateStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub enum HostChoice {
@@ -330,13 +330,11 @@ impl Workbench {
                     _ => Place::This,
                 };
                 bench.choose_host(sending.after.clone(), cx);
-                if let Some(project) = sent["project"].as_str() {
-                    core::Target::new(&bench.asks, place).call_typed::<call::ActivateProject>(
-                        ActivateProjectParams {
-                            project: project.to_owned(),
-                        },
-                    );
-                }
+                core::Target::new(&bench.asks, place).call_typed::<call::ActivateProject>(
+                    ActivateProjectParams {
+                        project: sent.project,
+                    },
+                );
             });
         })
         .detach();
@@ -623,39 +621,30 @@ pub struct Sending {
 }
 
 /// One line on what went, what stayed here and how the uncommitted changes went.
-fn sent_summary(sent: &Value, sending: &Sending) -> String {
-    let carried = sent["carried"].as_array().map_or(0, Vec::len);
-    let chats = match carried {
+fn sent_summary(sent: &SessionSent, sending: &Sending) -> String {
+    let chats = match sent.carried.len() {
         1 => "1 chat".to_owned(),
         count => format!("{count} chats"),
     };
-    let done = match (sending.moving, sent["moved"] == true) {
-        (true, true) => "Moved",
-        _ => "Copied",
+    let done = if sending.moving && sent.moved {
+        "Moved"
+    } else {
+        "Copied"
     };
     let mut said = format!(
         "{done} {} to {} with {chats} and its tabs.",
         sending.name, sending.label
     );
-    if sending.moving && sent["moved"] != true {
+    if sending.moving && !sent.moved {
         said.push_str(" Nothing was removed here, since not everything arrived whole.");
     }
-    let left: Vec<String> = sent["left"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|left| {
-            format!(
-                "{} ({})",
-                left["title"].as_str().unwrap_or_default(),
-                left["why"].as_str().unwrap_or_default()
-            )
-        })
+    let left: Vec<String> = (sent.left.iter())
+        .map(|left| format!("{} ({})", left.title, left.why))
         .collect();
     if !left.is_empty() {
         said.push_str(&format!(" Stayed here: {}.", left.join(", ")));
     }
-    match sent["uncommitted"].as_str() {
+    match sent.uncommitted.as_deref() {
         Some("applied") => said.push_str(" Uncommitted changes went too."),
         Some(error) => said.push_str(&format!(" Uncommitted changes stayed here: {error}.")),
         None => {}
@@ -664,18 +653,22 @@ fn sent_summary(sent: &Value, sending: &Sending) -> String {
 }
 
 /// A host's update status, from its view, when it updates itself.
-pub fn host_updates(view: &sikemux_view::device::DeviceView) -> Option<&Value> {
-    view.updates
-        .as_ref()
-        .filter(|updates| updates["automatic"].is_boolean())
+pub fn host_updates(view: &sikemux_view::device::DeviceView) -> Option<UpdateStatus> {
+    let updates = view.updates.clone()?;
+    serde_json::from_value::<UpdateStatus>(updates)
+        .ok()
+        .filter(|updates| updates.automatic.is_some())
 }
 
 /// How a host's row sums up its updates: under way, failed, else the version it runs.
-pub fn updates_label(updates: &Value) -> Option<String> {
-    Some(match updates["state"].as_str() {
-        Some("failed") => "update failed".to_owned(),
-        Some("downloading" | "installing" | "waiting" | "ready") => "updating".to_owned(),
-        _ => updates["current"].as_str()?.to_owned(),
+pub fn updates_label(updates: &UpdateStatus) -> Option<String> {
+    Some(match updates.state {
+        UpdateState::Failed => "update failed".to_owned(),
+        UpdateState::Downloading
+        | UpdateState::Installing
+        | UpdateState::Waiting
+        | UpdateState::Ready => "updating".to_owned(),
+        UpdateState::Idle => updates.current.clone(),
     })
 }
 
@@ -683,18 +676,18 @@ pub fn updates_label(updates: &Value) -> Option<String> {
 /// last update failed when it did. `set` turns it on or off.
 pub fn updates_items(
     popup: PopupMenu,
-    updates: &Value,
+    updates: &UpdateStatus,
     set: impl Fn(bool, &mut App) + 'static,
 ) -> PopupMenu {
-    let on = updates["automatic"] == Value::Bool(true);
+    let on = updates.automatic == Some(true);
     let popup = popup.item(
         PopupMenuItem::new("Update automatically")
             .icon(Icon::Refresh)
             .checked(on)
             .on_click(move |_, _, cx| set(!on, cx)),
     );
-    match (updates["state"].as_str(), updates["error"].as_str()) {
-        (Some("failed"), Some(error)) => popup.item(PopupMenuItem::label(format!(
+    match (updates.state, updates.error.as_deref()) {
+        (UpdateState::Failed, Some(error)) => popup.item(PopupMenuItem::label(format!(
             "The last update failed: {error}"
         ))),
         _ => popup,

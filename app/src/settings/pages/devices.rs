@@ -516,8 +516,7 @@ fn host_row(link: &HostLink, fields: &Fields, this: &Entity<Workbench>, cx: &App
         .feeds
         .host(&id)
         .and_then(|feed| feed.view.as_ref())
-        .and_then(crate::hosts::host_updates)
-        .cloned();
+        .and_then(crate::hosts::host_updates);
     let line = [
         Some(platform_name(&link.platform).to_owned()),
         Some(seen),

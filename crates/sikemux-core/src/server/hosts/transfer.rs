@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Map};
 
 use super::super::connection::blocking;
 use super::super::{layout, workspace, Core, CoreError, CoreResult};
@@ -70,15 +70,30 @@ pub(super) struct Take {
 }
 
 /// What stays behind, and why.
-#[derive(Serialize)]
-struct Left {
-    title: String,
-    why: String,
+#[derive(Serialize, Deserialize)]
+pub struct Left {
+    pub title: String,
+    pub why: String,
+}
+
+/// Where a project's session went: the host and project there, the chats it carried and those
+/// it left, how its uncommitted changes went, and whether it is gone from here.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSent {
+    pub host: String,
+    pub host_name: String,
+    pub project: String,
+    pub path: Option<String>,
+    pub uncommitted: Option<String>,
+    pub carried: Vec<String>,
+    pub left: Vec<Left>,
+    pub moved: bool,
 }
 
 /// Sends the project's session to the linked host `host`, answering what went, what stayed and
 /// where it now is.
-pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreResult<Value> {
+pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreResult<SessionSent> {
     let link = find(core, &params.host)?;
     let project = core
         .workspaces
@@ -152,20 +167,19 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
     let laid_over = !params.uncommitted || opened["uncommitted"] == "applied";
     let whole = taken.len() == sent.len() && answer["tabs"] == answer["wanted"] && laid_over;
     let moved = params.moving && whole && close_here(core, &sent).await;
-    Ok(json!({
-        "host": link.id,
-        "hostName": link.name,
-        "project": there,
-        "path": opened["path"],
-        "uncommitted": opened["uncommitted"],
-        "carried": sent
-            .iter()
+    Ok(SessionSent {
+        host: link.id.clone(),
+        host_name: link.name.clone(),
+        project: there,
+        path: opened["path"].as_str().map(str::to_owned),
+        uncommitted: opened["uncommitted"].as_str().map(str::to_owned),
+        carried: (sent.iter())
             .filter(|chat| taken.contains_key(&chat.id))
-            .map(|chat| &chat.title)
-            .collect::<Vec<_>>(),
-        "left": left,
-        "moved": moved,
-    }))
+            .map(|chat| chat.title.clone())
+            .collect(),
+        left,
+        moved,
+    })
 }
 
 /// The chats of `agents` that can go, their files written one after another into a scratch

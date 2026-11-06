@@ -381,8 +381,7 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 .map(crate::hosts::load_label);
             let updates = view
                 .and_then(crate::hosts::host_updates)
-                .filter(|_| connected)
-                .cloned();
+                .filter(|_| connected);
             let detail = match reach {
                 HostReach::Away if linked => Some("out of reach".to_owned()),
                 HostReach::Connecting if linked => Some("connecting".to_owned()),

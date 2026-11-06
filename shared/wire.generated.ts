@@ -4451,6 +4451,27 @@ export interface SendParams {
     move?: boolean;
 }
 
+/**
+ * Where a project's session went: the host and project there, the chats it carried and those
+ * it left, how its uncommitted changes went, and whether it is gone from here.
+ */
+export interface SessionSent {
+    host: string;
+    hostName: string;
+    project: string;
+    path: string | null;
+    uncommitted: string | null;
+    carried: string[];
+    left: Left[];
+    moved: boolean;
+}
+
+/** What stays behind, and why. */
+export interface Left {
+    title: string;
+    why: string;
+}
+
 export interface ApprovalSetting {
     requireApproval: boolean;
 }
@@ -5602,7 +5623,7 @@ export interface CoreCalls {
     codeHostTracked: { params: CodeHostProjectParams; answer: PluginOutcome };
     installHost: { params: InstallParams; answer: unknown };
     openOnHost: { params: OpenOnParams; answer: unknown };
-    sendSession: { params: SendParams; answer: unknown };
+    sendSession: { params: SendParams; answer: SessionSent };
     requireApproval: { params: NoParams; answer: ApprovalSetting };
     setRequireApproval: { params: ApprovalSetting; answer: RemoteStatus };
     questions: { params: NoParams; answer: AgentQuestion[] };
