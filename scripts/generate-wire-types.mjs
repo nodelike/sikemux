@@ -36,7 +36,10 @@ const SOURCES = (
 /** What a type is called in TypeScript when the name in Rust says too little there. */
 const RENAMES = {
   [`${WIRE}/changed.rs`]: { Topic: "CoreChangeTopic" },
-  [`${CORE}/launch/providers.rs`]: { Kind: "ProviderKind", Helper: "ModelHelper" },
+  [`${CORE}/launch/providers.rs`]: {
+    Kind: "ProviderKind",
+    Helper: "ModelHelper",
+  },
   [`${CORE}/server/model_providers/checks.rs`]: { Check: "ModelCheck" },
   [`${CORE}/server/model_providers/adding.rs`]: {
     Reading: "ProviderReading",
