@@ -20,18 +20,37 @@
   object-fit: contain;
 }
 
-/* A page an agent showed sits on the transcript like its prose, with no card
-   around it; the page draws its own surfaces. */
-.chat-page {
-  margin: 8px 0;
+.chat-page-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 6px 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--rail-2);
+  color: var(--ink-dim);
 }
 
-.chat-page-frame {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  background: transparent;
+.chat-page-card > svg {
+  flex: none;
+}
+
+.chat-page-card-title {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-page-card-where {
+  flex: none;
+  color: var(--ink-faint);
+  font-size: var(--text-xs);
 }
 
 .chat-image-button {

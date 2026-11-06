@@ -11,6 +11,7 @@ import {
   IconTimer,
   IconUser,
   IconWarning,
+  IconWindow,
   IconWorkflow,
 } from "@shared/ui/Icons";
 import { AgentMark } from "../agents/AgentMark";
@@ -29,7 +30,6 @@ import {
   SentChipsContext,
   warmChatMarkdown,
 } from "../markdown/ChatMarkdown";
-import { ChatPage } from "../pages/ChatPage";
 import { ToolGroup } from "../tools/ToolGroup";
 import { ToolRow } from "../tools/ToolRow";
 import {
@@ -56,6 +56,23 @@ import type {
 import { ContextChipLabel } from "./ContextChip";
 import type { MdElement } from "@shared/markdown/types";
 import { Shimmer } from "../ui/Shimmer";
+
+/** A page the agent showed. A viewer has no way to read it from here, so this names the page and where it is. */
+function PageCard({ title }: { title: string }) {
+  return (
+    <div
+      className="chat-page-card"
+      role="group"
+      aria-label={`Page ${title}, open on the computer`}
+    >
+      <IconWindow size={14} />
+      <span className="chat-page-card-title" title={title}>
+        {title}
+      </span>
+      <span className="chat-page-card-where">on the computer</span>
+    </div>
+  );
+}
 
 function ResourceLinkPart({
   content,
@@ -192,7 +209,11 @@ const MessagePart = memo(function MessagePart({
     );
   }
   if (part.kind === "tool")
-    return part.page ? <ChatPage page={part.page} /> : <ToolRow part={part} />;
+    return part.page ? (
+      <PageCard title={part.page.title} />
+    ) : (
+      <ToolRow part={part} />
+    );
   if (part.kind === "subagent")
     return <SubagentPart subagent={part.subagent} />;
   if (part.kind === "notice") return <NoticePart notice={part.notice} />;

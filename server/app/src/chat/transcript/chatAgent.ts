@@ -15,11 +15,6 @@ export const ToolDetailContext = createContext<
   (toolCallId: string) => Promise<ToolDetail>
 >(() => Promise.resolve({}));
 
-/** Scrolls the transcript as the reader asked, for a wheel turned over a page, which the transcript never sees. */
-export const ReaderScrollContext = createContext<(deltaY: number) => void>(
-  () => {},
-);
-
 const OPENABLE = new Set(["http:", "https:", "mailto:"]);
 
 /** Opens a web or mail link in a new tab; anything else names something on the sharer's computer. */

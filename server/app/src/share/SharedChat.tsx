@@ -9,7 +9,6 @@ import {
 import {
   ChatAgentContext,
   ChatSubagentsContext,
-  ReaderScrollContext,
   ToolDetailContext,
 } from "../chat/transcript/chatAgent";
 import { warmTranscript } from "../chat/transcript/ChatMessageRow";
@@ -72,10 +71,6 @@ export function SharedChat({
     scrollRef,
     contentRef,
   });
-  const scrollByReader = useCallback(
-    (deltaY: number) => scrollRef.current?.scrollBy({ top: deltaY }),
-    [],
-  );
   const [foldedLive, setFoldedLive] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
@@ -145,77 +140,75 @@ export function SharedChat({
       <PathRootsProvider cwd={chat?.cwd ?? ""} home={chat?.home ?? undefined}>
         <ChatAgentContext.Provider value={type}>
           <ChatSubagentsContext.Provider value={subagents}>
-            <ReaderScrollContext.Provider value={scrollByReader}>
-              <ToolDetailContext.Provider value={toolDetail}>
-                <section className="agent-surface shared-chat">
-                  <header className="agent-surface-header">
-                    <div className="agent-surface-name">
-                      <span
-                        className={`agent-surface-mark agent-glyph ${type}`}
-                        aria-hidden="true"
+            <ToolDetailContext.Provider value={toolDetail}>
+              <section className="agent-surface shared-chat">
+                <header className="agent-surface-header">
+                  <div className="agent-surface-name">
+                    <span
+                      className={`agent-surface-mark agent-glyph ${type}`}
+                      aria-hidden="true"
+                    >
+                      <AgentIcon type={type} size={16} />
+                    </span>
+                    <span className="agent-surface-title" title={title}>
+                      {title}
+                    </span>
+                  </div>
+                  <div className="agent-surface-controls">
+                    <span className="shared-chat-badge">
+                      <IconEye size={13} />
+                      <span>Read-only</span>
+                    </span>
+                    <div className="agent-view-switch">
+                      <button
+                        type="button"
+                        onClick={() => location.assign(appShareLink(link))}
                       >
-                        <AgentIcon type={type} size={16} />
-                      </span>
-                      <span className="agent-surface-title" title={title}>
-                        {title}
-                      </span>
+                        Open in Sikemux
+                      </button>
                     </div>
-                    <div className="agent-surface-controls">
-                      <span className="shared-chat-badge">
-                        <IconEye size={13} />
-                        <span>Read-only</span>
-                      </span>
-                      <div className="agent-view-switch">
-                        <button
-                          type="button"
-                          onClick={() => location.assign(appShareLink(link))}
-                        >
-                          Open in Sikemux
-                        </button>
-                      </div>
-                    </div>
-                  </header>
-                  <div className="agent-surface-body">
-                    <div className="agent-gui-layer">
-                      <div className="agent-chat-pane">
-                        <ChatTranscript
-                          state={state}
-                          foldMemory={foldMemory}
-                          scrollRef={scrollRef}
-                          contentRef={contentRef}
-                          onScroll={onScroll}
-                          activity={activity}
-                          before={before}
-                          after={after}
-                        />
-                        <div className="chat-composer-wrap">
-                          {!atBottom && state.messages.length > 0 && (
-                            <button
-                              type="button"
-                              className="chat-jump-bottom"
-                              aria-label="Jump to latest message"
-                              onClick={jumpToBottom}
-                            >
-                              <IconArrowDown size={14} />
-                            </button>
-                          )}
-                          {(state.runningSubagents.length > 0 ||
-                            state.tasks.length > 0) && (
-                            <LiveStack
-                              subagents={state.runningSubagents}
-                              tasks={state.tasks}
-                              folds={liveFolds}
-                            />
-                          )}
-                          <SharedChatFoot snapshot={snapshot} />
-                        </div>
+                  </div>
+                </header>
+                <div className="agent-surface-body">
+                  <div className="agent-gui-layer">
+                    <div className="agent-chat-pane">
+                      <ChatTranscript
+                        state={state}
+                        foldMemory={foldMemory}
+                        scrollRef={scrollRef}
+                        contentRef={contentRef}
+                        onScroll={onScroll}
+                        activity={activity}
+                        before={before}
+                        after={after}
+                      />
+                      <div className="chat-composer-wrap">
+                        {!atBottom && state.messages.length > 0 && (
+                          <button
+                            type="button"
+                            className="chat-jump-bottom"
+                            aria-label="Jump to latest message"
+                            onClick={jumpToBottom}
+                          >
+                            <IconArrowDown size={14} />
+                          </button>
+                        )}
+                        {(state.runningSubagents.length > 0 ||
+                          state.tasks.length > 0) && (
+                          <LiveStack
+                            subagents={state.runningSubagents}
+                            tasks={state.tasks}
+                            folds={liveFolds}
+                          />
+                        )}
+                        <SharedChatFoot snapshot={snapshot} />
                       </div>
                     </div>
                   </div>
-                  <ImageViewer />
-                </section>
-              </ToolDetailContext.Provider>
-            </ReaderScrollContext.Provider>
+                </div>
+                <ImageViewer />
+              </section>
+            </ToolDetailContext.Provider>
           </ChatSubagentsContext.Provider>
         </ChatAgentContext.Provider>
       </PathRootsProvider>
