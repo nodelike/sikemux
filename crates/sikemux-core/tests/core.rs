@@ -603,7 +603,11 @@ async fn a_finished_task_is_kept_and_attachable() {
         .await
         .expect("spawn");
     stream.until_exit(&client, id).await;
-    stream.until_output(&client, id, "beta").await;
+    let text = client
+        .ask(ask::TerminalText { id, range: None })
+        .await
+        .expect("a finished task's text");
+    assert!(text.contains("beta"));
     let session = client
         .ask(ask::List)
         .await
