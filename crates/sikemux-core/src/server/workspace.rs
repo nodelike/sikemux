@@ -227,6 +227,7 @@ pub(crate) fn new_agent(
         project,
         cwd,
         renamed: false,
+        titled: false,
         lead: None,
         resume_id: None,
         permission_mode,
