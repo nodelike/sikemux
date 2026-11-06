@@ -975,18 +975,12 @@ fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) ->
     let t = Tokens::get(cx).clone();
     let id = card.id;
     let cards = pane.cards();
-    let question = (pane.column_of(card) == BoardColumn::Needs)
-        .then(|| {
-            let owner = card.owner.as_deref()?;
-            let bench = pane.bench.upgrade()?;
-            let bench = bench.read(cx);
-            bench
-                .feeds
-                .questions()
-                .find_map(|question| question.open_from(owner))
-                .map(|(name, text)| format!("{name} asks: {text}"))
-        })
-        .flatten();
+    let question = (card.question.as_deref()).and_then(|id| {
+        let bench = pane.bench.upgrade()?;
+        let bench = bench.read(cx);
+        let asked = bench.feeds.questions().find(|question| question.id == id)?;
+        Some(format!("{} asks: {}", asked.name, asked.text))
+    });
     let line = question.or_else(|| {
         card.auto
             .as_ref()

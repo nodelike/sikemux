@@ -69,12 +69,6 @@ impl std::ops::Deref for Question {
 }
 
 impl Question {
-    /// Who asked and what, while `agent_id` waits on the person's answer.
-    pub(crate) fn open_from(&self, agent_id: &str) -> Option<(&str, &str)> {
-        self.of(agent_id, QuestionState::Open)
-            .then_some((&self.name, &self.text))
-    }
-
     pub fn of(&self, agent: &str, state: QuestionState) -> bool {
         self.agent_id == agent && self.state == state
     }

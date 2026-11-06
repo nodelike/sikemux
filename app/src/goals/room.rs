@@ -391,9 +391,9 @@ impl GoalsPane {
     }
 
     /// The core says the goals moved: reads them again when `wanted` beyond the list, or once
-    /// the list shows.
+    /// the list or a goal's page, which lists what the core placed on it, shows.
     pub fn goals_moved(&mut self, on_screen: bool, wanted: bool, cx: &mut Context<Self>) {
-        if wanted || (on_screen && self.lit() == At::Home) {
+        if wanted || (on_screen && matches!(self.lit(), At::Home | At::Goal(_))) {
             self.read_goals(cx);
         } else {
             self.room.stale = true;

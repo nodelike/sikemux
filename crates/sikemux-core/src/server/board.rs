@@ -1284,6 +1284,9 @@ pub struct BoardCard {
     /// The ticket of the nearest card above it that has one, which it is filed under.
     pub ticket_above: Option<String>,
     pub column: BoardColumn,
+    /// The question of its owner's it waits on the person to answer, by id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
     pub auto: Option<CardRun>,
     /// Browser recordings, for a card that is not a slice; a slice's are in its evidence.
     pub recordings: Vec<InboxRecording>,
@@ -1382,6 +1385,7 @@ fn state_by_column(column: BoardColumn) -> SliceState {
 }
 
 fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
+    let column = column_of(core, &board.settings, card);
     let team = team_of(core, board, card);
     let now = epoch_ms();
     BoardCard {
@@ -1408,7 +1412,10 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         result: card.result.clone(),
         ticket: card.ticket.clone(),
         ticket_above: ticket_above(board, card),
-        column: column_of(core, &board.settings, card),
+        column,
+        question: (column == BoardColumn::Needs)
+            .then(|| core.harness.questions.blocking(card.owner_id()?))
+            .flatten(),
         auto: card.auto.as_ref().map(AutoRun::view),
         recordings: card.recordings.clone(),
         slice: card.slice.as_ref().map(|slice| {

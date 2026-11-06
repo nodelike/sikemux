@@ -65,18 +65,9 @@ impl GoalsPane {
     /// What in every project waits on the person, in the core's order, besides the questions
     /// agents asked; the same things the core counts as needing the person.
     pub(super) fn needs(bench: &Workbench) -> Vec<InboxItem> {
-        Self::waiting(bench, |item| item.kind != InboxKind::Question)
-    }
-
-    /// What agents in every project asked the person and wait on, one per agent.
-    pub(super) fn questions(bench: &Workbench) -> Vec<InboxItem> {
-        Self::waiting(bench, |item| item.kind == InboxKind::Question)
-    }
-
-    fn waiting(bench: &Workbench, kind: impl Fn(&InboxItem) -> bool) -> Vec<InboxItem> {
         bench.shown().map_or(Vec::new(), |view| {
             (view.inbox.items.iter())
-                .filter(|item| item.need.is_some() && kind(item))
+                .filter(|item| item.need.is_some() && item.kind != InboxKind::Question)
                 .cloned()
                 .collect()
         })

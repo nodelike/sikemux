@@ -2477,6 +2477,8 @@ export interface BoardCard {
     /** The ticket of the nearest card above it that has one, which it is filed under. */
     ticketAbove: string | null;
     column: BoardColumn;
+    /** The question of its owner's it waits on the person to answer, by id. */
+    question?: string;
     auto: CardRun | null;
     /** Browser recordings, for a card that is not a slice; a slice's are in its evidence. */
     recordings: InboxRecording[];

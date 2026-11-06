@@ -422,6 +422,15 @@ impl Questions {
         })
     }
 
+    /// The question the agent stopped for that waits on the person, by id.
+    pub(crate) fn blocking(&self, agent_id: &str) -> Option<String> {
+        (self.state.locked().open.iter())
+            .find(|question| {
+                question.agent_id == agent_id && question.blocked && question.asks_person()
+            })
+            .map(|question| question.id.clone())
+    }
+
     /// Whether a question the agent asked, with the question tool or in its last reply, waits
     /// on the person.
     pub(crate) fn asks_person(&self, agent_id: &str) -> bool {

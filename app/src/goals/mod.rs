@@ -477,7 +477,7 @@ impl GoalsPane {
         }
         self.at = at;
         self.chat = None;
-        if at == At::Home {
+        if matches!(at, At::Home | At::Goal(_)) {
             self.read_goals_if_stale(cx);
         }
         cx.emit(Moved);
@@ -524,28 +524,12 @@ impl GoalsPane {
             .map(|(_, view)| view)
     }
 
-    /// What waits on the person about goal `goal`: on a card of it, or from an agent holding one.
+    /// What waits on the person about goal `goal`, as the core placed it.
     fn needs_of(&self, goal: &BoardCard, cx: &Context<Self>) -> Vec<InboxItem> {
-        let Some(bench) = self.bench.upgrade() else {
-            return Vec::new();
-        };
-        let mut items = Self::needs(bench.read(cx));
-        items.extend(Self::questions(bench.read(cx)));
-        let cards: Vec<&BoardCard> = (self.cards().iter())
-            .filter(|card| card.id == goal.id || card.parent == Some(goal.id))
-            .collect();
-        items.retain(|item| match &item.card {
-            Some(card) => {
-                (self.here.as_deref() == Some(card.project.as_str()))
-                    && (card.goal.unwrap_or(card.id) == goal.id)
-            }
-            None => (item.agent_id.as_deref()).is_some_and(|agent| {
-                cards
-                    .iter()
-                    .any(|card| card.owner.as_deref() == Some(agent))
-            }),
-        });
-        items
+        let row = (self.here.as_deref()).and_then(|here| self.room.goal(here, goal.id));
+        (row.into_iter().flat_map(|row| &row.needs))
+            .filter_map(|id| self.inbox_item(id, cx))
+            .collect()
     }
 
     /// The name of the agent holding goal `goal` while it is at work, for a goal with no slices

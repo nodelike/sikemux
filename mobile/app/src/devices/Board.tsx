@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import type { ConnectionLike } from '@sikemux/native';
 
 import type { AgentQuestion, BoardCard, BoardColumn, ChatTrigger, ProjectInfo } from '@shared/wire.generated';
-import { cardQuestion, COLUMN_LABELS, shortTitle } from '@/devices/agentBoard';
+import { COLUMN_LABELS, shortTitle } from '@/devices/agentBoard';
 import { kindLabel, outcomeLabel, rowKeys, whoLabel } from '@/devices/agentMessages';
 import { formatAge } from '@shared/lib/format';
 import type { Snapshot } from '@/core/protocol';
@@ -218,7 +218,7 @@ function CardRow({
   const owner = chat?.name ?? terminal?.agentName ?? card.ownerName;
   const cli = chat?.provider ?? terminal?.agentType ?? card.ownerCli;
   const group = snapshot.inbox.agents.find((agent) => agent.agentId === card.owner)?.group;
-  const question = column === 'needs' ? cardQuestion(card, questions) : undefined;
+  const question = questions.find((known) => known.id === card.question);
   const handedBack = card.auto?.waitsOnPerson && card.status !== 'done' ? card.auto.note : null;
   const reviewing = card.auto?.stage === 'reviewing' ? card.auto.note : null;
   const acceptance = card.acceptance && card.status !== 'done' ? `Done when: ${card.acceptance}` : null;
