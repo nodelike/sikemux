@@ -399,13 +399,13 @@ impl Workspaces {
     /// its program again and says why it failed; one whose profile is gone falls
     /// back to its agent's own.
     pub(crate) fn launcher(&self, id: &str) -> CoreResult<Launcher> {
-        let provider = id.split(':').next().unwrap_or(id);
+        let provider = LauncherId::parse(id).kind;
         let wanted = {
             let published = self.published.locked();
             let chosen = (provider == id)
                 .then(|| published.saved.accounts.as_ref())
                 .flatten()
-                .map(|book| format!("{provider}:{}", book.chosen(provider)));
+                .map(|book| LauncherId::on(provider, &book.chosen(provider)).to_string());
             let wanted: Vec<String> = std::iter::once(id.to_owned()).chain(chosen).collect();
             let found = wanted.iter().find_map(|want| {
                 published

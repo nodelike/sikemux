@@ -241,7 +241,7 @@ pub(crate) async fn recent_chats(core: &Core, asked: RecentChatsParams) -> CoreR
         .filter_map(|session| {
             let launcher = launchers
                 .iter()
-                .find(|launcher| launcher.split(':').next() == Some(session.agent))?;
+                .find(|launcher| LauncherId::parse(launcher).kind == session.agent)?;
             Some(saved_chat(launcher.clone(), session))
         })
         .collect();
