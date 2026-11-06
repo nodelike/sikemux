@@ -3,47 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use super::Listener;
 
-const MAX_DESCENDANTS: usize = 4_096;
 const TCP_LISTEN: &str = "0A";
-
-/// The parent of every process, from the field after the name in
-/// `/proc/<pid>/stat`; the name may hold spaces and parentheses.
-fn parents() -> HashMap<u32, u32> {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return HashMap::new();
-    };
-    entries
-        .flatten()
-        .filter_map(|entry| {
-            let pid: u32 = entry.file_name().to_str()?.parse().ok()?;
-            let stat = std::fs::read_to_string(entry.path().join("stat")).ok()?;
-            let after_name = &stat[stat.rfind(')')? + 1..];
-            let parent = after_name.split_whitespace().nth(1)?.parse().ok()?;
-            Some((pid, parent))
-        })
-        .collect()
-}
-
-/// Every process below `root`, mapped to its parent.
-pub(super) fn descendants(root: u32) -> HashMap<u32, u32> {
-    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-    for (pid, parent) in parents() {
-        children.entry(parent).or_default().push(pid);
-    }
-    let mut found = HashMap::new();
-    let mut queue = vec![root];
-    while let Some(parent) = queue.pop() {
-        for &child in children.get(&parent).into_iter().flatten() {
-            if found.len() >= MAX_DESCENDANTS {
-                return found;
-            }
-            if found.insert(child, parent).is_none() {
-                queue.push(child);
-            }
-        }
-    }
-    found
-}
 
 /// `/proc/net/tcp` writes an address as 32-bit words in host order.
 fn parse_address(hex: &str) -> Option<IpAddr> {
@@ -124,20 +84,4 @@ pub(super) fn listeners(pids: &[u32]) -> Vec<Listener> {
                 .collect::<Vec<_>>()
         })
         .collect()
-}
-
-pub(super) fn process_name(pid: u32) -> String {
-    std::fs::read_to_string(format!("/proc/{pid}/comm"))
-        .map(|name| name.trim_end().to_owned())
-        .unwrap_or_default()
-}
-
-pub(super) fn environment_value(pid: u32, key: &str) -> Option<String> {
-    let environment = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
-    environment.split(|byte| *byte == 0).find_map(|entry| {
-        entry
-            .strip_prefix(key.as_bytes())?
-            .strip_prefix(b"=")
-            .map(|value| String::from_utf8_lossy(value).into_owned())
-    })
 }

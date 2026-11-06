@@ -13,6 +13,7 @@ pub mod jobs;
 pub mod memory_pressure;
 pub mod names;
 pub mod paths;
+pub mod procs;
 pub mod sync;
 pub mod user_environment;
 pub mod vars;

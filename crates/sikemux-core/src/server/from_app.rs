@@ -54,7 +54,11 @@ pub(super) fn carry(core: &Arc<Core>, data_dir: Option<&Path>) {
     // Earlier cores recorded a step per preference, each carried once as a core first ran.
     let preferences_carried =
         done.contains(PREFERENCES_STEP) || done.iter().any(|step| step.starts_with("preferences."));
-    if preferences_carried && [HOSTS_STEP, AWS_STEP].iter().all(|step| done.contains(*step)) {
+    if preferences_carried
+        && [HOSTS_STEP, AWS_STEP]
+            .iter()
+            .all(|step| done.contains(*step))
+    {
         return;
     }
     let app = match app_state(data_dir) {

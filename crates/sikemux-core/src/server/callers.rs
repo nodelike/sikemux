@@ -20,6 +20,7 @@ use std::net::SocketAddr;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
+use sikemux_process::procs;
 use sikemux_process::sync::Locked;
 
 /// Processes that made calls lately, looked at first: an agent's tool server
@@ -69,13 +70,13 @@ pub(crate) fn started(pid: u32, agent_id: &str) {
     if agent_id.is_empty() {
         return;
     }
-    let Some(started) = platform::started(pid) else {
+    let Some(started) = procs::started(pid) else {
         return;
     };
     let mut known = known();
     known
         .roots
-        .retain(|pid, root| platform::started(*pid) == Some(root.started));
+        .retain(|pid, root| procs::started(*pid) == Some(root.started));
     known.roots.insert(
         pid,
         Root {
@@ -83,12 +84,6 @@ pub(crate) fn started(pid: u32, agent_id: &str) {
             agent_id: agent_id.to_owned(),
         },
     );
-}
-
-/// When `pid` started, which tells it apart from a later process given the
-/// same pid.
-pub(crate) fn start_time(pid: u32) -> Option<u64> {
-    platform::started(pid)
 }
 
 /// Lets the `git commit` at `pid`, a child of this process not yet collected,
@@ -99,7 +94,7 @@ pub(crate) fn grant_commit(
     fallback: Option<&str>,
     lasting: Duration,
 ) {
-    let Some(started) = platform::started(pid) else {
+    let Some(started) = procs::started(pid) else {
         return;
     };
     let mut known = known();
@@ -133,9 +128,9 @@ pub(crate) fn take_commit_grant(peer: SocketAddr, port: u16) -> Option<CommitGra
     let live: Vec<(u32, u64)> = {
         let mut known = known();
         let now = Instant::now();
-        known.commits.retain(|pid, grant| {
-            grant.until > now && platform::started(*pid) == Some(grant.started)
-        });
+        known
+            .commits
+            .retain(|pid, grant| grant.until > now && procs::started(*pid) == Some(grant.started));
         known
             .commits
             .iter()
@@ -152,6 +147,19 @@ pub(crate) fn take_commit_grant(peer: SocketAddr, port: u16) -> Option<CommitGra
     known().commits.remove(&commit).map(|grant| grant.commit)
 }
 
+/// The agents' root processes that still run, each with its start time and agent.
+fn live_roots() -> HashMap<u32, (u64, String)> {
+    let mut known = known();
+    known
+        .roots
+        .retain(|pid, root| procs::started(*pid) == Some(root.started));
+    known
+        .roots
+        .iter()
+        .map(|(pid, root)| (*pid, (root.started, root.agent_id.clone())))
+        .collect()
+}
+
 /// The agent whose process holds the client end of the loopback connection
 /// from `peer` to this core's `port`. Blocks while it reads the process table.
 pub(crate) fn identify(peer: SocketAddr, port: u16) -> Option<String> {
@@ -159,24 +167,14 @@ pub(crate) fn identify(peer: SocketAddr, port: u16) -> Option<String> {
         return None;
     }
     let socket = platform::Socket::find(peer.port(), port)?;
-    let roots: HashMap<u32, (u64, String)> = {
-        let mut known = known();
-        known
-            .roots
-            .retain(|pid, root| platform::started(*pid) == Some(root.started));
-        known
-            .roots
-            .iter()
-            .map(|(pid, root)| (*pid, (root.started, root.agent_id.clone())))
-            .collect()
-    };
+    let roots = live_roots();
     if roots.is_empty() {
         return None;
     }
     let recent: Vec<(u32, u64)> = known().recent.iter().copied().collect();
     let holder = recent
         .into_iter()
-        .find(|(pid, started)| platform::started(*pid) == Some(*started) && socket.held_by(*pid))
+        .find(|(pid, started)| procs::started(*pid) == Some(*started) && socket.held_by(*pid))
         .map(|(pid, _)| pid)
         .or_else(|| {
             descendants(roots.iter().map(|(pid, (started, _))| (*pid, *started)))
@@ -194,22 +192,12 @@ pub(crate) fn identify(peer: SocketAddr, port: u16) -> Option<String> {
 /// The agent whose process tree `pid` belongs to, if any. Blocks while it
 /// reads the process table.
 pub(crate) fn agent_of(pid: u32) -> Option<String> {
-    let roots: HashMap<u32, (u64, String)> = {
-        let mut known = known();
-        known
-            .roots
-            .retain(|pid, root| platform::started(*pid) == Some(root.started));
-        known
-            .roots
-            .iter()
-            .map(|(pid, root)| (*pid, (root.started, root.agent_id.clone())))
-            .collect()
-    };
+    let roots = live_roots();
     agent_above(pid, &roots)
 }
 
 fn remember(pid: u32) {
-    let Some(started) = platform::started(pid) else {
+    let Some(started) = procs::started(pid) else {
         return;
     };
     let mut known = known();
@@ -225,12 +213,12 @@ fn remember(pid: u32) {
 fn agent_above(mut pid: u32, roots: &HashMap<u32, (u64, String)>) -> Option<String> {
     let caller = pid;
     for _ in 0..MAX_DEPTH {
-        let (parent, started) = platform::parent(pid)?;
+        let (parent, started) = procs::parent(pid)?;
         if let Some((root_started, agent_id)) = roots.get(&pid) {
             return (*root_started == started).then(|| agent_id.clone());
         }
         if pid != caller
-            && platform::name(pid).is_some_and(|name| SIKEMUX_PROCESSES.contains(&name.as_str()))
+            && procs::name(pid).is_some_and(|name| SIKEMUX_PROCESSES.contains(&name.as_str()))
         {
             return None;
         }
@@ -247,7 +235,7 @@ fn agent_above(mut pid: u32, roots: &HashMap<u32, (u64, String)>) -> Option<Stri
 fn descendants(roots: impl IntoIterator<Item = (u32, u64)>) -> Vec<(u32, u32)> {
     let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
     let mut started = HashMap::new();
-    for (pid, parent, start) in platform::processes() {
+    for (pid, parent, start) in procs::processes() {
         children.entry(parent).or_default().push(pid);
         started.insert(pid, start);
     }
@@ -271,7 +259,7 @@ fn descendants(roots: impl IntoIterator<Item = (u32, u64)>) -> Vec<(u32, u32)> {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use std::mem::{size_of, MaybeUninit};
+    use std::mem::size_of;
 
     const PROC_PIDFDSOCKETINFO: libc::c_int = 3;
     const SOCKINFO_TCP: i32 = 2;
@@ -283,69 +271,6 @@ mod platform {
 
     #[repr(C, align(8))]
     struct SocketFdInfo([u8; SOCKET_FDINFO]);
-
-    fn bsd_info(pid: u32) -> Option<libc::proc_bsdinfo> {
-        let pid = libc::c_int::try_from(pid).ok()?;
-        let mut info = MaybeUninit::<libc::proc_bsdinfo>::zeroed();
-        let size = size_of::<libc::proc_bsdinfo>() as libc::c_int;
-        // SAFETY: `info` is a writable `proc_bsdinfo` of `size` bytes, and
-        // the kernel writes at most that many.
-        let written = unsafe {
-            libc::proc_pidinfo(
-                pid,
-                libc::PROC_PIDTBSDINFO,
-                0,
-                info.as_mut_ptr().cast(),
-                size,
-            )
-        };
-        // SAFETY: the kernel filled the whole struct when it wrote `size` bytes.
-        (written == size).then(|| unsafe { info.assume_init() })
-    }
-
-    fn start_of(info: &libc::proc_bsdinfo) -> u64 {
-        info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec
-    }
-
-    pub(super) fn started(pid: u32) -> Option<u64> {
-        bsd_info(pid).map(|info| start_of(&info))
-    }
-
-    pub(super) fn parent(pid: u32) -> Option<(u32, u64)> {
-        bsd_info(pid).map(|info| (info.pbi_ppid, start_of(&info)))
-    }
-
-    pub(super) fn name(pid: u32) -> Option<String> {
-        let info = bsd_info(pid)?;
-        let bytes: Vec<u8> = info
-            .pbi_comm
-            .iter()
-            .take_while(|byte| **byte != 0)
-            .map(|byte| *byte as u8)
-            .collect();
-        String::from_utf8(bytes).ok()
-    }
-
-    pub(super) fn processes() -> Vec<(u32, u32, u64)> {
-        // SAFETY: a null buffer asks only for how many pids there are.
-        let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
-        let Ok(count) = usize::try_from(count) else {
-            return Vec::new();
-        };
-        let mut pids = vec![0 as libc::pid_t; count + 64];
-        let size = (pids.len() * size_of::<libc::pid_t>()) as libc::c_int;
-        // SAFETY: `pids` is a writable buffer of `size` bytes.
-        let listed = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), size) };
-        let listed = usize::try_from(listed).unwrap_or(0).min(pids.len());
-        pids[..listed]
-            .iter()
-            .filter_map(|pid| {
-                let pid = u32::try_from(*pid).ok()?;
-                let info = bsd_info(pid)?;
-                Some((pid, info.pbi_ppid, start_of(&info)))
-            })
-            .collect()
-    }
 
     pub(super) struct Socket {
         local: u16,
@@ -422,42 +347,6 @@ mod platform {
 mod platform {
     use std::fs;
 
-    /// `pid`'s parent and start time, from `/proc/<pid>/stat`.
-    fn stat(pid: u32) -> Option<(u32, u64)> {
-        let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-        let mut fields = stat.get(stat.rfind(')')? + 2..)?.split(' ');
-        let parent = fields.nth(1)?.parse().ok()?;
-        let started = fields.nth(17)?.parse().ok()?;
-        Some((parent, started))
-    }
-
-    pub(super) fn started(pid: u32) -> Option<u64> {
-        stat(pid).map(|(_, started)| started)
-    }
-
-    pub(super) fn parent(pid: u32) -> Option<(u32, u64)> {
-        stat(pid)
-    }
-
-    pub(super) fn name(pid: u32) -> Option<String> {
-        fs::read_to_string(format!("/proc/{pid}/comm"))
-            .ok()
-            .map(|name| name.trim_end().to_owned())
-    }
-
-    pub(super) fn processes() -> Vec<(u32, u32, u64)> {
-        let Ok(entries) = fs::read_dir("/proc") else {
-            return Vec::new();
-        };
-        entries
-            .filter_map(|entry| {
-                let pid = entry.ok()?.file_name().to_str()?.parse().ok()?;
-                let (parent, started) = stat(pid)?;
-                Some((pid, parent, started))
-            })
-            .collect()
-    }
-
     pub(super) struct Socket {
         link: String,
     }
@@ -499,22 +388,6 @@ mod platform {
 
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 mod platform {
-    pub(super) fn started(_pid: u32) -> Option<u64> {
-        None
-    }
-
-    pub(super) fn parent(_pid: u32) -> Option<(u32, u64)> {
-        None
-    }
-
-    pub(super) fn name(_pid: u32) -> Option<String> {
-        None
-    }
-
-    pub(super) fn processes() -> Vec<(u32, u32, u64)> {
-        Vec::new()
-    }
-
     pub(super) struct Socket;
 
     impl Socket {

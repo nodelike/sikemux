@@ -1,54 +1,7 @@
-use std::collections::HashMap;
 use std::ffi::c_void;
 use std::net::IpAddr;
 
 const PROC_PIDFDSOCKETINFO: libc::c_int = 3;
-const MAX_DESCENDANTS: usize = 4_096;
-
-fn child_pids(pid: u32) -> Vec<u32> {
-    let mut capacity = 64usize;
-    loop {
-        let mut buffer = vec![0 as libc::pid_t; capacity];
-        // SAFETY: the buffer holds `capacity` pids and its byte length is passed.
-        let count = unsafe {
-            libc::proc_listchildpids(
-                pid as libc::pid_t,
-                buffer.as_mut_ptr().cast::<c_void>(),
-                (capacity * size_of::<libc::pid_t>()) as libc::c_int,
-            )
-        };
-        if count <= 0 {
-            return Vec::new();
-        }
-        let count = count as usize;
-        if count < capacity {
-            buffer.truncate(count);
-            return buffer
-                .into_iter()
-                .filter(|child| *child > 0)
-                .map(|child| child as u32)
-                .collect();
-        }
-        capacity *= 4;
-    }
-}
-
-/// Every process below `root`, mapped to its parent.
-pub(super) fn descendants(root: u32) -> HashMap<u32, u32> {
-    let mut parents = HashMap::new();
-    let mut queue = vec![root];
-    while let Some(parent) = queue.pop() {
-        for child in child_pids(parent) {
-            if parents.len() >= MAX_DESCENDANTS {
-                return parents;
-            }
-            if parents.insert(child, parent).is_none() {
-                queue.push(child);
-            }
-        }
-    }
-    parents
-}
 
 fn socket_fds(pid: u32) -> Vec<i32> {
     let entry = size_of::<libc::proc_fdinfo>();
@@ -115,62 +68,6 @@ fn listeners_of(pid: u32) -> Vec<(u16, IpAddr)> {
         .collect()
 }
 
-pub(super) fn process_name(pid: u32) -> String {
-    let mut buffer = [0u8; 256];
-    // SAFETY: the buffer's length is passed alongside it.
-    let length = unsafe {
-        libc::proc_name(
-            pid as i32,
-            buffer.as_mut_ptr().cast::<c_void>(),
-            buffer.len() as u32,
-        )
-    };
-    if length <= 0 {
-        return String::new();
-    }
-    String::from_utf8_lossy(&buffer[..length as usize]).into_owned()
-}
-
-/// macOS hides the environment of Apple's own binaries. Agents are not
-/// those, so theirs stays readable.
-pub(super) fn environment_value(pid: u32, key: &str) -> Option<String> {
-    let mut argmax: libc::c_int = 0;
-    let mut size = size_of::<libc::c_int>();
-    let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
-    // SAFETY: `argmax` is a c_int and `size` says so.
-    let status = unsafe {
-        libc::sysctl(
-            mib.as_mut_ptr(),
-            2,
-            (&mut argmax as *mut libc::c_int).cast::<c_void>(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if status != 0 || argmax <= 0 {
-        return None;
-    }
-    let mut buffer = vec![0u8; argmax as usize];
-    let mut size = buffer.len();
-    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
-    // SAFETY: `size` is the buffer's length; the kernel writes at most that much.
-    let status = unsafe {
-        libc::sysctl(
-            mib.as_mut_ptr(),
-            3,
-            buffer.as_mut_ptr().cast::<c_void>(),
-            &mut size,
-            std::ptr::null_mut(),
-            0,
-        )
-    };
-    if status != 0 {
-        return None;
-    }
-    environment_from_procargs(&buffer[..size.min(buffer.len())], key)
-}
-
 pub(super) fn listeners(pids: &[u32]) -> Vec<super::Listener> {
     pids.iter()
         .flat_map(|&pid| {
@@ -229,27 +126,6 @@ fn parse_tcp_listener(bytes: &[u8]) -> Option<(u16, IpAddr)> {
     (port != 0).then_some((port, address))
 }
 
-/// Reads one variable out of a `KERN_PROCARGS2` buffer: argc, the executable
-/// path, padding, argv, then the environment.
-fn environment_from_procargs(bytes: &[u8], key: &str) -> Option<String> {
-    let argc = usize::try_from(read_i32(bytes, 0)?).ok()?;
-    let rest = bytes.get(4..)?;
-    let rest = &rest[rest.iter().position(|byte| *byte == 0)?..];
-    let rest = &rest[rest.iter().position(|byte| *byte != 0)?..];
-    let mut entries = rest.split(|byte| *byte == 0);
-    for _ in 0..argc {
-        entries.next()?;
-    }
-    entries
-        .take_while(|entry| !entry.is_empty())
-        .find_map(|entry| {
-            entry
-                .strip_prefix(key.as_bytes())?
-                .strip_prefix(b"=")
-                .map(|value| String::from_utf8_lossy(value).into_owned())
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -299,37 +175,10 @@ mod tests {
     }
 
     #[test]
-    fn procargs_environment_skips_the_arguments() {
-        let mut bytes = 2i32.to_ne_bytes().to_vec();
-        bytes.extend_from_slice(b"/usr/bin/node\0\0\0\0node\0SIKEMUX_AGENT_ID=argv\0");
-        bytes.extend_from_slice(b"HOME=/Users/me\0SIKEMUX_AGENT_ID=agent-4\0\0junk=1\0");
-        assert_eq!(
-            environment_from_procargs(&bytes, sikemux_process::vars::AGENT_ID).as_deref(),
-            Some("agent-4")
-        );
-        assert_eq!(environment_from_procargs(&bytes, "PATH"), None);
-        assert_eq!(environment_from_procargs(&bytes[..3], "HOME"), None);
-    }
-
-    #[test]
     fn the_kernel_reports_a_socket_this_process_listens_on() {
         let socket = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = socket.local_addr().expect("address").port();
         let found = listeners_of(std::process::id());
         assert!(found.contains(&(port, LOOP4)), "{found:?} lacks {port}");
-    }
-
-    #[test]
-    fn the_kernel_reports_a_child_process() {
-        let mut child = sikemux_process::user_environment::command("/bin/sleep")
-            .arg("5")
-            .spawn()
-            .expect("spawn sleep");
-        let parents = descendants(std::process::id());
-        let name = process_name(child.id());
-        let _ = child.kill();
-        let _ = child.wait();
-        assert_eq!(parents.get(&child.id()), Some(&std::process::id()));
-        assert_eq!(name, "sleep");
     }
 }

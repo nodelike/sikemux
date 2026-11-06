@@ -13,7 +13,6 @@ use tokio::sync::watch;
 use crate::launch::providers;
 use sikemux_wire::protocol::ChatLaunch;
 
-use super::super::callers;
 use super::super::Core;
 use super::rebind::Replay;
 use super::Origin;
@@ -58,13 +57,13 @@ pub(crate) struct KeptAgent {
 
 impl KeptAgent {
     pub(crate) fn of(pid: u32) -> Option<Self> {
-        callers::start_time(pid).map(|started| Self { pid, started })
+        sikemux_process::procs::started(pid).map(|started| Self { pid, started })
     }
 
     /// Stops what an earlier core's agent still runs, so it does not work on
     /// the session beside the agent started in its place.
     pub(crate) fn stop(self) {
-        if callers::start_time(self.pid) == Some(self.started) {
+        if sikemux_process::procs::started(self.pid) == Some(self.started) {
             super::native::kill_group(self.pid);
         }
     }

@@ -289,13 +289,13 @@ pub(crate) fn listening_now(core: &Core) -> Vec<ListeningPort> {
         }
         owners.insert(session.id, session.owner().clone());
     }
-    let parents = system::descendants(core_pid);
+    let parents = sikemux_process::procs::descendants(core_pid);
     let all: Vec<u32> = parents.keys().copied().collect();
     let listeners = system::listeners(&all);
     // Chat agents run outside a PTY, so their root process carries its agent id
     // in the environment it was launched with.
     attribute(listeners, core_pid, &parents, &pids, |root| {
-        system::environment_value(root, sikemux_process::vars::AGENT_ID)
+        sikemux_process::procs::environment_value(root, sikemux_process::vars::AGENT_ID)
     })
     .into_iter()
     .filter_map(|(listener, found)| {
@@ -304,7 +304,7 @@ pub(crate) fn listening_now(core: &Core) -> Vec<ListeningPort> {
             port: listener.port,
             address: listener.address.to_string(),
             pid: listener.pid,
-            process: system::process_name(listener.pid),
+            process: sikemux_process::procs::name(listener.pid).unwrap_or_default(),
             project,
             owner,
         })

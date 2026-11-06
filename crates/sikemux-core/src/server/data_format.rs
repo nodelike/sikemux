@@ -68,10 +68,7 @@ pub(crate) fn upgrade(config: &ServerConfig) {
 
 /// The app kept the activity database before the core did: it moves over, for the core that
 /// shares the app's data folder.
-fn activity_database_in_the_data_folder(
-    data_dir: &Path,
-    _: &ServerConfig,
-) -> std::io::Result<()> {
+fn activity_database_in_the_data_folder(data_dir: &Path, _: &ServerConfig) -> std::io::Result<()> {
     if data_dir.file_name() != Some(sikemux_process::names::APP_IDENTIFIER.as_ref()) {
         return Ok(());
     }
