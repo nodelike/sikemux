@@ -14,6 +14,76 @@ mod providers;
 mod sessions;
 mod setup;
 mod skills;
+use crate::settings::index::Page::{
+    Accounts, Chats, Helpers, Installed, LocalModels, Notch, Notifications, Permissions, Plans,
+    Providers, Simulator, Skills, Voice,
+};
+use crate::settings::index::{row, section, Entry};
+
+/// What a search finds on this page.
+pub(in crate::settings) const NOTIFICATIONS: &[Entry] = &[
+    section(
+        Notifications,
+        "Notifications",
+        "notification alert badge dock permission finished",
+    ),
+    row(
+        Notifications,
+        "Notifications",
+        "Notify when an agent needs you",
+        "notification alert badge dock permission finished",
+    ),
+    row(
+        Notifications,
+        "Notifications",
+        "Notify when a goal moves",
+        "notification goal slice landed finished eta slipped progress",
+    ),
+    row(
+        Notifications,
+        "Notifications",
+        "Test notification",
+        "notification sound permission send try",
+    ),
+];
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(Installed, "Agents on this host", "install reinstall missing claude codex opencode hermes pi omp grok cli"),
+    section(Permissions, "Launch boundary", "permissions yolo sandbox safety bypass approval"),
+    section(Chats, "Chats", "sessions"),
+    row(Chats, "Chats", "Sending while an agent works", "steer queue interrupt enter"),
+    row(Chats, "Chats", "Rail density", "compact comfortable sidebar"),
+    row(Chats, "Chats", "Agent names", "name theme anime nature naruto one piece characters words"),
+    row(Chats, "Chats", "Idle chats", "sleep memory process agents"),
+    section(Skills, "Skills", "skill SKILL.md library claude codex opencode pi omp hermes grok global own move"),
+    row(Skills, "Skills", "Add a skill", "new create install git folder"),
+    row(Skills, "Skills", "Your own skills", "global folder move adopt"),
+    section(Helpers, "Helpers", "cheap model workers scouts reviewers subagents spawn paid by provider"),
+    row(Helpers, "Helpers", "Agent", "helper worker scout reviewer subagent cheap model provider"),
+    section(Accounts, "Accounts", "profiles executable path sign in login logout email subscription max pro plus chatgpt switch rotate limit add second work personal claude codex"),
+    section(Plans, "Coding plans", "zai glm minimax kimi code opencode go synthetic ollama subscription plan key claude codex"),
+    section(Providers, "API providers", "openrouter baseten together fireworks groq cerebras deepseek moonshot kimi mistral vercel api key hosted open models opencode pi omp claude codex"),
+    section(LocalModels, "Local models", "ollama lm studio lmstudio local offline runner claude codex"),
+    section(Notch, "Notch", "island dynamic menu bar notch overlay agents running"),
+    row(Notch, "Notch", "Show the island", "notch dynamic island enable disable"),
+    row(Notch, "Notch", "Show on", "display monitor external screen"),
+    row(Notch, "Notch", "Open with", "hover click"),
+    row(Notch, "Notch", "In full-screen apps", "fullscreen hide"),
+    row(Notch, "Notch", "Peek when", "peek finished needs you"),
+    row(Notch, "Notch", "Answer permissions in the notch", "allow deny permission"),
+    row(Notch, "Notch", "Sound when an agent needs you", "sound alert"),
+    row(Notch, "Notch", "Haptic feedback", "haptics trackpad force touch tick vibration swipe"),
+    row(Notch, "Notch", "Step aside for Sikemux Dev", "dev build development"),
+    section(Voice, "Voice", "dictation microphone speech talk transcribe"),
+    row(Voice, "Voice", "Dictate with right Option", "dictation microphone speech push to talk hold"),
+    row(Voice, "Voice", "Speech model", "parakeet download neural engine"),
+    section(Simulator, "iOS Simulator", "iphone ipad xcode devicehub simulator phone mobile bezel frame buttons"),
+    row(Simulator, "iOS Simulator", "Let agents drive the iOS Simulator", "iphone tap swipe app test mobile"),
+    row(Simulator, "iOS Simulator", "Xcode", "xcode-select developer tools"),
+    row(Simulator, "iOS Simulator", "iOS runtimes", "ios version runtime"),
+    row(Simulator, "iOS Simulator", "Simulator helper", "download idb"),
+];
 
 /// What the page keeps between frames, made the first time it shows.
 pub struct Fields {

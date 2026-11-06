@@ -6,10 +6,18 @@ use serde_json::{json, Value};
 
 use crate::core;
 use crate::icons::Icon;
+use crate::settings::index::Page::Cli;
+use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(Cli, "Shell integration", "install terminal path"),
+    section(Cli, "Usage", "editor git commit open"),
+];
 
 /// Asks the core how the command is installed, or installs it.
 pub(super) fn ask(bench: &mut Workbench, method: &'static str, cx: &mut Context<Workbench>) {

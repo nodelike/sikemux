@@ -26,6 +26,8 @@ use sikemux_wire::protocol::{
 use crate::core::{self, Ask, RemoteAsk};
 use crate::hosts::Place;
 use crate::icons::Icon;
+use crate::settings::index::Page::{Account, Devices, Hosts};
+use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::settings::Page;
 use crate::settings::Settings;
@@ -35,6 +37,32 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ACCOUNT: &[Entry] = &[section(
+    Account,
+    "Account",
+    "account sign in sign out login google github email delete",
+)];
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(
+        Devices,
+        "Devices",
+        "phone mobile iphone android remote away connect host enable turn on off",
+    ),
+    section(
+        Devices,
+        "Phones",
+        "phone mobile iphone android qr code scan revoke remove forget access watch full control",
+    ),
+    section(
+        Hosts,
+        "Hosts",
+        "linked hosts machines servers rename remove account link",
+    ),
+];
 
 const DELETE_ACCOUNT_URL: &str = "https://app.sikemux.com/delete-account";
 

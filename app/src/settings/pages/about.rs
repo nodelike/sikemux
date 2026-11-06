@@ -10,11 +10,38 @@ use sikemux_view::prefs::UpdateChannel;
 
 use crate::icons::Icon;
 use crate::screens::whats_new::RELEASES;
+use crate::settings::index::Page::About;
+use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
 use crate::theme::{SPACE_2, SPACE_3H, SPACE_4, TEXT_2XS_H};
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(About, "Sikemux", "version build"),
+    section(About, "Updates", "version upgrade release"),
+    row(
+        About,
+        "Updates",
+        "Channel",
+        "nightly stable prerelease beta",
+    ),
+    row(About, "Updates", "Last checked", "check for updates now"),
+    section(About, "Privacy", "analytics telemetry tracking"),
+    row(
+        About,
+        "Privacy",
+        "Share anonymous usage",
+        "analytics telemetry tracking opt out posthog",
+    ),
+    section(
+        About,
+        "Help",
+        "what's new changelog diagnostics welcome onboarding",
+    ),
+];
 
 pub fn render(
     bench: &Workbench,

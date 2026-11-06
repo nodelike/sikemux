@@ -9,10 +9,17 @@ use serde_json::json;
 use sikemux_core::server::mods::ModInfo;
 
 use crate::icons::Icon;
+use crate::settings::index::Page::Mods;
+use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::theme::{Tokens, SPACE_1H};
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(Mods, "Mods", "mods mod panel panels html page dashboard widget custom make own approve allow writes take back turn off remove pin"),
+];
 
 /// What a mod reads and may change, as its row says it.
 fn about(shown: &ModInfo) -> SharedString {

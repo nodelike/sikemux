@@ -17,11 +17,18 @@ use sikemux_view::plugins::Listed;
 
 use crate::core::{outcome, Ask, Target};
 use crate::icons::Icon;
+use crate::settings::index::Page::Connectors;
+use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::theme::{self, Tokens, SPACE_0, SPACE_2, SPACE_3, SPACE_4, SPACE_5, TEXT_SM, TEXT_XS};
 use crate::toast;
 use crate::ui::{self, dialog, sign_in};
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(Connectors, "Connectors", "aws bitbucket database postgres postgresql mysql sqlite sql github gitlab jira linear rundeck signoz slack vercel sign in sign out login logout token account enable disable switch off turn on integrations plugins connectors"),
+];
 
 const AWS: &str = "sikemux.aws";
 const RUNDECK: &str = "sikemux.rundeck";

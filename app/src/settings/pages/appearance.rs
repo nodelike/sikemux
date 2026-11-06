@@ -19,6 +19,8 @@ use sikemux_view::theme::{ThemeSource, ThemeSummary};
 use crate::core::{Ask, Target};
 use crate::icons::Icon;
 use crate::reads::Read;
+use crate::settings::index::Page::{Buddies, Interface, Theme};
+use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
 use crate::settings::Page;
 use crate::settings::Settings;
@@ -28,6 +30,154 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const THEME: &[Entry] = &[
+    section(
+        Theme,
+        "Wearing",
+        "colours colors palette dark light custom fork editor wallpaper customize",
+    ),
+    section(
+        Theme,
+        "Themes",
+        "colours colors palette dark light custom ghostty search",
+    ),
+];
+
+/// What a search finds on this page.
+pub(in crate::settings) const INTERFACE: &[Entry] = &[
+    section(Interface, "Text", ""),
+    row(
+        Interface,
+        "Text",
+        "Text size",
+        "font zoom scale larger smaller accessibility",
+    ),
+    section(Interface, "Panes", ""),
+    row(
+        Interface,
+        "Panes",
+        "Pane texture",
+        "dither dithering shader grain noise background effect",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Pane image",
+        "picture photo wallpaper background dither dithered custom",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Pane strength",
+        "dither grain picture opacity intensity texture image",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Colours",
+        "pane picture dither inks palette theme accent custom gradient map",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Inks",
+        "pane picture dither colours palette custom gradient map",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Pattern",
+        "pane picture dither bayer ordered noise grid matrix",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Dot size",
+        "pane picture dither pixel scale cell",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Contrast",
+        "pane picture dither tone levels",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Brightness",
+        "pane picture dither tone exposure midtones",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Glow",
+        "pane picture dither bloom halation light",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Glow size",
+        "pane picture dither bloom radius spread",
+    ),
+    row(
+        Interface,
+        "Panes",
+        "Covers",
+        "pane picture dither band top whole full coverage",
+    ),
+];
+
+/// What a search finds on this page.
+pub(in crate::settings) const BUDDIES: &[Entry] = &[
+    section(
+        Buddies,
+        "Buddies",
+        "agent icon character avatar mascot face",
+    ),
+    row(
+        Buddies,
+        "Buddies",
+        "Show buddies",
+        "agent icon character avatar mascot harness logo",
+    ),
+    row(
+        Buddies,
+        "Buddies",
+        "Pack",
+        "agent icon character avatar mascot style",
+    ),
+    row(
+        Buddies,
+        "Buddies",
+        "Shape",
+        "agent icon character avatar mixed",
+    ),
+    row(
+        Buddies,
+        "Buddies",
+        "Animate faces",
+        "motion blink animation",
+    ),
+];
+
+/// What a search finds on this page.
+pub(in crate::settings) const WINDOW: &[Entry] = &[
+    section(Interface, "Window", ""),
+    row(
+        Interface,
+        "Window",
+        "Opacity",
+        "transparency translucent see-through",
+    ),
+    row(
+        Interface,
+        "Window",
+        "Background blur",
+        "vibrancy frosted glass",
+    ),
+];
 
 const THEME_SEARCH: &str = "ThemeSearch";
 

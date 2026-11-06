@@ -17,6 +17,8 @@ use crate::activity_view::{self, Metric};
 use crate::core::{utc_offset_minutes, Ask, Target};
 use crate::icons::Icon;
 use crate::reads::Read;
+use crate::settings::index::Page::Usage;
+use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{
@@ -27,6 +29,15 @@ use crate::ui;
 use crate::ui::numbers::{compact, money, plural, whole};
 use crate::ui::time::total;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(Usage, "Overview", "activity stats statistics analytics dashboard profile usage totals sessions tokens commits hours cost spend dollars money"),
+    section(Usage, "Calendar", "heatmap contributions streak days year"),
+    section(Usage, "By model", "cost price pricing spend opus sonnet gpt models"),
+    section(Usage, "By agent", "claude codex share breakdown"),
+    section(Usage, "By project", "repositories share breakdown"),
+];
 
 /// The price being entered for a model, in USD per million tokens.
 pub struct Fields {

@@ -10,6 +10,8 @@ use gpui_kit::{
 use sikemux_view::prefs::{CustomCommand, CustomCommandPlacement};
 
 use crate::icons::Icon;
+use crate::settings::index::Page::Actions;
+use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{
@@ -17,6 +19,26 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(
+        Actions,
+        "Your actions",
+        "custom commands command deck scripts",
+    ),
+    section(Actions, "New action", "custom command add create"),
+    row(Actions, "New action", "Name", "title"),
+    row(Actions, "New action", "Description", "detail"),
+    row(Actions, "New action", "Command", "shell script"),
+    row(
+        Actions,
+        "New action",
+        "Where output lands",
+        "placement terminal split popup background",
+    ),
+    row(Actions, "New action", "Contexts", "project ssh aws plugin"),
+];
 
 /// The kinds of tab an action can be offered in.
 const CONTEXTS: [&str; 3] = ["project", "command", "ssh"];

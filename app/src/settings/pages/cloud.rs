@@ -6,9 +6,28 @@ use gpui_kit::{
     Window,
 };
 
+use crate::settings::index::Page::SignOn;
+use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(SignOn, "Single sign-on", "sso aws gcp login cloud"),
+    row(
+        SignOn,
+        "Single sign-on",
+        "Browser app",
+        "chrome safari firefox arc",
+    ),
+    row(
+        SignOn,
+        "Single sign-on",
+        "Workspace shortcut",
+        "desktop space mission control",
+    ),
+];
 
 /// The two fields, each setting its preference as it is typed in.
 pub struct Fields {

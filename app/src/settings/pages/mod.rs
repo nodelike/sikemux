@@ -9,19 +9,19 @@ pub use appearance::install;
 use super::{Open, Page, Settings};
 use crate::workbench::Workbench;
 
-mod about;
-mod actions;
-mod activity;
-mod agents;
-mod appearance;
-mod cli;
-mod cloud;
-mod connectors;
-mod devices;
-mod general;
+pub(super) mod about;
+pub(super) mod actions;
+pub(super) mod activity;
+pub(super) mod agents;
+pub(super) mod appearance;
+pub(super) mod cli;
+pub(super) mod cloud;
+pub(super) mod connectors;
+pub(super) mod devices;
+pub(super) mod general;
 pub(crate) use general::sent as session_sent;
-mod keybindings;
-mod mods;
+pub(super) mod keybindings;
+pub(super) mod mods;
 pub mod theme_editor;
 
 /// What the pages keep while settings are open: what the core last answered
@@ -81,11 +81,6 @@ fn follow_typing<T: EventEmitter<InputEvent>>(
 /// What the pages keep, while Settings are open.
 fn state<'a>(bench: &Workbench, cx: &'a App) -> Option<&'a State> {
     Some(&bench.settings.read(cx).open.as_ref()?.pages)
-}
-
-/// The sections of a page in the order it shows them, as searches name them.
-pub fn sections(page: Page) -> Vec<&'static str> {
-    super::index::sections(page)
 }
 
 /// Makes what the page shown keeps between frames, when it is about to be drawn without it.

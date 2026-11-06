@@ -13,6 +13,8 @@ use gpui_kit::{
 
 use crate::icons::Icon;
 use crate::keymap::{self, Shortcut};
+use crate::settings::index::Page::Keyboard;
+use crate::settings::index::{section, Entry};
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{
@@ -20,6 +22,13 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[section(
+    Keyboard,
+    "Shortcuts",
+    "keybindings hotkeys keys keyboard remap",
+)];
 
 /// The filter, the command whose keys are being recorded, and what the last change did.
 pub struct Fields {

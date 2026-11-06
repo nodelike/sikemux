@@ -288,7 +288,7 @@ fn go_to(
         settings
             .search
             .update(cx, |search, cx| search.set_value("", window, cx));
-        let section = pages::sections(entry.page)
+        let section = index::sections(entry.page)
             .iter()
             .position(|section| *section == entry.section);
         if let Some(at) = section {

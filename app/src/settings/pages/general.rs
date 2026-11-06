@@ -12,11 +12,34 @@ use sikemux_view::prefs::{ProjectRoot, MAX_PROJECT_DEPTH};
 
 use crate::core;
 use crate::icons::Icon;
+use crate::settings::index::Page::General;
+use crate::settings::index::{row, section, Entry};
 use crate::settings::rows;
 use crate::settings::Settings;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[Entry] = &[
+    section(
+        General,
+        "Project folders",
+        "repos repositories directories roots scan depth index picker",
+    ),
+    section(General, "Startup", ""),
+    row(
+        General,
+        "Startup",
+        "Restore agent tabs",
+        "resume reopen startup",
+    ),
+    section(
+        General,
+        "Session transfer",
+        "send move copy host machine chats tabs another server transfer",
+    ),
+];
 
 /// How wide the project folders' "Index itself" and depth columns are.
 const INDEX_COLUMN: f32 = 104.;
