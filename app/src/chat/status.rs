@@ -2,24 +2,25 @@
 //! runs, why the last turn failed and what can be done about it, and a session that
 //! dropped.
 
-use sikemux_view::chat::{ChatCapabilities, SignInMethod};
+use sikemux_view::chat::{ChatCapabilities, PlanEntry, PlanStatus, SignInMethod};
 use std::time::Instant;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, Context, Div, InteractiveElement, IntoElement, ParentElement, Render,
+    div, px, AnyElement, App, Context, Div, InteractiveElement, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use sikemux_core::server::agent_accounts::{Authenticate, ChatAccountsParams};
 use sikemux_core::server::call::{self, Call};
 use sikemux_view::chat::{ChatActivity, ChatConnection, FailureKind, ToolAction};
+use sikemux_wire::protocol::AgentStatus;
 
 use super::Chat;
 use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
 use crate::icons::Icon;
 use crate::motion;
-use crate::theme::{Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_3XS_H, TEXT_SM};
+use crate::theme::{Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_3XS_H, TEXT_SM, TEXT_XS};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
@@ -606,9 +607,6 @@ fn now_ms() -> u64 {
         .map_or(0, |since| since.as_millis() as u64)
 }
 
-/// How much of a plan is shown before the rest is cut, so a runaway plan cannot slow the chat.
-const MOST_PLAN: usize = 120_000;
-
 /// The plan the agent keeps for the turn, folded behind its name until the reader opens it.
 pub(super) fn plan(
     agent: &AgentRow,
@@ -620,6 +618,9 @@ pub(super) fn plan(
     let open = chat.plan_open;
     let this = cx.weak_entity();
     let agent = agent.id.clone();
+    let done = (plan.iter())
+        .filter(|entry| entry.status == PlanStatus::Completed)
+        .count();
     let summary = div()
         .id("chat-plan")
         .flex()
@@ -635,36 +636,32 @@ pub(super) fn plan(
             ui::icon(Icon::Chevron, 10.).text_color(t.text_disabled),
         ))
         .child("Plan")
-        .on_click(move |_, _, cx| {
-            this.update(cx, |bench, cx| {
-                if let Some(chat) = bench.chats.open.get_mut(&agent) {
-                    chat.plan_open = !chat.plan_open;
-                }
-                bench.parts.redraw_stage(cx);
-            })
-            .ok();
+        .child(format!("{done} of {}", plan.len()))
+        .on_click({
+            let agent = agent.clone();
+            move |_, _, cx| {
+                this.update(cx, |bench, cx| {
+                    if let Some(chat) = bench.chats.open.get_mut(&agent) {
+                        chat.plan_open = !chat.plan_open;
+                    }
+                    bench.parts.redraw_stage(cx);
+                })
+                .ok();
+            }
         });
     let shown = open.then(|| {
-        let mut text = serde_json::to_string_pretty(plan).unwrap_or_default();
-        if text.len() > MOST_PLAN {
-            let cut = text.floor_char_boundary(MOST_PLAN);
-            text.truncate(cut);
-            text.push_str("\n… output truncated");
-        }
         div()
-            .id("chat-plan-text")
+            .id("chat-plan-steps")
             .mt(SPACE_2)
             .max_h(px(420.))
             .overflow_y_scroll()
-            .px(SPACE_3)
-            .py(px(11.))
-            .border_1()
-            .border_color(t.line_soft)
-            .rounded(crate::theme::RADIUS_2)
-            .child(
-                ui::mono(text, TEXT_2XS, cx)
-                    .whitespace_normal()
-                    .text_color(t.text_tertiary),
+            .flex()
+            .flex_col()
+            .gap(SPACE_1H)
+            .children(
+                plan.iter()
+                    .enumerate()
+                    .map(|(index, entry)| plan_step(&agent, index, entry, cx)),
             )
     });
     Some(
@@ -679,4 +676,44 @@ pub(super) fn plan(
         )
         .into_any_element(),
     )
+}
+
+/// One step of a plan, with a mark for how it stands: ticked when done, working while under way,
+/// an empty ring until then.
+fn plan_step(agent: &str, index: usize, entry: &PlanEntry, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    let mark = match entry.status {
+        PlanStatus::Completed => ui::icon(Icon::Check, 12.)
+            .text_color(t.text_tertiary)
+            .into_any_element(),
+        PlanStatus::InProgress => {
+            ui::status_mark(&format!("plan:{agent}:{index}"), AgentStatus::Working, cx)
+                .unwrap_or_else(|| div().into_any_element())
+        }
+        PlanStatus::Pending | PlanStatus::Unknown => div()
+            .size(px(7.))
+            .rounded_full()
+            .border_1()
+            .border_color(t.text_disabled)
+            .into_any_element(),
+    };
+    let ink = match entry.status {
+        PlanStatus::Completed => t.text_tertiary,
+        PlanStatus::InProgress => t.text_primary,
+        PlanStatus::Pending | PlanStatus::Unknown => t.text_secondary,
+    };
+    div()
+        .flex()
+        .items_start()
+        .gap(SPACE_2)
+        .child(ui::mark_box(16., mark))
+        .child(
+            div()
+                .min_w_0()
+                .text_size(crate::theme::ui_text(TEXT_XS))
+                .line_height(px(16.))
+                .text_color(ink)
+                .child(entry.content.clone()),
+        )
+        .into_any_element()
 }
