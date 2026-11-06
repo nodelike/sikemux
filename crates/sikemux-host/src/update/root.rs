@@ -18,7 +18,7 @@ use sikemux_core::host_update::{self, HostRequest, UpdateStep};
 use sikemux_core::release_feed;
 use sikemux_view::prefs::UpdateChannel;
 
-const CORE: &str = "sikemux-host";
+const CORE: &str = sikemux_process::names::CORE_PROGRAM;
 const GROUP: &CStr = c"sikemux";
 const MAX_REQUEST_BYTES: u64 = 256;
 const MAX_ARCHIVE_BYTES: u64 = 256 << 20;

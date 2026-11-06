@@ -149,7 +149,7 @@ mod mac {
 
     /// The helper is SwiftUI for macOS 14, while the core runs on older systems.
     fn supported() -> bool {
-        crate::usage::os_version()
+        crate::server::host::os_version()
             .and_then(|version| version.split('.').next()?.parse::<u32>().ok())
             .is_some_and(|major| major >= 14)
     }

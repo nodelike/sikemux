@@ -32,11 +32,7 @@ pub fn cli_executable_path() -> Option<PathBuf> {
                 .is_some_and(|extension| extension == "app")
         })
         .map(|bundle| bundle.join(sikemux_process::paths::BUNDLED_CORE));
-    let filename = if cfg!(windows) {
-        "sikemux-host.exe"
-    } else {
-        "sikemux-host"
-    };
+    let filename = sikemux_process::names::CORE_EXECUTABLE;
     bundled
         .into_iter()
         .chain([directory.join(filename)])
@@ -72,11 +68,7 @@ pub fn cli_link_directory() -> Option<&'static Path> {
 
 fn link_cli(executable: &Path, directory: &Path) -> std::io::Result<PathBuf> {
     fs::create_dir_all(directory)?;
-    let link = directory.join(if cfg!(windows) {
-        "sikemux.exe"
-    } else {
-        "sikemux"
-    });
+    let link = directory.join(sikemux_process::names::APP_EXECUTABLE);
     #[cfg(unix)]
     {
         if fs::read_link(&link).is_ok_and(|target| target == executable) {

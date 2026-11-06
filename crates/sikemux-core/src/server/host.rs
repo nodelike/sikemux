@@ -156,3 +156,33 @@ mod tests {
         assert_eq!(model_from_profile("nothing useful"), None);
     }
 }
+
+#[cfg(target_os = "macos")]
+pub(crate) fn os_version() -> Option<String> {
+    let mut buffer = [0u8; 32];
+    let mut length = buffer.len();
+    // SAFETY: the name is nul-terminated and sysctl writes at most `length`
+    // bytes into `buffer`, which has that many.
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"kern.osproductversion".as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    std::ffi::CStr::from_bytes_until_nul(&buffer[..length.min(buffer.len())])
+        .ok()?
+        .to_str()
+        .ok()
+        .map(str::to_owned)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn os_version() -> Option<String> {
+    None
+}

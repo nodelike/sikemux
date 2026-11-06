@@ -51,11 +51,7 @@ fn cli_executable() -> Option<PathBuf> {
     if let Some(path) = sikemux_process::paths::env_path("SIKEMUX_CORE_PATH") {
         return path.is_file().then_some(path);
     }
-    let name = if cfg!(windows) {
-        "sikemux-host.exe"
-    } else {
-        "sikemux-host"
-    };
+    let name = sikemux_process::names::CORE_EXECUTABLE;
     env::current_exe()
         .ok()
         .filter(|path| path.file_name().is_some_and(|file| file == name))
@@ -154,11 +150,7 @@ fn install_dir() -> Option<PathBuf> {
 }
 
 fn destination_path(install_dir: &Path) -> PathBuf {
-    install_dir.join(if cfg!(windows) {
-        "sikemux.exe"
-    } else {
-        "sikemux"
-    })
+    install_dir.join(sikemux_process::names::APP_EXECUTABLE)
 }
 
 fn path_contains(directory: &Path) -> bool {

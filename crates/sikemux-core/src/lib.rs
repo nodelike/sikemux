@@ -54,7 +54,7 @@ pub mod waiting;
 
 use std::path::PathBuf;
 
-pub const SOCKET_ENV: &str = "SIKEMUX_CORE_SOCKET";
+pub const SOCKET_ENV: &str = sikemux_process::vars::CORE_SOCKET;
 
 /// `~/.config/sikemux/core.sock`, or `core.dev.sock` in debug builds, unless
 /// `SIKEMUX_CORE_SOCKET` names another path.

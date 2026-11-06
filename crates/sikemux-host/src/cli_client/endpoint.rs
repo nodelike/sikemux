@@ -111,11 +111,7 @@ pub(super) fn launch_app() -> Result<(), String> {
     let executable = current
         .parent()
         .ok_or("cannot locate the Sikemux application")?
-        .join(if cfg!(windows) {
-            "sikemux.exe"
-        } else {
-            "sikemux"
-        });
+        .join(sikemux_process::names::APP_EXECUTABLE);
     sikemux_process::user_environment::command(executable)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

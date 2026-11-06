@@ -19,11 +19,7 @@ const AWS_PLUGIN: &str = "sikemux.aws";
 
 /// The app's data folder in this build, which is the core's when the app
 /// started it, and the only core that may read the app's files.
-const APP_DATA_DIR: &str = if cfg!(debug_assertions) {
-    "com.nodelike.sikemux.dev"
-} else {
-    "com.nodelike.sikemux"
-};
+const APP_DATA_DIR: &str = sikemux_process::names::APP_IDENTIFIER;
 
 pub(super) fn app_data_dir(data_dir: Option<&Path>) -> Option<&Path> {
     data_dir.filter(|dir| dir.file_name() == Some(APP_DATA_DIR.as_ref()))

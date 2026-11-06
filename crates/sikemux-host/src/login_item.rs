@@ -52,11 +52,7 @@ pub fn label(identifier: &str) -> String {
 }
 
 /// The app's identifier, with `.dev` for dev builds.
-pub const IDENTIFIER: &str = if cfg!(debug_assertions) {
-    "com.nodelike.sikemux.dev"
-} else {
-    "com.nodelike.sikemux"
-};
+pub const IDENTIFIER: &str = sikemux_process::names::APP_IDENTIFIER;
 
 /// What the core is started with after its socket, by the app or a login item.
 pub fn core_args(data_dir: Option<PathBuf>) -> Vec<OsString> {

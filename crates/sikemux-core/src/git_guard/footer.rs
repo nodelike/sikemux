@@ -28,7 +28,7 @@ use crate::trailers::{self, PendingNote};
 /// The name this binary is linked under for the hooks to run it.
 pub(super) const LINK: &str = "sikemux-commit-footer";
 /// The folder of the hooks, which the core hands agents.
-pub(super) const HOOKS: &str = "SIKEMUX_AGENT_HOOKS";
+pub(super) const HOOKS: &str = sikemux_process::vars::AGENT_HOOKS;
 /// Where the repository's own hooks are, for ours to run them.
 const REPO_HOOKS: &str = "SIKEMUX_REPO_HOOKS";
 /// How many `GIT_CONFIG_COUNT` settings there were before ours, for our hooks

@@ -1,5 +1,13 @@
 //! The environment variables Sikemux sets for the programs it starts.
 
+/// The folder of the hooks the core hands agents.
+pub const AGENT_HOOKS: &str = "SIKEMUX_AGENT_HOOKS";
+/// The folder of the skills library an agent reads.
+pub const SKILLS_DIR: &str = "SIKEMUX_SKILLS_DIR";
+/// The socket of a core other than the usual one.
+pub const CORE_SOCKET: &str = "SIKEMUX_CORE_SOCKET";
+/// The accounts server of a build pointed at another.
+pub const API_URL: &str = "SIKEMUX_API_URL";
 pub const AGENT_ID: &str = "SIKEMUX_AGENT_ID";
 pub const AGENT_TYPE: &str = "SIKEMUX_AGENT_TYPE";
 pub const TOOLS_AGENT_ID: &str = "SIKEMUX_TOOLS_AGENT_ID";
@@ -56,9 +64,9 @@ pub const LAUNCHING_SESSION: [&str; 17] = [
     CLAUDE_HOME,
     AGENT_ID,
     AGENT_TYPE,
-    "SIKEMUX_AGENT_HOOKS",
+    AGENT_HOOKS,
     TOOLS_AGENT_ID,
     CLI_ENDPOINT,
-    "SIKEMUX_SKILLS_DIR",
+    SKILLS_DIR,
     REAL_GIT,
 ];

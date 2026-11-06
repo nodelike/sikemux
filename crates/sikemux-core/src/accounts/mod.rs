@@ -98,7 +98,8 @@ pub fn client() -> Result<&'static reqwest::Client, String> {
 
 pub fn api_base() -> String {
     if cfg!(debug_assertions) {
-        std::env::var("SIKEMUX_API_URL").unwrap_or_else(|_| "http://127.0.0.1:4000".into())
+        std::env::var(sikemux_process::vars::API_URL)
+            .unwrap_or_else(|_| "http://127.0.0.1:4000".into())
     } else {
         "https://api.sikemux.com".into()
     }
