@@ -616,7 +616,7 @@ pub(super) fn strip(
         .as_ref()
         .is_some_and(|(switch, _)| !matches!(switch, Switch::Choosing { .. }));
     let worktree = switch.map(|(switch, flip)| {
-        crate::worktree_switch::toggle(format!("worktree-{}", agent.id), &switch, flip, cx)
+        crate::worktrees::switch::toggle(format!("worktree-{}", agent.id), &switch, flip, cx)
     });
     let on = saved.profile_id.clone().or_else(|| {
         bench
@@ -667,7 +667,7 @@ pub(super) fn strip(
             )
         }),
         worktree,
-        pull: crate::worktree_head::badges(bench, &agent.id, cx),
+        pull: crate::worktrees::head::badges(bench, &agent.id, cx),
         goal: head
             .and_then(|head| head.goal.as_ref())
             .map(|goal| goal_line::on_strip(goal, cx.entity(), cx)),

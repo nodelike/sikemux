@@ -144,7 +144,7 @@ pub(super) fn row(
     let worktree = (ix == 0)
         .then_some(looks.reading.worktree.as_ref())
         .flatten()
-        .and_then(|switch| crate::worktree_switch::note(switch, cx))
+        .and_then(|switch| crate::worktrees::switch::note(switch, cx))
         .map(|note| {
             div()
                 .w_full()

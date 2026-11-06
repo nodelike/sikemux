@@ -13,7 +13,7 @@ use sikemux_core::server::worktree::agent::ForAgentParams;
 use super::{Chat, ComposeStage};
 use crate::core::ChatAsk;
 use crate::workbench::Workbench;
-use crate::worktree_switch::{Flip, Switch};
+use crate::worktrees::switch::{Flip, Switch};
 
 impl Workbench {
     /// The worktree switch `agent`'s composer strip shows, and what flipping it does.
@@ -34,7 +34,7 @@ impl Workbench {
                 _ => None,
             });
         let on = project.worktree_default;
-        let switch = crate::worktree_switch::state(
+        let switch = crate::worktrees::switch::state(
             saved.worktree.as_ref(),
             project.git.is_some(),
             started,

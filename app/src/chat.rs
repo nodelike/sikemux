@@ -55,7 +55,7 @@ use crate::ui::shimmer::shimmer;
 use crate::ui::{Button, IconButton, Variant};
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::workbench::{shows, Workbench};
-use crate::worktree_switch::Switch;
+use crate::worktrees::switch::Switch;
 use crate::{motion, syntax, theme, ui};
 
 mod attach;
@@ -464,7 +464,7 @@ struct Reading {
     /// The find bar is looking for something, so every long text shows all of itself.
     finding: bool,
     /// Where the chat stands with a worktree, said above its first message.
-    worktree: Option<crate::worktree_switch::Switch>,
+    worktree: Option<crate::worktrees::switch::Switch>,
 }
 
 impl Reading {
@@ -1343,11 +1343,11 @@ pub fn pane(
     let worktree = bench
         .worktree_switch(&agent.id, cx)
         .map(|(switch, _)| switch)
-        .filter(|switch| !matches!(switch, crate::worktree_switch::Switch::Choosing { .. }));
+        .filter(|switch| !matches!(switch, crate::worktrees::switch::Switch::Choosing { .. }));
     let empty_note = worktree
         .as_ref()
         .filter(|_| chat.is_empty(cx))
-        .and_then(|switch| crate::worktree_switch::note(switch, cx));
+        .and_then(|switch| crate::worktrees::switch::note(switch, cx));
     chat.activity_line
         .update(cx, |line, cx| line.wear(agent, cx));
     chat.reader.update(cx, |reading, cx| {

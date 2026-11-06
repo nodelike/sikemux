@@ -571,7 +571,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         )
         .when_some(
             in_terminal
-                .then(|| crate::worktree_head::badges(bench, &agent.id, cx))
+                .then(|| crate::worktrees::head::badges(bench, &agent.id, cx))
                 .flatten(),
             |header, badges| header.action(badges),
         )

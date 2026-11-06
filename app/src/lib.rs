@@ -97,9 +97,8 @@ pub mod voice;
 mod welcome;
 mod whats_new;
 pub mod workbench;
-mod worktree_head;
-pub mod worktree_switch;
 
 /// The window's size when it first opens.
 pub const WINDOW_SIZE: (f32, f32) = (1340., 880.);
 pub mod tasks;
+pub mod worktrees;
