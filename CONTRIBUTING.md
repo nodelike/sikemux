@@ -21,7 +21,7 @@ them by hand in an existing clone with `make hooks`.
 
 | Path                 | What lives there                                                                                                                           |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `app/`               | The app, drawn with GPUI: its window, panes, editor, terminal and plugin panes                                                             |
+| `app/`               | The app, drawn with GPUI: its window, panes, editor and terminal                                                                           |
 | `crates/`            | Shared Rust crates: the terminal engine, the background core, plugin API, process runner, keychain, markdown                               |
 | `plugins/`           | Plugin backends, one crate per plugin behind a Cargo feature                                                                               |
 | `helpers/`           | The Swift helpers: the notch island, dictation and the iOS Simulator bridge                                                                |
@@ -118,11 +118,11 @@ Follow [Conventional Commits](https://www.conventionalcommits.org/) — the form
 ```
 feat(themes): add custom theme editor
 fix(sessions): treat agent view as project-only
-style(bruno): tighten sidebar row styling
+style(rail): tighten sidebar row styling
 chore(release): v0.1.20
 ```
 
-Common types: `feat`, `fix`, `style`, `refactor`, `perf`, `chore`, `docs`. Scopes match the area you touched (`editor`, `git`, `aws`, `rundeck`, `bruno`, `terminal`, `themes`, …).
+Common types: `feat`, `fix`, `style`, `refactor`, `perf`, `chore`, `docs`. Scopes match the area you touched (`editor`, `git`, `aws`, `rundeck`, `terminal`, `themes`, …).
 
 ## Reporting bugs & requesting features
 

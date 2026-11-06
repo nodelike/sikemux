@@ -129,7 +129,6 @@ goes out as `Call`s. No view keeps a copy of the core's data.
 | `git/`, `codehost/`, `search.rs`                                   | The Git tab, the project's code host in its place, and the Search pane                     |
 | `desk.rs`, `sim/`                                                  | An agent's desk: its browser tabs, files, terminals and iOS Simulator                      |
 | `board/`                                                           | The agent board and its card panels                                                        |
-| `plugin_pane/`                                                     | Each plugin's pane (see [Plugins](#plugins))                                               |
 | `settings/`, `experience.rs`, `welcome.rs`, `whats_new.rs`         | Settings, and the screens over the whole window                                            |
 | `palette.rs`, `commands.rs`, `finder.rs`, `picker.rs`, `keymap.rs` | The pickers over the stage and the shortcuts                                               |
 | `ui/`, `theme.rs`, `motion.rs`, `toast.rs`                         | The shared component set, the theme's tokens, motion and toasts                            |
@@ -209,8 +208,8 @@ any `NSView`, and `document.rs` draws PDFs in PDFKit and office files in Quick L
 ## Plugins
 
 Plugins are compiled in; there is no marketplace and no runtime loading
-([ADR 0002](./0002-plugins-are-compiled-in.md)). The twelve built-ins are AWS, Bitbucket, Bruno,
-Database, GitHub, GitLab, Jira, Linear, Rundeck, SigNoz, Slack and Vercel.
+([ADR 0022](./0022-plugins-are-connectors-and-mods-are-their-panels.md)). The eleven built-ins are
+AWS, Bitbucket, Database, GitHub, GitLab, Jira, Linear, Rundeck, SigNoz, Slack and Vercel.
 
 - **In the core:** a crate in `plugins/<name>/` implements the `Plugin` trait from
   `sikemux-plugin-api`. `sikemux-host` gives each one a Cargo feature of the same name, all on
