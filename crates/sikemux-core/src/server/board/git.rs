@@ -24,7 +24,9 @@ pub(super) fn commit_all(
     if !output.status.success() {
         return Err(format!("git commit failed: {}", said(&output)));
     }
-    super::chat_goal::committed(core, agent);
+    if let Err(error) = edits::footer::head_made(core, agent, tree) {
+        eprintln!("sikemux core: Auto's commit was not told: {error}");
+    }
     Ok(true)
 }
 

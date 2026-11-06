@@ -330,37 +330,43 @@ pub(crate) fn commit(
     output.map_err(|error| format!("git did not run: {error}"))
 }
 
+/// Tells the core `agent` just made the commit at `HEAD` of the checkout at `dir`.
+pub(crate) fn head_made(core: &Core, agent: &str, dir: &Path) -> Result<(), String> {
+    let top = git(dir, &["rev-parse", "--show-toplevel"])?;
+    let top = Path::new(top.trim());
+    let head = git(top, &["log", "-1", "--format=%H%x00%B"])?;
+    let (sha, message) = head.split_once('\0').ok_or("git read no commit")?;
+    let paths = git(
+        top,
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "--root",
+            "HEAD",
+        ],
+    )?;
+    let paths: Vec<String> = paths.lines().map(str::to_owned).collect();
+    crate::server::repo_events::commit_made(
+        core,
+        CommitMade {
+            agent,
+            top,
+            sha,
+            paths: &paths,
+            message,
+        },
+    );
+    Ok(())
+}
+
 /// An agent's own `git commit` made `HEAD`, as its hook says.
 pub(crate) async fn made(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = (request.agent_id.clone()).ok_or("only an agent's commits are told")?;
     let (core, dir) = (core.clone(), PathBuf::from(&request.project));
     blocking(move || {
-        let top = git(&dir, &["rev-parse", "--show-toplevel"])?;
-        let top = Path::new(top.trim());
-        let head = git(top, &["log", "-1", "--format=%H%x00%B"])?;
-        let (sha, message) = head.split_once('\0').ok_or("git read no commit")?;
-        let paths = git(
-            top,
-            &[
-                "diff-tree",
-                "--no-commit-id",
-                "--name-only",
-                "-r",
-                "--root",
-                "HEAD",
-            ],
-        )?;
-        let paths: Vec<String> = paths.lines().map(str::to_owned).collect();
-        crate::server::repo_events::commit_made(
-            &core,
-            CommitMade {
-                agent: &agent,
-                top,
-                sha,
-                paths: &paths,
-                message,
-            },
-        );
+        head_made(&core, &agent, &dir)?;
         Ok(Value::Null)
     })
     .await
