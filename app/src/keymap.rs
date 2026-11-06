@@ -415,7 +415,6 @@ pub fn reserved(keys: &str) -> Option<&'static str> {
 }
 
 /// A binding in the table's spelling, `Meta+Shift+KeyP`, as GPUI writes it, `cmd-shift-p`.
-/// Keys in the table's spelling, such as Meta+Shift+BracketLeft, as GPUI spells them.
 /// Shift with a symbol or digit reaches GPUI as the character it types, Shift+] as `}`.
 pub(crate) fn keystroke(keys: &str) -> Option<String> {
     let held: Vec<&str> = keys.split('+').collect();
@@ -514,7 +513,6 @@ const SHIFTED: &[(&str, &str)] = &[
     ("Slash", "?"),
 ];
 
-/// The menu bar, as today's app has it.
 /// macOS's own About panel, with the name and version the bundle carries.
 fn show_about() {
     #[cfg(target_os = "macos")]
@@ -527,6 +525,7 @@ fn show_about() {
     }
 }
 
+/// The menu bar, as today's app has it.
 fn menus() -> Vec<Menu> {
     vec![
         Menu {

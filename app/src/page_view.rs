@@ -15,7 +15,6 @@ pub(crate) struct View {
 }
 
 impl View {
-    /// Shows `html` in place of what the page showed.
     pub(crate) fn show(&self, html: &str) {
         self.page.show(html);
     }

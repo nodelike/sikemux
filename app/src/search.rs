@@ -70,7 +70,6 @@ enum Row {
     Hit { file: usize, hit: usize },
 }
 
-/// The fields the person types into.
 struct Fields {
     find: Entity<InputState>,
     replace: Entity<InputState>,
@@ -328,7 +327,6 @@ impl SearchPane {
         cx.notify();
     }
 
-    /// Moves the chosen match by `step` among the listed ones.
     fn step(&mut self, step: isize, cx: &mut Context<Self>) {
         let hits: Vec<(usize, usize, usize)> = self
             .rows

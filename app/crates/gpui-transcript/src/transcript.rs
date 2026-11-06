@@ -459,7 +459,6 @@ impl<R: Row> Transcript<R> {
         self.visible.clone()
     }
 
-    /// The rows as of the last frame drawn; changes pushed since are not in them yet.
     /// Draws every row in `style` from now on, measured again.
     pub fn restyle(&mut self, style: Rc<Style>, cx: &mut Context<Self>) {
         self.style = style;
@@ -467,6 +466,7 @@ impl<R: Row> Transcript<R> {
         cx.notify();
     }
 
+    /// The rows as of the last frame drawn; changes pushed since are not in them yet.
     pub fn rows(&self) -> &[R] {
         &self.rows
     }

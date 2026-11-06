@@ -165,7 +165,6 @@ pub fn is_elsewhere(chat: &super::Chat) -> bool {
     *chat.target.place() != crate::hosts::Place::This
 }
 
-/// The read the drafts of chats here, or of chats on the host in front, arrive under.
 impl Workbench {
     /// The person began writing, so a new chat's agent starts while they write. A host whose
     /// core predates this answers that it does not know the method, which nobody needs to hear.

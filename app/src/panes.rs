@@ -185,7 +185,6 @@ impl Panes {
         over
     }
 
-    /// Whether the desk `view` is on its way shut.
     pub(crate) fn desk_shutting(&self, view: &str) -> bool {
         self.desk_slides
             .borrow()
@@ -289,7 +288,6 @@ pub fn views(pane: &Pane) -> impl Iterator<Item = View<'_>> {
     })
 }
 
-/// The view `id` in a pane tree.
 pub fn find_view<'a>(pane: &'a Pane, id: &str) -> Option<View<'a>> {
     views(pane).find(|view| view.id == id)
 }

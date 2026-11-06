@@ -29,8 +29,6 @@ type Group = (
     &'static [(&'static str, &'static str)],
 );
 
-/// Each group of a theme's colours: its key in the theme, its name, a line on what it
-/// colours, and its colours by key and name.
 const GROUPS: [Group; 4] = [
     (
         "chrome",
@@ -364,7 +362,6 @@ pub fn edit(bench: &mut Workbench, id: &str, window: &mut Window, cx: &mut Conte
     open(bench, theme.clone(), theme, false, window, cx);
 }
 
-/// A picture a theme can be drawn from.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Picture {
     Wallpaper,
@@ -485,7 +482,6 @@ fn save(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     change_appearance(bench, cx, |appearance, _| appearance.editor = None);
 }
 
-/// Shows group `group`'s colours.
 fn show_group(
     bench: &mut Workbench,
     group: usize,

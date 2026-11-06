@@ -93,7 +93,6 @@ fn fields<'a>(bench: &Workbench, cx: &'a App) -> Option<&'a Fields> {
     Some(&super::fields(bench, cx)?.providers)
 }
 
-/// Reads the providers and what helpers run on.
 pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
@@ -573,7 +572,6 @@ fn local_row(
     row(label, Some(about), controls, &t)
 }
 
-/// Keeps what helpers run on in the core.
 fn save_helper(bench: &mut Workbench, helper: Option<Helper>, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.helper = helper.clone());
     bench.call_typed::<call::SetModelHelper>(HelperParams { helper });

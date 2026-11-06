@@ -34,7 +34,6 @@ pub struct Fence {
     /// The block's text as the transcript draws it, coloured, selectable and scrolling, for
     /// when the host shows the code itself.
     pub lines: AnyElement,
-    /// The block's Copy button.
     pub copy: AnyElement,
 }
 

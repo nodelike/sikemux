@@ -29,7 +29,6 @@ pub struct BuddyPicker {
 }
 
 impl Workbench {
-    /// Opens the picker on the agent's own pack.
     pub fn open_buddy_picker(&mut self, agent: &str, cx: &mut Context<Self>) {
         let Some(face) = self
             .workspace_agent(agent)

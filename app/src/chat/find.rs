@@ -23,7 +23,6 @@ const HITS: usize = 200;
 /// Counting stops here, and the bar says 999+.
 const MOST_COUNTED: u64 = 1000;
 
-/// The find bar of a chat, while it is open.
 pub struct Finding {
     input: Entity<InputState>,
     match_case: bool,

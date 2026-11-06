@@ -260,7 +260,6 @@ fn mark(id: &str) -> Icon {
         .unwrap_or(Icon::Plug)
 }
 
-/// It is signed in to some other way than a token form or the browser, or not at all.
 fn has_sign_in(plugin: &Listed) -> bool {
     plugin.id == AWS || plugin.token_form.is_some() || plugin.browser_sign_in
 }
@@ -727,7 +726,6 @@ fn close_sign_in(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.signing = None);
 }
 
-/// The box a field of the form is typed in.
 fn typed_in<'a>(
     fields: &'a [(String, Entity<InputState>)],
     name: &str,
@@ -907,7 +905,6 @@ struct Shown {
     browsing: bool,
 }
 
-/// A click that runs `run` on the workbench.
 fn on(
     this: &Entity<Workbench>,
     run: impl Fn(&mut Workbench, &mut Context<Workbench>) + 'static,
@@ -1111,7 +1108,6 @@ fn close_settings(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     change_fields(bench, cx, |fields, _| fields.configuring = None);
 }
 
-/// The open connector's settings, over the page.
 fn settings_dialog(
     bench: &Workbench,
     this: &Entity<Workbench>,

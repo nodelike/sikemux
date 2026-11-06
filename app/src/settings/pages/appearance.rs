@@ -233,7 +233,6 @@ pub struct Fields {
     inks: Vec<Entity<ColorPickerState>>,
     opacity: Entity<SliderState>,
     blur: Entity<SliderState>,
-    /// The theme being edited, when one is.
     pub editor: Option<super::theme_editor::Editor>,
     /// The picture a theme is being drawn from, while it is read.
     pub reading: Option<super::theme_editor::Picture>,

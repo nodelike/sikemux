@@ -107,7 +107,6 @@ impl SpaceEditor {
     }
 }
 
-/// A space being dragged to another place in the list.
 #[derive(Clone)]
 struct DraggedSpace {
     id: String,
@@ -314,7 +313,6 @@ impl Workbench {
         });
     }
 
-    /// Moves the space to `to` along the switch.
     pub fn move_space_to(&self, id: &str, to: usize) {
         self.edit_spaces(|spaces| {
             let Some(at) = spaces.iter().position(|space| space.id == id) else {

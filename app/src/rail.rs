@@ -34,7 +34,6 @@ use crate::{agents, keymap, motion, rail, tabs, ui};
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::UpdateProjectParams;
 
-/// A side of the window a rail lives on.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Edge {
     Start,
@@ -108,8 +107,6 @@ impl Rails {
     }
 }
 
-/// The two rails' state: which stay open and how wide, the page the tab rail shows and what it
-/// lists, and what their drawing remembers between frames.
 pub struct GoalFocus {
     pub(crate) project: String,
     pub(crate) card: u64,
@@ -117,6 +114,8 @@ pub struct GoalFocus {
     pub(crate) agents: Vec<String>,
 }
 
+/// The two rails' state: which stay open and how wide, the page the tab rail shows and what it
+/// lists, and what their drawing remembers between frames.
 pub struct Rails {
     /// Which rails stay open; a closed one comes out over the stage while the pointer is at its edge.
     pub(crate) side_open: bool,

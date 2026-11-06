@@ -37,7 +37,6 @@ const KINDS: [(Kind, &str); 4] = [
     (Kind::Workflow, "CI workflow"),
 ];
 
-/// The line that writes a new assertion.
 pub(super) struct Asserting {
     input: Entity<InputState>,
     /// The CI workflow's name, while the kind picked is a workflow.

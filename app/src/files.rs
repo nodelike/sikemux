@@ -74,7 +74,6 @@ pub struct FileTree {
     pub marks: HashMap<PathBuf, (Option<char>, Mark)>,
     /// The rows as last laid out, until a listing or an opened folder changes them.
     rows: RefCell<Option<Rc<Vec<Row>>>>,
-    /// The name being typed for a new file or folder.
     pub naming: Option<Naming>,
     /// The row a right click last landed on, which the tree's one menu is about; none when
     /// it landed on the tree's empty space.

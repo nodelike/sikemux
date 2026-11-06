@@ -431,7 +431,6 @@ pub(crate) fn connection_note(
     Some(centred(row).into_any_element())
 }
 
-/// A button that does `run` for `agent`'s chat.
 fn action(
     this: &WeakEntity<Workbench>,
     agent: &str,

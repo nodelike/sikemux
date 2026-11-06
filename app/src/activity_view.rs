@@ -33,7 +33,6 @@ pub struct Calendar {
     pub day: Option<i64>,
 }
 
-/// What the calendar can measure the days by.
 #[derive(Clone, Copy, PartialEq, Default)]
 pub enum Metric {
     #[default]
@@ -373,7 +372,6 @@ pub(crate) fn calendar(
         )
 }
 
-/// The side of one day's square in a calendar drawn in `bounds`.
 pub(crate) fn day_side(bounds: Bounds<Pixels>) -> Pixels {
     let gap = px(CELL_GAP);
     let across = (bounds.size.width - gap * (WEEKS - 1) as f32) / WEEKS as f32;

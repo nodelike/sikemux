@@ -267,7 +267,6 @@ pub(super) fn row(
 /// How far below its place the way back to the latest message starts as it comes up.
 pub(super) const LATEST_RISE: f32 = 6.;
 
-/// The gap between a message's parts.
 pub(super) const PART_GAP: f32 = 10.;
 
 /// Parts a finished turn folds away, drawn `shown` of the way open; the gap after them folds

@@ -61,7 +61,6 @@ fn name(path: &str) -> String {
         .unwrap_or_else(|| path.to_owned())
 }
 
-/// The folder a project's folder sits in.
 fn parent(path: &str) -> &str {
     path.trim_end_matches('/')
         .rsplit_once('/')

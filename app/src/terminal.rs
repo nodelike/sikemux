@@ -164,7 +164,6 @@ struct Terminal {
     anchor: Option<GridPoint>,
     /// The mouse moved since the button went down, so letting go opens no link.
     dragged: bool,
-    /// The link under the mouse.
     link: Option<Link>,
     /// What an input method is composing.
     marked: Option<String>,
@@ -401,7 +400,6 @@ impl Terminal {
 }
 
 impl Terminals {
-    /// How many terminals this window shows.
     pub fn open_count(&self) -> usize {
         self.open.len()
     }
@@ -510,7 +508,6 @@ impl Terminals {
         }
     }
 
-    /// The key of `session` on `place`.
     pub fn key(&self, place: &Place, session: SessionId) -> TermKey {
         let mut places = self.places.borrow_mut();
         let at = places
@@ -526,7 +523,6 @@ impl Terminals {
         }
     }
 
-    /// The host the terminal `key` runs on.
     pub fn place(&self, key: TermKey) -> Place {
         self.places
             .borrow()
@@ -1177,7 +1173,6 @@ impl Grid for View<'_> {
     }
 }
 
-/// The terminal holding the keyboard, if one does.
 pub fn focused(bench: &Workbench) -> Option<TermKey> {
     bench.terminals.focused
 }

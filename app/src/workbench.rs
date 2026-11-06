@@ -73,13 +73,13 @@ const CLOSE_SETTLES: Duration = Duration::from_secs(2);
 /// The decoded pictures a long chat full of screenshots keeps loaded: about a dozen at full size.
 const PICTURE_BUDGET: usize = 256 * 1024 * 1024;
 
-/// The one store: what the core last said, and what only this window decides.
 /// The longest a space's name may be, as on the Mac.
 pub(crate) const MAX_SPACE_NAME: usize = 40;
 
 pub(crate) mod actions;
 mod feed;
 
+/// The one store: what the core last said, and what only this window decides.
 pub struct Workbench {
     pub connection: crate::boot::Connection,
     pub reads: Reads,
@@ -147,7 +147,6 @@ pub struct Workbench {
     pub recent_commands: Vec<SharedString>,
     /// When a refused file listing is asked again.
     pub(crate) files_retry: crate::retry::Retry,
-    /// The Git pane takes the keyboard once it shows, as when ⌘⌥3 opens it.
     pub project_files: ProjectFiles,
     /// The kind of agent the rail was switched to, such as "claude"; its account is the one the
     /// person chose for that kind.
@@ -525,17 +524,14 @@ impl Workbench {
         }
     }
 
-    /// Brings forward or opens a tab on the host in front.
     pub fn open_in_front(&self, tab: OpenTab) {
         self.target().call_typed::<call::OpenTab>(tab);
     }
 
-    /// Brings forward or opens a tab on this host.
     pub fn open_here(&self, tab: OpenTab) {
         Target::here(&self.asks).call_typed::<call::OpenTab>(tab);
     }
 
-    /// The path of the project whose tasks, runs and ports the store watches.
     /// Makes what the tab in front needs before it is drawn, which takes a window: its composer
     /// and the hint in it, its pane, its mods' panes and its desk, then who waits for the keys.
     fn settle_front(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -571,7 +567,6 @@ impl Workbench {
         self.preferences.as_ref().unwrap_or(&UNREAD)
     }
 
-    /// Shows `note` in the window's notifications.
     pub fn notify(&self, note: Notification, cx: &mut Context<Self>) {
         let window = self.window;
         cx.defer(move |cx| {
@@ -780,8 +775,6 @@ impl Workbench {
         crate::settings::open(self, page, window, cx);
     }
 
-    /// A terminal tab in the project in front, on the shell the core keeps ready there.
-    /// Starts a chat with the agent the rail is set to, in the project in front.
     /// Starts a chat in the project in front, or in the one picked when no project is in front,
     /// or on an SSH host's strip opens its Install Sikemux pane.
     pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -941,7 +934,6 @@ impl Workbench {
         cx.notify();
     }
 
-    /// Shows `goal` in the goals view.
     pub fn open_goal(&mut self, goal: &NoticeGoal, cx: &mut Context<Self>) {
         if !self.showing_goals() {
             self.toggle_goals_view(cx);
@@ -950,7 +942,6 @@ impl Workbench {
             .update(cx, |goals, cx| goals.open_goal(goal, cx));
     }
 
-    /// Whether the window shows the goals rather than the workbench.
     pub fn showing_goals(&self) -> bool {
         self.window_view == WindowView::Goals
     }
@@ -1320,7 +1311,6 @@ impl Workbench {
         }
     }
 
-    /// Opens a terminal to an SSH host, in that host's strip.
     pub fn open_ssh_terminal(&self, alias: &str, cx: &mut App) {
         self.take_keys_when_shown(TakesKeys::Terminal, cx);
         self.call_typed::<call::OpenSshTerminal>(SshParams {
@@ -1417,7 +1407,6 @@ impl Workbench {
         })
     }
 
-    /// The project's agents in the order the core ranks them for the person.
     /// Counts the stash as seen up to `at` here at once, ahead of the server, whose answer
     /// then agrees.
     pub fn seen_stash_at(&mut self, at: &str) {

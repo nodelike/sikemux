@@ -443,8 +443,8 @@ fn hex(value: u32) -> Rgba {
     gpui_kit::rgb(value)
 }
 
-/// CSS `color-mix(in oklab, a amount, b)` for two opaque colours.
-/// `a` mixed into `b` by `amount`, as CSS's `color-mix(in oklab, a amount, b)` does.
+/// `a` mixed into `b` by `amount`, as CSS's `color-mix(in oklab, a amount, b)` does, for two
+/// opaque colours.
 pub fn mix(a: Hsla, b: Hsla, amount: f32) -> Hsla {
     mix_oklab(a.into(), b.into(), amount).into()
 }
@@ -495,8 +495,6 @@ fn from_oklab([l, a, b]: [f32; 3]) -> Rgba {
     }
 }
 
-/// The window's colours and fonts as the custom properties pages style against.
-/// `ground` is what the page draws behind itself; with none it lets what is under it show.
 /// The window's ground where a page sits, which a page with nothing behind it draws itself.
 pub fn page_ground(t: &Tokens) -> Hsla {
     Hsla { a: 1., ..t.surface }
@@ -508,6 +506,8 @@ pub fn page_ground_rgb(t: &Tokens) -> [u8; 3] {
     [rgba.r, rgba.g, rgba.b].map(|channel| (channel * 255.).round() as u8)
 }
 
+/// The window's colours and fonts as the custom properties pages style against.
+/// `ground` is what the page draws behind itself; with none it lets what is under it show.
 pub fn page_rule(t: &Tokens, ground: Option<Hsla>) -> String {
     let css = |color: Hsla| {
         let rgba = color.to_rgb();

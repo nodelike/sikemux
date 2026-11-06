@@ -83,7 +83,6 @@ pub const LIST_FOLD: Ease = Ease::new(90, Curve::CSS);
 /// A team in the agents rail, or a lane on the board.
 pub const LANE_FOLD: Ease = Ease::new(90, Curve::CSS_OUT);
 
-/// A tooltip fading in.
 pub const TOOLTIP_IN: Ease = Ease::new(110, Curve::CSS_OUT);
 
 /// A docked rail tucking under the stage or coming out from under it, as a drawer does.

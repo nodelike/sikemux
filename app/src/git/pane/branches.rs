@@ -719,7 +719,6 @@ fn more(id: SharedString, view: &Entity<GitPane>, items: Vec<MoreItem>) -> impl 
     )
 }
 
-/// The Branches page: its list, then the button that makes a branch.
 pub(super) fn branches_page(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let view = cx.entity();
@@ -1413,7 +1412,6 @@ pub(super) fn branch_card(
     )
 }
 
-/// The buttons along the foot of a branch's card.
 fn card_foot(pane: &GitPane, entry: &BranchEntry, cx: &mut Context<GitPane>) -> Div {
     let t = Tokens::get(cx).clone();
     let into = pane.current_branch();

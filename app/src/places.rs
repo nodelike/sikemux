@@ -263,7 +263,6 @@ impl Workbench {
             .map(|saved| saved.title.clone())
     }
 
-    /// Opens the tab rail on `page`.
     pub fn open_rail_on(&mut self, page: TabRailPage, cx: &mut Context<Self>) {
         if !self.rails.tab_open {
             self.rails.tab_open = true;

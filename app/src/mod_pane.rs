@@ -120,7 +120,6 @@ impl ModPane {
         }
     }
 
-    /// Gives the page the window's theme again, after it changed.
     pub fn retheme(&self, cx: &Context<Self>) {
         let rule = serde_json::to_string(&theme_rule(cx)).unwrap_or_default();
         self.run(&format!(
@@ -186,7 +185,6 @@ impl ModPane {
         .detach();
     }
 
-    /// What the page asked of its bridge.
     fn asked(&mut self, message: Value, cx: &mut Context<Self>) {
         let id = message["id"].as_u64().unwrap_or_default();
         let name = message["name"].as_str().unwrap_or_default().to_owned();

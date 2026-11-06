@@ -70,7 +70,6 @@ pub struct ProjectSettings {
 }
 
 impl Workbench {
-    /// Opens the settings tab of the project `id`, or brings it forward.
     pub fn open_project_settings(&self, id: &str) {
         let Some(project) = self.projects().iter().find(|project| project.id == id) else {
             return;

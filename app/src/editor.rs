@@ -74,7 +74,6 @@ const SAVE_PIECE: usize = 512 * 1024;
 const FONT_SIZE: f32 = 13.;
 /// How many places back ⌘[ remembers.
 const MAX_HISTORY: usize = 128;
-/// The most places a peek lists.
 const MAX_PEEKED: usize = 300;
 
 pub fn install(cx: &mut App) {
@@ -247,7 +246,6 @@ impl Editors {
         })
     }
 
-    /// Whether the file has edits not yet saved.
     pub fn is_dirty(&self, key: &FileKey) -> bool {
         self.open.get(key).is_some_and(|document| document.dirty)
     }
@@ -931,11 +929,11 @@ fn close_goto(
     });
 }
 
-/// The bar over an editor saying it could not read or save its file, or
-/// that the file changed on disk under unsaved edits.
 /// Something a notice bar's button does to the open file.
 type Run = dyn Fn(&mut Workbench, &mut Window, &mut Context<Workbench>);
 
+/// The bar over an editor saying it could not read or save its file, or
+/// that the file changed on disk under unsaved edits.
 fn notice_bar(
     this: &Entity<Workbench>,
     key: &FileKey,
@@ -1606,7 +1604,6 @@ pub fn git_changed(
     }
 }
 
-/// Reads again the problems of files whose language server said they changed.
 pub fn diagnostics_changed(bench: &mut Workbench, paths: &[String], cx: &mut Context<Workbench>) {
     insights::diagnostics_changed(bench, paths, cx);
 }
@@ -1647,7 +1644,6 @@ pub fn changed(
     .detach();
 }
 
-/// Puts the cursor where `at` says and brings its line into view.
 fn place_cursor(
     bench: &mut Workbench,
     key: &FileKey,

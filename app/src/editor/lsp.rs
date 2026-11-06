@@ -405,7 +405,6 @@ pub(super) fn changed(document: &mut Document, asks: &UnboundedSender<Ask>, cx: 
     });
 }
 
-/// Tells the server the file was saved with `content`.
 pub(super) fn saved(document: &Document, content: &str, asks: &UnboundedSender<Ask>) {
     if let Some(served) = &document.served {
         let mut params = served.document();

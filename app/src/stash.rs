@@ -53,7 +53,6 @@ const LINE: f32 = 19.;
 const WORDS_LAID: usize = 48;
 const PILL_WIDEST: f32 = 260.;
 
-/// A stash item being dragged onto a chat.
 #[derive(Clone)]
 pub struct DraggedStash {
     pub id: String,
@@ -410,7 +409,6 @@ impl Workbench {
         self.see_stash();
     }
 
-    /// Whether the Stash's pane is the one in front.
     pub fn stash_in_front(&self) -> bool {
         self.tab()
             .and_then(|tab| crate::tabs::first_view(&tab.pane))

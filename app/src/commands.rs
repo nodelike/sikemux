@@ -202,8 +202,6 @@ fn preview_rows(config: &Value, project: &str) -> Vec<Row> {
     rows
 }
 
-/// The deck's rows for the project's `sikemux.json` actions, each run once the person trusts
-/// the file.
 /// The project's sikemux.json actions that give themselves a shortcut, as `(id, label, keys)`.
 pub(crate) fn action_keys(config: &Value) -> Vec<(String, String, String)> {
     if config["status"] != "valid" {
@@ -222,6 +220,8 @@ pub(crate) fn action_keys(config: &Value) -> Vec<(String, String, String)> {
         .collect()
 }
 
+/// The deck's rows for the project's `sikemux.json` actions, each run once the person trusts
+/// the file.
 fn action_rows(config: &Value, cx: &App) -> Vec<Row> {
     if config["status"] != "valid" {
         return Vec::new();

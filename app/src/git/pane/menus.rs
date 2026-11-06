@@ -216,7 +216,6 @@ impl GitPane {
         );
     }
 
-    /// The ways to throw away the chosen file's changes, each asked about once more.
     /// The ways to throw away the changes of the chosen file, or of every file in the
     /// range, each asked about once more.
     pub(crate) fn discard_menu(&mut self, cx: &mut Context<Self>) {

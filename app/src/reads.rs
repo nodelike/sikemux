@@ -609,7 +609,6 @@ impl Workbench {
         cx.notify();
     }
 
-    /// The core turned `read` down.
     pub(crate) fn read_refused(&mut self, read: Read, error: String, cx: &mut Context<Self>) {
         eprintln!("sikemux: the core refused {read:?}: {error}");
         match read {

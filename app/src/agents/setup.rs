@@ -19,7 +19,6 @@ use crate::theme::{
 use crate::ui;
 use crate::workbench::Workbench;
 
-/// One agent as the core found it.
 pub struct Found {
     pub kind: String,
     pub label: String,
@@ -31,7 +30,6 @@ pub struct Found {
     pub status: AgentStatus,
 }
 
-/// How far the sheet's command got.
 #[derive(Clone)]
 enum Phase {
     Running,
@@ -192,7 +190,6 @@ fn quoted(word: &str) -> String {
     format!("'{}'", word.replace('\'', "'\\''"))
 }
 
-/// The installer as the shell runs it.
 pub fn installing(agent: &Found) -> Option<Sheet> {
     Some(installer(&agent.kind, &agent.label, agent.install.clone()?))
 }
@@ -287,7 +284,6 @@ pub fn show_install(
     redraw(bench, cx);
 }
 
-/// The catalog's installer of the agent `kind`.
 fn catalog_installer(bench: &Workbench, kind: &str) -> Option<Sheet> {
     let entry = bench.reads.catalog.kind(kind)?;
     Some(installer(kind, &entry.label, entry.install.clone()?))
@@ -401,7 +397,6 @@ fn close(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     redraw(bench, cx);
 }
 
-/// Runs the sheet's command again after it failed.
 fn again(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(mut sheet) = bench.agent_setup.sheet.take() else {
         return;
@@ -440,7 +435,6 @@ fn state(sheet: &Sheet) -> String {
     }
 }
 
-/// The sheet over the window while a command runs in it.
 pub fn sheet(
     bench: &Workbench,
     this: &Entity<Workbench>,

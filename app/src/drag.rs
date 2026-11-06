@@ -16,7 +16,6 @@ use crate::workbench::{Strip, Workbench};
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::MoveProjectParams;
 
-/// A tab being dragged along its strip.
 #[derive(Clone)]
 pub struct DraggedTab {
     pub strip: Strip,
@@ -61,21 +60,18 @@ impl Reorder {
 /// How long the tabs take to slide aside.
 const SLIDE: std::time::Duration = std::time::Duration::from_millis(160);
 
-/// A project being dragged up or down the rail.
 #[derive(Clone)]
 pub struct DraggedProject {
     pub id: String,
     pub label: SharedString,
 }
 
-/// A card dragged to another column of its board.
 #[derive(Clone)]
 pub struct DraggedCard {
     pub id: u64,
     pub label: SharedString,
 }
 
-/// A file or folder dragged out of the tree.
 #[derive(Clone)]
 pub struct DraggedPath {
     pub path: PathBuf,

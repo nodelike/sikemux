@@ -248,7 +248,6 @@ pub(crate) fn pages(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoEleme
         ))
 }
 
-/// The History page: the branch's commits on the graph.
 pub(crate) fn history_list(pane: &mut GitPane, cx: &mut Context<GitPane>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let view = cx.entity();

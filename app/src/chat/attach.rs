@@ -537,7 +537,6 @@ pub fn drop_hint(words: &'static str, cx: &App) -> Div {
         .child(ui::text(words, TEXT_SM, FontWeight::MEDIUM).text_color(t.text_primary))
 }
 
-/// A tag in the draft, set on the line like a word of it.
 /// A tag in the draft as a chip, with the glyph `mark` gives it.
 pub fn chip(
     bench: WeakEntity<Workbench>,
@@ -920,7 +919,6 @@ pub fn tiles(
     )
 }
 
-/// A picture's preview, or the icon of a file's kind.
 /// A file's mark in a draft's chip: a picture's own thumbnail, else its kind's icon.
 fn chip_media(path: &Path, t: &Tokens, cx: &App) -> AttachmentMedia {
     if is_image(path) {

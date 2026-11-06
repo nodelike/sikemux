@@ -55,8 +55,6 @@ fn root() -> PathBuf {
     std::env::temp_dir().join(format!("{FOLDER}{}", std::process::id()))
 }
 
-/// Each copy sits in a folder of its own under its file's name, so its own app knows
-/// the file by it, and a fresh copy never takes a path a picture was drawn from.
 fn remove(path: &Path) {
     if let Some(folder) = path.parent() {
         let _ = fs::remove_dir_all(folder);
@@ -117,6 +115,8 @@ pub(super) async fn bring(
         .path
         .file_name()
         .map_or_else(|| "file".into(), |name| name.to_owned());
+    // Each copy sits in a folder of its own under its file's name, so its own app knows
+    // the file by it, and a fresh copy never takes a path a picture was drawn from.
     let path = root().join(made.to_string()).join(name);
     let written = fetch(&target, &key, &path, cx).await;
     if let Err(error) = written {

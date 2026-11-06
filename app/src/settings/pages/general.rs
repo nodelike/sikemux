@@ -438,7 +438,6 @@ pub fn render(
     ]
 }
 
-/// Changes how the project in front is to go.
 fn set_transfer(this: &Entity<Workbench>, change: impl FnOnce(&mut Transfer), cx: &mut App) {
     this.update(cx, |bench, cx| {
         change_fields(bench, cx, |fields, _| change(&mut fields.transfer));

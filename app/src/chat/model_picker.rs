@@ -102,7 +102,6 @@ enum Act {
     AddProvider,
 }
 
-/// A row of the list.
 #[derive(Clone)]
 struct Row {
     group: usize,

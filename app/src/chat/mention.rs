@@ -32,7 +32,6 @@ use crate::workbench::Workbench;
 use sikemux_view::chat::{AGENT_URI, EARLIER_URI};
 
 const SHOWN: usize = 8;
-/// How many stash items the tray over the draft shows.
 const STASH_SHOWN: usize = 8;
 const AGENT: &str = "agent:";
 const FILE: &str = "file:";
@@ -163,7 +162,6 @@ fn tracked_empty(
     }
 }
 
-/// A closed agent the person named, as the core's `closedAgents` lists it.
 /// The menu on show: the word it answers, what it offers for it, and the one picked.
 pub struct Menu {
     typed: Typed,

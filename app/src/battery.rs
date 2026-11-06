@@ -8,7 +8,6 @@ use crate::icons::Icon;
 use crate::theme::{Tokens, TEXT_2XS};
 use crate::workbench::Workbench;
 
-/// This device's battery, as its power sources last reported.
 #[derive(Clone, Copy, PartialEq)]
 pub struct Battery {
     pub percent: u8,
@@ -215,7 +214,6 @@ mod mac {
     }
 }
 
-/// How full this device's battery is, drawn as the app's battery icon.
 pub(crate) fn battery_chip(bench: &Workbench, cx: &App) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
     let battery = bench.battery.as_ref()?;

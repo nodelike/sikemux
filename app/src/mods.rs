@@ -93,14 +93,12 @@ impl Workbench {
             })
     }
 
-    /// Opens the mod `id` in a tab of the strip in front, or brings the tab holding it forward.
     pub fn open_mod(&self, id: &str, name: &str) {
         if let Some(strip) = self.strip() {
             self.open_in_front(OpenTab::new(strip.at(), PaneKind::Mod, id).titled(name));
         }
     }
 
-    /// Copies the example `id` into the mods folder and opens it.
     pub fn add_example_mod(&self, id: &str, name: &str, cx: &mut Context<Self>) {
         let added = self
             .target()

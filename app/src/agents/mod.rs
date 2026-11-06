@@ -101,7 +101,6 @@ pub(crate) fn page_body() -> gpui_kit::Div {
     div().size_full().flex().flex_col().overflow_hidden()
 }
 
-/// One of the tab rail's pages, whole.
 fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>) -> AnyElement {
     match page {
         TabRailPage::Files => {
@@ -607,7 +606,6 @@ fn delete_recent(bench: &mut Workbench, chat: &RecentInfo, cx: &mut Context<Work
     );
 }
 
-/// Something a click on the rail does.
 type Click = Rc<dyn Fn(&mut Window, &mut App)>;
 
 /// "Pin" or "Unpin" for the saved chat, and what does it.
@@ -833,7 +831,6 @@ fn remote_row(worker: &RemoteAgent, cx: &mut Context<Workbench>) -> AnyElement {
 }
 
 impl Workbench {
-    /// Folds a lead's team away, or brings it back.
     pub fn fold_team(&mut self, lead: &str, cx: &mut Context<Self>) {
         if !self.rails.folded_teams.remove(lead) {
             self.rails.folded_teams.insert(lead.to_owned());
@@ -1182,7 +1179,6 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
         ))
 }
 
-/// A rail page's title bar.
 pub(crate) fn page_header(
     title: impl Into<SharedString>,
     bench: &Workbench,
@@ -1193,7 +1189,6 @@ pub(crate) fn page_header(
     header_frame(title, [], bench, cx)
 }
 
-/// A rail page with nothing to list: a faint mark, what is missing, and the key that fills it.
 /// The account host chosen in front, by its name; none for this host or an SSH host.
 fn other_host(bench: &Workbench) -> Option<SharedString> {
     match bench.chosen_host() {
@@ -1202,6 +1197,7 @@ fn other_host(bench: &Workbench) -> Option<SharedString> {
     }
 }
 
+/// A rail page with nothing to list: a faint mark, what is missing, and the key that fills it.
 pub(crate) fn rail_empty(
     glyph: Icon,
     title: impl Into<SharedString>,

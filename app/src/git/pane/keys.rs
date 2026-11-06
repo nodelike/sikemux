@@ -158,7 +158,6 @@ pub(crate) const KEYS: [ui::Section; 4] = [
 /// How long typing rests before the commit message is kept as the draft.
 pub(crate) const DRAFT_PAUSE: Duration = Duration::from_millis(300);
 
-/// The side column's pages.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Page {
     Changes,

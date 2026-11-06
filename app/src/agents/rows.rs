@@ -8,7 +8,6 @@ use sikemux_wire::protocol::{AgentFace, AgentGroup, AgentStatus};
 
 use crate::workbench::{shows, Workbench};
 
-/// An agent as the rails and tabs show it.
 #[derive(Clone)]
 pub struct AgentRow {
     pub id: String,
@@ -92,7 +91,6 @@ impl Workbench {
         rows
     }
 
-    /// One agent as the rails and tabs show it, from what the view says of it.
     pub(crate) fn agent_row(
         &self,
         view: &DeviceView,

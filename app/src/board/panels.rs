@@ -122,7 +122,6 @@ fn fact(name: &'static str, value: AnyElement, cx: &mut Context<BoardPane>) -> A
         .into_any_element()
 }
 
-/// A group of settings running edge to edge under a hairline, its name above its fields.
 /// The two ways a project's slices land, as the board's and the Goals view's settings offer them.
 pub(crate) fn landing_picks() -> Vec<Pick> {
     vec![
@@ -149,6 +148,7 @@ pub(crate) fn landing_of(key: &str) -> Landing {
     }
 }
 
+/// A group of settings running edge to edge under a hairline, its name above its fields.
 fn settings_group(name: &'static str, cx: &mut Context<BoardPane>) -> gpui_kit::Div {
     let t = Tokens::get(cx).clone();
     div()

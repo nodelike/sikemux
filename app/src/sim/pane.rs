@@ -215,7 +215,6 @@ impl Simulators {
         self.attached.get(agent).is_some_and(|device| device.booted)
     }
 
-    /// The device's name, as an agent's desk shows it.
     pub fn device_name(&self, agent: &str) -> Option<&str> {
         self.attached.get(agent).map(|device| device.name.as_str())
     }
@@ -379,7 +378,6 @@ impl Simulators {
         cx.notify();
     }
 
-    /// Starts the device on the agent's desk.
     fn boot_device(&mut self, agent: &str, cx: &mut Context<Self>) {
         let Some(udid) = self.attached.get(agent).map(|device| device.udid.clone()) else {
             return;

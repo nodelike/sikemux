@@ -229,7 +229,6 @@ const KIT_ICONS: &[(&str, &[u8])] = &[
     ),
 ];
 
-/// The icons, compiled in.
 pub struct Icons;
 
 impl AssetSource for Icons {
@@ -251,7 +250,6 @@ impl AssetSource for Icons {
     }
 }
 
-/// An agent's mark.
 pub fn agent(provider: &str) -> Icon {
     match provider {
         "codex" => Icon::Codex,

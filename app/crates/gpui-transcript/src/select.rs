@@ -135,7 +135,6 @@ pub(crate) struct Selecting {
     pub docs: Vec<*const Markdown>,
     pub span: Option<Span>,
     pub shown: Rc<RefCell<Vec<Shown>>>,
-    /// The places found in the row's texts.
     pub hits: Vec<RowHit>,
     /// What the frame may still spend laying out new parts of code blocks.
     pub budget: Rc<LayoutBudget>,

@@ -174,9 +174,8 @@ impl Composer {
         self
     }
 
-    /// Whether the agent runs without asking, for one that can switch, and how to switch it.
-    /// The switch between asking before acting and not; `held` while a change of it is
-    /// still on its way or the agent waits on a permission.
+    /// The switch between asking before acting and not, for an agent that can switch;
+    /// `held` while a change of it is still on its way or the agent waits on a permission.
     pub fn yolo(mut self, on: bool, held: bool, toggle: Act) -> Self {
         self.yolo = Some((on, held, toggle));
         self
@@ -813,7 +812,6 @@ fn yolo(
         })
 }
 
-/// One of the session's settings, such as its model, with a menu of the values it takes.
 /// What a choice is called, as its picker's trigger shows it.
 fn chosen(picker: &ConfigPicker, name: &str) -> String {
     let label = picker

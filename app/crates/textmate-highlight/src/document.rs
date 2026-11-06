@@ -119,7 +119,6 @@ impl Document {
         });
     }
 
-    /// The first line still to tokenize, if any.
     pub fn pending_line(&self) -> Option<usize> {
         self.pending.map(|pending| pending.next)
     }

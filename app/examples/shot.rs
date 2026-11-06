@@ -505,8 +505,6 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// One line of what the window shows, for a check to match without looking: its keys stay in
-/// this order, and new ones go at the end.
 /// The menus the last frame drew, each as its items in order. An item takes its own accessible label
 /// or, for an item drawn from its own element, the first label inside it; an item with no label
 /// anywhere is a separator when it is a thin line, as both Kit's menus and the app's draw them.
@@ -568,6 +566,8 @@ fn open_menus(window: &gpui::Window) -> Vec<Value> {
         .collect()
 }
 
+/// One line of what the window shows, for a check to match without looking: its keys stay in
+/// this order, and new ones go at the end.
 fn state(bench: &workbench::Workbench, stack: &[gpui::KeyContext], cx: &gpui::App) -> String {
     let names = |context: &gpui::KeyContext| -> Vec<String> {
         context

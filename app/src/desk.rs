@@ -137,9 +137,6 @@ impl DeskItem {
     }
 }
 
-/// What a desk shows, as its switch names it: its pages, its files, its task terminals, or its
-/// simulator. Only the pages and the simulator are kept; files and terminals are shown by
-/// bringing one to the front.
 impl Desks {
     /// A page's site icon from the `data:` image it sends, decoded the first time it is drawn.
     fn favicon(&self, data: &str) -> Option<Arc<gpui_kit::Image>> {
@@ -172,6 +169,9 @@ pub enum DeskShown {
 /// How long the desks are left to settle before the core hears what they hold.
 const DESKS_SETTLE: std::time::Duration = std::time::Duration::from_millis(200);
 
+/// What a desk shows, as its switch names it: its pages, its files, its task terminals, or its
+/// simulator. Only the pages and the simulator are kept; files and terminals are shown by
+/// bringing one to the front.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum DeskKind {
     #[default]
@@ -346,7 +346,6 @@ impl Desks {
         cx.notify();
     }
 
-    /// Takes an item off the agent's desk; the last one left comes to the front, else its pages.
     /// Takes the terminals of the agent's finished runs off its desk, but the one in front.
     fn clear_finished_runs(&mut self, agent: &str, cx: &mut Context<Self>) {
         let front = self.front.get(agent);
@@ -441,7 +440,6 @@ impl Desks {
         held
     }
 
-    /// The files on every desk.
     fn files(&self) -> impl Iterator<Item = &PathBuf> {
         self.items.values().flatten().filter_map(|item| match item {
             DeskItem::File(path) => Some(path),
@@ -1057,7 +1055,6 @@ impl Workbench {
         view_of(&tab.pane, PaneKind::Desk, agent)
     }
 
-    /// Opens the agent's desk beside its view, or closes it when it is open.
     pub fn toggle_desk(&mut self, tab: &str, view: &str, agent: &str, cx: &mut Context<Self>) {
         let Some(strip) = self.strip() else {
             return;
@@ -1397,13 +1394,11 @@ impl Workbench {
         });
     }
 
-    /// The page in front on the agent's desk.
     fn front_page<'a>(&self, agent: &str, cx: &'a App) -> Option<&'a sikemux_browser::BrowserTab> {
         let strip = self.desks.read(cx).strips.get(agent)?;
         (strip.tabs.iter()).find(|tab| Some(&tab.id) == strip.active_tab_id.as_ref())
     }
 
-    /// The address of the page in front on the agent's desk.
     fn front_url<'a>(&self, agent: &str, cx: &'a App) -> Option<&'a str> {
         self.front_page(agent, cx).map(|tab| tab.url.as_str())
     }
@@ -1584,7 +1579,6 @@ const PILL_MIN: f32 = 120.;
 /// The hover group of a desk tab, whose × shows while the pointer is on it.
 const DESK_PILL: &str = "desk-pill";
 
-/// The desk of `agent`.
 /// A desk of another host, which this app does not show yet.
 fn elsewhere(bench: &Workbench, host: &str, cx: &mut Context<Workbench>) -> AnyElement {
     let name = bench.host_name(host);
@@ -2152,7 +2146,6 @@ fn pill(
         )
 }
 
-/// The desk's switch between its pages and its simulator.
 /// A tab of a desk's strip, as its menu needs it.
 enum DeskTab {
     Page { id: String, url: String },

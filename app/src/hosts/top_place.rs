@@ -17,8 +17,6 @@ use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, TEXT_XS};
 use crate::ui;
 use crate::workbench::{Strip, Workbench};
 
-/// Picks a choice by its key and closes the picker.
-
 #[derive(Clone)]
 struct Choice {
     key: SharedString,
@@ -182,8 +180,6 @@ fn set_up_offer(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> 
     )
 }
 
-/// A pill naming `shown`, lifted only on hover or while open, opening a menu of `choices`,
-/// with a field over it that finds one by name when `find` gives it its placeholder.
 /// The pill a picker in the top bar opens from: the choice shown now, its mark and name.
 fn pill(id: &'static str, shown: Choice, cx: &App) -> BaseButton {
     let t = Tokens::get(cx).clone();

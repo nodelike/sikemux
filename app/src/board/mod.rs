@@ -1088,7 +1088,6 @@ fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) ->
         .into_any_element()
 }
 
-/// The agent a card names, by its mark and name.
 /// A card's ticket: its key, what it is in its tracker, and a link to it there.
 pub(crate) fn ticket_line(ticket: &CardTicket, cx: &gpui_kit::App) -> gpui_kit::Div {
     let url = ticket.url.clone();
@@ -1109,6 +1108,7 @@ pub(crate) fn ticket_line(ticket: &CardTicket, cx: &gpui_kit::App) -> gpui_kit::
         })
 }
 
+/// The agent a card names, by its mark and name.
 pub(crate) fn owner(card: &BoardCard, cx: &gpui_kit::App) -> AnyElement {
     let t = Tokens::get(cx).clone();
     div()

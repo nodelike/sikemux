@@ -157,7 +157,6 @@ pub enum Screenful {
     ShellChanged(PtyShellMetadataEvent<SessionId>),
 }
 
-/// What the window asks of one terminal.
 pub enum TerminalAsk {
     /// Starts its frames, the first a whole screen.
     Attach,
@@ -747,14 +746,14 @@ pub const NAME: &str = if cfg!(debug_assertions) {
     "Sikemux"
 };
 
-/// This app's key on the network, made the first time it is needed and kept where
-/// `sikemux_keychain` keeps secrets; a build that keeps none cannot have one.
 fn read_device_view(view: &str) -> Option<Box<DeviceView>> {
     serde_json::from_str(view)
         .map_err(|error| eprintln!("sikemux: the core's device view is unreadable: {error}"))
         .ok()
 }
 
+/// This app's key on the network, made the first time it is needed and kept where
+/// `sikemux_keychain` keeps secrets; a build that keeps none cannot have one.
 fn device_key() -> Result<SecretKey, String> {
     let account = if cfg!(debug_assertions) {
         "dev"
@@ -911,7 +910,6 @@ async fn heard_from(heard: &mut Option<mpsc::UnboundedReceiver<Happened>>) -> Op
     }
 }
 
-/// Asks the core one of its methods and waits for the answer.
 /// The call `C`, which nothing waits on the answer of.
 pub fn typed_call<C: Call>(params: C::Params) -> Ask
 where
@@ -2036,7 +2034,6 @@ where
         .map_err(|error| format!("the core's answer to {} did not read: {error}", C::METHOD))
 }
 
-/// Starts `agent`'s session again and attaches to it.
 /// Starts `agent` again and attaches to it; one `held` waits for the person before its agent starts.
 async fn restarted(client: &CoreClient, agent: String, held: bool) -> Option<(String, ChatNews)> {
     let started = client

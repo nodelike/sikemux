@@ -457,7 +457,6 @@ pub(crate) fn limit_row(window: &UsageWindow, key: &str, cx: &App) -> impl IntoE
         )
 }
 
-/// A bar of thin ticks, lit as far as `percent`.
 pub(crate) fn ticks(percent: f64, signal: Hsla, t: &Tokens) -> gpui_kit::Canvas<()> {
     let unlit = Hsla {
         a: 0.10,

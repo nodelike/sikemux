@@ -173,7 +173,6 @@ pub(crate) fn marked_body() -> Div {
         .flex_col()
 }
 
-/// A paragraph of a marked sheet's body.
 pub(crate) fn prose(words: impl Into<SharedString>, t: &Tokens) -> Div {
     div()
         .text_size(crate::theme::ui_text(TEXT_SM))

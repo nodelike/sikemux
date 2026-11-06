@@ -90,7 +90,6 @@ impl Workbench {
         });
     }
 
-    /// Lets `agent` run without asking, or has it ask again, when its kind of agent can.
     /// Lets the agent of the tab in front, or of its desk, act without asking, or has it ask
     /// again, wherever the keys are.
     pub fn toggle_yolo_in_front(&self) {
@@ -104,6 +103,7 @@ impl Workbench {
         }
     }
 
+    /// Lets `agent` run without asking, or has it ask again, when its kind of agent can.
     pub fn toggle_yolo(&self, agent: &str) {
         let Some(saved) = self
             .shown()

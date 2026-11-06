@@ -177,8 +177,6 @@ pub fn dictate(agent: &str, this: WeakEntity<Workbench>) -> crate::voice::Act {
     })
 }
 
-/// Brings an older or newer sent prompt into the draft; the arrow goes on to the text when
-/// there is none to bring.
 /// Backspace just after a chip selects it, as on the Mac, so only a second press removes it.
 pub(super) fn select_chip(
     agent: &str,
@@ -268,7 +266,6 @@ pub(super) fn stop_turn(
     }
 }
 
-/// The composer, with what this chat lets the person change.
 /// The composer of one chat as a view of its own, mounted isolated, so a key typed in it draws
 /// only it again rather than the chat around it.
 pub struct ComposerView {

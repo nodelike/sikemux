@@ -242,7 +242,6 @@ pub fn before_shortcut(
 
 pub use pages::{plugins_changed, providers_changed, remote_moved};
 
-/// Sets one of the person's preferences in the core.
 pub(crate) fn set(bench: &Workbench, key: &str, value: impl Into<Value>) {
     let _ = bench.asks.send(Ask::Call {
         method: "setPreference",
@@ -311,7 +310,6 @@ fn go_to(
     .detach();
 }
 
-/// Settings in the stage's place.
 pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
     let Some(settings) = bench.settings.read(cx).open.as_ref() else {
         return div().into_any_element();

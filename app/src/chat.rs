@@ -477,8 +477,6 @@ impl Reading {
     }
 }
 
-/// A chat the window shows: its rows in a transcript, how it stands, its
-/// subagents' rows, and where in the core's changes it has got to.
 /// The chats the window holds and what waits on them.
 #[derive(Default)]
 pub struct Chats {
@@ -495,6 +493,8 @@ pub struct Chats {
     pub(crate) resting: Option<(Option<String>, gpui_kit::Task<()>)>,
 }
 
+/// A chat the window shows: its rows in a transcript, how it stands, its
+/// subagents' rows, and where in the core's changes it has got to.
 pub struct Chat {
     pub transcript: Entity<Transcript<ChatRow>>,
     /// Swapped for new looks when the theme changes, which the transcript's rows draw with.
@@ -510,7 +510,6 @@ pub struct Chat {
     _found: [Subscription; 2],
     /// The find bar over the transcript, while it is open.
     pub finding: Option<find::Finding>,
-    /// The reader opened the agent's plan.
     plan_open: bool,
     /// The line under the last row saying what the agent is doing.
     activity_line: Entity<status::Activity>,
@@ -761,7 +760,6 @@ impl Chat {
         None
     }
 
-    /// Takes the core's changes numbered `seq`, and says whether some before them went missing.
     /// Applies the changes numbered `seq`, and says whether the chat must attach again from
     /// its mark: some came before them, or they did not read.
     fn changed(&mut self, seq: u64, changes: Result<Vec<Changed>, String>, cx: &mut App) -> bool {
@@ -1868,7 +1866,6 @@ impl Workbench {
         }
     }
 
-    /// Brings `agent`'s chat to its latest rows.
     pub fn show_latest(&mut self, agent: &str, cx: &mut Context<Self>) {
         if let Some(ask) = self
             .chats

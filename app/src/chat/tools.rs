@@ -183,7 +183,6 @@ impl<'a> Call<'a> {
     }
 }
 
-/// Whole seconds, as a running call counts them.
 /// The seconds since `started`, after `before` already spent, which the clock counts on in
 /// place without drawing the transcript again.
 fn running_for(key: String, started: u64, before: u64) -> AnyElement {

@@ -57,7 +57,6 @@ impl Changed {
     }
 }
 
-/// Reads the list of `ChatChange`s the core sent.
 pub fn read(changes: Value) -> Result<Vec<Changed>, String> {
     let changes: Vec<ChatChange> =
         serde_json::from_value(changes).map_err(|error| error.to_string())?;

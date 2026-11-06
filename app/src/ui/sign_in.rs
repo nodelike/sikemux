@@ -400,7 +400,6 @@ fn choice_box(id: impl Into<ElementId>, ink: Hsla, t: &Tokens) -> Stateful<Div> 
         .hover(move |choice| choice.bg(hover).border_color(strong).text_color(ink))
 }
 
-/// Choices one under another, across the column.
 pub fn choices() -> Div {
     div().w_full().flex().flex_col().gap(SPACE_1H)
 }

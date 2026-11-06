@@ -719,7 +719,6 @@ impl Workbench {
         }
     }
 
-    /// Opens the Git tab of the project in front at commit `sha`.
     pub fn open_commit(&mut self, sha: &str, cx: &mut Context<Self>) {
         self.open_git(cx);
         match self.git.pane.clone() {

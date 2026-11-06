@@ -7,7 +7,6 @@ use gpui_kit::Entity;
 use crate::asking::Asking;
 use crate::workbench::Retitling;
 
-/// Where an overlay draws.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Layer {
     /// The pickers, in their own part over the stage.
@@ -50,7 +49,6 @@ macro_rules! overlays {
         }
 
         impl Overlays {
-            /// Every overlay open now.
             pub fn open(&self) -> impl Iterator<Item = Overlay> {
                 [$((self.$field.is_some(), Overlay::$overlay),)*]
                     .into_iter()
@@ -90,7 +88,6 @@ impl Overlays {
         self.open().any(Overlay::takes_keys)
     }
 
-    /// Whether an overlay is open in `layer`.
     pub fn in_layer(&self, layer: Layer) -> bool {
         self.open().any(|overlay| overlay.layer() == layer)
     }

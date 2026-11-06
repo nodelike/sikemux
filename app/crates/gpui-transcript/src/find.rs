@@ -11,7 +11,6 @@ use crate::draw::LayoutBudget;
 use crate::select::{RowHit, Selecting, Shown};
 use crate::{Markdown, Pen, Style};
 
-/// What a reader looks for.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Query {
     pub text: String,

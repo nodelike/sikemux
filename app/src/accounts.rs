@@ -48,7 +48,6 @@ pub enum SignIn {
     Failed(String),
 }
 
-/// The add-account dialog: a name for a new account, then its sign-in.
 pub struct Dialog {
     pub provider: String,
     pub name: Entity<InputState>,

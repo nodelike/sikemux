@@ -133,7 +133,6 @@ enum Entry {
     File { side: Side, file: GitFile },
 }
 
-/// The most operations the command log keeps.
 const LOG_KEPT: usize = 200;
 
 /// A git operation the pane ran, as the command log lists it: when it started, what it
@@ -180,7 +179,6 @@ enum Asking {
         title: SharedString,
         choices: Vec<Pick>,
     },
-    /// The pane's keys.
     Keys,
 }
 
@@ -666,7 +664,6 @@ impl GitPane {
         self.code_host.clone()
     }
 
-    /// The side column's pages in their order.
     fn page_order(&self) -> Vec<Page> {
         vec![Page::Changes, Page::History, Page::Branches]
     }

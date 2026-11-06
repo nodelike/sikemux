@@ -109,7 +109,6 @@ impl GitPane {
             .ok();
     }
 
-    /// Copies `text`, saying it copied `what`.
     pub(crate) fn copy(&self, text: String, what: String, cx: &mut Context<Self>) {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
         self.say(toast::success(format!("Copied {what}")), cx);

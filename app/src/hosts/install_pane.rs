@@ -112,7 +112,6 @@ impl Workbench {
     }
 }
 
-/// The pane for the SSH host `alias`.
 pub fn pane(bench: &Workbench, alias: &str, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let note = |icon: Icon, title: Option<String>, message: String| {

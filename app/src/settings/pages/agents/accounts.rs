@@ -48,7 +48,6 @@ fn plan(plan: &str) -> String {
         .join(" ")
 }
 
-/// Something a sign-in's button does.
 type Run = Rc<dyn Fn(&mut Workbench, &mut Window, &mut Context<Workbench>)>;
 
 /// The buttons of a sign-in while it runs or after it failed, or None when there is none.
@@ -632,7 +631,6 @@ fn signed_in(
     }
 }
 
-/// A click that runs `run` on the workbench.
 fn on(
     this: &Entity<Workbench>,
     run: impl Fn(&mut Workbench, &mut Window, &mut Context<Workbench>) + 'static,

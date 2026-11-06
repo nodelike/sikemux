@@ -24,7 +24,6 @@ use sikemux_core::server::worktree::removal::{WorktreeParams, WorktreeReview};
 
 const SHOWN_FILES: usize = 6;
 
-/// Closes the review.
 type Dismiss = Rc<dyn Fn(&mut Window, &mut App)>;
 
 pub struct AgentReview {
@@ -288,7 +287,6 @@ impl Render for AgentReview {
     }
 }
 
-/// Opens the review of `agent`'s worktree over the window.
 pub fn open(bench: &mut Workbench, agent: &str, cx: &mut Context<Workbench>) {
     let weak = cx.entity().downgrade();
     let closing = weak.clone();

@@ -321,8 +321,6 @@ impl Line {
     }
 }
 
-/// The open palette: what it offers, what the person typed, and the lines
-/// that shows.
 pub struct Palette {
     spec: Spec,
     input: Entity<InputState>,
