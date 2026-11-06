@@ -186,13 +186,36 @@ as_root() {
   fi
 }
 
+confirm_leaving_nightly() {
+  [ "$CHANNEL" = stable ] || return 0
+  installed=$(plutil -extract CFBundleShortVersionString raw "$1/Contents/Info.plist" 2>/dev/null) || return 0
+  case "$installed" in
+    *-nightly.*) ;;
+    *) return 0 ;;
+  esac
+  say "  This replaces nightly $installed with stable $VERSION."
+  note "To stay on nightly, run this with SIKEMUX_CHANNEL=nightly."
+  interactive || { say ""; return 0; }
+  case "$(ask "Replace it? [y/N]" n)" in
+    [Yy]*) say "" ;;
+    *)
+      say ""
+      note "Left nightly $installed in place."
+      say ""
+      exit 0
+      ;;
+  esac
+}
+
 install_mac() {
-  [ "$(uname -m)" = arm64 ] || fail "Sikemux needs a Mac with Apple Silicon"
+  # Under Rosetta, uname reports x86_64 even on Apple Silicon.
+  [ "$(sysctl -n hw.optional.arm64 2>/dev/null)" = 1 ] || fail "Sikemux needs a Mac with Apple Silicon"
   if pgrep -xq Sikemux; then fail "quit Sikemux first, then run this again"; fi
-  download Sikemux.app.tar.gz "the app"
-  tar -xzf "$TMP/Sikemux.app.tar.gz" -C "$TMP"
   dest=/Applications
   [ -w "$dest" ] || { dest="$HOME/Applications"; mkdir -p "$dest"; }
+  confirm_leaving_nightly "$dest/Sikemux.app"
+  download Sikemux.app.tar.gz "the app"
+  tar -xzf "$TMP/Sikemux.app.tar.gz" -C "$TMP"
   rm -rf "$dest/Sikemux.app"
   mv "$TMP/Sikemux.app" "$dest/Sikemux.app"
   done_step "Installed Sikemux" "$(home_path "$dest")"
