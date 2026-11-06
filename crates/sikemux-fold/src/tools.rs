@@ -531,6 +531,7 @@ fn first_line(text: &str) -> String {
     }
 }
 
+/// An argument as short as a row can name it.
 fn short(value: &Value) -> Option<Value> {
     match value {
         Value::String(text) => {

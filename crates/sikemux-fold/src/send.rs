@@ -15,6 +15,7 @@ use sikemux_view::chat::{
 use super::event::ChatEvent;
 use super::{Fold, Row, Side, Transcript};
 
+/// How an agent's answers are read as markdown.
 const ANSWER: MarkdownOptions = MarkdownOptions {
     gfm: true,
     html_as_text: false,
@@ -146,6 +147,7 @@ fn units(text: &str) -> usize {
     text.encode_utf16().count()
 }
 
+/// The whole tree of the agent's `text`, read from scratch.
 pub(super) fn read(text: &str) -> PartTree {
     read_as(text, ANSWER)
 }

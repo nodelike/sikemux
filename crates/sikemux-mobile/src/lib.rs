@@ -157,6 +157,7 @@ fn relays_from(settings: Vec<RelaySetting>) -> Vec<Relay> {
         .collect()
 }
 
+/// This phone on the network, known by its key.
 #[derive(uniffi::Object)]
 pub struct Device {
     online: Arc<sikemux_client::device::Device>,
@@ -744,6 +745,7 @@ impl Connection {
         self.ask(ask::AcpSetPermissionMode { agent_id, mode }).await
     }
 
+    /// Ends the chat's agent on the host.
     pub async fn stop_chat(&self, agent_id: String) -> Result<(), MobileError> {
         self.ask(ask::AcpStop { agent_id }).await
     }
@@ -842,6 +844,7 @@ impl Connection {
         .await
     }
 
+    /// The host sends this phone no more notifications.
     pub async fn clear_notifications(&self) -> Result<(), MobileError> {
         self.ask(ask::ClearNotifications).await
     }

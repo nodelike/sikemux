@@ -27,6 +27,7 @@ pub enum UpdateKind {
     TaskNotice,
     SubagentSpawned,
     SubagentStateUpdate,
+    /// The tokens a subagent has used so far.
     SubagentUsage,
     AsyncTaskSpawned,
     AsyncTaskProgress,

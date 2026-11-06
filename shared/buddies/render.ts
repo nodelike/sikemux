@@ -12,6 +12,7 @@ export function boxAround(bounds: { x: number; y: number; width: number; height:
     return `${f(bounds.x + bounds.width / 2 - side / 2)} ${f(bounds.y + bounds.height / 2 - side / 2)} ${f(side)} ${f(side)}`;
 }
 
+/** What a shape is measured on to crop it. */
 export const measuredDrawing = (pack: BuddyPack, shape: BuddyShape): string => `<g>${shape.draw(pack.colors[0], "idle", "measure")}</g>`;
 
 const boxes = new Map<string, string>();

@@ -93,6 +93,7 @@ impl Linked {
         Ok((linked, heard))
     }
 
+    /// This app's key on the network.
     pub fn id(&self) -> String {
         self.device.id()
     }

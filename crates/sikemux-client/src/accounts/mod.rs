@@ -52,6 +52,7 @@ pub fn share_message(nonce: &str, key: &str) -> String {
     format!("sikemux-share|{nonce}|{key}")
 }
 
+/// What a host signs to open its webhook connection.
 pub fn hooks_message(nonce: &str, key: &str) -> String {
     format!("sikemux-hooks|{nonce}|{key}")
 }
