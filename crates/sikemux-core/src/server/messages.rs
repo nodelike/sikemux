@@ -30,6 +30,8 @@ use super::{agent, launching, Core, CoreResult};
 pub mod log;
 
 const FILE: &str = "agent-mailbox.json";
+/// The mark on the task an agent in a terminal waits to take.
+pub(crate) const TASK: &str = "task";
 const MAX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_WAITING: usize = 10;
 const HOSTS_NOTE: &str =
@@ -85,6 +87,8 @@ struct Letter {
     note: Option<String>,
     /// The question this answers, when the person answered one.
     answers: Option<Answered>,
+    /// The question it puts, when it puts one.
+    puts: Option<String>,
 }
 
 /// A question the person answered, and the agent that asked it.
@@ -186,6 +190,7 @@ impl Letter {
             at: epoch_ms(),
             note,
             answers: None,
+            puts: None,
         }
     }
 
@@ -227,6 +232,9 @@ struct Queued {
     /// Unknown for a message that came back unread.
     #[serde(skip_serializing_if = "Option::is_none")]
     origin: Option<Origin>,
+    /// What [`withdraw`] and [`is_waiting`] know it by: the question it puts, or [`TASK`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    mark: Option<String>,
 }
 
 fn joined(queued: &[Queued]) -> String {
@@ -513,7 +521,26 @@ impl Mailbox {
     /// A message the agent was handed but dropped unread waits for its next
     /// turn, ahead of the rest.
     pub(crate) fn returned(&self, agent_id: &str, text: String) {
-        self.put_back(agent_id, vec![Queued { text, origin: None }]);
+        self.put_back(
+            agent_id,
+            vec![Queued {
+                text,
+                origin: None,
+                mark: None,
+            }],
+        );
+    }
+
+    /// The task an agent in a terminal starts on waits for its CLI to take a prompt.
+    pub(crate) fn task_waits(&self, agent_id: &str, text: String) {
+        self.put_back(
+            agent_id,
+            vec![Queued {
+                text,
+                origin: None,
+                mark: Some(TASK.to_owned()),
+            }],
+        );
     }
 }
 
@@ -592,6 +619,7 @@ pub(crate) fn task(
         text: with_brief(text, brief),
         at: epoch_ms(),
         answers: None,
+        puts: None,
         note: Some(format!(
             "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person. {answer}"
         )),
@@ -626,6 +654,7 @@ pub(crate) async fn hand_task(
             from,
             kind: MessageKind::Message,
         }),
+        mark: None,
     };
     if mailbox.has_waiting(agent_id) {
         log(core, agent_id, [&queued], MessageOutcome::Waiting);
@@ -806,6 +835,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                         from: from.clone(),
                         kind: MessageKind::Message,
                     }),
+                    mark: None,
                 };
                 log(&core, &target.agent_id, [&refused], MessageOutcome::Refused);
                 return Err(why.into());
@@ -859,6 +889,7 @@ async fn carry(
             from: letter.from_id.clone(),
             kind: letter.kind,
         }),
+        mark: None,
     };
     let sent = super::hosts::route::deliver(
         core,
@@ -918,6 +949,7 @@ pub(crate) async fn from_host(
         at: epoch_ms(),
         note: carried.note,
         answers: carried.answered,
+        puts: None,
     };
     if let Some((branch, count)) = landed {
         letter.text.push_str(&format!(
@@ -994,10 +1026,11 @@ pub(crate) fn blind_between(
     Ok(())
 }
 
-/// Puts the question `text` from one agent to its lead, with `note` in
+/// Puts the question `id`, worded `text`, from one agent to its lead, with `note` in
 /// place of the usual one. Fails when the lead has stopped or is gone.
 pub(crate) async fn question(
     core: &Arc<Core>,
+    id: String,
     from: String,
     to: String,
     text: String,
@@ -1012,10 +1045,9 @@ pub(crate) async fn question(
                 .find(|agent| agent.agent_id == to && agent.reach != Reach::Stopped)
                 .cloned()
                 .ok_or("that agent is not running")?;
-            Ok((
-                target,
-                letter_from(&agents, MessageKind::Question, from, text, Some(note)),
-            ))
+            let mut letter = letter_from(&agents, MessageKind::Question, from, text, Some(note));
+            letter.puts = Some(id);
+            Ok((target, letter))
         })
         .await
         .map_err(|error| error.to_string())?
@@ -1050,6 +1082,7 @@ pub(crate) async fn answer(
         at: epoch_ms(),
         note: Some(note),
         answers: Some(answered),
+        puts: None,
     });
     let letter = letters.next().ok_or("there is no answer to send")?;
     let rest: Vec<Letter> = letters.collect();
@@ -1187,14 +1220,14 @@ pub(crate) fn withdraw(core: &Core, agent_id: &str, mark: &str) {
         };
         let (withdrawn, kept) = std::mem::take(waiting)
             .into_iter()
-            .partition(|queued| queued.text.contains(mark));
+            .partition(|queued| queued.mark.as_deref() == Some(mark));
         *waiting = kept;
         withdrawn
     });
     log(core, agent_id, &withdrawn, MessageOutcome::Dropped);
 }
 
-/// Whether a message holding `mark` still waits for the agent's turn to end.
+/// Whether the message known by `mark` still waits for the agent's turn to end.
 pub(crate) fn is_waiting(core: &Core, agent_id: &str, mark: &str) -> bool {
     core.harness
         .mailbox
@@ -1202,7 +1235,11 @@ pub(crate) fn is_waiting(core: &Core, agent_id: &str, mark: &str) -> bool {
         .locked()
         .waiting
         .get(agent_id)
-        .is_some_and(|waiting| waiting.iter().any(|queued| queued.text.contains(mark)))
+        .is_some_and(|waiting| {
+            waiting
+                .iter()
+                .any(|queued| queued.mark.as_deref() == Some(mark))
+        })
 }
 
 fn letter_from(
@@ -1224,6 +1261,7 @@ fn letter_from(
         at: epoch_ms(),
         note,
         answers: None,
+        puts: None,
     }
 }
 
@@ -1289,6 +1327,7 @@ async fn deliver_as(
             from: letter.from_id.clone(),
             kind: letter.kind,
         }),
+        mark: letter.puts.clone(),
     };
     let handed = handed(core, target, letter, &queued).await;
     let outcome = handed
@@ -1557,7 +1596,14 @@ pub(crate) fn from_person(core: &Arc<Core>, agent_id: &str, text: String) -> Cor
     let text = session::typable(&text).ok_or("there is nothing to send")?;
     worked(core, agent_id);
     let mailbox = &core.harness.mailbox;
-    mailbox.wait(agent_id, Queued { text, origin: None });
+    mailbox.wait(
+        agent_id,
+        Queued {
+            text,
+            origin: None,
+            mark: None,
+        },
+    );
     mailbox.wake.now();
     Ok(())
 }

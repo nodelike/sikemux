@@ -742,9 +742,7 @@ async fn spawn_terminal(
         opening.reports,
         prompt,
     );
-    core.harness
-        .mailbox
-        .returned(&opening.agent_id, task.clone());
+    core.harness.mailbox.task_waits(&opening.agent_id, task);
     let watcher = core.clone();
     let (agent_id, name, lead_id) = (
         opening.agent_id.clone(),
@@ -753,7 +751,7 @@ async fn spawn_terminal(
     );
     tokio::spawn(async move {
         tokio::time::sleep(TERMINAL_READY_WAIT).await;
-        if messages::is_waiting(&watcher, &agent_id, &task)
+        if messages::is_waiting(&watcher, &agent_id, messages::TASK)
             && watcher.agent_session(&agent_id).is_some()
         {
             messages::report_as(

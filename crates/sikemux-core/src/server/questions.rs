@@ -829,9 +829,16 @@ async fn hand_to_lead(core: &Arc<Core>, question: &Question) {
         return;
     };
     let (text, note) = for_lead(question);
-    if messages::question(core, question.agent_id.clone(), lead_id, text, note)
-        .await
-        .is_ok()
+    if messages::question(
+        core,
+        question.id.clone(),
+        question.agent_id.clone(),
+        lead_id,
+        text,
+        note,
+    )
+    .await
+    .is_ok()
     {
         return;
     }
