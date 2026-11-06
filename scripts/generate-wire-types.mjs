@@ -32,37 +32,14 @@ const SOURCES = (
     ),
 );
 
-/** What a type is called in TypeScript when the name in Rust says too little there. */
-const RENAMES = {
-  [`${VIEW}/changed.rs`]: { Topic: "CoreChangeTopic" },
-  [`${CORE}/launch/providers.rs`]: {
-    Kind: "ProviderKind",
-    Helper: "ModelHelper",
-  },
-  [`${CORE}/server/model_providers/checks.rs`]: { Check: "ModelCheck" },
-  [`${CORE}/server/model_providers/adding.rs`]: {
-    Reading: "ProviderReading",
-    Entered: "ProviderEntered",
-  },
-  [`${CORE}/server/model_providers.rs`]: {
-    CheckParams: "ModelCheckParams",
-    ConnectParams: "ModelConnectParams",
-    HelperParams: "ModelHelperParams",
-    ProviderParams: "ModelProviderParams",
-  },
-};
-
 /** Fields the Rust keeps as JSON so phones read changes over the air, and the type that JSON has. */
 const JSON_FIELDS = {
   "ChatAttachment.view": "ChatView",
   "ChatAttachment.changes": "ChatChange[]",
-  "SharedEvent.changes": "ChatChange[]",
-  "ShareReply.page": "ChatPage",
-  "DeviceView.updates": "UpdateStatus",
   "PartTree.blocks": "MdElement[]",
   "ChatChange.md": "MdChange",
   "Event.view": "DeviceView",
-  "Event.topic": "CoreChangeTopic",
+  "Event.topic": "Topic",
 };
 
 const TS_ROOTS = [
@@ -313,10 +290,6 @@ const limits = (
   )
 ).join("\n");
 
-function clientName(file, name) {
-  return RENAMES[file]?.[name] ?? name;
-}
-
 const importsOf = new Map();
 
 /** The path each name a file imports comes from, as its `use` lines write it. */
@@ -377,7 +350,7 @@ const declared = new Map();
 for (const source of sources)
   for (const item of source.values()) {
     if (!item.public) continue;
-    const name = clientName(item.file, item.name);
+    const name = item.name;
     declared.set(name, [...(declared.get(name) ?? []), item]);
   }
 
@@ -478,7 +451,7 @@ function parseType(text, file) {
     const alias = /^=\s*(.*);$/s.exec(item.body);
     return parseType(alias[1], item.file);
   }
-  return { kind: "named", name: clientName(item.file, item.name) };
+  return { kind: "named", name: item.name };
 }
 
 const words = (name) =>
@@ -559,7 +532,7 @@ function parse(item, wanted) {
   if (item.generics) fail(`${where} is generic`);
   const settings = serde(item.attrs, where);
   only(settings, KNOWN.container, where);
-  const name = clientName(item.file, item.name);
+  const name = item.name;
   if (item.kind === "struct") {
     if (!item.body.startsWith("{"))
       fail(`${where} is not a struct with named fields`);

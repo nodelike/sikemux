@@ -4,10 +4,10 @@ use std::path::PathBuf;
 
 use crate::workspace::Workspace;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sikemux_wire::protocol::{Attention, BuildChannel, ChatInfo, SessionInfo};
 
 use crate::layout::Layout;
+use crate::updates::UpdateStatus;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,11 +28,9 @@ pub struct DeviceView {
     /// How busy this host is, while a client that shows it is attached.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load: Option<HostLoad>,
-    /// How this host keeps its core current, as the core's update status, on
-    /// a host that updates itself. Kept as JSON so a change to its shape
-    /// reaches phones over the air.
+    /// How this host keeps its core current, on a host that updates itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub updates: Option<Value>,
+    pub updates: Option<UpdateStatus>,
 }
 
 /// How busy a host is, for the rows clients show it in.

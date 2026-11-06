@@ -76,11 +76,7 @@ export interface DeviceView {
     faceStyle: FaceStyle;
     /** How busy this host is, while a client that shows it is attached. */
     load?: HostLoad;
-    /**
-     * How this host keeps its core current, as the core's update status, on
-     * a host that updates itself. Kept as JSON so a change to its shape
-     * reaches phones over the air.
-     */
+    /** How this host keeps its core current, on a host that updates itself. */
     updates?: UpdateStatus;
 }
 
@@ -3313,7 +3309,7 @@ export interface ChatMark {
 
 /** The one event of the core's that a share passes on. */
 export type SharedEvent =
-    /** A list of [`crate::chat::ChatChange`] as JSON, numbered by `seq`. */
+    /** What changed in the chat, numbered by `seq`. */
     {
         kind: "chat";
         agentId: string;
@@ -3345,7 +3341,6 @@ export type ShareAsk =
 /** The host's answer to the question numbered `id`: one of the rest, or `error`. */
 export interface ShareReply {
     id: number;
-    /** A [`crate::chat::ChatPage`] as JSON. */
     page?: ChatPage;
     toolDetail?: ToolDetail;
     file?: SharedFile;

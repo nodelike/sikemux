@@ -287,9 +287,11 @@ pub(super) async fn run(
             }) => {
                 tokio::spawn(async move {
                     let reading = core.clone();
-                    let page =
-                        blocking(move || chat::history(&reading, &agent_id, &feed, before, turns))
-                            .await;
+                    let page = blocking(move || {
+                        let page = chat::history(&reading, &agent_id, &feed, before, turns)?;
+                        Ok(serde_json::to_value(page)?)
+                    })
+                    .await;
                     client.answer::<ask::AcpHistory>(request_id, page);
                 });
             }

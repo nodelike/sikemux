@@ -11,12 +11,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use sikemux_process::sync::Locked;
+use sikemux_view::updates::UpdateBlocker;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{watch, Notify};
 
-use crate::frozen::{
-    FrozenReply, FrozenRequest, UpdateBlocker, UpgradeInfo, RESUME_FORMAT, UPGRADE_INFO_ARG,
-};
+use crate::frozen::{FrozenReply, FrozenRequest, UpgradeInfo, RESUME_FORMAT, UPGRADE_INFO_ARG};
 use sikemux_wire::protocol::encode_frozen;
 
 use super::access::{Peer, APP_ONLY};

@@ -30,7 +30,8 @@ use sikemux_core::server::hosts::open::OpenOnParams;
 use sikemux_core::server::hosts::transfer::{SendParams, SessionSent};
 use sikemux_core::server::layout::{ActivateProjectParams, HostParams};
 use sikemux_core::server::spare::NewTerminal;
-use sikemux_core::server::updates::{HostUpdatesParams, UpdateState, UpdateStatus};
+use sikemux_core::server::updates::HostUpdatesParams;
+use sikemux_view::updates::{UpdateState, UpdateStatus};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub enum HostChoice {
@@ -653,10 +654,7 @@ fn sent_summary(sent: &SessionSent, sending: &Sending) -> String {
 
 /// A host's update status, from its view, when it updates itself.
 pub fn host_updates(view: &sikemux_view::device::DeviceView) -> Option<UpdateStatus> {
-    let updates = view.updates.clone()?;
-    serde_json::from_value::<UpdateStatus>(updates)
-        .ok()
-        .filter(|updates| updates.automatic.is_some())
+    (view.updates.clone()).filter(|updates| updates.automatic.is_some())
 }
 
 /// How a host's row sums up its updates: under way, failed, else the version it runs.

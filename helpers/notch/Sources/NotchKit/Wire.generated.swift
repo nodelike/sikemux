@@ -145,7 +145,7 @@ enum Event: Decodable {
     /// it again. `paths` names what moved inside it; absent means anything
     /// may have. `topic` is `sikemux-view`'s `Topic` as JSON, and a client
     /// skips topics it does not know.
-    case changed(topic: CoreChangeTopic)
+    case changed(topic: Topic)
     /// Sent only to clients on this host.
     case remote(status: RemoteStatus)
     /// Sent only to paired devices: what they show of this host, whole, when
@@ -165,7 +165,7 @@ enum Event: Decodable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         switch try container.decode(String.self, forKey: .kind) {
         case "changed":
-            self = .changed(topic: try container.decode(CoreChangeTopic.self, forKey: .topic))
+            self = .changed(topic: try container.decode(Topic.self, forKey: .topic))
         case "remote":
             self = .remote(status: try container.decode(RemoteStatus.self, forKey: .status))
         case "deviceView":
@@ -226,7 +226,7 @@ struct PendingDevice: Codable, Hashable {
 }
 
 /// What a client reads again, as `Event::Changed` names it.
-enum CoreChangeTopic: String, Codable, Hashable {
+enum Topic: String, Codable, Hashable {
     case activity
     case agentAccounts
     case agentSignIn

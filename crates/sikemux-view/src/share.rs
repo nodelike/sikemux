@@ -4,10 +4,9 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::catalog::CatalogAgent;
-use crate::chat::ToolDetail;
+use crate::chat::{ChatChange, ChatPage, ToolDetail};
 use sikemux_wire::protocol::ChatAttachment;
 
 /// What a share sends its viewers, a frame at a time: the chat as it stands, then each
@@ -18,6 +17,7 @@ use sikemux_wire::protocol::ChatAttachment;
     rename_all = "camelCase",
     rename_all_fields = "camelCase"
 )]
+#[allow(clippy::large_enum_variant)]
 pub enum ShareFrame {
     /// Starts a viewer over.
     Snapshot {
@@ -36,11 +36,11 @@ pub enum ShareFrame {
     rename_all_fields = "camelCase"
 )]
 pub enum SharedEvent {
-    /// A list of [`crate::chat::ChatChange`] as JSON, numbered by `seq`.
+    /// What changed in the chat, numbered by `seq`.
     Chat {
         agent_id: String,
         seq: u64,
-        changes: Value,
+        changes: Vec<ChatChange>,
     },
 }
 
@@ -98,9 +98,8 @@ impl ShareAsk {
 #[serde(rename_all = "camelCase")]
 pub struct ShareReply {
     pub id: u64,
-    /// A [`crate::chat::ChatPage`] as JSON.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub page: Option<Value>,
+    pub page: Option<ChatPage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_detail: Option<ToolDetail>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

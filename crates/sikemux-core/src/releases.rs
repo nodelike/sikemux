@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::task::JoinSet;
 
 use crate::http::{client, data_url, fetch_image};
+use sikemux_view::updates::{Contributor, ReleaseCredits};
 
 const REPO_API: &str = "https://api.github.com/repos/nodelike/sikemux";
 const REPO_WEB: &str = "https://github.com/nodelike/sikemux";
@@ -25,15 +26,6 @@ const MAX_COMMIT_PAGES: usize = 20;
 const AVATAR_PIXELS: u32 = 64;
 const MAX_AVATAR_BYTES: usize = 64 * 1024;
 const MAX_AVATARS: usize = 64;
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Contributor {
-    pub login: String,
-    pub name: String,
-    pub commits: u32,
-    pub avatar: String,
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,17 +79,6 @@ struct CommitDetail {
 #[derive(Deserialize)]
 struct ReleaseCommitAuthor {
     name: String,
-}
-
-/// Credits a release carries in its update manifest, so they show without asking GitHub.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ReleaseCredits {
-    commits: u32,
-    compare: String,
-    contributors: Vec<Contributor>,
-    /// `data:` URLs keyed by each contributor's avatar address.
-    avatars: HashMap<String, String>,
 }
 
 /// The manifest is not signed, so only links back to this repository and inline images are kept.

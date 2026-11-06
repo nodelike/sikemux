@@ -20,11 +20,11 @@ use tokio::sync::Notify;
 use super::changed::Topic;
 use super::connection::blocking;
 use super::{upgrade, Core, CoreError, CoreResult};
-use crate::frozen::UpdateBlocker;
 use crate::host_update::{self, HostUpdate, UpdateStep, INSTALLED_CORE};
 use crate::release_feed::{self, Newest};
-use crate::releases::{bundled_credits, ReleaseCredits};
+use crate::releases::bundled_credits;
 use sikemux_view::prefs::UpdateChannel;
+use sikemux_view::updates::{UpdateBlocker, UpdateCheck, UpdateRelease, UpdateState, UpdateStatus};
 use sikemux_wire::protocol::BuildChannel;
 
 const FIRST_CHECK: Duration = Duration::from_secs(4);
@@ -36,65 +36,6 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 const ANSWER_GRACE: Duration = Duration::from_secs(1);
 const UPDATES_OFF: &str =
     "updates are off for this host; turn them on in Sikemux, or with `sudo sikemux update --on`";
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum UpdateState {
-    #[default]
-    Idle,
-    /// Downloaded and in place, waiting for the chats in `blockers` to finish
-    /// what they are doing.
-    Waiting,
-    Downloading,
-    Installing,
-    /// In place; the windows start again into it.
-    Ready,
-    Failed,
-}
-
-/// The newest release on the person's channel.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateRelease {
-    pub version: String,
-    pub notes: Option<String>,
-    pub date: Option<String>,
-    pub credits: Option<ReleaseCredits>,
-}
-
-/// The last check, kept because a failed one has nowhere else to show.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateCheck {
-    /// Unix milliseconds.
-    pub at: u64,
-    pub channel: UpdateChannel,
-    pub error: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateStatus {
-    /// This build updates itself: a release running inside its app.
-    pub updates: bool,
-    pub current: String,
-    pub checked: Option<UpdateCheck>,
-    pub available: Option<UpdateRelease>,
-    pub state: UpdateState,
-    pub error: Option<String>,
-    pub blockers: Vec<UpdateBlocker>,
-    pub downloaded_bytes: u64,
-    pub total_bytes: Option<u64>,
-    /// The person chose to stop the chats rather than wait, which the window
-    /// that starts again tells the next core.
-    pub forced: bool,
-    /// What to run in a terminal to install `available`, for an app that its
-    /// installer updates rather than itself.
-    pub install_command: Option<String>,
-    /// Whether this host puts updates in place by itself, which only the
-    /// person turns off; none on anything but a host's core.
-    pub automatic: Option<bool>,
-}
 
 /// Where to fetch the release `available` names.
 #[derive(Clone)]
@@ -454,10 +395,8 @@ async fn restart_into_installed(core: &Arc<Core>) {
 }
 
 /// What a host's devices show of its updates; none on anything but a host.
-pub(crate) fn host_view(core: &Core) -> Option<serde_json::Value> {
-    is_host()
-        .then(|| serde_json::to_value(core.updates.status()).ok())
-        .flatten()
+pub(crate) fn host_view(core: &Core) -> Option<UpdateStatus> {
+    is_host().then(|| core.updates.status())
 }
 
 /// `sikemux update` on a host: puts the newest release in place now, without

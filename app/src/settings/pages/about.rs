@@ -7,8 +7,8 @@ use gpui_kit::{
 };
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
-use sikemux_core::server::updates::UpdateState;
 use sikemux_view::prefs::UpdateChannel;
+use sikemux_view::updates::UpdateState;
 
 use crate::icons::Icon;
 use crate::screens::whats_new::RELEASES;

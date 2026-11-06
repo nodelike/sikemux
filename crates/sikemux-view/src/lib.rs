@@ -21,4 +21,5 @@ pub mod share;
 pub mod slice;
 pub mod start;
 pub mod theme;
+pub mod updates;
 pub mod workspace;

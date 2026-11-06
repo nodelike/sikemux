@@ -97,12 +97,11 @@ pub(crate) fn history(
     feed: &str,
     before: u64,
     turns: u32,
-) -> CoreResult<serde_json::Value> {
-    let page = core
+) -> CoreResult<sikemux_view::chat::ChatPage> {
+    Ok(core
         .chats
         .readable(agent_id)?
-        .history(feed, before, turns as usize)?;
-    serde_json::to_value(page).map_err(|error| CoreError::from(error.to_string()))
+        .history(feed, before, turns as usize)?)
 }
 
 /// The rows of a chat a client pages to: before or after an event, or around the row holding

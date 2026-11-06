@@ -17,7 +17,7 @@ use gpui_kit::{
 };
 use gpui_transcript::{Markdown, Pen, Style};
 use serde::Deserialize;
-use sikemux_core::server::updates::{UpdateRelease, UpdateState, UpdateStatus};
+use sikemux_view::updates::{UpdateRelease, UpdateState, UpdateStatus};
 
 use crate::core::Target;
 use crate::screens::experience;

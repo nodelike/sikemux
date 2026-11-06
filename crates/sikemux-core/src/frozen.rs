@@ -10,6 +10,7 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+use sikemux_view::updates::UpdateBlocker;
 
 use sikemux_wire::protocol::BuildIdentity;
 
@@ -66,19 +67,6 @@ pub enum FrozenReply {
     UpdateBlockers {
         chats: Vec<UpdateBlocker>,
     },
-}
-
-/// A chat whose agent is at work, which an update now would stop and
-/// start again on its session.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateBlocker {
-    pub agent_id: String,
-    pub provider: String,
-    pub title: Option<String>,
-    /// `starting` while the agent is still starting, `busy` while the
-    /// chat is in the middle of a request.
-    pub reason: String,
 }
 
 /// What `<binary> core --upgrade-info` prints, as one JSON object.
