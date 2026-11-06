@@ -55,7 +55,6 @@ pub(super) fn replay_saved(
         mcp_calls::as_mcp_call(&mut update, &servers);
         sink.update(session, update);
     }
-    sink.update(session, sikemux_fold::update::history_loaded());
     Ok(())
 }
 

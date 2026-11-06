@@ -123,9 +123,7 @@ pub(crate) fn replay_saved(
     session_id: &str,
     sink: &Telling,
 ) -> Result<(), String> {
-    let loaded = || sink.update(session_id, sikemux_fold::update::history_loaded());
     let Some(path) = transcript(launch, session_id) else {
-        loaded();
         return Ok(());
     };
     let mut unread = None;
@@ -165,7 +163,6 @@ pub(crate) fn replay_saved(
     for (session, update) in replay::replay(&records, session_id, &launch.cwd) {
         sink.update(&session, update);
     }
-    loaded();
     sink.reached(session_id, Reach::Bytes(reach));
     if let Some(mut unread) = unread {
         sink.tell_earlier(Box::new(move || unread.next()));

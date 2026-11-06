@@ -34,7 +34,6 @@ pub enum UpdateKind {
     AsyncTaskSpawned,
     AsyncTaskProgress,
     AsyncTaskStateUpdate,
-    HistoryLoaded,
     QueuedMessages,
     EarlierTurnsLost,
     MessageRewound,
@@ -63,7 +62,6 @@ impl UpdateKind {
             Self::AsyncTaskSpawned => "async_task_spawned",
             Self::AsyncTaskProgress => "async_task_progress",
             Self::AsyncTaskStateUpdate => "async_task_state_update",
-            Self::HistoryLoaded => "history_loaded",
             Self::QueuedMessages => "queued_messages",
             Self::EarlierTurnsLost => "earlier_turns_lost",
             Self::MessageRewound => "message_rewound",
@@ -92,7 +90,6 @@ impl UpdateKind {
             "async_task_spawned" => Self::AsyncTaskSpawned,
             "async_task_progress" => Self::AsyncTaskProgress,
             "async_task_state_update" => Self::AsyncTaskStateUpdate,
-            "history_loaded" => Self::HistoryLoaded,
             "queued_messages" => Self::QueuedMessages,
             "earlier_turns_lost" => Self::EarlierTurnsLost,
             "message_rewound" => Self::MessageRewound,
@@ -230,10 +227,6 @@ pub fn plan_entry(content: &str, status: &str) -> Value {
 /// What the agent calls the session; null when it named it nothing after all.
 pub fn session_title(title: impl Serialize) -> Value {
     json!({ "sessionUpdate": UpdateKind::SessionInfoUpdate, "title": title })
-}
-
-pub fn history_loaded() -> Value {
-    json!({ "sessionUpdate": UpdateKind::HistoryLoaded })
 }
 
 /// How full the context window is.

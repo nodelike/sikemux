@@ -559,9 +559,6 @@ impl Muse {
             driver.sink.update(&session, update);
         }
         driver.session.locked().turns.restore(history::turns(items));
-        driver
-            .sink
-            .update(&session_id, sikemux_fold::update::history_loaded());
     }
 
     async fn offer_commands(&mut self) {
