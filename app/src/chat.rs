@@ -35,7 +35,6 @@ use sikemux_view::chat::{
     SubagentCard, SubagentState, ToolDetail, WorkFold,
 };
 use sikemux_view::layout::PaneKind;
-use sikemux_view::prefs::{DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
 use sikemux_view::questions::{AgentQuestion, QuestionState};
 use sikemux_wire::protocol::{
     AgentStatus, ChatAttachment, ChatContext, ChatMark, ConfigPicker, PermissionMode,
@@ -1609,7 +1608,7 @@ pub fn pane(
             let this = this.clone();
             move |event, _, cx| {
                 this.update(cx, |bench, _| {
-                    crate::pinch::resize(bench, crate::pinch::Surface::Chat, event)
+                    crate::text_size::resize(bench, crate::text_size::Surface::Chat, event)
                 })
                 .ok();
             }
@@ -1620,9 +1619,6 @@ pub fn pane(
         .child(pane)
 }
 
-/// How much one press of ⌘= or ⌘− changes the chat's text size.
-const TEXT_SCALE_STEP: f64 = 0.1;
-
 /// Makes the chat's text bigger or smaller by `step`, or back to its designed size without
 /// one, for every chat.
 fn text_size<A: gpui_kit::Action>(
@@ -1631,25 +1627,11 @@ fn text_size<A: gpui_kit::Action>(
 ) -> impl Fn(&A, &mut Window, &mut App) + use<A> {
     let this = this.clone();
     move |_, _, cx| {
-        this.update(cx, |bench, _| resize_text(bench, grow)).ok();
+        this.update(cx, |bench, _| {
+            crate::text_size::Surface::Chat.step(bench, grow)
+        })
+        .ok();
     }
-}
-
-/// Makes the chats' text bigger or smaller a step, or back to the default size without either.
-pub(crate) fn resize_text(bench: &Workbench, grow: Option<bool>) {
-    let scale = grow.map_or(DEFAULT_TEXT_SCALE, |grow| {
-        let step = if grow {
-            TEXT_SCALE_STEP
-        } else {
-            -TEXT_SCALE_STEP
-        };
-        ((bench.preferences().chat_text_scale + step) * 100.).round() / 100.
-    });
-    crate::settings::set(
-        bench,
-        "chatTextScale",
-        scale.clamp(MIN_TEXT_SCALE, MAX_TEXT_SCALE),
-    );
 }
 
 fn pressed<A: gpui::Action, F: Fn(&A) -> Press + 'static>(

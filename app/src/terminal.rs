@@ -22,9 +22,6 @@ use gpui_kit::{
 use gpui_terminal_grid::{
     Cursor, CursorShape, Grid, Highlight, Layout, Look, Marked, Metrics, Span, Underline,
 };
-use sikemux_view::prefs::{
-    DEFAULT_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE, MIN_TERMINAL_FONT_SIZE,
-};
 use sikemux_wire::grid::{
     self as wire, Color, FindOptions, FindResult, GridPoint, Mods, MouseAction, MouseButton, Row,
     Screen, TerminalInput,
@@ -617,7 +614,7 @@ fn draw(
         .p(SPACE_2)
         .on_pinch(
             window.listener_for(&this, |bench, event: &gpui::PinchEvent, _, _| {
-                crate::pinch::resize(bench, crate::pinch::Surface::Terminal, event)
+                crate::text_size::resize(bench, crate::text_size::Surface::Terminal, event)
             }),
         )
         .on_action(window.listener_for(&this, move |bench, _: &Copy, _, _| copy(bench, id)))
@@ -652,17 +649,17 @@ fn draw(
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeIncrease, _, _| {
-                resize_text(bench, Some(true))
+                crate::text_size::Surface::Terminal.step(bench, Some(true))
             }),
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeDecrease, _, _| {
-                resize_text(bench, Some(false))
+                crate::text_size::Surface::Terminal.step(bench, Some(false))
             }),
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeReset, _, _| {
-                resize_text(bench, None)
+                crate::text_size::Surface::Terminal.step(bench, None)
             }),
         )
         .on_action(
@@ -1771,20 +1768,6 @@ fn page(bench: &mut Workbench, id: TermKey, up: bool) {
 /// The terminals' font size the person chose.
 fn font_size(bench: &Workbench) -> u32 {
     bench.preferences().terminal_font_size
-}
-
-/// Makes the terminals' text bigger or smaller a step, or back to the default size without
-/// either.
-pub(crate) fn resize_text(bench: &Workbench, grow: Option<bool>) {
-    let size = grow.map_or(DEFAULT_TERMINAL_FONT_SIZE, |grow| {
-        font_size(bench)
-            .saturating_add_signed(if grow { 1 } else { -1 })
-            .clamp(MIN_TERMINAL_FONT_SIZE, MAX_TERMINAL_FONT_SIZE)
-    });
-    let _ = bench.asks.send(Ask::Call {
-        method: "setPreference",
-        params: serde_json::json!({ "key": "terminalFontSize", "value": size }),
-    });
 }
 
 fn paste(bench: &mut Workbench, id: TermKey, window: &mut Window, cx: &mut Context<Workbench>) {

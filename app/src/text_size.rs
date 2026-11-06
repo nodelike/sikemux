@@ -1,9 +1,10 @@
-//! Pinching on the trackpad over a chat, an editor or a terminal resizes its text, as ⌘= and ⌘−
-//! do for whichever of them has the focus.
+//! How big a chat's, an editor's or a terminal's text is: ⌘=, ⌘−, ⌘0 and pinching on the trackpad
+//! over one of them all move it here.
 
 use gpui::{PinchEvent, TouchPhase};
 use sikemux_view::prefs::{
-    MAX_TERMINAL_FONT_SIZE, MAX_TEXT_SCALE, MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE,
+    DEFAULT_TERMINAL_FONT_SIZE, DEFAULT_TEXT_SCALE, MAX_TERMINAL_FONT_SIZE, MAX_TEXT_SCALE,
+    MIN_TERMINAL_FONT_SIZE, MIN_TEXT_SCALE,
 };
 
 use crate::workbench::Workbench;
@@ -28,6 +29,33 @@ impl Surface {
                 1.,
             ),
         }
+    }
+
+    /// How far one press of ⌘= or ⌘− moves it, and what ⌘0 puts it back to.
+    fn keys(self) -> (f64, f64) {
+        match self {
+            Surface::Chat | Surface::Editor => (0.1, DEFAULT_TEXT_SCALE),
+            Surface::Terminal => (1., DEFAULT_TERMINAL_FONT_SIZE.into()),
+        }
+    }
+
+    fn set(self, bench: &Workbench, size: f64) {
+        let (key, min, max, _) = self.preference();
+        let size = size.clamp(min, max);
+        let value = match self {
+            Surface::Terminal => serde_json::Value::from(size as u32),
+            _ => serde_json::Value::from((size * 100.).round() / 100.),
+        };
+        crate::settings::set(bench, key, value);
+    }
+
+    /// Makes its text a step bigger or smaller, or with none back to its default size.
+    pub fn step(self, bench: &Workbench, grow: Option<bool>) {
+        let (step, default) = self.keys();
+        let size = grow.map_or(default, |grow| {
+            self.size(bench) + if grow { step } else { -step }
+        });
+        self.set(bench, size);
     }
 
     fn size(self, bench: &Workbench) -> f64 {
@@ -63,15 +91,11 @@ pub fn resize(bench: &mut Workbench, surface: Surface, event: &PinchEvent) {
         }
     };
     pinch.factor *= 1. + f64::from(event.delta);
-    let (key, min, max, step) = surface.preference();
+    let (_, min, max, step) = surface.preference();
     let size = ((pinch.base * pinch.factor / step).round() * step).clamp(min, max);
     if size != pinch.sent {
         pinch.sent = size;
-        let value = match surface {
-            Surface::Terminal => serde_json::Value::from(size as u32),
-            _ => serde_json::Value::from((size * 100.).round() / 100.),
-        };
-        crate::settings::set(bench, key, value);
+        surface.set(bench, size);
     }
     if !matches!(event.phase, TouchPhase::Ended | TouchPhase::Cancelled) {
         bench.pinch = Some(pinch);

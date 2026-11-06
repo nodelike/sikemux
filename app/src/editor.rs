@@ -16,14 +16,14 @@ use gpui_kit::{
     ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, WeakEntity,
     Window,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use sikemux_view::layout::{Pane, PaneKind};
-use sikemux_view::prefs::{DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
 
 use crate::core::{Ask, CallError, Target};
 use crate::diagram;
 use crate::hosts::Place as Host;
 use crate::keyboard::TakesKeys;
+use crate::text_size::Surface;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
 use crate::ui;
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
@@ -70,7 +70,6 @@ const READ_TRIES: usize = 3;
 /// A save goes in pieces of this many characters, as the core takes them.
 const SAVE_PIECE: usize = 512 * 1024;
 const FONT_SIZE: f32 = 13.;
-const TEXT_SCALE_STEP: f64 = 0.1;
 /// How many places back ⌘[ remembers.
 const MAX_HISTORY: usize = 128;
 /// The most places a peek lists.
@@ -400,21 +399,23 @@ pub fn pane(
         })
         .on_pinch(
             window.listener_for(&this, |bench, event: &gpui::PinchEvent, _, _| {
-                crate::pinch::resize(bench, crate::pinch::Surface::Editor, event)
+                crate::text_size::resize(bench, crate::text_size::Surface::Editor, event)
             }),
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeIncrease, _, _| {
-                rescale(bench, Some(TEXT_SCALE_STEP))
+                Surface::Editor.step(bench, Some(true))
             }),
         )
         .on_action(
             window.listener_for(&this, |bench, _: &TextSizeDecrease, _, _| {
-                rescale(bench, Some(-TEXT_SCALE_STEP))
+                Surface::Editor.step(bench, Some(false))
             }),
         )
         .on_action(
-            window.listener_for(&this, |bench, _: &TextSizeReset, _, _| rescale(bench, None)),
+            window.listener_for(&this, |bench, _: &TextSizeReset, _, _| {
+                Surface::Editor.step(bench, None)
+            }),
         )
         .when_some(document.notice.clone(), |pane, notice| {
             pane.child(notice_bar(&this, &key, notice, cx))
@@ -1762,29 +1763,4 @@ fn show_rendered(
 /// The editors' text scale the person chose.
 fn text_scale(bench: &Workbench) -> f64 {
     bench.preferences().editor_text_scale
-}
-
-/// Makes the editors' text bigger or smaller by `step`, or back to its size without one.
-/// Makes the editors' text bigger or smaller a step, or back to the default size without either.
-pub(crate) fn resize_text(bench: &Workbench, grow: Option<bool>) {
-    rescale(
-        bench,
-        grow.map(|grow| {
-            if grow {
-                TEXT_SCALE_STEP
-            } else {
-                -TEXT_SCALE_STEP
-            }
-        }),
-    );
-}
-
-fn rescale(bench: &Workbench, step: Option<f64>) {
-    let scale = step.map_or(DEFAULT_TEXT_SCALE, |step| {
-        ((text_scale(bench) + step) * 10.).round() / 10.
-    });
-    let _ = bench.asks.send(Ask::Call {
-        method: "setPreference",
-        params: json!({ "key": "editorTextScale", "value": Value::from(scale.clamp(MIN_TEXT_SCALE, MAX_TEXT_SCALE)) }),
-    });
 }

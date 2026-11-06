@@ -8,7 +8,6 @@ use gpui_kit::{
 };
 use serde_json::json;
 
-use crate::core::Ask;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_XS_H};
 use crate::ui;
@@ -25,11 +24,7 @@ fn set_default(bench: &Workbench, folder: &str, repo: Option<&str>) {
             chosen.remove(folder);
         }
     }
-    let params = json!({ "key": "defaultGitRepos", "value": chosen });
-    let _ = bench.asks.send(Ask::Call {
-        method: "setPreference",
-        params,
-    });
+    crate::settings::set(bench, "defaultGitRepos", json!(chosen));
 }
 
 pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {

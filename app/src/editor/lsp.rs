@@ -452,10 +452,7 @@ pub(super) fn trust(
 fn remember_trust(bench: &Workbench, project: String, allowed: bool) {
     let mut trusted = bench.preferences().language_server_trust.clone();
     trusted.insert(project, allowed);
-    let _ = bench.asks.send(Ask::Call {
-        method: "setPreference",
-        params: json!({ "key": "languageServerTrust", "value": trusted }),
-    });
+    crate::settings::set(bench, "languageServerTrust", json!(trusted));
 }
 
 /// Whether the person let `project`'s language servers run.

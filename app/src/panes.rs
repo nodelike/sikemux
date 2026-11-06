@@ -17,6 +17,7 @@ use sikemux_wire::protocol::SessionId;
 
 use crate::drag::DraggedTab;
 use crate::pane_kind::Separable;
+use crate::text_size::Surface;
 use crate::theme::SPACE_1;
 use crate::workbench::{Strip, Workbench};
 use crate::{motion, ui};
@@ -772,9 +773,9 @@ impl Workbench {
     /// view in front, as on the Mac, and the terminals' when that is neither a chat nor an editor.
     pub(crate) fn resize_front_text(&self, grow: Option<bool>) {
         match self.focused_kind() {
-            Some(PaneKind::Agent) => crate::chat::resize_text(self, grow),
-            Some(PaneKind::Files) => crate::editor::resize_text(self, grow),
-            _ => crate::terminal::resize_text(self, grow),
+            Some(PaneKind::Agent) => Surface::Chat.step(self, grow),
+            Some(PaneKind::Files) => Surface::Editor.step(self, grow),
+            _ => Surface::Terminal.step(self, grow),
         }
     }
 
