@@ -165,6 +165,12 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+    # What the core compiles in. The app starts a core rather than running one, and links no plugin.
+    env: &compiled_into_core
+      BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
+      JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
+      VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
+      KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -178,10 +184,6 @@ jobs:
       - name: Build the core
         env:
           SIKEMUX_USAGE_REPORTING: app
-          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
-          JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
-          VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           # Line tables go to a dSYM published beside the release, never into the app.
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
           CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
@@ -306,10 +308,6 @@ jobs:
 
       - name: Compile the app around the signed helpers
         env:
-          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
-          JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
-          VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
           VERSION: ${{ needs.plan.outputs.version }}
           CHANNEL: ${{ needs.plan.outputs.channel }}
           CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
@@ -545,6 +543,7 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+    env: *compiled_into_core
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -572,10 +571,6 @@ jobs:
       - name: Build the deb, rpm and AppImage
         env:
           SIKEMUX_USAGE_REPORTING: app
-          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
-          JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
-          VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: pnpm build:linux
 
       - name: Keep the built packages on the run
@@ -605,6 +600,7 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+    env: *compiled_into_core
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -614,10 +610,6 @@ jobs:
       - name: Build the core
         env:
           SIKEMUX_USAGE_REPORTING: host
-          BITBUCKET_OAUTH_SECRET: ${{ secrets.BITBUCKET_OAUTH_SECRET }}
-          JIRA_OAUTH_SECRET: ${{ secrets.JIRA_OAUTH_SECRET }}
-          VERCEL_OAUTH_SECRET: ${{ secrets.VERCEL_OAUTH_SECRET }}
-          KLIPY_API_KEY: ${{ secrets.KLIPY_API_KEY }}
         run: cargo build --locked --release -p sikemux-host --bin sikemux-host
 
       - name: Check it runs without a window
