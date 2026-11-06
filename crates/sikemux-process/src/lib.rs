@@ -377,3 +377,8 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(5));
     }
 }
+
+/// `text` as one word for a POSIX shell.
+pub fn single_quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}

@@ -226,10 +226,6 @@ fn in_project(mut params: Value, project: &Option<String>) -> CoreResult<Value> 
     Ok(params)
 }
 
-fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> CoreResult<T> {
-    Ok(serde_json::from_value(params)?)
-}
-
 async fn run(
     core: &Arc<Core>,
     client: &ClientConn,
@@ -252,7 +248,7 @@ async fn run(
             .await
         }
         Reach::Board => {
-            let params = parse(in_project(params, &project)?)?;
+            let params = super::super::calls::parse(in_project(params, &project)?)?;
             Ok(serde_json::to_value(board::board(core, params).await?)?)
         }
         Reach::Tasks => {
@@ -321,20 +317,21 @@ async fn run(
                 agent: String,
                 text: String,
             }
-            let send: Send = parse(params)?;
+            let send: Send = super::super::calls::parse(params)?;
             let agent_id = agent_named(core, &send.agent).await?;
-            let prompt = parse(json!({ "agentId": agent_id, "text": send.text }))?;
+            let prompt =
+                super::super::calls::parse(json!({ "agentId": agent_id, "text": send.text }))?;
             super::super::chat::calls::prompt_chat(core, prompt).await?;
             Ok(Value::Null)
         }
         Reach::BoardAdd => {
-            let params = parse(in_project(params, &project)?)?;
+            let params = super::super::calls::parse(in_project(params, &project)?)?;
             Ok(serde_json::to_value(
                 board::person_add(core, params).await?,
             )?)
         }
         Reach::BoardUpdate => {
-            let params = parse(in_project(params, &project)?)?;
+            let params = super::super::calls::parse(in_project(params, &project)?)?;
             Ok(serde_json::to_value(
                 board::person_update(core, params).await?,
             )?)

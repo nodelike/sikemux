@@ -38,10 +38,6 @@ mod mac {
     /// an earlier core left behind.
     static STARTED: AtomicBool = AtomicBool::new(false);
 
-    fn dev() -> bool {
-        cfg!(debug_assertions)
-    }
-
     fn state_dir(socket: &Path) -> PathBuf {
         socket
             .parent()
@@ -50,7 +46,7 @@ mod mac {
     }
 
     fn state_file(state_dir: &Path, extension: &str) -> PathBuf {
-        state_dir.join(if dev() {
+        state_dir.join(if cfg!(debug_assertions) {
             format!("notch.dev.{extension}")
         } else {
             format!("notch.{extension}")
@@ -67,7 +63,7 @@ mod mac {
         }
         let path = match sikemux_process::paths::app_bundle_of_core(core) {
             Some(bundle) => bundle.join(BUNDLED_NOTCH).join(NOTCH_EXECUTABLE),
-            None if dev() => core.parent()?.join(DEV_HELPER),
+            None if cfg!(debug_assertions) => core.parent()?.join(DEV_HELPER),
             None => return None,
         };
         path.is_file().then_some(path)
@@ -121,7 +117,7 @@ mod mac {
         if let Some(bundle) = sikemux_process::paths::app_bundle_of_core(&core) {
             command.arg("--app").arg(bundle);
         }
-        if dev() {
+        if cfg!(debug_assertions) {
             command
                 .arg("--dev")
                 .arg("--app-pid")

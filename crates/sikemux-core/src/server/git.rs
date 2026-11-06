@@ -21,7 +21,7 @@ use crate::git::{
 
 use super::access::{Needs, Peer, Program};
 use super::calls::Row;
-use super::{Core, CoreError, CoreResult};
+use super::{Core, CoreResult};
 
 /// Each method's [`Row`], its parameters by the names clients send them under, the first of
 /// them the repository it works in, and the git function it runs, `core` before it for one
@@ -41,7 +41,7 @@ macro_rules! methods {
                     #[derive(Deserialize)]
                     #[serde(rename_all = "camelCase")]
                     struct Params { $repo: String $(, $arg: $ty)* }
-                    let Params { $repo $(, $arg)* } = serde_json::from_value(params).map_err(unfit)?;
+                    let Params { $repo $(, $arg)* } = super::calls::parse(params)?;
                     confine(core, peer, &$repo).await?;
                     Ok(serde_json::to_value(methods!(@call $run, core, ($($with)?), $repo $(, $arg)*).await?)?)
                 })*
@@ -196,10 +196,6 @@ fn of_a_project(asked: &Path, projects: &[PathBuf]) -> bool {
                 .as_ref()
                 .is_some_and(|common| shared(&project).as_ref() == Some(common))
     })
-}
-
-fn unfit(error: serde_json::Error) -> CoreError {
-    format!("the call's params do not fit: {error}").into()
 }
 
 /// Reads the branch chips of the projects at `folders` again, forgetting

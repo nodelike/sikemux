@@ -287,6 +287,4 @@ pub(super) fn over_ssh(args: &str) -> String {
     format!(r#"exec "$SHELL" -lc 'PATH="$PATH:$HOME/.local/bin" sikemux {args}'"#)
 }
 
-fn single_quoted(text: &str) -> String {
-    format!("'{}'", text.replace('\'', r"'\''"))
-}
+use sikemux_process::single_quoted;

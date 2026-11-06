@@ -141,7 +141,7 @@ pub(crate) fn grok_plugin() -> Option<&'static Path> {
 /// `path` as one word for `sh -c`, and for Hermes, which splits a hook's
 /// command the way a shell would.
 fn quoted(path: &Path) -> String {
-    format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+    sikemux_process::single_quoted(&path.to_string_lossy())
 }
 
 /// The variables an agent runs with to find the shim first: `path`, or the

@@ -97,7 +97,7 @@ fn quote_shell_word(value: &str, kind: Option<ShellKind>) -> String {
         }
         Some(ShellKind::PowerShell) => format!("'{}'", value.replace('\'', "''")),
         _ if cfg!(windows) => format!("'{}'", value.replace('\'', "''")),
-        _ => format!("'{}'", value.replace('\'', "'\\''")),
+        _ => sikemux_process::single_quoted(value),
     }
 }
 
@@ -162,7 +162,7 @@ fn shell_word(path: &Path) -> String {
     }
     #[cfg(not(windows))]
     {
-        format!("'{}'", raw.replace('\'', "'\\''"))
+        sikemux_process::single_quoted(&raw)
     }
 }
 

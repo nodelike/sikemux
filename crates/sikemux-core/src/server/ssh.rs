@@ -174,7 +174,7 @@ pub(crate) fn startup(alias: &str) -> String {
 }
 
 fn posix_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r#"'"'"'"#))
+    sikemux_process::single_quoted(value)
 }
 
 /// Reads the same in POSIX shells and in fish, where `\\` and `\'` are
