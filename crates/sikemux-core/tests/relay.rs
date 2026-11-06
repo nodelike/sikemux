@@ -1,6 +1,7 @@
 //! A phone reaching a core only through a relay, the way it does from outside
 //! the host's network. Needs an `iroh-relay` binary, named by
-//! `SIKEMUX_IROH_RELAY`; without it the test passes without running.
+//! `SIKEMUX_IROH_RELAY`, so it runs only when asked:
+//! `SIKEMUX_IROH_RELAY=… cargo test -p sikemux-core --test relay -- --ignored`.
 
 #![cfg(unix)]
 
@@ -78,11 +79,9 @@ fn remote_file(socket: &Path) -> PathBuf {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs an iroh-relay binary named by SIKEMUX_IROH_RELAY"]
 async fn a_phone_reaches_a_core_through_the_relay_alone() {
-    let Some(binary) = std::env::var_os("SIKEMUX_IROH_RELAY") else {
-        eprintln!("SIKEMUX_IROH_RELAY is not set; skipping the relay test");
-        return;
-    };
+    let binary = std::env::var_os("SIKEMUX_IROH_RELAY").expect("SIKEMUX_IROH_RELAY");
     sikemux_process::user_environment::search_path_only_from_now();
     std::env::set_var("SHELL", "/bin/sh");
     let dir = tempfile::tempdir().expect("temp dir");

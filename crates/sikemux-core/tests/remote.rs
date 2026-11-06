@@ -805,7 +805,7 @@ const FAKE_CLAUDE: &str = env!("CARGO_BIN_EXE_sikemux-fake-claude");
 
 /// The chat a window just opened sees, once it holds `text`.
 async fn shown_with(core: &TestCore, agent_id: &str, text: &str) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + WAIT;
     while Instant::now() < deadline {
         let (window, _events) = CoreClient::connect(&core.socket).await.expect("window");
         if let Ok(ChatAttachment::Live { view, .. }) = window.acp_attach(agent_id.into()).await {
@@ -822,7 +822,7 @@ async fn ready_after_writing(app: &CoreClient, agent_id: &str) -> bool {
     app.call("composing", json!({ "agentId": agent_id }))
         .await
         .expect("the person begins writing");
-    let deadline = Instant::now() + Duration::from_secs(20);
+    let deadline = Instant::now() + WAIT;
     while Instant::now() < deadline {
         let chats = app.ask(ask::AcpList).await.expect("list chats");
         if chats
@@ -1410,7 +1410,17 @@ async fn a_device_that_reconnects_hears_only_what_it_missed_and_detaching_stops_
     let (second, mut second_events) = remote::connect(&endpoint, core_addr(&status))
         .await
         .expect("the phone reconnects");
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    let deadline = Instant::now() + WAIT;
+    while app
+        .ask(ask::AcpList)
+        .await
+        .expect("list chats")
+        .iter()
+        .any(|chat| chat.agent_id == agent_id && chat.running)
+    {
+        assert!(Instant::now() < deadline, "the app's turn never ended");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     let resumed = second
         .ask(ask::AcpAttach {
             agent_id: agent_id.clone(),

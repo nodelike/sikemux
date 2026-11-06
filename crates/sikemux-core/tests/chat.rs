@@ -198,11 +198,13 @@ async fn a_prompt_sent_mid_turn_is_kept_only_once_the_agent_takes_it() {
         .acp_start(chat_launch("agent-c", "workspace-write"))
         .await
         .expect("start");
+    let gate = tempfile::NamedTempFile::new().expect("gate");
+    let holding = format!("hold {}", gate.path().display());
     sender
         .ask(ask::AcpPrompt {
             agent_id: "agent-c".into(),
             message_id: None,
-            text: "hold 400".into(),
+            text: holding.clone(),
             paths: Vec::new(),
             context: Vec::new(),
         })
@@ -221,13 +223,17 @@ async fn a_prompt_sent_mid_turn_is_kept_only_once_the_agent_takes_it() {
         .expect("prompt");
 
     let (late, _) = core.connect("agent-c").await;
-    assert_eq!(attach(&late, "agent-c").await.prompts(), ["hold 400"]);
+    assert_eq!(
+        attach(&late, "agent-c").await.prompts(),
+        std::slice::from_ref(&holding)
+    );
 
+    gate.close().expect("the turn ends");
     heard.turn_ended().await;
     heard.turn_started().await;
     assert_eq!(
         attach(&late, "agent-c").await.prompts(),
-        ["hold 400", "too soon"]
+        [holding, "too soon".to_owned()]
     );
 }
 

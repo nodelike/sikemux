@@ -624,7 +624,8 @@ async fn a_finished_task_is_kept_and_attachable() {
 
 #[test]
 fn the_core_exits_when_idle_but_not_while_a_client_is_connected() {
-    let mut core = start_core_with(Duration::from_millis(300));
+    let idle_exit = Duration::from_secs(3);
+    let mut core = start_core_with(idle_exit);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -632,7 +633,7 @@ fn the_core_exits_when_idle_but_not_while_a_client_is_connected() {
     let client = runtime
         .block_on(CoreClient::connect(&core.socket))
         .expect("connect");
-    std::thread::sleep(Duration::from_millis(900));
+    std::thread::sleep(idle_exit + Duration::from_millis(500));
     assert!(
         core.thread
             .as_ref()
@@ -656,7 +657,7 @@ fn a_second_core_on_the_same_socket_refuses_to_start() {
         ),
         "{result:?}"
     );
-    assert!(probe(&core.socket, Duration::from_secs(1)).is_ok());
+    assert!(probe(&core.socket, WAIT).is_ok());
 }
 
 #[test]
@@ -668,7 +669,7 @@ fn a_dead_socket_file_is_replaced_and_permissions_are_private() {
     drop(std::os::unix::net::UnixListener::bind(&stale).expect("stale socket"));
     assert!(stale.exists());
     let core = start_core_at(dir, stale.clone(), Duration::from_secs(600));
-    assert!(probe(&core.socket, Duration::from_secs(1)).is_ok());
+    assert!(probe(&core.socket, WAIT).is_ok());
     let mode = std::fs::metadata(&stale)
         .expect("socket")
         .permissions()

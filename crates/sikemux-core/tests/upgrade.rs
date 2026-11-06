@@ -112,6 +112,38 @@ impl CoreProcess {
         self.until_answering();
     }
 
+    /// Waits for `files` of the core's own files to hold `text`, since a crash loses what
+    /// it has not written down yet.
+    async fn until_written(&self, files: usize, text: &str) {
+        fn holding(dir: &Path, text: &str) -> usize {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return 0;
+            };
+            entries
+                .flatten()
+                .map(|entry| {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        holding(&path, text)
+                    } else {
+                        let bytes = std::fs::read(&path).unwrap_or_default();
+                        usize::from(String::from_utf8_lossy(&bytes).contains(text))
+                    }
+                })
+                .sum()
+        }
+        let data = self.dir.path().join("data");
+        let deadline = Instant::now() + WAIT;
+        while holding(&data, text) < files {
+            assert!(
+                Instant::now() < deadline,
+                "the core never wrote down {text}\n{}",
+                self.log()
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
     fn pid(&self) -> u32 {
         self.child.id()
     }
@@ -568,7 +600,7 @@ async fn an_upgrade_is_refused_for_a_binary_that_cannot_take_over() {
         );
         assert!(message.contains(expected), "{message}");
     }
-    let hello = probe(&core.socket, Duration::from_secs(1)).expect("still serving");
+    let hello = probe(&core.socket, WAIT).expect("still serving");
     assert_eq!(hello.pid, core.pid());
     assert_eq!(hello.build.commit, "first");
 
@@ -791,12 +823,14 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
             .await
             .expect("prompt");
     }
+    let gate = core.dir.path().join("holding");
+    std::fs::write(&gate, b"").expect("gate");
     for agent_id in &holding {
         client
             .ask(ask::AcpPrompt {
                 agent_id: agent_id.clone(),
                 message_id: None,
-                text: "hold 8000".into(),
+                text: format!("hold {}", gate.display()),
                 paths: Vec::new(),
                 context: Vec::new(),
             })
@@ -872,6 +906,7 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
             .await
             .unwrap_or_else(|error| panic!("{agent_id}: {error}\n{}", core.log()));
     }
+    std::fs::remove_file(&gate).expect("the held turns end");
     until_chats(&mut events, &mut carried, |_, chat| chat.turns_ended() >= 1).await;
     for (agent_id, chat) in &carried {
         assert_eq!(chat.ends[0], Some(StopReason::EndTurn), "{agent_id}");
@@ -934,8 +969,8 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
     }
     drop(client);
     drop(events);
-    // A crash loses what the chat said in its last second.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    core.until_written(chats.len(), "holding").await;
+    core.until_written(chats.len(), "\"working\":true").await;
 
     core.crash_and_start_again();
 
@@ -1000,19 +1035,15 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
     }
 }
 
-/// A chat shown on its saved session, still waiting for the person when its core crashes,
-/// waits again once the core is back: nothing starts its agent but the person.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
-    let mut core = CoreProcess::start("first");
-    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+/// A chat saved asleep on a profile running `program`, shown without starting its agent.
+async fn show_asleep_chat(core: &CoreProcess, client: &CoreClient, program: &str) -> String {
     let accounts = json!({
         "profiles": [{
             "id": "fake",
             "name": "Fake",
             "provider": "opencode",
             "accent": "#a277ff",
-            "executablePath": FAKE_AGENT,
+            "executablePath": program,
         }],
     });
     client
@@ -1049,14 +1080,23 @@ async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
         "the asleep chat is shown\n{}",
         core.log()
     );
+    agent_id
+}
+
+/// A chat shown on its saved session, still waiting for the person when its core crashes,
+/// waits again once the core is back: nothing starts its agent but the person.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
+    let mut core = CoreProcess::start("first");
+    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let agent_id = show_asleep_chat(&core, &client, FAKE_AGENT).await;
     assert_eq!(
         children(core.pid()),
         Vec::<u32>::new(),
         "showing it started nothing"
     );
     drop(client);
-    // A crash loses what the chat wrote down in its last second.
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    core.until_written(1, &agent_id).await;
 
     core.crash_and_start_again();
 
@@ -1093,6 +1133,37 @@ async fn a_chat_waiting_for_the_person_still_waits_after_a_crash() {
         assert!(
             Instant::now() < deadline,
             "writing started the agent\n{}",
+            core.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// A program too busy to name its version in time is not a broken one: under load this left
+/// a person writing in a chat with no agent and nothing said.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_chat_starts_though_its_program_was_too_busy_to_name_its_version() {
+    let core = CoreProcess::start("first");
+    let (client, _events) = CoreClient::connect(&core.socket).await.expect("connect");
+    let slow = core.dir.path().join("slow-to-answer");
+    std::fs::write(
+        &slow,
+        format!("#!/bin/sh\n[ \"$1\" = --version ] && exec sleep 30\nexec '{FAKE_AGENT}' \"$@\"\n"),
+    )
+    .expect("the program");
+    std::fs::set_permissions(&slow, std::fs::Permissions::from_mode(0o755)).expect("executable");
+    let agent_id = show_asleep_chat(&core, &client, slow.to_str().expect("a path")).await;
+
+    client
+        .call("composing", json!({ "agentId": agent_id }))
+        .await
+        .expect("the person begins writing");
+
+    let deadline = Instant::now() + WAIT;
+    while children(core.pid()).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "writing did not start the agent\n{}",
             core.log()
         );
         tokio::time::sleep(Duration::from_millis(100)).await;

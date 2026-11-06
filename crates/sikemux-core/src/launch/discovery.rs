@@ -264,22 +264,32 @@ pub fn candidates(def: &AgentEntry, explicit: Option<&str>) -> Vec<PathBuf> {
         .unwrap_or_else(|| automatic_candidates(def))
 }
 
-/// The first working program for `agent`: the one `explicit` names, else
-/// the first found where its installers put it.
+/// The program to run as `agent`: the one `explicit` names, else the first found where its
+/// installers put it that works. With none known to work, one whose check timed out is run
+/// anyway, since that says nothing against it and running it finds out.
 pub async fn resolve(agent: &str, explicit: Option<&str>) -> Result<PathBuf, String> {
     let def = AGENTS
         .iter()
         .find(|def| def.kind == agent)
         .ok_or("Unknown agent provider")?;
     let candidates = candidates(def, explicit);
-    let (resolved, failures) = first_healthy(def, candidates).await;
-    resolved.ok_or_else(|| {
-        if failures.is_empty() {
-            format!("{} executable was not found", def.label)
-        } else {
-            failures.join("; ")
-        }
-    })
+    let (resolved, failures) = first_healthy(def, candidates.clone()).await;
+    resolved
+        .or_else(|| candidates.into_iter().find(|program| timed_out(program)))
+        .ok_or_else(|| {
+            if failures.is_empty() {
+                format!("{} executable was not found", def.label)
+            } else {
+                failures.join("; ")
+            }
+        })
+}
+
+fn timed_out(program: &Path) -> bool {
+    probed()
+        .locked()
+        .get(program)
+        .is_some_and(Probed::timed_out)
 }
 
 const ERROR_DETAIL_LIMIT: usize = 240;

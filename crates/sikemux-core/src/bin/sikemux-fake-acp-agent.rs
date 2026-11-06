@@ -7,7 +7,7 @@
 //! - `stream N` sends N pieces of text;
 //! - `ask` asks permission and says which answer it got;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on a
-//!   cancel;
+//!   cancel; `hold PATH` waits for as long as that file exists;
 //! - `plan` sets out a plan of three steps, one done, one under way, one to do;
 //! - `exit CODE` ends the process at once;
 //! - `who` says which account the process runs as;
@@ -264,7 +264,8 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
     let line = command_line(text);
     let mut words = line.split_whitespace();
     let command = words.next().unwrap_or_default();
-    let argument = words.next().and_then(|word| word.parse::<u64>().ok());
+    let first_word = words.next();
+    let argument = first_word.and_then(|word| word.parse::<u64>().ok());
     let mut said = String::new();
     let mut say = |piece: &str| {
         agent.say(session_id, "agent_message_chunk", piece);
@@ -297,8 +298,11 @@ fn run_turn(agent: &Agent, session_id: &str, text: &str) -> &'static str {
         "hold" => {
             say("holding ");
             let deadline = Instant::now() + Duration::from_millis(argument.unwrap_or(1_000));
+            let gate = first_word.filter(|_| argument.is_none());
             let mut reason = "end_turn";
-            while Instant::now() < deadline {
+            while gate.map_or(Instant::now() < deadline, |gate| {
+                std::path::Path::new(gate).exists()
+            }) {
                 if agent.cancelled.swap(false, Ordering::AcqRel) {
                     reason = "cancelled";
                     break;

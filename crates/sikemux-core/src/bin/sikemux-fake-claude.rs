@@ -8,7 +8,7 @@
 //! - `stream N` sends N pieces of text;
 //! - `ask` asks permission to run a command and says which answer it got;
 //! - `hold MS` says `holding`, waits, then says `held`, or stops early on an
-//!   interrupt;
+//!   interrupt; `hold PATH` waits for as long as that file exists;
 //! - `count` says how many messages the person sent before this one;
 //! - `limit` fails the way Claude Code does when the account is out of usage;
 //! - anything else is echoed back.
@@ -350,10 +350,14 @@ impl Claude {
                 self.finish(uuid, None);
             }
             "hold" => {
-                let ms: u64 = words.next().and_then(|n| n.parse().ok()).unwrap_or(1000);
+                let word = words.next();
+                let ms: Option<u64> = word.and_then(|n| n.parse().ok());
+                let gate = word.filter(|_| ms.is_none());
                 self.say(&format!("{message_id}-a"), "holding");
-                let until = Instant::now() + Duration::from_millis(ms);
-                while Instant::now() < until {
+                let until = Instant::now() + Duration::from_millis(ms.unwrap_or(1000));
+                while gate.map_or(Instant::now() < until, |gate| {
+                    std::path::Path::new(gate).exists()
+                }) {
                     if self.interrupted.load(Ordering::Acquire) {
                         self.finish(uuid, Some("[Request interrupted by user]"));
                         return;
