@@ -12,9 +12,9 @@ use gpui_kit::{
 };
 use serde_json::{json, Value};
 use sikemux_core::git::diff::DiffRow;
-use sikemux_core::git::status::GitFile;
+use sikemux_core::git::status::{GitChange, GitFile};
 
-use super::pane::{has_unstaged, is_staged, status_mark, GitPane, Side};
+use super::pane::{status_mark, GitPane, Side};
 use super::{row, Colours, Compared, Diff, Notes, RowLook};
 use crate::core::Target;
 use crate::editor::OpenAt;
@@ -108,7 +108,7 @@ impl Review {
             .iter()
             .map(|file| {
                 let path = file.path.as_str();
-                let sections = match (is_staged(file), has_unstaged(file)) {
+                let sections = match (file.is_staged(), file.has_unstaged()) {
                     (true, true) => vec![
                         (Some(Side::Staged), compared(path, "HEAD", Some(":index"))),
                         (Some(Side::Unstaged), compared(path, ":index", None)),
@@ -508,9 +508,15 @@ fn draw(
         Item::Title(card, at) => {
             let section = &review.cards[card].sections[at];
             let file = review.cards[card].file.as_ref();
-            let (code, word) = match section.side {
-                Some(Side::Staged) => (file.map_or("", |file| file.index.as_str()), "STAGED"),
-                _ => (file.map_or("", |file| file.worktree.as_str()), "UNSTAGED"),
+            let (change, word) = match section.side {
+                Some(Side::Staged) => (
+                    file.map_or(GitChange::Unchanged, |file| file.index),
+                    "STAGED",
+                ),
+                _ => (
+                    file.map_or(GitChange::Unchanged, |file| file.worktree),
+                    "UNSTAGED",
+                ),
             };
             body(
                 div()
@@ -524,7 +530,7 @@ fn draw(
                     .font_family(crate::theme::UI)
                     .text_size(crate::theme::ui_text(TEXT_3XS))
                     .text_color(t.text_tertiary)
-                    .children(status_mark(code, cx))
+                    .children(status_mark(change, cx))
                     .child(div().child(word)),
             )
             .into_any_element()
@@ -650,17 +656,14 @@ fn header(view: &Entity<GitPane>, pane: &GitPane, card: usize, cx: &App) -> AnyE
 /// A file's status letters: one for each side that changed, or one for an untracked or
 /// conflicted file, whose sides say the same.
 fn badges(file: &GitFile, cx: &App) -> Vec<Div> {
-    if file.index == "U" || file.worktree == "U" {
-        return status_mark("U", cx).into_iter().collect();
+    if file.index == GitChange::Unmerged || file.worktree == GitChange::Unmerged {
+        return status_mark(GitChange::Unmerged, cx).into_iter().collect();
     }
-    if file.index == "?" && file.worktree == "?" {
-        return status_mark("?", cx).into_iter().collect();
+    if file.index == GitChange::Untracked && file.worktree == GitChange::Untracked {
+        return status_mark(GitChange::Untracked, cx).into_iter().collect();
     }
-    [
-        status_mark(&file.index, cx),
-        status_mark(&file.worktree, cx),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
+    [status_mark(file.index, cx), status_mark(file.worktree, cx)]
+        .into_iter()
+        .flatten()
+        .collect()
 }

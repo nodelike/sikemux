@@ -7,7 +7,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled,
 };
 use serde_json::json;
-use sikemux_plugin_api::codehost::Pull;
+use sikemux_plugin_api::codehost::{Pull, PullState};
 
 use crate::icons::Icon;
 use crate::reads::Read;
@@ -70,25 +70,9 @@ fn pull<'a>(bench: &'a Workbench, branch: &str) -> Option<&'a Pull> {
         .map(|listed| &listed.pull)
         .collect();
     own.iter()
-        .find(|pull| pull.state == "open")
+        .find(|pull| matches!(pull.listed_state(), PullState::Open | PullState::Draft))
         .or(own.first())
         .copied()
-}
-
-fn merged(pull: &Pull) -> bool {
-    pull.state == "merged" || pull.merged_at.is_some()
-}
-
-/// How a pull request reads: a draft still open reads as a draft, as GitHub shows it.
-fn state(pull: &Pull) -> &'static str {
-    if merged(pull) {
-        return "Merged";
-    }
-    match (pull.state.as_str(), pull.draft) {
-        ("open", true) => "Draft",
-        ("open", false) => "Open",
-        _ => "Closed",
-    }
 }
 
 /// The pull request's badge and the button that removes a merged worktree, for the agent in
@@ -110,7 +94,7 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
     let path = worktree.path.to_string_lossy().into_owned();
     let t = Tokens::get(cx).clone();
     let pull = pull(bench, &branch);
-    let pull_merged = pull.is_some_and(merged);
+    let pull_merged = pull.is_some_and(|pull| pull.listed_state() == PullState::Merged);
     let at_rest = bench
         .agent_by_id(agent)
         .is_none_or(|row| !row.busy && !row.background);
@@ -132,12 +116,11 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
     };
     let badge = pull.map(|pull| {
         let (number, title, url) = (pull.number, &pull.title, pull.url.clone());
-        let state = state(pull);
-        let (color, edge) = match state {
-            "Open" => (t.live, t.live.opacity(0.34)),
-            "Merged" => (t.accent, t.accent.opacity(0.34)),
-            "Closed" => (t.danger, t.border),
-            _ => (t.text_tertiary, t.border),
+        let state = pull.listed_state();
+        let (_, color, word) = crate::code_host_marks::pull_look(state, &t);
+        let edge = match state {
+            PullState::Open | PullState::Merged => color.opacity(0.34),
+            PullState::Closed | PullState::Draft => t.border,
         };
         let opened = agent.to_owned();
         chip("agent-pull-badge")
@@ -146,7 +129,7 @@ pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
             .tooltip(ui::tooltip(format!("#{number} {title}")))
             .child(ui::icon(Icon::PullRequest, 12.).text_color(color))
             .child(ui::mono(format!("#{number}"), TEXT_XS, cx))
-            .child(state)
+            .child(word)
             .on_click(cx.listener(move |bench, _, _, cx| {
                 bench.open_on_desk(&opened, &url, cx);
             }))

@@ -9,11 +9,95 @@ use sikemux_process::sync::Locked;
 
 use super::{flight_key, git_walk_permit, open_repo, run_blocking, shared, Flights};
 
+/// What changed about a file on one side, as git's status letter says.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GitChange {
+    #[serde(rename = " ")]
+    Unchanged,
+    #[serde(rename = "M")]
+    Modified,
+    #[serde(rename = "A")]
+    Added,
+    #[serde(rename = "D")]
+    Deleted,
+    #[serde(rename = "R")]
+    Renamed,
+    #[serde(rename = "C")]
+    Copied,
+    #[serde(rename = "T")]
+    TypeChanged,
+    #[serde(rename = "U")]
+    Unmerged,
+    #[serde(rename = "?")]
+    Untracked,
+}
+
+impl GitChange {
+    fn of(letter: char) -> Self {
+        match letter {
+            ' ' => Self::Unchanged,
+            'A' => Self::Added,
+            'D' => Self::Deleted,
+            'R' => Self::Renamed,
+            'C' => Self::Copied,
+            'T' => Self::TypeChanged,
+            'U' => Self::Unmerged,
+            '?' => Self::Untracked,
+            _ => Self::Modified,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, PartialEq)]
 pub struct GitFile {
     pub path: String,
-    pub index: String,
-    pub worktree: String,
+    pub index: GitChange,
+    pub worktree: GitChange,
+}
+
+impl GitFile {
+    pub fn is_staged(&self) -> bool {
+        !matches!(self.index, GitChange::Unchanged | GitChange::Untracked)
+    }
+
+    pub fn has_unstaged(&self) -> bool {
+        self.worktree != GitChange::Unchanged
+    }
+
+    /// How the file reads once staged, before git has said so.
+    pub fn staged(&self) -> Self {
+        let mut moved = self.clone();
+        if self.has_unstaged() {
+            if !self.is_staged() {
+                moved.index = match self.worktree {
+                    GitChange::Untracked => GitChange::Added,
+                    change => change,
+                };
+            }
+            moved.worktree = GitChange::Unchanged;
+        }
+        moved
+    }
+
+    /// How the file reads once unstaged, before git has said so.
+    pub fn unstaged(&self) -> Self {
+        let mut moved = self.clone();
+        if self.is_staged() {
+            let worktree = if self.has_unstaged() {
+                self.worktree
+            } else if self.index == GitChange::Added {
+                GitChange::Untracked
+            } else {
+                self.index
+            };
+            moved.index = match worktree {
+                GitChange::Untracked => GitChange::Untracked,
+                _ => GitChange::Unchanged,
+            };
+            moved.worktree = worktree;
+        }
+        moved
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -164,8 +248,8 @@ fn read_files(repo: &Repository, paths: &[String]) -> Result<Vec<GitFile>, Strin
         }
         files.push(GitFile {
             path,
-            index: x.to_string(),
-            worktree: y.to_string(),
+            index: GitChange::of(x),
+            worktree: GitChange::of(y),
         });
     }
     Ok(files)
@@ -282,7 +366,12 @@ fn patched_status(
     }
     // A staged rename is listed under its old path, so an edit to its new
     // path changes an entry the moved path does not name.
-    if walk.status.files.iter().any(|file| file.index == "R") {
+    if walk
+        .status
+        .files
+        .iter()
+        .any(|file| file.index == GitChange::Renamed)
+    {
         return None;
     }
     let moved = moved_since(repo, key, since)?;

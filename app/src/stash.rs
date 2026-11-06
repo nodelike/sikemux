@@ -1033,11 +1033,11 @@ fn cut_of(
 /// A pull request's or issue's glyph in the colour of `state`.
 fn state_mark(id: &str, state: &str, t: &Tokens) -> Option<AnyElement> {
     let (glyph, ink, _) = match id.starts_with("tracked:pull") {
-        true => crate::host_marks::pull_look(serde_json::from_value(json!(state)).ok()?, t),
+        true => crate::code_host_marks::pull_look(serde_json::from_value(json!(state)).ok()?, t),
         false if state == "notPlanned" => {
-            crate::host_marks::issue_look("closed", Some("not_planned"), t)
+            crate::code_host_marks::issue_look("closed", Some("not_planned"), t)
         }
-        false => crate::host_marks::issue_look(state, None, t),
+        false => crate::code_host_marks::issue_look(state, None, t),
     };
     Some(ui::icon(glyph, 13.).text_color(ink).into_any_element())
 }

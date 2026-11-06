@@ -30,6 +30,7 @@ use crate::theme::{
 use crate::toast;
 use crate::ui::{self, IconButton};
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::git::status::GitChange;
 
 /// One thing in a folder, as the core listed it: folders first, then by name.
 #[derive(Clone, PartialEq)]
@@ -398,18 +399,17 @@ pub enum Mark {
 }
 
 impl Mark {
-    fn of(code: &str) -> Option<(char, Mark)> {
-        Some(match code {
-            "?" => ('U', Mark::Untracked),
-            "U" => ('U', Mark::Conflicted),
-            "A" => ('A', Mark::Added),
-            "D" => ('D', Mark::Deleted),
-            "R" => ('R', Mark::Renamed),
-            "C" => ('C', Mark::Renamed),
-            "T" => ('T', Mark::Modified),
-            "M" => ('M', Mark::Modified),
-            " " | "" => return None,
-            _ => (code.chars().next()?, Mark::Modified),
+    fn of(change: GitChange) -> Option<(char, Mark)> {
+        Some(match change {
+            GitChange::Untracked => ('U', Mark::Untracked),
+            GitChange::Unmerged => ('U', Mark::Conflicted),
+            GitChange::Added => ('A', Mark::Added),
+            GitChange::Deleted => ('D', Mark::Deleted),
+            GitChange::Renamed => ('R', Mark::Renamed),
+            GitChange::Copied => ('C', Mark::Renamed),
+            GitChange::TypeChanged => ('T', Mark::Modified),
+            GitChange::Modified => ('M', Mark::Modified),
+            GitChange::Unchanged => return None,
         })
     }
 
@@ -431,7 +431,7 @@ fn git_marks(root: &Path, overview: &GitOverview) -> HashMap<PathBuf, (Option<ch
     let mut marks: HashMap<PathBuf, (Option<char>, Mark)> = HashMap::new();
     for file in &overview.status.files {
         let path = file.path.as_str();
-        let sides = [file.index.as_str(), file.worktree.as_str()];
+        let sides = [file.index, file.worktree];
         let Some((letter, mark)) = sides
             .into_iter()
             .filter_map(Mark::of)

@@ -3302,9 +3302,12 @@ export interface GitStatus {
 
 export interface GitFile {
     path: string;
-    index: string;
-    worktree: string;
+    index: GitChange;
+    worktree: GitChange;
 }
+
+/** What changed about a file on one side, as git's status letter says. */
+export type GitChange = " " | "M" | "A" | "D" | "R" | "C" | "T" | "U" | "?";
 
 export interface GitBranch {
     name: string;

@@ -603,6 +603,21 @@ pub enum PullState {
     Merged,
 }
 
+impl Pull {
+    /// How it stands, whichever way its code host says so.
+    pub fn listed_state(&self) -> PullState {
+        if self.state == "merged" || self.merged_at.is_some() {
+            PullState::Merged
+        } else if self.state != "open" {
+            PullState::Closed
+        } else if self.draft {
+            PullState::Draft
+        } else {
+            PullState::Open
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PullList {

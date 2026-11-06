@@ -22,7 +22,7 @@ use gpui_kit::{
 use serde_json::{json, Value};
 use sikemux_core::git::log::{GitCommit, GitOverview};
 use sikemux_core::git::stash::GitStash;
-use sikemux_core::git::status::GitFile;
+use sikemux_core::git::status::{GitChange, GitFile};
 use sikemux_core::server::call;
 use sikemux_core::server::drafts::SetDraftParams;
 use sikemux_wire::protocol::ProjectCodeHost;
@@ -140,62 +140,32 @@ pub enum Side {
     Unstaged,
 }
 
-pub fn is_staged(file: &GitFile) -> bool {
-    file.index != " " && file.index != "?"
-}
-
-pub fn has_unstaged(file: &GitFile) -> bool {
-    file.worktree != " "
-}
-
 /// How a file reads once it has moved to `side`, before git has said so.
 fn moved_to(file: &GitFile, side: Side) -> GitFile {
-    let mut moved = file.clone();
     match side {
-        Side::Staged if has_unstaged(file) => {
-            if !is_staged(file) {
-                moved.index = if file.worktree == "?" {
-                    "A".into()
-                } else {
-                    file.worktree.clone()
-                };
-            }
-            moved.worktree = " ".into();
-        }
-        Side::Unstaged if is_staged(file) => {
-            let worktree = if has_unstaged(file) {
-                file.worktree.clone()
-            } else if file.index == "A" {
-                "?".into()
-            } else {
-                file.index.clone()
-            };
-            moved.index = if worktree == "?" { "?" } else { " " }.into();
-            moved.worktree = worktree;
-        }
-        _ => {}
+        Side::Staged => file.staged(),
+        Side::Unstaged => file.unstaged(),
     }
-    moved
 }
 
 /// What git's status letter for one side of a file means: the letter shown, and its colour.
-fn decoration(code: &str, t: &Tokens) -> Option<(&'static str, Hsla, &'static str)> {
-    Some(match code.trim() {
-        "" => return None,
-        "?" => ("U", Mark::Untracked.colour(t), "untracked"),
-        "U" => ("U", Mark::Conflicted.colour(t), "unmerged"),
-        "A" => ("A", Mark::Added.colour(t), "added"),
-        "D" => ("D", Mark::Deleted.colour(t), "deleted"),
-        "R" => ("R", Mark::Renamed.colour(t), "renamed"),
-        "C" => ("C", Mark::Renamed.colour(t), "copied"),
-        "T" => ("T", Mark::Modified.colour(t), "type changed"),
-        _ => ("M", Mark::Modified.colour(t), "modified"),
+fn decoration(change: GitChange, t: &Tokens) -> Option<(&'static str, Hsla, &'static str)> {
+    Some(match change {
+        GitChange::Unchanged => return None,
+        GitChange::Untracked => ("U", Mark::Untracked.colour(t), "untracked"),
+        GitChange::Unmerged => ("U", Mark::Conflicted.colour(t), "unmerged"),
+        GitChange::Added => ("A", Mark::Added.colour(t), "added"),
+        GitChange::Deleted => ("D", Mark::Deleted.colour(t), "deleted"),
+        GitChange::Renamed => ("R", Mark::Renamed.colour(t), "renamed"),
+        GitChange::Copied => ("C", Mark::Renamed.colour(t), "copied"),
+        GitChange::TypeChanged => ("T", Mark::Modified.colour(t), "type changed"),
+        GitChange::Modified => ("M", Mark::Modified.colour(t), "modified"),
     })
 }
 
 /// A file's status letter as a review card shows it.
-pub fn status_mark(code: &str, cx: &App) -> Option<Div> {
-    let (letter, colour, _) = decoration(code, Tokens::get(cx))?;
+pub fn status_mark(change: GitChange, cx: &App) -> Option<Div> {
+    let (letter, colour, _) = decoration(change, Tokens::get(cx))?;
     Some(
         div()
             .font_family(theme::MONO)
@@ -889,8 +859,8 @@ impl GitPane {
         let files = self.listed_files();
         let mut entries = Vec::new();
         for (side, wanted) in [
-            (Side::Staged, is_staged as fn(&GitFile) -> bool),
-            (Side::Unstaged, has_unstaged),
+            (Side::Staged, GitFile::is_staged as fn(&GitFile) -> bool),
+            (Side::Unstaged, GitFile::has_unstaged),
         ] {
             let listed: Vec<&GitFile> = files.iter().filter(|file| wanted(file)).collect();
             if listed.is_empty() {
@@ -1141,13 +1111,13 @@ impl GitPane {
     }
 
     fn stage_all(&mut self, cx: &mut Context<Self>) {
-        let paths = self.paths(has_unstaged);
+        let paths = self.paths(GitFile::has_unstaged);
         let params = self.repo_call(json!({}));
         self.shift(paths, Side::Staged, "git.stageAll", params, cx);
     }
 
     fn unstage_all(&mut self, cx: &mut Context<Self>) {
-        let paths = self.paths(is_staged);
+        let paths = self.paths(GitFile::is_staged);
         let params = self.repo_call(json!({}));
         self.shift(paths, Side::Unstaged, "git.unstageAll", params, cx);
     }
@@ -1363,7 +1333,7 @@ impl GitPane {
             .next()
             .unwrap_or(&file.path)
             .to_owned();
-        let body = if file.worktree == "?" {
+        let body = if file.worktree == GitChange::Untracked {
             "The file is new and will be deleted. This can't be undone."
         } else {
             "Unstaged changes to this file will be lost. This can't be undone."
@@ -1388,11 +1358,18 @@ impl GitPane {
     }
 
     fn discard_all(&mut self, cx: &mut Context<Self>) {
-        let unstaged: Vec<GitFile> = self.files().into_iter().filter(has_unstaged).collect();
+        let unstaged: Vec<GitFile> = self
+            .files()
+            .into_iter()
+            .filter(GitFile::has_unstaged)
+            .collect();
         if unstaged.is_empty() {
             return;
         }
-        let added = unstaged.iter().filter(|file| file.worktree == "?").count();
+        let added = unstaged
+            .iter()
+            .filter(|file| file.worktree == GitChange::Untracked)
+            .count();
         let count = format!(
             "{} file{}",
             unstaged.len(),
@@ -1554,7 +1531,7 @@ impl GitPane {
         let halves = self
             .files()
             .iter()
-            .any(|file| is_staged(file) && has_unstaged(file));
+            .any(|file| file.is_staged() && file.has_unstaged());
         let staged = halves.then(|| read(true));
         cx.spawn(async move |pane, cx| {
             let owners = owners.await.unwrap_or(Value::Null);
@@ -1989,7 +1966,7 @@ impl GitPane {
     }
 
     fn staged_count(&self) -> usize {
-        self.files().iter().filter(|file| is_staged(file)).count()
+        self.files().iter().filter(|file| file.is_staged()).count()
     }
 
     fn commit(&mut self, cx: &mut Context<Self>) {
@@ -2202,7 +2179,7 @@ impl GitPane {
             "down" => self.step(1, cx),
             "up" => self.step(-1, cx),
             " " | "space" => self.toggle_stage(cx),
-            "a" if self.files().iter().any(has_unstaged) => self.stage_all(cx),
+            "a" if self.files().iter().any(GitFile::has_unstaged) => self.stage_all(cx),
             "a" => self.unstage_all(cx),
             "c" => {
                 let draft = self.draft.clone();
@@ -2875,7 +2852,7 @@ fn away_note(host: &str, cx: &App) -> Div {
 fn more_menu(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoElement {
     let view = cx.entity();
     let changed = !pane.files().is_empty();
-    let unstaged = pane.files().iter().any(has_unstaged);
+    let unstaged = pane.files().iter().any(GitFile::has_unstaged);
     let stashes = pane.stashes.len();
     let commands_open = pane.commands_open;
     ui::menu_button(
@@ -3311,8 +3288,8 @@ pub fn file_actions(
             })
             .into_any_element()
     };
-    let unstaged = side.map_or(has_unstaged(file), |side| side == Side::Unstaged);
-    let staged = side.map_or(is_staged(file), |side| side == Side::Staged);
+    let unstaged = side.map_or(file.has_unstaged(), |side| side == Side::Unstaged);
+    let staged = side.map_or(file.is_staged(), |side| side == Side::Staged);
     let key = format!("{}:{:?}", file.path, side);
     let mut actions = Vec::new();
     if side.is_some() {
@@ -3391,11 +3368,11 @@ fn entry_row(
                 Some((dir, base)) => (Some(dir.to_owned()), base.to_owned()),
                 None => (None, file.path.clone()),
             };
-            let code = match side {
-                Side::Staged => file.index.as_str(),
-                Side::Unstaged => file.worktree.as_str(),
+            let change = match side {
+                Side::Staged => file.index,
+                Side::Unstaged => file.worktree,
             };
-            let letter = decoration(code, &t).map(|(letter, colour, label)| {
+            let letter = decoration(change, &t).map(|(letter, colour, label)| {
                 let colour = if side == Side::Unstaged && letter == "M" {
                     t.git_renamed
                 } else {

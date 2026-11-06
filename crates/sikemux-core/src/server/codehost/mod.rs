@@ -359,7 +359,7 @@ async fn pull_list(repo: &Repo, state: &str) -> Result<PullList, Failure> {
     let pulls = pulls
         .into_iter()
         .map(|pull| ListedPull {
-            state: state_of(&pull),
+            state: pull.listed_state(),
             own_branch: own_branch(&pull, repo.owner()),
             pull,
         })
@@ -453,7 +453,7 @@ fn context(tracked: &Tracked, comments: &[Comment]) -> Value {
             ],
         ),
         Tracked::Pull(pull) => {
-            let state = match state_of(pull) {
+            let state = match pull.listed_state() {
                 PullState::Open => "open",
                 PullState::Draft => "draft",
                 PullState::Closed => "closed",
@@ -520,18 +520,6 @@ fn own_branch(pull: &Pull, owner: &str) -> bool {
             .as_deref()
             .and_then(|label| label.split(':').next())
             .is_none_or(|head| head.is_empty() || head == owner)
-}
-
-fn state_of(pull: &Pull) -> PullState {
-    if pull.state == "merged" || pull.merged_at.is_some() {
-        PullState::Merged
-    } else if pull.state == "open" && pull.draft {
-        PullState::Draft
-    } else if pull.state == "open" {
-        PullState::Open
-    } else {
-        PullState::Closed
-    }
 }
 
 /// The open issues and pull requests together, newest first. A host that

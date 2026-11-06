@@ -15,6 +15,7 @@ use sikemux_core::git::remote::{GitRemote, GitRemoteBranch};
 use sikemux_plugin_api::codehost::{PullList, PullState};
 
 use super::{row_button, GitPane, Pick, ROW_HEIGHT};
+use crate::code_host_marks::pull_look;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
@@ -67,13 +68,13 @@ pub(super) struct Branches {
     pub(super) pulls: HashMap<String, Opened>,
 }
 
-/// A branch's open pull request: its number, title, address and whether it is a draft.
+/// A branch's open pull request: its number, title, address and how it stands.
 #[derive(Clone, PartialEq)]
 pub(super) struct Opened {
     number: u64,
     title: String,
     url: String,
-    draft: bool,
+    state: PullState,
 }
 
 impl GitPane {
@@ -193,7 +194,7 @@ impl GitPane {
                         number: listed.pull.number,
                         title: listed.pull.title,
                         url: listed.pull.url,
-                        draft: listed.state == PullState::Draft,
+                        state: listed.state,
                     };
                     Some((listed.pull.head?, opened))
                 })
@@ -1066,11 +1067,7 @@ fn pull_chip(pane: &GitPane, branch: &str, index: usize, cx: &App) -> Option<Any
     let t = Tokens::get(cx).clone();
     let opened = pane.branches.pulls.get(branch)?;
     let number = opened.number;
-    let ink = if opened.draft {
-        t.text_tertiary
-    } else {
-        t.live
-    };
+    let (_, ink, _) = pull_look(opened.state, &t);
     let url = opened.url.clone();
     Some(
         gpui_kit::base::Button::new(("branch-pull", index))
