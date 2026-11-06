@@ -28,7 +28,7 @@ use gpui_kit::{
 };
 use serde_json::Value;
 use sikemux_core::server::search::{
-    FileWindow, ReplaceResults, SearchFile, SearchHit, SearchOptions, SearchSummary,
+    FileWindow, ReplaceResults, SearchFile, SearchFound, SearchHit, SearchOptions, SearchSummary,
 };
 
 use crate::core::{Streaming, Target};
@@ -290,12 +290,10 @@ impl SearchPane {
 
     fn found(&mut self, items: Vec<Value>, cx: &mut Context<Self>) {
         for item in items {
-            if let Some(file) = item.get("file") {
-                if let Ok(file) = serde_json::from_value::<SearchFile>(file.clone()) {
-                    self.files.push(file);
-                }
-            } else if let Some(summary) = item.get("summary") {
-                self.summary = serde_json::from_value(summary.clone()).ok();
+            match serde_json::from_value(item) {
+                Ok(SearchFound::File(file)) => self.files.push(file),
+                Ok(SearchFound::Summary(summary)) => self.summary = Some(summary),
+                Err(error) => eprintln!("sikemux: a search answer did not read: {error}"),
             }
         }
         self.relist();

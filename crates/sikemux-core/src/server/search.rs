@@ -89,6 +89,15 @@ pub struct SearchFile {
     pub matches: Vec<SearchHit>,
 }
 
+/// One item of a search's stream: `{ "file": … }` for each file as it is found, then
+/// `{ "summary": … }`.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SearchFound {
+    File(SearchFile),
+    Summary(SearchSummary),
+}
+
 /// How a search went, sent after every file it found.
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

@@ -99,7 +99,14 @@ pub struct SimManager {
 pub struct SimStatus {
     supported: bool,
     installed: bool,
-    reason: Option<String>,
+    pub reason: Option<String>,
+}
+
+impl SimStatus {
+    /// Whether the simulator can run on this machine.
+    pub fn usable(&self) -> bool {
+        self.supported && self.reason.is_none()
+    }
 }
 
 impl SimManager {

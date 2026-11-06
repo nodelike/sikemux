@@ -11,6 +11,7 @@ use gpui_kit::{
     StatefulInteractiveElement, Styled, Window,
 };
 use serde_json::{json, Value};
+use sikemux_core::server::{ManifestReloadReport, ManifestSourceKind};
 use tokio::sync::oneshot;
 
 use crate::core::{Ask, Detection};
@@ -24,7 +25,7 @@ use crate::workbench::Workbench;
 
 #[derive(Default)]
 pub struct Diagnostics {
-    manifests: Option<Value>,
+    manifests: Option<ManifestReloadReport>,
     explain: Option<Value>,
     error: Option<String>,
     /// Where the snapshot was last saved, once it was.
@@ -66,7 +67,10 @@ fn ask(bench: &Workbench, detection: Detection, cx: &mut Context<Workbench>) {
             if let Some(diagnostics) = diagnostics_of(bench) {
                 match (answer, explaining) {
                     (Ok(explain), true) => diagnostics.explain = Some(explain),
-                    (Ok(manifests), false) => diagnostics.manifests = Some(manifests),
+                    (Ok(manifests), false) => match serde_json::from_value(manifests) {
+                        Ok(manifests) => diagnostics.manifests = Some(manifests),
+                        Err(error) => diagnostics.error = Some(error.to_string()),
+                    },
                     (Err(error), _) => diagnostics.error = Some(error),
                 }
             }
@@ -162,8 +166,7 @@ pub fn render(
     let manifests = diagnostics
         .manifests
         .as_ref()
-        .and_then(|report| report["manifests"].as_array())
-        .map_or(&[][..], Vec::as_slice);
+        .map_or(&[][..], |report| report.manifests.as_slice());
     let signal = |title: String, detail: String| {
         div()
             .flex()
@@ -210,18 +213,17 @@ pub fn render(
                 .child(kicker("agent detection manifests")),
         )
         .children(manifests.iter().map(|manifest| {
-            let source = manifest["source"]["kind"].as_str().unwrap_or_default();
-            let warning = if manifest["warning"].is_null() {
-                ""
-            } else {
-                " · warning"
+            let source = match manifest.source.kind {
+                ManifestSourceKind::Bundled => "bundled",
+                ManifestSourceKind::LocalOverride => "local_override",
+            };
+            let warning = match manifest.warning {
+                Some(_) => " · warning",
+                None => "",
             };
             signal(
-                manifest["agent"].as_str().unwrap_or_default().to_owned(),
-                format!(
-                    "v{} · {source}{warning}",
-                    manifest["version"].as_str().unwrap_or_default()
-                ),
+                manifest.agent.to_string(),
+                format!("v{} · {source}{warning}", manifest.version),
             )
             .w(relative(0.195))
         }))

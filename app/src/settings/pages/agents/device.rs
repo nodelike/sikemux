@@ -5,6 +5,7 @@ use gpui_kit::component::switch::Switch;
 use gpui_kit::component::Disableable;
 use gpui_kit::{div, AnyElement, App, Context, Div, Entity, ParentElement, SharedString, Window};
 use serde_json::Value;
+use sikemux_simulator::SimStatus;
 use sikemux_view::notch::NotchSettings;
 use sikemux_view::notch::{NotchDisplays, NotchFullScreen, NotchOpenWith, NotchPeeks};
 use sikemux_view::prefs::PreferenceChange;
@@ -129,7 +130,7 @@ pub struct Fields {
     full_screen: Choice,
     peeks: Choice,
     /// Whether the simulator can run here, once asked.
-    sim_status: Option<Value>,
+    sim_status: Option<SimStatus>,
     /// Xcode, its iOS runtimes and the helper, once read; none when they could not be.
     sim_setup: Option<Option<Value>>,
 }
@@ -138,12 +139,8 @@ pub struct Fields {
 pub fn read_simulator(bench: &Workbench, cx: &mut Context<Workbench>) {
     let status = bench.sims.read(cx).status();
     cx.spawn(async move |bench, cx| {
-        let status = status
-            .await
-            .and_then(|status| serde_json::to_value(status).ok());
-        let usable = status
-            .as_ref()
-            .is_some_and(|status| status["supported"] == true && status["reason"].is_null());
+        let status = status.await;
+        let usable = status.as_ref().is_some_and(SimStatus::usable);
         let setup = match usable {
             true => bench
                 .update(cx, |bench, cx| bench.sims.read(cx).setup())
@@ -291,12 +288,11 @@ fn notch_switch(
 /// What the simulator would run with, or why it cannot run here.
 fn simulator_rows(fields: &Fields, cx: &App) -> Vec<Div> {
     let unavailable = fields.sim_status.as_ref().and_then(|status| {
-        let usable = status["supported"] == true && status["reason"].is_null();
-        (!usable).then(|| {
-            status["reason"]
-                .as_str()
-                .unwrap_or("The iOS Simulator is not available here.")
-                .to_owned()
+        (!status.usable()).then(|| {
+            status
+                .reason
+                .clone()
+                .unwrap_or_else(|| "The iOS Simulator is not available here.".to_owned())
         })
     });
     let read = |describe: &dyn Fn(&Value) -> String| match &fields.sim_setup {

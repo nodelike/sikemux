@@ -397,11 +397,7 @@ fn rerun_failed(bench: &Workbench, execution: &str, cx: &mut Context<Workbench>)
     bench.report(
         rerun,
         "Could not rerun the failed tests",
-        |bench, answer, cx| {
-            if let Some(task) = answer["taskId"].as_str() {
-                bench.pick_task(task, cx);
-            }
-        },
+        |bench, answer, cx| bench.pick_task(&answer.task_id, cx),
         cx,
     );
 }

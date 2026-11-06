@@ -121,7 +121,8 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 use sikemux_process::sync::{Locked, Shared};
-use sikemux_pty::agent_detection::{ManifestRegistry, ManifestReloadReport};
+use sikemux_pty::agent_detection::ManifestRegistry;
+pub use sikemux_pty::agent_detection::{ManifestReloadReport, ManifestSourceKind};
 
 use sikemux_pty::error::PtyError;
 use sikemux_pty::process::DRAIN_GRACE;

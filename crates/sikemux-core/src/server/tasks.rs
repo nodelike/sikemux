@@ -951,7 +951,20 @@ fn install_dependencies(cwd: &Path, install: &str) -> Result<(), String> {
 
 /// The person starts a task: it replaces the one their project is running.
 /// Answers the checks that stopped it, or the run it started.
-pub(crate) async fn start(core: &Arc<Core>, params: TaskStartParams) -> CoreResult<Value> {
+/// What asking for a task to start did.
+#[derive(Serialize, Deserialize)]
+#[serde(untagged, rename_all_fields = "camelCase")]
+pub enum TaskStarted {
+    /// Its checks hold it back, and the person decides.
+    Held {
+        checks: Vec<Check>,
+    },
+    Running {
+        execution_id: String,
+    },
+}
+
+pub(crate) async fn start(core: &Arc<Core>, params: TaskStartParams) -> CoreResult<TaskStarted> {
     let project = PathBuf::from(&params.project);
     if !params.force {
         let (core, project, task_id, fixing) = (
@@ -970,11 +983,11 @@ pub(crate) async fn start(core: &Arc<Core>, params: TaskStartParams) -> CoreResu
         })
         .await?;
         if found.iter().any(|check| !check.item.ok()) {
-            return Ok(json!({ "checks": found }));
+            return Ok(TaskStarted::Held { checks: found });
         }
     }
     let execution_id = super::harness::start_for_person(core, &params.project, &params.task_id)?;
-    Ok(json!({ "executionId": execution_id }))
+    Ok(TaskStarted::Running { execution_id })
 }
 
 #[derive(Deserialize, Serialize)]
@@ -983,8 +996,19 @@ pub struct RerunParams {
     pub execution_id: String,
 }
 
+/// The task made to run only the failed tests, and its run.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RerunStarted {
+    pub task_id: String,
+    pub execution_id: String,
+}
+
 /// Adds a task that runs only the tests a finished run failed, and starts it.
-pub(crate) async fn rerun_failed(core: &Arc<Core>, params: RerunParams) -> CoreResult<Value> {
+pub(crate) async fn rerun_failed(
+    core: &Arc<Core>,
+    params: RerunParams,
+) -> CoreResult<RerunStarted> {
     let run = core
         .harness
         .run_of(&params.execution_id)
@@ -1037,7 +1061,10 @@ pub(crate) async fn rerun_failed(core: &Arc<Core>, params: RerunParams) -> CoreR
     }
     core.changed(What::ReadIn(Topic::Tasks, Some(&run.project), None));
     let execution_id = super::harness::start_for_person(core, &run.project, &task_id)?;
-    Ok(json!({ "taskId": task_id, "executionId": execution_id }))
+    Ok(RerunStarted {
+        task_id,
+        execution_id,
+    })
 }
 
 /// Every run as clients show it, with what it waits on the person for and

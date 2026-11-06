@@ -7,7 +7,6 @@ use gpui_kit::{
     div, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement, Styled,
     Window,
 };
-use serde_json::Value;
 use sikemux_core::harness::runs::RunStatus;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
@@ -19,14 +18,15 @@ use crate::toast;
 use crate::ui::{self, Variant};
 use crate::workbench::Workbench;
 use sikemux_core::server::call;
-use sikemux_core::server::tasks::TaskStartParams;
+use sikemux_core::server::tasks::{TaskStartParams, TaskStarted};
+use sikemux_core::tasks::check::{Check, CheckItem};
 
 /// A task held back by its checks, waiting on the person.
 pub struct RunCheck {
     project: String,
     task: String,
     label: String,
-    checks: Vec<Value>,
+    checks: Vec<Check>,
     fixing: bool,
 }
 
@@ -81,25 +81,21 @@ impl Workbench {
             let answer = asked.await;
             let _ = bench.update(cx, |bench, cx| {
                 match answer {
-                    Ok(answer) => match answer["checks"].as_array() {
-                        Some(checks) => {
-                            bench.overlays.run_check = Some(RunCheck {
-                                project,
-                                task,
-                                label,
-                                checks: checks.clone(),
-                                fixing: false,
-                            })
-                        }
-                        None => {
-                            bench.overlays.run_check = None;
-                            if let Some(execution) = answer["executionId"].as_str() {
-                                bench.tasks.to_show.insert(execution.to_owned());
-                                bench.show_started_runs();
-                            }
-                            bench.notify(toast::success(format!("Started process: {label}")), cx);
-                        }
-                    },
+                    Ok(TaskStarted::Held { checks }) => {
+                        bench.overlays.run_check = Some(RunCheck {
+                            project,
+                            task,
+                            label,
+                            checks,
+                            fixing: false,
+                        })
+                    }
+                    Ok(TaskStarted::Running { execution_id }) => {
+                        bench.overlays.run_check = None;
+                        bench.tasks.to_show.insert(execution_id);
+                        bench.show_started_runs();
+                        bench.notify(toast::success(format!("Started process: {label}")), cx);
+                    }
                     Err(error) => {
                         if let Some(check) = bench.overlays.run_check.as_mut() {
                             check.fixing = false;
@@ -188,18 +184,18 @@ pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Op
         .as_ref()
         .filter(|check| check.project == project)?;
     let t = Tokens::get(cx).clone();
-    let failed = |item: &&Value| item["ok"] != true;
-    let installs = check
-        .checks
-        .iter()
-        .filter(failed)
-        .any(|item| item["kind"] != "port");
+    let failed = || check.checks.iter().filter(|check| !check.item.ok());
+    let installs = failed().any(|check| !matches!(check.item, CheckItem::Port { .. }));
     let fixable = installs
-        || check
-            .checks
-            .iter()
-            .filter(failed)
-            .any(|item| item["kind"] == "port" && !item["freePort"].is_null());
+        || failed().any(|check| {
+            matches!(
+                check.item,
+                CheckItem::Port {
+                    free_port: Some(_),
+                    ..
+                }
+            )
+        });
     let title = ui::text(
         format!("{} can't start yet", check.label),
         TEXT_XS,
@@ -208,7 +204,7 @@ pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Op
     .text_color(t.text_primary)
     .into_any_element();
     let items = check.checks.iter().map(|item| {
-        let ok = item["ok"] == true;
+        let ok = item.item.ok();
         div()
             .flex()
             .items_start()
@@ -228,22 +224,14 @@ pub fn card(bench: &Workbench, project: &str, cx: &mut Context<Workbench>) -> Op
                     .gap(SPACE_0)
                     .min_w_0()
                     .child(
-                        ui::text(
-                            item["title"].as_str().unwrap_or_default().to_owned(),
-                            TEXT_XS,
-                            FontWeight::NORMAL,
-                        )
-                        .whitespace_normal()
-                        .text_color(t.text_primary),
+                        ui::text(item.title.clone(), TEXT_XS, FontWeight::NORMAL)
+                            .whitespace_normal()
+                            .text_color(t.text_primary),
                     )
                     .child(
-                        ui::text(
-                            item["detail"].as_str().unwrap_or_default().to_owned(),
-                            TEXT_2XS_H,
-                            FontWeight::NORMAL,
-                        )
-                        .whitespace_normal()
-                        .text_color(t.text_tertiary),
+                        ui::text(item.detail.clone(), TEXT_2XS_H, FontWeight::NORMAL)
+                            .whitespace_normal()
+                            .text_color(t.text_tertiary),
                     ),
             )
     });

@@ -193,10 +193,12 @@ pub(crate) fn search_stream(
     let owner = client.id.to_string();
     tokio::task::spawn_blocking(move || {
         let found = crate::server::search::search(params.search, &owner, &|file| {
-            stream.push(json!({ "file": file }))
+            stream.push(json!(crate::server::search::SearchFound::File(file)))
         });
         match found {
-            Ok(summary) => stream.finish(Some(json!({ "summary": summary }))),
+            Ok(summary) => stream.finish(Some(json!(crate::server::search::SearchFound::Summary(
+                summary
+            )))),
             Err(message) => stream.fail(json!({ "category": "search", "message": message })),
         }
     });

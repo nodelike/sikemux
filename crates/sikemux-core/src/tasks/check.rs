@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 
 use regex::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::detect::build_tool_of;
 use super::java::JavaChoice;
@@ -42,7 +42,7 @@ pub enum Listening {
     Held(String),
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -75,7 +75,7 @@ pub enum CheckItem {
     },
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Check {
     #[serde(flatten)]
