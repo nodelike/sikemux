@@ -63,7 +63,6 @@ pub struct DraggedStash {
 pub struct Stash<'a> {
     pub signed_in: bool,
     pub items: &'a [ShownStashItem],
-    seen_at: Option<&'a str>,
 }
 
 impl<'a> Stash<'a> {
@@ -72,24 +71,12 @@ impl<'a> Stash<'a> {
         Self {
             signed_in: read.is_some_and(|read| read.signed_in),
             items: read.map_or(&[][..], |read| read.items.as_slice()),
-            seen_at: read.and_then(|read| read.seen_at.as_deref()),
         }
     }
 
     /// The items stashed since the person last looked, on any device.
     pub fn new_items(&self) -> Vec<&'a ShownStashItem> {
-        self.items
-            .iter()
-            .filter(|shown| {
-                match (
-                    self.seen_at.and_then(epoch_ms),
-                    epoch_ms(&shown.item.created_at),
-                ) {
-                    (Some(seen), Some(at)) => at > seen,
-                    _ => self.seen_at.is_none(),
-                }
-            })
-            .collect()
+        self.items.iter().filter(|shown| shown.fresh).collect()
     }
 
     /// How many items are new and still unused, for the count on the composer's button.
@@ -119,30 +106,7 @@ fn epoch_ms(at: &str) -> Option<i64> {
         .map(|at| at.timestamp_millis())
 }
 
-/// What an item is called: its page's title, its text's first line, or its file's name.
-pub fn title(item: &StashItem) -> String {
-    fn text(said: &Option<String>) -> Option<&str> {
-        said.as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-    }
-    match item.kind {
-        StashKind::Link => text(&item.url).map(|url| {
-            (item.preview.as_ref().map(|preview| preview.title.trim()))
-                .filter(|title| !title.is_empty())
-                .unwrap_or_else(|| {
-                    url.trim_start_matches("https://")
-                        .trim_start_matches("http://")
-                })
-                .to_owned()
-        }),
-        StashKind::Text | StashKind::Prompt => {
-            text(&item.text).map(|text| text.lines().next().unwrap_or(text).to_owned())
-        }
-        _ => text(&item.name).map(str::to_owned),
-    }
-    .unwrap_or_else(|| "Untitled".to_owned())
-}
+pub use sikemux_core::server::stash::title;
 
 /// Where a link goes, how many files a prompt carries or how large a file is, then how long ago it
 /// was stashed.
