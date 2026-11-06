@@ -206,6 +206,7 @@ named_fields!(row_field, ChatMessage {
     "opensTurn" => opens_turn,
     "meta" => meta,
     "fold" => fold,
+    "team" => team,
     "reactions" => reactions,
     "fromEvent" => from_event,
 });

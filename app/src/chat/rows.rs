@@ -1,5 +1,5 @@
 //! Drawing a chat's rows: a message and its parts, the work folded under a turn, letters and
-//! fired triggers, and subagents.
+//! fired triggers, and subagents. Runs of messages between agents are in `team`.
 
 use super::*;
 
@@ -38,7 +38,23 @@ pub(super) fn row(
     };
     let message = &row.message;
     let user = message.role == ChatRole::User;
-    let fold = message.fold.as_ref();
+    let team = message.team.as_ref();
+    let team_open = team.is_some_and(|team| looks.reading.team_open(&team.id));
+    let opens_run = team.filter(|team| {
+        ix == 0 || (rows[ix - 1].message.team.as_ref()).is_none_or(|before| before.id != team.id)
+    });
+    let team_head = opens_run.and_then(|team| {
+        let line = team::line_of(&rows[ix..], &team.id)?;
+        Some(team::head(&team.id, line, team_open, looks, cx))
+    });
+    let behind = team
+        .filter(|_| team_open)
+        .is_some_and(|team| team::behind(&rows[ix..], &team.id, looks.reading));
+    if team.is_some_and(|team| behind || (!team_open && team.shown.is_empty())) {
+        return div().children(team_head).into_any_element();
+    }
+    // A run folds a turn's work with it, so its rows show whole once it is open.
+    let fold = message.fold.as_ref().filter(|_| team.is_none());
     let folded = fold.is_some_and(|fold| !looks.reading.opened.contains(&fold.id));
     let opens = fold.filter(|fold| {
         ix == 0
@@ -48,8 +64,10 @@ pub(super) fn row(
                 .as_ref()
                 .is_none_or(|before| before.id != fold.id)
     });
-    let work_shown = if user {
+    let work_shown = if user || team_open {
         1.
+    } else if team.is_some() {
+        0.
     } else {
         motion::follow(
             SharedString::from(format!("work-shown:{}", message.id)),
@@ -65,7 +83,10 @@ pub(super) fn row(
     };
     let mut segments: Vec<(bool, Vec<&ChatPart>)> = Vec::new();
     for (index, part) in message.parts.iter().enumerate() {
-        let tucked = fold.is_some_and(|fold| !fold.shown.contains(&(index as u64)));
+        let tucked = match team {
+            Some(team) => !team.shown.contains(&(index as u64)),
+            None => fold.is_some_and(|fold| !fold.shown.contains(&(index as u64))),
+        };
         if tucked && work_shown <= 0. {
             continue;
         }
@@ -180,6 +201,18 @@ pub(super) fn row(
                 looks,
             )),
             None => {
+                let lit = motion::follow(
+                    SharedString::from(format!("prompt-lit:{}", message.id)),
+                    if looks.reading.lit.as_deref() == Some(message.id.as_str()) {
+                        1.
+                    } else {
+                        0.
+                    },
+                    motion::LIT,
+                    window,
+                    cx,
+                );
+                let bubble = theme::mix(Tokens::get(cx).text_primary, looks.bubble, 0.12 * lit);
                 let group = SharedString::from(format!("sent:{}", message.id));
                 let bench = looks.bench.clone();
                 let open = move |path: PathBuf, window: &mut Window, cx: &mut App| {
@@ -203,7 +236,7 @@ pub(super) fn row(
                                 .border_1()
                                 .border_color(looks.line)
                                 .rounded(theme::RADIUS_3)
-                                .bg(looks.bubble)
+                                .bg(bubble)
                                 .children(parts),
                         )
                     })
@@ -230,6 +263,7 @@ pub(super) fn row(
             .children(meta::line(rows, ix, &group, looks, cx))
     };
     let user = user && (!lettered || triggered);
+    let inside_run = team_open && team.is_some_and(|team| team.shown.is_empty());
     let drawn = div()
         .w_full()
         .flex()
@@ -237,11 +271,13 @@ pub(super) fn row(
         .items_center()
         .children(lost)
         .children(worktree)
+        .children(team_head)
         .child(
             div()
                 .w_full()
                 .max_w(px(800.))
                 .px(px(22.))
+                .when(inside_run, |row| row.pl(px(team::INSIDE)))
                 .map(|row| {
                     if user {
                         row.pt(px(17.)).pb(SPACE_2H).flex().justify_end()
@@ -525,7 +561,7 @@ pub(super) fn letters(
                     .font_weight(FontWeight::SEMIBOLD)
                     .cursor_pointer()
                     .hover(|name| name.underline())
-                    .child(letter.name.clone())
+                    .child(format!("@{}", letter.name))
                     .on_click(move |_, _, cx| {
                         bench
                             .update(cx, |bench, cx| bench.open_agent(&agent, cx))

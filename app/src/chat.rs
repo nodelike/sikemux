@@ -22,7 +22,7 @@ use gpui_kit::{
 };
 use gpui_transcript::{
     AwayChanged, Change, CodeColours, EmptyChanged, FoundChanged, Markdown, Pen, Row, RowsChanged,
-    Style, Transcript,
+    Style, Transcript, ViewMoved,
 };
 use looks::*;
 use questions::*;
@@ -32,7 +32,7 @@ use sikemux_view::catalog::ChatDriver;
 use sikemux_view::chat::{
     AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView,
     FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk,
-    SubagentCard, SubagentState, ToolDetail, WorkFold,
+    SubagentCard, SubagentState, TeamLine, TeamNeedKind, ToolDetail, WorkFold,
 };
 use sikemux_view::layout::PaneKind;
 use sikemux_view::questions::{AgentQuestion, QuestionState};
@@ -82,6 +82,7 @@ mod questions;
 mod rows;
 mod schema;
 pub(crate) mod status;
+mod team;
 mod tools;
 pub(crate) use installing::installs_moved;
 
@@ -462,6 +463,11 @@ struct Reading {
     finding: bool,
     /// Where the chat stands with a worktree, said above its first message.
     worktree: Option<crate::worktrees::switch::Switch>,
+    /// The runs of messages between agents the reader opened, and whether all of each shows,
+    /// by the run.
+    teams: HashMap<String, bool>,
+    /// The message the reader just jumped to, lit for a moment.
+    lit: Option<String>,
 }
 
 impl Reading {
@@ -473,6 +479,14 @@ impl Reading {
         if !self.opened.remove(id) {
             self.opened.insert(id.to_owned());
         }
+    }
+
+    fn team_open(&self, id: &str) -> bool {
+        self.finding || self.teams.contains_key(id)
+    }
+
+    fn team_all(&self, id: &str) -> bool {
+        self.finding || self.teams.get(id).copied().unwrap_or(false)
     }
 }
 
@@ -506,7 +520,7 @@ pub struct Chat {
     _rows: [Subscription; 2],
     /// The stage draws the find bar's count and the way back to the latest rows, so it hears
     /// when what was found changes and when the reader scrolls away from the end.
-    _found: [Subscription; 2],
+    _found: [Subscription; 3],
     /// The find bar over the transcript, while it is open.
     pub finding: Option<find::Finding>,
     plan_open: bool,
@@ -632,6 +646,16 @@ impl Chat {
                 let stage = stage.clone();
                 cx.subscribe(&transcript, move |_, _: &AwayChanged, cx| {
                     redraw(&stage, cx)
+                })
+            },
+            {
+                let stage = stage.clone();
+                let was_above = Cell::new(false);
+                cx.subscribe(&transcript, move |transcript, _: &ViewMoved, cx| {
+                    let above = team::asked_above_view(transcript.read(cx)).is_some();
+                    if was_above.replace(above) != above {
+                        redraw(&stage, cx)
+                    }
                 })
             },
         ];
@@ -926,6 +950,12 @@ impl Chat {
 
     /// While the find bar looks for something, long texts show all of themselves so every
     /// place it finds can be seen.
+    /// Keeps what the reader sees where it is while a fold opens or closes below its top.
+    pub(crate) fn hold_place(&self, cx: &mut App) {
+        self.transcript
+            .update(cx, |transcript, cx| transcript.hold_place(cx));
+    }
+
     pub fn unfold_for_find(&self, on: bool, cx: &mut App) {
         if self.reader.read(cx).finding == on {
             return;
@@ -1380,6 +1410,7 @@ pub fn pane(
             ),
         )
         .children(scrollbar)
+        .children(team::asked(chat, cx))
         .children(chat.finding.as_ref().map(|finding| {
             let transcript = chat.transcript.read(cx);
             let (found, local) = (transcript.found(), transcript.found_at());

@@ -1,0 +1,301 @@
+//! Messages between agents, which the core folds into runs: the one line a closed run shows,
+//! what it holds once opened, and the strip that keeps the person's own prompt in reach.
+
+use super::*;
+
+use std::time::Duration;
+
+use crate::theme::{SPACE_0, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_XS_H};
+
+/// How far a run's rows sit in from its line, past the width of its chevron.
+pub(super) const INSIDE: f32 = 40.;
+const MARK: f32 = 16.;
+/// How long a message the reader jumped to stays lit.
+const LIT_FOR: Duration = Duration::from_millis(900);
+
+fn same_run<'a>(rows: &'a [ChatRow], id: &'a str) -> impl Iterator<Item = &'a ChatRow> {
+    rows.iter()
+        .take_while(move |row| (row.message.team.as_ref()).is_some_and(|team| team.id == id))
+}
+
+/// What run `id`'s line says, from the rows it holds from here on. Rows paged back from an
+/// earlier chunk of a run carry a line of their own, so the last one counts.
+pub(super) fn line_of<'a>(rows: &'a [ChatRow], id: &'a str) -> Option<&'a TeamLine> {
+    same_run(rows, id)
+        .filter_map(|row| row.message.team.as_ref()?.line.as_ref())
+        .last()
+}
+
+/// Whether the first of `rows` waits behind "Show N earlier" while run `id` is open.
+pub(super) fn behind(rows: &[ChatRow], id: &str, reading: &Reading) -> bool {
+    if reading.team_all(id) {
+        return false;
+    }
+    let Some(line) = line_of(rows, id) else {
+        return false;
+    };
+    rows.first().is_some_and(|row| row.message.id != line.from)
+        && same_run(rows, id).any(|row| row.message.id == line.from)
+}
+
+fn elapsed(took: u64) -> String {
+    match took {
+        0..60_000 => crate::ui::time::took(took),
+        _ => crate::ui::time::total(took as f64),
+    }
+}
+
+/// What a run's line says after its count, and whether it wants the person.
+fn said(line: &TeamLine) -> (String, bool) {
+    if let Some(need) = &line.need {
+        let name = &need.name;
+        let text = need.text.as_deref();
+        let words = match (need.kind, text) {
+            (TeamNeedKind::Asks, Some(text)) => format!("@{name} asks: {text}"),
+            (TeamNeedKind::Asks, None) => format!("@{name} has a question"),
+            (TeamNeedKind::Waits, Some(text)) => format!("@{name}: {text}"),
+            (TeamNeedKind::Waits, None) => format!("@{name} waits on you"),
+            (TeamNeedKind::Failed, Some(text)) => format!("@{name} failed: {text}"),
+            (TeamNeedKind::Failed, None) => format!("@{name} failed"),
+            (TeamNeedKind::Stopped, _) => format!("@{name} stopped"),
+        };
+        return (words, true);
+    }
+    let latest = line.latest.as_ref();
+    let words = latest.map_or_else(String::new, |said| format!("@{}: {}", said.name, said.text));
+    (words, false)
+}
+
+/// The one line a run folds to, and while it is open and has more than it opens on, the way to
+/// the rest.
+pub(super) fn head(
+    id: &str,
+    line: &TeamLine,
+    open: bool,
+    looks: &Drawn,
+    cx: &mut App,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let (words, wanting) = said(line);
+    let marks = line
+        .agents
+        .iter()
+        .map(|agent| looks.mark_of(&agent.agent_id, &agent.cli, MARK, cx))
+        .collect::<Vec<_>>();
+    let count = match line.messages {
+        1 => "1 message".to_owned(),
+        messages => format!("{messages} messages"),
+    };
+    let (reader, bench, agent, hover) = (
+        looks.reader.clone(),
+        looks.bench.clone(),
+        looks.agent.clone(),
+        looks.hover,
+    );
+    let toggled = id.to_owned();
+    let toggle = move |cx: &mut App, change: &dyn Fn(&mut Reading)| {
+        bench
+            .update(cx, |bench, cx| {
+                if let Some(chat) = bench.chats.open.get(&agent) {
+                    chat.hold_place(cx);
+                }
+            })
+            .ok();
+        reader.update(cx, |reading, cx| {
+            change(reading);
+            cx.notify();
+        });
+    };
+    let row = {
+        let (toggle, toggled) = (toggle.clone(), toggled.clone());
+        div()
+            .id(SharedString::from(format!("team:{id}")))
+            .min_w_0()
+            .h(px(24.))
+            .ml(px(-6.))
+            .mr(px(-6.))
+            .px(SPACE_1H)
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .rounded(theme::RADIUS_2)
+            .text_size(crate::theme::ui_text(TEXT_XS_H))
+            .cursor_pointer()
+            .hover(move |row| row.bg(hover))
+            .on_click(move |_, _, cx| {
+                let id = toggled.clone();
+                toggle(cx, &move |reading| {
+                    if reading.teams.remove(&id).is_none() {
+                        reading.teams.insert(id.clone(), false);
+                    }
+                });
+            })
+            .child(motion::turn(
+                format!("team-chevron:{id}"),
+                motion::fold_angle(open),
+                motion::DETAIL_FOLD,
+                ui::icon(Icon::Chevron, 10.).text_color(looks.quiet),
+            ))
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_0)
+                    .children(marks)
+                    .when(line.more > 0, |marks| {
+                        marks.child(
+                            div()
+                                .ml(SPACE_0)
+                                .text_size(crate::theme::ui_text(TEXT_2XS))
+                                .text_color(looks.quiet)
+                                .child(format!("+{}", line.more)),
+                        )
+                    }),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(looks.ink)
+                    .child(count),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(if wanting { t.danger } else { looks.quiet })
+                    .child(words),
+            )
+            .children(line.took.map(|took| {
+                div()
+                    .flex_none()
+                    .text_color(looks.quiet)
+                    .child(elapsed(took))
+            }))
+    };
+    let earlier = (open && line.earlier > 0 && !looks.reading.team_all(id)).then(|| {
+        let (toggle, toggled) = (toggle.clone(), toggled.clone());
+        div()
+            .id(SharedString::from(format!("team-earlier:{id}")))
+            .mt(SPACE_1)
+            .ml(px(INSIDE - 28.))
+            .px(SPACE_1H)
+            .h(px(22.))
+            .flex()
+            .items_center()
+            .self_start()
+            .rounded(theme::RADIUS_2)
+            .text_size(crate::theme::ui_text(TEXT_2XS))
+            .text_color(looks.quiet)
+            .cursor_pointer()
+            .hover(move |row| row.bg(hover))
+            .on_click(move |_, _, cx| {
+                let id = toggled.clone();
+                toggle(cx, &move |reading| {
+                    reading.teams.insert(id.clone(), true);
+                });
+            })
+            .child(format!("Show {} earlier", line.earlier))
+    });
+    div()
+        .w_full()
+        .max_w(px(800.))
+        .px(px(22.))
+        .py(SPACE_1)
+        .flex()
+        .flex_col()
+        .child(row)
+        .children(earlier)
+        .into_any_element()
+}
+
+/// The person's last message, while it has scrolled off the top of what they are reading.
+pub(super) fn asked_above_view(transcript: &Transcript<ChatRow>) -> Option<&ChatRow> {
+    let rows = transcript.rows();
+    let prompt = rows
+        .iter()
+        .rposition(|row| row.message.role == ChatRole::User && row.message.letters.is_empty())?;
+    transcript
+        .above_view(rows[prompt].id())
+        .then(|| &rows[prompt])
+}
+
+/// A strip over the top of the rows naming what the person last asked, which takes them back to it.
+pub(super) fn asked(chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
+    let transcript = chat.transcript.read(cx);
+    let prompt = asked_above_view(transcript)?;
+    let id = prompt.message.id.clone();
+    let text: String = prompt
+        .message
+        .parts
+        .iter()
+        .filter_map(text_of)
+        .map(|(text, _)| text)
+        .collect();
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let t = Tokens::get(cx).clone();
+    let (reader, transcript) = (chat.reader.clone(), chat.transcript.clone());
+    let hover = theme::mix(t.text_primary, t.surface_raised, 0.05);
+    Some(
+        div()
+            .id("asked-strip")
+            .absolute()
+            .top_0()
+            .left_0()
+            .right_0()
+            .h(px(28.))
+            .flex()
+            .justify_center()
+            .border_b_1()
+            .border_color(t.border)
+            .bg(t.surface_raised)
+            .cursor_pointer()
+            .hover(move |strip| strip.bg(hover))
+            .on_click(cx.listener(move |_, _, _, cx| {
+                transcript.update(cx, |transcript, cx| transcript.to_row(&id, cx));
+                reader.update(cx, |reading, cx| {
+                    reading.lit = Some(id.clone());
+                    cx.notify();
+                });
+                let reader = reader.clone();
+                let lit = id.clone();
+                cx.spawn(async move |_, cx| {
+                    cx.background_executor().timer(LIT_FOR).await;
+                    reader.update(cx, |reading, cx| {
+                        if reading.lit.as_deref() == Some(lit.as_str()) {
+                            reading.lit = None;
+                            cx.notify();
+                        }
+                    });
+                })
+                .detach();
+            }))
+            .child(
+                div()
+                    .w_full()
+                    .max_w(px(800.))
+                    .px(px(22.))
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_2)
+                    .text_size(crate::theme::ui_text(TEXT_XS_H))
+                    .child(
+                        div()
+                            .flex_none()
+                            .text_color(t.text_tertiary)
+                            .child("You asked"),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(t.text_primary)
+                            .child(text),
+                    ),
+            )
+            .into_any_element(),
+    )
+}
