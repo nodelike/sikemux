@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
 VERSION="${1:-}"
 NOTARIZED="${RELEASE_NOTARIZED:-0}"
-# shellcheck source=/dev/null
+# shellcheck source=scripts/release-shape.sh
 source "$ROOT/scripts/release-shape.sh"
 
 fail() {

@@ -17,7 +17,7 @@ fail() {
 [[ -n "$VERSION" && -n "$NOTES" ]] || { echo "Usage: $0 <version> <notes> [--nightly]" >&2; exit 2; }
 [[ "${GITHUB_ACTIONS:-}" == "true" ]] || fail "releases publish from the Release workflow"
 
-# shellcheck source=/dev/null
+# shellcheck source=scripts/release-shape.sh
 source "$ROOT/scripts/release-shape.sh"
 BUNDLE="$ROOT/target/release/bundle"
 APP_NAME="$(node scripts/app-metadata.mjs name)"

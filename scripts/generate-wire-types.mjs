@@ -1004,7 +1004,7 @@ ${requests
         static let op = ${JSON.stringify(renameAll(request.name, "camelCase"))}
         typealias Answer = CoreResponse.${request.answer}
 ${request.fields.map((f) => outside(swiftProperty(f, "        ", true), SWIFT_REQUESTS)).join("\n")}
-    }`.replace(/\n\n    \}/, "\n    }"),
+    }`.replace(/\n\n {4}\}/, "\n    }"),
   )
   .join("\n\n")}
 }

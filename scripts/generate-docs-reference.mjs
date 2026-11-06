@@ -6,7 +6,7 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { check, emit } from "./lib/generated.mjs";
+import { emit } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const out = resolve(root, "docs-site/src/content/docs/reference");

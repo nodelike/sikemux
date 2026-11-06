@@ -6,7 +6,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 ROOT="$(pwd -P)"
-# shellcheck source=/dev/null
+# shellcheck source=scripts/release-shape.sh
 source "$ROOT/scripts/release-shape.sh"
 VERSION="${1:-}"
 NOTES="${2:-}"

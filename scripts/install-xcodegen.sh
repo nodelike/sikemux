@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2154 # GitHub sets the runner's variables.
 # Installs a pinned XcodeGen on a CI runner and puts it on the job's PATH.
 # Homebrew takes minutes to update itself first; this takes seconds.
 set -euo pipefail

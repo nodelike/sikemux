@@ -2,7 +2,7 @@
 # Lists the commits the given revisions select, as git log takes them, that credit
 # Claude, and fails if there are any. Commits here credit only people.
 set -uo pipefail
-# shellcheck source=/dev/null
+# shellcheck source=scripts/credit-pattern.sh
 source "$(dirname "$0")/credit-pattern.sh"
 
 credited="$(

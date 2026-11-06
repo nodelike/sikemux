@@ -5,8 +5,8 @@
 // shared/buddies, which the helper runs to draw them. `--check` fails when one is
 // out of date instead of writing it.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { build } from "vite";
 
 const root = resolve(import.meta.dirname, "..");
@@ -197,7 +197,7 @@ ${Object.entries(COLOURS)
 }
 `,
 );
-import { check, emit } from "./lib/generated.mjs";
+import { emit } from "./lib/generated.mjs";
 
 const [bundle] = await build({
   root,

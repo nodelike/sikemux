@@ -14,7 +14,6 @@ const themeDir = resolve(root, "node_modules/material-icon-theme");
 const iconsOutputDir = resolve(root, "server/app/public/file-icons");
 const indexOutputPath = resolve(iconsOutputDir, "index.json");
 const gpuiBundlePath = resolve(root, "app/assets/file-icons.json.gz");
-const grammarsPath = resolve(root, "shared/languages/grammars.generated.ts");
 
 const theme = JSON.parse(
   await readFile(resolve(themeDir, "dist/material-icons.json"), "utf8"),
@@ -121,15 +120,6 @@ function sorted(record) {
   return Object.fromEntries(
     Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
   );
-}
-
-async function readOrNull(path) {
-  try {
-    return await readFile(path, "utf8");
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-    return null;
-  }
 }
 
 /** Compressed files are compared by what they hold, since zlib versions differ in the bytes they write. */

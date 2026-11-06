@@ -7,7 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 IDENTITY="${APPLE_SIGNING_IDENTITY:--}"
 APP_IDENTIFIER="$(node "$(dirname "$0")/app-metadata.mjs" identifier)"
-# shellcheck source=/dev/null
+# shellcheck source=scripts/release-shape.sh
 source "$ROOT/scripts/release-shape.sh"
 
 for helper in "$@"; do

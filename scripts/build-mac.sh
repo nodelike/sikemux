@@ -13,7 +13,7 @@ APP_IDENTIFIER="$(node scripts/app-metadata.mjs identifier)"
 MINIMUM_MACOS="$(node scripts/app-metadata.mjs minimum-macos)"
 ICON_ASSET="sikemux"
 
-# shellcheck source=/dev/null
+# shellcheck source=scripts/release-shape.sh
 source "$ROOT/scripts/release-shape.sh"
 CORE_LINK_TARGET="$(node scripts/app-metadata.mjs core-link)"
 

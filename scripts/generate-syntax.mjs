@@ -4,7 +4,7 @@
 // only what it needs, and the scope-to-colour table of createCodeTheme. `--check`
 // fails when either is out of date instead of writing.
 
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import {

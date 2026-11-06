@@ -14,9 +14,7 @@ import {
   readdirSync,
   readFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { appMetadata } from "./app-metadata.mjs";
 import { building, root } from "./lib/build.mjs";

@@ -8,9 +8,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { appMetadata } from "./app-metadata.mjs";
 import { smokeCore } from "./smoke-core.mjs";

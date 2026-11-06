@@ -5,10 +5,10 @@
 // the showcase get the clients' view of it as a fixture. `--check` fails when
 // one is out of date instead of writing it.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { format, resolveConfig } from "prettier";
-import { check, emit } from "./lib/generated.mjs";
+import { emit } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const sourcePath = resolve(

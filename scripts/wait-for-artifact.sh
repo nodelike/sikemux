@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2154 # GitHub sets the runner's variables.
 # Waits for an artifact that another job of this workflow run uploads, then unpacks it.
 # Gives up as soon as one of the named jobs ends without success.
 # Usage: wait-for-artifact.sh <artifact> <directory> <job name>...

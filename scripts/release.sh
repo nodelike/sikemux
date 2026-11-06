@@ -54,7 +54,7 @@ if [[ "$CHANNEL" == "stable" && "$VERSION_WITHOUT_BUILD" == *-* ]]; then
   exit 2
 fi
 
-# shellcheck source=/dev/null
+# shellcheck source=scripts/release-shape.sh
 source "$ROOT/scripts/release-shape.sh"
 SIGNING_VARS=("${SIGNING_SECRETS[@]}" APPLE_SIGNING_IDENTITY)
 # Load local signing configuration without printing it. Explicit environment

@@ -1,7 +1,7 @@
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import prettier from "prettier";
-import { check, emit, shikiGrammars } from "./lib/generated.mjs";
+import { emit, shikiGrammars } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const langsDir = resolve(root, "node_modules/@shikijs/langs");
