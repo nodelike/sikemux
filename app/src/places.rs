@@ -238,7 +238,7 @@ impl Workbench {
         };
         let tab_id = tab.id.clone();
         let close = move |bench: &mut Workbench| match split {
-            true => bench.close_pane(&strip, &tab_id, &pane),
+            true => bench.close_pane(&bench.target(), &strip, &tab_id, &pane),
             false => bench.close_tabs(&strip, std::slice::from_ref(&tab_id)),
         };
         if kind == PaneKind::Agent {

@@ -13,6 +13,7 @@ use gpui_kit::{
 };
 use sikemux_view::layout::{Pane, PaneKind, SplitDir, Tab};
 
+use crate::core::Target;
 use crate::drag::DraggedTab;
 use crate::pane_kind::Separable;
 use crate::text_size::Surface;
@@ -926,27 +927,26 @@ impl Workbench {
         self.parts.redraw_stage(cx);
     }
 
-    /// Puts a view of `kind` showing `target` to the right of the view `pane` of `tab`.
-    pub fn split_pane(
+    /// Puts `agent`'s desk to the right of the view `pane` of `tab`.
+    pub fn split_desk(
         &self,
+        to: &Target,
         strip: &Strip,
         tab: &str,
         pane: &str,
-        kind: PaneKind,
-        target: &str,
+        agent: &str,
         keep_front: bool,
     ) {
-        self.target()
-            .call_typed::<call::SplitPane>(layout::SplitPane {
-                at: strip.at(),
-                tab: tab.to_owned(),
-                pane: pane.to_owned(),
-                side: layout::Side::Right,
-                kind: Some(kind),
-                target: Some(target.to_owned()),
-                from_tab: None,
-                keep_front,
-            });
+        to.call_typed::<call::SplitPane>(layout::SplitPane {
+            at: strip.at(),
+            tab: tab.to_owned(),
+            pane: pane.to_owned(),
+            side: layout::Side::Right,
+            kind: Some(PaneKind::Desk),
+            target: Some(agent.to_owned()),
+            from_tab: None,
+            keep_front,
+        });
     }
 
     /// Notes the side of the view `pane` of `tab` that a tab dragged over it would take: the
@@ -1025,13 +1025,12 @@ impl Workbench {
         self.parts.redraw_stage(cx);
     }
 
-    pub fn close_pane(&self, strip: &Strip, tab: &str, pane: &str) {
-        self.target()
-            .call_typed::<call::ClosePane>(layout::PaneParams {
-                at: strip.at(),
-                tab: tab.to_owned(),
-                pane: pane.to_owned(),
-            });
+    pub fn close_pane(&self, to: &Target, strip: &Strip, tab: &str, pane: &str) {
+        to.call_typed::<call::ClosePane>(layout::PaneParams {
+            at: strip.at(),
+            tab: tab.to_owned(),
+            pane: pane.to_owned(),
+        });
     }
 
     /// The view of a split `tab` its menu can move out into a tab of its own, as the Mac's

@@ -1,7 +1,6 @@
 //! ⌘⇧P, the command deck: every command the window can do and the person's own
 //! commands, the ones used last first.
 
-use crate::core::Target;
 use crate::workbench::actions;
 use gpui_kit::{App, Context, SharedString, Window};
 use sikemux_core::server::call;
@@ -605,8 +604,9 @@ impl Workbench {
             Which::Command(id) => (Some(id), None),
             Which::Action(id) => (None, Some(id)),
         };
-        let ran =
-            Target::here(&self.asks).request_typed::<call::RunCustomCommand>(RunCustomParams {
+        let ran = self
+            .target()
+            .request_typed::<call::RunCustomCommand>(RunCustomParams {
                 at: strip.at(),
                 id,
                 action,

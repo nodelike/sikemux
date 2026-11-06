@@ -26,12 +26,13 @@ use sikemux_browser::{
 };
 use sikemux_core::harness::runs::RunStatus;
 use sikemux_process::sync::Locked;
+use sikemux_view::device::DeviceView;
 use sikemux_view::goals::{AgentDesk, DeskTerminal};
 use sikemux_view::layout::{Pane, PaneKind};
 use sikemux_wire::protocol::AgentStatus;
 use tokio::sync::mpsc;
 
-use crate::core::Ask;
+use crate::core::{Ask, Target};
 use crate::icons::Icon;
 use crate::tabs::shows;
 use crate::theme::{
@@ -802,7 +803,7 @@ impl Workbench {
         }
         if let Some((strip, tab, desk)) = self.desk_place(agent) {
             if !self.panes.desk_shutting(&desk) {
-                self.shut_desk(strip, tab, desk, cx);
+                self.shut_desk(Target::here(&self.asks), strip, tab, desk, cx);
             }
         }
     }
@@ -820,13 +821,7 @@ impl Workbench {
 
     /// The project tab holding the agent, its strip and its view there, wherever it is.
     fn agent_place(&self, agent: &str) -> Option<(Strip, String, String)> {
-        let layout = &self.this_view()?.layout;
-        layout.projects.iter().find_map(|(project, strip)| {
-            strip.tabs.iter().find_map(|tab| {
-                view_of(&tab.pane, PaneKind::Agent, agent)
-                    .map(|view| (Strip::Project(project.clone()), tab.id.clone(), view))
-            })
-        })
+        agent_place_in(self.this_view()?, agent)
     }
 
     /// Whether the agent's desk is in the tab in front, or about to be, as `show_pages` brings
@@ -852,7 +847,8 @@ impl Workbench {
 
     fn reveal_desk(&self, agent: &str) {
         if let Some((strip, tab, view)) = self.agent_place(agent) {
-            self.split_pane(&strip, &tab, &view, PaneKind::Desk, agent, true);
+            let here = Target::here(&self.asks);
+            self.split_desk(&here, &strip, &tab, &view, agent, true);
         }
     }
 
@@ -1066,18 +1062,25 @@ impl Workbench {
                 self.panes.slide_desk(&desk, true);
                 self.parts.redraw_stage(cx);
             }
-            Some(desk) => self.shut_desk(strip, tab.to_owned(), desk, cx),
+            Some(desk) => self.shut_desk(self.target(), strip, tab.to_owned(), desk, cx),
             None => {
-                self.split_pane(&strip, tab, view, PaneKind::Desk, agent, false);
+                self.split_desk(&self.target(), &strip, tab, view, agent, false);
                 self.open_first_page(agent, cx);
             }
         }
     }
 
     /// Slides the desk back to the window's edge, then closes it unless it was opened again.
-    fn shut_desk(&mut self, strip: Strip, tab: String, desk: String, cx: &mut Context<Self>) {
+    fn shut_desk(
+        &mut self,
+        to: Target,
+        strip: Strip,
+        tab: String,
+        desk: String,
+        cx: &mut Context<Self>,
+    ) {
         if cx.reduce_motion() {
-            return self.close_pane(&strip, &tab, &desk);
+            return self.close_pane(&to, &strip, &tab, &desk);
         }
         let lasts = self.panes.slide_desk(&desk, false);
         self.parts.redraw_stage(cx);
@@ -1085,7 +1088,7 @@ impl Workbench {
             cx.background_executor().timer(lasts).await;
             let _ = this.update(cx, |bench, _| {
                 if bench.panes.desk_shutting(&desk) {
-                    bench.close_pane(&strip, &tab, &desk);
+                    bench.close_pane(&to, &strip, &tab, &desk);
                 }
             });
         })
@@ -1125,7 +1128,7 @@ impl Workbench {
                 Some((
                     agent.active_at,
                     agent.id.clone(),
-                    self.agent_place(&agent.id)?,
+                    agent_place_in(self.shown()?, &agent.id)?,
                 ))
             })
             .max_by_key(|(active_at, ..)| *active_at);
@@ -1174,7 +1177,7 @@ impl Workbench {
         self.desks
             .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
         if let (None, Some(strip)) = (self.desk_of(&tab, &agent), self.strip()) {
-            self.split_pane(&strip, &tab, &view, PaneKind::Desk, &agent, false);
+            self.split_desk(&self.target(), &strip, &tab, &view, &agent, false);
         }
         self.new_page(&agent, cx);
     }
@@ -1259,7 +1262,7 @@ impl Workbench {
         self.desks
             .update(cx, |desks, cx| desks.show_kind(&agent, DeskKind::Pages, cx));
         if let (None, Some(strip)) = (self.desk_of(&tab, &agent), self.strip()) {
-            self.split_pane(&strip, &tab, &view, PaneKind::Desk, &agent, false);
+            self.split_desk(&self.target(), &strip, &tab, &view, &agent, false);
         }
         self.open_first_page(&agent, cx);
         self.desks.update(cx, |desks, cx| {
@@ -2391,4 +2394,13 @@ impl DeskNews {
             cx.observe(sims, |bench, _, cx| bench.desks_moved(cx)),
         ];
     }
+}
+
+fn agent_place_in(view: &DeviceView, agent: &str) -> Option<(Strip, String, String)> {
+    view.layout.projects.iter().find_map(|(project, strip)| {
+        strip.tabs.iter().find_map(|tab| {
+            view_of(&tab.pane, PaneKind::Agent, agent)
+                .map(|view| (Strip::Project(project.clone()), tab.id.clone(), view))
+        })
+    })
 }
