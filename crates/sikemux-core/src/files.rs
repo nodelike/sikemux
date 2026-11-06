@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ErrorKind;
@@ -65,57 +64,7 @@ impl From<&str> for Error {
     }
 }
 
-type Result<T> = std::result::Result<T, Error>;
-
-/// What a `files.*` method answered, and the file it saved when it saved one whole.
-pub struct Ran {
-    pub answer: Value,
-    pub saved: Option<PathBuf>,
-}
-
-/// Runs `files.<method>` with `params`, reading at most `piece` bytes of a
-/// file at once. Blocks on the disk.
-pub fn run(method: &str, params: Value, piece: u64) -> Result<Ran> {
-    fn answer(value: impl Serialize) -> Result<Value> {
-        serde_json::to_value(value).map_err(|error| format!("json: {error}").into())
-    }
-    if method == "files.write" {
-        let params: WriteParams = parse(params)?;
-        let path = PathBuf::from(&params.path);
-        let written = write(params)?;
-        let saved = written.version.is_some().then_some(path);
-        return Ok(Ran {
-            answer: answer(written)?,
-            saved,
-        });
-    }
-    let answer = match method {
-        "files.list" => answer(list(parse(params)?)?),
-        "files.kinds" => answer(kinds(parse(params)?)?),
-        "files.read" => answer(read(parse(params)?, piece)?),
-        "files.create" => answer(create(parse(params)?)?),
-        "files.rename" => answer(rename(parse(params)?)?),
-        "files.delete" => answer(delete(parse(params)?)?),
-        "files.readText" => answer(read_text(parse(params)?)?),
-        "files.copyInto" => answer(copy_into(parse(params)?)?),
-        "files.writeBytes" => answer(write_bytes(parse(params)?)?),
-        "files.preview" => answer(preview(parse(params)?)?),
-        "files.bytes" => answer(bytes(parse(params)?)?),
-        _ => Err(Error {
-            message: format!("this host does not know {method}"),
-            kind: Some(ErrorKind::UnknownMethod),
-        }),
-    }?;
-    Ok(Ran {
-        answer,
-        saved: None,
-    })
-}
-
-fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T> {
-    serde_json::from_value(params)
-        .map_err(|error| format!("invalid argument: the call's params do not fit: {error}").into())
-}
+pub type Result<T> = std::result::Result<T, Error>;
 
 fn absolute(path: &str) -> Result<&Path> {
     let path = Path::new(path);
@@ -130,42 +79,42 @@ fn absolute(path: &str) -> Result<&Path> {
     }
 }
 
-#[derive(Deserialize)]
-struct ListParams {
-    dirs: Vec<String>,
+#[derive(Deserialize, Serialize)]
+pub struct FileListParams {
+    pub dirs: Vec<String>,
     /// Where in each folder, sorted as answered, to start.
     #[serde(default)]
-    from: usize,
+    pub from: usize,
 }
 
 /// One folder's entries, folders first then files, both by name. `total`
 /// counts them all, so a client knows when `entries` stops short.
-#[derive(Serialize)]
-struct Listing {
-    dir: String,
-    entries: Vec<Entry>,
-    total: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+#[derive(Serialize, Deserialize)]
+pub struct FileListing {
+    pub dir: String,
+    pub entries: Vec<FileEntry>,
+    pub total: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
-#[derive(Serialize)]
-struct Entry {
-    name: String,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    dir: bool,
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    ignored: bool,
+#[derive(Serialize, Deserialize)]
+pub struct FileEntry {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub dir: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub ignored: bool,
 }
 
-fn list(params: ListParams) -> Result<Vec<Listing>> {
+pub fn list(params: FileListParams) -> Result<Vec<FileListing>> {
     if params.dirs.len() > MAX_DIRS {
         return Err(
             format!("invalid argument: one listing may name at most {MAX_DIRS} folders").into(),
         );
     }
     let mut budget = MAX_ENTRIES;
-    let mut listings: Vec<Listing> = params
+    let mut listings: Vec<FileListing> = params
         .dirs
         .into_iter()
         .map(|dir| match read_dir_sorted(&dir) {
@@ -176,14 +125,14 @@ fn list(params: ListParams) -> Result<Vec<Listing>> {
                 budget -= end - start;
                 entries.truncate(end);
                 entries.drain(..start);
-                Listing {
+                FileListing {
                     dir,
                     entries,
                     total,
                     error: None,
                 }
             }
-            Err(error) => Listing {
+            Err(error) => FileListing {
                 dir,
                 entries: Vec::new(),
                 total: 0,
@@ -196,7 +145,7 @@ fn list(params: ListParams) -> Result<Vec<Listing>> {
 }
 
 /// `.git` is left out; other dotfiles stay, since the person edits them.
-fn read_dir_sorted(dir: &str) -> Result<Vec<Entry>> {
+fn read_dir_sorted(dir: &str) -> Result<Vec<FileEntry>> {
     let mut entries = Vec::new();
     for entry in fs::read_dir(absolute(dir)?)? {
         let entry = entry?;
@@ -205,7 +154,7 @@ fn read_dir_sorted(dir: &str) -> Result<Vec<Entry>> {
             continue;
         }
         let dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
-        entries.push(Entry {
+        entries.push(FileEntry {
             name,
             dir,
             ignored: false,
@@ -216,8 +165,8 @@ fn read_dir_sorted(dir: &str) -> Result<Vec<Entry>> {
 }
 
 /// Flags what git ignores, asking each repository once for all its folders.
-fn mark_ignored(listings: &mut [Listing]) {
-    let joined = |dir: &Path, entry: &Entry| {
+fn mark_ignored(listings: &mut [FileListing]) {
+    let joined = |dir: &Path, entry: &FileEntry| {
         let path = dir.join(&entry.name).to_string_lossy().into_owned();
         if entry.dir {
             path + "/"
@@ -253,19 +202,19 @@ fn mark_ignored(listings: &mut [Listing]) {
     }
 }
 
-#[derive(Deserialize)]
-struct KindsParams {
-    paths: Vec<String>,
+#[derive(Deserialize, Serialize)]
+pub struct FileKindsParams {
+    pub paths: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum Kind {
+pub enum FileKind {
     File,
     Dir,
 }
 
-fn kinds(params: KindsParams) -> Result<Vec<Option<Kind>>> {
+pub fn kinds(params: FileKindsParams) -> Result<Vec<Option<FileKind>>> {
     if params.paths.len() > MAX_KINDS {
         return Err(format!("invalid argument: one ask may name at most {MAX_KINDS} paths").into());
     }
@@ -274,34 +223,38 @@ fn kinds(params: KindsParams) -> Result<Vec<Option<Kind>>> {
         .iter()
         .map(|path| {
             let meta = fs::metadata(absolute(path).ok()?).ok()?;
-            Some(if meta.is_dir() { Kind::Dir } else { Kind::File })
+            Some(if meta.is_dir() {
+                FileKind::Dir
+            } else {
+                FileKind::File
+            })
         })
         .collect())
 }
 
-#[derive(Deserialize)]
-struct ReadParams {
-    path: String,
+#[derive(Deserialize, Serialize)]
+pub struct FileReadParams {
+    pub path: String,
     /// The byte to start at, where the last piece ended.
     #[serde(default)]
-    at: u64,
+    pub at: u64,
 }
 
 /// A piece of a text file. `next` is the byte after it; the piece that
 /// reaches `size` carries the whole file's `version`, which a save names to
 /// say what it replaces. `stamp` changes when the file does, so a client
 /// reading it in pieces starts again when it moves under it.
-#[derive(Serialize)]
-struct Piece {
-    text: String,
-    next: u64,
-    size: u64,
-    stamp: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    version: Option<String>,
+#[derive(Serialize, Deserialize)]
+pub struct FilePiece {
+    pub text: String,
+    pub next: u64,
+    pub size: u64,
+    pub stamp: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
-fn read(params: ReadParams, piece: u64) -> Result<Piece> {
+pub fn read(params: FileReadParams, piece: u64) -> Result<FilePiece> {
     let path = absolute(&params.path)?;
     let mut file = open_regular(path)?;
     let meta = file.metadata()?;
@@ -339,7 +292,7 @@ fn read(params: ReadParams, piece: u64) -> Result<Piece> {
     } else {
         Some(content_version(&read_bounded(path)?))
     };
-    Ok(Piece {
+    Ok(FilePiece {
         text,
         next,
         size,
@@ -348,15 +301,15 @@ fn read(params: ReadParams, piece: u64) -> Result<Piece> {
     })
 }
 
-#[derive(Deserialize)]
-struct ReadTextParams {
-    path: String,
+#[derive(Deserialize, Serialize)]
+pub struct FileReadTextParams {
+    pub path: String,
     /// The most bytes the file may have, up to the read limit.
-    limit: u64,
+    pub limit: u64,
 }
 
 /// A whole small text file, as an inline diff shows it.
-fn read_text(params: ReadTextParams) -> Result<String> {
+pub fn read_text(params: FileReadTextParams) -> Result<String> {
     let path = absolute(&params.path)?;
     let limit = params.limit.min(MAX_TEXT_BYTES);
     let file = open_regular(path)?;
@@ -371,14 +324,14 @@ fn read_text(params: ReadTextParams) -> Result<String> {
     String::from_utf8(bytes).map_err(|_| not_text(path))
 }
 
-#[derive(Deserialize)]
-struct CopyIntoParams {
-    from: String,
-    dir: String,
+#[derive(Deserialize, Serialize)]
+pub struct FileCopyIntoParams {
+    pub from: String,
+    pub dir: String,
 }
 
 /// Copies `from` into `dir` under its own name, never over anything there.
-fn copy_into(params: CopyIntoParams) -> Result<String> {
+pub fn copy_into(params: FileCopyIntoParams) -> Result<String> {
     let from = absolute(&params.from)?;
     let dir = absolute(&params.dir)?;
     let name = from
@@ -390,15 +343,15 @@ fn copy_into(params: CopyIntoParams) -> Result<String> {
     })
 }
 
-#[derive(Deserialize)]
-struct WriteBytesParams {
-    dir: String,
-    name: String,
-    base64: String,
+#[derive(Deserialize, Serialize)]
+pub struct FileWriteBytesParams {
+    pub dir: String,
+    pub name: String,
+    pub base64: String,
 }
 
 /// Writes the bytes into `dir` under `name`, never over anything there.
-fn write_bytes(params: WriteBytesParams) -> Result<String> {
+pub fn write_bytes(params: FileWriteBytesParams) -> Result<String> {
     use base64::Engine;
     let dir = absolute(&params.dir)?;
     // The name may be a path an agent wrote. Only its last part can say where the file goes.
@@ -419,21 +372,21 @@ fn write_bytes(params: WriteBytesParams) -> Result<String> {
     write_new_in_dir(dir, name, |destination| destination.write_all(&bytes))
 }
 
-#[derive(Deserialize)]
-struct PreviewParams {
-    path: String,
+#[derive(Deserialize, Serialize)]
+pub struct FilePreviewParams {
+    pub path: String,
 }
 
 /// What a file is, for a preview: its type, size and when it last changed,
 /// in epoch milliseconds.
-#[derive(Serialize)]
-struct Preview {
-    mime: &'static str,
-    size: u64,
-    modified: u64,
+#[derive(Serialize, Deserialize)]
+pub struct FilePreview {
+    pub mime: String,
+    pub size: u64,
+    pub modified: u64,
 }
 
-fn preview(params: PreviewParams) -> Result<Preview> {
+pub fn preview(params: FilePreviewParams) -> Result<FilePreview> {
     let path = absolute(&params.path)?;
     let meta = open_regular(path)?.metadata()?;
     let modified = meta
@@ -441,8 +394,8 @@ fn preview(params: PreviewParams) -> Result<Preview> {
         .ok()
         .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
         .map_or(0, |since| since.as_millis() as u64);
-    Ok(Preview {
-        mime: crate::http::mime_of(path)?,
+    Ok(FilePreview {
+        mime: crate::http::mime_of(path)?.to_owned(),
         size: meta.len(),
         modified,
     })
@@ -451,23 +404,23 @@ fn preview(params: PreviewParams) -> Result<Preview> {
 /// The most of a file one `files.bytes` answers with.
 const MAX_BYTES_PIECE: u64 = 1024 * 1024;
 
-#[derive(Deserialize)]
-struct BytesParams {
-    path: String,
+#[derive(Deserialize, Serialize)]
+pub struct FileBytesParams {
+    pub path: String,
     #[serde(default)]
-    at: u64,
-    length: u64,
+    pub at: u64,
+    pub length: u64,
 }
 
 /// A piece of a file as base64, for a client that cannot read this host's
 /// disk to show a picture or play media.
-#[derive(Serialize)]
-struct Bytes {
-    base64: String,
-    size: u64,
+#[derive(Serialize, Deserialize)]
+pub struct FileBytes {
+    pub base64: String,
+    pub size: u64,
 }
 
-fn bytes(params: BytesParams) -> Result<Bytes> {
+pub fn bytes(params: FileBytesParams) -> Result<FileBytes> {
     use base64::Engine;
     let path = absolute(&params.path)?;
     let mut file = open_regular(path)?;
@@ -477,7 +430,7 @@ fn bytes(params: BytesParams) -> Result<Bytes> {
     let mut piece = Vec::new();
     file.take(params.length.min(MAX_BYTES_PIECE))
         .read_to_end(&mut piece)?;
-    Ok(Bytes {
+    Ok(FileBytes {
         base64: base64::engine::general_purpose::STANDARD.encode(piece),
         size,
     })
@@ -585,31 +538,31 @@ fn read_bounded(path: &Path) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct WriteParams {
-    path: String,
-    text: String,
+pub struct FileWriteParams {
+    pub path: String,
+    pub text: String,
     /// The version the client read; the save is refused when the file on
     /// disk is no longer it.
-    version: Option<String>,
+    pub version: Option<String>,
     /// Refuse to replace anything already at `path`.
     #[serde(default)]
-    new: bool,
+    pub new: bool,
     /// The save this piece continues.
-    upload: Option<String>,
+    pub upload: Option<String>,
     /// More pieces follow this one.
     #[serde(default)]
-    more: bool,
+    pub more: bool,
 }
 
 /// A finished save's `version`, or the `upload` the next piece names.
-#[derive(Serialize)]
-struct Written {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    upload: Option<String>,
+#[derive(Serialize, Deserialize)]
+pub struct FileWritten {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload: Option<String>,
 }
 
 /// The earlier pieces of a save that arrives in several, kept in the host's
@@ -627,7 +580,7 @@ fn uploads() -> &'static Mutex<HashMap<String, Upload>> {
     UPLOADS.get_or_init(Default::default)
 }
 
-fn write(params: WriteParams) -> Result<Written> {
+pub fn write(params: FileWriteParams) -> Result<FileWritten> {
     let path = absolute(&params.path)?.to_owned();
     if let Some(version) = &params.version {
         if version.len() != 64 || !version.bytes().all(|byte| byte.is_ascii_hexdigit()) {
@@ -674,7 +627,7 @@ fn write(params: WriteParams) -> Result<Written> {
             return Err("fs: too many saves at once; try again".into());
         }
         uploads.insert(id.clone(), upload);
-        return Ok(Written {
+        return Ok(FileWritten {
             version: None,
             upload: Some(id),
         });
@@ -690,8 +643,8 @@ fn save(
     staged: Option<tempfile::NamedTempFile>,
     mut hash: Sha256,
     last: &[u8],
-    params: &WriteParams,
-) -> Result<Written> {
+    params: &FileWriteParams,
+) -> Result<FileWritten> {
     let target = fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let parent = target
         .parent()
@@ -707,7 +660,7 @@ fn save(
     temp.write_all(last)?;
     hash.update(last);
     finish(temp, path, params.version.as_deref(), params.new)?;
-    Ok(Written {
+    Ok(FileWritten {
         version: Some(hex::encode(hash.finalize())),
         upload: None,
     })
@@ -789,17 +742,17 @@ fn sync_before_replace(file: &fs::File) -> Result<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct CreateParams {
-    path: String,
+#[derive(Deserialize, Serialize)]
+pub struct FileCreateParams {
+    pub path: String,
     /// A folder rather than an empty file.
     #[serde(default)]
-    dir: bool,
+    pub dir: bool,
 }
 
 /// A new empty file, never over one already there, or a folder, which may
 /// already be there. Missing parents are made.
-fn create(params: CreateParams) -> Result<()> {
+pub fn create(params: FileCreateParams) -> Result<()> {
     let path = absolute(&params.path)?;
     if params.dir {
         fs::create_dir_all(path)?;
@@ -821,14 +774,14 @@ fn create(params: CreateParams) -> Result<()> {
     Ok(())
 }
 
-#[derive(Deserialize)]
-struct RenameParams {
-    from: String,
-    to: String,
+#[derive(Deserialize, Serialize)]
+pub struct FileRenameParams {
+    pub from: String,
+    pub to: String,
 }
 
 /// Moves an entry, never over one already at `to`.
-fn rename(params: RenameParams) -> Result<()> {
+pub fn rename(params: FileRenameParams) -> Result<()> {
     use rustix::fs::{renameat_with, RenameFlags, CWD};
     let from = absolute(&params.from)?;
     let to = absolute(&params.to)?;
@@ -849,13 +802,13 @@ fn rename(params: RenameParams) -> Result<()> {
     })
 }
 
-#[derive(Deserialize)]
-struct PathParams {
-    path: String,
+#[derive(Deserialize, Serialize)]
+pub struct FilePathParams {
+    pub path: String,
 }
 
 /// Moves an entry to the host's trash, where the person can get it back.
-fn delete(params: PathParams) -> Result<()> {
+pub fn delete(params: FilePathParams) -> Result<()> {
     let path = absolute(&params.path)?;
     if fs::symlink_metadata(path).is_err() {
         return Err(format!("fs: path missing: {}", path.display()).into());
@@ -863,13 +816,46 @@ fn delete(params: PathParams) -> Result<()> {
     trash::delete(path).map_err(|error| Error::from(format!("fs: {error}")))?;
     Ok(())
 }
+
 #[cfg(test)]
 mod tests {
+    use serde_json::Value;
+
+    fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T> {
+        serde_json::from_value(params).map_err(|error| {
+            format!("invalid argument: the call's params do not fit: {error}").into()
+        })
+    }
+
+    fn run(method: &str, params: Value, piece: u64) -> Result<Value> {
+        fn answer(value: impl Serialize) -> Result<Value> {
+            serde_json::to_value(value).map_err(|error| format!("json: {error}").into())
+        }
+        match method {
+            "files.write" => answer(write(parse(params)?)?),
+            "files.list" => answer(list(parse(params)?)?),
+            "files.kinds" => answer(kinds(parse(params)?)?),
+            "files.read" => answer(read(parse(params)?, piece)?),
+            "files.create" => answer(create(parse(params)?)?),
+            "files.rename" => answer(rename(parse(params)?)?),
+            "files.delete" => answer(delete(parse(params)?)?),
+            "files.readText" => answer(read_text(parse(params)?)?),
+            "files.copyInto" => answer(copy_into(parse(params)?)?),
+            "files.writeBytes" => answer(write_bytes(parse(params)?)?),
+            "files.preview" => answer(preview(parse(params)?)?),
+            "files.bytes" => answer(bytes(parse(params)?)?),
+            _ => Err(Error {
+                message: format!("this host does not know {method}"),
+                kind: Some(ErrorKind::UnknownMethod),
+            }),
+        }
+    }
+
     use super::*;
     use serde_json::json;
 
     fn read_text_of(path: &Path, limit: u64) -> Result<String> {
-        read_text(ReadTextParams {
+        read_text(FileReadTextParams {
             path: path.to_string_lossy().into_owned(),
             limit,
         })
@@ -893,7 +879,7 @@ mod tests {
     }
 
     fn write_picture(dir: &Path, name: &str, base64: &str) -> Result<String> {
-        write_bytes(WriteBytesParams {
+        write_bytes(FileWriteBytesParams {
             dir: dir.to_string_lossy().into_owned(),
             name: name.into(),
             base64: base64.into(),
@@ -932,7 +918,7 @@ mod tests {
     }
 
     fn call(method: &str, params: Value) -> Result<Value> {
-        run(method, params, MAX_TEXT_BYTES).map(|ran| ran.answer)
+        run(method, params, MAX_TEXT_BYTES)
     }
 
     #[test]

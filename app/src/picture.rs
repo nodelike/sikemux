@@ -23,6 +23,8 @@ use crate::theme;
 use crate::theme::{SPACE_2, SPACE_3, SPACE_4, SPACE_6, TEXT_SM, TEXT_XS};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
+use sikemux_core::files::{FileCopyIntoParams, FileWriteBytesParams};
+use sikemux_core::server::call;
 
 /// A picture from a file, one an agent sent as bytes, or one on the web.
 #[derive(Clone)]
@@ -506,8 +508,12 @@ impl Workbench {
         cx.spawn_in(window, async move |_, cx| {
             let kept = match picture {
                 Picture::File(path) => {
-                    let asked = json!({ "from": path, "dir": downloads });
-                    crate::core::request(&asks, "files.copyInto", asked).await
+                    crate::core::Target::here(&asks)
+                        .request_typed::<call::FilesCopyInto>(FileCopyIntoParams {
+                            from: path.to_string_lossy().into_owned(),
+                            dir: downloads.to_string_lossy().into_owned(),
+                        })
+                        .await
                 }
                 Picture::Sent { image, .. } => {
                     let base64 = base64::engine::general_purpose::STANDARD.encode(&image.bytes);
@@ -523,11 +529,7 @@ impl Workbench {
             };
             let said = match kept {
                 Ok(saved) => {
-                    let name = saved
-                        .as_str()
-                        .and_then(|saved| saved.rsplit('/').next())
-                        .unwrap_or("the picture")
-                        .to_owned();
+                    let name = saved.rsplit('/').next().unwrap_or("the picture");
                     format!("Saved {name} to Downloads")
                 }
                 Err(error) => format!("Could not save the picture: {error}"),
@@ -544,7 +546,10 @@ fn write(
     dir: &Path,
     name: &str,
     base64: String,
-) -> impl std::future::Future<Output = Result<Value, String>> {
-    let asked = json!({ "dir": dir, "name": name, "base64": base64 });
-    crate::core::request(asks, "files.writeBytes", asked)
+) -> impl std::future::Future<Output = Result<String, String>> {
+    crate::core::Target::here(asks).request_typed::<call::FilesWriteBytes>(FileWriteBytesParams {
+        dir: dir.to_string_lossy().into_owned(),
+        name: name.to_owned(),
+        base64,
+    })
 }

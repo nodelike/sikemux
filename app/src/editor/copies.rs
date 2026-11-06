@@ -8,10 +8,11 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use gpui_kit::AppContext;
-use serde_json::json;
 
 use super::{Editors, FileKey};
 use crate::core::Target;
+use sikemux_core::files::FileBytesParams;
+use sikemux_core::server::call;
 
 /// The most the copies take together; the oldest go first to make room.
 const CAP: u64 = 512 * 1024 * 1024;
@@ -147,10 +148,13 @@ async fn fetch(
     let name = key.path.to_string_lossy().into_owned();
     let mut at = 0;
     loop {
-        let read = json!({ "path": name, "at": at, "length": PIECE });
-        let piece = target.request("files.bytes", read).await?;
-        let size = piece["size"].as_u64().unwrap_or(0);
-        let encoded = piece["base64"].as_str().unwrap_or_default().to_owned();
+        let read = FileBytesParams {
+            path: name.clone(),
+            at,
+            length: PIECE,
+        };
+        let piece = target.request_typed::<call::FilesBytes>(read).await?;
+        let (size, encoded) = (piece.size, piece.base64);
         let (written, returned) = cx
             .background_spawn(async move {
                 let written = base64::engine::general_purpose::STANDARD

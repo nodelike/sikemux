@@ -5245,6 +5245,138 @@ export interface DeviceParams {
     name?: string | null;
 }
 
+export interface FileListParams {
+    dirs: string[];
+    /** Where in each folder, sorted as answered, to start. */
+    from?: number;
+}
+
+/**
+ * One folder's entries, folders first then files, both by name. `total`
+ * counts them all, so a client knows when `entries` stops short.
+ */
+export interface FileListing {
+    dir: string;
+    entries: FileEntry[];
+    total: number;
+    error?: string;
+}
+
+export interface FileEntry {
+    name: string;
+    dir?: boolean;
+    ignored?: boolean;
+}
+
+export interface FileKindsParams {
+    paths: string[];
+}
+
+export type FileKind = "file" | "dir";
+
+export interface FileReadParams {
+    path: string;
+    /** The byte to start at, where the last piece ended. */
+    at?: number;
+}
+
+/**
+ * A piece of a text file. `next` is the byte after it; the piece that
+ * reaches `size` carries the whole file's `version`, which a save names to
+ * say what it replaces. `stamp` changes when the file does, so a client
+ * reading it in pieces starts again when it moves under it.
+ */
+export interface FilePiece {
+    text: string;
+    next: number;
+    size: number;
+    stamp: string;
+    version?: string;
+}
+
+export interface FileCreateParams {
+    path: string;
+    /** A folder rather than an empty file. */
+    dir?: boolean;
+}
+
+export interface FileRenameParams {
+    from: string;
+    to: string;
+}
+
+export interface FilePathParams {
+    path: string;
+}
+
+export interface FileReadTextParams {
+    path: string;
+    /** The most bytes the file may have, up to the read limit. */
+    limit: number;
+}
+
+export interface FileCopyIntoParams {
+    from: string;
+    dir: string;
+}
+
+export interface FileWriteBytesParams {
+    dir: string;
+    name: string;
+    base64: string;
+}
+
+export interface FilePreviewParams {
+    path: string;
+}
+
+/**
+ * What a file is, for a preview: its type, size and when it last changed,
+ * in epoch milliseconds.
+ */
+export interface FilePreview {
+    mime: string;
+    size: number;
+    modified: number;
+}
+
+export interface FileBytesParams {
+    path: string;
+    at?: number;
+    length: number;
+}
+
+/**
+ * A piece of a file as base64, for a client that cannot read this host's
+ * disk to show a picture or play media.
+ */
+export interface FileBytes {
+    base64: string;
+    size: number;
+}
+
+export interface FileWriteParams {
+    path: string;
+    text: string;
+    /**
+     * The version the client read; the save is refused when the file on
+     * disk is no longer it.
+     */
+    version: string | null;
+    /** Refuse to replace anything already at `path`. */
+    new?: boolean;
+    /** The save this piece continues. */
+    upload: string | null;
+    /** More pieces follow this one. */
+    more?: boolean;
+}
+
+/** A finished save's `version`, or the `upload` the next piece names. */
+export interface FileWritten {
+    version?: string;
+    upload?: string;
+}
+
 /** The core's calls that name what they take and answer, by method. */
 export interface CoreCalls {
     page: { params: PageParams; answer: PageHtml };
@@ -5380,6 +5512,18 @@ export interface CoreCalls {
     setCheck: { params: SetCheckParams; answer: unknown };
     renameAccountDevice: { params: DeviceParams; answer: null };
     removeAccountDevice: { params: DeviceParams; answer: null };
+    "files.list": { params: FileListParams; answer: FileListing[] };
+    "files.kinds": { params: FileKindsParams; answer: (FileKind | null)[] };
+    "files.read": { params: FileReadParams; answer: FilePiece };
+    "files.create": { params: FileCreateParams; answer: null };
+    "files.rename": { params: FileRenameParams; answer: null };
+    "files.delete": { params: FilePathParams; answer: null };
+    "files.readText": { params: FileReadTextParams; answer: string };
+    "files.copyInto": { params: FileCopyIntoParams; answer: string };
+    "files.writeBytes": { params: FileWriteBytesParams; answer: string };
+    "files.preview": { params: FilePreviewParams; answer: FilePreview };
+    "files.bytes": { params: FileBytesParams; answer: FileBytes };
+    "files.write": { params: FileWriteParams; answer: FileWritten };
 }
 
 /** What the core's `Preferences::default()` serializes to. */

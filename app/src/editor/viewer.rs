@@ -17,7 +17,6 @@ use gpui_kit::{
     RenderOnce, Resource, SharedString, Size, StatefulInteractiveElement, Styled, StyledImage,
     Window,
 };
-use serde_json::json;
 
 use super::{copies, Editors, FileKey};
 use crate::core::Target;
@@ -28,6 +27,8 @@ use crate::theme::{
 };
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_core::files::{FileBytesParams, FilePreviewParams};
+use sikemux_core::server::call;
 
 /// How much of a file the byte view shows.
 const SHOWN_BYTES: u64 = 64 * 1024;
@@ -179,16 +180,12 @@ pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workben
     cx.spawn(async move |_, cx| {
         let name = key.path.to_string_lossy().into_owned();
         let about = target
-            .request("files.preview", json!({ "path": name }))
+            .request_typed::<call::FilesPreview>(FilePreviewParams { path: name.clone() })
             .await;
         let about = match about {
             Ok(about) => About {
-                mime: about["mime"]
-                    .as_str()
-                    .unwrap_or("application/octet-stream")
-                    .to_owned()
-                    .into(),
-                size: about["size"].as_u64().unwrap_or(0),
+                mime: about.mime.into(),
+                size: about.size,
             },
             Err(error) => {
                 let _ = editors.update(cx, |editors, cx| {
@@ -224,14 +221,18 @@ pub(super) fn load(bench: &mut Workbench, key: FileKey, cx: &mut Context<Workben
         };
         let bytes = match kind {
             Kind::Bytes => {
-                let read = json!({ "path": name, "at": 0, "length": SHOWN_BYTES });
+                let read = FileBytesParams {
+                    path: name,
+                    at: 0,
+                    length: SHOWN_BYTES,
+                };
                 target
-                    .request("files.bytes", read)
+                    .request_typed::<call::FilesBytes>(read)
                     .await
                     .ok()
                     .and_then(|read| {
                         base64::engine::general_purpose::STANDARD
-                            .decode(read["base64"].as_str()?)
+                            .decode(read.base64)
                             .ok()
                     })
             }

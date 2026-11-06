@@ -423,7 +423,8 @@ impl Workbench {
             }
             Read::FilesList => {
                 self.files_retry.answered();
-                self.files.listed(&value, &self.target());
+                let listed = serde_json::from_value(value).unwrap_or_default();
+                self.files.listed(listed, &self.target());
                 return self.parts.redraw(&self.parts.tabs, cx);
             }
             Read::GitProjectRepo => {

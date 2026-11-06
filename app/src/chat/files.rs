@@ -12,7 +12,6 @@ use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
 use gpui_kit::{App, ClipboardItem, Entity, Focusable, Pixels, Point, WeakEntity, Window};
 use gpui_transcript::{FileKind, FilePress};
-use serde_json::{json, Value};
 
 use sikemux_core::cli::protocol::{CliOpenTarget, CliTargetKind};
 use sikemux_markdown::paths::{has_scheme, is_file_name, is_windows_drive};
@@ -25,6 +24,8 @@ use crate::retry::Backoff;
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_core::files::{FileKind as CoreFileKind, FileKindsParams};
+use sikemux_core::server::call;
 
 /// How long the names a screenful asks about are gathered before they go out as one ask.
 const GATHER: Duration = Duration::from_millis(16);
@@ -290,7 +291,9 @@ async fn ask(files: Rc<RefCell<Files>>, cx: &mut gpui_kit::AsyncApp) {
             return;
         };
         let Ok(kinds) = target
-            .request("files.kinds", json!({ "paths": asked }))
+            .request_typed::<call::FilesKinds>(FileKindsParams {
+                paths: asked.clone(),
+            })
             .await
         else {
             let mut held = files.borrow_mut();
@@ -308,9 +311,9 @@ async fn ask(files: Rc<RefCell<Files>>, cx: &mut gpui_kit::AsyncApp) {
             let mut held = files.borrow_mut();
             held.failing = None;
             for (ix, path) in asked.into_iter().enumerate() {
-                let kind = match kinds.get(ix).and_then(Value::as_str) {
-                    Some("dir") => Some(FileKind::Folder),
-                    Some("file") => Some(FileKind::File),
+                let kind = match kinds.get(ix) {
+                    Some(Some(CoreFileKind::Dir)) => Some(FileKind::Folder),
+                    Some(Some(CoreFileKind::File)) => Some(FileKind::File),
                     _ => None,
                 };
                 held.known.insert(path, (kind, Instant::now()));

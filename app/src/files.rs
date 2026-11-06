@@ -18,7 +18,7 @@ use gpui_kit::{
     PlatformInput, ScrollStrategy, SharedString, Styled, Subscription, UniformListScrollHandle,
     WeakEntity, Window,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use sikemux_core::git::log::GitOverview;
 use sikemux_view::layout::PaneKind;
 
@@ -32,8 +32,13 @@ use crate::theme::{
 use crate::toast;
 use crate::ui::{self, IconButton};
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::files::{
+    FileCopyIntoParams, FileCreateParams, FileListing, FilePathParams, FileRenameParams,
+};
 use sikemux_core::git::status::GitChange;
 use sikemux_core::server::layout::TabParams;
+use std::future::Future;
+use std::pin::Pin;
 
 /// One thing in a folder, as the core listed it: folders first, then by name.
 #[derive(Clone, PartialEq)]
@@ -169,30 +174,23 @@ impl FileTree {
     }
 
     /// Takes in a `files.list` answer, asking for the next page of any folder it left short.
-    pub fn listed(&mut self, answer: &Value, core: &Target) {
-        for folder in answer.as_array().into_iter().flatten() {
-            let Some(dir) = folder["dir"].as_str().map(PathBuf::from) else {
-                continue;
-            };
-            if folder["error"].is_string() {
+    pub fn listed(&mut self, answer: Vec<FileListing>, core: &Target) {
+        for folder in answer {
+            let dir = PathBuf::from(folder.dir);
+            if folder.error.is_some() {
                 self.asked.remove(&dir);
                 self.again.remove(&dir);
                 self.incoming.remove(&dir);
                 continue;
             }
-            let entries: Vec<Entry> = folder["entries"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|entry| {
-                    Some(Entry {
-                        name: entry["name"].as_str()?.to_owned(),
-                        dir: entry["dir"].as_bool().unwrap_or(false),
-                        ignored: entry["ignored"].as_bool().unwrap_or(false),
-                    })
+            let entries: Vec<Entry> = (folder.entries.into_iter())
+                .map(|entry| Entry {
+                    name: entry.name,
+                    dir: entry.dir,
+                    ignored: entry.ignored,
                 })
                 .collect();
-            let total = folder["total"].as_u64().unwrap_or(0) as usize;
+            let total = folder.total;
             let got = entries.len();
             let incoming = self.incoming.entry(dir.clone()).or_default();
             incoming.extend(entries);
@@ -333,7 +331,7 @@ impl FileTree {
 
     /// The row the keys are on and what is being renamed, for the test bundle's driver to check.
     #[cfg(feature = "drive")]
-    pub fn drive_state(&self) -> Value {
+    pub fn drive_state(&self) -> serde_json::Value {
         json!({
             "keyed": self.keyed,
             "renaming": self.naming.as_ref().and_then(|naming| naming.from.clone()),
@@ -1092,12 +1090,20 @@ impl Workbench {
         let path = naming.parent.join(name);
         let made = match &naming.from {
             Some(from) if *from == path => return cx.notify(),
-            Some(from) => self
-                .target()
-                .request("files.rename", json!({ "from": from, "to": path })),
-            None => self
-                .target()
-                .request("files.create", json!({ "path": path, "dir": naming.dir })),
+            Some(from) => Box::pin(self.target().request_typed::<call::FilesRename>(
+                FileRenameParams {
+                    from: from.to_string_lossy().into_owned(),
+                    to: path.to_string_lossy().into_owned(),
+                },
+            ))
+                as Pin<Box<dyn Future<Output = Result<(), String>> + Send>>,
+            None => Box::pin(
+                self.target()
+                    .request_typed::<call::FilesCreate>(FileCreateParams {
+                        path: path.to_string_lossy().into_owned(),
+                        dir: naming.dir,
+                    }),
+            ),
         };
         let (parent, dir, from) = (
             naming.parent,
@@ -1191,7 +1197,9 @@ impl Workbench {
                 }
                 let deleted = bench
                     .target()
-                    .request("files.delete", json!({ "path": path }));
+                    .request_typed::<call::FilesDelete>(FilePathParams {
+                        path: path.to_string_lossy().into_owned(),
+                    });
                 let parent = path.parent().map(Path::to_path_buf);
                 cx.spawn(async move |bench, cx| {
                     let deleted = deleted.await;
@@ -1222,7 +1230,12 @@ impl Workbench {
             return;
         };
         let to = into.join(name);
-        let moved = (self.target()).request("files.rename", json!({ "from": from, "to": to }));
+        let moved = self
+            .target()
+            .request_typed::<call::FilesRename>(FileRenameParams {
+                from: from.to_string_lossy().into_owned(),
+                to: to.to_string_lossy().into_owned(),
+            });
         cx.spawn(async move |bench, cx| {
             let moved = moved.await;
             bench
@@ -1259,7 +1272,12 @@ impl Workbench {
         }
         let core = self.target();
         let copies: Vec<_> = (from.iter())
-            .map(|from| core.request("files.copyInto", json!({ "from": from, "dir": into })))
+            .map(|from| {
+                core.request_typed::<call::FilesCopyInto>(FileCopyIntoParams {
+                    from: from.to_string_lossy().into_owned(),
+                    dir: into.to_string_lossy().into_owned(),
+                })
+            })
             .collect();
         cx.spawn(async move |bench, cx| {
             let mut failed = None;

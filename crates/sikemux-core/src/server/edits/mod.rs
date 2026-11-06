@@ -616,17 +616,23 @@ pub(crate) async fn read_edits(core: &Arc<Core>, filter: Filter) -> CoreResult<V
 
 /// The file tree's and the editor's methods on this host's disk, each read
 /// answering with at most a piece of a file so other replies keep moving.
-pub(crate) async fn on_disk(core: &Core, method: &str, params: Value) -> CoreResult<Value> {
-    let method = method.to_owned();
-    let ran = blocking(move || {
-        crate::files::run(&method, params, crate::files::PIECE_BYTES)
-            .map_err(super::CoreError::from)
-    })
-    .await?;
-    if let Some(path) = ran.saved {
+pub(crate) async fn on_disk<T: Send + 'static>(
+    work: impl FnOnce() -> crate::files::Result<T> + Send + 'static,
+) -> CoreResult<T> {
+    blocking(move || work().map_err(super::CoreError::from)).await
+}
+
+/// Writes a piece of a file, noting that a finished one was saved by the person.
+pub(crate) async fn write_file(
+    core: &Core,
+    params: crate::files::FileWriteParams,
+) -> CoreResult<crate::files::FileWritten> {
+    let path = std::path::PathBuf::from(&params.path);
+    let written = on_disk(move || crate::files::write(params)).await?;
+    if written.version.is_some() {
         core.edits.saved(path);
     }
-    Ok(ran.answer)
+    Ok(written)
 }
 
 #[cfg(test)]

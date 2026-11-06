@@ -1055,13 +1055,26 @@ impl Target {
         C::Params: Serialize,
         C::Answer: DeserializeOwned,
     {
+        let called = self.try_request_typed::<C>(params);
+        async move { Ok(called.await?) }
+    }
+
+    /// As `request_typed`, for a caller that branches on how it fails.
+    pub fn try_request_typed<C: Call>(
+        &self,
+        params: C::Params,
+    ) -> impl Future<Output = Result<C::Answer, CallError>> + use<C>
+    where
+        C::Params: Serialize,
+        C::Answer: DeserializeOwned,
+    {
         let asked = serde_json::to_value(params)
-            .map(|params| self.request(C::METHOD, params))
+            .map(|params| self.try_request(C::METHOD, params))
             .map_err(|error| error.to_string());
         async move {
             let answer = asked?.await?;
             serde_json::from_value(answer).map_err(|error| {
-                format!("the core's answer to {} did not read: {error}", C::METHOD)
+                format!("the core's answer to {} did not read: {error}", C::METHOD).into()
             })
         }
     }

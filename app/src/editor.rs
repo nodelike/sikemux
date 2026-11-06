@@ -28,6 +28,8 @@ use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
 use crate::ui;
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
 use crate::workbench::{Strip, Workbench};
+use sikemux_core::files::{FileReadParams, FileWriteParams};
+use sikemux_core::server::call;
 use sikemux_wire::protocol::ErrorKind;
 
 mod blame;
@@ -1236,19 +1238,22 @@ async fn read_file(target: &Target, path: String) -> Result<(String, String), Ca
         let mut stamp: Option<String> = None;
         let moved = loop {
             let piece = target
-                .try_request("files.read", json!({ "path": path, "at": at }))
+                .try_request_typed::<call::FilesRead>(FileReadParams {
+                    path: path.clone(),
+                    at,
+                })
                 .await?;
-            let piece_stamp = piece["stamp"].as_str().map(str::to_owned);
-            if stamp.is_some() && piece_stamp != stamp {
+            if stamp.as_ref().is_some_and(|stamp| *stamp != piece.stamp) {
                 break true;
             }
-            stamp = piece_stamp;
-            text.push_str(piece["text"].as_str().unwrap_or_default());
-            at = piece["next"].as_u64().unwrap_or(at);
-            if let Some(version) = piece["version"].as_str() {
-                return Ok((text, version.to_owned()));
+            stamp = Some(piece.stamp);
+            let empty = piece.text.is_empty();
+            text.push_str(&piece.text);
+            at = piece.next;
+            if let Some(version) = piece.version {
+                return Ok((text, version));
             }
-            if piece["text"].as_str().is_none_or(str::is_empty) {
+            if empty {
                 break false;
             }
         };
@@ -1396,18 +1401,21 @@ async fn write_file(
         let (piece, after) = rest.split_at(end);
         let more = !after.is_empty();
         let written = target
-            .try_request(
-                "files.write",
-                json!({ "path": path, "text": piece, "version": version, "upload": upload, "more": more }),
-            )
+            .try_request_typed::<call::FilesWrite>(FileWriteParams {
+                path: path.to_owned(),
+                text: piece.to_owned(),
+                version: version.clone(),
+                new: false,
+                upload: upload.clone(),
+                more,
+            })
             .await?;
         if !more {
-            return written["version"]
-                .as_str()
-                .map(str::to_owned)
+            return written
+                .version
                 .ok_or_else(|| format!("{path} was saved without a version").into());
         }
-        upload = written["upload"].as_str().map(str::to_owned);
+        upload = written.upload;
         rest = after;
     }
 }
