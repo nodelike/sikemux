@@ -19,6 +19,7 @@ use gpui_kit::{
     ScrollEvent, SharedString, StatefulInteractiveElement, Styled, Subscription, Task,
     Transformation, WeakEntity, Window,
 };
+#[cfg(feature = "drive")]
 use serde_json::{json, Value};
 use sikemux_core::git::log::{GitCommit, GitOverview};
 use sikemux_core::git::stash::GitStash;

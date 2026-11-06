@@ -19,6 +19,7 @@ use gpui_kit::{
     PlatformInput, ScrollStrategy, SharedString, Styled, Subscription, UniformListScrollHandle,
     WeakEntity, Window,
 };
+#[cfg(feature = "drive")]
 use serde_json::json;
 use sikemux_core::git::log::GitOverview;
 use sikemux_view::layout::PaneKind;
