@@ -229,7 +229,7 @@ fn show_notes(
             .as_ref()
             .ok()
             .and_then(|notes| notes.notes.as_deref())
-            .map(|text| Rc::new(crate::editor::preview::render(&without_title(text))));
+            .map(|text| Rc::new(crate::reading::render(&without_title(text))));
         news.notes = Some(notes);
         news.avatars.extend(avatars);
     }

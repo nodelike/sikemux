@@ -1,3 +1,4 @@
+use gpui_kit::ListState;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -659,4 +660,24 @@ pub fn close_button(
                 .text_color(t.text_tertiary)
                 .group_hover(CLOSE, move |style| style.text_color(t.danger)),
         )
+}
+
+/// Tells `list` only the run of `old` that `new` replaced, so what is in view stays put.
+pub(crate) fn relist<T: PartialEq>(list: &ListState, old: &[T], new: &[T]) {
+    if list.item_count() != old.len() {
+        list.reset(new.len());
+        return;
+    }
+    let start = old
+        .iter()
+        .zip(new)
+        .take_while(|(old, new)| old == new)
+        .count();
+    let end = old[start..]
+        .iter()
+        .rev()
+        .zip(new[start..].iter().rev())
+        .take_while(|(old, new)| old == new)
+        .count();
+    list.splice(start..old.len() - end, new.len() - start - end);
 }

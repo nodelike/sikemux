@@ -21,6 +21,7 @@ use sikemux_view::layout::{Pane, PaneKind};
 use sikemux_view::prefs::{DEFAULT_TEXT_SCALE, MAX_TEXT_SCALE, MIN_TEXT_SCALE};
 
 use crate::core::{Ask, CallError, Target};
+use crate::diagram;
 use crate::hosts::Place as Host;
 use crate::keyboard::TakesKeys;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_XS};
@@ -31,8 +32,6 @@ use sikemux_wire::protocol::ErrorKind;
 
 mod blame;
 mod copies;
-mod dbml;
-pub(crate) mod diagram;
 mod gutter;
 mod insights;
 mod lsp;
@@ -1756,7 +1755,7 @@ fn show_rendered(
             });
             document.rendered = Some(Rendered::Diagram(diagram));
         }
-        _ => document.rendered = Some(Rendered::Markdown(Rc::new(preview::render(text)))),
+        _ => document.rendered = Some(Rendered::Markdown(Rc::new(crate::reading::render(text)))),
     }
 }
 

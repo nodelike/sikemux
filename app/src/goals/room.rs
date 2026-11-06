@@ -595,7 +595,7 @@ impl GoalsPane {
 
         let top = self.room.rows.logical_scroll_top();
         let anchor = self.room.entries.get(top.item_ix).cloned();
-        crate::git::relist(&self.room.rows, &self.room.entries, &entries);
+        crate::ui::relist(&self.room.rows, &self.room.entries, &entries);
         if top.item_ix > 0 || top.offset_in_item > px(0.) {
             let kept = anchor.and_then(|anchor| entries.iter().position(|entry| *entry == anchor));
             self.room.rows.scroll_to(match kept {

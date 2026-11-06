@@ -303,7 +303,7 @@ impl SearchPane {
                 rows.extend((0..file.matches.len()).map(|hit| Row::Hit { file: index, hit }));
             }
         }
-        crate::git::relist(&self.list, &self.rows, &rows);
+        crate::ui::relist(&self.list, &self.rows, &rows);
         self.rows = rows;
         if let Some((path, hit)) = &self.chosen {
             let valid = self

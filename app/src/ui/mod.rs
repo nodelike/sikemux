@@ -30,6 +30,7 @@ pub use find_bar::FindBar;
 pub use floats::{
     card_tooltip, float, menu, menu_button, tooltip, MenuRow, FLOAT_INSET, PANEL_INSET,
 };
+pub(crate) use lists::relist;
 pub use lists::{close_button, gives_way, hover_actions, Group, Row, Tab, ROW};
 pub use pane::{pane, PaneHeader, AGENT_INSET};
 pub use select::{select, Pick};

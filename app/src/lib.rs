@@ -21,6 +21,7 @@ mod commands;
 pub mod console;
 pub mod core;
 mod desk;
+mod diagram;
 mod drag;
 #[cfg(feature = "drive")]
 pub mod drive;
@@ -58,6 +59,7 @@ mod pinch;
 mod places;
 mod project_settings;
 mod rail;
+mod reading;
 mod reads;
 mod retry;
 mod screens;

@@ -555,7 +555,7 @@ impl GitPane {
             .collect();
         if hashes != self.hashes {
             self.graph = Rc::new(graph(&shown));
-            super::relist(&self.commit_rows, &self.hashes, &hashes);
+            crate::ui::relist(&self.commit_rows, &self.hashes, &hashes);
             self.hashes = hashes;
             self.commit = self.commit.min(self.hashes.len().saturating_sub(1));
         }
@@ -881,7 +881,7 @@ impl GitPane {
                 }));
             }
         }
-        super::relist(&self.rows, &self.entries, &entries);
+        crate::ui::relist(&self.rows, &self.entries, &entries);
         self.entries = entries;
         self.selected = self.selected.min(self.entries.len().saturating_sub(1));
         self.reviewing_list = false;

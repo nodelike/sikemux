@@ -289,7 +289,7 @@ impl Review {
             }
             items.push(Item::End(index));
         }
-        super::relist(&self.list(), &self.items, &items);
+        crate::ui::relist(&self.list(), &self.items, &items);
         self.items = items;
     }
 

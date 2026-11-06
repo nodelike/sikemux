@@ -1,6 +1,8 @@
 //! A DBML file drawn as its tables on a canvas that pans and zooms, with a line from each
 //! column that refers to another to the column it names.
 
+mod dbml;
+
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
@@ -19,11 +21,11 @@ use gpui_kit::{
 use serde_json::{json, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
-use super::dbml::{self, Ref, Schema};
 use crate::core::{self, Ask};
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_0, SPACE_2, TEXT_2XS, TEXT_SM};
 use crate::ui::IconButton;
+use dbml::{Ref, Schema};
 
 const HEADER: f32 = 36.;
 const ROW: f32 = 28.;

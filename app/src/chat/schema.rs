@@ -17,7 +17,7 @@ use gpui_transcript::{Fence, Fences};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::core::Ask;
-use crate::editor::diagram::{Diagram, Kept, KeptKey};
+use crate::diagram::{Diagram, Kept, KeptKey};
 use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H};
 use crate::workbench::Workbench;
 

@@ -12,8 +12,8 @@ use std::sync::Arc;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     div, font, px, Action, App, AppContext, Context, Div, HighlightStyle, Hsla, InteractiveElement,
-    IntoElement, ListState, ParentElement, Pixels, SharedString, StatefulInteractiveElement,
-    Styled, StyledText, Task, Window,
+    IntoElement, ParentElement, Pixels, SharedString, StatefulInteractiveElement, Styled,
+    StyledText, Task, Window,
 };
 use serde_json::{json, Value};
 use sikemux_core::git::diff::{changes, DiffRow, ROW_ADDED, ROW_DELETED, ROW_HIDDEN};
@@ -562,26 +562,6 @@ pub(crate) fn advance(window: &Window) -> Pixels {
     let id = text.resolve_font(&font(theme::MONO));
     text.advance(id, CODE_SIZE, 'm')
         .map_or(CODE_SIZE * 0.6, |size| size.width)
-}
-
-/// Tells `list` only the run of `old` that `new` replaced, so what is in view stays put.
-pub(crate) fn relist<T: PartialEq>(list: &ListState, old: &[T], new: &[T]) {
-    if list.item_count() != old.len() {
-        list.reset(new.len());
-        return;
-    }
-    let start = old
-        .iter()
-        .zip(new)
-        .take_while(|(old, new)| old == new)
-        .count();
-    let end = old[start..]
-        .iter()
-        .rev()
-        .zip(new[start..].iter().rev())
-        .take_while(|(old, new)| old == new)
-        .count();
-    list.splice(start..old.len() - end, new.len() - start - end);
 }
 
 impl Workbench {

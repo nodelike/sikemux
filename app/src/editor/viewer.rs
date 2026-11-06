@@ -35,19 +35,22 @@ const BYTES_PER_ROW: usize = 16;
 
 /// Extensions that are never text, so the file goes straight to a viewer.
 const NOT_TEXT: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif", "tiff", "heic",
-    "heif", "psd", "pdf", "ttf", "otf", "woff", "woff2", "mp4", "m4v", "mov", "webm", "mkv", "avi",
-    "mp3", "m4a", "aac", "wav", "flac", "aif", "aiff", "ogg", "oga", "opus", "doc", "docx", "xls",
-    "xlsx", "ppt", "pptx", "rtf", "odt", "ods", "odp", "pages", "numbers", "epub", "zip", "gz",
-    "tgz", "bz2", "xz", "7z", "rar", "tar", "jar", "dmg", "iso", "exe", "dll", "so", "dylib", "o",
-    "a", "class", "pyc", "wasm", "sqlite", "sqlite3",
+    "psd", "pdf", "ttf", "otf", "woff", "woff2", "mp4", "m4v", "mov", "webm", "mkv", "avi", "mp3",
+    "m4a", "aac", "wav", "flac", "aif", "aiff", "ogg", "oga", "opus", "doc", "docx", "xls", "xlsx",
+    "ppt", "pptx", "rtf", "odt", "ods", "odp", "pages", "numbers", "epub", "zip", "gz", "tgz",
+    "bz2", "xz", "7z", "rar", "tar", "jar", "dmg", "iso", "exe", "dll", "so", "dylib", "o", "a",
+    "class", "pyc", "wasm", "sqlite", "sqlite3",
 ];
 
 /// Whether a file is shown in a viewer without being read as text first.
 pub(super) fn not_text(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| NOT_TEXT.contains(&extension.to_ascii_lowercase().as_str()))
+        .map(str::to_ascii_lowercase)
+        .is_some_and(|extension| {
+            let extension = extension.as_str();
+            NOT_TEXT.contains(&extension) || crate::ui::path::IMAGE_EXTENSIONS.contains(&extension)
+        })
 }
 
 /// A file shown for what it is, once the core says what that is.

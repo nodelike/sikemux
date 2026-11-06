@@ -35,15 +35,11 @@ use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, TEXT_SM};
 use crate::ui;
 use crate::workbench::Workbench;
 
-const IMAGE_EXTENSIONS: [&str; 13] = [
-    "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif",
-];
-
 pub fn is_image(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| {
-            IMAGE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
+            crate::ui::path::IMAGE_EXTENSIONS.contains(&extension.to_ascii_lowercase().as_str())
         })
 }
 

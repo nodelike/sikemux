@@ -135,7 +135,7 @@ impl GitPane {
                 );
             }
         }
-        super::super::relist(&self.branch_rows, &self.branches.entries, &entries);
+        crate::ui::relist(&self.branch_rows, &self.branches.entries, &entries);
         self.branches.entries = entries;
         self.branches.chosen = self
             .branches
