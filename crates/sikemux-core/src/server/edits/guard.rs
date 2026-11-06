@@ -70,7 +70,7 @@ fn recorded(
     if named.is_empty() && !paths.is_empty() {
         return Ok(BTreeSet::new());
     }
-    let mine = owners.standing_for(core, agent_id);
+    let mine = super::owners::standing_for(&owners, core, agent_id);
     Ok(owners
         .files
         .iter()

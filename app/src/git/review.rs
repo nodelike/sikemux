@@ -1,6 +1,7 @@
 //! Changed files reviewed in one stream: a card per file with its header, and its diff
 //! under it while open, every card's rows in one virtualised list.
 
+use crate::git::WhoWrote;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -10,7 +11,7 @@ use gpui_kit::{
     ListAlignment, ListOffset, ListState, ParentElement, Pixels, ScrollEvent, SharedString,
     StatefulInteractiveElement, Styled, Window,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use sikemux_core::git::diff::DiffRow;
 use sikemux_core::git::status::{GitChange, GitFile};
 
@@ -322,7 +323,7 @@ impl Review {
                             .map_err(|error| error.to_string())
                     });
                     pane.update(cx, |pane, cx| {
-                        let notes = Notes::of(pane.owners_of(side), &path);
+                        let notes = Notes::of(&pane.owners_of(side), &path);
                         pane.review
                             .read_as(&path, side, diff.map(Diff::new), &notes);
                         cx.notify();
@@ -363,7 +364,7 @@ impl Review {
 
     /// Notes beside each diff's lines who wrote them, as `owners` says, or `staged` for
     /// the staged half of a file with unstaged changes too.
-    pub fn annotate(&mut self, owners: &Value, staged: &Value) {
+    pub fn annotate(&mut self, owners: &WhoWrote<'_>, staged: &WhoWrote<'_>) {
         for card in &mut self.cards {
             for section in &mut card.sections {
                 let owners = if section.side == Some(Side::Staged) {

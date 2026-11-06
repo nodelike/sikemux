@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
+use sikemux_view::owners::{AgentOwner, CommitLines, CommitParams, CommitsParams};
 
 use crate::cli::protocol::HarnessRequest;
 use crate::trailers::{self, Agent};
@@ -17,7 +17,7 @@ use crate::trailers::{self, Agent};
 use super::codehost::repo as codehost;
 use super::connection::blocking;
 use super::edits::note::{self, Note, Wrote};
-use super::edits::{commit_lines, owners_at, CommitLines};
+use super::edits::{commit_lines, owners_at};
 use super::edits::{footer, git};
 use super::roster::{self, Listed, Reach};
 use super::{saved, Core, CoreResult};
@@ -37,37 +37,6 @@ const MAX_BLAMED_LINES: u64 = 5000;
 const TEST_BODY_LINES: u64 = 30;
 const PULL_BUDGET: Duration = Duration::from_secs(5);
 const UNCOMMITTED: &str = "0000000000000000000000000000000000000000";
-
-/// An agent a commit's footer names, as it stands here now.
-#[derive(Serialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct AgentOwner {
-    pub name: String,
-    pub cli: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cli_version: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// The version of Sikemux the agent ran in.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sikemux: Option<String>,
-    /// The agent the footer names, which stands for the session until it is known.
-    pub chat: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    /// The agent that has its session open now.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub open: Option<String>,
-    /// The CLI's own session, which resuming the agent needs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
-    /// The lines it wrote in the commit, as the commit's note says, when the
-    /// commit holds lines of others too.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lines: Option<Wrote>,
-}
 
 fn remember<T: Clone>(map: &Mutex<HashMap<String, T>>, key: &str, value: &T) {
     let mut map = map.locked();
@@ -183,12 +152,6 @@ fn noted<'a>(
     notes
 }
 
-#[derive(Deserialize)]
-pub(crate) struct CommitsParams {
-    dir: PathBuf,
-    commits: Vec<String>,
-}
-
 /// The `commitOwners` call: the agents each of `commits` has a verified
 /// footer for, by commit. Commits without one are left out.
 pub(crate) async fn call(
@@ -227,12 +190,6 @@ pub(crate) async fn call(
             .collect())
     })
     .await
-}
-
-#[derive(Deserialize)]
-pub(crate) struct CommitParams {
-    dir: PathBuf,
-    commit: String,
 }
 
 /// The `commitLines` call: which agent wrote each line `commit` changed, as its
@@ -670,10 +627,7 @@ fn split(
                 .iter()
                 .flatten()
                 .filter(|(file, _)| path.is_none_or(|path| path == *file))
-                .map(|(file, runs)| {
-                    let runs: Lines = runs.iter().map(|[first, last]| (*first, *last)).collect();
-                    (file.as_str(), ranges(&runs))
-                })
+                .map(|(file, runs)| (file.as_str(), ranges(runs)))
                 .collect();
             if !lines.is_empty() {
                 let mut agent = agent_value(owner);

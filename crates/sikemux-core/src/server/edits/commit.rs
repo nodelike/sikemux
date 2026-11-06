@@ -265,7 +265,7 @@ pub(crate) fn commit(
             .iter()
             .map(|path| in_checkout(&diff.top, dir, path))
             .collect::<Result<Vec<_>, _>>()?;
-        let mine = owners.standing_for(core, agent_id);
+        let mine = super::owners::standing_for(&owners, core, agent_id);
         let Plan {
             changes,
             left,

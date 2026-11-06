@@ -16,7 +16,6 @@ use gpui_kit::{
     IntoElement, ParentElement, PathBuilder, Pixels, SharedString, StatefulInteractiveElement,
     Styled, Transformation, WeakEntity, Window,
 };
-use serde::Deserialize;
 use serde_json::json;
 use sikemux_core::git::log::GitCommit;
 
@@ -31,6 +30,7 @@ use crate::theme::{
 use crate::toast;
 use crate::ui;
 use crate::workbench::Workbench;
+use sikemux_view::owners::AgentOwner;
 
 pub const ROW_HEIGHT: f32 = 32.;
 const LANE_WIDTH: f32 = 14.;
@@ -652,90 +652,70 @@ fn commit_foot(commit: &GitCommit, cx: &mut Context<GitPane>) -> Div {
         ))
 }
 
-/// An agent a commit's signed footer names, as the core's `commitOwners` answers.
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CommitOwner {
-    name: String,
-    cli: String,
-    cli_version: Option<String>,
-    model: Option<String>,
-    sikemux: Option<String>,
-    chat: String,
-    title: Option<String>,
-    /// The agent that has its session open now.
-    open: Option<String>,
-    session_id: Option<String>,
-    /// The folder of the project its session ran in.
-    project: Option<String>,
+fn describe(owner: &AgentOwner) -> String {
+    let who = match &owner.title {
+        Some(title) => format!("{title} — {}", owner.name),
+        None => owner.name.clone(),
+    };
+    let reach = if owner.open.is_some() {
+        "open now"
+    } else if owner.session_id.is_some() {
+        "click to resume"
+    } else {
+        "its session is gone"
+    };
+    let cli = match &owner.cli_version {
+        Some(version) => format!("{} {version}", owner.cli),
+        None => owner.cli.clone(),
+    };
+    let ran: Vec<String> = [
+        Some(cli),
+        owner.model.clone(),
+        owner
+            .sikemux
+            .as_ref()
+            .map(|version| format!("Sikemux {version}")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    format!("{who} ({}) wrote this · {reach}", ran.join(", "))
 }
 
-impl CommitOwner {
-    fn describe(&self) -> String {
-        let who = match &self.title {
-            Some(title) => format!("{title} — {}", self.name),
-            None => self.name.clone(),
-        };
-        let reach = if self.open.is_some() {
-            "open now"
-        } else if self.session_id.is_some() {
-            "click to resume"
-        } else {
-            "its session is gone"
-        };
-        let cli = match &self.cli_version {
-            Some(version) => format!("{} {version}", self.cli),
-            None => self.cli.clone(),
-        };
-        let ran: Vec<String> = [
-            Some(cli),
-            self.model.clone(),
-            self.sikemux
-                .as_ref()
-                .map(|version| format!("Sikemux {version}")),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        format!("{who} ({}) wrote this · {reach}", ran.join(", "))
-    }
-
-    /// Brings forward the agent that has the session open, else takes the session up again
-    /// in the project it ran in, on the core the history came from.
-    fn open(
-        &self,
-        bench: &WeakEntity<Workbench>,
-        core: &Target,
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        if let Some(agent) = &self.open {
-            if let Some(bench) = bench.upgrade() {
-                bench.update(cx, |bench, cx| bench.open_agent(agent, cx));
-            }
-            return;
+/// Brings forward the agent that has the session open, else takes the session up again
+/// in the project it ran in, on the core the history came from.
+fn open_owner(
+    owner: &AgentOwner,
+    bench: &WeakEntity<Workbench>,
+    core: &Target,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if let Some(agent) = &owner.open {
+        if let Some(bench) = bench.upgrade() {
+            bench.update(cx, |bench, cx| bench.open_agent(agent, cx));
         }
-        let (Some(session), Some(project)) = (&self.session_id, &self.project) else {
-            return;
-        };
-        let params = json!({ "provider": self.cli, "sessionId": session, "project": project });
-        let (answer, core) = (core.request("resumeSession", params), core.clone());
-        window
-            .spawn(cx, async move |cx| match answer.await {
-                Ok(started) => {
-                    core.call_typed::<call::OpenTab>(OpenTab::new(
-                        At::project(started["project"].as_str().unwrap_or_default()),
-                        PaneKind::Agent,
-                        started["agentId"].as_str().unwrap_or_default(),
-                    ));
-                }
-                Err(error) => {
-                    let _ =
-                        cx.update(|window, cx| window.push_notification(toast::error(error), cx));
-                }
-            })
-            .detach();
+        return;
     }
+    let (Some(session), Some(project)) = (&owner.session_id, &owner.project) else {
+        return;
+    };
+    let params = json!({ "provider": owner.cli, "sessionId": session, "project": project });
+    let (answer, core) = (core.request("resumeSession", params), core.clone());
+    window
+        .spawn(cx, async move |cx| match answer.await {
+            Ok(started) => {
+                core.call_typed::<call::OpenTab>(OpenTab::new(
+                    At::project(started["project"].as_str().unwrap_or_default()),
+                    PaneKind::Agent,
+                    started["agentId"].as_str().unwrap_or_default(),
+                ));
+            }
+            Err(error) => {
+                let _ = cx.update(|window, cx| window.push_notification(toast::error(error), cx));
+            }
+        })
+        .detach();
 }
 
 /// The agents a commit's signed footer names, each opening its session; `compact` shows
@@ -794,13 +774,13 @@ fn commit_agents(pane: &GitPane, hash: &str, compact: bool, cx: &App) -> Option<
             .font_weight(FontWeight::NORMAL)
             .text_color(t.text_secondary)
             .whitespace_nowrap()
-            .tooltip(ui::tooltip(owner.describe()))
+            .tooltip(ui::tooltip(describe(owner)))
             .when(reachable, |chip| {
                 chip.cursor_pointer()
                     .hover(move |chip| chip.bg(t.surface_hover).text_color(t.text_primary))
                     .on_click(move |_, window, cx| {
                         cx.stop_propagation();
-                        opened.open(&bench, &core, window, cx);
+                        open_owner(&opened, &bench, &core, window, cx);
                     })
             })
             .child(mark)

@@ -4636,6 +4636,119 @@ export interface BoardNoteParams {
     evidence?: number;
 }
 
+/** Asks who wrote each uncommitted line of the checkout at `dir`, or its staged half. */
+export interface CheckoutParams {
+    dir: string;
+    staged?: boolean;
+}
+
+export interface Owners {
+    authors: LineAuthor[];
+    files: FileOwners[];
+}
+
+/**
+ * An agent, or the agents at work together when no one of them could have
+ * made a change, named "Otter or Briar", with no agent id of its own.
+ */
+export interface LineAuthor {
+    agentId: string;
+    name: string;
+    cli: string;
+    model?: string;
+    /** The chat run of its latest edit. */
+    feed: string;
+    shared?: string[];
+}
+
+/** The changed lines of a file agents wrote, by its path in the checkout. */
+export interface FileOwners {
+    path: string;
+    lines: LineRun[];
+    removed: LineRemoval[];
+    notes?: LineNote[];
+}
+
+/**
+ * `count` lines from `start` that `author` wrote last. `over` is the agent
+ * whose lines it rewrote there.
+ */
+export interface LineRun {
+    start: number;
+    count: number;
+    author: number;
+    over?: number;
+}
+
+/** Lines `author` took out just before line `at`. */
+export interface LineRemoval {
+    at: number;
+    author: number;
+}
+
+/**
+ * What to say beside a changed line: who wrote it, said where its run of changed
+ * lines starts and wherever the writer changes within it, and whose lines it
+ * rewrote.
+ */
+export interface LineNote {
+    line: number;
+    /** Whether the note names who wrote the line; `author` none when no agent did. */
+    named: boolean;
+    author?: number;
+    over?: number;
+}
+
+/** Asks which agents each of `commits` has in its footer. */
+export interface CommitsParams {
+    dir: string;
+    commits: string[];
+}
+
+/** An agent a commit's footer names, as it stands here now. */
+export interface AgentOwner {
+    name: string;
+    cli: string;
+    cliVersion?: string;
+    model?: string;
+    /** The version of Sikemux the agent ran in. */
+    sikemux?: string;
+    /** The agent the footer names, which stands for the session until it is known. */
+    chat: string;
+    title?: string;
+    /** The agent that has its session open now. */
+    open?: string;
+    /** The CLI's own session, which resuming the agent needs. */
+    sessionId?: string;
+    /** The project its session ran in. */
+    project?: string;
+    /**
+     * The lines it wrote in the commit, as the commit's note says, when the
+     * commit holds lines of others too.
+     */
+    lines?: Record<string, [number, number][]>;
+}
+
+/** Asks who wrote each line `commit` changed. */
+export interface CommitParams {
+    dir: string;
+    commit: string;
+}
+
+/**
+ * Who wrote which lines of a commit, as its note gives each of the agents its
+ * footer names, by name.
+ */
+export interface CommitLines {
+    authors: LineNamed[];
+    files: FileOwners[];
+}
+
+/** Agents by name; several who wrote the same lines read "Otter or Briar". */
+export interface LineNamed {
+    name: string;
+}
+
 /** The core's calls that name what they take and answer, by method. */
 export interface CoreCalls {
     promptChat: { params: PromptChatParams; answer: null };
@@ -4704,6 +4817,9 @@ export interface CoreCalls {
     boardRetry: { params: BoardCardParams; answer: ProjectBoard };
     boardPass: { params: BoardPassParams; answer: ProjectBoard };
     boardNote: { params: BoardNoteParams; answer: ProjectBoard };
+    changeOwners: { params: CheckoutParams; answer: Owners };
+    commitOwners: { params: CommitsParams; answer: Record<string, AgentOwner[]> };
+    commitLines: { params: CommitParams; answer: CommitLines };
 }
 
 /** What the core's `Preferences::default()` serializes to. */

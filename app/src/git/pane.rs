@@ -28,7 +28,7 @@ use sikemux_core::server::drafts::SetDraftParams;
 use sikemux_wire::protocol::ProjectCodeHost;
 
 use branches::{branch_card, branches_page, Branches};
-use history::{commit_card, commit_row, graph, CommitOwner, Graph, Inks};
+use history::{commit_card, commit_row, graph, Graph, Inks};
 
 mod branches;
 mod history;
@@ -37,6 +37,7 @@ use crate::agents::rows::AgentRow;
 use crate::core::Target;
 use crate::editor::OpenAt;
 use crate::files::Mark;
+use crate::git::WhoWrote;
 use crate::icons::Icon;
 use crate::motion;
 use crate::theme::{
@@ -47,6 +48,9 @@ use crate::toast;
 use crate::track::{self, Scrolled, Slide};
 use crate::ui::{self, Cheatsheet, Choice, Choices, Confirm, Prompt};
 use crate::workbench::Workbench;
+use sikemux_view::owners::{
+    AgentOwner, CheckoutParams, CommitLines, CommitParams, CommitsParams, Owners,
+};
 
 pub(crate) const ROW_HEIGHT: f32 = 26.;
 /// The pane's keys, by page, as its cheatsheet lists them.
@@ -332,13 +336,13 @@ pub struct GitPane {
     /// The store, for the agents whose faces the changed files show.
     bench: WeakEntity<Workbench>,
     /// Who wrote the uncommitted lines, as the core's `changeOwners` answers.
-    owners: Value,
+    owners: Owners,
     /// Who wrote the staged lines, read while a file has both staged and unstaged changes.
-    staged_owners: Value,
+    staged_owners: Owners,
     /// Who wrote the lines of the commit shown, as its note says.
-    commit_lines: Value,
+    commit_lines: CommitLines,
     /// The agents each commit's signed footer names, and the commits last asked about.
-    commit_owners: HashMap<String, Vec<CommitOwner>>,
+    commit_owners: HashMap<String, Vec<AgentOwner>>,
     owners_asked: Vec<String>,
     /// The commit message as the core last kept it.
     synced: String,
@@ -435,9 +439,9 @@ impl GitPane {
             draft,
             written: None,
             bench,
-            owners: Value::Null,
-            staged_owners: Value::Null,
-            commit_lines: Value::Null,
+            owners: Owners::default(),
+            staged_owners: Owners::default(),
+            commit_lines: CommitLines::default(),
             commit_owners: HashMap::new(),
             owners_asked: Vec::new(),
             commands: VecDeque::new(),
@@ -1524,8 +1528,11 @@ impl GitPane {
 
     fn read_owners(&mut self, cx: &mut Context<Self>) {
         let read = |staged: bool| {
-            let params = json!({ "dir": self.repo, "staged": staged });
-            self.core.request("changeOwners", params)
+            let params = CheckoutParams {
+                dir: self.repo.clone().into(),
+                staged,
+            };
+            self.core.request_typed::<call::ChangeOwners>(params)
         };
         let owners = read(false);
         let halves = self
@@ -1534,10 +1541,10 @@ impl GitPane {
             .any(|file| file.is_staged() && file.has_unstaged());
         let staged = halves.then(|| read(true));
         cx.spawn(async move |pane, cx| {
-            let owners = owners.await.unwrap_or(Value::Null);
+            let owners = owners.await.unwrap_or_default();
             let staged = match staged {
-                Some(staged) => staged.await.unwrap_or(Value::Null),
-                None => Value::Null,
+                Some(staged) => staged.await.unwrap_or_default(),
+                None => Owners::default(),
             };
             pane.update(cx, |pane, cx| {
                 pane.owners = owners;
@@ -1567,14 +1574,15 @@ impl GitPane {
             self.commit_owners.clear();
             return;
         }
-        let params = json!({ "dir": self.repo, "commits": footered });
-        let answer = self.core.request("commitOwners", params);
+        let answer = self
+            .core
+            .request_typed::<call::CommitOwners>(CommitsParams {
+                dir: self.repo.clone().into(),
+                commits: footered.clone(),
+            });
         cx.spawn(async move |pane, cx| {
-            let owners = answer
-                .await
-                .ok()
-                .and_then(|owners| serde_json::from_value(owners).ok())
-                .unwrap_or_default();
+            let owners: HashMap<String, Vec<AgentOwner>> =
+                answer.await.unwrap_or_default().into_iter().collect();
             pane.update(cx, |pane, cx| {
                 if pane.owners_asked == footered {
                     pane.commit_owners = owners;
@@ -1587,23 +1595,25 @@ impl GitPane {
     }
 
     /// Who wrote the lines a diff of `side` shows, as the core last said.
-    pub(super) fn owners_of(&self, side: Option<Side>) -> &Value {
+    pub(super) fn owners_of(&self, side: Option<Side>) -> WhoWrote<'_> {
         if self.review.commit().is_some() {
-            &self.commit_lines
+            WhoWrote::of_commit(&self.commit_lines)
         } else if side == Some(Side::Staged) {
-            &self.staged_owners
+            WhoWrote::of_checkout(&self.staged_owners)
         } else {
-            &self.owners
+            WhoWrote::of_checkout(&self.owners)
         }
     }
 
     fn read_commit_lines(&mut self, hash: &str, cx: &mut Context<Self>) {
-        self.commit_lines = Value::Null;
-        let params = json!({ "dir": self.repo, "commit": hash });
-        let answer = self.core.request("commitLines", params);
+        self.commit_lines = CommitLines::default();
+        let answer = self.core.request_typed::<call::CommitLines>(CommitParams {
+            dir: self.repo.clone().into(),
+            commit: hash.to_owned(),
+        });
         let hash = hash.to_owned();
         cx.spawn(async move |pane, cx| {
-            let lines = answer.await.unwrap_or(Value::Null);
+            let lines = answer.await.unwrap_or_default();
             pane.update(cx, |pane, cx| {
                 if pane.asked_commit.as_deref() == Some(hash.as_str()) {
                     pane.commit_lines = lines;
@@ -1618,58 +1628,36 @@ impl GitPane {
 
     /// Notes beside the lines the review shows who wrote them.
     fn annotate(&mut self) {
-        let (owners, staged) = if self.review.commit().is_some() {
-            (&self.commit_lines, &Value::Null)
-        } else {
-            (&self.owners, &self.staged_owners)
+        let (owners, staged) = match self.review.commit() {
+            Some(_) => (WhoWrote::of_commit(&self.commit_lines), WhoWrote::default()),
+            None => (
+                WhoWrote::of_checkout(&self.owners),
+                WhoWrote::of_checkout(&self.staged_owners),
+            ),
         };
-        self.review.annotate(owners, staged);
+        self.review.annotate(&owners, &staged);
     }
 
     /// The agents that wrote some of `path`'s uncommitted lines, by agent id, with the
     /// agent they ran on, in the order they first appear; and every writer's name.
     fn writers(&self, path: &str) -> (Vec<(String, String)>, Vec<String>) {
-        let authors = self.owners["authors"]
-            .as_array()
-            .map_or(&[][..], Vec::as_slice);
-        let Some(file) = self.owners["files"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|file| file["path"] == path)
-        else {
+        let Some(file) = self.owners.files.iter().find(|file| file.path == path) else {
             return (Vec::new(), Vec::new());
         };
         let mut seen = Vec::new();
-        for run in ["lines", "removed"]
-            .iter()
-            .flat_map(|field| file[*field].as_array().into_iter().flatten())
-        {
-            if let Some(author) = run["author"].as_u64().map(|at| at as usize) {
-                if !seen.contains(&author) {
-                    seen.push(author);
-                }
+        let wrote = file.lines.iter().map(|run| run.author);
+        for author in wrote.chain(file.removed.iter().map(|removal| removal.author)) {
+            if !seen.contains(&author) {
+                seen.push(author);
             }
         }
         let mut faces: Vec<(String, String)> = Vec::new();
         let mut names = Vec::new();
-        for author in seen.iter().filter_map(|at| authors.get(*at)) {
-            names.push(author["name"].as_str().unwrap_or_default().to_owned());
-            let cli = author["cli"].as_str().unwrap_or_default().to_owned();
-            let shared: Vec<&str> = author["shared"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_str)
-                .collect();
-            let ids = if shared.is_empty() {
-                vec![author["agentId"].as_str().unwrap_or_default()]
-            } else {
-                shared
-            };
-            for id in ids {
+        for author in seen.iter().filter_map(|at| self.owners.authors.get(*at)) {
+            names.push(author.name.clone());
+            for id in author.agents() {
                 if !faces.iter().any(|(known, _)| known == id) {
-                    faces.push((id.to_owned(), cli.clone()));
+                    faces.push((id.to_owned(), author.cli.clone()));
                 }
             }
         }

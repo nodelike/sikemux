@@ -38,7 +38,8 @@ use super::connection::blocking;
 use super::workspace::project_of;
 use super::{Core, CoreResult};
 pub(crate) use lines::{changed, hunk, replaced, Lines, Replaced};
-pub(crate) use owners::{authors, before, commit_lines, git, owners_at, CommitLines, Owners};
+pub(crate) use owners::{authors, before, commit_lines, git, owners_at, Owners};
+use sikemux_view::owners::CheckoutParams;
 
 const FOLDER: &str = "edits";
 const MAX_PER_PROJECT: usize = 5000;
@@ -570,13 +571,7 @@ fn located(file: &str, old: Option<&str>, new: &str) -> Lines {
     lines::changed(old.unwrap_or_default(), new, first)
 }
 
-#[derive(Deserialize)]
-pub(crate) struct CheckoutParams {
-    dir: PathBuf,
-    #[serde(default)]
-    staged: bool,
-}
-
+/// Which agent wrote each uncommitted line of a checkout.
 pub(crate) async fn change_owners(core: &Arc<Core>, params: CheckoutParams) -> CoreResult<Owners> {
     let core = core.clone();
     blocking(move || Ok(owners_at(&core, &params.dir, params.staged)?)).await

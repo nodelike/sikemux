@@ -12,8 +12,7 @@ use iroh::PublicKey;
 use super::owners::{run, Diff, Owners};
 use crate::trailers::{verify_note, Commit, NOTES_REF};
 
-/// Runs of lines, first and last, by path.
-pub(crate) type Wrote = BTreeMap<String, Vec<[u64; 2]>>;
+pub(crate) use sikemux_view::owners::Wrote;
 
 /// What each agent wrote, by its session, or its chat when its session was
 /// not known.
@@ -51,8 +50,8 @@ pub(super) fn of(
                     .entry(file.path.clone())
                     .or_default();
                 match runs.last_mut() {
-                    Some([_, end]) if *end + 1 == run.start => *end = last,
-                    _ => runs.push([run.start, last]),
+                    Some((_, end)) if *end + 1 == run.start => *end = last,
+                    _ => runs.push((run.start, last)),
                 }
             }
             if counted {
@@ -163,7 +162,7 @@ impl<'a> Answers<'a> {
 
 pub(crate) fn holds(wrote: &Wrote, path: &str, line: u64) -> bool {
     wrote.get(path).is_some_and(|runs| {
-        let after = runs.partition_point(|[first, _]| *first <= line);
-        after > 0 && line <= runs[after - 1][1]
+        let after = runs.partition_point(|(first, _)| *first <= line);
+        after > 0 && line <= runs[after - 1].1
     })
 }

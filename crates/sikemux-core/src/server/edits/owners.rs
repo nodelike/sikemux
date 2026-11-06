@@ -9,8 +9,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde::Serialize;
 use sikemux_process::sync::Locked;
+use sikemux_view::owners::{CommitLines, LineNamed as Named};
+pub(crate) use sikemux_view::owners::{
+    FileOwners, LineAuthor as Author, LineNote as Note, LineRemoval as Removal, LineRun as Run,
+    Owners,
+};
 
 use super::{line_count, read_text, Edit, Lines};
 use crate::git::Git;
@@ -20,117 +24,6 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 const OUTPUT_LIMIT: usize = 32 * 1024 * 1024;
 /// What git diffs against before a repository's first commit.
 const EMPTY_TREE: &str = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-
-#[derive(Serialize, Default)]
-pub(crate) struct Owners {
-    pub authors: Vec<Author>,
-    pub files: Vec<FileOwners>,
-}
-
-impl Owners {
-    /// The authors that stand for `agent_id`: the agent, an earlier run of its
-    /// CLI's session, or agents at work together when it was one of them.
-    pub(crate) fn standing_for(&self, core: &Core, agent_id: &str) -> HashSet<usize> {
-        let session = core.names.last_session(agent_id);
-        let is_it = |id: &str| {
-            id == agent_id
-                || session
-                    .as_deref()
-                    .is_some_and(|session| core.names.last_session(id).as_deref() == Some(session))
-        };
-        self.authors
-            .iter()
-            .enumerate()
-            .filter(|(_, author)| author.agents().any(is_it))
-            .map(|(at, _)| at)
-            .collect()
-    }
-
-    /// The authors with a line or a removal among the files, by number.
-    pub(super) fn writers(&self) -> impl Iterator<Item = (usize, &Author)> {
-        let wrote: HashSet<usize> = self
-            .files
-            .iter()
-            .flat_map(|file| {
-                let lines = file.lines.iter().map(|run| run.author);
-                lines.chain(file.removed.iter().map(|removal| removal.author))
-            })
-            .collect();
-        self.authors
-            .iter()
-            .enumerate()
-            .filter(move |(at, _)| wrote.contains(at))
-    }
-}
-
-/// An agent, or the agents at work together when no one of them could have
-/// made a change, named "Otter or Briar", with no agent id of its own.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Author {
-    pub agent_id: String,
-    pub name: String,
-    pub cli: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// The chat run of its latest edit.
-    pub feed: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub shared: Vec<String>,
-    /// Whether the agent is still open here; lines of one closed since block
-    /// nobody who names their file.
-    #[serde(skip)]
-    pub open: bool,
-}
-
-impl Author {
-    pub(crate) fn agents(&self) -> impl Iterator<Item = &str> {
-        let own = self.shared.is_empty().then_some(&self.agent_id);
-        own.into_iter().chain(&self.shared).map(String::as_str)
-    }
-}
-
-/// The changed lines of a file agents wrote, by its path in the checkout.
-#[derive(Serialize)]
-pub(crate) struct FileOwners {
-    pub path: String,
-    pub lines: Vec<Run>,
-    pub removed: Vec<Removal>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub notes: Vec<Note>,
-}
-
-/// What to say beside a changed line: who wrote it, said where its run of changed
-/// lines starts and wherever the writer changes within it, and whose lines it
-/// rewrote.
-#[derive(Serialize, Debug, PartialEq)]
-pub(crate) struct Note {
-    pub line: u64,
-    /// Whether the note names who wrote the line; `author` none when no agent did.
-    pub named: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub author: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub over: Option<usize>,
-}
-
-/// `count` lines from `start` that `author` wrote last. `over` is the agent
-/// whose lines it rewrote there.
-#[derive(Serialize)]
-pub(crate) struct Run {
-    pub start: u64,
-    pub count: u64,
-    pub author: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub over: Option<usize>,
-}
-
-/// Lines `author` took out just before line `at`.
-#[derive(Serialize)]
-pub(crate) struct Removal {
-    pub at: u64,
-    pub author: usize,
-}
 
 /// `count` lines from `start` in the newer file stand where `removed` stood,
 /// as in the edit record.
@@ -489,20 +382,6 @@ fn record_over(core: &Core, dir: &Path, staged: bool, diff: &Diff) -> Owners {
     owners
 }
 
-/// Who wrote which lines of a commit, as its note gives each of the agents its
-/// footer names, by name.
-#[derive(Serialize, Default)]
-pub(crate) struct CommitLines {
-    pub authors: Vec<Named>,
-    pub files: Vec<FileOwners>,
-}
-
-/// Agents by name; several who wrote the same lines read "Otter or Briar".
-#[derive(Serialize)]
-pub(crate) struct Named {
-    pub name: String,
-}
-
 /// Who wrote each line `commit` changed in `dir`, from `wrote`: each agent's name
 /// with the runs of lines the commit's note gives it, by path.
 pub(crate) fn commit_lines(
@@ -530,7 +409,7 @@ pub(crate) fn commit_lines(
     for path in paths {
         let mut writers: std::collections::BTreeMap<u64, Vec<&str>> = Default::default();
         for (name, wrote) in wrote {
-            for [first, last] in wrote.get(path).into_iter().flatten() {
+            for (first, last) in wrote.get(path).into_iter().flatten() {
                 for line in *first..=*last {
                     writers.entry(line).or_default().push(name);
                 }
@@ -1032,4 +911,23 @@ fn paths_as_written(dir: &Path) -> Git<'static> {
         .config("core.quotePath", "false")
         .timeout(TIMEOUT)
         .limit(OUTPUT_LIMIT)
+}
+
+/// The authors that stand for `agent_id`: the agent, an earlier run of its
+/// CLI's session, or agents at work together when it was one of them.
+pub(super) fn standing_for(owners: &Owners, core: &Core, agent_id: &str) -> HashSet<usize> {
+    let session = core.names.last_session(agent_id);
+    let is_it = |id: &str| {
+        id == agent_id
+            || session
+                .as_deref()
+                .is_some_and(|session| core.names.last_session(id).as_deref() == Some(session))
+    };
+    owners
+        .authors
+        .iter()
+        .enumerate()
+        .filter(|(_, author)| author.agents().any(is_it))
+        .map(|(at, _)| at)
+        .collect()
 }

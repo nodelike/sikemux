@@ -59,7 +59,7 @@ fn footer(
         (Some(named), _) => named.iter().filter_map(|id| known(core, dir, id)).collect(),
         (None, Ok((owners, _))) => {
             let committers = fallback
-                .map(|id| owners.standing_for(core, id))
+                .map(|id| super::owners::standing_for(owners, core, id))
                 .unwrap_or_default();
             owners
                 .writers()

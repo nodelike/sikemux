@@ -25,6 +25,8 @@ use sikemux_view::layout::PaneKind;
 use sikemux_wire::protocol::ProjectCodeHost;
 use tokio::sync::mpsc::UnboundedSender;
 
+use sikemux_view::owners::{CommitLines, FileOwners, Owners};
+
 use crate::core::{request, Ask};
 use crate::editor::OpenAt;
 use crate::keyboard::TakesKeys;
@@ -502,6 +504,37 @@ pub fn row(
         )
 }
 
+/// Who wrote which lines, as the core said of a checkout or of a commit.
+#[derive(Default)]
+pub struct WhoWrote<'a> {
+    names: Vec<&'a str>,
+    files: &'a [FileOwners],
+}
+
+impl<'a> WhoWrote<'a> {
+    pub fn of_checkout(owners: &'a Owners) -> Self {
+        Self {
+            names: owners
+                .authors
+                .iter()
+                .map(|author| author.name.as_str())
+                .collect(),
+            files: &owners.files,
+        }
+    }
+
+    pub fn of_commit(lines: &'a CommitLines) -> Self {
+        Self {
+            names: lines
+                .authors
+                .iter()
+                .map(|author| author.name.as_str())
+                .collect(),
+            files: &lines.files,
+        }
+    }
+}
+
 /// What the core says to note beside a file's changed lines, in the app's words: who
 /// wrote each line, and who took out the lines just above a line.
 #[derive(Default)]
@@ -511,50 +544,29 @@ pub struct Notes {
 }
 
 impl Notes {
-    /// The notes for `path` in what `changeOwners` answered.
-    pub fn of(owners: &Value, path: &str) -> Self {
-        let names: Vec<&str> = owners["authors"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|author| author["name"].as_str().unwrap_or_default())
-            .collect();
-        let name = |author: &Value| {
-            author
-                .as_u64()
-                .and_then(|author| names.get(author as usize))
-                .copied()
-        };
-        let Some(file) = owners["files"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .find(|file| file["path"] == path)
-        else {
+    /// The notes for `path` in what the core said of who wrote what.
+    pub fn of(owners: &WhoWrote<'_>, path: &str) -> Self {
+        let name = |author: usize| owners.names.get(author).copied();
+        let Some(file) = owners.files.iter().find(|file| file.path == path) else {
             return Self::default();
         };
-        let lines = file["notes"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|note| {
+        let lines = (file.notes.iter())
+            .map(|note| {
                 let mut said = Vec::new();
-                if note["named"] == true {
-                    said.push(name(&note["author"]).unwrap_or("unattributed").to_owned());
+                if note.named {
+                    let author = note.author.and_then(name);
+                    said.push(author.unwrap_or("unattributed").to_owned());
                 }
-                if let Some(over) = name(&note["over"]) {
+                if let Some(over) = note.over.and_then(name) {
                     said.push(format!("changed {over}'s edit"));
                 }
-                Some((note["line"].as_u64()? as u32, said.join(" · ").into()))
+                (note.line as u32, said.join(" · ").into())
             })
             .collect();
-        let gaps = file["removed"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let gaps = (file.removed.iter())
             .filter_map(|removal| {
-                let name = name(&removal["author"])?;
-                Some((removal["at"].as_u64()? as u32, name.to_owned().into()))
+                let name = name(removal.author)?;
+                Some((removal.at as u32, name.to_owned().into()))
             })
             .collect();
         Self { lines, gaps }
