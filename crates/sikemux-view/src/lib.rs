@@ -4,6 +4,7 @@
 //! `sikemux-wire` instead.
 
 pub mod catalog;
+pub mod changed;
 pub mod chat;
 pub mod device;
 pub mod goals;

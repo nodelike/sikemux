@@ -68,13 +68,13 @@ impl Asked {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Moved {
     View,
-    Topic(sikemux_wire::changed::Topic),
+    Topic(sikemux_view::changed::Topic),
 }
 
 /// What a mod's watch of `name` reads again on; a name with nothing to follow is read again on
 /// a timer of the page's own while the pane shows.
 pub fn follows(name: &str) -> Option<Moved> {
-    use sikemux_wire::changed::Topic;
+    use sikemux_view::changed::Topic;
     Some(match name {
         "agents" | "inbox" => Moved::View,
         "board" => Moved::Topic(Topic::Boards),

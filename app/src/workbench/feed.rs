@@ -5,8 +5,8 @@ use std::path::PathBuf;
 
 use gpui_kit::Context;
 use serde_json::json;
+use sikemux_view::changed::Topic;
 use sikemux_view::device::DeviceView;
-use sikemux_wire::changed::Topic;
 
 use crate::chat::{Chat, START};
 use crate::core::{utc_offset_minutes, ChatAsk, ChatNews, Target, Update};

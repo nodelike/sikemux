@@ -1186,7 +1186,7 @@ const STOPPING_FLUSH: Duration = Duration::from_millis(200);
 /// neither starts it again. A core that dies without a word is started again.
 async fn say_stopping(core: &Core) {
     core.changed(What::Event(&Event::Changed {
-        topic: changed::Topic::Stopping,
+        topic: changed::Topic::Stopping.to_json(),
         project: None,
         paths: None,
     }));

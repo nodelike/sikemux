@@ -9,7 +9,7 @@ use std::time::Duration;
 use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
-pub(crate) use sikemux_wire::changed::Topic;
+pub(crate) use sikemux_view::changed::Topic;
 
 use sikemux_wire::protocol::{encode_control, Event, ServerMessage};
 
@@ -130,7 +130,7 @@ fn signal_of(event: &Event) -> Option<Signal> {
 fn devices_hear(event: &Event) -> bool {
     match event {
         Event::Exited { .. } | Event::ShellMetadata(_) => true,
-        Event::Changed { topic, .. } => *topic != Topic::Stopping,
+        Event::Changed { topic, .. } => Topic::of_json(topic) != Topic::Stopping,
         _ => false,
     }
 }
@@ -195,7 +195,7 @@ pub(crate) async fn serve(core: Arc<Core>) {
         let pending = std::mem::take(&mut *core.changes.pending.locked());
         for ((topic, project), paths) in pending {
             core.changed(What::Event(&Event::Changed {
-                topic,
+                topic: topic.to_json(),
                 project,
                 paths: paths.map(|paths| paths.into_iter().collect()),
             }));

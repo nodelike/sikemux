@@ -2,11 +2,11 @@ use sikemux_core::server::call;
 use sikemux_core::server::chat::calls::ToolDetailParams;
 use sikemux_core::server::chat::find::FindAnswer;
 use sikemux_core::server::chat::find::FindParams;
+use sikemux_view::changed::Topic;
 use sikemux_view::chat::{ChatPage, ToolDetail};
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
-use sikemux_wire::changed::Topic;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -1359,6 +1359,7 @@ async fn run(
                                 }
                             }
                             Some(ClientEvent::Event(Event::Changed { topic, project, paths })) => {
+                                let topic = Topic::of_json(&topic);
                                 stopping |= topic == Topic::Stopping;
                                 for (&key, watch) in watches.here.iter().filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref())) {
                                     read(&client, key, watch, (&current, &failed), &updates);
@@ -1420,6 +1421,7 @@ async fn run(
                                     let _ = updates.send(Update::Terminal(Place::Account(host), event.pty_id, Screenful::ShellChanged(event)));
                                 }
                                 ClientEvent::Event(Event::Changed { topic, project, paths }) => {
+                                    let topic = Topic::of_json(&topic);
                                     let changed = watches
                                         .hosts
                                         .get(&host)

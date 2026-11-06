@@ -3,7 +3,6 @@
 //! a store build. Whatever the phone only passes to TypeScript as JSON lives in `sikemux-view`.
 
 pub mod accounts;
-pub mod changed;
 pub mod grid;
 pub mod protocol;
 pub mod pty;

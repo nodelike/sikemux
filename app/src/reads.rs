@@ -25,11 +25,11 @@ use sikemux_core::server::updates::UpdateState;
 use sikemux_core::server::updates::UpdateStatus;
 use sikemux_plugin_api::codehost::PullList;
 use sikemux_view::catalog::CatalogAgent;
+use sikemux_view::changed::Topic;
 use sikemux_view::plugins::{Listed, TokenForm};
 use sikemux_view::prefs::Preferences;
 use sikemux_view::questions::AgentQuestion;
 use sikemux_view::theme::ThemeSummary;
-use sikemux_wire::changed::Topic;
 
 use crate::chat::Question;
 use crate::core::Ask;

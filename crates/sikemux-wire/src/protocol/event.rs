@@ -114,9 +114,10 @@ pub enum Event {
     /// What a client reads through `Call` under `topic` changed, for
     /// `project` or for every project when it is absent, so the client reads
     /// it again. `paths` names what moved inside it; absent means anything
-    /// may have. A client skips topics it does not know.
+    /// may have. `topic` is `sikemux-view`'s `Topic` as JSON, and a client
+    /// skips topics it does not know.
     Changed {
-        topic: crate::changed::Topic,
+        topic: Value,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         project: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -143,7 +143,8 @@ enum Event: Decodable {
     /// What a client reads through `Call` under `topic` changed, for
     /// `project` or for every project when it is absent, so the client reads
     /// it again. `paths` names what moved inside it; absent means anything
-    /// may have. A client skips topics it does not know.
+    /// may have. `topic` is `sikemux-view`'s `Topic` as JSON, and a client
+    /// skips topics it does not know.
     case changed(topic: CoreChangeTopic)
     /// Sent only to clients on this host.
     case remote(status: RemoteStatus)
