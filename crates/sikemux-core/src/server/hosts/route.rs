@@ -732,12 +732,14 @@ pub(crate) async fn pass_on(
     worker: &Foreign,
     text: String,
     choices: Value,
+    raise: questions::Raise,
 ) -> Result<Value, String> {
     let params = params_of::<asks::PassOn>(&PassOnParams {
         lead: lead.to_owned(),
         worker: worker.agent_id.clone(),
         text,
         choices,
+        raise,
     });
     ask(
         core,
@@ -757,6 +759,7 @@ pub(super) struct PassOnParams {
     worker: String,
     text: String,
     choices: Value,
+    raise: questions::Raise,
 }
 
 pub(super) fn pass_on_here(core: &Core, host: &str, params: PassOnParams) -> Result<Value, String> {
@@ -769,5 +772,12 @@ pub(super) fn pass_on_here(core: &Core, host: &str, params: PassOnParams) -> Res
     {
         return Err("that lead is not one of a team this host shares with yours".into());
     }
-    questions::pass_on_from(core, lead, &params.worker, &params.text, &params.choices)
+    questions::pass_on_from(
+        core,
+        lead,
+        &params.worker,
+        &params.text,
+        &params.choices,
+        params.raise,
+    )
 }

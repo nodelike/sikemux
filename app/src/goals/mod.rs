@@ -17,6 +17,7 @@ use gpui_kit::{
 };
 use serde::Serialize;
 use sikemux_core::server::board::goal::DecideParams as BoardDecideParams;
+use sikemux_core::server::board::goal::OverruleParams;
 use sikemux_core::server::board::BoardCard;
 use sikemux_core::server::board::BoardNoteParams;
 use sikemux_core::server::board::BoardPassParams;
@@ -31,8 +32,8 @@ use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::memory::{MemoryView, Seeding};
 use sikemux_view::slice::{
-    CheckRun, Gate, GateState, GateView, GoalEta, GoalSummaryParams, GoalSummaryView, Need, Passer,
-    SavedChat, SliceState, SliceView, Wait, WaitOn,
+    CheckRun, Decision, Gate, GateState, GateView, GoalEta, GoalSummaryParams, GoalSummaryView,
+    Need, Passer, SavedChat, SliceState, SliceView, Wait, WaitOn,
 };
 use sikemux_wire::protocol::NoticeGoal;
 use tokio::sync::mpsc::UnboundedSender;
@@ -409,7 +410,7 @@ impl GoalsPane {
         let agent = item.agent_id.clone();
         let in_chat = matches!(
             item.kind,
-            InboxKind::Question | InboxKind::Assumption | InboxKind::Permission | InboxKind::Input
+            InboxKind::Question | InboxKind::Permission | InboxKind::Input
         );
         match (item.kind, &item.card, &item.url) {
             (InboxKind::SeededRules, ..) => return self.go(At::Home, cx),
@@ -564,6 +565,35 @@ impl GoalsPane {
             retire: false,
         };
         self.ask_moved::<call::BoardDecide>(params, |_| {}, cx);
+    }
+
+    /// Overrules what agents decided and opens the chat of the agent that goes by it, which has
+    /// just heard, so the person can say what they want instead.
+    fn overrule(
+        &mut self,
+        project: String,
+        goal: Option<u64>,
+        decision: &Decision,
+        cx: &mut Context<Self>,
+    ) {
+        let holder = decision.holder.clone();
+        let params = OverruleParams {
+            project,
+            goal,
+            decision: decision.id,
+            instead: None,
+        };
+        self.ask::<call::OverruleDecision>(
+            params,
+            move |pane, cx| {
+                cx.emit(Moved);
+                pane.changed(cx);
+                if let Some(holder) = holder {
+                    pane.open_agent(&holder, cx);
+                }
+            },
+            cx,
+        );
     }
 
     /// Passes the gate slice `card` waits at, as the person.

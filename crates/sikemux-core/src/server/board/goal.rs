@@ -6,6 +6,8 @@
 //! what it said before, or retired; a goal full of one kind drops its oldest
 //! retired first, then its oldest. The person or the goal's lead writes its
 //! assertions, and once a slice fulfilling one has started, only the person.
+//! What agents settle among themselves goes in its goal's log, or the project's
+//! when they work on no goal, where the person can overrule it.
 
 use std::sync::Arc;
 
@@ -13,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
+use sikemux_view::inbox::SwarmDecision;
 use sikemux_view::memory::Learned;
 use sikemux_view::slice::{Assertion, Collect, Decision, GoalRule};
 
@@ -20,7 +23,7 @@ use super::{goal_of, project_at, project_view, Board, GoalRef, ProjectBoard};
 use crate::cli::protocol::HarnessRequest;
 use crate::server::connection::blocking;
 use crate::server::Core;
-use crate::text::to_keep;
+use crate::text::{clipped, to_keep};
 
 const MAX_EACH: usize = 64;
 const MAX_TEXT_CHARS: usize = 1000;
@@ -362,9 +365,11 @@ pub(crate) fn change(
                 id,
                 text,
                 why,
+                holder: by.agent.clone(),
                 learned: by,
                 was: None,
                 retired: None,
+                asked: None,
             });
             format!("Decision #{id} is kept on goal #{goal}.{dropped}")
         }
@@ -541,6 +546,160 @@ pub(crate) async fn person_decide(
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// Something agents settled without the person.
+pub(crate) struct Settled {
+    pub project: String,
+    /// The agent that decided.
+    pub by: String,
+    /// The agent that goes by it.
+    pub holder: String,
+    pub asked: String,
+    pub text: String,
+    pub why: Option<String>,
+}
+
+/// Keeps what agents settled, on the goal its holder works on, or else on its project's board.
+pub(crate) fn keep_settled(core: &Core, settled: Settled) {
+    let goal = goal_of(core, &settled.holder);
+    let learned = learned(core, Some(&settled.by));
+    let project = goal
+        .as_ref()
+        .map_or(settled.project, |goal| goal.project.clone());
+    let mut state = core.boards.state.locked();
+    let board = (state.boards)
+        .entry(project.clone())
+        .or_insert_with(|| Board::empty(&project));
+    let kept = match goal.and_then(|goal| board.goal_log(goal.card)) {
+        Some(card) => {
+            card.updated_at = epoch_ms();
+            &mut card.goal
+        }
+        None => &mut board.decided,
+    };
+    if make_room(&mut kept.decisions, 0, &[]).is_err() {
+        return;
+    }
+    kept.last += 1;
+    kept.decisions.push(Decision {
+        id: kept.last,
+        text: clipped(&settled.text, MAX_TEXT_CHARS),
+        why: settled.why.map(|why| clipped(&why, MAX_TEXT_CHARS)),
+        learned,
+        was: None,
+        retired: None,
+        asked: Some(clipped(&settled.asked, MAX_TEXT_CHARS)),
+        holder: Some(settled.holder),
+    });
+    core.boards.save(&mut state, &project);
+}
+
+/// What agents decided since `since` that nobody overruled, oldest first, in `project` or in
+/// every project.
+pub(crate) fn decided_since(core: &Core, since: u64, project: Option<&str>) -> Vec<SwarmDecision> {
+    let state = core.boards.state.locked();
+    let mut decided = Vec::new();
+    for board in state.boards.values() {
+        if project.is_some_and(|project| project != board.project) {
+            continue;
+        }
+        let logs = (board.cards.iter())
+            .map(|card| (Some(card.id), &card.goal))
+            .chain([(None, &board.decided)]);
+        for (goal, kept) in logs {
+            let recent = (kept.decisions.iter()).filter(|decision| {
+                decision.holder.is_some()
+                    && decision.retired.is_none()
+                    && decision.learned.at >= since
+            });
+            decided.extend(recent.map(|decision| SwarmDecision {
+                project: board.project.clone(),
+                goal,
+                decision: decision.clone(),
+            }));
+        }
+    }
+    decided.sort_by_key(|swarm| swarm.decision.learned.at);
+    decided
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverruleParams {
+    pub project: String,
+    /// The goal whose log keeps the decision; none for its project's own log.
+    pub goal: Option<u64>,
+    pub decision: u64,
+    /// What the person wants instead, when they said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instead: Option<String>,
+}
+
+/// The person overrules what agents decided: it is retired, and the agent that goes by it hears,
+/// as does the one that decided it.
+pub(crate) async fn overrule(
+    core: &Arc<Core>,
+    params: OverruleParams,
+) -> Result<ProjectBoard, String> {
+    let (project, overruled, view) = {
+        let core = core.clone();
+        blocking(move || {
+            let project = project_at(&core, &params.project)?;
+            let by = learned(&core, None);
+            let mut state = core.boards.state.locked();
+            let board = (state.boards.get_mut(&project))
+                .ok_or_else(|| "This project keeps no decisions".to_owned())?;
+            let kept = match params.goal {
+                Some(goal) => &mut board.card_mut(goal)?.goal,
+                None => &mut board.decided,
+            };
+            let decision = (kept.decisions.iter_mut())
+                .find(|decision| decision.id == params.decision && decision.retired.is_none())
+                .ok_or("That decision has been overruled or retired already")?;
+            decision.retired = Some(by);
+            let overruled = decision.clone();
+            core.boards.save(&mut state, &project);
+            drop(state);
+            let view = project_view(&core, &project);
+            Ok((project, (overruled, params.instead), view))
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    };
+    let (decision, instead) = overruled;
+    let told = (decision.holder.iter()).chain(
+        decision
+            .learned
+            .agent
+            .iter()
+            .filter(|by| Some(*by) != decision.holder.as_ref()),
+    );
+    for agent in told {
+        let name = core.names.name_or_id(agent);
+        let answered = crate::server::messages::Answered {
+            question: decision.says(),
+            asker: name,
+            asker_id: agent.clone(),
+            cli: core
+                .agent_now(agent)
+                .cli()
+                .unwrap_or_else(|| "agent".to_owned()),
+            secret: false,
+        };
+        let text = instead
+            .clone()
+            .unwrap_or_else(|| "The person overruled this.".to_owned());
+        let note = "The person overruled this decision of the team's. Stop going by it and undo what rests on it; if they have not said what they want instead, hold that work until they do.".to_owned();
+        if let Err(error) =
+            crate::server::messages::answer(core, agent.clone(), vec![(answered, text, note)]).await
+        {
+            eprintln!(
+                "sikemux core: an overruled decision in {project} did not reach its agent: {error}"
+            );
+        }
+    }
+    Ok(view)
 }
 
 #[derive(Deserialize)]

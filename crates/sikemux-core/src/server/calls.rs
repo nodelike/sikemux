@@ -440,6 +440,9 @@ calls! { core, client, method, params;
     "boardAssert" BoardAssert (board::goal::AssertParams) -> board::ProjectBoard: Full => {
         board::goal::person_assert(&core, params).await?
     },
+    "overruleDecision" OverruleDecision (board::goal::OverruleParams) -> board::ProjectBoard: Full => {
+        board::goal::overrule(&core, params).await?
+    },
     "boardDecide" BoardDecide (board::goal::DecideParams) -> board::ProjectBoard: Full => {
         board::goal::person_decide(&core, params).await?
     },

@@ -377,6 +377,23 @@ pub struct Decision {
     /// Who retired it and when. A full goal drops its oldest retired
     /// decisions first.
     pub retired: Option<Learned>,
+    /// What was being decided, when it settled a question an agent asked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<String>,
+    /// The agent that goes by it, which hears when the person overrules it; none for the
+    /// person's own decisions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub holder: Option<String>,
+}
+
+impl Decision {
+    /// What was decided in a line: the question it settled, when there was one, and the outcome.
+    pub fn says(&self) -> String {
+        match &self.asked {
+            Some(asked) => format!("{asked} → {}", self.text),
+            None => self.text.clone(),
+        }
+    }
 }
 
 /// One of a goal's assertions a slice fulfils.

@@ -342,11 +342,21 @@ fn loose_agent(pane: &mut GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPa
             .find(|project| Some(project.id.as_str()) == agent.project.as_deref())
             .map(|project| project.name.clone())
     });
-    let line = [agent.name.as_ref().map(|name| format!("@{name}")), project]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(" · ");
+    let line = [
+        agent.left.clone(),
+        agent.name.as_ref().map(|name| format!("@{name}")),
+        project,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ");
+    let offered = (agent.offer.clone()).map(|offer| {
+        div()
+            .mt(SPACE_2)
+            .child(ui::meta(format!("Offered: {offer}"), cx).whitespace_normal())
+            .into_any_element()
+    });
     div()
         .id("agent-panel")
         .size_full()
@@ -358,7 +368,7 @@ fn loose_agent(pane: &mut GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPa
             agent_state(agent),
             Some(line),
             None,
-            None,
+            offered,
             buttons,
             cx,
         ))
@@ -577,6 +587,14 @@ fn desk_chip(
 
 /// The command a held action runs and why it waits, under what it is.
 fn held_lines(item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<AnyElement> {
+    if let Some(raised) = &item.raised {
+        return Some(
+            div()
+                .mt(SPACE_2)
+                .child(ui::meta(super::home::raised_words(raised), cx).whitespace_normal())
+                .into_any_element(),
+        );
+    }
     let hold = item.hold.as_ref()?;
     Some(
         div()

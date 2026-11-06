@@ -585,6 +585,18 @@ pub(crate) struct StaleKnowledge {
     pub agent: Option<String>,
 }
 
+/// The first rule that applies to `project` and names `word`, in its own words.
+pub(crate) fn rule_about(core: &Core, project: &str, word: &str) -> Option<String> {
+    let names = |rule: &&MemoryRule| {
+        (rule.text.to_lowercase().split(|c: char| !c.is_alphabetic())).any(|said| said == word)
+    };
+    let state = core.memory.state.locked();
+    let rule = state
+        .applying(project)
+        .find_map(|held| held.rules.iter().find(names).map(|rule| rule.text.clone()));
+    rule
+}
+
 pub(crate) fn stale(core: &Core) -> Vec<StaleKnowledge> {
     let state = core.memory.state.locked();
     let mut listed = Vec::new();

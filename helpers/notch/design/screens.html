@@ -816,7 +816,7 @@ class Island {
                 ${head(`<span class="tile lg">${face(a, "blocked")}</span><span class="lead">${a.name}</span>`,
                        `<span class="trail" style="color:var(--warn)">Needs you</span>${stateMark("blocked", true)}`, inner)}
                 <div style="padding:8px 0 16px">
-                    <div class="text"><span class="title">${a.title}</span><span class="sub">${GLYPH.folderSmall}${a.project}<span class="dotsep">·</span>${a.what}${a.question?.via ? ` · ${a.question.via} didn't know` : ""}</span></div>
+                    <div class="text"><span class="title">${a.title}</span><span class="sub">${GLYPH.folderSmall}${a.project}<span class="dotsep">·</span>${a.what}${a.question?.via ? ` · @${a.question.via} raised this` : ""}</span></div>
                     ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, "")}` : `
                     <div class="cmd"><span class="sign">$</span>${a.ask.cmd}</div>
                     <div class="actions">

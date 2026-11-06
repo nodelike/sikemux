@@ -54,7 +54,7 @@ pub struct AgentQuestion {
     pub at: u64,
     pub state: QuestionState,
     /// Why it reached the person rather than the lead it went to first, such
-    /// as "Maple didn't know".
+    /// as "@Maple raised this".
     pub via_note: Option<String>,
     /// What the field a secret is typed into says beside it.
     pub secret_note: Option<String>,

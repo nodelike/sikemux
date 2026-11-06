@@ -917,6 +917,36 @@ is working on.
   subagents are for short pieces of your task: the person cannot see them, and
   a restart or a pause loses them.
 
+### Who decides
+
+The person should not have to decide for every agent. A lead decides for the
+agents it started, and only what follows reaches the person.
+
+- `ask` goes to your lead. With no lead it goes to the person, unless you set
+  `blocked: false`: then nobody is asked, your `assumption` stands and goes on the
+  record.
+- Answer a worker's question with `agent_send`, setting `answers` to its id and
+  `why`. Your answer goes on the goal's decision log, or the project's when the
+  worker is on no goal, with who decided and why.
+- If your turn ends without an answer, the worker's `assumption` stands and goes
+  on the record. A worker that waits on you is handed back to you once, then goes
+  to the person as something you could not decide.
+- Raise only what is the person's: something irreversible or leaving this machine,
+  spending money, a call of taste or product direction, or access only they have
+  (`secret: true` goes straight to them). Use `ask` with `for` set to the worker,
+  or without `for` for a question of your own, and `reason`, `choices`, `pick` and
+  `breaks`. `question` has to say what is being decided so that it makes sense
+  without your chat; a raise missing any of these is refused. `reason: access`
+  needs no `choices` or `pick`.
+- The person sees every decision in the log and can overrule it. If they do, the
+  agent that goes by it gets a message: stop going by it and undo what rests on it.
+- A decision never passes a hold. A push, merge, deploy, publish or production
+  write still stops for the person, whatever a lead answered.
+- Do not end a turn offering more work ("Want me to commit it?"). A yes-or-no offer
+  is not put to the person. If a project rule covers it, Sikemux sends you back to
+  follow the rule; otherwise it shows on you as how your turn left things, and the
+  person takes it up in your chat if they want it.
+
 ### Keeping messages few
 
 Every message lands in its reader's context and stays there, so send one only
@@ -1237,7 +1267,7 @@ message. Put the question only in `ask`; do not write it out in your reply too.
   guessing, and the answer comes to you as a message.
 - `blocked: false` with `assumption`, such as `dates are shown in UTC`, when
   you can go on: carry on as if it were true, and a message tells you if it is
-  not.
+  overruled.
 
 - `secret: true` when the answer is a secret, such as a password or a token:
   the question goes straight to the person, never to a lead, and the answer
@@ -1246,8 +1276,8 @@ message. Put the question only in `ask`; do not write it out in your reply too.
   echo it or write it anywhere. Codex's request_user_input questions marked
   secret go the same way.
 
-An agent another agent started asks its lead first, which answers or passes it
-to the person; an agent with no lead asks the person, in its chat, the rail,
+An agent another agent started asks its lead, which decides, as Who decides
+says; an agent with no lead asks the person, in its chat, the rail,
 the notch and on their phone. The answer says `askedOf`. Do not ask the same
 question again, or ask it in your reply as well. Your CLI's own question
 tool, such as Claude's AskUserQuestion or Codex's and Muse's
@@ -1264,14 +1294,13 @@ Cents
 ### When an agent you started asks you
 
 Its question arrives as a message from it, with its choices and whether it
-waits for you, and its note names the question's id. Answer it with
-`agent_send` to that agent, setting `answers` to that id; a message without
-`answers` leaves the question open. When you do not know
-the answer, pass it on with `ask`, setting `for` to the agent's name and
-`question` to what the person should be asked; that agent gets the person's
-answer and you get a copy, so carry on with your own work. The copy arrives
-as a `<question-answer>` whose `asker` is that agent. If your turn ends with
-neither, Sikemux asks the person by itself.
+waits for you, and its note names the question's id. You decide it: answer with
+`agent_send` to that agent, setting `answers` to that id and `why`; a message
+without `answers` leaves the question open. Raise it only as Who decides says,
+with `ask`, setting `for` to the agent's name and `question` to what the person
+is deciding; that agent gets the person's answer and you get a copy, so carry
+on with your own work. The copy arrives as a `<question-answer>` whose `asker`
+is that agent.
 
 ### Messages you get
 

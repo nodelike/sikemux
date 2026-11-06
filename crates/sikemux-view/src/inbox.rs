@@ -86,8 +86,6 @@ pub enum InboxKind {
     /// longer holds, or a slice's ticket was closed with nothing of it landed,
     /// for the reason in `detail`.
     Held,
-    /// The agent went on with an assumption the person may correct.
-    Assumption,
     /// The slice on `card` waits for the person to pass `gate`.
     Gate,
     /// An agent's action that leaves this machine, held as `hold` until the
@@ -130,6 +128,12 @@ pub struct InboxHandoff {
     /// Files it changed in the turn, the first few.
     pub files: Vec<String>,
     pub edited: usize,
+    /// What it changed in the turn is still not committed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub uncommitted: bool,
+    /// More work its last reply offered, for the person to take up in its chat if they want it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -208,6 +212,24 @@ pub struct InboxItem {
     /// or `boardHandOn`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled: Option<InboxStalled>,
+    /// What a lead says about the decision it raised to the person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raised: Option<InboxRaised>,
+}
+
+/// A decision a lead raised to the person, which stands alone: `detail` says what is being
+/// decided and `answers` the options.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxRaised {
+    /// The lead that raised it, when it was not the asker.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
+    /// The option it would take.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pick: Option<String>,
+    /// What breaks if that is wrong, or what stays stuck without the access it asks for.
+    pub breaks: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -369,4 +391,18 @@ pub struct InboxDigest {
     pub finished: Vec<InboxItem>,
     pub failed: Vec<InboxItem>,
     pub waiting: Vec<InboxItem>,
+    /// What agents decided in that time and nobody has overruled, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decided: Vec<SwarmDecision>,
+}
+
+/// A decision agents made without the person, which `overruleDecision` overrules.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SwarmDecision {
+    pub project: String,
+    /// The goal whose log keeps it; none when its agent works on no goal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub goal: Option<u64>,
+    pub decision: crate::slice::Decision,
 }

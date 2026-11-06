@@ -332,7 +332,7 @@ fn recorded_source(decision: &Decision) -> SummarySource {
     let learned = &decision.learned;
     let text = match (&decision.why, &learned.name) {
         (Some(why), _) => why.clone(),
-        (None, Some(name)) => format!("{name} recorded this on the goal."),
+        (None, Some(name)) => format!("@{name} recorded this on the goal."),
         (None, None) => "You recorded this on the goal.".to_owned(),
     };
     let open = learned.agent.clone().map(|agent| SourceLink::Chat {
@@ -373,15 +373,31 @@ pub(super) fn decided(
     let mut lines: Vec<AnyElement> = Vec::new();
     for decision in &recorded {
         let line = SummaryLine {
-            text: decision.text.clone(),
+            text: decision.says(),
             sources: vec![recorded_source(decision)],
         };
+        let overrule = decision.holder.as_ref().map(|_| {
+            let overruled = (*decision).clone();
+            let goal = goal.id;
+            let overrule = Button::new(
+                SharedString::from(format!("recorded-{}-overrule", decision.id)),
+                "Overrule",
+                Variant::Outline,
+            )
+            .on_click(cx.listener(move |pane, _, _, cx| {
+                cx.stop_propagation();
+                if let Some(project) = pane.here.clone() {
+                    pane.overrule(project, Some(goal), &overruled, cx);
+                }
+            }));
+            div().flex().child(overrule).into_any_element()
+        });
         lines.extend(line_with_sources(
             pane,
             format!("recorded-{}", decision.id),
             &line,
             None,
-            None,
+            overrule,
             cx,
         ));
     }

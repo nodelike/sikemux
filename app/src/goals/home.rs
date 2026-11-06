@@ -15,7 +15,7 @@ use sikemux_core::server::board::BoardCardParams;
 use sikemux_core::server::board::HandOnParams as BoardHandOnParams;
 use sikemux_core::server::call;
 use sikemux_core::server::questions::AnswerParams;
-use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed};
+use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed, InboxRaised, SwarmDecision};
 
 use super::evidence::minute;
 use super::goal::{crumb, row};
@@ -91,6 +91,15 @@ impl GoalsPane {
         happened
     }
 
+    /// What agents decided in the project the view shows while the person was away, which they
+    /// may overrule.
+    pub(super) fn decided_here(&self) -> Vec<&SwarmDecision> {
+        let decided = self.digest.iter().flat_map(|digest| digest.decided.iter());
+        decided
+            .filter(|swarm| Some(swarm.project.as_str()) == self.here.as_deref())
+            .collect()
+    }
+
     /// Answers question `question` with the answer at `choice` among those it takes in one click.
     pub(super) fn answer(&mut self, question: String, choice: usize, cx: &mut Context<Self>) {
         let answered = crate::core::Target::here(&self.asks).request_typed::<call::AnswerQuestion>(
@@ -150,7 +159,7 @@ pub(super) fn home(pane: &mut GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElem
 fn need_icon(kind: InboxKind) -> Icon {
     match kind {
         InboxKind::Gate => Icon::Eye,
-        InboxKind::Question | InboxKind::Assumption => Icon::Message,
+        InboxKind::Question => Icon::Message,
         InboxKind::Permission => Icon::Shield,
         InboxKind::Input => Icon::Terminal,
         InboxKind::PullRequest => Icon::PullRequest,
@@ -373,7 +382,7 @@ fn question_row(
                 .truncate()
                 .text_color(t.text_primary),
         )
-        .children(item.name.clone().map(|name| ui::meta(name, cx)))
+        .children((item.name.as_ref()).map(|name| ui::meta(format!("@{name}"), cx)))
         .child(
             ui::meta(project.to_owned(), cx)
                 .flex_shrink_1()
@@ -387,18 +396,26 @@ fn question_row(
         .on_click(cx.listener(move |pane, _, _, cx| pane.open(&opened, cx)))
         .child(says)
         .child(does)
-        .when_some(
-            item.hold.as_ref().and_then(|hold| hold.why.clone()),
-            |line, why| {
-                line.child(
-                    div()
-                        .w_full()
-                        .pl(px(22.))
-                        .child(ui::meta(why, cx).whitespace_normal()),
-                )
-            },
-        );
+        .when_some(item.raised.as_ref().map(raised_words), |line, words| {
+            line.child(
+                div()
+                    .w_full()
+                    .pl(px(22.))
+                    .child(ui::meta(words, cx).whitespace_normal()),
+            )
+        });
     super::with_agent_menu(line, item.agent_id.clone(), &pane.bench)
+}
+
+/// What a lead says about a decision it raised: the option it would take and what is at stake.
+pub(super) fn raised_words(raised: &InboxRaised) -> String {
+    let by = raised.by.as_ref().map(|by| format!("@{by}"));
+    match (raised.pick.as_ref(), by) {
+        (Some(pick), Some(by)) => format!("{by} would pick {pick}. If wrong: {}", raised.breaks),
+        (Some(pick), None) => format!("Would pick {pick}. If wrong: {}", raised.breaks),
+        (None, Some(by)) => format!("{by}: without it, {}", raised.breaks),
+        (None, None) => format!("Without it: {}", raised.breaks),
+    }
 }
 
 pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
@@ -427,6 +444,7 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
             bench.shown().map_or(0, |view| view.inbox.needed),
         )
     };
+    let decided: Vec<SwarmDecision> = pane.decided_here().into_iter().cloned().collect();
     let finished = happened.iter().filter(|happened| happened.done).count();
     let failed = happened.len() - finished;
     let mut groups: Vec<(Option<String>, Vec<Happened>)> = Vec::new();
@@ -467,9 +485,10 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
                 .gap(px(40.))
                 .child(number(finished, "finished"))
                 .child(number(failed, "failed"))
+                .child(number(decided.len(), "decided"))
                 .child(number(waiting, "wait on you")),
         )
-        .when(happened.is_empty(), |view| {
+        .when(happened.is_empty() && decided.is_empty(), |view| {
             view.child(
                 div()
                     .pt(SPACE_5)
@@ -497,6 +516,67 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
                         .map(|happened| event_row(pane, happened, cx)),
                 )
         }))
+        .when(!decided.is_empty(), |view| {
+            view.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .pt(SPACE_5)
+                    .child(
+                        div().pb(SPACE_1H).child(
+                            ui::text("Decided without you", TEXT_SM, FontWeight::SEMIBOLD)
+                                .text_color(t.text_primary),
+                        ),
+                    )
+                    .children(decided.iter().map(|swarm| decided_row(swarm, cx))),
+            )
+        })
+        .into_any_element()
+}
+
+/// Something agents decided while the person was away: when, what, who, and the way to overrule it.
+fn decided_row(swarm: &SwarmDecision, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let decision = &swarm.decision;
+    let id = format!("{}-{:?}-{}", swarm.project, swarm.goal, decision.id);
+    let who = (decision.learned.name.as_ref()).map(|name| format!("@{name}"));
+    let overruled = swarm.clone();
+    let overrule = Button::new(
+        SharedString::from(format!("overrule-{id}")),
+        "Overrule",
+        Variant::Outline,
+    )
+    .on_click(cx.listener(move |pane, _, _, cx| {
+        cx.stop_propagation();
+        let swarm = &overruled;
+        pane.overrule(swarm.project.clone(), swarm.goal, &swarm.decision, cx);
+    }));
+    wrapping(row(SharedString::from(format!("decided-{id}")), cx))
+        .child(
+            row_says()
+                .child(
+                    ui::mono(minute(decision.learned.at), TEXT_2XS, cx)
+                        .w(px(52.))
+                        .flex_none(),
+                )
+                .child(
+                    ui::text(decision.says(), TEXT_SM, FontWeight::MEDIUM)
+                        .flex_shrink_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(t.text_primary),
+                )
+                .children(who.map(|who| ui::meta(who, cx).flex_none())),
+        )
+        .child(row_does().child(overrule))
+        .when_some(decision.why.clone(), |line, why| {
+            line.child(
+                div()
+                    .w_full()
+                    .pl(px(60.))
+                    .child(ui::meta(why, cx).whitespace_normal()),
+            )
+        })
         .into_any_element()
 }
 

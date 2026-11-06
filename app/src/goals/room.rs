@@ -822,7 +822,9 @@ pub(super) fn draw(
     window: &mut Window,
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
-    let happened = (pane.bench.upgrade()).map_or(0, |bench| pane.happened(bench.read(cx)).len());
+    let happened = (pane.bench.upgrade()).map_or(0, |bench| {
+        pane.happened(bench.read(cx)).len() + pane.decided_here().len()
+    });
     let reading_rules = matches!(
         pane.memory
             .as_ref()
@@ -1565,7 +1567,11 @@ fn agent_row(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -
             .map(|project| project.name.clone())
     });
     let state = agent_state(agent);
-    let next = agent.name.as_ref().map(|name| format!("@{name}"));
+    let who = agent.name.as_ref().map(|name| format!("@{name}"));
+    let next = [agent.left.clone(), who]
+        .into_iter()
+        .flatten()
+        .reduce(|left, who| format!("{left} · {who}"));
     let picks = Chosen::Agent(agent.id.clone());
     let opened = agent.id.clone();
     let id = SharedString::from(format!("loose-{}", agent.id));

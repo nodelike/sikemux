@@ -814,9 +814,8 @@ pub(super) async fn ask(
     }
 }
 
-/// Why the card waits for the person rather than merging: its agent, or an
-/// agent working under it, has a question or an assumption they have not
-/// answered.
+/// Why the card waits rather than merging: its agent, or an agent working under
+/// it, has a question nobody has answered.
 fn unanswered(core: &Core, step: &Step) -> Option<String> {
     let team = core.names.team(step.agent());
     let asker = team
@@ -829,7 +828,7 @@ fn unanswered(core: &Core, step: &Step) -> Option<String> {
         format!("{name}, working under {},", step.name(core))
     };
     Some(format!(
-        "{who} has a question or an assumption you have not answered, so its pull request waits for you"
+        "{who} has a question nobody has answered, so its pull request waits"
     ))
 }
 

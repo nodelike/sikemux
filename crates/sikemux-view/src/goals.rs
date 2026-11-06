@@ -160,6 +160,12 @@ pub struct GoalAgent {
     /// Its project, by id.
     pub project: Option<String>,
     pub desk: AgentDesk,
+    /// How its last turn left things, such as "Done, uncommitted".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
+    /// More work its last reply offered, which the person takes up in its chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offer: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

@@ -169,16 +169,21 @@ pub(super) fn view(core: &Core) -> GoalsView {
         .map(|agent| (agent.id.as_str(), core.names.name(&agent.id)))
         .collect();
     let agents = (inbox.agents.iter())
-        .map(|agent| GoalAgent {
-            id: agent.agent_id.clone(),
-            name: names.get(agent.agent_id.as_str()).cloned().flatten(),
-            cli: agent.cli.clone(),
-            face: agent.face.clone(),
-            status: agent.status,
-            group: agent.group,
-            task: (tasks.get(&agent.agent_id).cloned()).unwrap_or_else(|| agent.title.clone()),
-            project: agent.project.clone(),
-            desk: desks.get(&agent.agent_id).cloned().unwrap_or_default(),
+        .map(|agent| {
+            let (left, offer) = inbox::left(core, &agent.agent_id);
+            GoalAgent {
+                left,
+                offer,
+                id: agent.agent_id.clone(),
+                name: names.get(agent.agent_id.as_str()).cloned().flatten(),
+                cli: agent.cli.clone(),
+                face: agent.face.clone(),
+                status: agent.status,
+                group: agent.group,
+                task: (tasks.get(&agent.agent_id).cloned()).unwrap_or_else(|| agent.title.clone()),
+                project: agent.project.clone(),
+                desk: desks.get(&agent.agent_id).cloned().unwrap_or_default(),
+            }
         })
         .collect();
     GoalsView {

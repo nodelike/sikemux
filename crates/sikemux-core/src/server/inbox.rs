@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
+use crate::git::Git;
 use crate::text::{clipped, clipped_line};
 use sikemux_view::inbox::{
     AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandTo, InboxHandoff, InboxItem,
@@ -41,6 +42,7 @@ const MAX_ANSWER_CHARS: usize = 600;
 const MAX_LINE_CHARS: usize = 200;
 /// The agents a stalled slice's item offers to hand it to.
 const MAX_HAND_TO: usize = 12;
+const DONE_UNCOMMITTED: &str = "Done, uncommitted";
 
 /// How a turn failed, as far as the person is concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,7 +64,6 @@ enum Case {
     Question {
         secret: bool,
     },
-    Assumption,
     Input,
     /// The slice waits for the person to pass this step.
     Gate(Step),
@@ -115,7 +116,6 @@ impl Case {
             Case::Permission => (InboxKind::Permission, Wants::Person(Decide)),
             Case::Question { secret: false } => (InboxKind::Question, Wants::Person(Decide)),
             Case::Question { secret: true } => (InboxKind::Question, Wants::Person(Unblock)),
-            Case::Assumption => (InboxKind::Assumption, Wants::Person(Decide)),
             Case::Input => (InboxKind::Input, Wants::Person(Unblock)),
             Case::Gate(_) => (InboxKind::Gate, Wants::Person(Decide)),
             Case::Ship(_) => (InboxKind::Ship, Wants::Person(Decide)),
@@ -319,6 +319,19 @@ impl Turns {
             .is_some_and(|problem| problem.fault.is_some())
     }
 
+    /// The agent committed, so what its last turn left is worked out again.
+    pub(crate) fn committed(&self, agent_id: &str) {
+        if let Some(turn) = self.turns.locked().get_mut(agent_id) {
+            turn.handoff = None;
+        }
+    }
+
+    /// Whether the agent's latest turn ended by itself, with no problem.
+    fn ended_well(&self, agent_id: &str) -> bool {
+        (self.turns.locked().get(agent_id))
+            .is_some_and(|turn| turn.ended_at.is_some() && turn.problem.is_none())
+    }
+
     pub(crate) fn stopped(&self, agent_id: &str) {
         if let Some(turn) = self.turns.locked().get_mut(agent_id) {
             turn.ended_at = None;
@@ -385,10 +398,9 @@ fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
     }
     let mut handoff = InboxHandoff::default();
     if let Some(chat) = core.chats.get(agent_id) {
-        handoff.answer = chat
-            .feed
-            .last_answer()
-            .map(|answer| clipped(&answer, MAX_ANSWER_CHARS));
+        let reply = chat.feed.last_answer();
+        handoff.offer = reply.as_deref().and_then(super::questions::offer_in);
+        handoff.answer = reply.map(|answer| clipped(&answer, MAX_ANSWER_CHARS));
         let project = core.names.get(agent_id).map(|named| named.project);
         let filter = serde_json::from_value(json!({
             "project": project.clone().unwrap_or_default(),
@@ -404,10 +416,35 @@ fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
                 }
             }
             handoff.edited = seen.len();
+            handoff.uncommitted =
+                !handoff.files.is_empty() && uncommitted(&chat.launch.cwd, &handoff.files);
         }
     }
     turn(&mut core.inbox.turns.locked(), agent_id).handoff = Some(handoff.clone());
     handoff
+}
+
+/// Whether any of `files` has changes git has not committed.
+fn uncommitted(cwd: &Path, files: &[String]) -> bool {
+    let mut status = vec!["status", "--porcelain", "--"];
+    status.extend(files.iter().map(String::as_str));
+    Git::at(cwd)
+        .text(&status)
+        .is_ok_and(|listed| !listed.trim().is_empty())
+}
+
+/// How an agent's latest turn left things, for a row about the agent, and what its reply offered.
+pub(crate) fn left(core: &Core, agent_id: &str) -> (Option<String>, Option<String>) {
+    if !core.inbox.ended_well(agent_id) {
+        return (None, None);
+    }
+    let handoff = handoff(core, agent_id);
+    let left = match (handoff.uncommitted, &handoff.offer) {
+        (true, _) => Some(DONE_UNCOMMITTED.to_owned()),
+        (false, Some(_)) => Some("Done".to_owned()),
+        (false, None) => None,
+    };
+    (left, handoff.offer)
 }
 
 /// An agent as the inbox names it.
@@ -543,6 +580,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         },
         request_id: None,
         stalled: None,
+        raised: None,
         choices: None,
         question_id: None,
         answers: Vec::new(),
@@ -771,6 +809,7 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
         handoff.result = card.as_ref().and_then(|card| card.result.clone());
         let (case, what) = match &problem {
             Some(problem) => (Case::Failed(problem.fault), "Ran into a problem"),
+            None if handoff.uncommitted => (Case::Changes, DONE_UNCOMMITTED),
             None if handoff.edited > 0 || card.as_ref().is_some_and(|card| card.done) => {
                 (Case::Changes, "Finished, with changes to review")
             }
@@ -782,7 +821,8 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
             what.into(),
             ended_at.unwrap_or(agent.at),
         );
-        item.detail = problem.map(|problem| clipped_line(&problem.said, MAX_LINE_CHARS));
+        item.detail = (problem.map(|problem| clipped_line(&problem.said, MAX_LINE_CHARS)))
+            .or_else(|| handoff.offer.clone());
         item.handoff = Some(handoff);
         item
     };
@@ -818,21 +858,10 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     }
     let questions = core.harness.questions.for_person();
     for question in &questions {
-        let (case, what) = match (&question.assumption, question.blocked) {
-            (Some(assumption), false) => (
-                Case::Assumption,
-                format!(
-                    "Went on assuming {}",
-                    clipped_line(assumption, MAX_LINE_CHARS)
-                ),
-            ),
-            _ => (
-                Case::Question {
-                    secret: question.secret,
-                },
-                "Asks you".to_owned(),
-            ),
+        let case = Case::Question {
+            secret: question.access,
         };
+        let what = "Asks you".to_owned();
         let asker = find(&question.agent_id)
             .cloned()
             .unwrap_or_else(|| gone_agent(core, &question.agent_id));
@@ -841,6 +870,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         item.detail = Some(clipped_line(&question.text, MAX_LINE_CHARS));
         item.question_id = Some(question.id.clone());
         item.answers.clone_from(&question.answers);
+        item.raised.clone_from(&question.raised);
         items.push(item);
     }
     for waiting in core.ship.waiting() {
@@ -1426,6 +1456,9 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
         finished: here(ranked(finished)),
         failed: here(ranked(failed)),
         waiting: here(waiting),
+        decided: since.map_or(Vec::new(), |since| {
+            board::goal::decided_since(core, since, project)
+        }),
     }
 }
 

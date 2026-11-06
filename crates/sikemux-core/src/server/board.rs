@@ -225,6 +225,9 @@ struct Board {
     /// Environments an agent proposed, until the person answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     environments_proposal: Option<environments::EnvironmentsProposal>,
+    /// What its agents decided while working on no goal.
+    #[serde(default, skip_serializing_if = "goal::Goal::is_none")]
+    decided: goal::Goal,
     /// Why Auto cannot start anything here now.
     #[serde(skip)]
     auto_note: Option<String>,
@@ -285,6 +288,7 @@ impl Board {
             cards,
             settings,
             environments_proposal,
+            decided,
             auto_note: _,
             writing: _,
             checking: _,
@@ -301,8 +305,15 @@ impl Board {
             cards: cards.clone(),
             settings: settings.clone(),
             environments_proposal: environments_proposal.clone(),
+            decided: decided.clone(),
             ..Self::default()
         }
+    }
+
+    /// Card `id`, when it is a goal whose log can keep a decision.
+    fn goal_log(&mut self, id: u64) -> Option<&mut Card> {
+        let goal = self.card(id).is_ok_and(|card| self.is_goal(card));
+        goal.then(|| self.card_mut(id).ok()).flatten()
     }
 
     /// The goal `card` belongs to: the card at the top above it, or itself

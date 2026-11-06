@@ -1494,6 +1494,12 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "why": {
+          "description": "With answers: why you decided so, for the decision log",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8192
         }
       },
       "required": [
@@ -1703,7 +1709,7 @@
       "name": "ask",
       "row": {"verb": "ask", "kind": "think", "icon": "message", "target": ["the person for {for}", "{question}"]},
       "method": "agent.ask",
-      "description": "Ask your lead or the person.",
+      "description": "Ask your lead, or the person if you have none. A lead decides; see the agents guide.",
       "properties": {
         "question": {
           "type": "string",
@@ -1756,10 +1762,32 @@
           "type": "boolean"
         },
         "for": {
-          "description": "Agent whose question you pass on",
+          "description": "Agent whose question you raise to the person",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "reason": {
+          "description": "Raising: why it is the person's to decide",
+          "type": "string",
+          "enum": [
+            "irreversible",
+            "money",
+            "taste",
+            "access"
+          ]
+        },
+        "pick": {
+          "description": "Raising: the choice you would take",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "breaks": {
+          "description": "Raising: what breaks if that is wrong",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 400
         }
       },
       "required": [

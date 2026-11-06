@@ -16,6 +16,25 @@ pub(super) const OFFERS: [&str; 10] = [
     "if you'd like, i can ",
 ];
 
+/// Words that open a yes-or-no question without saying what would be done.
+const NOT_WORK: [&str; 24] = [
+    "are", "was", "were", "does", "did", "has", "have", "had", "will", "would", "could", "can",
+    "should", "shall", "may", "might", "must", "the", "this", "that", "you", "your", "also",
+    "just",
+];
+
+/// The verb of the work a yes-or-no question offers, such as `commit` in "Want me to commit it?".
+pub(super) fn offered_work(sentence: &str) -> Option<String> {
+    let lower = sentence.to_lowercase();
+    let asked = after_lead_in(&lower);
+    let work = (OFFERS.iter())
+        .find_map(|opening| asked.strip_prefix(opening))
+        .unwrap_or(asked);
+    let verb = work.split_whitespace().next()?;
+    let verb = verb.trim_matches(|c: char| !c.is_alphabetic());
+    (verb.len() >= 3 && !NOT_WORK.contains(&verb)).then(|| verb.to_owned())
+}
+
 /// What an agent's reply asks the person, in its own words, one ask for each paragraph or list
 /// item that asks, in order, each with whether a yes or a no answers it.
 /// A paragraph or list item counts when its last sentence ends in a question mark, so one

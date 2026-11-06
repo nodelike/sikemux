@@ -705,6 +705,8 @@ export interface InboxItem {
      * or `boardHandOn`.
      */
     stalled?: InboxStalled;
+    /** What a lead says about the decision it raised to the person. */
+    raised?: InboxRaised;
 }
 
 export type InboxTier = "needs" | "review" | "finished" | "progress";
@@ -715,7 +717,6 @@ export type InboxKind =
     | "question"
     | "input"
     | "held"
-    | "assumption"
     | "gate"
     | "ship"
     | "pullRequest"
@@ -859,6 +860,10 @@ export interface InboxHandoff {
     /** Files it changed in the turn, the first few. */
     files: string[];
     edited: number;
+    /** What it changed in the turn is still not committed. */
+    uncommitted?: boolean;
+    /** More work its last reply offered, for the person to take up in its chat if they want it. */
+    offer?: string;
 }
 
 /** A browser recording an agent made. */
@@ -881,6 +886,19 @@ export interface InboxStalled {
 export interface InboxHandTo {
     agentId: string;
     name: string;
+}
+
+/**
+ * A decision a lead raised to the person, which stands alone: `detail` says what is being
+ * decided and `answers` the options.
+ */
+export interface InboxRaised {
+    /** The lead that raised it, when it was not the asker. */
+    by?: string;
+    /** The option it would take. */
+    pick?: string;
+    /** What breaks if that is wrong, or what stays stuck without the access it asks for. */
+    breaks: string;
 }
 
 /** An agent on a linked host that works with agents here. */
@@ -2850,6 +2868,13 @@ export interface Decision {
      * decisions first.
      */
     retired: Learned | null;
+    /** What was being decided, when it settled a question an agent asked. */
+    asked?: string;
+    /**
+     * The agent that goes by it, which hears when the person overrules it; none for the
+     * person's own decisions.
+     */
+    holder?: string;
 }
 
 /** Who said something, and in which chat turn. */
@@ -3199,7 +3224,7 @@ export interface AgentQuestion {
     state: QuestionState;
     /**
      * Why it reached the person rather than the lead it went to first, such
-     * as "Maple didn't know".
+     * as "@Maple raised this".
      */
     viaNote: string | null;
     /** What the field a secret is typed into says beside it. */

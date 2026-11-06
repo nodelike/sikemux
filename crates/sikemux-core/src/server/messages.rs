@@ -33,6 +33,7 @@ const FILE: &str = "agent-mailbox.json";
 /// The mark on the task an agent in a terminal waits to take.
 pub(crate) const TASK: &str = "task";
 const MAX_TEXT_BYTES: usize = 64 * 1024;
+const MAX_WHY_BYTES: usize = 8 * 1024;
 const MAX_WAITING: usize = 10;
 const HOSTS_NOTE: &str =
     "Sent by Sikemux about a teammate on another host, not by the person or another agent.";
@@ -117,8 +118,15 @@ pub(crate) struct Carried {
     pub note: Option<String>,
     /// The person's answer to a question, copied to the lead it went to first.
     pub answered: Option<Answered>,
-    /// The id of the question of its own that a lead answers.
-    pub question: Option<String>,
+    /// The question of its own that a lead answers.
+    pub question: Option<Answering>,
+}
+
+/// A lead's answer to the question `id`, and why it decided so.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct Answering {
+    pub id: String,
+    pub why: Option<String>,
 }
 
 /// Who a message comes from when no agent sent it.
@@ -194,7 +202,7 @@ impl Letter {
         }
     }
 
-    fn carried(&self, to: &str, question: Option<String>) -> Carried {
+    fn carried(&self, to: &str, question: Option<Answering>) -> Carried {
         Carried {
             to: to.to_owned(),
             kind: self.kind,
@@ -807,9 +815,13 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         _ => return Err("to must be the agent's name or id".into()),
     };
     let text = message_text(&request.params)?;
+    let why = super::caller::text_param(&request.params, "why", MAX_WHY_BYTES)?.map(str::to_owned);
     let answers = match request.params.get("answers") {
         None | Some(Value::Null) => None,
-        Some(Value::String(id)) if !id.trim().is_empty() => Some(id.trim().to_owned()),
+        Some(Value::String(id)) if !id.trim().is_empty() => Some(Answering {
+            id: id.trim().to_owned(),
+            why,
+        }),
         Some(_) => return Err("answers must be the id of the question this answers".into()),
     };
     if to.trim().eq_ignore_ascii_case(TEAM) {
@@ -841,7 +853,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 return Err(why.into());
             }
             let mut letter = letter_from(&agents, MessageKind::Message, from, text, None);
-            if let Some(id) = answers.as_ref().filter(|_| target.reach != Reach::Remote) {
+            if let Some(Answering { id, .. }) = answers.as_ref().filter(|_| target.reach != Reach::Remote) {
                 let name = target.name.as_deref().unwrap_or(&target.agent_id);
                 let asked = core
                     .harness
@@ -849,10 +861,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                     .asked_of(&letter.from_id, &target.agent_id, id)
                     .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
                 letter.kind = MessageKind::Answer;
-                letter.note = Some(format!(
-                    "Sent by {}, your lead in Sikemux, not by the person, answering the question you asked: {asked}",
-                    letter.from_name
-                ));
+                letter.note = Some(lead_answer_note(&letter.from_name, &asked));
             }
             Ok((target, letter))
         })
@@ -863,15 +872,47 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     if target.reach == Reach::Remote {
         return carry(core, &target, letter, answers).await;
     }
+    let answer = letter.text.clone();
     let sent = deliver(core, &target, letter).await?;
     core.seen.called(&target.agent_id);
     core.changed(What::Agents);
-    if let Some(id) = answers {
-        core.harness
-            .questions
-            .lead_answered(&from, &target.agent_id, &id);
+    if let Some(answering) = answers {
+        settle_answer(core, from, target.agent_id.clone(), answering, answer).await;
     }
     Ok(sent)
+}
+
+/// What the asker is told beside its lead's answer.
+fn lead_answer_note(lead: &str, asked: &str) -> String {
+    format!(
+        "Sent by {lead}, your lead in Sikemux, not by the person, answering the question you asked: {asked}\nIt does not allow anything that stops for the person: a push, merge, deploy, publish or production write still waits for them."
+    )
+}
+
+/// Closes the question a lead answered and keeps the answer as a decision.
+async fn settle_answer(
+    core: &Arc<Core>,
+    lead: String,
+    asker: String,
+    answering: Answering,
+    answer: String,
+) {
+    let core = core.clone();
+    let settled = blocking(move || {
+        super::questions::lead_answered(
+            &core,
+            &lead,
+            &asker,
+            &answering.id,
+            &answer,
+            answering.why,
+        );
+        Ok(())
+    })
+    .await;
+    if let Err(error) = settled {
+        eprintln!("sikemux core: a lead's answer was not kept as a decision: {error}");
+    }
 }
 
 /// Sends a letter to its agent on a linked host, noting it here as sent so
@@ -880,7 +921,7 @@ async fn carry(
     core: &Arc<Core>,
     target: &Listed,
     letter: Letter,
-    question: Option<String>,
+    question: Option<Answering>,
 ) -> Result<Value, String> {
     core.harness.mailbox.note_sent(&letter, &target.agent_id);
     let queued = Queued {
@@ -956,24 +997,20 @@ pub(crate) async fn from_host(
             "\n\nIts commits came back to the branch {branch} in your checkout: {count} on top of the commit you started it from, the first holding your uncommitted changes as they were then. Merge what you want of them."
         ));
     }
-    if let Some(id) = &carried.question {
+    if let Some(Answering { id, .. }) = &carried.question {
         let asked = core
             .harness
             .questions
             .asked_of(&letter.from_id, &target.agent_id, id)
             .ok_or_else(|| format!("{name} has no open question {id} that it asked you; it was answered already, or leave out answers to send this as a plain message"))?;
         letter.kind = MessageKind::Answer;
-        letter.note = Some(format!(
-            "Sent by {}, your lead in Sikemux, not by the person, answering the question you asked: {asked}",
-            letter.from_name
-        ));
+        letter.note = Some(lead_answer_note(&letter.from_name, &asked));
     }
     let from = letter.from_id.clone();
+    let answer = letter.text.clone();
     let sent = deliver(core, &target, letter).await?;
-    if let Some(id) = carried.question {
-        core.harness
-            .questions
-            .lead_answered(&from, &target.agent_id, &id);
+    if let Some(answering) = carried.question {
+        settle_answer(core, from, target.agent_id.clone(), answering, answer).await;
     }
     Ok(sent)
 }

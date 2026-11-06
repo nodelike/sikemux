@@ -13,6 +13,21 @@ The composer at the bottom of Home, the same one a chat has, asks what should ge
 
 **Hand off** starts its agent in the background, in a checkout of its own cut from where the project is now, and keeps its chat out of your way: the work shows under **Moving** on Home, and under **Needs you** when it asks you something, its turn fails, or it waits at a gate only you pass. Its card is a slice whose promise is what you typed, cut to one line of 200 characters if it is longer, with the whole text in its details. The agent commits and lands its work on the branch it was cut from, and the slice is **Built** once the project's [check](/getting-started/projects/#the-projects-check) passes on it there, which Sikemux runs itself. A project that names no check has nothing to show the work **Built**, so the agent asks you how it is to be checked and the slice waits at **Built** until it has one. Open the agent's chat from the row you chose whenever you want to look in. Right after you hand it off, the line under the composer names its card for a few seconds; **Open** shows it.
 
+## What reaches you
+
+You don't decide for every agent. A lead decides for the agents it started, and only what is yours reaches you:
+
+- anything irreversible or leaving your Mac: a push, merge, deploy, publish or production write, and permission prompts
+- spending money
+- a call of taste or product direction
+- access only you have, such as a sign-in or a secret
+
+A lead that raises one of these has to say what is being decided, the options, the one it would pick and what breaks if that is wrong, or Sikemux refuses it, so the row tells you what you are deciding without opening a chat. Anything else stays with the team. A lead's answer is kept, with who decided and why. A question a worker went on without keeps its assumption if its lead doesn't answer. A worker that waits on the answer goes back to its lead once, and reaches you only if the lead still doesn't answer, marked as something the lead didn't answer. An agent that no lead started asks you directly, and one that goes on with an assumption just keeps it.
+
+### Overruling a decision
+
+What the team decided is under **Decided** on its goal's page, and for agents on no goal, with the rest, on **Overnight** under **Decided without you**, each with who decided and why. **Overrule** retires it, tells the agent that goes by it to stop and undo what rests on it, and opens that agent's chat so you can say what you want instead. On a goal's page, click the decision first to see **Overrule**. A decision never passes a hold: a lead's answer doesn't let anything through that stops for you.
+
 ## A chat picks up a goal
 
 A goal is a piece of work a chat takes on, not the chat itself: one chat can hold several over its life, and finishing a goal leaves the chat going. Chats start without one. When a chat you started has plainly grown into real work, the line under its composer says so and why, such as "This looks like real work: 4 commits, 1 teammate, 42 minutes of work", with **Track as goal** and **Not now**. Sikemux only suggests; it never turns a chat into a goal by itself. It looks once a turn has finished, counting commits, teammates started, subagents and long turns, over at least ten minutes of work unless a teammate was started. A subagent counts for least, since agents start them for small questions. Quick chats never see it, nor do agents another agent started, nor a chat that already has a goal. **Not now** keeps that chat quiet until about twice as much work has happened again.
@@ -51,7 +66,7 @@ An agent's chat opens right here in Goals, the same live chat as the agent's tab
 
 Whatever comes to need you also tells you, once: a notification on your Mac while Sikemux isn't in front, and on your phone as its notification settings say. That covers a gate to pass, a card handed back, an owner that stalled, agents stuck on each other, knowledge that no longer holds and a turn that ends asking you something, besides the permissions, questions and problems that always did. It doesn't tell you again about the same thing, or while you have that agent open, and the notification goes away once it no longer needs you.
 
-When things finished or failed while you were away, a line beside the find box says how many, and opens **Overnight**: how many finished, failed and wait on you, then each event in time order, grouped by goal. Each event opens its slice or its agent's chat.
+When things finished, failed or were decided while you were away, a line beside the find box says how many, and opens **Overnight**: how many finished, failed, were decided without you and wait on you, then each event in time order, grouped by goal, then **Decided without you**. Each event opens its slice or its agent's chat.
 
 ## A goal
 
@@ -59,7 +74,7 @@ The goal shows who leads it, whose name opens their chat, its ticket with a link
 
 - **Needs you** lists what waits on you about this goal, as Home does.
 - **What happened** says in a few plain sentences where the work stands, written from what the goal's agents really did. What failed, was skipped or isn't proven is said as plainly as what passed.
-- **Decided** lists the decisions recorded on the goal, then any a model found in what was said, marked **Extracted**. An extracted decision is only a suggestion until you open it and pick **Keep as a decision**.
+- **Decided** lists the decisions recorded on the goal, an agent's with **Overrule** once you open it, then any a model found in what was said, marked **Extracted**. An extracted decision is only a suggestion until you open it and pick **Keep as a decision**.
 - **Running and next** lists what is moving and what it waits on, then the gates its slices reach next, in order.
 
 Click a sentence to see the moments behind it: what you or an agent said, a commit, a check Sikemux ran, a gate, a piece of evidence or a pull request. Each can be opened: the chat, the commit in Git, the evidence or the pull request. When the goal's agents or cards name a pull request, Sikemux asks the code host where it stands as the page opens, so a merged or closed one is said to be, whatever an agent last wrote; if it can't ask, the summary says it doesn't know. Every sentence names its moments, and Sikemux drops any that names none, or names a moment or a commit that isn't there. If nothing is left, the page says the summary failed and offers **Try again**, rather than guessing. A line under the sentences says when Sikemux itself checked nothing, so they rest on what the agents said.

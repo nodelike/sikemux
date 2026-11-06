@@ -417,8 +417,6 @@ enum InboxKind: String, Codable, Hashable {
     /// longer holds, or a slice's ticket was closed with nothing of it landed,
     /// for the reason in `detail`.
     case held
-    /// The agent went on with an assumption the person may correct.
-    case assumption
     /// The slice on `card` waits for the person to pass `gate`.
     case gate
     /// An agent's action that leaves this machine, held as `hold` until the
@@ -543,7 +541,7 @@ struct AgentQuestion: Codable, Hashable {
     let text: String
     let choices: [QuestionChoice]
     /// Why it reached the person rather than the lead it went to first, such
-    /// as "Maple didn't know".
+    /// as "@Maple raised this".
     let viaNote: String?
 }
 

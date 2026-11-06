@@ -201,6 +201,7 @@ fn lost(core: &Arc<Core>, project: &str) {
 fn heard(core: &Arc<Core>, event: RepoEvent) {
     if let RepoEvent::Committed { agent, .. } = &event {
         super::super::chat_goal::committed(core, agent);
+        core.inbox.committed(agent);
     }
     let from = match &event {
         RepoEvent::Committed { project, sha, .. } => Git::quick(Path::new(project))
