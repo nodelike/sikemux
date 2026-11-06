@@ -48,7 +48,6 @@ pub fn resolve(input: &str) -> Address {
     Address::Search(super::history::search_url(value))
 }
 
-/// The host of a typed address with no scheme, without its port.
 fn host_of(value: &str) -> &str {
     let authority = value.split(['/', '?', '#']).next().unwrap_or_default();
     if let Some(bracketed) = authority.strip_prefix('[') {
@@ -79,7 +78,6 @@ pub fn is_local_host(host: &str) -> bool {
     }
 }
 
-/// Whether two addresses are on one site, by origin.
 pub(crate) fn same_site(one: &str, other: &str) -> bool {
     match (url::Url::parse(one), url::Url::parse(other)) {
         (Ok(one), Ok(other)) => one.origin() == other.origin(),

@@ -69,7 +69,6 @@ impl Claims {
         Some(claim)
     }
 
-    /// Every live claim, by device.
     pub fn all(&self) -> HashMap<String, Claim> {
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
             return HashMap::new();

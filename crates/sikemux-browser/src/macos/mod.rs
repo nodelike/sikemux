@@ -204,10 +204,6 @@ struct OpenDialog {
     field: Option<Retained<NSTextField>>,
 }
 
-/// Makes the tab's page as a child of `parent`, hidden and laid out at `size`
-/// off screen, and starts loading `url`. Page dialogs get a sheet, the page's
-/// address, title, loads and downloads go to `events`, and the view is
-/// remembered so shortcuts can tell which tab has focus.
 /// The window view a tab goes into, and whether under its other children or on top.
 pub struct Parent<'a> {
     pub view: &'a NSView,
@@ -225,13 +221,16 @@ impl Parent<'_> {
     }
 }
 
-/// What a new tab's page starts as.
 pub enum Start<'a> {
     Load(&'a str),
     /// The window another page opened, which WebKit loads itself and keeps linked to that page.
     Opened(Opener),
 }
 
+/// Makes the tab's page as a child of `parent`, hidden and laid out at `size`
+/// off screen, and starts loading `start`. Page dialogs get a sheet, the page's
+/// address, title, loads and downloads go to `events`, and the view is
+/// remembered so shortcuts can tell which tab has focus.
 pub fn open(
     parent: Parent<'_>,
     agent_id: String,
@@ -374,7 +373,6 @@ pub fn evaluate(webview: &WKWebView, script: &str, done: Box<dyn FnOnce(String) 
     }
 }
 
-/// Starts loading `url` in the tab, if it is one.
 pub fn load(webview: &WKWebView, url: &str) {
     let Some(address) = NSURL::URLWithString(&NSString::from_str(url)) else {
         return;

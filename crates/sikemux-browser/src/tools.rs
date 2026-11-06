@@ -924,9 +924,6 @@ fn moved_on(before: &Value, now: &Value) -> bool {
         || before["url"] != now["url"]
 }
 
-/// Whether a script failed to parse as an expression, as opposed to throwing
-/// a SyntaxError while it ran, which retrying as a function body would only
-/// run a second time.
 /// Whether `script` reads as an expression or as statements, or the syntax error that
 /// stops both. It only parses, in the helper world, where the page's content policy
 /// can't forbid it, so the page never runs a script that fails to parse: WebKit

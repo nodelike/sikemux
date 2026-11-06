@@ -18,7 +18,6 @@ pub use macos::PageView;
 /// Sizes the view to the page and hands over the links and scrolls the person meant.
 pub(crate) const BOOTSTRAP: &str = r#"(()=>{const post=(message)=>window.webkit.messageHandlers.sikemux.postMessage(JSON.stringify(message));const root=document.documentElement;root.setAttribute("data-sikemux-framed","");document.addEventListener("click",(event)=>{const link=event.isTrusted&&event.composedPath().find((target)=>target instanceof Element&&target.matches("a[href]"));if(!link)return;let url;try{url=new URL(link.getAttribute("href"),document.baseURI);}catch{return;}if(!/^https?:$/.test(url.protocol))return;event.preventDefault();post({kind:"link",url:url.href});},true);let reported=0;const report=()=>{const height=Math.ceil(root.getBoundingClientRect().height);if(height===reported)return;reported=height;post({kind:"height",height});};const observer=new ResizeObserver(report);observer.observe(root);document.addEventListener("DOMContentLoaded",()=>{if(document.body)observer.observe(document.body);report();});window.addEventListener("load",report);const scrollsItself=(node,down)=>{for(;node instanceof Element;node=node.parentElement){const style=getComputedStyle(node).overflowY;const scroller=(style==="auto"||style==="scroll")&&node!==document.body&&node!==root;if(scroller&&(down?node.scrollTop+node.clientHeight<node.scrollHeight-1:node.scrollTop>0))return true;}return false;};window.addEventListener("wheel",(event)=>{if(event.ctrlKey||Math.abs(event.deltaY)<=Math.abs(event.deltaX)||scrollsItself(event.target,event.deltaY>0))return;event.preventDefault();const scale=event.deltaMode===1?16:event.deltaMode===2?window.innerHeight:1;post({kind:"wheel",deltaY:event.deltaY*scale});},{passive:false});})();"#;
 
-/// Where a page is drawn.
 #[derive(Clone, Copy)]
 pub enum Room<'a> {
     /// In a reply, at its full height on the app's ground, scrolled with what holds it.
@@ -43,7 +42,6 @@ pub(crate) fn stays(url: &str, loaded: &str, first_load: bool) -> bool {
     page == loaded && (first_load || !place.is_empty())
 }
 
-/// What a page's script reported.
 pub enum PageEvent {
     Height(f64),
     /// A link the person clicked, which the page itself never opens.
@@ -55,7 +53,6 @@ pub enum PageEvent {
 }
 
 impl PageEvent {
-    /// The event a message from the page's script names.
     pub(crate) fn read(text: &str) -> Option<Self> {
         let message = serde_json::from_str::<serde_json::Value>(text).ok()?;
         match message["kind"].as_str()? {

@@ -430,7 +430,6 @@ impl Tab {
         self.view.with(|page| page.show(false));
     }
 
-    /// Takes the page out of its window.
     pub fn close(&self) {
         let view = self.view.clone();
         on_gtk(move || drop(view.0.locked().take()));

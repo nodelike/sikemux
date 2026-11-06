@@ -56,7 +56,6 @@ impl PageView {
         Ok(Self(Arc::new(held), base))
     }
 
-    /// Shows `html` in place of what the page showed.
     pub fn show(&self, html: &str) {
         let (html, base) = (html.to_owned(), self.1.clone());
         self.0.with(move |page| {

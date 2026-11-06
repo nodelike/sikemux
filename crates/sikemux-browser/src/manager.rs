@@ -175,7 +175,6 @@ impl BrowserManager {
         self.local_files.url_for(path)
     }
 
-    /// Stops showing local files no open tab is on.
     fn release_unused_files(&self) {
         let urls: Vec<String> = self
             .agents
@@ -741,7 +740,6 @@ impl BrowserManager {
         self.close_tab(agent_id, &tab_id).ok().map(|()| url)
     }
 
-    /// The agent's own tab on the same site as `url`, if it has one.
     pub fn same_site_tab(&self, agent_id: &str, url: &str) -> Option<String> {
         let url = Url::parse(url).ok()?;
         self.agents.locked().get(agent_id)?.strip.same_site(&url)
@@ -877,7 +875,6 @@ impl BrowserManager {
         }
     }
 
-    /// What the address bar offers for what the person has typed so far.
     pub fn suggest(&self, query: &str) -> history::AddressSuggestions {
         self.history
             .suggest(self.host().state_dir().as_deref(), query)
@@ -979,7 +976,6 @@ impl BrowserManager {
         Ok((id, view))
     }
 
-    /// Show the active tab inside the pane's page area and park the rest.
     pub(crate) fn relayout(&self, agent_id: &str) {
         let needed = self
             .agents
@@ -1176,7 +1172,6 @@ pub(crate) fn tab_may_load(url: &Url) -> bool {
     }
 }
 
-/// Puts the tab's view where `layout` says, laid out at the page size it names.
 #[cfg(target_os = "macos")]
 pub(crate) fn place(view: &Tab, layout: viewport::Layout, awake: bool) {
     use objc2_foundation::{NSPoint, NSRect, NSSize};

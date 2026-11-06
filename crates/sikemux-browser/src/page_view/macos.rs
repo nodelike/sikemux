@@ -85,7 +85,6 @@ define_class!(
 );
 
 pub struct WebIvars {
-    /// Whether the page fills its room and scrolls itself.
     fills: bool,
     /// Whether the scroll under way goes up or down.
     vertical: Cell<bool>,
@@ -211,7 +210,6 @@ impl PageView {
         page
     }
 
-    /// Shows `html` in place of what the page showed.
     pub fn show(&self, html: &str) {
         // SAFETY: main thread, as the view is only made there.
         unsafe {

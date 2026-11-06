@@ -366,7 +366,6 @@ impl Store {
             .collect()
     }
 
-    /// The front page's own title when it was ever opened, else the site's name.
     fn site_title(&self, site: &str) -> String {
         self.pages
             .iter()

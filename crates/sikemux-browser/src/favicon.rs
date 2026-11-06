@@ -326,7 +326,6 @@ mod tests {
         assert!(parse_links("\"[]\"").is_empty());
     }
 
-    /// Answers one request with the given body and hangs up.
     async fn serve(content_type: &str, body: Vec<u8>) -> Url {
         let head = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",

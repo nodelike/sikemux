@@ -37,9 +37,7 @@ static ORIGINAL_RESIGN_FIRST_RESPONDER: OnceLock<Imp> = OnceLock::new();
 thread_local! {
     static SENT_KEYS: RefCell<Vec<SentKey>> = const { RefCell::new(Vec::new()) };
     static LAST_INPUT: Cell<LastInput> = const { Cell::new(LastInput::NONE) };
-    /// The view under the person's latest click.
     static PERSON_CLICKED: RefCell<Option<Weak<NSView>>> = const { RefCell::new(None) };
-    /// Set while an agent key borrows the keyboard.
     static LENDING_KEYBOARD: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -426,7 +424,6 @@ pub fn guard_keyboard() {
     }
 }
 
-/// When the agent and the person last used the pointer and the keyboard.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct LastInput {
     agent_pointer: Option<Instant>,
@@ -494,8 +491,6 @@ fn clicked_view(event: &NSEvent) -> Option<Retained<NSView>> {
     window.contentView()?.hitTest(event.locationInWindow())
 }
 
-/// Whether the app's latest pointer or key input came from an agent rather
-/// than the person.
 pub fn agent_input_is_latest() -> bool {
     let last = LAST_INPUT.with(Cell::get);
     let now = Instant::now();

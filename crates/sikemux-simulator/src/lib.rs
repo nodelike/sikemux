@@ -570,7 +570,6 @@ impl SimulatorManager {
         self.shared.locked().booted.insert(udid.to_owned());
     }
 
-    /// How many of the devices running now Sikemux booted.
     pub(crate) fn booted_by_sikemux(&self, devices: &[Device]) -> usize {
         let shared = self.shared.locked();
         devices
@@ -677,7 +676,6 @@ impl SimulatorManager {
     }
 }
 
-/// This Mac can run the helper and Xcode's simulators.
 pub fn capable() -> bool {
     unsupported_reason().is_none()
 }

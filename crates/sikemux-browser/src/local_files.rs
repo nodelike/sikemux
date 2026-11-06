@@ -68,7 +68,6 @@ impl LocalFiles {
         Ok(url.into())
     }
 
-    /// The file a loopback address from [`Self::url_for`] shows.
     pub fn path_of(&self, url: &str) -> Option<PathBuf> {
         let (port, token, rest) = share_address(url)?;
         let shares = self.shares.locked();

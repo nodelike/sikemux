@@ -87,7 +87,6 @@ pub(super) fn focused_tab(event: &NSEvent, mtm: MainThreadMarker) -> Option<(Str
     })
 }
 
-/// The id of the tab `view` belongs to, if it is part of one.
 pub(crate) fn tab_id_holding(view: &NSView) -> Option<String> {
     TABS.with(|tabs| {
         tabs.borrow()
@@ -97,7 +96,6 @@ pub(crate) fn tab_id_holding(view: &NSView) -> Option<String> {
     })
 }
 
-/// The tab `view` belongs to, if it is part of one.
 pub(crate) fn tab_holding(view: &NSView) -> Option<Retained<WKWebView>> {
     TABS.with(|tabs| {
         tabs.borrow()

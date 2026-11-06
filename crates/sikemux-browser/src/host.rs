@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use crate::{BrowserDownload, BrowserShortcut, ParentView};
 
 pub trait Host: Send + Sync + 'static {
-    /// The view of the window tabs are added to.
     fn window(&self) -> Result<ParentView, String>;
     /// Where the browser keeps its history and the strips saved over a restart.
     fn state_dir(&self) -> Option<PathBuf>;

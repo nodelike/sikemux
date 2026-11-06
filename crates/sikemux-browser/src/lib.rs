@@ -213,7 +213,6 @@ pub struct PageLoad {
 /// What a tab's page tells whoever holds the tab. Every call comes on the main
 /// thread, while WebKit waits for the answer where there is one.
 pub trait TabEvents: Send + Sync + 'static {
-    /// Whether the page may go to `url`.
     fn may_load(&self, url: &str) -> bool;
     fn loaded(&self, load: PageLoad);
     fn titled(&self, title: String);
@@ -222,7 +221,6 @@ pub trait TabEvents: Send + Sync + 'static {
     /// The page opened a window at `url`. It becomes a new tab, made from `opener` where
     /// the engine gives one, and that tab is handed back; None blocks the window.
     fn new_window(&self, url: String, opener: Option<Opener>) -> Option<Tab>;
-    /// The page closed its own window.
     fn closed(&self);
     /// Where a file the page saves goes, or None to refuse it. `suggested` is
     /// the name the page or the server gave it.

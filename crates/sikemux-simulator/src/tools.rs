@@ -503,7 +503,6 @@ pub(super) fn in_use(device: &Device, claim: &Claim) -> String {
     )
 }
 
-/// The name Sikemux gives a device it makes for a project.
 pub(super) fn project_device_name(project: &str) -> String {
     let folder = Path::new(project)
         .file_name()

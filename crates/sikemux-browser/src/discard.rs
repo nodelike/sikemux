@@ -44,7 +44,6 @@ impl Pressure {
         }
     }
 
-    /// Reads the bits a memory pressure dispatch source reports.
     pub fn from_flags(flags: usize) -> Option<Pressure> {
         const WARN: usize = 0x2;
         const CRITICAL: usize = 0x4;
