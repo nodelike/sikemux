@@ -22,7 +22,11 @@ test(
     try {
       process.kill(-parent.pid, 0);
       await stopProcessTree(parent.pid);
-      assert.equal(signalProcessTree(parent.pid, "SIGTERM"), false);
+      const deadline = Date.now() + 30_000;
+      while (signalProcessTree(parent.pid, "SIGTERM")) {
+        assert.ok(Date.now() < deadline, "the group outlived its stop");
+        await new Promise((resolveTick) => setTimeout(resolveTick, 20));
+      }
     } finally {
       signalProcessTree(parent.pid, "SIGKILL");
     }

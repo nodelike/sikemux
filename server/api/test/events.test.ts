@@ -1,5 +1,13 @@
 import pg from "pg";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import type { Database } from "../src/db.ts";
 import { backlog } from "../src/events/backlog.ts";
@@ -86,7 +94,7 @@ describe("the event log", () => {
       })
       .catch(() => undefined);
     await registered(app, "user_b", "host");
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await vi.waitFor(() => expect(heard).not.toEqual([]));
     await listener.end();
 
     expect(heard).toEqual(["user_b"]);

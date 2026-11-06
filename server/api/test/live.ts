@@ -101,7 +101,7 @@ export class Peer {
     for (const wake of waiters) wake();
   }
 
-  async next(timeoutMs = 3_000): Promise<LiveServerMessage> {
+  async next(timeoutMs = 10_000): Promise<LiveServerMessage> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const message = this.messages[this.read];
@@ -121,7 +121,7 @@ export class Peer {
 
   async until<T extends LiveServerMessage["type"]>(
     type: T,
-    timeoutMs = 3_000,
+    timeoutMs = 10_000,
   ): Promise<Extract<LiveServerMessage, { type: T }>> {
     for (;;) {
       const message = await this.next(timeoutMs);

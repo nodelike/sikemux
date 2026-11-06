@@ -123,8 +123,15 @@ describe("a host's live connection", () => {
       first.key,
       second.key,
     ]);
-    peer.send({ type: "ack", id: frame.events[1]?.id ?? 0 });
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    const lastId = frame.events[1]?.id ?? 0;
+    peer.send({ type: "ack", id: lastId });
+    await vi.waitFor(async () => {
+      const { rows } = await database.pool.query<{ acked: number }>(
+        "select acked_event_id::int as acked from devices where key = $1",
+        [mac.key],
+      );
+      expect(rows[0]?.acked).toBe(lastId);
+    });
     peer.close();
     await peer.closed;
 
@@ -141,13 +148,12 @@ describe("a host's live connection", () => {
 
     const peer = kept(await hostPeer(api.url, mac));
     await peer.until("ready");
-    const frames = await peer.quiet(300);
-    expect(frames.map((frame) => frame.type)).toEqual(["events", "events"]);
-    const firstId = frames[0]?.type === "events" ? frames[0].events[0]?.id : 0;
-    peer.send({ type: "ack", id: firstId ?? 0 });
-    expect((await peer.quiet(300)).map((frame) => frame.type)).toEqual([
-      "events",
-    ]);
+    const first = await peer.until("events");
+    await peer.until("events");
+    expect(await peer.quiet(300)).toEqual([]);
+    peer.send({ type: "ack", id: first.events[0]?.id ?? 0 });
+    await peer.until("events");
+    expect(await peer.quiet(300)).toEqual([]);
   });
 
   it("is told to reset when events after its cursor were pruned", async () => {
@@ -327,16 +333,15 @@ describe("events never cross accounts", () => {
     const wake = vi.spyOn(LiveSocket.prototype, "wake");
     await host("user_a");
     await removeAs("user_a", phoneA.key, "sess_web");
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    const fromA = await a.until("events");
+    expect(fromA.events).toMatchObject([
+      { type: "device.revoked", key: phoneA.key },
+    ]);
     const woken = new Set(wake.mock.calls.map(([who]) => who.userId));
     expect(woken).toEqual(new Set(["user_a"]));
 
     const fromB = [...(await b.quiet()), ...(await pb.quiet())];
     expect(fromB).toEqual([]);
-    const fromA = await a.quiet();
-    expect(
-      fromA.flatMap((m) => (m.type === "events" ? m.events : [])),
-    ).toMatchObject([{ type: "device.revoked", key: phoneA.key }]);
   });
 
   it("and phones never hear of other phones", async () => {
@@ -542,7 +547,7 @@ describe("the web app's connection", () => {
         api.url,
         "user_a",
         await sessionToken("user_a", {
-          expiresIn: "1s",
+          expiresIn: "4s",
           claims: { azp: APP_ORIGIN },
         }),
       ),
@@ -552,7 +557,7 @@ describe("the web app's connection", () => {
         api.url,
         "user_a",
         await sessionToken("user_a", {
-          expiresIn: "1s",
+          expiresIn: "2s",
           claims: { azp: APP_ORIGIN },
         }),
       ),
