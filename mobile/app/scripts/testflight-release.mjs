@@ -20,7 +20,7 @@ export const TESTERS_GROUP = 'Testers';
 const PROCESSING_LIMIT_MS = 40 * 60 * 1000;
 const POLL_MS = 30 * 1000;
 
-export function nextStep(externalState) {
+function nextStep(externalState) {
   switch (externalState) {
     case 'PROCESSING':
       return 'wait';

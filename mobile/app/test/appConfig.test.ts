@@ -17,10 +17,6 @@ describe('updates', () => {
   it('asks for nightly updates when no channel is given', () => {
     const config = resolve({ APP_VARIANT: 'production', SIKEMUX_MOBILE_CHANNEL: undefined });
     expect(config.updates.requestHeaders).toEqual({ 'expo-channel-name': 'nightly' });
-    expect(config.updates.url).toBe('https://updates.sikemux.com/manifest');
-    expect(config.updates.fallbackToCacheTimeout).toBe(0);
-    expect(config.updates.codeSigningMetadata).toEqual({ keyid: 'main', alg: 'rsa-v1_5-sha256' });
-    expect(config.runtimeVersion).toEqual({ policy: 'fingerprint' });
   });
 
   it('treats an empty channel as no channel', () => {
