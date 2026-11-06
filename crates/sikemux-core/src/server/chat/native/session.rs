@@ -258,7 +258,7 @@ impl std::ops::Deref for Sink {
 
 impl Sink {
     pub fn error(&self, message: impl std::fmt::Display) {
-        self.chat.emit(ChatEventKind::Error, error_message(message));
+        self.chat.error(error_message(message));
     }
 
     /// Whether the provider has a saved session to load.
@@ -290,12 +290,7 @@ impl Sink {
     pub fn end_turn(&self, turn: u64, end: TurnEnd) {
         let end = end.read_offline();
         let chat = &self.chat;
-        chat.end_unprompted();
         chat.cancel_permissions();
-        let settle = || {
-            chat.stop_running();
-            let _ = self.settled.send(turn);
-        };
         let answer = match &end {
             TurnEnd::Completed(payload) => Some(payload),
             TurnEnd::Failed { response, .. } => response.as_ref(),
@@ -307,36 +302,33 @@ impl Sink {
         }
         match end {
             TurnEnd::Completed(payload) => {
-                settle();
                 chat.note_answered();
-                chat.emit(ChatEventKind::TurnCompleted, payload);
+                chat.finish_turn(payload);
             }
             TurnEnd::Failed { failure, response } if failure.kind != FailureKind::Other => {
+                chat.end_unprompted();
                 let _ = self.failed.send(Failed {
                     turn,
                     failure,
                     response,
                 });
+                return;
             }
             TurnEnd::Failed { failure, response } => {
-                settle();
                 let failure = failure.payload(self.account.as_deref());
                 chat.turn_failing(&failure, Fault::Broke);
-                chat.emit(
-                    ChatEventKind::TurnCompleted,
-                    response.unwrap_or_else(|| turn_answer(StopReason::EndTurn)),
-                );
-                chat.emit(ChatEventKind::Error, failure);
+                chat.finish_turn(response.unwrap_or_else(|| turn_answer(StopReason::EndTurn)));
+                chat.fail_turn(failure);
             }
-            TurnEnd::Refused(message) => {
-                settle();
-                chat.emit(ChatEventKind::Error, error_message(message));
-            }
+            TurnEnd::Refused(message) => chat.fail_turn(error_message(message)),
             TurnEnd::Broken(reason) => {
-                settle();
+                chat.cut_turn();
+                let _ = self.settled.send(turn);
                 let _ = self.broken.send(reason);
+                return;
             }
         }
+        let _ = self.settled.send(turn);
     }
 
     /// A message from another agent went into the running turn but the agent
@@ -845,7 +837,7 @@ impl<B: Backend> Running<'_, B> {
     /// started again under the chat, or says why it could not start.
     async fn send(&mut self, mut replay: Replay) {
         self.state.turn += 1;
-        self.chat.emit(ChatEventKind::TurnStarted, json!({}));
+        self.chat.begin_turn();
         // A slash command takes what follows it as its arguments, so the brief waits for
         // the next message. Kept on the replay, it goes again with the message.
         let carries = !B::INSTRUCTIONS
@@ -861,8 +853,7 @@ impl<B: Backend> Running<'_, B> {
             .prompt(self.state.turn, Prompt::from(&replay))
             .await
         {
-            self.chat.stop_running();
-            self.chat.emit(ChatEventKind::Error, error_message(error));
+            self.chat.fail_turn(error_message(error));
         }
         self.state.last_prompt = Some(Replay {
             announce: false,
@@ -883,9 +874,9 @@ impl<B: Backend> Running<'_, B> {
             return ControlFlow::Continue(());
         }
         if let Some(switching) = state.switching.take() {
-            chat.stop_running();
-            if let Some(response) = failed.response {
-                chat.emit(ChatEventKind::TurnCompleted, response);
+            match failed.response {
+                Some(response) => chat.finish_turn(response),
+                None => chat.cut_turn(),
             }
             return switching
                 .carry_out(chat, self.provider, self.launch)
@@ -926,7 +917,6 @@ impl<B: Backend> Running<'_, B> {
         if let Some(rebind) = retry {
             return ControlFlow::Break(Outcome::Rebind(Box::new(rebind)));
         }
-        chat.stop_running();
         state.failed_prompt = state.last_prompt.take();
         let fault = match (failed.failure.kind, &state.failed_prompt) {
             (FailureKind::Limit | FailureKind::Network, Some(_)) => Fault::Retrying,
@@ -936,9 +926,9 @@ impl<B: Backend> Running<'_, B> {
         let failure = failed.failure.payload(current.as_deref());
         chat.turn_failing(&failure, fault);
         if let Some(response) = failed.response {
-            chat.emit(ChatEventKind::TurnCompleted, response);
+            chat.finish_turn(response);
         }
-        chat.emit(ChatEventKind::Error, failure);
+        chat.fail_turn(failure);
         if let (FailureKind::SignIn, Some(core)) = (failed.failure.kind, chat.core.upgrade()) {
             agent_accounts::chat_refused(&core, self.provider, current.as_deref());
         }
@@ -973,22 +963,14 @@ impl<B: Backend> Running<'_, B> {
             return ControlFlow::Continue(());
         }
         if let Some(switching) = self.state.switching.take() {
-            chat.stop_running();
-            chat.emit(
-                ChatEventKind::TurnCompleted,
-                turn_answer(StopReason::Cancelled),
-            );
+            chat.finish_turn(turn_answer(StopReason::Cancelled));
             return switching
                 .carry_out(chat, self.provider, self.launch)
                 .map_or(ControlFlow::Continue(()), ControlFlow::Break);
         }
         let why = "It was still at work a while after it was asked to stop.";
         if self.state.reloadable {
-            chat.stop_running();
-            chat.emit(
-                ChatEventKind::TurnCompleted,
-                turn_answer(StopReason::Cancelled),
-            );
+            chat.finish_turn(turn_answer(StopReason::Cancelled));
         }
         let title = "This agent did not stop, so it was started again";
         if let Some(rebind) = restart(chat, self.launch, &self.state, false, title, why).await {
@@ -996,7 +978,7 @@ impl<B: Backend> Running<'_, B> {
         }
         let failure = error_message("The agent did not stop, so its session was ended");
         chat.turn_failing(&failure, Fault::Broke);
-        chat.emit(ChatEventKind::Error, failure);
+        chat.fail_for_good(failure);
         ControlFlow::Break(Outcome::Ended(SessionEnd::Exited))
     }
 
@@ -1044,7 +1026,7 @@ impl<B: Backend> Running<'_, B> {
             } => self.steer(text, paths, context, reply),
             ChatCommand::StopTask { task_id } => {
                 if let Err(error) = self.backend.stop_task(&task_id).await {
-                    self.chat.emit(ChatEventKind::Error, error_message(error));
+                    self.chat.error(error_message(error));
                 }
             }
             ChatCommand::Resume { prompt } => {
@@ -1117,10 +1099,7 @@ impl<B: Backend> Running<'_, B> {
             } else if !chat.feed.enqueue(super::super::queue::Queued::new(
                 message_id, text, paths, context,
             )) {
-                chat.emit(
-                    ChatEventKind::Error,
-                    error_message("too many messages are waiting for this turn"),
-                );
+                chat.error(error_message("too many messages are waiting for this turn"));
             }
             return ControlFlow::Continue(());
         }
@@ -1206,10 +1185,9 @@ impl<B: Backend> Running<'_, B> {
     async fn switch_account(&mut self, account: ChatAccount) -> ControlFlow<Outcome> {
         let chat = &self.chat;
         if !self.state.reloadable {
-            chat.emit(
-                ChatEventKind::Error,
-                error_message("This agent cannot carry a chat to another account"),
-            );
+            chat.error(error_message(
+                "This agent cannot carry a chat to another account",
+            ));
             return ControlFlow::Continue(());
         }
         if chat.prompted() {
@@ -1422,11 +1400,8 @@ impl SessionState {
 /// A chat whose agent this core could not take over: it goes on in a new
 /// agent process on the same session, and says so.
 fn not_taken_over(chat: &Chat, launch: &ChatLaunch, error: &str) -> Outcome {
-    if chat.stop_running() {
-        chat.emit(
-            ChatEventKind::TurnCompleted,
-            turn_answer(StopReason::Cancelled),
-        );
+    if chat.prompted() {
+        chat.finish_turn(turn_answer(StopReason::Cancelled));
     }
     chat.cancel_permissions();
     let notice = super::super::update_notice(error);
@@ -1439,7 +1414,7 @@ fn not_taken_over(chat: &Chat, launch: &ChatLaunch, error: &str) -> Outcome {
             notice: Some(notice),
         })),
         None => {
-            chat.emit(ChatEventKind::Error, error_message(error));
+            chat.error(error_message(error));
             Outcome::Ended(SessionEnd::Exited)
         }
     }
@@ -1466,7 +1441,7 @@ async fn stopped(
     if broke || chat.prompted() {
         let failure = error_message(&reason);
         chat.turn_failing(&failure, Fault::Broke);
-        chat.emit(ChatEventKind::Error, failure);
+        chat.fail_for_good(failure);
     }
     Outcome::Ended(SessionEnd::Exited)
 }
@@ -1488,9 +1463,8 @@ async fn restart(
     }
     let launch = chat.relaunch(launch)?;
     let wait = chat.restart_after()?;
-    chat.stop_running();
     chat.cancel_permissions();
-    chat.end_cut_turn();
+    chat.cut_turn();
     tokio::time::sleep(wait).await;
     Some(Box::new(Rebind {
         launch,

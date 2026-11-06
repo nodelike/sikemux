@@ -46,7 +46,6 @@ pub(crate) async fn attach(
         None => {
             if let Ok(feed) = core.chats.readable(agent_id) {
                 let standing = Standing {
-                    running: false,
                     turned: false,
                     draft: core.drafts.chat_draft(agent_id),
                 };
@@ -85,7 +84,6 @@ pub(crate) async fn attach(
         client,
         request_id,
         Standing {
-            running: chat.turn_running(),
             turned: chat.turn.locked().turned,
             draft: core.drafts.chat_draft(agent_id),
         },

@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sikemux_view::chat::{GoalMarker, StopReason};
 
+use crate::ChatEventKind;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UpdateKind {
@@ -264,6 +266,19 @@ impl TurnUsage {
 
 pub fn turn_answer(reason: StopReason) -> Value {
     json!({ "stopReason": reason })
+}
+
+/// Set on an error event said while a turn is at work and goes on, such as a task
+/// that could not be stopped.
+pub const TURN_GOES_ON: &str = "turnGoesOn";
+
+/// Whether an event of `kind` with `payload` ends the turn at work.
+pub fn ends_turn(kind: ChatEventKind, payload: &Value) -> bool {
+    match kind {
+        ChatEventKind::TurnCompleted => true,
+        ChatEventKind::Error => payload.get(TURN_GOES_ON).is_none(),
+        _ => false,
+    }
 }
 
 /// Why the turn with the answer `answer` ended.

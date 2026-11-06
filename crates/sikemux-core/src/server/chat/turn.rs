@@ -1,5 +1,6 @@
-//! Where a chat's turn stands, kept in one place under one lock, so what every
-//! app is told of the chat and what its lead hears both follow from it.
+//! Where a chat's turn stands. [`super::Chat`] alone changes it, and tells the feed
+//! of a turn's end under the same lock, so a chat read as idle has that end in its
+//! transcript, and what every app is told and what its lead hears follow from it.
 
 use serde::{Deserialize, Serialize};
 

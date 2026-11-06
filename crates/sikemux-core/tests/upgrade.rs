@@ -982,7 +982,13 @@ async fn a_core_that_crashes_mid_turn_carries_the_turn_on_when_it_starts_again()
             "{agent_id}: {:#?}",
             chat.view
         );
-        assert_eq!(head.stop_reason, Some(StopReason::EndTurn), "{agent_id}");
+        assert_eq!(
+            head.stop_reason,
+            Some(StopReason::EndTurn),
+            "{agent_id}: {:#?}\n{}",
+            chat.view,
+            core.log()
+        );
         assert_eq!(
             chat.notices()
                 .iter()

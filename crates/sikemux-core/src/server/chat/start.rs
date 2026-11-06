@@ -126,10 +126,7 @@ pub(super) fn launch(
         let started = ending.is_ready();
         ending.emit(ChatEventKind::Status, ended_status(&result, started));
         if let Err(error) = &result {
-            ending.emit(
-                ChatEventKind::Error,
-                serde_json::json!({ "message": error }),
-            );
+            ending.fail_for_good(serde_json::json!({ "message": error }));
         }
         ending.end(result.err());
         if owner.chats.remove_if_current(&ending) {
@@ -440,7 +437,7 @@ pub(super) fn carry_on(
     // whose end the feed has on disk.
     let working = kept.working && !chat.feed.settled();
     chat.feed.agent_gone();
-    chat.end_cut_turn();
+    chat.cut_turn();
     let resumes = kept.reloadable && launch_spec.resume_id.is_some();
     let (replay, notice) = match (working, resumes) {
         (true, true) => (

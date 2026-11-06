@@ -826,6 +826,16 @@ impl Fold {
                     self.set_head("permissions");
                 }
             }
+            ChatEventKind::Error if !update::ends_turn(ChatEventKind::Error, payload) => {
+                self.head.error = Some(
+                    text_of(payload.get("message"))
+                        .unwrap_or("The agent stopped.")
+                        .to_owned(),
+                );
+                self.head.failure = failure_of(payload);
+                self.set_head("error");
+                self.set_head("failure");
+            }
             ChatEventKind::Error => {
                 if self.head.connection != ChatConnection::Ready {
                     self.head.connection = ChatConnection::Error;

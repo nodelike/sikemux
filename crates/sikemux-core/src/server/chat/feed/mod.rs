@@ -64,7 +64,6 @@ pub(crate) type Earlier = Box<dyn FnMut() -> Result<Option<Vec<(String, Value)>>
 
 /// What a client attaching now is told about the chat besides its rows.
 pub(crate) struct Standing {
-    pub running: bool,
     pub turned: bool,
     pub draft: Option<ChatDraft>,
 }
@@ -370,6 +369,8 @@ impl Feed {
                 fold.number(seq);
                 fold.apply(index, event.kind, &event.payload, at);
             }
+            // The events kept may no longer reach back to where a long turn started.
+            fold.set_running(inner.replay.in_turn);
             fold.set_queued(queued_view(&inner.queued));
             fold.set_triggers(inner.triggers.clone());
             fold.set_goal(inner.goal.clone());
@@ -1268,7 +1269,6 @@ mod tests {
             client,
             1,
             Standing {
-                running: false,
                 turned: true,
                 draft: None,
             },

@@ -41,15 +41,7 @@ impl Replay {
         if kind == ChatEventKind::SessionUpdate {
             self.work.note(&event.payload);
         }
-        match kind {
-            ChatEventKind::TurnStarted => self.in_turn = true,
-            ChatEventKind::Prompt => self.awaiting = true,
-            ChatEventKind::TurnCompleted | ChatEventKind::Error => {
-                self.in_turn = false;
-                self.awaiting = false;
-            }
-            _ => {}
-        }
+        self.note_turn(kind, &event.payload);
         self.last_from_user = kind == ChatEventKind::Prompt
             || UpdateKind::within(&event.payload) == Some(UpdateKind::UserMessageChunk);
         self.entries.push_back(Entry {

@@ -125,6 +125,7 @@ impl Chats {
     /// Keeps the feed of `chat`, which went to sleep, with only its history on disk, letting
     /// go of the history read least lately once all those kept pass their size.
     pub(crate) fn rest(&self, chat: &Chat) {
+        chat.cut_turn();
         let bytes = chat.feed.rest();
         let mut resting = self.resting.locked();
         resting.retain(|resting| resting.agent_id != chat.agent_id());
@@ -289,7 +290,7 @@ impl Chats {
         let chats = self.take_all();
         for chat in &chats {
             chat.feed.agent_gone();
-            chat.end_cut_turn();
+            chat.cut_turn();
             Self::halt(chat);
         }
         chats

@@ -238,7 +238,6 @@ impl Feed {
             return;
         }
         let fold = self.fold(&mut inner);
-        fold.set_running(standing.running);
         fold.set_turned(standing.turned);
         fold.set_draft(standing.draft);
         self.flush_locked(&mut inner);

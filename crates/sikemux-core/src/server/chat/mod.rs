@@ -33,7 +33,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ErrorKind;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -286,8 +286,36 @@ impl Chat {
         *current = launch;
     }
 
+    /// Tells the feed something that neither starts nor ends a turn: those go through
+    /// [`Self::begin_turn`], [`Self::finish_turn`], [`Self::fail_turn`] and [`Self::error`].
     pub(crate) fn emit(&self, kind: ChatEventKind, payload: Value) {
-        if kind == ChatEventKind::TurnStarted {
+        if kind != ChatEventKind::SessionUpdate {
+            self.feed.emit(kind, payload);
+            self.publish_state();
+            return;
+        }
+        match UpdateKind::within(&payload) {
+            Some(UpdateKind::ToolCall) => self.note_tool_call(&payload),
+            // A saved session read back says the same outside any turn.
+            Some(UpdateKind::SubagentSpawned)
+                if self.turn_running() && self.feed.starts_own_subagent(&payload) =>
+            {
+                if let Some(core) = self.core.upgrade() {
+                    super::board::chat_goal::subagent_started(&core, self.agent_id());
+                }
+            }
+            Some(UpdateKind::SessionInfoUpdate | UpdateKind::AccountSwitched) => {
+                self.note_session(&payload)
+            }
+            _ => {}
+        }
+        self.feed.emit(kind, payload);
+        self.finish_held();
+    }
+
+    /// A turn starts, whoever prompted it.
+    pub(crate) fn begin_turn(&self) {
+        {
             let mut state = self.turn.locked();
             state.turned = true;
             state.unreported = true;
@@ -297,78 +325,120 @@ impl Chat {
             }
         }
         if let Some(core) = self.core.upgrade() {
-            let activity = match kind {
-                ChatEventKind::TurnStarted => Some(Activity::Started),
-                ChatEventKind::TurnCompleted => {
-                    let cancelled =
-                        sikemux_fold::update::stop_reason(&payload) == Some(StopReason::Cancelled);
-                    if !cancelled && self.feed.running_subagents() > 0 {
-                        self.hold_for_subagents();
-                        core.changed(What::Agents);
-                        None
-                    } else {
-                        Some(Activity::Finished { cancelled })
-                    }
-                }
-                ChatEventKind::Error => Some(Activity::Problem(
-                    payload
-                        .get("message")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default(),
-                )),
-                _ => None,
-            };
-            let ended = match &activity {
-                Some(Activity::Finished { cancelled: false }) => Some(match self.take_failure() {
-                    Some(failure) => Ending::Failed(failure),
-                    None => Ending::Finished,
-                }),
-                Some(Activity::Finished { cancelled: true }) => Some(Ending::Stopped),
-                Some(Activity::Problem(message)) => self.turn_failed(message),
-                _ => None,
-            };
-            if matches!(ended, Some(Ending::Finished)) {
-                super::questions::asked_in_reply(&core, self.agent_id());
-            }
-            if let Some(activity) = activity {
-                core.note_activity(self.agent_id(), activity);
-            }
-            if let Some(ending) = ended {
-                let carries_on = !matches!(ending, Ending::Stopped);
-                self.feed.emit(kind, payload);
-                self.report_turn(&core, ending);
-                self.publish_state();
-                if carries_on {
-                    self.send_queued_later();
-                }
+            core.note_activity(self.agent_id(), Activity::Started);
+        }
+        self.note_resumable();
+        self.feed.emit(ChatEventKind::TurnStarted, json!({}));
+        self.publish_state();
+    }
+
+    /// The turn at work ended with `answer`. The feed hears under the lock the turn goes idle
+    /// under, so whoever reads the chat as idle finds in its transcript why it stopped.
+    pub(crate) fn finish_turn(&self, answer: Value) {
+        self.finish(answer, |_| true);
+    }
+
+    fn finish(&self, answer: Value, ends: impl FnOnce(Turn) -> bool) {
+        let cancelled = sikemux_fold::update::stop_reason(&answer) == Some(StopReason::Cancelled);
+        let holds = !cancelled && self.feed.running_subagents() > 0;
+        let new_hold = {
+            let mut state = self.turn.locked();
+            if !ends(state.turn) {
                 return;
             }
+            self.feed.emit(ChatEventKind::TurnCompleted, answer);
+            let was_held = state.turn == Turn::Held;
+            state.turn = if holds { Turn::Held } else { Turn::Idle };
+            if holds && !was_held {
+                state.holds += 1;
+            }
+            (holds && !was_held).then_some(state.holds)
+        };
+        self.turn_over.notify_waiters();
+        if let Some(hold) = new_hold {
+            self.end_held_after(SUBAGENT_WAIT, hold, true);
         }
-        if kind == ChatEventKind::SessionUpdate {
-            match UpdateKind::within(&payload) {
-                Some(UpdateKind::ToolCall) => self.note_tool_call(&payload),
-                // A saved session read back says the same outside any turn.
-                Some(UpdateKind::SubagentSpawned)
-                    if self.turn_running() && self.feed.starts_own_subagent(&payload) =>
-                {
-                    if let Some(core) = self.core.upgrade() {
-                        super::board::chat_goal::subagent_started(&core, self.agent_id());
-                    }
-                }
-                Some(UpdateKind::SessionInfoUpdate | UpdateKind::AccountSwitched) => {
-                    self.note_session(&payload)
-                }
-                _ => {}
+        if holds {
+            if let Some(core) = self.core.upgrade() {
+                core.changed(What::Agents);
+            }
+            self.publish_state();
+            return;
+        }
+        let ending = if cancelled {
+            Ending::Stopped
+        } else {
+            match self.take_failure() {
+                Some(failure) => Ending::Failed(failure),
+                None => Ending::Finished,
+            }
+        };
+        self.tell_of_ending(Activity::Finished { cancelled }, Some(ending));
+    }
+
+    /// `failure` ended the turn at work, with no answer to it, in one step as
+    /// [`Self::finish_turn`] does.
+    pub(crate) fn fail_turn(&self, failure: Value) {
+        self.tell_failure(failure, |state, feed, failure| {
+            feed.emit(ChatEventKind::Error, failure);
+            if state.running() {
+                state.turn = Turn::Idle;
+            }
+        });
+        self.turn_over.notify_waiters();
+    }
+
+    /// Says `failure`, which leaves whatever is at work going on.
+    pub(crate) fn error(&self, failure: Value) {
+        self.tell_failure(failure, |state, feed, mut failure| {
+            if state.running() {
+                failure[sikemux_fold::update::TURN_GOES_ON] = json!(true);
+            }
+            feed.emit(ChatEventKind::Error, failure);
+        });
+    }
+
+    /// The chat ends on `failure`, and the turn at work with it, which the agent's lead hears
+    /// as how the chat ended.
+    pub(crate) fn fail_for_good(&self, failure: Value) {
+        self.tell_failure(failure, |_, feed, failure| {
+            feed.emit(ChatEventKind::Error, failure);
+        });
+    }
+
+    fn tell_failure(&self, failure: Value, tell: impl FnOnce(&mut TurnState, &Arc<Feed>, Value)) {
+        let message = failure
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        // An error that arrives once nothing is at work on the turn any more ended it.
+        let ending = {
+            let mut state = self.turn.locked();
+            tell(&mut state, &self.feed, failure);
+            (state.turn == Turn::Idle && state.unreported).then(|| Ending::Failed(message.clone()))
+        };
+        self.tell_of_ending(Activity::Problem(&message), ending);
+    }
+
+    /// What follows a turn's end or a failure: the core hears of it, then the lead of `ending`
+    /// when there is one, and messages waiting for the turn to end go in unless it was stopped.
+    fn tell_of_ending(&self, activity: Activity<'_>, ending: Option<Ending>) {
+        let carries_on = ending
+            .as_ref()
+            .is_some_and(|ending| !matches!(ending, Ending::Stopped));
+        if let Some(core) = self.core.upgrade() {
+            if matches!(ending, Some(Ending::Finished)) {
+                super::questions::asked_in_reply(&core, self.agent_id());
+            }
+            core.note_activity(self.agent_id(), activity);
+            if let Some(ending) = ending {
+                self.report_turn(&core, ending);
             }
         }
-        if kind == ChatEventKind::TurnStarted {
-            self.note_resumable();
-        }
-        self.feed.emit(kind, payload);
-        if kind == ChatEventKind::SessionUpdate {
-            self.finish_held();
-        } else {
-            self.publish_state();
+        self.publish_state();
+        if carries_on {
+            self.send_queued_later();
         }
     }
 
@@ -485,19 +555,11 @@ impl Chat {
             if giving_up {
                 chat.feed.give_up_subagents();
             }
-            super::questions::asked_in_reply(&core, &agent_id);
-            core.note_activity(&agent_id, Activity::Finished { cancelled: false });
-            chat.report_turn(&core, Ending::Finished);
-            chat.publish_state();
-            chat.send_queued_later();
+            chat.tell_of_ending(
+                Activity::Finished { cancelled: false },
+                Some(Ending::Finished),
+            );
         });
-    }
-
-    /// An error that arrives once nothing is at work on the turn any more
-    /// ended it.
-    fn turn_failed(&self, message: &str) -> Option<Ending> {
-        let state = self.turn.locked();
-        (state.turn == Turn::Idle && state.unreported).then(|| Ending::Failed(message.to_owned()))
     }
 
     /// The turn in progress failed, which the lead hears in place of its end,
@@ -564,15 +626,22 @@ impl Chat {
         Some(wait)
     }
 
-    /// Ends in the transcript the turn the agent was cut off in, so the one
-    /// that carries it on starts clean.
-    pub(crate) fn end_cut_turn(&self) {
-        if self.feed.in_turn() {
-            self.feed.emit(
-                ChatEventKind::TurnCompleted,
-                turn_answer(StopReason::Cancelled),
-            );
+    /// The agent was cut off in the turn at work. It ends in the transcript, so the one that
+    /// carries it on starts clean, and its lead hears only of that one.
+    pub(crate) fn cut_turn(&self) {
+        {
+            let mut state = self.turn.locked();
+            if self.feed.in_turn() {
+                self.feed.emit(
+                    ChatEventKind::TurnCompleted,
+                    turn_answer(StopReason::Cancelled),
+                );
+            }
+            if state.running() {
+                state.turn = Turn::Idle;
+            }
         }
+        self.turn_over.notify_waiters();
     }
 
     pub(crate) fn note_agent(&self, pid: u32) {
@@ -620,15 +689,13 @@ impl Chat {
             starts
         };
         if starts {
-            self.emit(ChatEventKind::TurnStarted, serde_json::json!({}));
+            self.begin_turn();
         }
     }
 
     /// The work nobody here asked for is over.
     pub(crate) fn work_ended(&self, stop_reason: StopReason) {
-        if self.end_unprompted() {
-            self.emit(ChatEventKind::TurnCompleted, turn_answer(stop_reason));
-        }
+        self.finish(turn_answer(stop_reason), |turn| turn == Turn::Unprompted);
     }
 
     /// The agent was asked to stop, with `sent` saying whether the ask got
@@ -641,7 +708,7 @@ impl Chat {
         stalled: &mpsc::UnboundedSender<u64>,
     ) {
         if let Err(error) = sent {
-            self.emit(ChatEventKind::Error, rebind::error_message(error));
+            self.error(rebind::error_message(error));
         }
         if self.prompted() {
             stall_later(turn, stalled);
@@ -688,20 +755,6 @@ impl Chat {
         }
     }
 
-    /// The running turn is over. Answers whether one was running.
-    pub(crate) fn stop_running(&self) -> bool {
-        let was = {
-            let mut state = self.turn.locked();
-            let was = state.turn == Turn::Prompted;
-            if was {
-                state.turn = Turn::Idle;
-            }
-            was
-        };
-        self.turn_over.notify_waiters();
-        was
-    }
-
     pub(crate) async fn turn_ended(&self) {
         loop {
             let over = self.turn_over.notified();
@@ -745,21 +798,6 @@ impl Chat {
     /// Whether the agent is at work on a turn, or on subagents a turn that ended left going.
     pub(crate) fn working(&self) -> bool {
         self.turn.locked().turn != Turn::Idle
-    }
-
-    /// The turn ended with subagents still at work, so it waits for them, a
-    /// while at most.
-    fn hold_for_subagents(&self) {
-        let hold = {
-            let mut state = self.turn.locked();
-            if state.turn != Turn::Idle {
-                return;
-            }
-            state.turn = Turn::Held;
-            state.holds += 1;
-            state.holds
-        };
-        self.end_held_after(SUBAGENT_WAIT, hold, true);
     }
 
     /// A turn of this chat was answered, so its provider has it saved.

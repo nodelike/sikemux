@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_fold::update::ends_turn;
 use sikemux_fold::{ChatEvent, ChatEventKind, Place, UpdateKind};
 use sikemux_view::chat::ToolDetail;
 
@@ -318,19 +319,10 @@ impl Replay {
             self.work.note(payload);
             self.note_retry(payload);
         }
-        let ends_turn = matches!(kind, ChatEventKind::TurnCompleted | ChatEventKind::Error);
-        match kind {
-            ChatEventKind::TurnStarted => {
-                self.in_turn = true;
-                self.reconnecting = None;
-            }
-            ChatEventKind::Prompt => self.awaiting = true,
-            _ if ends_turn => {
-                self.in_turn = false;
-                self.awaiting = false;
-                self.reconnecting = None;
-            }
-            _ => {}
+        self.note_turn(kind, payload);
+        let turn_ended = ends_turn(kind, payload);
+        if turn_ended || kind == ChatEventKind::TurnStarted {
+            self.reconnecting = None;
         }
         self.last_from_user = kind == ChatEventKind::Prompt
             || UpdateKind::within(payload) == Some(UpdateKind::UserMessageChunk);
@@ -346,7 +338,7 @@ impl Replay {
         self.bytes += bytes;
         // A turn's end goes to disk at once, so a core that dies right after does not take
         // the turn for cut short and send its prompt again.
-        if ends_turn {
+        if turn_ended {
             self.settle();
         }
         self.trim();
@@ -436,6 +428,19 @@ impl Replay {
     fn hold(&mut self, holds: Holds, index: u64, event: &ChatEvent) {
         self.standing.retain(|(held, ..)| *held != holds);
         self.standing.push((holds, index, event.clone()));
+    }
+
+    /// Whether a turn is open and whether a prompt waits for its turn's end, as `kind` leaves them.
+    fn note_turn(&mut self, kind: ChatEventKind, payload: &Value) {
+        match kind {
+            ChatEventKind::TurnStarted => self.in_turn = true,
+            ChatEventKind::Prompt => self.awaiting = true,
+            _ if ends_turn(kind, payload) => {
+                self.in_turn = false;
+                self.awaiting = false;
+            }
+            _ => {}
+        }
     }
 
     fn note_standing(&mut self, kind: ChatEventKind, index: u64, event: &ChatEvent) {
