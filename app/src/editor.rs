@@ -977,16 +977,7 @@ fn notice_bar(
             "editor-reload",
             "Reload disk",
             ui::Variant::Outline,
-            Rc::new(move |bench, window, cx| {
-                bench.editors.update(cx, |editors, _| {
-                    if let Some(document) = editors.open.get_mut(&key) {
-                        document.notice = None;
-                        document.dirty = false;
-                        document.version = None;
-                    }
-                });
-                read(bench, key.clone(), window, cx);
-            }),
+            Rc::new(move |bench, window, cx| reload(bench, key.clone(), window, cx)),
         )
     };
     let answers = match &notice {
@@ -1294,12 +1285,7 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
                         document.loaded = true;
                         document.dirty = false;
                         document.notice = None;
-                        if document.mode == preview::Mode::Preview {
-                            let text = document.saved.clone();
-                            show_rendered(document, &key, &text, &asks, this, window, cx);
-                            preview::refind(document, cx);
-                        }
-                        lsp::changed(document, &asks, cx);
+                        reloaded(document, &key, &asks, this, window, cx);
                     }
                     Err(error) if error.kind == Some(ErrorKind::NotText) => {
                         editors.open.remove(&key);
@@ -1328,19 +1314,44 @@ fn read(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Conte
     .detach();
 }
 
+/// What each per-file feature that follows the text does once new text from disk is in the file's
+/// editor.
+fn reloaded(
+    document: &mut Document,
+    key: &FileKey,
+    asks: &tokio::sync::mpsc::UnboundedSender<Ask>,
+    bench: WeakEntity<Workbench>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if document.mode == preview::Mode::Preview {
+        let text = document.saved.clone();
+        show_rendered(document, key, &text, asks, bench, window, cx);
+        preview::refind(document, cx);
+    }
+    lsp::changed(document, asks, cx);
+}
+
+/// Takes the file's text from disk whatever it was last read as, over any unsaved edits.
+fn reload(bench: &mut Workbench, key: FileKey, window: &mut Window, cx: &mut Context<Workbench>) {
+    bench.editors.update(cx, |editors, _| {
+        if let Some(document) = editors.open.get_mut(&key) {
+            document.notice = None;
+            document.dirty = false;
+            document.version = None;
+        }
+    });
+    read(bench, key, window, cx);
+}
+
 /// Saves the editor's text over the file, refused by the core when the file
-/// moved on since it was read. A save of an unchanged file reads it again.
+/// moved on since it was read. A save of an unchanged file reloads it.
 fn save(bench: &mut Workbench, key: &FileKey, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(document) = bench.editors.read(cx).open.get(key) else {
         return;
     };
     if !document.dirty {
-        bench.editors.update(cx, |editors, _| {
-            if let Some(document) = editors.open.get_mut(key) {
-                document.version = None;
-            }
-        });
-        return read(bench, key.clone(), window, cx);
+        return reload(bench, key.clone(), window, cx);
     }
     let text = document.state.read(cx).value().to_string();
     let version = document.version.clone();
