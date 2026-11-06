@@ -115,7 +115,6 @@ impl Status {
     }
 }
 
-/// Where a card's ticket lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Tracker {
@@ -263,7 +262,6 @@ impl Board {
             .max_by_key(|card| card.work_rank())
     }
 
-    /// The card `agent` works now among those not done.
     pub(crate) fn open_working_card(&self, agent: &str) -> Option<&Card> {
         (self.cards.iter())
             .filter(|card| card.owner_id() == Some(agent) && card.status != Status::Done)
@@ -450,7 +448,6 @@ impl Board {
         (done, under.len())
     }
 
-    /// Whether `from` reaches `to` by following `next`.
     fn reaches(&self, from: u64, to: u64, next: impl Fn(&Card) -> Vec<u64>) -> bool {
         let mut seen = HashSet::new();
         let mut stack = vec![from];
@@ -562,7 +559,6 @@ impl State {
         self.work_of(project, id).is_some_and(|work| work.job)
     }
 
-    /// Changes what is kept about the card, forgetting it once nothing is left.
     fn change_work(&mut self, project: &str, id: u64, change: impl FnOnce(&mut CardWork)) {
         let key = (project.to_owned(), id);
         let work = self.work.entry(key.clone()).or_default();
@@ -590,7 +586,6 @@ pub(crate) struct Boards {
 /// The folder in the data folder that holds the screenshots kept as evidence.
 const EVIDENCE: &str = "evidence";
 
-/// How the files of the screenshots a project's board keeps begin.
 fn evidence_prefix(project: &str) -> String {
     format!("{}-", kept::file_for(project).trim_end_matches(".json"))
 }
@@ -705,7 +700,6 @@ impl Writer {
     }
 }
 
-/// Who changes a board.
 #[derive(Clone)]
 pub(crate) enum By {
     Person,
@@ -789,7 +783,6 @@ impl Boards {
         Some(data.join(EVIDENCE).join(name))
     }
 
-    /// A step Auto took on the card is over.
     fn end_job(&self, project: &str, id: u64) {
         self.state
             .locked()
@@ -923,7 +916,6 @@ impl Adding {
     }
 }
 
-/// The goal's assertions a slice fulfils, as `asserts` names them.
 fn assertion_ids(params: &Value) -> Result<Option<Vec<u64>>, String> {
     let wrong = || "asserts must be a list of the goal's assertion numbers".to_owned();
     match params.get("asserts") {
@@ -956,7 +948,6 @@ fn promise_param(params: &Value) -> Result<Option<String>, String> {
     }
 }
 
-/// What a change to a card asks for.
 #[derive(Default)]
 struct Changes {
     title: Option<String>,
@@ -1065,7 +1056,6 @@ impl TicketParams {
     }
 }
 
-/// The project a board call names, as agents' names place it.
 /// The provider paying for the agent's turns, by name, when not its own account.
 fn paid_by(core: &Core, agent_id: &str) -> Option<String> {
     let chat = core.chats.get(agent_id)?;
@@ -1248,7 +1238,6 @@ fn remember_team(core: &Core, board: &mut Board, id: u64) {
     }
 }
 
-/// A card as the app and devices read it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CardView {
@@ -1338,12 +1327,10 @@ fn column_of(core: &Core, settings: &Settings, card: &Card) -> Column {
     }
 }
 
-/// The ticket of the nearest card above `card` that has one.
 fn ticket_above(board: &Board, card: &Card) -> Option<String> {
     (board.up_from(card).skip(1)).find_map(|card| Some(card.ticket.as_ref()?.key.clone()))
 }
 
-/// A board as the app and devices read it.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BoardView {
@@ -1685,7 +1672,6 @@ pub(crate) fn add_for_trigger(
     Ok(())
 }
 
-/// The triggers that add cards to the project's board changed, so its clients hear of it.
 pub(crate) fn triggers_changed(core: &Core, project: &str) {
     core.changed(What::ReadIn(Topic::Boards, Some(project), None));
 }
@@ -2453,7 +2439,6 @@ fn waits(core: &Core, settings: &Settings, card: &Card) -> Option<Waits> {
     .then_some(Waits::Answer)
 }
 
-/// A card as the inbox lists it.
 pub(crate) struct Summary {
     pub project: String,
     pub id: u64,
@@ -2519,7 +2504,6 @@ pub(crate) fn run_by_auto(core: &Core, agent_id: &str) -> bool {
             .any(|card| card.auto.as_ref().is_some_and(|run| run.agent == agent_id))
 }
 
-/// A reviewer Auto started gives its verdict on the change it reviews.
 pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = super::caller::agent_of(request, "review_verdict")?;
     let params = request.params.clone();
@@ -2624,7 +2608,6 @@ pub(crate) fn goal_of(core: &Core, agent_id: &str) -> Option<GoalRef> {
     })
 }
 
-/// Every project's board, as the app draws them.
 pub(crate) fn boards(core: &Core) -> Vec<BoardView> {
     let state = core.boards.state.locked();
     state
@@ -2656,7 +2639,6 @@ pub struct BoardParams {
     pub project: String,
 }
 
-/// A card the person adds to a project's board.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddParams {
@@ -2672,10 +2654,8 @@ pub struct AddParams {
     /// The goal's assertions it fulfils, as a slice.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub asserts: Vec<u64>,
-    /// The card it goes under.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<u64>,
-    /// The cards it waits on.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2795,7 +2775,6 @@ impl UpdateParams {
     }
 }
 
-/// One card on a project's board.
 #[derive(Serialize, Deserialize)]
 pub struct CardParams {
     pub project: String,
@@ -2813,7 +2792,6 @@ pub(crate) async fn board(core: &Arc<Core>, params: BoardParams) -> Result<Board
     .map_err(|error| error.to_string())
 }
 
-/// The person adds a card, which may carry a ticket. Answers with the board.
 pub(crate) async fn person_add(core: &Arc<Core>, params: AddParams) -> Result<BoardView, String> {
     let core = core.clone();
     blocking(move || {
@@ -2885,7 +2863,6 @@ fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<TicketHeld> {
     })
 }
 
-/// A ticket's card as putting a ticket on the board reads it.
 struct TicketHeld {
     id: u64,
     parent: Option<u64>,
@@ -3000,7 +2977,6 @@ pub(crate) async fn person_add_ticket(
     Ok(view)
 }
 
-/// The person changes or moves a card. Answers with the board.
 pub(crate) async fn person_update(
     core: &Arc<Core>,
     params: UpdateParams,
@@ -3075,7 +3051,6 @@ pub(crate) async fn person_settings(
     .map_err(|error| error.to_string())
 }
 
-/// The person accepts or turns down the environments an agent proposed.
 pub(crate) async fn person_answer_proposal(
     core: &Arc<Core>,
     params: ProposalParams,
@@ -3121,7 +3096,6 @@ pub(crate) fn propose_environments(
     )
 }
 
-/// The environments an agent proposed that wait for the person, by project.
 pub(crate) fn proposals(core: &Core) -> Vec<(String, EnvironmentsProposal)> {
     (core.boards.state.locked().boards.iter())
         .filter_map(|(project, board)| {
@@ -3130,7 +3104,6 @@ pub(crate) fn proposals(core: &Core) -> Vec<(String, EnvironmentsProposal)> {
         .collect()
 }
 
-/// How a deploy to `project` is judged now, by its environments.
 pub(crate) fn judge_ship(
     core: &Core,
     project: &str,
@@ -3151,8 +3124,6 @@ pub(crate) fn health_of(core: &Core, project: &str, environment: &str) -> Option
     state.boards.get(project)?.settings.health(environment)
 }
 
-/// Runs the project's check command in `dir`: whether it passed, and the end
-/// of what it wrote.
 /// The person has Auto try a card it gave back to them again. Answers with
 /// the board.
 pub(crate) async fn person_retry(
@@ -3173,7 +3144,6 @@ pub(crate) async fn person_retry(
     Ok(project_view(core, &project))
 }
 
-/// The person takes a card off the board. Answers with the board.
 pub(crate) async fn person_remove(
     core: &Arc<Core>,
     params: CardParams,
