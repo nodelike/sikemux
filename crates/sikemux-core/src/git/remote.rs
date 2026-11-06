@@ -1,3 +1,6 @@
+use std::path::Path;
+use std::time::Duration;
+
 use serde::{Deserialize, Serialize};
 
 use super::{default_remote, git_ok, open_repo, run_blocking, run_git};
@@ -425,6 +428,103 @@ pub async fn git_set_upstream(
         Ok(())
     })
     .await
+}
+
+const GIT_TIMEOUT: Duration = Duration::from_secs(10);
+const GIT_OUTPUT_LIMIT: usize = 1024 * 1024;
+
+/// The URL of every remote of the repository `path` is in. A folder that is
+/// not in one but holds repositories gets the remotes of those.
+pub(crate) fn remote_urls(path: &Path) -> Vec<String> {
+    if let Some(urls) = urls_of(path) {
+        return urls;
+    }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return Vec::new();
+    };
+    let mut urls: Vec<String> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|child| child.join(".git").exists())
+        .filter_map(|child| urls_of(&child))
+        .flatten()
+        .collect();
+    urls.sort();
+    urls.dedup();
+    urls
+}
+
+/// None when `repo` is not inside a repository.
+fn urls_of(repo: &Path) -> Option<Vec<String>> {
+    let listed = crate::git::Git::at(repo)
+        .timeout(GIT_TIMEOUT)
+        .limit(GIT_OUTPUT_LIMIT)
+        .text(&["remote", "-v"])
+        .ok()?;
+    Some(
+        listed
+            .lines()
+            .filter_map(|line| line.strip_suffix(" (fetch)")?.split_once('\t'))
+            .map(|(_, url)| with_real_ssh_host(url, ssh_hostname))
+            .collect(),
+    )
+}
+
+/// A remote such as `git@github-work:org/repo` names a host alias from
+/// ~/.ssh/config; this swaps in the host it stands for, so a plugin can tell
+/// which service the remote lives on.
+pub(crate) fn with_real_ssh_host(
+    remote_url: &str,
+    resolve: impl Fn(&str) -> Option<String>,
+) -> String {
+    if let Ok(mut parsed) = url::Url::parse(remote_url) {
+        if !matches!(parsed.scheme(), "ssh" | "git+ssh") {
+            return remote_url.to_owned();
+        }
+        let Some(real) = parsed.host_str().and_then(&resolve) else {
+            return remote_url.to_owned();
+        };
+        return match parsed.set_host(Some(&real)) {
+            Ok(()) => parsed.into(),
+            Err(_) => remote_url.to_owned(),
+        };
+    }
+    let Some((user_host, path)) = remote_url.split_once(':') else {
+        return remote_url.to_owned();
+    };
+    if user_host.contains('/') {
+        return remote_url.to_owned();
+    }
+    let (user, host) = match user_host.rsplit_once('@') {
+        Some((user, host)) => (Some(user), host),
+        None => (None, user_host),
+    };
+    let Some(real) = resolve(host) else {
+        return remote_url.to_owned();
+    };
+    match user {
+        Some(user) => format!("{user}@{real}:{path}"),
+        None => format!("{real}:{path}"),
+    }
+}
+
+/// `ssh -G` prints the settings ssh would use for a host without connecting.
+fn ssh_hostname(host: &str) -> Option<String> {
+    if host.starts_with('-') {
+        return None;
+    }
+    let mut command = sikemux_process::user_environment::command("ssh");
+    command.args(["-G", host]);
+    let output =
+        sikemux_process::run(&mut command, None, GIT_TIMEOUT, GIT_OUTPUT_LIMIT, None).ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("hostname "))
+        .map(str::to_owned)
+        .filter(|real| real != host)
 }
 
 #[cfg(test)]
