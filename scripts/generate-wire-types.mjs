@@ -5,7 +5,7 @@
 // It reads the serde declarations itself and fails on any it does not know,
 // rather than guess. `--check` fails when an output is out of date.
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { format, resolveConfig } from "prettier";
 
@@ -17,93 +17,19 @@ const VIEW = "crates/sikemux-view/src";
 const CORE = "crates/sikemux-core/src";
 const PLUGIN_API = "crates/sikemux-plugin-api/src";
 const MARKDOWN = "crates/sikemux-markdown/src";
-const SOURCES = [
-  `${WIRE}/protocol.rs`,
-  `${WIRE}/protocol/ask.rs`,
-  `${WIRE}/protocol/message.rs`,
-  `${VIEW}/push.rs`,
-  `${WIRE}/protocol/chats.rs`,
-  `${WIRE}/protocol/agent.rs`,
-  `${WIRE}/protocol/workspace.rs`,
-  `${VIEW}/prefs.rs`,
-  `${WIRE}/protocol/device.rs`,
-  `${VIEW}/device.rs`,
-  `${WIRE}/protocol/session.rs`,
-  `${WIRE}/protocol/event.rs`,
-  `${VIEW}/layout.rs`,
-  `${VIEW}/chat.rs`,
-  `${VIEW}/theme.rs`,
-  `${VIEW}/notch.rs`,
-  `${VIEW}/slice.rs`,
-  `${VIEW}/goals.rs`,
-  `${VIEW}/inbox.rs`,
-  `${VIEW}/memory.rs`,
-  `${VIEW}/start.rs`,
-  `${VIEW}/share.rs`,
-  `${WIRE}/pty/shell_protocol.rs`,
-  `${WIRE}/pty/task.rs`,
-  `${WIRE}/accounts/protocol.rs`,
-  `${CORE}/accounts/protocol.rs`,
-  `${VIEW}/catalog.rs`,
-  `${VIEW}/questions.rs`,
-  `${CORE}/server/drafts.rs`,
-  `${CORE}/server/calls.rs`,
-  `${CORE}/server/chat/calls.rs`,
-  `${CORE}/server/board/chat_goal.rs`,
-  `${CORE}/server/preferences.rs`,
-  `${CORE}/server/chat/queue.rs`,
-  `${CORE}/server/agent_accounts.rs`,
-  `${CORE}/server/messages.rs`,
-  `${CORE}/server/messages/log.rs`,
-  `${CORE}/server/stash.rs`,
-  `${CORE}/server/worktree/agent.rs`,
-  `${CORE}/server/names/mod.rs`,
-  `${CORE}/server/project_files.rs`,
-  `${CORE}/fuzzy.rs`,
-  `${CORE}/server/saved.rs`,
-  `${CORE}/server/chat/find.rs`,
-  `${CORE}/sessions/search.rs`,
-  `${CORE}/server/questions.rs`,
-  `${CORE}/server/ship.rs`,
-  `${CORE}/server/codehost/mod.rs`,
-  `${CORE}/server/plugins.rs`,
-  `${PLUGIN_API}/codehost/mod.rs`,
-  `${PLUGIN_API}/error.rs`,
-  `${WIRE}/changed.rs`,
-  `${CORE}/server/board.rs`,
-  `${CORE}/server/board/auto.rs`,
-  `${CORE}/server/board/environments.rs`,
-  `${CORE}/server/board/slice.rs`,
-  `${CORE}/server/board/goal.rs`,
-  `${CORE}/server/board/arrival.rs`,
-  `${CORE}/server/board/hand_off.rs`,
-  `${CORE}/server/memory/mod.rs`,
-  `${CORE}/server/triage.rs`,
-  `${CORE}/server/workspace.rs`,
-  `${CORE}/server/workspace/launchers.rs`,
-  `${CORE}/server/workspace/policy.rs`,
-  `${CORE}/server/workspace/recent.rs`,
-  `${CORE}/server/remote/mod.rs`,
-  `${CORE}/server/remote/pairing.rs`,
-  `${CORE}/server/hosts/mod.rs`,
-  `${CORE}/server/updates.rs`,
-  `${CORE}/frozen.rs`,
-  `${CORE}/releases.rs`,
-  ...[
-    "status",
-    "branches",
-    "log",
-    "revisions",
-    "stash",
-    "remote",
-    "worktree",
-    "blame",
-    "diff",
-  ].map((file) => `${CORE}/git/${file}.rs`),
-  `${PLUGIN_API}/ratelimit.rs`,
-  `${MARKDOWN}/lib.rs`,
-  `${MARKDOWN}/doc.rs`,
-];
+const SOURCES = (
+  await Promise.all(
+    [WIRE, VIEW, CORE, PLUGIN_API, MARKDOWN].map((crate) =>
+      readdir(resolve(root, crate), { recursive: true }),
+    ),
+  )
+).flatMap((files, index) =>
+  files
+    .filter((file) => file.endsWith(".rs"))
+    .map(
+      (file) => `${[WIRE, VIEW, CORE, PLUGIN_API, MARKDOWN][index]}/${file}`,
+    ),
+);
 
 /** Names the clients know a type by where the Rust one would clash or say too little. */
 const RENAMES = {
@@ -395,7 +321,7 @@ function only(settings, allowed, where) {
 function items(file, text) {
   const found = new Map();
   const declaration =
-    /^(?:pub(?:\([^)]*\))?\s+)?(struct|enum|type)\s+(\w+)(<[^>]*>)?/;
+    /^(pub(?:\([^)]*\))?\s+)?(struct|enum|type)\s+(\w+)(<[^>]*>)?/;
   const lines = text.split("\n");
   let pending = [];
   for (let index = 0; index < lines.length; index += 1) {
@@ -425,11 +351,12 @@ function items(file, text) {
           ? balanced(rest, head)
           : rest.indexOf(";") + 1;
       const { docs, attrs } = readMember(pending.join("\n"));
-      found.set(match[2], {
+      found.set(match[3], {
         file,
-        name: match[2],
-        kind: match[1],
-        generics: match[3],
+        name: match[3],
+        kind: match[2],
+        public: match[1] !== undefined,
+        generics: match[4],
         docs,
         attrs,
         body: rest.slice(head, end),
@@ -470,6 +397,22 @@ function clientName(file, name) {
   return RENAMES[file]?.[name] ?? name;
 }
 
+const importsOf = new Map();
+
+/** The path each name a file imports comes from, as its `use` lines write it. */
+function imported(file) {
+  if (importsOf.has(file)) return importsOf.get(file);
+  const found = new Map();
+  const text = texts[SOURCES.indexOf(file)];
+  for (const [, path, group] of text.matchAll(
+    /^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([\w:]+)::(\w+|\{[^}]*\})\s*;/gm,
+  ))
+    for (const name of group.replace(/[{}]/g, "").split(","))
+      found.set(name.trim().split(/\s+/)[0], path.split("::"));
+  importsOf.set(file, found);
+  return found;
+}
+
 /**
  * The item `name` names in `file`: its own, else the one source that declares it. `modules`,
  * the path the Rust wrote before the name, such as `crate::fuzzy`, picks among several.
@@ -477,21 +420,34 @@ function clientName(file, name) {
 function lookup(file, name, modules = []) {
   const own = sources[SOURCES.indexOf(file)].get(name);
   if (own && !modules.length) return own;
+  if (!modules.length) modules = imported(file).get(name) ?? [];
   let all = sources.flatMap((source) =>
-    source.has(name) ? [source.get(name)] : [],
+    source.has(name) && source.get(name).public ? [source.get(name)] : [],
   );
   const path = modules
-    .filter((part) => !["crate", "super", "self"].includes(part))
+    .filter(
+      (part) =>
+        !["crate", "super", "self"].includes(part) &&
+        !part.startsWith("sikemux_"),
+    )
     .join("/");
-  if (all.length > 1 && path)
-    all = all.filter(
-      (item) =>
-        item.file.endsWith(`/${path}.rs`) ||
-        item.file.endsWith(`/${path}/mod.rs`),
-    );
+  const fromPath = all.filter(
+    (item) =>
+      item.file.endsWith(`/${path}.rs`) ||
+      item.file.endsWith(`/${path}/mod.rs`) ||
+      item.file.includes(`/${path}/`),
+  );
+  if (all.length > 1 && path && fromPath.length) all = fromPath;
   const crate = file.split("/src/")[0];
-  const inCrate = all.filter((item) => item.file.startsWith(`${crate}/`));
-  if (inCrate.length) all = inCrate;
+  const folder = dirname(file);
+  const nearest = [
+    (item) =>
+      dirname(item.file) === folder ||
+      [`${folder}.rs`, `${folder}/mod.rs`].includes(item.file),
+    (item) => item.file.startsWith(`${crate}/`),
+    (item) => item.file.startsWith(WIRE) || item.file.startsWith(VIEW),
+  ].map((near) => all.filter(near));
+  all = nearest.find((near) => near.length) ?? all;
   if (all.length > 1)
     fail(`${name} in ${file} could be any of ${all.map((i) => i.file)}`);
   return all[0] ?? own;
@@ -500,12 +456,18 @@ function lookup(file, name, modules = []) {
 const declared = new Map();
 for (const source of sources)
   for (const item of source.values()) {
+    if (!item.public) continue;
     const name = clientName(item.file, item.name);
     declared.set(name, [...(declared.get(name) ?? []), item]);
   }
 
 function byClientName(name) {
-  const found = declared.get(name) ?? [];
+  const all = declared.get(name) ?? [];
+  // The contract's own crates hold the type a client means by a name.
+  const contract = all.filter(
+    (item) => item.file.startsWith(WIRE) || item.file.startsWith(VIEW),
+  );
+  const found = contract.length ? contract : all;
   if (found.length !== 1)
     fail(
       `${name} is declared ${found.length} times: ${found.map((item) => item.file)}`,

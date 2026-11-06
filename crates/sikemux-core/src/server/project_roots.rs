@@ -18,7 +18,7 @@ const MAX_VISITED_DIRECTORIES: usize = 50_000;
 const MAX_DISCOVERED_PROJECTS: usize = 4_096;
 
 #[derive(Serialize, Deserialize, PartialEq)]
-pub struct ProjectEntry {
+pub struct RootEntry {
     pub name: String,
     pub path: String,
 }
@@ -79,7 +79,7 @@ pub(crate) fn resolve(params: ResolveParams) -> Resolved {
 fn walk(
     root: &Path,
     depth: i64,
-    out: &mut Vec<ProjectEntry>,
+    out: &mut Vec<RootEntry>,
     seen_projects: &mut HashSet<String>,
     visited: &mut HashSet<PathBuf>,
 ) -> Result<(), String> {
@@ -126,7 +126,7 @@ fn walk(
                     if out.len() >= MAX_DISCOVERED_PROJECTS {
                         return Err("project discovery found too many repositories; narrow the roots or depth".into());
                     }
-                    out.push(ProjectEntry {
+                    out.push(RootEntry {
                         name: relative_name(root, &p),
                         path,
                     });
@@ -145,15 +145,15 @@ pub(crate) struct ScanParams {
 }
 
 /// Runs on a blocking thread.
-pub(crate) fn scan(params: ScanParams) -> Result<Vec<ProjectEntry>, String> {
+pub(crate) fn scan(params: ScanParams) -> Result<Vec<RootEntry>, String> {
     scan_project_roots_sync(params.roots)
 }
 
-fn scan_project_roots_sync(roots: Vec<ProjectRoot>) -> Result<Vec<ProjectEntry>, String> {
+fn scan_project_roots_sync(roots: Vec<ProjectRoot>) -> Result<Vec<RootEntry>, String> {
     if roots.len() > MAX_PROJECT_ROOTS {
         return Err("too many project discovery roots".into());
     }
-    let mut out: Vec<ProjectEntry> = Vec::new();
+    let mut out: Vec<RootEntry> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut visited: HashSet<PathBuf> = HashSet::new();
 
@@ -167,7 +167,7 @@ fn scan_project_roots_sync(roots: Vec<ProjectRoot>) -> Result<Vec<ProjectEntry>,
         if r.self_index {
             let root_path = root.to_string_lossy().into_owned();
             if seen.insert(root_path.clone()) {
-                out.push(ProjectEntry {
+                out.push(RootEntry {
                     name: name_of(&root),
                     path: root_path,
                 });
@@ -176,7 +176,7 @@ fn scan_project_roots_sync(roots: Vec<ProjectRoot>) -> Result<Vec<ProjectEntry>,
         if is_repo(&root) {
             let root_path = root.to_string_lossy().into_owned();
             if seen.insert(root_path.clone()) {
-                out.push(ProjectEntry {
+                out.push(RootEntry {
                     name: name_of(&root),
                     path: root_path,
                 });

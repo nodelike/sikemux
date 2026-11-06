@@ -15,7 +15,7 @@ use sikemux_core::server::drafts::Draft;
 use sikemux_core::server::hosts::HostRow;
 use sikemux_core::server::mods::ModList;
 use sikemux_core::server::ports::ProjectPort;
-use sikemux_core::server::project_roots::ProjectEntry;
+use sikemux_core::server::project_roots::RootEntry;
 use sikemux_core::server::share::ShareView;
 use sikemux_core::server::ssh::SshHost;
 use sikemux_core::server::stash::ShownStash;
@@ -243,7 +243,7 @@ pub struct Reads {
     pub worktree_pulls: Option<PullList>,
     pub worktree_merged: Option<bool>,
     /// What the project and host pickers offer: folders under the project roots, and SSH hosts.
-    pub picker_folders: Vec<ProjectEntry>,
+    pub picker_folders: Vec<RootEntry>,
     pub ssh_hosts: Vec<SshHost>,
 }
 
