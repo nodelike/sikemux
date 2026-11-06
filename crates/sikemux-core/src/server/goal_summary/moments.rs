@@ -15,11 +15,11 @@ use sikemux_view::slice::{
 
 use crate::agent_catalog::AgentKind;
 use crate::server::board::{self, BoardView, CardView};
-use crate::server::chat::feed::Said;
 use crate::server::edits::footer;
 use crate::server::edits::git;
-use crate::server::{saved, transcript, Core};
+use crate::server::{saved, Core};
 use crate::sessions::asked::{may_hold_secret, person_prose, prose_of};
+use crate::sessions::transcript::{self, Said};
 use crate::text::clipped;
 use crate::trailers;
 

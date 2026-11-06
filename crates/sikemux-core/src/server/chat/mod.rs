@@ -4,7 +4,6 @@
 
 mod actions;
 pub mod calls;
-pub(crate) mod failure;
 pub(crate) mod feed;
 pub mod find;
 mod history;
@@ -13,7 +12,6 @@ pub(crate) mod mentions;
 mod native;
 mod offers;
 pub(crate) mod permission;
-pub(crate) mod pickers;
 pub mod prompt;
 pub mod queue;
 mod rebind;
@@ -40,10 +38,10 @@ use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ErrorKind;
 use tokio::sync::{mpsc, oneshot, watch};
 
+use crate::acp::pickers::{self, current_choice};
 use crate::launch::PermissionMode;
 pub(crate) use native::Steered;
 use native::{ended_status, SessionEnd};
-use pickers::current_choice;
 use prompt::bounded_text;
 use sikemux_wire::protocol::{
     ask, AgentState, Attention, AttentionKind, ChatAccount, ChatAttachment, ChatContext, ChatInfo,

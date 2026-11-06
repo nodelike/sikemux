@@ -16,8 +16,8 @@ use uuid::Uuid;
 
 use crate::launch::PermissionMode;
 
+use crate::acp::failure::{sounds_offline, Failure, FailureKind};
 use crate::agent_accounts::sign_in::{self, SignIn};
-use crate::server::chat::failure::{sounds_offline, Failure, FailureKind};
 use crate::server::chat::permission;
 use crate::server::chat::prompt::MAX_CONTEXT_ITEMS;
 use crate::server::inbox::Fault;

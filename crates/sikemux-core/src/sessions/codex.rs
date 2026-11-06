@@ -17,6 +17,8 @@ use super::recent::{Found, Hit, Listed, PageScan};
 use super::roots::agent_config_root;
 use super::search::each_line;
 use super::search::{Hear, Speaker};
+use super::tokens::{ModelTally, ReadState, TokenCount};
+use super::transcript::{self, Said};
 use super::AgentSession;
 use super::{apply_login_environment, apply_process_config};
 use super::{
@@ -34,7 +36,6 @@ use crate::agent_ops::{AgentOps, DeleteCommand, RenameCommand, SessionPlaces};
 use crate::agent_ops::{SaidReader, TokenCounter};
 use crate::git::ai_provider;
 use crate::launch::tools::TerminalSetup;
-use crate::server::{activity_log, transcript};
 use notify::RecursiveMode;
 use std::collections::BTreeMap;
 use std::future::ready;
@@ -544,11 +545,11 @@ impl AgentOps for Codex {
     }
 
     fn transcript_tokens(&self) -> Option<TokenCounter> {
-        Some(activity_log::count_codex_tokens)
+        Some(count_tokens)
     }
 
     fn transcript_said(&self) -> Option<SaidReader> {
-        Some(transcript::codex)
+        Some(said)
     }
 
     fn account_sign_in(&self) -> Option<&'static [&'static str]> {
@@ -568,11 +569,203 @@ impl AgentOps for Codex {
     }
 }
 
+pub(crate) fn said(record: &Value, items: &mut Vec<(bool, Said)>) {
+    let payload = &record["payload"];
+    let kind = payload.get("type").and_then(Value::as_str);
+    match record.get("type").and_then(Value::as_str) {
+        Some("event_msg") => match kind {
+            Some("task_started") => items.push((true, Said::TurnStarted)),
+            Some("user_message") => {
+                if let Some(text) = payload.get("message").and_then(transcript::text) {
+                    transcript::prompt(text.to_owned(), items);
+                }
+            }
+            Some("agent_message") => {
+                if let Some(text) = payload.get("message").and_then(transcript::text) {
+                    items.push((false, Said::Message(text.to_owned())));
+                }
+            }
+            Some("item_completed") => {
+                let item = &payload["item"];
+                let said = transcript::texts(&item["content"]);
+                match (item.get("type").and_then(Value::as_str), said) {
+                    (Some("UserMessage"), Some(text)) => transcript::prompt(text, items),
+                    (Some("AgentMessage"), Some(text)) => items.push((false, Said::Message(text))),
+                    _ => {}
+                }
+            }
+            Some("task_complete") => {
+                let error = &payload["error"];
+                let failure = transcript::text(error)
+                    .or_else(|| error.get("message").and_then(transcript::text))
+                    .map(str::to_owned);
+                items.push((
+                    false,
+                    match failure {
+                        Some(failure) => Said::Failed(failure),
+                        None => Said::TurnEnded { cancelled: false },
+                    },
+                ));
+            }
+            Some("turn_aborted") => items.push((false, Said::TurnEnded { cancelled: true })),
+            Some("error") => {
+                if let Some(message) = payload.get("message").and_then(transcript::text) {
+                    items.push((false, Said::Failed(message.to_owned())));
+                }
+            }
+            _ => {}
+        },
+        Some("response_item") => {
+            let call = matches!(
+                kind,
+                Some("function_call" | "custom_tool_call" | "local_shell_call" | "web_search_call")
+            );
+            let id = payload
+                .get("call_id")
+                .or_else(|| payload.get("id"))
+                .and_then(Value::as_str);
+            if let (true, Some(id)) = (call, id) {
+                items.push((
+                    false,
+                    Said::Tool {
+                        id: id.to_owned(),
+                        title: Some(codex_title(payload)),
+                        failed: false,
+                    },
+                ));
+            }
+        }
+        _ => {}
+    }
+}
+
+fn command_line(command: &Value) -> Option<String> {
+    match command {
+        Value::String(command) => Some(command.clone()),
+        Value::Array(words) => {
+            let words: Vec<&str> = words.iter().filter_map(Value::as_str).collect();
+            let shell = matches!(words.as_slice(), [_, "-lc" | "-c", _]);
+            Some(if shell {
+                words[2].to_owned()
+            } else {
+                words.join(" ")
+            })
+        }
+        _ => None,
+    }
+}
+
+fn codex_title(payload: &Value) -> String {
+    let name = match payload.get("type").and_then(Value::as_str) {
+        Some("local_shell_call") => "shell",
+        Some("web_search_call") => "web search",
+        _ => payload
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("tool"),
+    };
+    let arguments = payload
+        .get("arguments")
+        .and_then(Value::as_str)
+        .and_then(|arguments| serde_json::from_str::<Value>(arguments).ok());
+    let command = arguments
+        .as_ref()
+        .and_then(|arguments| arguments.get("cmd").or_else(|| arguments.get("command")))
+        .or_else(|| {
+            payload
+                .get("action")
+                .and_then(|action| action.get("command"))
+        })
+        .and_then(command_line);
+    match command {
+        Some(command) => format!("{name} {command}"),
+        None => name.to_owned(),
+    }
+}
+
+fn codex_speed(tier: &str) -> &'static str {
+    match tier {
+        "priority" | "fast" => "fast",
+        "ultrafast" => "ultrafast",
+        _ => "standard",
+    }
+}
+
+/// Codex reports each turn's usage beside a running total, and sometimes
+/// repeats a report. The mark is the running total last counted.
+pub(crate) fn count_tokens(text: &str, state: ReadState) -> (ModelTally, ReadState) {
+    let mut tally = ModelTally::default();
+    let mut state = state;
+    for line in text.lines() {
+        let context = line.contains("\"turn_context\"");
+        let settings = line.contains("\"thread_settings_applied\"");
+        if !context && !settings && !line.contains("\"token_count\"") {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        if context || settings {
+            let applied = if settings {
+                value.pointer("/payload/thread_settings")
+            } else {
+                value.get("payload")
+            };
+            if let Some(applied) = applied {
+                if let Some(model) = applied.get("model").and_then(Value::as_str) {
+                    state.model = model.to_string();
+                }
+                if let Some(tier) = applied.get("service_tier").and_then(Value::as_str) {
+                    state.speed = codex_speed(tier).to_string();
+                }
+            }
+            continue;
+        }
+        let Some(info) = value.pointer("/payload/info") else {
+            continue;
+        };
+        let Some(total) = info
+            .pointer("/total_token_usage/total_tokens")
+            .and_then(Value::as_u64)
+        else {
+            continue;
+        };
+        let total = total.to_string();
+        if total == state.mark {
+            continue;
+        }
+        state.mark = total;
+        let Some(turn) = info.get("last_token_usage") else {
+            continue;
+        };
+        let field = |key: &str| turn.get(key).and_then(Value::as_u64).unwrap_or(0);
+        let cached = field("cached_input_tokens");
+        let speed = if state.speed.is_empty() {
+            "standard"
+        } else {
+            state.speed.as_str()
+        };
+        tally.add(
+            &state.model,
+            speed,
+            TokenCount {
+                input: field("input_tokens").saturating_sub(cached),
+                output: field("output_tokens"),
+                cache_read: cached,
+                cache_write: 0,
+            },
+        );
+    }
+    (tally, state)
+}
+
 #[cfg(test)]
 mod tests {
+    use super::count_tokens;
     use super::{codex_indexed_titles, codex_sessions, file_stamp, indexed, read_rollout};
     use crate::agent_catalog::AgentKind;
     use crate::sessions::index::Indexed;
+    use crate::sessions::tokens::{ReadState, TokenCount};
     use crate::sessions::FileStamp;
     use std::io::Write;
     use std::path::Path;
@@ -701,5 +894,31 @@ mod tests {
             read(transcript.path(), second_stamp).title.as_deref(),
             Some("Hello")
         );
+    }
+
+    #[test]
+    fn a_repeated_codex_report_counts_once() {
+        let report = |total: u64, input: u64, cached: u64, output: u64| {
+            format!(
+                r#"{{"type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"total_tokens":{total}}},"last_token_usage":{{"input_tokens":{input},"cached_input_tokens":{cached},"output_tokens":{output}}}}}}}}}"#
+            )
+        };
+        let text = [
+            report(100, 90, 60, 10),
+            report(100, 90, 60, 10),
+            report(150, 45, 40, 5),
+        ]
+        .join("\n");
+        let (tally, state) = count_tokens(&text, ReadState::default());
+        assert_eq!(
+            tally.0[0].count,
+            TokenCount {
+                input: 35,
+                output: 15,
+                cache_read: 100,
+                cache_write: 0
+            }
+        );
+        assert_eq!(state.mark, "150");
     }
 }

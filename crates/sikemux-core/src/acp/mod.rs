@@ -3,7 +3,9 @@
 //! in the server.
 
 pub mod air;
+pub(crate) mod failure;
 pub mod native;
+pub(crate) mod pickers;
 pub mod sign_in;
 
 use serde_json::Value;

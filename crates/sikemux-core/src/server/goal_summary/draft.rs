@@ -6,8 +6,8 @@ use serde::Deserialize;
 
 use super::moments::{answer_text, person_said, ASKED};
 use crate::agent_catalog::AgentKind;
-use crate::server::chat::feed::Said;
 use crate::server::{saved, Core};
+use crate::sessions::transcript::Said;
 
 const READ_TURNS: usize = 6;
 const READ_BYTES: usize = 16 * 1024;

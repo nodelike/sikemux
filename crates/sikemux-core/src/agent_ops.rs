@@ -17,11 +17,11 @@ use crate::agent_catalog::AgentKind;
 use crate::git_guard::homes::GitHook;
 use crate::launch::providers::ChatRoute;
 use crate::launch::tools::{TerminalSetup, Tools};
-use crate::server::activity_log::{ModelTally, ReadState};
-use crate::server::chat::feed::Said;
 use crate::sessions::context::SessionContext;
 use crate::sessions::recent::{Found, Hit, PageScan};
 use crate::sessions::search::Hear;
+use crate::sessions::tokens::{ModelTally, ReadState};
+use crate::sessions::transcript::Said;
 use crate::sessions::{self, AgentSession, FileStamp};
 
 pub(crate) type Pending<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

@@ -13,7 +13,7 @@ use super::changed::Topic;
 use super::connection::blocking;
 use super::CoreResult;
 use crate::server::changed::What;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -33,8 +33,9 @@ use pricing::Prices;
 pub use pricing::{PriceOverride, PricingInfo};
 pub(crate) use report::{ReportedDay, ReportedTokens};
 
-use super::transcript;
 use super::Core;
+use crate::sessions::tokens::{ReadState, TokenCount};
+use crate::sessions::transcript;
 
 const DAY_MS: i64 = 86_400_000;
 const HEATMAP_DAYS: i64 = 371;
@@ -442,64 +443,6 @@ fn git(repo: &str, args: &[&str]) -> Option<String> {
 
 // ---- tokens ------------------------------------------------------------
 
-#[derive(Default, Debug, PartialEq, Clone, Copy)]
-struct TokenCount {
-    input: u64,
-    output: u64,
-    cache_read: u64,
-    cache_write: u64,
-}
-
-impl TokenCount {
-    fn is_empty(&self) -> bool {
-        self.input + self.output + self.cache_read + self.cache_write == 0
-    }
-
-    fn add(&mut self, other: TokenCount) {
-        self.input += other.input;
-        self.output += other.output;
-        self.cache_read += other.cache_read;
-        self.cache_write += other.cache_write;
-    }
-}
-
-/// Tokens billed at one model and speed. Speed is `standard`, `fast` or `ultrafast`.
-#[derive(Default, Debug, PartialEq)]
-struct ModelTokens {
-    model: String,
-    speed: String,
-    count: TokenCount,
-}
-
-#[derive(Default)]
-pub(crate) struct ModelTally(Vec<ModelTokens>);
-
-impl ModelTally {
-    fn add(&mut self, model: &str, speed: &str, count: TokenCount) {
-        match self
-            .0
-            .iter_mut()
-            .find(|entry| entry.model == model && entry.speed == speed)
-        {
-            Some(entry) => entry.count.add(count),
-            None => self.0.push(ModelTokens {
-                model: model.to_string(),
-                speed: speed.to_string(),
-                count,
-            }),
-        }
-    }
-}
-
-/// Where reading a transcript stopped. Codex names its model and speed once per
-/// turn, ahead of the token reports, so both carry over to the next read.
-#[derive(Default, Debug, PartialEq, Clone)]
-pub(crate) struct ReadState {
-    mark: String,
-    model: String,
-    speed: String,
-}
-
 fn transcript_key(kind: AgentKind, session: &str) -> String {
     format!("{}:{session}", kind.as_str())
 }
@@ -653,147 +596,6 @@ fn read_complete_lines(path: &Path, offset: u64) -> Option<(String, u64)> {
     bytes.truncate(complete);
     let text = String::from_utf8_lossy(&bytes).into_owned();
     Some((text, start + complete as u64))
-}
-
-/// Claude writes one line per content block, each repeating its message's
-/// usage, so a message counts once. `mark` is the last message counted.
-pub(crate) fn count_claude_tokens(text: &str, state: ReadState) -> (ModelTally, ReadState) {
-    let mut tally = ModelTally::default();
-    let mut seen: HashSet<String> = HashSet::new();
-    let mut last = state.mark;
-    if !last.is_empty() {
-        seen.insert(last.clone());
-    }
-    for line in text.lines() {
-        if !line.contains("\"usage\"") || !line.contains("\"assistant\"") {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-        let Some(message) = value.get("message") else {
-            continue;
-        };
-        let model = message
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if model == "<synthetic>" {
-            continue;
-        }
-        let Some(usage) = message.get("usage") else {
-            continue;
-        };
-        let id = message
-            .get("id")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        if !id.is_empty() && !seen.insert(id.clone()) {
-            continue;
-        }
-        let field = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
-        let speed = match usage.get("speed").and_then(Value::as_str) {
-            Some("fast") => "fast",
-            _ => "standard",
-        };
-        tally.add(
-            model,
-            speed,
-            TokenCount {
-                input: field("input_tokens"),
-                output: field("output_tokens"),
-                cache_read: field("cache_read_input_tokens"),
-                cache_write: field("cache_creation_input_tokens"),
-            },
-        );
-        if !id.is_empty() {
-            last = id;
-        }
-    }
-    (
-        tally,
-        ReadState {
-            mark: last,
-            ..ReadState::default()
-        },
-    )
-}
-
-fn codex_speed(tier: &str) -> &'static str {
-    match tier {
-        "priority" | "fast" => "fast",
-        "ultrafast" => "ultrafast",
-        _ => "standard",
-    }
-}
-
-/// Codex reports each turn's usage beside a running total, and sometimes
-/// repeats a report. The mark is the running total last counted.
-pub(crate) fn count_codex_tokens(text: &str, state: ReadState) -> (ModelTally, ReadState) {
-    let mut tally = ModelTally::default();
-    let mut state = state;
-    for line in text.lines() {
-        let context = line.contains("\"turn_context\"");
-        let settings = line.contains("\"thread_settings_applied\"");
-        if !context && !settings && !line.contains("\"token_count\"") {
-            continue;
-        }
-        let Ok(value) = serde_json::from_str::<Value>(line) else {
-            continue;
-        };
-        if context || settings {
-            let applied = if settings {
-                value.pointer("/payload/thread_settings")
-            } else {
-                value.get("payload")
-            };
-            if let Some(applied) = applied {
-                if let Some(model) = applied.get("model").and_then(Value::as_str) {
-                    state.model = model.to_string();
-                }
-                if let Some(tier) = applied.get("service_tier").and_then(Value::as_str) {
-                    state.speed = codex_speed(tier).to_string();
-                }
-            }
-            continue;
-        }
-        let Some(info) = value.pointer("/payload/info") else {
-            continue;
-        };
-        let Some(total) = info
-            .pointer("/total_token_usage/total_tokens")
-            .and_then(Value::as_u64)
-        else {
-            continue;
-        };
-        let total = total.to_string();
-        if total == state.mark {
-            continue;
-        }
-        state.mark = total;
-        let Some(turn) = info.get("last_token_usage") else {
-            continue;
-        };
-        let field = |key: &str| turn.get(key).and_then(Value::as_u64).unwrap_or(0);
-        let cached = field("cached_input_tokens");
-        let speed = if state.speed.is_empty() {
-            "standard"
-        } else {
-            state.speed.as_str()
-        };
-        tally.add(
-            &state.model,
-            speed,
-            TokenCount {
-                input: field("input_tokens").saturating_sub(cached),
-                output: field("output_tokens"),
-                cache_read: cached,
-                cache_write: 0,
-            },
-        );
-    }
-    (tally, state)
 }
 
 // ---- summary -----------------------------------------------------------
@@ -1236,78 +1038,6 @@ pub(crate) fn set_price_for(core: &Core, params: ActivityPriceParams) -> CoreRes
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn claude_line(id: &str, input: u64, output: u64, read: u64, write: u64) -> String {
-        format!(
-            r#"{{"type":"assistant","message":{{"id":"{id}","model":"claude","usage":{{"input_tokens":{input},"output_tokens":{output},"cache_read_input_tokens":{read},"cache_creation_input_tokens":{write}}}}}}}"#
-        )
-    }
-
-    #[test]
-    fn a_claude_message_split_across_lines_counts_once() {
-        let text = [
-            claude_line("m1", 2, 40, 100, 10),
-            claude_line("m1", 2, 40, 100, 10),
-            claude_line("m2", 3, 5, 200, 0),
-        ]
-        .join("\n");
-        let (tally, state) = count_claude_tokens(&text, ReadState::default());
-        assert_eq!(
-            tally.0,
-            vec![ModelTokens {
-                model: "claude".into(),
-                speed: "standard".into(),
-                count: TokenCount {
-                    input: 5,
-                    output: 45,
-                    cache_read: 300,
-                    cache_write: 10
-                }
-            }]
-        );
-        assert_eq!(state.mark, "m2");
-    }
-
-    #[test]
-    fn a_claude_message_counted_before_the_last_read_is_not_counted_again() {
-        let text = [
-            claude_line("m2", 3, 5, 200, 0),
-            claude_line("m3", 1, 1, 0, 0),
-        ]
-        .join("\n");
-        let state = ReadState {
-            mark: "m2".into(),
-            ..ReadState::default()
-        };
-        let (tally, _) = count_claude_tokens(&text, state);
-        assert_eq!(tally.0[0].count.output, 1);
-    }
-
-    #[test]
-    fn a_repeated_codex_report_counts_once() {
-        let report = |total: u64, input: u64, cached: u64, output: u64| {
-            format!(
-                r#"{{"type":"event_msg","payload":{{"type":"token_count","info":{{"total_token_usage":{{"total_tokens":{total}}},"last_token_usage":{{"input_tokens":{input},"cached_input_tokens":{cached},"output_tokens":{output}}}}}}}}}"#
-            )
-        };
-        let text = [
-            report(100, 90, 60, 10),
-            report(100, 90, 60, 10),
-            report(150, 45, 40, 5),
-        ]
-        .join("\n");
-        let (tally, state) = count_codex_tokens(&text, ReadState::default());
-        assert_eq!(
-            tally.0[0].count,
-            TokenCount {
-                input: 35,
-                output: 15,
-                cache_read: 100,
-                cache_write: 0
-            }
-        );
-        assert_eq!(state.mark, "150");
-    }
 
     #[test]
     fn only_complete_lines_are_read() {

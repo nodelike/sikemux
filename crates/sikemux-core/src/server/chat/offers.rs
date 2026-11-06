@@ -147,7 +147,7 @@ pub(super) fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
     let Some(agent) = core.workspaces.agent(agent_id) else {
         return;
     };
-    let (model, effort) = crate::server::chat::pickers::pickers(options);
+    let (model, effort) = crate::acp::pickers::pickers(options);
     let model = model
         .map(|model| model.current)
         .filter(|model| !model.is_empty());

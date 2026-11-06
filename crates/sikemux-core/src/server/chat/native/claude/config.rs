@@ -5,8 +5,8 @@ use crate::launch::claude_model;
 use serde_json::{json, Value};
 
 use super::super::json::text;
+use crate::acp::pickers;
 use crate::launch::PermissionMode;
-use crate::server::chat::pickers;
 
 pub(crate) const DEFAULT: &str = "default";
 

@@ -18,7 +18,7 @@ mod pages;
 mod said;
 
 pub(crate) use pages::Anchor;
-pub(crate) use said::{session_title, title, Excerpt, Said};
+pub(crate) use said::{session_title, title, Excerpt};
 
 /// Roughly what an event costs beyond its payload once it is on the wire.
 const EVENT_OVERHEAD: usize = 48;
@@ -1149,7 +1149,7 @@ pub(super) mod tests {
         let retry = |attempt: u64| {
             update(
                 "s",
-                crate::server::chat::failure::retrying("t:retry", "connection", attempt, "x"),
+                crate::acp::failure::retrying("t:retry", "connection", attempt, "x"),
             )
         };
         replay.push(ChatEventKind::SessionUpdate, &retry(1));
@@ -1162,12 +1162,7 @@ pub(super) mod tests {
         replay.push(ChatEventKind::SessionUpdate, &update("s", chunk));
         assert_eq!(replay.reconnecting, None);
 
-        let busy = crate::server::chat::failure::retrying(
-            "t:retry",
-            "service",
-            4,
-            "Anthropic answered 529",
-        );
+        let busy = crate::acp::failure::retrying("t:retry", "service", 4, "Anthropic answered 529");
         replay.push(ChatEventKind::SessionUpdate, &update("s", busy));
         assert_eq!(replay.reconnecting, None);
 

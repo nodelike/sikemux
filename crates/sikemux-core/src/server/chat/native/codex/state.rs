@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::server::chat::failure::{Failure, FailureKind};
+use crate::acp::failure::{Failure, FailureKind};
 
 use super::super::super::reset::{month_day, twelve_hour, WallClock, Zone};
 use super::super::super::states::{self, Outcome, Subagent};
@@ -278,7 +278,7 @@ impl Session {
                 let detail = notice.error["message"]
                     .as_str()
                     .unwrap_or("Codex is retrying");
-                let update = crate::server::chat::failure::retrying(
+                let update = crate::acp::failure::retrying(
                     &format!("{turn}:retry"),
                     category,
                     *attempt,

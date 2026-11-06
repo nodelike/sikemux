@@ -23,6 +23,7 @@ pub(crate) mod claude;
 pub(crate) mod codex;
 pub mod context;
 pub mod delete;
+pub(crate) mod for_agent;
 pub(crate) mod grok;
 pub(crate) mod hermes;
 mod history;
@@ -36,6 +37,7 @@ pub mod relocate;
 pub mod rename;
 pub mod roots;
 pub mod search;
+pub(crate) mod tokens;
 pub mod transcript;
 
 use std::fs;

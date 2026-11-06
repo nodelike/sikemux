@@ -54,7 +54,7 @@ pub(super) fn thread_title(thread: &Value, turns: &[Value]) -> Option<String> {
                 .filter(|input| input["type"] == "text")
                 .filter_map(|input| input["text"].as_str())
                 .collect();
-            title(&crate::server::chat::prompt::person_wrote(&said.join(" ")))
+            title(&crate::sessions::for_agent::person_wrote(&said.join(" ")))
         })
         .or_else(|| thread["preview"].as_str().and_then(title))
 }

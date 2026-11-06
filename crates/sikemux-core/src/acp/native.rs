@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use crate::agent_catalog::{self, AgentKind, ChatDriver};
 
-use crate::server::chat::pickers::{self, config_option};
+use crate::acp::pickers::{self, config_option};
 
 /// The arguments that put the agent's own binary into ACP mode, when it has
 /// one. Grok's `--no-leader` keeps a chat's approval choices off the
@@ -125,12 +125,12 @@ mod tests {
         assert_eq!(option["type"], "select");
         assert_eq!(option["currentValue"], "gemini:flash");
         assert_eq!(option["options"][1]["description"], "Codex");
-        assert!(crate::server::chat::pickers::offers(
+        assert!(crate::acp::pickers::offers(
             &setup,
             "model",
             "openai-codex:gpt-5.5"
         ));
-        assert!(!crate::server::chat::pickers::offers(
+        assert!(!crate::acp::pickers::offers(
             &setup,
             "model",
             "anthropic:opus"

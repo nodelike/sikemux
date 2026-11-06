@@ -95,7 +95,6 @@ mod streams;
 pub mod tasks;
 pub mod themes;
 mod tools;
-pub(crate) mod transcript;
 pub mod triage;
 mod triggers;
 pub mod updates;

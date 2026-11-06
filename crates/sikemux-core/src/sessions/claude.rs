@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use rayon::prelude::*;
 use serde_json::Value;
+use std::collections::HashSet;
 
 use super::context::{last_line_matching, session_transcript_path, SessionContext};
 use super::index::{indexed, Indexed};
@@ -13,7 +14,8 @@ use super::rename::append_line;
 use super::roots::agent_config_root;
 use super::search::each_line;
 use super::search::{Hear, Speaker};
-use super::transcript::written;
+use super::tokens::{ModelTally, ReadState, TokenCount};
+use super::transcript::{self, written, Said};
 use super::AgentSession;
 use super::{
     condense, file_stamp, push_texts, read_prefix, read_suffix, stamped_transcripts,
@@ -32,7 +34,6 @@ use crate::agent_ops::{SaidReader, TokenCounter};
 use crate::git::ai_provider;
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
-use crate::server::{activity_log, transcript};
 use notify::RecursiveMode;
 use sikemux_process::user_environment::shell_var;
 use std::collections::BTreeMap;
@@ -213,7 +214,7 @@ fn scan_claude_line(line: &str, titles: &mut ClaudeTitles) {
                     .get("message")
                     .and_then(|m| m.get("content"))
                     .and_then(text_from_content)
-                    .and_then(|text| condense(&crate::server::chat::prompt::person_wrote(&text)));
+                    .and_then(|text| condense(&super::for_agent::person_wrote(&text)));
                 if v.get("isMeta").and_then(Value::as_bool) == Some(true) {
                     titles.first_harness = titles.first_harness.take().or(text);
                 } else {
@@ -551,11 +552,11 @@ impl AgentOps for Claude {
     }
 
     fn transcript_tokens(&self) -> Option<TokenCounter> {
-        Some(activity_log::count_claude_tokens)
+        Some(count_tokens)
     }
 
     fn transcript_said(&self) -> Option<SaidReader> {
-        Some(transcript::claude)
+        Some(said)
     }
 
     /// Claude writes nothing where a turn ends.
@@ -580,9 +581,155 @@ impl AgentOps for Claude {
     }
 }
 
+pub(crate) fn said(record: &Value, items: &mut Vec<(bool, Said)>) {
+    let flag = |key: &str| record.get(key).and_then(Value::as_bool) == Some(true);
+    if flag("isSidechain") || flag("isMeta") {
+        return;
+    }
+    let content = &record["message"]["content"];
+    match record.get("type").and_then(Value::as_str) {
+        Some("user") => {
+            for block in content.as_array().into_iter().flatten() {
+                if block.get("type").and_then(Value::as_str) == Some("tool_result")
+                    && block.get("is_error").and_then(Value::as_bool) == Some(true)
+                {
+                    if let Some(id) = block.get("tool_use_id").and_then(Value::as_str) {
+                        items.push((
+                            false,
+                            Said::Tool {
+                                id: id.to_owned(),
+                                title: None,
+                                failed: true,
+                            },
+                        ));
+                    }
+                }
+            }
+            if let Some(text) = transcript::texts(content) {
+                transcript::prompt(text, items);
+            }
+        }
+        Some("assistant") => {
+            for block in content.as_array().into_iter().flatten() {
+                match block.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        if let Some(text) = block.get("text").and_then(transcript::text) {
+                            items.push((false, Said::Message(text.to_owned())));
+                        }
+                    }
+                    Some("tool_use") => {
+                        let (Some(id), Some(name)) = (
+                            block.get("id").and_then(Value::as_str),
+                            block.get("name").and_then(Value::as_str),
+                        ) else {
+                            continue;
+                        };
+                        items.push((
+                            false,
+                            Said::Tool {
+                                id: id.to_owned(),
+                                title: Some(claude_title(name, &block["input"])),
+                                failed: false,
+                            },
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn claude_title(name: &str, input: &Value) -> String {
+    let field = |key: &str| input.get(key).and_then(Value::as_str);
+    let detail = match name {
+        "Bash" => field("command"),
+        "Read" | "Write" | "Edit" | "MultiEdit" => field("file_path"),
+        "NotebookEdit" => field("notebook_path"),
+        "Grep" | "Glob" => field("pattern"),
+        "WebFetch" => field("url"),
+        "WebSearch" => field("query"),
+        "Task" | "Agent" => field("description"),
+        _ => None,
+    };
+    let name = name.rsplit("__").next().unwrap_or(name);
+    match detail {
+        Some(detail) => format!("{name} {detail}"),
+        None => name.to_owned(),
+    }
+}
+
+/// Claude writes one line per content block, each repeating its message's
+/// usage, so a message counts once. `mark` is the last message counted.
+pub(crate) fn count_tokens(text: &str, state: ReadState) -> (ModelTally, ReadState) {
+    let mut tally = ModelTally::default();
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut last = state.mark;
+    if !last.is_empty() {
+        seen.insert(last.clone());
+    }
+    for line in text.lines() {
+        if !line.contains("\"usage\"") || !line.contains("\"assistant\"") {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(line) else {
+            continue;
+        };
+        let Some(message) = value.get("message") else {
+            continue;
+        };
+        let model = message
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if model == "<synthetic>" {
+            continue;
+        }
+        let Some(usage) = message.get("usage") else {
+            continue;
+        };
+        let id = message
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if !id.is_empty() && !seen.insert(id.clone()) {
+            continue;
+        }
+        let field = |key: &str| usage.get(key).and_then(Value::as_u64).unwrap_or(0);
+        let speed = match usage.get("speed").and_then(Value::as_str) {
+            Some("fast") => "fast",
+            _ => "standard",
+        };
+        tally.add(
+            model,
+            speed,
+            TokenCount {
+                input: field("input_tokens"),
+                output: field("output_tokens"),
+                cache_read: field("cache_read_input_tokens"),
+                cache_write: field("cache_creation_input_tokens"),
+            },
+        );
+        if !id.is_empty() {
+            last = id;
+        }
+    }
+    (
+        tally,
+        ReadState {
+            mark: last,
+            ..ReadState::default()
+        },
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    use super::count_tokens;
     use super::{claude_project_dir, claude_sessions, CLAUDE_HEAD_BYTES};
+    use crate::sessions::tokens::{ModelTokens, ReadState, TokenCount};
 
     #[test]
     fn project_folders_dash_every_character_claude_code_does() {
@@ -715,5 +862,51 @@ mod tests {
         let sessions = claude_sessions("/repo", root.path().to_str());
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].title, "SwishX ContentIQ V2 manual test pass");
+    }
+
+    fn claude_line(id: &str, input: u64, output: u64, read: u64, write: u64) -> String {
+        format!(
+            r#"{{"type":"assistant","message":{{"id":"{id}","model":"claude","usage":{{"input_tokens":{input},"output_tokens":{output},"cache_read_input_tokens":{read},"cache_creation_input_tokens":{write}}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn a_claude_message_split_across_lines_counts_once() {
+        let text = [
+            claude_line("m1", 2, 40, 100, 10),
+            claude_line("m1", 2, 40, 100, 10),
+            claude_line("m2", 3, 5, 200, 0),
+        ]
+        .join("\n");
+        let (tally, state) = count_tokens(&text, ReadState::default());
+        assert_eq!(
+            tally.0,
+            vec![ModelTokens {
+                model: "claude".into(),
+                speed: "standard".into(),
+                count: TokenCount {
+                    input: 5,
+                    output: 45,
+                    cache_read: 300,
+                    cache_write: 10
+                }
+            }]
+        );
+        assert_eq!(state.mark, "m2");
+    }
+
+    #[test]
+    fn a_claude_message_counted_before_the_last_read_is_not_counted_again() {
+        let text = [
+            claude_line("m2", 3, 5, 200, 0),
+            claude_line("m3", 1, 1, 0, 0),
+        ]
+        .join("\n");
+        let state = ReadState {
+            mark: "m2".into(),
+            ..ReadState::default()
+        };
+        let (tally, _) = count_tokens(&text, state);
+        assert_eq!(tally.0[0].count.output, 1);
     }
 }

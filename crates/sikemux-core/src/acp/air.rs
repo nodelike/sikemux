@@ -12,7 +12,7 @@ use agent_client_protocol::schema::v1::{
 use serde::Serialize;
 use serde_json::{json, Value};
 
-use crate::server::chat::failure::{Failure, FailureKind};
+use crate::acp::failure::{Failure, FailureKind};
 
 const EXTENSION_VERSION: u8 = 1;
 const EXTENSION_CAPABILITIES: [&str; 3] =
@@ -140,7 +140,7 @@ pub fn failure(meta: &Value) -> Option<Failure> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::chat::failure::{retrying, LOST_CONNECTION};
+    use crate::acp::failure::{retrying, LOST_CONNECTION};
 
     #[test]
     fn capabilities_offer_a_terminal_sign_in_in_both_forms() {

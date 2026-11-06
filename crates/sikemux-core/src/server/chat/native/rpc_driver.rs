@@ -12,7 +12,7 @@ use sikemux_fold::update::turn_answer;
 use sikemux_process::sync::Locked;
 use sikemux_view::chat::StopReason;
 
-use crate::server::chat::failure::Failure;
+use crate::acp::failure::Failure;
 
 use super::super::states::{Outcome, Subagent};
 use super::super::Respond;

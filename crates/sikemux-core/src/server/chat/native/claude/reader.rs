@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sikemux_process::sync::Locked;
 
-use crate::server::chat::failure::{Failure, FailureKind};
+use crate::acp::failure::{Failure, FailureKind};
 
 use super::super::super::feed;
 use super::super::super::reset::{month_day, twelve_hour, WallClock, Zone};
@@ -1238,8 +1238,7 @@ impl Reader {
             None => "No answer from Anthropic".to_owned(),
         };
         self.data.offline_retries |= status.is_none();
-        let update =
-            crate::server::chat::failure::retrying("api_retry", category, attempt, &detail);
+        let update = crate::acp::failure::retrying("api_retry", category, attempt, &detail);
         self.sink.update(&self.data.session_id, update);
     }
 

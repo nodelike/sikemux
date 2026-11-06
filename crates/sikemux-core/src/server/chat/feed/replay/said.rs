@@ -4,24 +4,7 @@ use serde_json::Value;
 use sikemux_fold::{ChatEvent, ChatEventKind, UpdateKind};
 
 use super::Replay;
-
-/// One thing said or done in a chat, as another agent reads it.
-pub(crate) enum Said {
-    /// What the agent was sent: by the person, or another agent's message.
-    Asked(String),
-    /// Text the agent wrote.
-    Message(String),
-    Tool {
-        id: String,
-        title: Option<String>,
-        failed: bool,
-    },
-    TurnStarted,
-    TurnEnded {
-        cancelled: bool,
-    },
-    Failed(String),
-}
+use crate::sessions::transcript::Said;
 
 impl Said {
     fn of(event: &ChatEvent) -> Option<Self> {

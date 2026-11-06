@@ -36,7 +36,7 @@ use super::pending::Purpose;
 use super::process::{self, Lines, Process, Reading, Released, Writer};
 use super::servers;
 use super::session::{Backend, Opened, Prompt, Sink, Steered, Telling};
-use crate::server::chat::prompt::context_text;
+use crate::sessions::for_agent::context_text;
 pub(crate) use config::saved_window;
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};

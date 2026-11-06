@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 use sikemux_fold::update;
 use sikemux_view::chat::StopReason;
 
-use crate::server::chat::failure::Failure;
+use crate::acp::failure::Failure;
 
 use super::super::states::{Outcome, Subagent};
 use super::session::TurnEnd;

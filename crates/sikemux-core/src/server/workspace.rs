@@ -39,7 +39,7 @@ use super::kept;
 use super::model_providers::checks::Checks;
 use super::wake::Wake;
 use super::{Core, CoreError, CoreResult};
-use crate::server::chat::pickers;
+use crate::acp::pickers;
 
 mod launchers;
 mod migrate;

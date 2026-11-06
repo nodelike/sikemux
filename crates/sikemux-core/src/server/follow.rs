@@ -13,13 +13,12 @@ use tokio::time::Instant;
 use crate::cli::protocol::HarnessRequest;
 use sikemux_wire::protocol::AgentStatus;
 
-use super::chat::feed::Said;
 use super::connection::blocking;
 use super::messages;
 use super::roster::{self, Listed, Reach};
-use super::transcript;
 use super::Core;
 use crate::agent_catalog::AgentKind;
+use crate::sessions::transcript::{self, Said};
 
 const MAX_WAIT_MS: u64 = 30_000;
 const MAX_AGENTS: usize = 8;

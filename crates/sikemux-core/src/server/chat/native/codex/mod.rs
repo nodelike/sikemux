@@ -32,7 +32,7 @@ use super::rpc::Rpc;
 use super::rpc_driver::{self, RpcAgent};
 use super::servers;
 use super::session::{self, Backend, Opened, Prompt, Sink, Steered};
-use crate::server::chat::prompt::context_text;
+use crate::sessions::for_agent::context_text;
 use approvals::Question;
 use commands::Command;
 use state::{user_input_told, Reply, Session};

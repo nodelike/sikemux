@@ -17,13 +17,14 @@ use super::{
     add_card, holder, lease, slice, title_of, waits, Adding, Board, By, Card, Status,
     MAX_TITLE_CHARS,
 };
-use crate::server::chat::feed::{Feed, Said};
+use crate::server::chat::feed::Feed;
 use crate::server::chat::Chat;
 use crate::server::connection::blocking;
 use crate::server::goal_summary;
 use crate::server::kept::Kept;
 use crate::server::Core;
 use crate::sessions::asked::may_hold_secret;
+use crate::sessions::transcript::Said;
 use crate::text::clipped;
 use sikemux_fold::update::goal_notice;
 use sikemux_fold::ChatEventKind;
