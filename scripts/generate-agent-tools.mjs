@@ -18,7 +18,7 @@ const simulatorHandlersPath = resolve(
   root,
   "crates/sikemux-simulator/src/tools.rs",
 );
-const windowHandlersPath = resolve(root, "app/src/desk.rs");
+const windowHandlersPath = resolve(root, "app/src/opening.rs");
 const pluginsPath = resolve(root, "plugins");
 const rowsOutputPath = resolve(root, "crates/sikemux-fold/src/tool_rows.rs");
 const rowIconsPath = resolve(root, "shared/chat/toolRows.ts");
@@ -156,7 +156,7 @@ const windowHandled = handlersIn(
 compare(
   harnessMethods,
   new Set([...coreHandled, ...windowHandled]),
-  "the core's harness dispatch and the GPUI window's in app/src/desk.rs",
+  "the core's harness dispatch and the GPUI window's in app/src/opening.rs",
 );
 
 // A method the core hands on to the window needs a GPUI handler, unless the core
@@ -190,7 +190,7 @@ const missingInWindow = harnessMethods.filter((method) => {
 });
 if (missingInWindow.length > 0)
   throw new Error(
-    `the core hands ${missingInWindow.join(", ")} to the window, which has no GPUI handler in app/src/desk.rs`,
+    `the core hands ${missingInWindow.join(", ")} to the window, which has no GPUI handler in app/src/opening.rs`,
   );
 for (const [prefix, dispatcher] of [
   ["browser.", "is_browser_method"],
