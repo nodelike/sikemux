@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activeToolLabel, activityLabel, toolKind, toolUrl } from "./toolLabels";
+import { activityLabel, toolKind, toolUrl } from "./toolLabels";
 import type { ToolCall, ChatMessage, ChatPart } from "./types";
 
 const call = (title: string, extra: Partial<ToolCall> = {}): ToolCall => ({
@@ -17,9 +17,9 @@ describe("a row's words", () => {
     });
 
     it("say what a running call is doing, in the core's words when it sends some", () => {
-        expect(activityLabel(call("x", { row: { action: "fetch", target: "x", activity: "open https://a.dev" } }))).toBe("open https://a.dev");
-        expect(activityLabel(call("x", { row: { action: "execute", target: "x" } }))).toBe("Running a command…");
-        expect(activityLabel(call("x", { row: { action: "other", target: "x" } }))).toBe("Working…");
+        expect(activityLabel({ action: "fetch", target: "x", activity: "open https://a.dev" })).toBe("open https://a.dev");
+        expect(activityLabel({ action: "execute", target: "x" })).toBe("Running a command…");
+        expect(activityLabel({ action: "other", target: "x" })).toBe("Working…");
     });
 });
 
@@ -42,26 +42,5 @@ describe("toolUrl", () => {
     it("finds nothing without a web URL", () => {
         expect(toolUrl("cargo test")).toBeNull();
         expect(toolUrl("https://user:pw@example.com")).toBeNull();
-    });
-});
-
-describe("activeToolLabel", () => {
-    const tool = (id: string, extra: Partial<ToolCall>): ChatPart => ({ id, kind: "tool", tool: call("x", { toolCallId: id, ...extra }) });
-    const reading = { action: "read", target: "x" } as const;
-    const message = (parts: ChatPart[]): ChatMessage => ({ id: "m", role: "assistant", parts });
-
-    it("names what the call the core says is running is doing", () => {
-        const parts = [
-            tool("a", { status: "completed" }),
-            tool("b", { kind: "read", row: reading }),
-            { id: "t", kind: "text", text: "hi" } as ChatPart,
-        ];
-        expect(activeToolLabel({ messages: [message(parts)], activeTool: "b" })).toBe("Reading…");
-    });
-
-    it("says nothing without a running call, or for one the last message does not hold", () => {
-        expect(activeToolLabel({ messages: [message([tool("a", { kind: "read", row: reading })])] })).toBeNull();
-        expect(activeToolLabel({ messages: [message([tool("a", { kind: "read", row: reading })])], activeTool: "gone" })).toBeNull();
-        expect(activeToolLabel({ messages: [], activeTool: "a" })).toBeNull();
     });
 });

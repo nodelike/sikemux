@@ -1,5 +1,5 @@
 import { safeWebUrl } from "../lib/urls";
-import type { ChatRows } from "./rows";
+import type { ToolRow } from "../wire.generated";
 import type { ToolAction, ToolCall } from "./types";
 
 /* The core works out what each call did and to what; these are only the words the app says it in. */
@@ -30,8 +30,8 @@ const ACTION_SENTENCES: Partial<Record<ToolAction, string>> = {
 };
 
 /* The running row is one line, so it says what the agent is doing rather than quote the call back. */
-export function activityLabel(tool: ToolCall): string {
-    return tool.row.activity ?? ACTION_SENTENCES[tool.row.action] ?? "Working…";
+export function activityLabel(row: ToolRow): string {
+    return row.activity ?? ACTION_SENTENCES[row.action] ?? "Working…";
 }
 
 export function toolKind(tool: ToolCall): string {
@@ -52,8 +52,3 @@ export function toolRunning(tool: ToolCall): boolean {
 }
 
 /** What the running call at the end of the chat is doing, in its row's words. */
-export function activeToolLabel(chat: Pick<ChatRows, "messages" | "activeTool">): string | null {
-    if (!chat.activeTool) return null;
-    const part = chat.messages.at(-1)?.parts.find((candidate) => candidate.id === chat.activeTool);
-    return part?.kind === "tool" ? activityLabel(part.tool) : null;
-}

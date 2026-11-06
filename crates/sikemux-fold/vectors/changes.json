@@ -4,6 +4,9 @@
       {
         "op": "head",
         "set": {
+          "activity": {
+            "kind": "thinking"
+          },
           "error": null,
           "failure": null,
           "retrying": null,
@@ -169,6 +172,18 @@
       {
         "op": "head",
         "set": {
+          "activity": {
+            "kind": "call",
+            "row": {
+              "action": "execute",
+              "target": "cargo test"
+            }
+          }
+        }
+      },
+      {
+        "op": "head",
+        "set": {
           "activeTool": null
         }
       },
@@ -198,6 +213,14 @@
     ],
     [
       {
+        "op": "head",
+        "set": {
+          "activity": {
+            "kind": "thinking"
+          }
+        }
+      },
+      {
         "op": "part",
         "row": "m2",
         "part": {
@@ -222,6 +245,9 @@
       {
         "op": "head",
         "set": {
+          "activity": {
+            "kind": "connecting"
+          },
           "permissions": [],
           "retrying": null,
           "running": false,
@@ -270,7 +296,10 @@
       "runningSubagents": [],
       "queued": [],
       "triggers": [],
-      "earlierLost": false
+      "earlierLost": false,
+      "activity": {
+        "kind": "connecting"
+      }
     },
     "rows": [
       {

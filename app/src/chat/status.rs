@@ -7,13 +7,13 @@ use std::time::Instant;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, Context, Div, InteractiveElement, IntoElement, ParentElement, Render,
+    div, px, AnyElement, Context, Div, InteractiveElement, IntoElement, ParentElement, Render,
     SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window,
 };
 use serde_json::json;
 use sikemux_core::server::agent_accounts::Resuming;
 use sikemux_core::server::call::{self, Call};
-use sikemux_view::chat::{ChatConnection, ChatPart, FailureKind, ToolAction};
+use sikemux_view::chat::{ChatActivity, ChatConnection, FailureKind, ToolAction};
 
 use super::Chat;
 use crate::agents::rows::AgentRow;
@@ -143,41 +143,27 @@ impl Chat {
     /// What the line under the last row says: nothing while a permission card already says
     /// what the turn waits on, else the running call's words, a retry, or that it thinks;
     /// and while no turn runs, that the agent is still on its way to a message sent to it.
-    pub(super) fn activity(&self, cx: &App) -> Option<SharedString> {
+    pub(super) fn activity(&self) -> Option<SharedString> {
         let head = self.state.as_ref()?;
-        if !head.permissions.is_empty() {
-            return None;
-        }
-        if head.running {
-            if let Some(retrying) = &head.retrying {
-                let what = if retrying.connection {
+        Some(match head.activity.as_ref()? {
+            ChatActivity::Retrying {
+                attempt,
+                connection,
+            } => {
+                let what = if *connection {
                     "Reconnecting…"
                 } else {
                     "Retrying…"
                 };
-                let attempt = retrying
-                    .attempt
-                    .map(|attempt| format!(" (attempt {attempt})"));
-                return Some(format!("{what}{}", attempt.unwrap_or_default()).into());
+                let attempt = attempt.map(|attempt| format!(" (attempt {attempt})"));
+                format!("{what}{}", attempt.unwrap_or_default()).into()
             }
-            let running = head.active_tool.as_ref().and_then(|active| {
-                let rows = self.transcript.read(cx).rows();
-                let last = rows.last()?;
-                last.message.parts.iter().find_map(|part| match part {
-                    ChatPart::Tool { id, tool, .. } if id == active => Some(doing(&tool.row)),
-                    _ => None,
-                })
-            });
-            return Some(running.unwrap_or_else(|| "Thinking…".into()));
-        }
-        if self.is_empty(cx) || !self.awaits_agent {
-            return None;
-        }
-        match head.connection {
-            ChatConnection::Starting => Some("Starting agent…".into()),
-            ChatConnection::Initializing => Some("Connecting to agent session…".into()),
-            _ => None,
-        }
+            ChatActivity::Call { row } => doing(row),
+            ChatActivity::Thinking => "Thinking…".into(),
+            ChatActivity::Starting if self.awaits_agent => "Starting agent…".into(),
+            ChatActivity::Connecting if self.awaits_agent => "Connecting to agent session…".into(),
+            ChatActivity::Starting | ChatActivity::Connecting => return None,
+        })
     }
 }
 

@@ -8,7 +8,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { activityText } from '@shared/chat/chatStatus';
 import { subagentsOf } from '@shared/chat/subagents';
-import { activeToolLabel } from '@shared/chat/toolLabels';
 import type { ChatMessage } from '@shared/chat/types';
 import { shareUrl } from '@shared/account/live';
 import { parseShareLink, type ShareLink } from '@shared/share/link';
@@ -133,7 +132,7 @@ function SharedChat({ session }: { session: ShareSession }) {
   const [since] = useState(Date.now);
   const now = useMinute() * 60_000;
   const live = snapshot.status === 'live';
-  const activity = live ? activityText(state, activeToolLabel(state)) : null;
+  const activity = live ? activityText(state.activity) : null;
   const problem = problemOf(snapshot);
   const list = useRef<FlashListRef<ChatMessage>>(null);
   const scroll = useTranscriptScroll(list, {

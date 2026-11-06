@@ -104,6 +104,31 @@ pub enum ChatConnection {
     Error,
 }
 
+/// What a chat is doing, which each client words.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ChatActivity {
+    /// Going at a request again, as `Retrying` says.
+    Retrying {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        attempt: Option<u64>,
+        connection: bool,
+    },
+    /// Running the call this row draws.
+    Call {
+        row: Box<ToolRow>,
+    },
+    Thinking,
+    /// The agent's program is starting, with something sent to it.
+    Starting,
+    /// Its session is being reached, with something sent to it.
+    Connecting,
+}
+
 /// Why the agent ended its turn.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -271,6 +296,10 @@ pub struct ChatHead {
     /// The tool part still running at the end of the last row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_tool: Option<String>,
+    /// What the line under the last row says the chat is doing; none while a permission card
+    /// already says what the turn waits on, or while nothing is happening.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activity: Option<ChatActivity>,
     /// What the person has written and not sent, as the host keeps it for every app.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draft: Option<ChatDraft>,

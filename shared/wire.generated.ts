@@ -1180,6 +1180,11 @@ export interface ChatHead {
     ended?: SessionEnded;
     /** The tool part still running at the end of the last row. */
     activeTool?: string;
+    /**
+     * What the line under the last row says the chat is doing; none while a permission card
+     * already says what the turn waits on, or while nothing is happening.
+     */
+    activity?: ChatActivity;
     /** What the person has written and not sent, as the host keeps it for every app. */
     draft?: ChatDraft;
     /** The goal the chat works on now. */
@@ -1473,6 +1478,31 @@ export interface SessionEnded {
     reason: string;
     message?: string;
 }
+
+/** What a chat is doing, which each client words. */
+export type ChatActivity =
+    /** Going at a request again, as `Retrying` says. */
+    | {
+          kind: "retrying";
+          attempt?: number;
+          connection: boolean;
+      }
+    /** Running the call this row draws. */
+    | {
+          kind: "call";
+          row: ToolRow;
+      }
+    | {
+          kind: "thinking";
+      }
+    /** The agent's program is starting, with something sent to it. */
+    | {
+          kind: "starting";
+      }
+    /** Its session is being reached, with something sent to it. */
+    | {
+          kind: "connecting";
+      };
 
 /**
  * A chat's unsent draft: its text, what the apps keep beside it, such as its files as

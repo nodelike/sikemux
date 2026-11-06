@@ -923,7 +923,7 @@ impl Chat {
     /// Says on the line under the last row what the agent is doing, from the head and the
     /// rows as they stand; the rows land only when the transcript draws, so this runs again then.
     fn follow_activity(&self, cx: &mut App) {
-        let doing = self.activity(cx);
+        let doing = self.activity();
         self.activity_line
             .update(cx, |activity, cx| activity.set(doing, cx));
     }

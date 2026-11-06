@@ -162,6 +162,7 @@ named_fields!(head_field, ChatHead {
     "sessionId" => session_id,
     "connection" => connection,
     "running" => running,
+    "activity" => activity,
     "turned" => turned,
     "permissionMode" => permission_mode,
     "changingMode" => changing_mode,

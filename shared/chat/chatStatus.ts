@@ -1,30 +1,22 @@
+import { activityLabel } from "./toolLabels";
 import type { ChatRows } from "./types";
 
-export function connectingLabel(connection: ChatRows["connection"]): string | null {
-    if (connection === "starting") return "Starting agent…";
-    if (connection === "connecting" || connection === "initializing") return "Connecting to agent session…";
-    return null;
-}
-
-function retryingText({ attempt, connection }: NonNullable<ChatRows["retrying"]>): string {
-    return `${connection ? "Reconnecting…" : "Retrying…"}${attempt ? ` (attempt ${attempt})` : ""}`;
-}
-
-/* A permission card already says what the turn is waiting on, so a spinner
-   beside it would only compete with it. */
-export function activityText(
-    state: Pick<ChatRows, "permissions" | "running" | "messages" | "connection" | "retrying">,
-    activeTool: string | null,
-): string | null {
-    return state.permissions.length > 0
-        ? null
-        : state.running
-          ? state.retrying
-              ? retryingText(state.retrying)
-              : (activeTool ?? "Thinking…")
-          : state.messages.length > 0
-            ? connectingLabel(state.connection)
-            : null;
+/** What the line under the last row says the chat is doing, from what the core says it is doing. */
+export function activityText(activity: ChatRows["activity"]): string | null {
+    switch (activity?.kind) {
+        case "retrying":
+            return `${activity.connection ? "Reconnecting…" : "Retrying…"}${activity.attempt ? ` (attempt ${activity.attempt})` : ""}`;
+        case "call":
+            return activityLabel(activity.row);
+        case "thinking":
+            return "Thinking…";
+        case "starting":
+            return "Starting agent…";
+        case "connecting":
+            return "Connecting to agent session…";
+        default:
+            return null;
+    }
 }
 
 /** `commands` says whether the agent offers slash commands; a chat not started yet is taken to.

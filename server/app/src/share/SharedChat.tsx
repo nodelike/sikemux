@@ -21,7 +21,6 @@ import { ImageViewer } from "../chat/files/ImageViewer";
 import LiveStack from "../chat/transcript/LiveStack";
 import { newFoldMemory } from "@shared/chat/longText";
 import { RemoteOriginContext } from "../chat/transcript/origin";
-import { activeToolLabel } from "@shared/chat/toolLabels";
 import { subagentsOf } from "@shared/chat/subagents";
 import { useMessageArrival } from "../chat/transcript/useMessageArrival";
 import { useStickToBottom } from "../chat/transcript/useStickToBottom";
@@ -100,9 +99,8 @@ export function SharedChat({
       session.readToolDetail(toolCallId).then((detail) => detail ?? {}),
     [session],
   );
-  const activeTool = useMemo(() => activeToolLabel(state), [state]);
   const activity =
-    snapshot.status === "live" ? activityText(state, activeTool) : null;
+    snapshot.status === "live" ? activityText(state.activity) : null;
   const subagents = useMemo(
     () => subagentsOf(state.messages, state.subagentRows),
     [state.messages, state.subagentRows],

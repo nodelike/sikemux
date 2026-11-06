@@ -10,7 +10,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { activityText, composerPlaceholder } from '@shared/chat/chatStatus';
 import { sentPrompts } from '@/chat/promptHistory';
-import { activeToolLabel } from '@shared/chat/toolLabels';
 import type { ChatMessage } from '@shared/chat/types';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { FindBar } from '@/chat/FindBar';
@@ -145,7 +144,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
     setEditing(message.id);
   };
   const editingRow = useEditingRow(editing, setEditing, session, scroll, rows);
-  const activity = chat.stoppingTurn ? 'Stopping…' : activityText({ ...state, permissions: chat.permissions }, activeToolLabel(state));
+  const activity = chat.stoppingTurn ? 'Stopping…' : chat.permissions.length > 0 ? null : activityText(state.activity);
   const title = state.title ?? live.snapshot?.inbox.agents.find((shown) => shown.agentId === agentId)?.title ?? agentLabel(provider);
   const steerable = state.capabilities.steering === true && state.running && !watchOnly;
   // The person may change how sending mid-turn goes between turns, so each turn reads it afresh.

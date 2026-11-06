@@ -8,8 +8,8 @@ use serde_json::{json, Map, Value};
 use sikemux_markdown::{Change, Doc, Op, Options, Patch};
 
 use sikemux_view::chat::{
-    ChatChange, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView, PartTree, SubagentCard,
-    ToolStatus,
+    ChatActivity, ChatChange, ChatConnection, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView,
+    PartTree, SubagentCard, ToolStatus,
 };
 
 use super::event::ChatEvent;
@@ -425,6 +425,7 @@ impl Fold {
     /// What changed since the last flush.
     pub fn flush(&mut self) -> Flushed {
         self.settle_runs();
+        self.settle_activity();
         let mut out = Vec::new();
         if let Some(from) = self.dropped.take() {
             out.push(ChatChange::Drop { from });
@@ -489,6 +490,47 @@ impl Fold {
             ),
             _ => None,
         })?
+    }
+
+    /// What a client says the chat is doing, from what the head and the last row hold.
+    fn activity(&self) -> Option<ChatActivity> {
+        if !self.head.permissions.is_empty() {
+            return None;
+        }
+        if self.head.running {
+            if let Some(retrying) = &self.head.retrying {
+                return Some(ChatActivity::Retrying {
+                    attempt: retrying.attempt,
+                    connection: retrying.connection,
+                });
+            }
+            let running = self.head.active_tool.as_ref().and_then(|active| {
+                let row = self.main.rows.last()?;
+                row.msg.parts.iter().find_map(|part| match part {
+                    ChatPart::Tool { id, tool, .. } if id == active => Some(tool.row.clone()),
+                    _ => None,
+                })
+            });
+            return Some(running.map_or(ChatActivity::Thinking, |row| ChatActivity::Call { row }));
+        }
+        if self.main.rows.is_empty() {
+            return None;
+        }
+        match self.head.connection {
+            ChatConnection::Starting => Some(ChatActivity::Starting),
+            ChatConnection::Connecting | ChatConnection::Initializing => {
+                Some(ChatActivity::Connecting)
+            }
+            _ => None,
+        }
+    }
+
+    fn settle_activity(&mut self) {
+        let activity = self.activity();
+        if self.head.activity != activity {
+            self.head.activity = activity;
+            self.set_head("activity");
+        }
     }
 
     /// Lets go of the oldest turns once the fold holds more than it should.
@@ -641,6 +683,7 @@ impl Fold {
             .filter(|_| start > 0 || older)
             .map(|row| row.index);
         let mut head = self.head.clone();
+        head.activity = self.activity();
         head.active_tool = self.active_tool();
         ChatView {
             head,
@@ -660,6 +703,7 @@ impl Fold {
             return None;
         }
         let mut head = self.head.clone();
+        head.activity = self.activity();
         head.active_tool = self.active_tool();
         let mut set = serde_json::to_value(&head).unwrap_or_default();
         if let Some(fields) = set.as_object_mut() {
