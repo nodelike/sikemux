@@ -114,6 +114,7 @@ pub const OPTIONAL_PTY_ENV: &[&str] = &[
     vars::AGENT_ID,
     vars::AGENT_TYPE,
     vars::BIN_PATH,
+    vars::CORE_SOCKET,
     vars::CLI_ENDPOINT,
     vars::CLI_ENDPOINT_PUBLISH,
     vars::SHELL_INTEGRATION,

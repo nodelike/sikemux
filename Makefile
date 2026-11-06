@@ -10,7 +10,7 @@ dev:
 # Stops the dev build's core, the terminals and agents it runs, and its notch.
 dev-stop:
 	@test -x target/debug/sikemux-host || { echo "No dev build yet; run make dev first."; exit 1; }
-	target/debug/sikemux-host stop
+	env -u SIKEMUX_CORE_SOCKET target/debug/sikemux-host stop
 	@pid=$$(cat "$(HOME)/.config/sikemux/notch.dev.lock" 2>/dev/null); [ -z "$$pid" ] || kill "$$pid" 2>/dev/null || true
 
 # The app and its DMG, against the size limit the Release workflow would otherwise be first to hit.

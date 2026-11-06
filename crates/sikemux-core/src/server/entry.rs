@@ -101,6 +101,8 @@ pub fn main(
     build: BuildIdentity,
     plugins: Option<super::plugins::Provided>,
 ) -> i32 {
+    // Read before the environment forgets it, so a core its harness only named this way keeps it.
+    let default_socket = crate::default_socket_path();
     // Nothing else runs yet, so the process environment is safe to change.
     #[cfg(unix)]
     forget_starting_terminal();
@@ -157,7 +159,7 @@ pub fn main(
         sikemux_process::jobs::leave();
         return exit;
     }
-    let Some(socket) = args.socket.or_else(crate::default_socket_path) else {
+    let Some(socket) = args.socket.or(default_socket) else {
         eprintln!("sikemux core: HOME is not set, so pass --socket");
         return 2;
     };
