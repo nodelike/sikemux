@@ -36,10 +36,10 @@ use crate::battery::Battery;
 use crate::chat::START;
 use crate::core::{Ask, Link, Target};
 use crate::files::FileTree;
-use crate::finder::ProjectFiles;
 use crate::hosts::Place;
 use crate::motion;
 use crate::overlays::{Layer, Overlays};
+use crate::pickers::finder::ProjectFiles;
 use crate::reads::{Read, Reads};
 use crate::search::SearchPane;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_2H, TEXT_SM};
@@ -97,7 +97,7 @@ pub struct Workbench {
     pub(crate) open_waits: Vec<(sikemux_wire::protocol::CallId, HashMap<String, bool>)>,
     /// Each open project settings tab's state, by the project's folder.
     pub project_settings: HashMap<String, crate::project_settings::ProjectSettings>,
-    pub shown: crate::experience::Shown,
+    pub shown: crate::screens::experience::Shown,
     pub(crate) picture: crate::picture::AccountPicture,
     /// From asking the core to sign in until the browser is done or gives up.
     pub signing_in: bool,
@@ -147,9 +147,9 @@ pub struct Workbench {
     pub pinch: Option<crate::pinch::Pinch>,
     pub calendar: crate::home::Calendar,
     /// The rail's filter of recent chats, while it shows.
-    pub filter: Option<crate::recent::Filter>,
+    pub filter: Option<crate::pickers::recent::Filter>,
     /// The front project's saved chats paged or searched to beyond the recent ones.
-    pub older: Option<crate::recent::OlderChats>,
+    pub older: Option<crate::pickers::recent::OlderChats>,
     pub asks: mpsc::UnboundedSender<Ask>,
     pub terminals: terminal::Terminals,
     pub editors: Entity<crate::editor::Editors>,
@@ -758,7 +758,7 @@ impl Workbench {
         match self.strip() {
             Some(Strip::Host(alias)) => self.open_install_pane(&alias),
             Some(Strip::Project(project)) => self.start_chat_in(&project, window, cx),
-            _ => self.pick_project(crate::picker::ThenPicked::StartChat, window, cx),
+            _ => self.pick_project(crate::pickers::picker::ThenPicked::StartChat, window, cx),
         }
     }
 
@@ -1428,7 +1428,7 @@ impl Workbench {
 
     pub fn toggle_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.filter.take().is_some() {
-            self.look_for_older(false, crate::recent::PAGE, cx);
+            self.look_for_older(false, crate::pickers::recent::PAGE, cx);
             return;
         }
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("filter recent chats…"));
@@ -1437,12 +1437,12 @@ impl Workbench {
                 if let Some(filter) = bench.filter.as_mut() {
                     filter.text = input.read(cx).value().to_lowercase();
                 }
-                bench.look_for_older(false, crate::recent::PAGE, cx);
+                bench.look_for_older(false, crate::pickers::recent::PAGE, cx);
                 cx.notify();
             }
         });
         input.update(cx, |state, cx| state.focus(window, cx));
-        self.filter = Some(crate::recent::Filter {
+        self.filter = Some(crate::pickers::recent::Filter {
             input,
             text: String::new(),
             _changes: changes,
@@ -1561,9 +1561,9 @@ impl Parts {
             tabs: part(|bench, _, cx| agents::tab_rail(bench, cx), false),
             finder: part(
                 |bench, window, cx| {
-                    crate::switcher::overlay(bench, cx)
+                    crate::pickers::switcher::overlay(bench, cx)
                         .or_else(|| crate::palette::overlay(bench, window, cx))
-                        .or_else(|| crate::finder::overlay(bench, window, cx))
+                        .or_else(|| crate::pickers::finder::overlay(bench, window, cx))
                         .unwrap_or_else(|| div().into_any_element())
                 },
                 true,
@@ -1572,7 +1572,7 @@ impl Parts {
                 |bench, window, cx| {
                     crate::pairing::overlay(bench, window, cx)
                         .or_else(|| crate::command_popup::overlay(bench, cx))
-                        .unwrap_or_else(|| crate::experience::draw(bench, window, cx))
+                        .unwrap_or_else(|| crate::screens::experience::draw(bench, window, cx))
                 },
                 true,
             ),
@@ -1722,7 +1722,7 @@ impl Render for Workbench {
                     .children(crate::share::view(self, cx))
                     .children(crate::boot::reconnecting(self, cx))
                     .children(crate::boot::stopped(self, cx))
-                    .children(crate::whats_new::required(self, cx))
+                    .children(crate::screens::whats_new::required(self, cx))
                     .children(crate::boot::opening(self, cx))
                     .children(crate::boot::stuck(self, cx))
                     .when(self.overlays.in_layer(Layer::Finder), |above| {

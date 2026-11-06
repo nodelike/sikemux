@@ -6,8 +6,8 @@ use gpui_kit::{div, AnyElement, Context, IntoElement, Window};
 use serde_json::Value;
 use sikemux_view::prefs::Preferences;
 
+use crate::screens::{diagnostics, welcome, whats_new};
 use crate::workbench::Workbench;
-use crate::{diagnostics, welcome, whats_new};
 
 pub enum Experience {
     Welcome(welcome::Welcome),

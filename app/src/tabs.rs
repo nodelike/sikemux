@@ -94,7 +94,7 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
             bar.child(div().w(px(80.)).flex_none())
         })
         .child(div().flex_1())
-        .child(crate::top_place::view(bench, cx))
+        .child(crate::hosts::top_place::view(bench, cx))
         .child(
             div()
                 .flex()

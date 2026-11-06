@@ -64,8 +64,8 @@ overlays! {
     /// The question the shell is putting to the person, over the window.
     asking: Asking => Asking, InPlace, true;
     palette: crate::palette::Palette => Palette, Finder, true;
-    finder: crate::finder::Finder => Finder, Finder, true;
-    switcher: crate::switcher::Switcher => Switcher, Finder, true;
+    finder: crate::pickers::finder::Finder => Finder, Finder, true;
+    switcher: crate::pickers::switcher::PlaceSwitcher => Switcher, Finder, true;
     /// The process the person is writing in the Add a process dialog, while it is open.
     adding_task: crate::tasks::add_task::AddTask => AddingTask, InPlace, true;
     adding_provider: crate::add_provider::AddProvider => AddingProvider, InPlace, true;
@@ -77,7 +77,7 @@ overlays! {
     /// Edit Spaces, while it is open under the space switch.
     space_editor: Entity<crate::space_editor::SpaceEditor> => SpaceEditor, InPlace, true;
     /// The welcome, the release notes or the diagnostics.
-    experience: crate::experience::Experience => Experience, Over, true;
+    experience: crate::screens::experience::Experience => Experience, Over, true;
     /// A custom command running in a terminal over the window.
     command_popup: crate::command_popup::Popup => CommandPopup, Over, true;
     /// The agent whose title is being edited in place, in its header or its rail row.

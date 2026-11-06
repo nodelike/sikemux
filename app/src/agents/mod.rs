@@ -592,7 +592,7 @@ fn older_when_seen(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement
             if bounds.top() <= scroll.bounds().bottom() {
                 cx.defer(move |cx| {
                     let _ = this.update(cx, |bench, cx| {
-                        bench.look_for_older(true, crate::recent::PAGE, cx)
+                        bench.look_for_older(true, crate::pickers::recent::PAGE, cx)
                     });
                 });
             }

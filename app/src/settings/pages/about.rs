@@ -9,11 +9,11 @@ use sikemux_core::server::updates::UpdateState;
 use sikemux_view::prefs::UpdateChannel;
 
 use crate::icons::Icon;
+use crate::screens::whats_new::RELEASES;
 use crate::settings::rows;
 use crate::theme::{SPACE_2, SPACE_3H, SPACE_4, TEXT_2XS_H};
 use crate::toast;
 use crate::ui;
-use crate::whats_new::RELEASES;
 use crate::workbench::Workbench;
 
 pub fn render(
@@ -60,7 +60,7 @@ pub fn render(
                 None => "Not checked yet this session.".into(),
                 Some((checked, at)) => {
                     let when = at.with_timezone(&chrono::Local).format("%-I:%M:%S %p");
-                    let channel = crate::whats_new::channel_name(checked.channel);
+                    let channel = crate::screens::whats_new::channel_name(checked.channel);
                     match &checked.error {
                         Some(error) => {
                             format!("Last {channel} check failed at {when} — {error}").into()
@@ -75,24 +75,28 @@ pub fn render(
                     .disabled(busy)
                     .on_click(move |_, _, cx| this.update(cx, check_now))
             };
-            let by_hand = crate::whats_new::by_installer(status).map(|(version, command)| {
-                let this = this.clone();
-                let about = format!("Run this in a terminal to install it: {command}");
-                let copy =
-                    ui::Button::new("update-copy-command", "Copy command", ui::Variant::Outline)
-                        .on_click(move |_, _, cx| {
-                            this.update(cx, |bench, cx| {
-                                crate::whats_new::copy_install_command(bench, &command, cx)
-                            })
-                        });
-                rows::row_with(
-                    None,
-                    format!("Update v{version}"),
-                    Some(about.into()),
-                    copy,
-                    cx,
-                )
-            });
+            let by_hand =
+                crate::screens::whats_new::by_installer(status).map(|(version, command)| {
+                    let this = this.clone();
+                    let about = format!("Run this in a terminal to install it: {command}");
+                    let copy = ui::Button::new(
+                        "update-copy-command",
+                        "Copy command",
+                        ui::Variant::Outline,
+                    )
+                    .on_click(move |_, _, cx| {
+                        this.update(cx, |bench, cx| {
+                            crate::screens::whats_new::copy_install_command(bench, &command, cx)
+                        })
+                    });
+                    rows::row_with(
+                        None,
+                        format!("Update v{version}"),
+                        Some(about.into()),
+                        copy,
+                        cx,
+                    )
+                });
             div()
                 .child(rows::row(
                     "Channel",
@@ -133,7 +137,7 @@ pub fn render(
                     move |_, window, cx| {
                         news.update(cx, |bench, cx| {
                             crate::settings::close(bench, window, cx);
-                            crate::experience::open_whats_new(bench, cx);
+                            crate::screens::experience::open_whats_new(bench, cx);
                         })
                     },
                 ),
@@ -143,7 +147,7 @@ pub fn render(
                     move |_, window, cx| {
                         welcome.update(cx, |bench, cx| {
                             crate::settings::close(bench, window, cx);
-                            crate::experience::open_welcome(bench, cx);
+                            crate::screens::experience::open_welcome(bench, cx);
                         })
                     },
                 ),
@@ -157,7 +161,7 @@ pub fn render(
                 .on_click(move |_, window, cx| {
                     diagnostics.update(cx, |bench, cx| {
                         crate::settings::close(bench, window, cx);
-                        crate::experience::open_diagnostics(bench, cx);
+                        crate::screens::experience::open_diagnostics(bench, cx);
                     })
                 }),
             )

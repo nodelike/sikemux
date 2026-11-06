@@ -11,7 +11,7 @@ fn main() {
     console::install();
     let (handed, opened) = tokio::sync::mpsc::unbounded_channel();
     #[cfg(target_os = "linux")]
-    if !sikemux_gpui::handoff::take_over(handed.clone()) {
+    if !sikemux_gpui::second_start::take_over(handed.clone()) {
         return;
     }
     let link = core::start(core::Home::default());

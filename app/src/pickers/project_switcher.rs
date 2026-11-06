@@ -42,7 +42,7 @@ struct Choice {
 }
 
 /// The open switcher: its search and the row the keys are on.
-pub struct Switcher {
+pub struct ProjectSwitcher {
     bench: WeakEntity<Workbench>,
     on_pick: OnPick,
     cwd: String,
@@ -70,7 +70,7 @@ fn parent(path: &str) -> &str {
         )
 }
 
-impl Switcher {
+impl ProjectSwitcher {
     fn new(
         bench: &Entity<Workbench>,
         on_pick: OnPick,
@@ -180,7 +180,7 @@ impl Switcher {
     }
 }
 
-impl Render for Switcher {
+impl Render for ProjectSwitcher {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx).clone();
         let choices = self.choices(cx);
@@ -343,7 +343,7 @@ pub fn picker(
             let close = list_picker::dismiss(popover);
             let (on_pick, folder) = (on_pick.clone(), folder.clone());
             window.use_keyed_state(key.clone(), cx, |window, cx| {
-                Switcher::new(&this, on_pick, folder, close, window, cx)
+                ProjectSwitcher::new(&this, on_pick, folder, close, window, cx)
             })
         })
 }

@@ -10,9 +10,9 @@ use gpui_kit::{
     IntoElement, ParentElement, SharedString, Styled, Transformation,
 };
 
+use crate::hosts::install_pane::Words;
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
-use crate::install_pane::Words;
 use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, TEXT_XS};
 use crate::ui;
 use crate::workbench::{Strip, Workbench};
@@ -106,11 +106,11 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let here = (bench.project()).map(|project| project.path.to_string_lossy().into_owned());
     let project = project.or_else(|| {
         front.map(|front| {
-            let on_pick: crate::project_switcher::OnPick = Rc::new(move |project, cx| {
+            let on_pick: crate::pickers::project_switcher::OnPick = Rc::new(move |project, cx| {
                 this.update(cx, |bench, _| bench.activate_project(&project))
                     .ok();
             });
-            crate::project_switcher::picker(
+            crate::pickers::project_switcher::picker(
                 "place-project".into(),
                 pill("place-project", front, cx),
                 here.as_deref().unwrap_or_default(),

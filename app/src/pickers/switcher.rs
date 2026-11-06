@@ -56,7 +56,7 @@ impl Held {
     }
 }
 
-pub struct Switcher {
+pub struct PlaceSwitcher {
     places: Vec<Strip>,
     at: usize,
     held: Held,
@@ -109,7 +109,7 @@ impl Workbench {
         let at = crate::ui::list_picker::stepped(here, by, places.len());
         match Held::of(&window.modifiers()) {
             Some(held) => {
-                self.overlays.switcher = Some(Switcher { places, at, held });
+                self.overlays.switcher = Some(PlaceSwitcher { places, at, held });
                 self.parts.redraw(&self.parts.finder, cx);
                 cx.notify();
             }

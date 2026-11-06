@@ -20,8 +20,8 @@ use sikemux_core::server::updates::UpdateStatus;
 use sikemux_view::prefs::UpdateChannel;
 
 use crate::core::{self, Ask};
-use crate::experience::{self, Experience};
 use crate::icons::Icon;
+use crate::screens::experience::{self, Experience};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_5, SPACE_6,
     TEXT_2XS, TEXT_3XS, TEXT_SM, TEXT_XL, TEXT_XS,

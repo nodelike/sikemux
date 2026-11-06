@@ -114,7 +114,7 @@ const STANDALONE: [Standalone; 9] = [
         detail: "Inspect redacted runtime and agent-detection health",
         category: "Support",
         offered: |_| true,
-        run: |bench, _, cx| crate::experience::open_diagnostics(bench, cx),
+        run: |bench, _, cx| crate::screens::experience::open_diagnostics(bench, cx),
     },
     Standalone {
         id: "support.whats-new",
@@ -122,7 +122,7 @@ const STANDALONE: [Standalone; 9] = [
         detail: "Review the latest Sikemux release notes",
         category: "Support",
         offered: |_| true,
-        run: |bench, _, cx| crate::experience::open_whats_new(bench, cx),
+        run: |bench, _, cx| crate::screens::experience::open_whats_new(bench, cx),
     },
     Standalone {
         id: "support.onboarding",
@@ -130,7 +130,7 @@ const STANDALONE: [Standalone; 9] = [
         detail: "Open the first-run screen",
         category: "Support",
         offered: |_| true,
-        run: |bench, _, cx| crate::experience::open_welcome(bench, cx),
+        run: |bench, _, cx| crate::screens::experience::open_welcome(bench, cx),
     },
     Standalone {
         id: "window.duplicate",
@@ -418,7 +418,7 @@ impl Workbench {
                     }
                     Some(Pick::OpenWorktree(path)) => bench.open_place(
                         &format!("folder:{path}"),
-                        crate::picker::ThenPicked::Open,
+                        crate::pickers::picker::ThenPicked::Open,
                         window,
                         cx,
                     ),

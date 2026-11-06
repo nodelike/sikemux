@@ -546,7 +546,7 @@ fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl Into
             })
     };
     let project = match strip.moves {
-        Some((chat, cwd, bench)) => crate::project_switcher::around(
+        Some((chat, cwd, bench)) => crate::pickers::project_switcher::around(
             BaseButton::new("composer-project")
                 .accessibility_label("Project")
                 .min_w_0()

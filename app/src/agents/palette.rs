@@ -82,7 +82,7 @@ impl Workbench {
         .ruled();
         self.toggle_palette(spec, window, cx);
         if self.overlays.palette.is_some() {
-            self.look_for_older(true, crate::recent::PALETTE_PAGE, cx);
+            self.look_for_older(true, crate::pickers::recent::PALETTE_PAGE, cx);
         }
     }
 

@@ -109,13 +109,13 @@ commands! {
         _ => bench.toggle_agent_palette(window, cx),
     };
     OpenProject = "project.open" acts |bench, window, cx| {
-        bench.toggle_picker(crate::picker::Picking::Projects, window, cx)
+        bench.toggle_picker(crate::pickers::picker::Picking::Projects, window, cx)
     };
     OpenHost = "ssh.open" acts |bench, window, cx| {
-        bench.toggle_picker(crate::picker::Picking::Hosts, window, cx)
+        bench.toggle_picker(crate::pickers::picker::Picking::Hosts, window, cx)
     };
     OpenPlace = "session.open" acts |bench, window, cx| {
-        bench.toggle_picker(crate::picker::Picking::Both, window, cx)
+        bench.toggle_picker(crate::pickers::picker::Picking::Both, window, cx)
     };
     NewTab = "palette.newTab" acts |bench, window, cx| bench.toggle_new_tab(window, cx);
     OpenMod = "palette.mods" acts |bench, window, cx| bench.toggle_mods_palette(window, cx);
@@ -230,10 +230,10 @@ pub(super) fn install(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
     crate::faces::install(cx);
     crate::file_icons::install(cx);
     crate::syntax::install(cx);
-    crate::finder::install(cx);
+    crate::pickers::finder::install(cx);
     crate::palette::install(cx);
     crate::desk::install(cx);
-    crate::welcome::install(cx);
+    crate::screens::welcome::install(cx);
     crate::keymap::install(asks, cx);
     crate::chat::install(cx);
     crate::terminal::install(cx);
@@ -243,6 +243,6 @@ pub(super) fn install(asks: mpsc::UnboundedSender<Ask>, cx: &mut App) {
     crate::editor::install(cx);
     crate::search::install(cx);
     crate::settings::install(cx);
-    crate::project_switcher::install(cx);
+    crate::pickers::project_switcher::install(cx);
     crate::chat::model_picker::install(cx);
 }

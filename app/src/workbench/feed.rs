@@ -172,7 +172,7 @@ impl Workbench {
             self.close_chats(cx);
             self.open_chat(cx);
             self.rest_chats_later(cx);
-            self.look_for_older(false, crate::recent::PAGE, cx);
+            self.look_for_older(false, crate::pickers::recent::PAGE, cx);
             self.front_moved(cx);
             self.files.reveal(self.front_file(), &self.target());
             crate::settings::front_moved(self, cx);

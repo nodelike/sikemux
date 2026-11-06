@@ -471,7 +471,7 @@ impl Workbench {
                     crate::ui::grain::set(&preferences, cx);
                     crate::theme::set_text_scale(preferences.ui_text_scale as f32, cx);
                     crate::see_through::set(&preferences, cx);
-                    crate::experience::preferences_read(self, &preferences, cx);
+                    crate::screens::experience::preferences_read(self, &preferences, cx);
                     self.preferences = Some(preferences);
                 }
                 self.terminals.redraw_all(cx);
@@ -582,7 +582,7 @@ impl Workbench {
                 }
                 self.time_run(cx);
             }
-            Read::WhatsNew => crate::experience::whats_new_read(self, &value, cx),
+            Read::WhatsNew => crate::screens::experience::whats_new_read(self, &value, cx),
             Read::PickerFolders => {
                 keep_decoded(&mut self.reads.picker_folders, value, "project folders");
                 self.picker_answered(cx);

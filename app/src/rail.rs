@@ -18,9 +18,9 @@ use sikemux_view::prefs::{Preferences, TabRailPage, TabRailScope, WindowView};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus, ProjectInfo};
 
 use crate::agents::rows::AgentRow;
+use crate::hosts::install_pane::{SetUp, Words};
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
-use crate::install_pane::{SetUp, Words};
 use crate::theme::{
     Tokens, RADIUS_1, RADIUS_2, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_4, TEXT_2XS,
     TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
@@ -221,7 +221,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .children(terminals(bench, cx)),
                 ),
         )
-        .children(crate::whats_new::rail_chip(bench, cx))
+        .children(crate::screens::whats_new::rail_chip(bench, cx))
         .child(account(bench, cx))
 }
 

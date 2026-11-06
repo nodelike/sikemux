@@ -14,9 +14,9 @@ use sikemux_core::agent_accounts::status::AgentStatus;
 
 use crate::agents::setup::{self, Found};
 use crate::core;
-use crate::experience::{self, Experience};
 use crate::icons::Icon;
 use crate::keymap;
+use crate::screens::experience::{self, Experience};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_3H, SPACE_4, SPACE_6,
     TEXT_2XS, TEXT_LG, TEXT_MD, TEXT_XS,

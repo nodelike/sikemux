@@ -1,6 +1,9 @@
 //! The host the person is on (ADR 0018): this one, another host on the account, or an SSH host
 //! without Sikemux. The rail, the top bar and the tab list follow the one chosen.
 
+pub mod install_pane;
+pub(crate) mod top_place;
+
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -17,8 +20,8 @@ use sikemux_view::device::DeviceView;
 
 use crate::chat::Question;
 use crate::core;
+use crate::hosts::install_pane::Words;
 use crate::icons::Icon;
-use crate::install_pane::Words;
 use crate::reads::Drafts;
 use crate::toast;
 use crate::workbench::{Strip, Workbench};
@@ -329,7 +332,7 @@ impl Workbench {
     pub fn set_up_host(
         &mut self,
         alias: &str,
-        set_up: crate::install_pane::SetUp,
+        set_up: crate::hosts::install_pane::SetUp,
         cx: &mut Context<Self>,
     ) {
         let (asks, alias) = (self.asks.clone(), alias.to_owned());

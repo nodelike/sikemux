@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use tokio::sync::oneshot;
 
 use crate::core::{Ask, Detection};
-use crate::experience::{self, Experience};
+use crate::screens::experience::{self, Experience};
 use crate::theme::{
     self, Tokens, SPACE_2, SPACE_3H, SPACE_4, SPACE_5, SPACE_6, TEXT_2XS, TEXT_3XS, TEXT_3XS_H,
     TEXT_XS,
