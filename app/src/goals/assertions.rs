@@ -1,7 +1,8 @@
 //! A goal's assertions: what must hold once its slices are done, each with the kind of evidence
 //! that shows it. The goal lists them and the person adds or retires one; a slice ticks the ones
 //! it fulfils as their evidence comes in, and each piece of evidence says which it serves. Each is
-//! known by its number in the goal's list.
+//! known by its number in the goal's list. A command an agent wrote waits here for the person to
+//! accept it or turn it down.
 
 use crate::board::ChangesBoards;
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -10,6 +11,7 @@ use gpui_kit::{
     div, px, AnyElement, AppContext, Context, Entity, IntoElement, ParentElement, SharedString,
     Styled, Subscription, Window,
 };
+use sikemux_core::server::board::goal::AnswerCommandParams;
 use sikemux_core::server::board::AssertParams as BoardAssertParams;
 use sikemux_core::server::board::BoardCard;
 use sikemux_core::server::call;
@@ -22,28 +24,32 @@ use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_XS_H};
 use crate::ui::{self, Button, Field, IconButton, Segmented, Variant};
 
-/// The kinds of evidence the person picks from; a workflow also needs its name.
+/// The kinds of evidence the person picks from; a workflow also needs its name, a command itself.
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
     Check,
     Recording,
     Screenshot,
     Workflow,
+    Command,
 }
 
-const KINDS: [(Kind, &str); 4] = [
+const KINDS: [(Kind, &str); 5] = [
     (Kind::Check, "Check"),
     (Kind::Recording, "Recording"),
     (Kind::Screenshot, "Screenshot"),
     (Kind::Workflow, "CI workflow"),
+    (Kind::Command, "Command"),
 ];
 
 pub(super) struct Asserting {
     input: Entity<InputState>,
     /// The CI workflow's name, while the kind picked is a workflow.
     workflow: Entity<InputState>,
+    /// The command to run, while the kind picked is a command.
+    command: Entity<InputState>,
     kind: Kind,
-    _typing: [Subscription; 2],
+    _typing: [Subscription; 3],
 }
 
 fn kind_words(kind: &Collect) -> String {
@@ -52,6 +58,7 @@ fn kind_words(kind: &Collect) -> String {
         Collect::Recording => "a recording".into(),
         Collect::Screenshot => "a screenshot".into(),
         Collect::Workflow { name } => format!("CI {name} passes"),
+        Collect::Command { command } => format!("{command} passes"),
     }
 }
 
@@ -60,6 +67,7 @@ fn kind_icon(kind: &Collect) -> Icon {
         Collect::Check | Collect::Workflow { .. } => Icon::Check,
         Collect::Recording => Icon::Record,
         Collect::Screenshot => Icon::Image,
+        Collect::Command { .. } => Icon::Terminal,
     }
 }
 
@@ -91,6 +99,8 @@ impl GoalsPane {
             InputState::new(window, cx).placeholder("What must hold once this goal is done")
         });
         let workflow = cx.new(|cx| InputState::new(window, cx).placeholder("Workflow name"));
+        let command = cx
+            .new(|cx| InputState::new(window, cx).placeholder("Command whose exit code shows it"));
         let entered = |pane: &mut Self,
                        _: &Entity<InputState>,
                        event: &InputEvent,
@@ -103,10 +113,12 @@ impl GoalsPane {
         let typing = [
             cx.subscribe_in(&input, window, entered),
             cx.subscribe_in(&workflow, window, entered),
+            cx.subscribe_in(&command, window, entered),
         ];
         self.asserting = Some(Asserting {
             input,
             workflow,
+            command,
             kind: Kind::Check,
             _typing: typing,
         });
@@ -139,6 +151,13 @@ impl GoalsPane {
                 }
                 Collect::Workflow { name }
             }
+            Kind::Command => {
+                let command = asserting.command.read(cx).value().trim().to_owned();
+                if command.is_empty() {
+                    return self.said("Say the command whose exit code shows it", cx);
+                }
+                Collect::Command { command }
+            }
         };
         let Some(project) = self.here.clone() else {
             return;
@@ -162,7 +181,8 @@ impl GoalsPane {
                     Ok(board) => {
                         pane.take_one(board);
                         if let Some(asserting) = &pane.asserting {
-                            for input in [&asserting.input, &asserting.workflow] {
+                            for input in [&asserting.input, &asserting.workflow, &asserting.command]
+                            {
                                 input.update(cx, |input, cx| input.set_value("", window, cx));
                             }
                         }
@@ -192,6 +212,96 @@ impl GoalsPane {
         };
         self.ask_moved::<call::BoardAssert>(params, |_| {}, cx);
     }
+
+    /// Answers the command the person sees, which the core holds them to.
+    fn answer_command(
+        &mut self,
+        card: u64,
+        assertion: u64,
+        command: String,
+        accept: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.busy {
+            return;
+        }
+        let Some(project) = self.here.clone() else {
+            return;
+        };
+        let params = AnswerCommandParams {
+            project,
+            card,
+            assertion,
+            command,
+            accept,
+        };
+        self.ask_moved::<call::BoardAnswerCommand>(params, |_| {}, cx);
+    }
+}
+
+/// The command an agent wrote for an assertion, whole, with what answers it, as what an agent
+/// proposes for a project's environments shows.
+fn proposal(
+    pane: &GoalsPane,
+    goal: &BoardCard,
+    assertion: &Assertion,
+    cx: &mut Context<GoalsPane>,
+) -> Option<AnyElement> {
+    let command = assertion.awaits_approval()?.to_owned();
+    let t = Tokens::get(cx).clone();
+    let (card, id, busy) = (goal.id, assertion.id, pane.busy);
+    let by = assertion.learned.name.as_deref().unwrap_or("An agent");
+    let number = number(goal, id).unwrap_or_default();
+    let on_accept = command.clone();
+    let on_decline = command.clone();
+    Some(
+        div()
+            .py(SPACE_2)
+            .flex()
+            .flex_col()
+            .gap(SPACE_1H)
+            .child(
+                div()
+                    .text_size(theme::ui_text(TEXT_XS_H))
+                    .text_color(t.text_primary)
+                    .child(format!(
+                        "@{by} proposes this command for assertion {number}. It runs and counts once you accept it."
+                    )),
+            )
+            .child(ui::mono(command, TEXT_2XS, cx).whitespace_normal())
+            .when_some(assertion.approved.as_ref(), |view, earlier| {
+                view.child(ui::meta(format!("Turning it down keeps {earlier}"), cx))
+            })
+            .child(
+                div()
+                    .pt(SPACE_1H)
+                    .flex()
+                    .gap(SPACE_2)
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("assertion-accept-{id}")),
+                            "Accept",
+                            Variant::Primary,
+                        )
+                        .disabled(busy)
+                        .on_click(cx.listener(move |pane, _, _, cx| {
+                            pane.answer_command(card, id, on_accept.clone(), true, cx)
+                        })),
+                    )
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("assertion-decline-{id}")),
+                            "Turn down",
+                            Variant::Outline,
+                        )
+                        .disabled(busy)
+                        .on_click(cx.listener(move |pane, _, _, cx| {
+                            pane.answer_command(card, id, on_decline.clone(), false, cx)
+                        })),
+                    ),
+            )
+            .into_any_element(),
+    )
 }
 
 /// The goal's assertions in force, a line each, and the line that adds one.
@@ -208,72 +318,86 @@ pub(super) fn section_of(
         .collect();
     let slices = pane.slices(goal.id);
     let card = goal.id;
+    let proposals: Vec<Option<AnyElement>> = (kept.iter())
+        .map(|assertion| proposal(pane, goal, assertion, cx))
+        .collect();
     div()
         .flex()
         .flex_col()
         .child(quiet_section("Assertions", kept.len(), cx))
-        .children(kept.into_iter().map(|assertion| {
-            let id = assertion.id;
-            let fulfilling: Vec<bool> = slices
-                .iter()
-                .filter_map(|(_, slice)| {
-                    let asserted = slice
-                        .asserts
+        .children(
+            kept.into_iter()
+                .zip(proposals)
+                .map(|(assertion, proposal)| {
+                    let id = assertion.id;
+                    let fulfilling: Vec<bool> = slices
                         .iter()
-                        .find(|asserted| asserted.assertion == id);
-                    asserted.map(|asserted| asserted.met)
-                })
-                .collect();
-            let met = fulfilling.iter().filter(|met| **met).count();
-            div()
-                .py(SPACE_1H)
-                .flex()
-                .items_center()
-                .gap(SPACE_2)
-                .child(
-                    ui::mono(
-                        number(goal, id).unwrap_or_default().to_string(),
-                        TEXT_2XS,
-                        cx,
-                    )
-                    .w(px(16.))
-                    .flex_none(),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .text_size(theme::ui_text(TEXT_XS_H))
-                        .text_color(t.text_primary)
-                        .child(assertion.text.clone()),
-                )
-                .child(
-                    div()
+                        .filter_map(|(_, slice)| {
+                            let asserted = slice
+                                .asserts
+                                .iter()
+                                .find(|asserted| asserted.assertion == id);
+                            asserted.map(|asserted| asserted.met)
+                        })
+                        .collect();
+                    let met = fulfilling.iter().filter(|met| **met).count();
+                    let line = div()
+                        .py(SPACE_1H)
                         .flex()
                         .items_center()
-                        .gap(px(4.))
+                        .gap(SPACE_2)
                         .child(
-                            ui::icon(kind_icon(&assertion.evidence), 11.)
-                                .text_color(t.text_tertiary),
+                            ui::mono(
+                                number(goal, id).unwrap_or_default().to_string(),
+                                TEXT_2XS,
+                                cx,
+                            )
+                            .w(px(16.))
+                            .flex_none(),
                         )
-                        .child(ui::meta(kind_words(&assertion.evidence), cx)),
-                )
-                .when(!fulfilling.is_empty(), |row| {
-                    row.child(ui::meta(
-                        format!("{met} of {} slices", fulfilling.len()),
-                        cx,
-                    ))
-                })
-                .child(
-                    IconButton::new(
-                        SharedString::from(format!("retire-assertion-{id}")),
-                        Icon::Close,
-                        "Retire",
-                    )
-                    .small()
-                    .on_click(cx.listener(move |pane, _, _, cx| pane.assert_retire(card, id, cx))),
-                )
-        }))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_size(theme::ui_text(TEXT_XS_H))
+                                .text_color(t.text_primary)
+                                .child(assertion.text.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(4.))
+                                .child(
+                                    ui::icon(kind_icon(&assertion.evidence), 11.)
+                                        .text_color(t.text_tertiary),
+                                )
+                                .child(
+                                    ui::meta(kind_words(&assertion.evidence), cx)
+                                        .max_w(px(220.))
+                                        .truncate(),
+                                ),
+                        )
+                        .when(!fulfilling.is_empty(), |row| {
+                            row.child(ui::meta(
+                                format!("{met} of {} slices", fulfilling.len()),
+                                cx,
+                            ))
+                        })
+                        .child(
+                            IconButton::new(
+                                SharedString::from(format!("retire-assertion-{id}")),
+                                Icon::Close,
+                                "Retire",
+                            )
+                            .small()
+                            .on_click(
+                                cx.listener(move |pane, _, _, cx| pane.assert_retire(card, id, cx)),
+                            ),
+                        );
+                    div().flex().flex_col().child(line).children(proposal)
+                }),
+        )
         .children(pane.asserting.as_ref().map(|asserting| {
             let chosen = KINDS
                 .iter()
@@ -304,7 +428,17 @@ pub(super) fn section_of(
                         .when(asserting.kind == Kind::Workflow, |line| {
                             line.child(div().w(px(180.)).child(Field::new(&asserting.workflow)))
                         })
-                        .child(div().flex_1())
+                        .when(asserting.kind == Kind::Command, |line| {
+                            line.child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .child(Field::new(&asserting.command)),
+                            )
+                        })
+                        .when(asserting.kind != Kind::Command, |line| {
+                            line.child(div().flex_1())
+                        })
                         .child(
                             Button::new("assertion-add", "Add", Variant::Outline)
                                 .disabled(pane.busy)
@@ -320,13 +454,24 @@ pub(super) fn section_of(
 /// The goal's assertions a slice fulfils, each ticked once its evidence held up, then quietly
 /// those it named that no longer stand on its goal, so the person sees what was freed.
 pub(super) fn ticks(
+    pane: &GoalsPane,
     goal: &BoardCard,
     slice: &SliceView,
-    cx: &Context<GoalsPane>,
+    cx: &mut Context<GoalsPane>,
 ) -> Option<AnyElement> {
     if slice.asserts.is_empty() && slice.detached.is_empty() {
         return None;
     }
+    let proposals: Vec<AnyElement> = (slice.asserts.iter())
+        .filter(|asserted| asserted.awaits_approval)
+        .filter_map(|asserted| {
+            goal.assertions
+                .iter()
+                .find(|kept| kept.id == asserted.assertion)
+        })
+        .filter_map(|assertion| proposal(pane, goal, assertion, cx))
+        .collect();
+    let cx = &*cx;
     let t = Tokens::get(cx);
     Some(
         div()
@@ -379,9 +524,20 @@ pub(super) fn ticks(
                                 })
                                 .child(assertion.text.clone()),
                         )
-                        .child(ui::meta(kind_words(&assertion.evidence), cx)),
+                        .child(
+                            ui::meta(
+                                match asserted.awaits_approval {
+                                    true => "awaits your approval".to_owned(),
+                                    false => kind_words(&assertion.evidence),
+                                },
+                                cx,
+                            )
+                            .max_w(px(220.))
+                            .truncate(),
+                        ),
                 )
             }))
+            .children(proposals)
             .children(slice.detached.iter().map(|id| {
                 let kept = goal.assertions.iter().find(|kept| kept.id == *id);
                 let words = kept.map_or("an assertion no longer on this goal".into(), |kept| {

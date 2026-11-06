@@ -78,7 +78,7 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
         .child(owner_line(card, cx))
         .children(stalled_line(pane, card.id, cx))
         .child(ladder(card, slice, cx))
-        .children(goal.and_then(|goal| super::assertions::ticks(goal, slice, cx)))
+        .children(goal.and_then(|goal| super::assertions::ticks(pane, goal, slice, cx)))
         .when_some(shown, |view, shown| {
             view.child(div().pt(SPACE_4).child(evidence::large(shown, cx)))
         })

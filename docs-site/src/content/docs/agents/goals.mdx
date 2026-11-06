@@ -85,7 +85,11 @@ When a goal's title is only the start of what you typed, its first summary also 
 
 A goal with slices or assertions shows them under all of this, more quietly: a strip with one segment per slice, **Assertions**, **Slices**, which lists every slice with what it waits on, its ticket and its owner, **Slices land** and **Rules**. A goal with neither stops at **Running and next**.
 
-**Assertions** lists what must hold once the goal is done, each with the kind of evidence that shows it (the check passing, a recording, a screenshot, or a CI workflow passing, named on the line as "CI Build passes") and how many of the slices that fulfil it have that evidence. Add one on the line under them, picking its kind; **CI workflow** asks for the workflow's name. Retire one with **×**.
+**Assertions** lists what must hold once the goal is done, each with the kind of evidence that shows it (the check passing, a recording, a screenshot, a CI workflow passing, named on the line as "CI Build passes", or a command passing) and how many of the slices that fulfil it have that evidence. Add one on the line under them, picking its kind; **CI workflow** asks for the workflow's name and **Command** for the command. Retire one with **×**.
+
+A command is how you gate on a tool no plugin covers. Sikemux runs it in a clean checkout of each slice's latest commit, apart from the project's check, with the same limits of 30 minutes and 4 MiB of output, and keeps what it printed. Its exit code is the verdict, and no model judges it. Each new commit runs it again, and so does the slice's owner marking it done again. A run that doesn't finish gives no verdict and doesn't count.
+
+A command you write counts at once. One an agent writes doesn't run or count until you accept that exact command: it shows under **Needs you** and under its assertion, in full, with **Accept** and **Turn down**, and any slice that fulfils it says it waits for you. Changing the command asks again. Turning down a change keeps the command you last accepted; turning down a new one retires its assertion. Only the app can answer, so an agent can't accept its own. Accept a command for what it runs: if it names a script in the repository, an agent can still change that script.
 
 **Slices land** sets who passes Landed in the project: **Once on the branch**, which Sikemux passes, or **When you pass it**, where nothing counts as landed until you pass Landed yourself ([when slices land](/agents/board/#when-slices-land)).
 

@@ -1196,6 +1196,17 @@ fn waiting_words(card: &BoardCard, slice: &SliceView) -> Option<String> {
     if let Some(wait) = slice.wait.as_ref().and_then(|wait| wait_words(wait, owner)) {
         return Some(format!("{} · {wait}", step_name(gate)));
     }
+    if gate.needs.contains(&Need::Assertions)
+        && slice
+            .asserts
+            .iter()
+            .any(|asserted| asserted.awaits_approval)
+    {
+        return Some(format!(
+            "{} · waiting for you to accept a command",
+            step_name(gate)
+        ));
+    }
     Some(match gate.needs.as_slice() {
         [] if gate.passer == Passer::Person => {
             format!("{} · waiting for you", step_name(gate))

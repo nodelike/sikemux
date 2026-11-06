@@ -75,6 +75,8 @@ enum Case {
     Ship(ShipHold),
     /// An agent proposed the project's environments, for the person to accept.
     ProposedEnvironments,
+    /// An agent wrote a command as an assertion's evidence, for the person to accept.
+    ProposedCommand,
     PullRequest,
     /// Auto handed the card back, for the person to fix something or unblock it.
     HandedBack(RunHold),
@@ -132,7 +134,9 @@ impl Case {
             | Case::Looping
             | Case::CheckFailing
             | Case::StaleMemory => (InboxKind::Held, Wants::Person(Fix)),
-            Case::Colliding | Case::TicketDone => (InboxKind::Held, Wants::Person(Decide)),
+            Case::Colliding | Case::TicketDone | Case::ProposedCommand => {
+                (InboxKind::Held, Wants::Person(Decide))
+            }
             Case::ProposedEnvironments => (InboxKind::ProposedEnvironments, Wants::Person(Decide)),
             Case::Failed(Some(Fault::Account)) => (InboxKind::Failed, Wants::Person(Unblock)),
             Case::Failed(Some(Fault::Broke)) => (InboxKind::Failed, Wants::Person(Fix)),
@@ -952,6 +956,37 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
             &format!("{} {}.", proposal.why, steps.join("; ")),
             MAX_LINE_CHARS,
         ));
+        items.push(item);
+    }
+    for proposed in board::proposed_commands(core) {
+        let assertion = &proposed.assertion;
+        let mut item = item(
+            format!(
+                "command:{}:{}:{}",
+                proposed.project, proposed.goal, assertion.id
+            ),
+            Case::ProposedCommand,
+            "Proposes a command as a gate".to_owned(),
+            assertion.learned.at,
+        );
+        if let Some(agent) = assertion.learned.agent.as_deref() {
+            item = item.by(agent, find(agent));
+        }
+        item.detail = Some(clipped_line(
+            &format!(
+                "`{}` for \"{}\". It does not count until you accept it.",
+                assertion.awaits_approval().unwrap_or_default(),
+                assertion.text
+            ),
+            MAX_LINE_CHARS,
+        ));
+        item.project = Some(proposed.project.clone());
+        item.card = Some(InboxCard {
+            project: proposed.project,
+            id: proposed.goal,
+            title: proposed.title,
+            goal: Some(proposed.goal),
+        });
         items.push(item);
     }
     for looped in core.harness.mailbox.loops() {

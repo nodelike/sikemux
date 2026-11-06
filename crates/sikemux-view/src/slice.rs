@@ -404,6 +404,9 @@ pub struct Asserted {
     pub assertion: u64,
     /// Its evidence held up on the slice's latest commit.
     pub met: bool,
+    /// Its command waits for the person to approve it, and does not run until they do.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub awaits_approval: bool,
 }
 
 /// What must hold once a goal's slices are done, agreed before they are cut,
@@ -421,6 +424,22 @@ pub struct Assertion {
     pub was: Option<String>,
     /// Who retired it and when.
     pub retired: Option<Learned>,
+    /// The command the person wrote or last approved for it. A command in `evidence` counts only
+    /// while it is exactly this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approved: Option<String>,
+}
+
+impl Assertion {
+    /// The command it names that the person has not approved.
+    pub fn awaits_approval(&self) -> Option<&str> {
+        match &self.evidence {
+            Collect::Command { command } if self.approved.as_ref() != Some(command) => {
+                Some(command)
+            }
+            _ => None,
+        }
+    }
 }
 
 /// The evidence an assertion needs, which the core collects itself.
@@ -440,6 +459,8 @@ pub enum Collect {
     /// The CI workflow `name` passing on the pushed tip of the project's
     /// branch that holds the slice's latest commit.
     Workflow { name: String },
+    /// `command` exiting with success, run in a clean checkout of the slice's latest commit.
+    Command { command: String },
 }
 
 /// A rule only a goal's own agents follow, kept on its card.

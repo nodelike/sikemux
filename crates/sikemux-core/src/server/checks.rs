@@ -764,13 +764,13 @@ fn found_check(core: &Core, project: &str) -> Option<String> {
     found
 }
 
-/// Runs the project's check command in the worktree. Whether it passed, and
-/// the end of what it wrote.
+/// Runs a check or gate's command in the worktree. Whether it passed, and the
+/// end of what it wrote.
 pub(crate) fn run_command(cwd: &Path, command: &str) -> Result<(bool, String), String> {
     let mut shell = sikemux_process::user_environment::agent_command("/bin/sh");
     shell.args(["-c", command]).current_dir(cwd);
     let output = sikemux_process::run(&mut shell, None, RUN_LIMIT, OUTPUT_LIMIT, None)
-        .map_err(|error| format!("the check did not run: {error}"))?;
+        .map_err(|error| format!("it did not run: {error}"))?;
     Ok((output.status.success(), said(&output)))
 }
 

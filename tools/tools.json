@@ -2029,7 +2029,8 @@
             "check",
             "recording",
             "screenshot",
-            "workflow"
+            "workflow",
+            "command"
           ]
         },
         "workflow": {
@@ -2037,6 +2038,12 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "command": {
+          "description": "For command evidence: one line whose exit code shows it, run in a clean checkout. Counts only once the person approves exactly this command",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
         },
         "retire": {
           "type": "boolean"

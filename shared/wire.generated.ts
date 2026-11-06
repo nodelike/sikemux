@@ -2792,6 +2792,8 @@ export interface Asserted {
     assertion: number;
     /** Its evidence held up on the slice's latest commit. */
     met: boolean;
+    /** Its command waits for the person to approve it, and does not run until they do. */
+    awaitsApproval?: boolean;
 }
 
 /** What a slice waits on now, since when, and roughly how long it takes. */
@@ -2999,6 +3001,11 @@ export interface Assertion {
     was: string | null;
     /** Who retired it and when. */
     retired: Learned | null;
+    /**
+     * The command the person wrote or last approved for it. A command in `evidence` counts only
+     * while it is exactly this one.
+     */
+    approved?: string;
 }
 
 /** The evidence an assertion needs, which the core collects itself. */
@@ -3022,6 +3029,11 @@ export type Collect =
     | {
           kind: "workflow";
           name: string;
+      }
+    /** `command` exiting with success, run in a clean checkout of the slice's latest commit. */
+    | {
+          kind: "command";
+          command: string;
       };
 
 /** How a project's board runs on its own. */

@@ -32,6 +32,7 @@ mod arrival;
 pub(crate) mod auto;
 mod blind;
 pub mod chat_goal;
+mod commands;
 pub(crate) mod environments;
 mod eta;
 mod failing;
@@ -404,11 +405,7 @@ impl Board {
         let kept = &self.card(goal)?.goal;
         (asserts.iter())
             .map(|id| match kept.assertion(*id) {
-                Some(assertion) => Ok(slice::Named {
-                    goal,
-                    id: *id,
-                    evidence: assertion.evidence.clone(),
-                }),
+                Some(assertion) => Ok(slice::Named::of(goal, assertion)),
                 None => Err(format!("Goal #{goal} has no assertion #{id} that stands")),
             })
             .collect()
@@ -528,6 +525,7 @@ struct State {
     runs: HashMap<String, slice::HeardRuns>,
     /// Projects whose slices wait on a CI workflow's verdict.
     workflows: workflows::Watches,
+    commands: commands::Runs,
 }
 
 /// What the core keeps about a card only while it runs, never saved. It goes
@@ -1529,7 +1527,13 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     }
     let assertions: Vec<Value> = (card.goal.assertions().iter())
         .filter(|assertion| assertion.retired.is_none())
-        .map(|assertion| json!({ "assertion": assertion.id, "text": text(&assertion.text), "evidence": assertion.evidence }))
+        .map(|assertion| {
+            let mut listed = json!({ "assertion": assertion.id, "text": text(&assertion.text), "evidence": assertion.evidence });
+            if assertion.awaits_approval().is_some() {
+                listed["awaitsApproval"] = true.into();
+            }
+            listed
+        })
         .collect();
     if !assertions.is_empty() {
         fields.insert("assertions".into(), assertions.into());
@@ -1887,7 +1891,7 @@ fn change_in(
     if let (Some(CardStatus::Done), By::Agent(agent), Some(slice)) =
         (status, by, card.slice.as_mut())
     {
-        later = slice::Later::look_again(project);
+        later = slice::Later::look_again(project, id);
         match slice.say_done(&label, seen.checking, confirmed, &settings) {
             Ok(slice::Said::Pending { note, recheck }) => {
                 pending = Some(note);
@@ -3000,6 +3004,33 @@ pub(crate) fn proposals(core: &Core) -> Vec<(String, EnvironmentsProposal)> {
         .collect()
 }
 
+/// A command an agent wrote for a goal's assertion, which waits for the person's approval.
+pub(crate) struct ProposedCommand {
+    pub project: String,
+    pub goal: u64,
+    pub title: String,
+    pub assertion: Assertion,
+}
+
+pub(crate) fn proposed_commands(core: &Core) -> Vec<ProposedCommand> {
+    let state = core.boards.state.locked();
+    let mut proposed = Vec::new();
+    for (project, board) in &state.boards {
+        for card in &board.cards {
+            let waiting = (card.goal.assertions().iter()).filter(|assertion| {
+                assertion.retired.is_none() && assertion.awaits_approval().is_some()
+            });
+            proposed.extend(waiting.map(|assertion| ProposedCommand {
+                project: project.clone(),
+                goal: card.id,
+                title: card.title.clone(),
+                assertion: assertion.clone(),
+            }));
+        }
+    }
+    proposed
+}
+
 pub(crate) fn judge_ship(
     core: &Core,
     project: &str,
@@ -3104,6 +3135,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     next = sooner(next, finish::due(core));
     next = sooner(next, tickets::due(core));
     next = sooner(next, workflows::due(core));
+    commands::due(core);
     let (due, moved) = wait::settle(core, &mut core.boards.state.locked());
     next = sooner(next, due);
     if let Some(next) = next {

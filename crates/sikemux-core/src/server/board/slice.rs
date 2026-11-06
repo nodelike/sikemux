@@ -28,8 +28,8 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::inbox::InboxRecording;
 use sikemux_view::slice::{
-    Asserted, Collect, Evidence, Gate, GateState, GateView, Need, NextGate, Note, Passer, Proof,
-    SliceState, SliceView, Verdict, Wait,
+    Asserted, Assertion, Collect, Evidence, Gate, GateState, GateView, Need, NextGate, Note,
+    Passer, Proof, SliceState, SliceView, Verdict, Wait,
 };
 
 use super::auto::{BoardSettings, Landing};
@@ -164,6 +164,20 @@ pub(super) struct Named {
     pub goal: u64,
     pub id: u64,
     pub evidence: Collect,
+    /// The person approved the command it names, which is run only then.
+    #[serde(default)]
+    pub approved: bool,
+}
+
+impl Named {
+    pub(super) fn of(goal: u64, assertion: &Assertion) -> Self {
+        Self {
+            goal,
+            id: assertion.id,
+            evidence: assertion.evidence.clone(),
+            approved: assertion.awaits_approval().is_none(),
+        }
+    }
 }
 
 /// Why the owner's gate did not pass when the owner said the slice is done.
@@ -447,6 +461,9 @@ impl Slice {
                     (Proof::Picture { seconds, .. }, Collect::Recording) => seconds.is_some(),
                     (Proof::Picture { seconds, .. }, Collect::Screenshot) => seconds.is_none(),
                     (Proof::Run { .. }, Collect::Workflow { .. }) => true,
+                    (Proof::Run { command: ran, .. }, Collect::Command { command }) => {
+                        ran == command
+                    }
                     _ => false,
                 }
         })
@@ -454,8 +471,9 @@ impl Slice {
 
     /// The assertion holds on its latest commit: the check's verdict on it
     /// passed, for one the check shows; its workflow's run passed there, for
-    /// one a workflow shows; else a recording or screenshot was collected for
-    /// it there, which the person judges at Looks right.
+    /// one a workflow shows; the approved command exited with success there,
+    /// for one a command shows; else a recording or screenshot was collected
+    /// for it there, which the person judges at Looks right.
     fn asserted(&self, named: &Named) -> bool {
         let on_head = self
             .latest_for(named)
@@ -464,6 +482,10 @@ impl Slice {
             Collect::Check => self.met(Need::PassingCheck),
             Collect::Workflow { .. } => {
                 on_head.is_some_and(|evidence| evidence.verdict == Some(Verdict::Passed))
+            }
+            Collect::Command { .. } => {
+                named.approved
+                    && on_head.is_some_and(|evidence| evidence.verdict == Some(Verdict::Passed))
             }
             Collect::Recording | Collect::Screenshot => on_head.is_some(),
         }
@@ -479,6 +501,84 @@ impl Slice {
                 _ => None,
             })
             .collect()
+    }
+
+    /// The approved commands that have not passed on its latest commit.
+    pub(super) fn awaiting_commands(&self) -> Vec<String> {
+        let mut commands: Vec<String> = (self.asserts.iter())
+            .filter(|named| named.approved && !self.asserted(named))
+            .filter_map(|named| match &named.evidence {
+                Collect::Command { command } => Some(command.clone()),
+                _ => None,
+            })
+            .collect();
+        commands.sort();
+        commands.dedup();
+        commands
+    }
+
+    /// `command` ran on `head`, with no verdict when it did not finish: the run is the evidence of
+    /// each assertion that approved command shows, kept only while `head` is still its latest
+    /// commit. Those assertions.
+    pub(super) fn command_ran(
+        &mut self,
+        owner: Option<&str>,
+        head: &str,
+        command: &str,
+        verdict: Option<Verdict>,
+        output: String,
+    ) -> Vec<u64> {
+        let Some(gate) = self
+            .waiting()
+            .filter(|_| self.head() == Some(head))
+            .cloned()
+        else {
+            return Vec::new();
+        };
+        let shows = Collect::Command {
+            command: command.to_owned(),
+        };
+        let assertions: Vec<u64> = (self.asserts.iter())
+            .filter(|named| named.approved && named.evidence == shows)
+            .map(|named| named.id)
+            .collect();
+        if !assertions.is_empty() {
+            let proof = Proof::Run {
+                command: command.to_owned(),
+                sha: Some(head.to_owned()),
+                output,
+            };
+            let owner = owner.map(str::to_owned);
+            self.add_evidence(&gate, epoch_ms(), owner, verdict, proof, &assertions);
+        }
+        assertions
+    }
+
+    /// Its gate needs assertions whose commands wait for the person's approval.
+    pub(super) fn awaits_approval(&self, settings: &BoardSettings) -> bool {
+        self.gate_needs_assertions(settings)
+            && self.asserts.iter().any(|named| self.unapproved(named))
+    }
+
+    fn unapproved(&self, named: &Named) -> bool {
+        matches!(named.evidence, Collect::Command { .. }) && !named.approved
+    }
+
+    fn gate_needs_assertions(&self, settings: &BoardSettings) -> bool {
+        self.waiting()
+            .is_some_and(|gate| needs_of(gate, settings).contains(&Need::Assertions))
+    }
+
+    /// An assertion's approved command failed on its latest commit, at a gate that needs it.
+    fn command_failed(&self, settings: &BoardSettings) -> bool {
+        self.gate_needs_assertions(settings)
+            && (self.asserts.iter())
+                .filter(|named| matches!(named.evidence, Collect::Command { .. }) && named.approved)
+                .filter_map(|named| self.latest_for(named))
+                .any(|evidence| {
+                    evidence.verdict == Some(Verdict::Failed)
+                        && evidence.commit.as_deref() == self.head()
+                })
     }
 
     /// Workflow `name` ruled on `head`, held by the pushed `tip`: the run is
@@ -558,15 +658,15 @@ impl Slice {
     }
 
     /// Keeps it bound to the assertions of goal `goal` it names that still
-    /// stand there, with the evidence `standing` says each needs now; one that
-    /// no longer stands is detached. Those of another goal, which it moved
-    /// from, it is freed of. Whether it was.
-    pub(super) fn bind(&mut self, goal: u64, standing: impl Fn(u64) -> Option<Collect>) -> bool {
+    /// stand there, as `standing` says each stands now; one that no longer
+    /// stands is detached. Those of another goal, which it moved from, it is
+    /// freed of. Whether it was.
+    pub(super) fn bind(&mut self, goal: u64, standing: impl Fn(u64) -> Option<Named>) -> bool {
         let moved = self.asserts.iter().any(|named| named.goal != goal);
         self.detached.retain(|named| named.goal == goal);
         for named in std::mem::take(&mut self.asserts) {
             match (named.goal == goal).then(|| standing(named.id)).flatten() {
-                Some(evidence) => self.asserts.push(Named { evidence, ..named }),
+                Some(standing) => self.asserts.push(standing),
                 None if named.goal == goal && !self.detached.contains(&named) => {
                     self.detached.push(named)
                 }
@@ -1074,8 +1174,17 @@ impl Slice {
     fn awaits_evidence(&self, label: &str) -> Option<String> {
         let missing = self.missing();
         let head = self.head()?;
-        (self.met(Need::PassingCheck) && !missing.is_empty()).then(|| format!(
-            "{label} is not Built yet: the check passed on {}, but {} no evidence there. Make what it asks for, a browser recording or a screenshot of the page, while this card is yours; Built passes by itself once each has it, and you will hear. board_list with the goal's card shows what each asks.",
+        if !self.met(Need::PassingCheck) || missing.is_empty() {
+            return None;
+        }
+        if (self.asserts.iter()).any(|named| self.unapproved(named)) {
+            return Some(format!(
+                "{label} is not Built yet: a command one of its assertions names waits for the person to approve it, which only they can do, and does not run until they do. Built passes by itself once it has run and passed on {}, and you will hear. board_list with the goal's card shows which.",
+                short(head)
+            ));
+        }
+        Some(format!(
+            "{label} is not Built yet: the check passed on {}, but {} no evidence there. Make what it asks for, a browser recording or a screenshot of the page, while this card is yours; Sikemux runs a command or reads a CI workflow itself. Built passes by itself once each has it, and you will hear. board_list with the goal's card shows what each asks.",
             short(head),
             match missing.as_slice() {
                 [one] => format!("assertion {one} has"),
@@ -1167,10 +1276,14 @@ impl Slice {
             .as_ref()
             .and_then(|work| work.check.as_ref())
             .is_some_and(|check| check.gate == *gate && check.verdict == Some(Verdict::Failed))
-            || self.deploy_failed(gate);
+            || self.deploy_failed(gate)
+            || self.command_failed(settings);
         if failed {
             SliceState::Failed
-        } else if self.stalled.is_some() || self.waits_on_person(settings).is_some() {
+        } else if self.stalled.is_some()
+            || self.waits_on_person(settings).is_some()
+            || self.awaits_approval(settings)
+        {
             SliceState::NeedsYou
         } else if held_up {
             SliceState::Waiting
@@ -1233,6 +1346,7 @@ impl Slice {
                 .map(|named| Asserted {
                     assertion: named.id,
                     met: self.asserted(named),
+                    awaits_approval: self.unapproved(named),
                 })
                 .collect(),
             detached: self.detached.iter().map(|named| named.id).collect(),
@@ -1260,7 +1374,11 @@ impl Slice {
         if !self.asserts.is_empty() {
             let asserts: Vec<Value> = (self.asserts.iter())
                 .map(|named| {
-                    serde_json::json!({ "assertion": named.id, "evidence": named.evidence, "met": self.asserted(named) })
+                    let mut listed = serde_json::json!({ "assertion": named.id, "evidence": named.evidence, "met": self.asserted(named) });
+                    if self.unapproved(named) {
+                        listed["awaitsApproval"] = true.into();
+                    }
+                    listed
                 })
                 .collect();
             fields.insert("asserts".into(), asserts.into());
@@ -1329,8 +1447,9 @@ pub(super) struct Later {
     /// Commits the project's check is to run on again: project, commit and
     /// the agent whose it is.
     rechecks: Vec<(String, String, String)>,
-    /// Projects whose workflows are to be read again.
-    looks: Vec<String>,
+    /// Projects whose workflows are to be read again, each for the card whose
+    /// commands are to run again.
+    looks: Vec<(String, u64)>,
 }
 
 impl Later {
@@ -1341,9 +1460,9 @@ impl Later {
         }
     }
 
-    pub(super) fn look_again(project: &str) -> Self {
+    pub(super) fn look_again(project: &str, card: u64) -> Self {
         Self {
-            looks: vec![project.to_owned()],
+            looks: vec![(project.to_owned(), card)],
             ..Self::default()
         }
     }
@@ -1365,8 +1484,9 @@ impl Later {
         for diff in self.diffs {
             collect_diff(core, diff);
         }
-        for project in self.looks {
+        for (project, card) in self.looks {
             super::workflows::look_again(core, &project);
+            super::commands::run_again(core, &project, card);
         }
     }
 }

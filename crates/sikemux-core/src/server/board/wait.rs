@@ -1,6 +1,6 @@
 //! What a slice waits on now and roughly how long that takes, worked out here
-//! so nobody has to ask: the project's check, another card, the person, or its
-//! owner mid-turn. A check's estimate comes from how long the project's last
+//! so nobody has to ask: the project's check, another card, the person, at a
+//! gate of theirs or to approve a command, or its owner mid-turn. A check's estimate comes from how long the project's last
 //! few checks took, kept while the core runs; an owner's from how long the
 //! board's slices took at that gate before. The board tells clients again
 //! whenever a wait starts, ends, or runs past its estimate.
@@ -143,6 +143,17 @@ pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wa
             };
             return Some(wait(on, since, ends, now));
         }
+    }
+    if slice.awaits_approval(&board.settings) {
+        return Some(wait(
+            WaitOn::Person {
+                gate: gate.gate(),
+                environment: gate.environment().map(str::to_owned),
+            },
+            slice.waiting_since(),
+            None,
+            now,
+        ));
     }
     let owner = card
         .owner_id()

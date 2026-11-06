@@ -42,11 +42,11 @@ pub(crate) fn rebind(board: &mut Board) -> Vec<u64> {
         .collect();
     let mut moved = Vec::new();
     for (id, goal) in goals {
-        let standing: Vec<(u64, Collect)> = (board.card(goal).ok())
-            .map(|goal| {
-                (goal.goal.assertions().iter())
+        let standing: Vec<Named> = (board.card(goal).ok())
+            .map(|card| {
+                (card.goal.assertions().iter())
                     .filter(|assertion| assertion.retired.is_none())
-                    .map(|assertion| (assertion.id, assertion.evidence.clone()))
+                    .map(|assertion| Named::of(goal, assertion))
                     .collect()
             })
             .unwrap_or_default();
@@ -54,9 +54,7 @@ pub(crate) fn rebind(board: &mut Board) -> Vec<u64> {
             continue;
         };
         let freed = slice.bind(goal, |id| {
-            (standing.iter())
-                .find(|(kept, _)| *kept == id)
-                .map(|(_, evidence)| evidence.clone())
+            (standing.iter()).find(|named| named.id == id).cloned()
         });
         if freed {
             moved.push(id);

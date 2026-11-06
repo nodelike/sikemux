@@ -188,6 +188,25 @@ pub(crate) async fn integration(
     project: &Path,
     commit: &str,
 ) -> Result<PathBuf, String> {
+    clean_at(core, project, commit, INTEGRATION).await
+}
+
+/// The checkout of `project`'s repository that assertions' commands run in, moved to `commit`. It
+/// is not the integration checkout, which a long command would otherwise move under a running check.
+pub(crate) async fn gates(
+    core: &Arc<Core>,
+    project: &Path,
+    commit: &str,
+) -> Result<PathBuf, String> {
+    clean_at(core, project, commit, GATES).await
+}
+
+async fn clean_at(
+    core: &Arc<Core>,
+    project: &Path,
+    commit: &str,
+    folder: &'static str,
+) -> Result<PathBuf, String> {
     let (repo, commit) = (project.to_path_buf(), commit.to_owned());
     let (top, path, fresh) = blocking(move || {
         let top = PathBuf::from(Git::quick(&repo).trimmed(&[
@@ -195,7 +214,7 @@ pub(crate) async fn integration(
             "--path-format=absolute",
             "--show-toplevel",
         ])?);
-        let path = worktrees_folder(&top).join(INTEGRATION);
+        let path = worktrees_folder(&top).join(folder);
         let fresh = !path.join(".git").exists();
         let target = path.to_string_lossy().into_owned();
         if fresh {
@@ -222,6 +241,8 @@ pub(crate) async fn integration(
 
 /// The integration checkout's folder in the repository's worktrees folder.
 const INTEGRATION: &str = ".integration";
+/// The gates checkout's folder beside it.
+const GATES: &str = ".gates";
 
 /// Runs `project`'s `worktree.onCreate` commands in the new checkout at `cwd`
 /// once the person trusts its `sikemux.json`, asked on behalf of `agent_id`

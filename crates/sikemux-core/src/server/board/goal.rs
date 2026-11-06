@@ -5,7 +5,9 @@
 //! keeps shares ids that are never given twice. Each is corrected, keeping
 //! what it said before, or retired; a goal full of one kind drops its oldest
 //! retired first, then its oldest. The person or the goal's lead writes its
-//! assertions, and once a slice fulfilling one has started, only the person.
+//! assertions, and once a slice fulfilling one has started, only the person. A
+//! command the lead writes as an assertion's evidence counts only once the
+//! person approves exactly that command.
 //! What agents settle among themselves goes in its goal's log, or the project's
 //! when they work on no goal, where the person can overrule it.
 
@@ -28,6 +30,7 @@ use crate::text::{clipped, to_keep};
 const MAX_EACH: usize = 64;
 const MAX_TEXT_CHARS: usize = 1000;
 const MAX_WORKFLOW_CHARS: usize = 200;
+const MAX_COMMAND_CHARS: usize = 1000;
 
 /// Who says something now, and in which chat turn; none for the person.
 pub(crate) fn learned(core: &Core, agent: Option<&str>) -> Learned {
@@ -236,9 +239,11 @@ impl Change {
     ) -> Result<Self, String> {
         if id.is_none() && evidence.is_none() && !retire {
             return Err(
-                "Say what evidence shows it: check, recording, screenshot or workflow".into(),
+                "Say what evidence shows it: check, recording, screenshot, workflow or command"
+                    .into(),
             );
         }
+        let evidence = evidence.map(checked_command).transpose()?;
         Self::read(id, text, None, evidence, retire)
     }
 
@@ -277,6 +282,28 @@ impl Change {
         }
     }
 }
+
+/// A command to keep is one line, so the person sees all of what they approve.
+fn checked_command(evidence: Collect) -> Result<Collect, String> {
+    let Collect::Command { command } = evidence else {
+        return Ok(evidence);
+    };
+    let command = to_keep(&command, "command", MAX_COMMAND_CHARS)?;
+    if command.chars().any(char::is_control) {
+        return Err("command is one line, with no control characters".into());
+    }
+    Ok(Collect::Command { command })
+}
+
+/// The command a person writing `evidence` approves by writing it.
+fn written_by_person(evidence: &Collect, by: &Learned) -> Option<String> {
+    match evidence {
+        Collect::Command { command } if by.agent.is_none() => Some(command.clone()),
+        _ => None,
+    }
+}
+
+const NOT_UNTIL_APPROVED: &str = " Its command does not count, and does not run, until the person approves exactly that command, in Needs you.";
 
 /// Applies a change other than a new one to `list`; answers what happened.
 fn apply<T: Kept>(
@@ -387,20 +414,28 @@ pub(crate) fn change(
             format!("Rule #{id} is kept on goal #{goal}.{dropped}")
         }
         (List::Assertions, Change::New { text, evidence, .. }) => {
-            let evidence = evidence
-                .ok_or("Say what evidence shows it: check, recording, screenshot or workflow")?;
+            let evidence = evidence.ok_or(
+                "Say what evidence shows it: check, recording, screenshot, workflow or command",
+            )?;
             let dropped = make_room(&mut kept.assertions, goal, &bound)?;
             kept.last += 1;
             let id = kept.last;
-            kept.assertions.push(Assertion {
+            let approved = written_by_person(&evidence, &by);
+            let assertion = Assertion {
                 id,
                 text,
                 evidence,
                 learned: by,
                 was: None,
                 retired: None,
-            });
-            format!("Assertion #{id} is kept on goal #{goal}.{dropped}")
+                approved,
+            };
+            let waits = match assertion.awaits_approval() {
+                Some(_) => NOT_UNTIL_APPROVED,
+                None => "",
+            };
+            kept.assertions.push(assertion);
+            format!("Assertion #{id} is kept on goal #{goal}.{dropped}{waits}")
         }
         (List::Decisions, change) => apply(&mut kept.decisions, goal, change, by)?,
         (List::Rules, change) => apply(&mut kept.rules, goal, change, by)?,
@@ -411,10 +446,17 @@ pub(crate) fn change(
                 }
                 _ => None,
             };
-            let said = apply(&mut kept.assertions, goal, change, by)?;
+            let by_person = by.agent.is_none().then(|| by.clone());
+            let mut said = apply(&mut kept.assertions, goal, change, by)?;
             if let Some((id, evidence)) = evidence {
                 if let Some(kept) = kept.assertions.iter_mut().find(|kept| kept.id == id) {
+                    if let Some(person) = &by_person {
+                        kept.approved = written_by_person(&evidence, person);
+                    }
                     kept.evidence = evidence;
+                    if kept.awaits_approval().is_some() {
+                        said.push_str(NOT_UNTIL_APPROVED);
+                    }
                 }
             }
             said
@@ -449,6 +491,18 @@ fn may_assert(board: &Board, goal: u64, agent: &str, change: &Change) -> Result<
     let (Change::Correct { id, .. } | Change::Retire { id }) = change else {
         return Ok(());
     };
+    if let Change::Correct {
+        evidence: Some(Collect::Command { .. }),
+        ..
+    } = change
+    {
+        let kept = card.goal.assertion(*id);
+        if !kept.is_some_and(|kept| matches!(kept.evidence, Collect::Command { .. })) {
+            return Err(format!(
+                "Assertion #{id} isn't shown by a command, so turning down yours would leave it with nothing; write a new assertion for the command"
+            ));
+        }
+    }
     let started = board.cards.iter().find(|slice| {
         board.goal_above(slice).id == goal
             && (slice.slice.as_ref())
@@ -716,13 +770,26 @@ struct ToolAssert {
     text: Option<String>,
     evidence: Option<String>,
     workflow: Option<String>,
+    command: Option<String>,
     #[serde(default)]
     retire: bool,
 }
 
-/// The evidence the tool names: a kind, and the workflow's name for one a
-/// workflow shows.
-fn evidence_of(kind: Option<&str>, workflow: Option<String>) -> Result<Option<Collect>, String> {
+/// The evidence the tool names: a kind, with the workflow's name for one a
+/// workflow shows and the command for one a command shows.
+fn evidence_of(
+    kind: Option<&str>,
+    workflow: Option<String>,
+    command: Option<String>,
+) -> Result<Option<Collect>, String> {
+    match (kind, command) {
+        (Some("command") | None, Some(command)) if workflow.is_none() => {
+            return Ok(Some(Collect::Command { command }))
+        }
+        (Some("command"), None) => return Err("Say the command to run".into()),
+        (_, Some(_)) => return Err("Only a command's evidence names a command".into()),
+        (_, None) => {}
+    }
     let workflow = (workflow.as_deref().map(str::trim))
         .filter(|name| !name.is_empty())
         .map(|name| to_keep(name, "workflow", MAX_WORKFLOW_CHARS))
@@ -736,7 +803,7 @@ fn evidence_of(kind: Option<&str>, workflow: Option<String>) -> Result<Option<Co
         (Some("workflow"), None) => Err("Name the workflow, as its CI calls it".into()),
         (Some(_), Some(_)) => Err("Only a workflow's evidence names a workflow".into()),
         (Some(kind), None) => Err(format!(
-            "evidence is check, recording, screenshot or workflow, not {kind}"
+            "evidence is check, recording, screenshot, workflow or command, not {kind}"
         )),
     }
 }
@@ -755,7 +822,7 @@ pub(crate) async fn tool_assert(
         let asserting = Change::of_assertion(
             given.assertion,
             given.text.as_deref(),
-            evidence_of(given.evidence.as_deref(), given.workflow)?,
+            evidence_of(given.evidence.as_deref(), given.workflow, given.command)?,
             given.retire,
         )?;
         let project = crate::server::caller::project_of(&core, &request);
@@ -770,6 +837,82 @@ pub(crate) async fn tool_assert(
         let by = learned(&core, Some(&agent));
         let said = change(&core, &project, goal, List::Assertions, asserting, by)?;
         Ok(json!({ "goal": goal, "note": said }))
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnswerCommandParams {
+    pub project: String,
+    pub card: u64,
+    pub assertion: u64,
+    /// The command the person saw, which an answer holds for only while the assertion names it.
+    pub command: String,
+    pub accept: bool,
+}
+
+/// The person answers a command an agent wrote. Accepted, that exact command counts. Turned down,
+/// the assertion goes back to the command they last approved, or is retired with none. Only the
+/// person's own app reaches this, so an agent has no way to approve its own.
+pub(crate) async fn person_answer_command(
+    core: &Arc<Core>,
+    params: AnswerCommandParams,
+) -> Result<ProjectBoard, String> {
+    let core = core.clone();
+    blocking(move || {
+        let project = project_at(&core, &params.project)?;
+        let by = learned(&core, None);
+        let (settled, told) = {
+            let mut state = core.boards.state.locked();
+            let board = (state.boards.get_mut(&project))
+                .ok_or("This project's board has no such assertion")?;
+            let card = board.card_mut(params.card)?;
+            let kept = (card.goal.assertions.iter_mut())
+                .find(|kept| kept.id == params.assertion && kept.retired.is_none())
+                .ok_or("That assertion is gone")?;
+            if kept.awaits_approval() != Some(params.command.as_str()) {
+                return Err(
+                    "That command changed or was answered already; look at it again".into(),
+                );
+            }
+            let then = match (params.accept, kept.approved.take()) {
+                (true, _) => {
+                    kept.approved = Some(params.command.clone());
+                    "approved it, so it runs on each slice's latest commit".to_owned()
+                }
+                (false, Some(earlier)) => {
+                    let words = format!("turned it down, so `{earlier}` stands");
+                    kept.evidence = Collect::Command {
+                        command: earlier.clone(),
+                    };
+                    kept.approved = Some(earlier);
+                    words
+                }
+                (false, None) => {
+                    kept.retired = Some(by);
+                    "turned it down, so the assertion is retired".to_owned()
+                }
+            };
+            let told = kept.learned.agent.clone().map(|agent| super::Notice {
+                to: agent,
+                text: format!(
+                    "Of the command `{}` you wrote for assertion #{} of goal #{}, the person {then}.",
+                    params.command, params.assertion, params.card
+                ),
+            });
+            card.updated_at = epoch_ms();
+            super::slice::rebind(board);
+            let settled = super::environments::settle_cards(&core, &mut state, &project);
+            core.boards.save(&mut state, &project);
+            (settled, told)
+        };
+        settled.later.run(&core);
+        let mut notices = settled.notices;
+        notices.extend(told);
+        super::send_notices(&core, notices);
+        Ok(project_view(&core, &project))
     })
     .await
     .map_err(|error| error.to_string())
