@@ -362,7 +362,8 @@ impl GoalsPane {
         }
         self.here = front.clone();
         self.project_picked(front, cx);
-        if matches!(self.at, At::Goal(_) | At::Slice(_)) {
+        let environments_of_nothing = self.at == At::Environments && self.here.is_none();
+        if matches!(self.at, At::Goal(_) | At::Slice(_)) || environments_of_nothing {
             self.at = At::Home;
         }
         self.picked = None;

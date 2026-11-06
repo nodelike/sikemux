@@ -834,13 +834,14 @@ fn project_tree(
         ))
         .children(close);
     div().flex().flex_col().child(row).when(active, |tree| {
-        tree.pb(SPACE_1).child(surfaces(lit_surface(bench), cx))
+        tree.pb(SPACE_1)
+            .child(surfaces(lit_surface(bench), bench.environments_lit(cx), cx))
     })
 }
 
 /// The surface the project tree lights: the tab rail's page while it is open, unless the
 /// tab in front is a surface the tab rail has no page for, such as Git; none on the goals,
-/// where Home or Overnight is lit instead.
+/// where Home, Overnight or Environments is lit instead.
 fn lit_surface(bench: &Workbench) -> Option<PaneKind> {
     if bench.showing_goals() {
         return None;
@@ -1006,95 +1007,123 @@ fn rollup(bench: &Workbench, project: &str, cx: &App) -> Option<gpui_kit::AnyEle
     ui::status_mark(&format!("project:{project}"), status, cx)
 }
 
-/// The project's surfaces, hung off a spine with a tick to each, the one in front lit.
-fn surfaces(front: Option<PaneKind>, cx: &Context<Workbench>) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
+/// The project's surfaces and its environments, hung off a spine with a tick to each, the one
+/// in front lit.
+fn surfaces(
+    front: Option<PaneKind>,
+    environments_lit: bool,
+    cx: &Context<Workbench>,
+) -> impl IntoElement {
     let bench = cx.entity().downgrade();
-    let rows = crate::pane_kind::SURFACES.map(|surface| {
-        let kind = surface.kind;
-        let label = SharedString::from(surface.label);
-        (
-            crate::pane_kind::of(kind).icon,
-            label,
-            surface.command,
-            kind,
-        )
-    });
-    let last = rows.len() - 1;
+    let surfaces = crate::pane_kind::SURFACES
+        .into_iter()
+        .enumerate()
+        .map(|(index, surface)| {
+            let (kind, command) = (surface.kind, surface.command);
+            let bench = bench.clone();
+            tree_row(
+                SharedString::from(format!("surface-{index}")),
+                crate::pane_kind::of(kind).icon,
+                surface.label,
+                Some(kind) == front,
+                false,
+                keymap::hint(command, cx),
+                cx,
+            )
+            .on_click(move |_, window, cx| {
+                if let Some(page) = crate::pane_kind::page_of(kind) {
+                    let _ = bench.update(cx, |bench, cx| {
+                        if bench.rails.tab_open {
+                            bench.show_rail_page(page, cx);
+                        }
+                    });
+                }
+                keymap::dispatch(command, window, cx);
+            })
+            .into_any_element()
+        });
+    let environments = tree_row(
+        "surface-environments".into(),
+        Icon::Rocket,
+        "Environments",
+        environments_lit,
+        true,
+        None,
+        cx,
+    )
+    .on_click(cx.listener(|bench, _, _, cx| bench.open_environments(cx)));
     div()
         .flex()
         .flex_col()
         .ml(px(13.5))
         .py(SPACE_0)
         .pr(SPACE_1H)
-        .children(rows.into_iter().enumerate().map(
-            move |(index, (glyph, label, command, kind))| {
-                let tail = index == last;
-                let lit = Some(kind) == front;
-                let spine = div().absolute().left_0().top_0();
-                let bench = bench.clone();
+        .children(surfaces)
+        .child(environments)
+}
+
+/// One row of a project's tree; the `tail` ends the spine.
+fn tree_row(
+    id: SharedString,
+    glyph: Icon,
+    label: &'static str,
+    lit: bool,
+    tail: bool,
+    keys: Option<SharedString>,
+    cx: &Context<Workbench>,
+) -> gpui_kit::Stateful<gpui_kit::Div> {
+    let t = Tokens::get(cx).clone();
+    let spine = div().absolute().left_0().top_0();
+    div()
+        .id(id)
+        .relative()
+        .h(px(25.))
+        .pr(SPACE_2)
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .rounded(RADIUS_2)
+        .text_color(if lit { t.accent } else { t.text_tertiary })
+        .when(!lit, |row| {
+            row.hover(move |style| style.text_color(t.text_primary))
+        })
+        .child(if tail {
+            spine
+                .w(px(9.))
+                .h(px(13.))
+                .border_l_1()
+                .border_b_1()
+                .border_color(t.tree_spine)
+                .rounded_bl(px(4.))
+        } else {
+            spine.bottom_0().w(px(1.)).bg(t.tree_spine)
+        })
+        .when(!tail, |row| {
+            row.child(
                 div()
-                    .id(SharedString::from(format!("surface-{index}")))
-                    .relative()
-                    .h(px(25.))
-                    .on_click(move |_, window, cx| {
-                        if let Some(page) = crate::pane_kind::page_of(kind) {
-                            let _ = bench.update(cx, |bench, cx| {
-                                if bench.rails.tab_open {
-                                    bench.show_rail_page(page, cx);
-                                }
-                            });
-                        }
-                        keymap::dispatch(command, window, cx);
-                    })
-                    .pr(SPACE_2)
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_2)
-                    .rounded(RADIUS_2)
-                    .text_color(if lit { t.accent } else { t.text_tertiary })
-                    .when(!lit, |row| {
-                        row.hover(move |style| style.text_color(t.text_primary))
-                    })
-                    .child(if tail {
-                        spine
-                            .w(px(9.))
-                            .h(px(13.))
-                            .border_l_1()
-                            .border_b_1()
-                            .border_color(t.tree_spine)
-                            .rounded_bl(px(4.))
-                    } else {
-                        spine.bottom_0().w(px(1.)).bg(t.tree_spine)
-                    })
-                    .when(!tail, |row| {
-                        row.child(
-                            div()
-                                .absolute()
-                                .left_0()
-                                .top(px(12.))
-                                .w(px(9.))
-                                .h(px(1.))
-                                .bg(t.tree_tick),
-                        )
-                    })
-                    .child(div().w(px(9.)).flex_none())
-                    .child(ui::mark_box(
-                        16.,
-                        ui::icon(glyph, 13.).text_color(if lit { t.live } else { t.text_tertiary }),
-                    ))
-                    .child(ui::text(label, TEXT_XS_H, FontWeight::MEDIUM).letter_spacing(0.01))
-                    .when_some(keymap::hint(command, cx), |row, keys| {
-                        let keys = ui::kbd(keys, cx).when(lit, |keys| keys.text_color(t.accent));
-                        row.child(
-                            div()
-                                .ml_auto()
-                                .when(!lit, |keys| keys.opacity(0.5))
-                                .child(keys),
-                        )
-                    })
-            },
+                    .absolute()
+                    .left_0()
+                    .top(px(12.))
+                    .w(px(9.))
+                    .h(px(1.))
+                    .bg(t.tree_tick),
+            )
+        })
+        .child(div().w(px(9.)).flex_none())
+        .child(ui::mark_box(
+            16.,
+            ui::icon(glyph, 13.).text_color(if lit { t.live } else { t.text_tertiary }),
         ))
+        .child(ui::text(label, TEXT_XS_H, FontWeight::MEDIUM).letter_spacing(0.01))
+        .when_some(keys, |row, keys| {
+            let keys = ui::kbd(keys, cx).when(lit, |keys| keys.text_color(t.accent));
+            row.child(
+                div()
+                    .ml_auto()
+                    .when(!lit, |keys| keys.opacity(0.5))
+                    .child(keys),
+            )
+        })
 }
 
 /// The spaces the person sorts projects into, which filter the projects below them.

@@ -1,5 +1,5 @@
-//! What the window's rails show while it is on the goals: Home, Overnight and Environments at the
-//! top of the side rail, and the goals of the project in front on the tab rail, each with its state's mark
+//! What the window's rails show while it is on the goals: Home and Overnight at the top of the
+//! side rail, and the goals of the project in front on the tab rail, each with its state's mark
 //! and how many things in it wait on the person.
 
 use crate::theme::SPACE_2H;
@@ -48,13 +48,6 @@ pub fn places(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Vec<AnyE
             Icon::Clock,
             At::Overnight,
             happened,
-        ),
-        place(
-            "goals-environments",
-            "Environments",
-            Icon::Rocket,
-            At::Environments,
-            pane.environments_set(),
         ),
     ])
 }
@@ -170,6 +163,19 @@ impl Workbench {
         }
         self.goals_view(cx)
             .update(cx, |goals, cx| goals.open_goal(goal, cx));
+    }
+
+    /// Shows the environments of the project in front.
+    pub fn open_environments(&mut self, cx: &mut Context<Self>) {
+        if !self.showing_goals() {
+            self.toggle_goals_view(cx);
+        }
+        self.goals_view(cx)
+            .update(cx, |goals, cx| goals.go(At::Environments, cx));
+    }
+
+    pub fn environments_lit(&self, cx: &App) -> bool {
+        (self.goals_in_front()).is_some_and(|goals| goals.read(cx).lit() == At::Environments)
     }
 
     pub fn showing_goals(&self) -> bool {

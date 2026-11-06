@@ -16,6 +16,7 @@ use sikemux_core::server::board::Recognise as EnvironmentRecognise;
 use sikemux_core::server::call;
 
 use super::goal::quiet_section;
+use super::home::project_name;
 use super::GoalsPane;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_XS_H};
@@ -147,13 +148,6 @@ fn passes_words(passes: EnvironmentPasses) -> &'static str {
 }
 
 impl GoalsPane {
-    /// How many environments the project in front has.
-    pub(super) fn environments_set(&self) -> usize {
-        (self.here.as_deref())
-            .and_then(|project| self.board_of(project))
-            .map_or(0, |board| board.settings.environments.len())
-    }
-
     /// Opens the project's environments to change them, which needs the window.
     fn edit_environments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(project) = self.here.clone() else {
@@ -285,10 +279,14 @@ pub(super) fn page(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
     let t = Tokens::get(cx).clone();
     let busy = pane.busy;
     let listed = kept.len();
+    let title = (pane.bench.upgrade().zip(pane.here.as_deref()))
+        .map_or("Environments".to_owned(), |(bench, folder)| {
+            format!("{} environments", project_name(bench.read(cx), folder))
+        });
     let view = div()
         .flex()
         .flex_col()
-        .child(quiet_section("Environments", listed, cx))
+        .child(quiet_section(&title, listed, cx))
         .when_some(proposal, |view, proposal| {
             let steps: Vec<String> = (proposal.environments.iter())
                 .map(|environment| {

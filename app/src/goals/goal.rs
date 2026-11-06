@@ -424,11 +424,7 @@ pub(super) fn row(id: SharedString, cx: &Context<GoalsPane>) -> gpui_kit::Statef
 }
 
 /// A part of the goal page below what is read first, named more quietly than it.
-pub(super) fn quiet_section(
-    title: &'static str,
-    count: usize,
-    cx: &Context<GoalsPane>,
-) -> AnyElement {
+pub(super) fn quiet_section(title: &str, count: usize, cx: &Context<GoalsPane>) -> AnyElement {
     div()
         .pt(SPACE_5)
         .pb(SPACE_1)

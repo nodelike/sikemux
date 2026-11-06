@@ -5,7 +5,7 @@ description: "Every goal and agent at a glance, what each needs of you, and the 
 
 A goal is a card at the top of the [agent board](/agents/board/) with an agent working it or slices under it. A chat is not a goal, but it can [pick one up](#a-chat-picks-up-a-goal) as it goes. A slice at the top, with no goal above it, such as a card Auto runs, is a goal of its own with one slice. **Goals** is a view of its own in the middle of the window: it puts what needs you first, then every goal and agent on this host. Switch to it with the goals button at the top right of the window, after the clock and beside focus mode, or press `⌘⌥7`; press either again to go back to the workbench. The window keeps whichever you left it on.
 
-Both rails stay. The side rail keeps your projects, hosts and the rest, with **Home**, **Overnight** and **[Environments](#environments)** at its top, the first two with how many things need you or happened while you were away. On Home, picking a project there narrows the list to it; the **×** on its name beside the find box shows every project again. On Home the rail on the right shows [the row you chose](#the-row-you-chose). Elsewhere in Goals it lists the goals of the project in front, each with the mark of where it stands and how many things in it need you; click one to open it.
+Both rails stay. The side rail keeps your projects, hosts and the rest, with **Home** and **Overnight** at its top, with how many things need you or happened while you were away. On Home, picking a project there narrows the list to it; the **×** on its name beside the find box shows every project again. On Home the rail on the right shows [the row you chose](#the-row-you-chose). Elsewhere in Goals it lists the goals of the project in front, each with the mark of where it stands and how many things in it need you; click one to open it.
 
 ## Starting work
 
@@ -128,7 +128,7 @@ A goal also tells you when it moves, in one short notification: slices landed, t
 
 ## Environments
 
-**Environments**, in the side rail, is where you say where this project deploys and who a deploy waits on. Only you can set them, since agents can write to the repository; they live in the core with the project's other board settings, not in `sikemux.json`. An agent can propose them, which shows under **Decide** and opens here for you to **Accept** or **Turn down**.
+**Environments**, under the project in the side rail, is where you say where that project deploys and who a deploy waits on. Only you can set them, since agents can write to the repository; they live in the core with the project's other board settings, not in `sikemux.json`. An agent can propose them, which shows under **Decide** and opens here for you to **Accept** or **Turn down**.
 
 Each environment has a name, what Sikemux recognises it by, and who passes it:
 
