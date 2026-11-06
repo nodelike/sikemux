@@ -20,6 +20,8 @@
 //! Each ends by typing in the front chat's composer while its load runs. `make-repo <folder> [files]` writes a
 //! generated repository to stress `repo` with.
 
+mod common;
+
 use sikemux_wire::protocol::ask;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
@@ -28,11 +30,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common::{spread, thread_cpu_ms, Pace, Timed, DRAWS};
 use gpui::{
-    point, px, size, AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context, Element,
-    ElementId, Entity, Focusable, GlobalElementId, HeadlessAppContext, InspectorElementId,
-    IntoElement, Keystroke, LayoutId, ParentElement, Pixels, PlatformInput, Render, ScrollDelta,
-    ScrollEvent, Styled, Window, WindowBounds, WindowOptions,
+    point, px, size, AnyWindowHandle, AppContext, Bounds, Context, Entity, Focusable,
+    HeadlessAppContext, IntoElement, Keystroke, ParentElement, Pixels, PlatformInput, Render,
+    ScrollDelta, ScrollEvent, Styled, Window, WindowBounds, WindowOptions,
 };
 use gpui_transcript::Row as _;
 use serde_json::{json, Value};
@@ -42,12 +44,9 @@ use sikemux_gpui::{core, icons, memory, theme, WINDOW_SIZE};
 use sikemux_view::layout::Pane;
 use sikemux_wire::protocol::{ChatAttachment, LaunchIdentity, SpawnTarget, TerminalSpawn};
 
-const FRAME: Duration = Duration::from_micros(8_333);
 const PROJECT: &str = "stress";
 
 thread_local! {
-    /// Each drawn frame's CPU from render to paint, in ms.
-    static DRAWS: RefCell<Vec<f64>> = const { RefCell::new(Vec::new()) };
     /// The transcript's work counters as each frame began, beside `DRAWS`, with `counts` on.
     static COUNTED: RefCell<Vec<Vec<(&'static str, u64)>>> = const { RefCell::new(Vec::new()) };
 }
@@ -65,71 +64,6 @@ impl Render for Probe {
         gpui::div()
             .size_full()
             .child(Timed(self.bench.clone().into_any_element()))
-    }
-}
-
-struct Timed(AnyElement);
-
-impl IntoElement for Timed {
-    type Element = Self;
-
-    fn into_element(self) -> Self {
-        self
-    }
-}
-
-impl Element for Timed {
-    type RequestLayoutState = ();
-    type PrepaintState = ();
-
-    fn id(&self) -> Option<ElementId> {
-        None
-    }
-
-    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
-        None
-    }
-
-    fn request_layout(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> (LayoutId, ()) {
-        let began = Instant::now();
-        let layout = self.0.request_layout(window, cx);
-        add_to_draw(began);
-        (layout, ())
-    }
-
-    fn prepaint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let began = Instant::now();
-        self.0.prepaint(window, cx);
-        add_to_draw(began);
-    }
-
-    fn paint(
-        &mut self,
-        _: Option<&GlobalElementId>,
-        _: Option<&InspectorElementId>,
-        _: Bounds<Pixels>,
-        _: &mut (),
-        _: &mut (),
-        window: &mut Window,
-        cx: &mut App,
-    ) {
-        let began = Instant::now();
-        self.0.paint(window, cx);
-        add_to_draw(began);
     }
 }
 
@@ -159,23 +93,6 @@ fn counted_in(frame: usize) -> String {
     })
 }
 
-fn add_to_draw(began: Instant) {
-    DRAWS.with_borrow_mut(|draws| {
-        if let Some(draw) = draws.last_mut() {
-            *draw += began.elapsed().as_secs_f64() * 1e3;
-        }
-    });
-}
-
-fn thread_cpu_ms() -> f64 {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
-    time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
-}
-
 /// Resident memory of a process, in MB, as `ps` reads it.
 fn rss_mb(pid: u32) -> Option<f64> {
     let out = sikemux_process::user_environment::command("/bin/ps")
@@ -201,23 +118,6 @@ fn core_pid(socket: &str) -> Option<u32> {
         .trim()
         .parse()
         .ok()
-}
-
-fn spread(mut values: Vec<f64>) -> String {
-    values.sort_by(f64::total_cmp);
-    let at = |q: f64| {
-        values
-            .get(((values.len().max(1) - 1) as f64 * q).round() as usize)
-            .copied()
-            .unwrap_or(0.)
-    };
-    format!(
-        "p50 {:.2} ms, p95 {:.2}, max {:.2} ({} frames)",
-        at(0.5),
-        at(0.95),
-        at(1.),
-        values.len()
-    )
 }
 
 /// What the core and its fake agents are asked to do, from a thread of their own.
@@ -331,8 +231,7 @@ struct Run {
     cx: HeadlessAppContext,
     window: AnyWindowHandle,
     bench: Entity<Workbench>,
-    last: Instant,
-    clock: Instant,
+    pace: Pace,
     pid: u32,
     core: Option<u32>,
     shots: PathBuf,
@@ -357,23 +256,12 @@ impl Measured {
 }
 
 impl Run {
-    /// Runs what is ready, as a window's thread would between frames. Never waits
-    /// to park: while chats stream, more is always arriving.
     fn pump(&mut self) {
-        self.cx.advance_clock(self.clock.elapsed());
-        self.clock = Instant::now();
-        let began = Instant::now();
-        while self.cx.background_executor().tick() && began.elapsed() < Duration::from_millis(4) {}
+        self.pace.pump(&mut self.cx);
     }
 
     fn frame(&mut self) {
-        let wait = FRAME.saturating_sub(self.last.elapsed());
-        std::thread::sleep(wait);
-        self.last = Instant::now();
-        self.pump();
-        self.cx
-            .update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
-            .ok();
+        self.pace.frame(&mut self.cx, self.window);
     }
 
     fn frames(&mut self, count: usize) {
@@ -530,7 +418,7 @@ impl Run {
                 .update_window(self.window, |_, window, cx| window.draw(cx).clear(cx))
                 .ok();
             latencies.push(began.elapsed().as_secs_f64() * 1e3);
-            self.last = Instant::now();
+            self.pace.restart();
             self.frames(4);
         }
         for _ in 0..count {
@@ -1582,8 +1470,7 @@ fn main() -> anyhow::Result<()> {
         cx,
         window: window.into(),
         bench,
-        last: Instant::now(),
-        clock: Instant::now(),
+        pace: Pace::new(),
         pid: std::process::id(),
         core: core_pid(&socket),
         shots: base.join("shots"),

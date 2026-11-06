@@ -12,11 +12,14 @@
 //! It runs offscreen on a simulated clock at 120 Hz and prints, for each phase, the main
 //! thread's CPU for each frame: the window's work and, when something changed, its draw.
 
+mod common;
+
 use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common::thread_cpu_ms;
 use gpui::{
     point, px, size, AnyWindowHandle, AppContext, Entity, Focusable, HeadlessAppContext, Keystroke,
 };
@@ -626,14 +629,4 @@ fn press(run: &mut Bench, keys: &[&str]) {
             }
         })
         .ok();
-}
-
-fn thread_cpu_ms() -> f64 {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: clock_gettime only writes the struct it is handed.
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
-    time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
 }

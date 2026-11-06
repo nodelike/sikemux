@@ -1,14 +1,14 @@
-//! Times the app's own chat pane the way `pnpm perf chat` times today's, so the
-//! two compare: opening 2,000 rows, scrolling them to the top, scrolling up
+//! Times the app's own chat pane: opening 2,000 rows, scrolling them to the top, scrolling up
 //! from the last 200 while earlier pages arrive, and a 4,000-token answer
 //! streaming in at 32 characters every 16 ms. The rows and every change to
-//! them are the fold's own, made from the same words `showcase/perf/chat.ts`
-//! uses, and reach the window the way the core's do. Only the window's layout
+//! them are the fold's own and reach the window the way the core's do. Only the window's layout
 //! comes from a core, which must have a chat in its tab in front:
 //!   SIKEMUX_CORE_SOCKET=/tmp/sx/core.sock cargo run --release --example chat_bench
 //! Without a core it lays out one project with the chat in front itself.
 //! It draws offscreen on a simulated clock at 120 Hz and prints, for each phase,
 //! the CPU each frame's draw of the whole window took.
+
+mod common;
 
 use sikemux_wire::protocol::ask;
 use std::cell::Cell;
@@ -18,6 +18,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use common::thread_cpu_ms;
 use gpui::{
     point, px, size, AnyWindowHandle, AppContext, Entity, HeadlessAppContext, Modifiers,
     PlatformInput, ScrollDelta, ScrollEvent, ScrollSource, TouchPhase,
@@ -53,7 +54,7 @@ const WORDS: [&str; 24] = [
     "here",
 ];
 
-/// `showcase/perf/chat.ts`'s generator, so both runs read the same words.
+/// A small generator, so every run reads the same words.
 struct Words(u64);
 
 impl Words {
@@ -310,16 +311,6 @@ impl Folded {
             None,
         )
     }
-}
-
-fn thread_cpu_ms() -> f64 {
-    let mut time = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: clock_gettime only writes the struct it is handed.
-    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut time) };
-    time.tv_sec as f64 * 1e3 + time.tv_nsec as f64 / 1e6
 }
 
 fn peak_resident_mb() -> f64 {
