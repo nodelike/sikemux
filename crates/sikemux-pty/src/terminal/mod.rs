@@ -16,7 +16,7 @@ use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::index::Line;
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle, Processor, Rgb};
-use sikemux_wire::grid::{SpanStyle, TerminalColors, MIN_TERMINAL_COLUMNS};
+use sikemux_grid::{SpanStyle, TerminalColors, MIN_TERMINAL_COLUMNS};
 
 use history::History;
 
@@ -302,7 +302,7 @@ impl Terminal {
 
 #[cfg(test)]
 mod tests {
-    use sikemux_wire::grid::TerminalColors;
+    use sikemux_grid::TerminalColors;
 
     use super::Terminal;
 

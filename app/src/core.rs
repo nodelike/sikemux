@@ -21,20 +21,19 @@ use sikemux_client::accounts::network;
 use sikemux_client::client::{Attached, ClientError, ClientEvent, CoreClient};
 use sikemux_client::remote::SecretKey;
 use sikemux_core::server::call::Call;
+use sikemux_grid::{decode_frame, decode_lines, Frame, Lines};
 use sikemux_host::cli_paths;
 use sikemux_host::core_start::{self, StartError};
 use sikemux_host::login_item::{self, CoreLaunch};
 use sikemux_linked::{Happened, Linked};
 use sikemux_view::device::DeviceView;
-use sikemux_wire::grid::{
-    decode_frame, decode_lines, FindOptions, FindResult, Frame, GridPoint, Lines, TerminalInput,
-};
 use sikemux_wire::protocol::{
     ask, CallId, ChatAccount, ChatAttachment, ChatContext, ChatMark, DeviceAccess, ErrorKind,
     Event, LaunchIdentity, NetworkChange, NoticeGoal, PermissionMode, RemoteStatus, SessionId,
     SpawnTarget, StreamId, TerminalSpawn, WindowAnswer, WindowCall,
 };
 use sikemux_wire::pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnapshot};
+use sikemux_wire::terminal::{FindOptions, FindResult, GridPoint, TerminalInput};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::hosts::Place;

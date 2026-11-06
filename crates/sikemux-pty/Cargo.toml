@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 sikemux-process = { path = "../sikemux-process" }
+sikemux-grid = { path = "../sikemux-grid" }
 sikemux-wire = { path = "../sikemux-wire" }
 portable-pty = "0.9"
 alacritty_terminal = "0.25"

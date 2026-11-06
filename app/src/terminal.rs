@@ -22,12 +22,13 @@ use gpui_kit::{
 use gpui_terminal_grid::{
     Cursor, CursorShape, Grid, Highlight, Layout, Look, Marked, Metrics, Span, Underline,
 };
-use sikemux_wire::grid::{
-    self as wire, Color, FindOptions, FindResult, GridPoint, Mods, MouseAction, MouseButton, Row,
-    Screen, TerminalInput,
-};
+
+use sikemux_grid::{Color, Row, Screen};
 use sikemux_wire::protocol::{SessionId, SessionInfo};
 use sikemux_wire::pty::shell_protocol::{ShellBoundary, ShellMetadataSnapshot, ShellPhase};
+use sikemux_wire::terminal::{
+    FindOptions, FindResult, GridPoint, Mods, MouseAction, MouseButton, TerminalInput,
+};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::core::{Ask, Screenful, TerminalAsk};

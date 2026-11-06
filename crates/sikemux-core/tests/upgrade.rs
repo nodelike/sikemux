@@ -26,8 +26,8 @@ use sikemux_core::cli::protocol::{
 };
 use sikemux_core::client::{await_deferred_upgrade, await_upgrade, frozen_request, probe};
 use sikemux_core::frozen::{FrozenReply, FrozenRequest};
+use sikemux_grid::{decode_frame, Screen};
 use sikemux_view::chat::{PermissionKind, StopReason};
-use sikemux_wire::grid::{decode_frame, Screen};
 use sikemux_wire::protocol::{
     BuildIdentity, ChatAttachment, ChatLaunch, ChatMark, Event, LaunchIdentity, PermissionMode,
     SessionId, SpawnTarget, StreamId, TerminalSpawn,

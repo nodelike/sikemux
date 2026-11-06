@@ -243,7 +243,7 @@ pub(super) async fn run(
                 client.answer::<ask::Detach>(request_id, Ok(()));
             }
             Request::Resize(ask::Resize { id, cols, rows }) => {
-                if cols < sikemux_wire::grid::MIN_TERMINAL_COLUMNS {
+                if cols < sikemux_grid::MIN_TERMINAL_COLUMNS {
                     eprintln!("sikemux core: a client asked for {cols} columns in terminal {id}");
                 } else {
                     core.spares.note_size(cols, rows);

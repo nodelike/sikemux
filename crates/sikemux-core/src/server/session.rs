@@ -20,7 +20,7 @@ use sikemux_pty::shell_protocol::ShellProtocolParser;
 use sikemux_pty::task::TaskProcessExit;
 use sikemux_pty::terminal::View;
 use sikemux_pty::validate_pty_dimensions;
-use sikemux_wire::grid::{FindOptions, FindResult, GridPoint, TerminalInput};
+use sikemux_wire::terminal::{FindOptions, FindResult, GridPoint, TerminalInput};
 use tokio::io::unix::AsyncFd;
 use tokio::sync::{mpsc, Notify};
 
@@ -1494,7 +1494,7 @@ pub(crate) fn typist(client: &ClientConn) -> Typist {
 mod tests {
     use super::RESET_MODES;
     use sikemux_pty::screen::Screen;
-    use sikemux_wire::grid::{Mods, MouseAction, MouseButton, TerminalInput};
+    use sikemux_wire::terminal::{Mods, MouseAction, MouseButton, TerminalInput};
 
     // The single-fd design rests on this: after the master is dup'd and
     // portable_pty's `MasterPty` dropped, the dup keeps the child's terminal
@@ -1553,7 +1553,7 @@ mod tests {
     #[test]
     fn reset_modes_disables_interaction_modes_without_losing_normal_history() {
         let mut screen = Screen::new(5, 20, false);
-        let colors = sikemux_wire::grid::TerminalColors::default();
+        let colors = sikemux_grid::TerminalColors::default();
         for i in 0..20 {
             screen.process(format!("line {i:02}\r\n").as_bytes(), &colors);
         }

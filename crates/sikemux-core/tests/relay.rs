@@ -17,8 +17,8 @@ use sikemux_client::client::{ClientEvent, CoreClient};
 use sikemux_client::remote::{self, SecretKey};
 use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig};
+use sikemux_grid::{decode_frame, Screen};
 use sikemux_wire::accounts::protocol::Relay;
-use sikemux_wire::grid::{decode_frame, Screen};
 use sikemux_wire::protocol::{
     BuildIdentity, DeviceAccess, LaunchIdentity, SpawnTarget, TerminalSpawn,
 };

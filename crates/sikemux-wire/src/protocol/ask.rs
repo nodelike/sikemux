@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use crate::grid::{FindOptions, FindResult, GridPoint};
+use crate::terminal::{FindOptions, FindResult, GridPoint};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -52,7 +52,7 @@ pub struct Detach {
 #[serde(rename_all = "camelCase")]
 pub struct TerminalInput {
     pub id: SessionId,
-    pub input: crate::grid::TerminalInput,
+    pub input: crate::terminal::TerminalInput,
 }
 
 /// History lines `start..start + count`, answered with a lines frame.

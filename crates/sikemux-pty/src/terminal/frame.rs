@@ -5,9 +5,8 @@ use alacritty_terminal::index::{Column, Line};
 use alacritty_terminal::term::cell::{Cell, Flags};
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::{Color as TermColor, CursorShape};
-use sikemux_wire::grid::{
-    self as wire, Color, Cursor, FrameHeader, FrameWriter, SpanStyle, FRAME_RESET,
-};
+
+use sikemux_grid::{Color, Cursor, FrameHeader, FrameWriter, SpanStyle, FRAME_RESET};
 
 use super::history::{self, LineWriter};
 use super::Terminal;

@@ -3,7 +3,8 @@ use std::fmt::Write;
 use alacritty_terminal::grid::Dimensions;
 use alacritty_terminal::term::TermMode;
 use alacritty_terminal::vte::ansi::CursorShape;
-use sikemux_wire::grid::{self as wire, Color, SpanStyle};
+
+use sikemux_grid::{Color, SpanStyle};
 
 use super::Terminal;
 

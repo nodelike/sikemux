@@ -6,7 +6,7 @@
 use std::collections::VecDeque;
 use std::ops::Range;
 
-use sikemux_wire::grid::{Color, SpanStyle};
+use sikemux_grid::{Color, SpanStyle};
 
 const WIDE: u8 = 1;
 const CLUSTER: u8 = 2;

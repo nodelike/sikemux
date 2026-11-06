@@ -12,9 +12,9 @@ use std::time::{Duration, Instant};
 use sikemux_client::client::{Attached, ClientEvent, CoreClient, EventSink, Reply};
 use sikemux_core::client::{ensure_running, probe};
 use sikemux_core::server::{self, ServerConfig, ServerError};
+use sikemux_grid::{decode_frame, Screen, MODE_ALT_SCREEN, MODE_MOUSE_ANY};
 use sikemux_pty::launch::{LaunchKind, PtyContext};
 use sikemux_pty::task::{TaskSource, TaskSpawnRequest};
-use sikemux_wire::grid::{decode_frame, Screen, MODE_ALT_SCREEN, MODE_MOUSE_ANY};
 use sikemux_wire::protocol::{
     ask, encode_control, read_frame_sync, AgentState, AgentStateEvent, BuildIdentity,
     ClientMessage, Continuation, Event, LaunchIdentity, Request, Response, ServerMessage,

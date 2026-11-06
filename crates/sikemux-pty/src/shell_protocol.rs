@@ -395,7 +395,7 @@ mod tests {
         MAX_SHELL_PATH_BYTES, SHELL_EVENT_MIN_INTERVAL,
     };
     use crate::screen::Screen;
-    use sikemux_wire::grid::TerminalColors;
+    use sikemux_grid::TerminalColors;
     use std::path::PathBuf;
 
     #[cfg(target_os = "macos")]

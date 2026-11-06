@@ -9,11 +9,11 @@ use std::sync::{Mutex, OnceLock};
 use sikemux_process::sync::Locked;
 
 use base64::Engine;
+use sikemux_grid::TerminalColors;
 use sikemux_view::theme::{
     Palette, Theme, ThemeChrome, ThemeEditor, ThemeHighlight, ThemeSource, ThemeSummary,
     ThemeTerminal, UiTokens,
 };
-use sikemux_wire::grid::TerminalColors;
 
 use sikemux_view::prefs::{Preferences, DEFAULT_THEME_ID};
 

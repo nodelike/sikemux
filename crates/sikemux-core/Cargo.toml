@@ -30,6 +30,7 @@ semver = "1"
 sha2 = "0.11"
 sikemux-pty = { path = "../sikemux-pty" }
 sikemux-plugin-api = { path = "../sikemux-plugin-api" }
+sikemux-grid = { path = "../sikemux-grid" }
 sikemux-wire = { path = "../sikemux-wire" }
 sikemux-view = { path = "../sikemux-view" }
 thiserror = "1"

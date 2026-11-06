@@ -9255,6 +9255,7 @@ dependencies = [
  "sikemux-base",
  "sikemux-client",
  "sikemux-fold",
+ "sikemux-grid",
  "sikemux-keychain",
  "sikemux-loopback",
  "sikemux-markdown",
@@ -9330,6 +9331,7 @@ dependencies = [
  "sikemux-client",
  "sikemux-core",
  "sikemux-fold",
+ "sikemux-grid",
  "sikemux-host",
  "sikemux-keychain",
  "sikemux-linked",
@@ -9346,6 +9348,14 @@ dependencies = [
  "tokio",
  "url",
  "zbus",
+]
+
+[[package]]
+name = "sikemux-grid"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -9675,6 +9685,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "sikemux-grid",
  "sikemux-process",
  "sikemux-wire",
  "tempfile",

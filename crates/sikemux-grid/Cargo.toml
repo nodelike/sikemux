@@ -1,0 +1,15 @@
+[package]
+name = "sikemux-grid"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "A terminal's cells as the core sends them and clients draw them"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

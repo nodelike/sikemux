@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use sikemux_wire::grid::{FindResult, GridPoint};
 use sikemux_wire::pty::shell_protocol::ShellMetadataSnapshot;
+use sikemux_wire::terminal::{FindResult, GridPoint};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
@@ -87,7 +87,7 @@ pub enum ClientEvent {
 /// in the order it was sent. Reply callbacks run on the same task, so a reply
 /// lands between exactly the frames it was sent between.
 pub trait EventSink: Send + Sync + 'static {
-    /// A frame of a stream an attach started, as [`sikemux_wire::grid`]
+    /// A frame of a stream an attach started, as `sikemux-grid`
     /// lays it out.
     fn grid(&self, stream: StreamId, frame: &[u8]);
     fn event(&self, event: Event);
@@ -116,7 +116,7 @@ pub struct Attached {
 pub enum Reply {
     Response(Response),
     Attached(Attached),
-    /// History lines, as [`sikemux_wire::grid`] lays them out.
+    /// History lines, as `sikemux-grid` lays them out.
     Lines(Vec<u8>),
 }
 

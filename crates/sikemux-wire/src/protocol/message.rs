@@ -4,9 +4,9 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::grid::FindResult;
 use crate::pty::launch::{PtyContext, PtyDirectCommand};
 use crate::pty::task::TaskSpawnRequest;
+use crate::terminal::FindResult;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

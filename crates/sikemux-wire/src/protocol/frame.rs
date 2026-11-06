@@ -15,7 +15,7 @@ use super::{RequestId, SessionId, StreamId, MAX_FRAME_BYTES};
 pub enum FrameKind {
     Control = 0,
     /// Core to client, a terminal's cells changing: stream id (u32 BE), then
-    /// a frame as [`crate::grid`] lays it out.
+    /// a frame as `sikemux-grid` lays it out.
     Grid = 1,
     /// Core to client, answering an attach: request id (u64 BE), session id
     /// (u64 BE), stream id (u32 BE), header length (u32 BE), [`AttachHeader`]
@@ -25,7 +25,7 @@ pub enum FrameKind {
     /// the bytes for the terminal. Answered like any other request.
     Input = 3,
     /// Core to client, answering [`Request::TerminalLines`]: request id
-    /// (u64 BE), then the lines as [`crate::grid`] lays them out.
+    /// (u64 BE), then the lines as `sikemux-grid` lays them out.
     Lines = 4,
     /// A request every core answers, whatever protocol version it speaks:
     /// sent instead of a hello, and answered once.

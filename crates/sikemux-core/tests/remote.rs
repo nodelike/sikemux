@@ -16,10 +16,10 @@ use sikemux_client::client::{ClientError, ClientEvent, CoreClient};
 use sikemux_client::remote::{self, SecretKey};
 use sikemux_core::client::probe;
 use sikemux_core::server::{self, ServerConfig, ServerError};
+use sikemux_grid::{decode_frame, Screen};
 use sikemux_view::chat::{ChatChange, ChatPage, ChatRole};
 use sikemux_view::device::DeviceView;
 use sikemux_view::workspace::Workspace;
-use sikemux_wire::grid::{decode_frame, Screen};
 use sikemux_wire::protocol::{
     Attention, AttentionKind, BackdropImage, BuildIdentity, ChatAttachment, ChatLaunch, ChatMark,
     ChatState, DeviceAccess, Event, LaunchIdentity, PermissionMode, RemoteStatus, SessionId,

@@ -97,6 +97,8 @@ opt-level = "z"
 # longer and encoding JSON 48% longer.
 [profile.release.package.sikemux-pty]
 opt-level = 3
+[profile.release.package.sikemux-grid]
+opt-level = 3
 [profile.release.package.sikemux-wire]
 opt-level = 3
 [profile.release.package.sikemux-view]

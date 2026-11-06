@@ -2,7 +2,7 @@
 //! encodes them, under the modes the program turned on.
 
 use alacritty_terminal::term::TermMode;
-use sikemux_wire::grid::{Mods, MouseAction, MouseButton, TerminalInput};
+use sikemux_wire::terminal::{Mods, MouseAction, MouseButton, TerminalInput};
 
 use super::Terminal;
 use crate::user_shell::configured_shell;

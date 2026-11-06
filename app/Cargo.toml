@@ -60,6 +60,7 @@ sikemux-process = { path = "../crates/sikemux-process" }
 sikemux-client = { path = "../crates/sikemux-client" }
 sikemux-keychain = { path = "../crates/sikemux-keychain" }
 sikemux-linked = { path = "../crates/sikemux-linked" }
+sikemux-grid = { path = "../crates/sikemux-grid" }
 sikemux-wire = { path = "../crates/sikemux-wire" }
 sikemux-view = { path = "../crates/sikemux-view" }
 sikemux-voice = { path = "../crates/sikemux-voice" }

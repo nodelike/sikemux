@@ -1,4 +1,4 @@
-use sikemux_wire::grid::TerminalColors;
+use sikemux_grid::TerminalColors;
 
 use crate::shell_protocol::{ShellMetadataSnapshot, ShellProtocolParser, SshLink};
 use crate::terminal::{Processed, Terminal, HISTORY_LINES, IDLE_HISTORY_LINES};
@@ -131,7 +131,7 @@ fn readable_title(raw: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use sikemux_wire::grid::TerminalColors;
+    use sikemux_grid::TerminalColors;
 
     use super::Screen;
 
