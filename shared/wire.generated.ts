@@ -1118,7 +1118,6 @@ export interface Contributor {
     avatar: string;
 }
 
-/** Where an update stands, as every client shows it. */
 export type UpdateState = "idle" | "waiting" | "downloading" | "installing" | "ready" | "failed";
 
 /**
@@ -2488,7 +2487,6 @@ export interface ThemeSummary {
 
 export type ThemeSource = "custom" | "sikemux" | "ghostty";
 
-/** A board as the app and devices read it. */
 export interface ProjectBoard {
     project: string;
     cards: BoardCard[];
@@ -2504,7 +2502,6 @@ export interface ProjectBoard {
     triggers: ChatTrigger[];
 }
 
-/** A card as the app and devices read it. */
 export interface BoardCard {
     id: number;
     title: string;
@@ -2600,7 +2597,6 @@ export interface CardTicket {
     doneUnlanded?: boolean;
 }
 
-/** Where a card's ticket lives. */
 export type Tracker = "jira" | "linear";
 
 /** Where a board shows a card: `needs` holds the cards waiting on the person. */
@@ -2942,7 +2938,6 @@ export type Collect =
 /** How a project's board runs on its own. */
 export interface BoardSettings {
     auto: boolean;
-    /** How many of Auto's agents work at once. */
     slots: number;
     /** The app's launcher Auto's agents start with; none for the first that works. */
     launcher: string | null;
@@ -2968,7 +2963,6 @@ export interface BoardSettings {
  */
 export type Landing = "core" | "person";
 
-/** The agent that reviews a card's change before Auto merges it. */
 export interface ReviewerChoice {
     /**
      * The app's launcher it starts with, which must run another CLI than
@@ -3462,7 +3456,6 @@ export interface DiffHunk {
 
 export type DiffKind = "add" | "mod" | "del";
 
-/** A draft as the apps read it. */
 export interface Draft {
     text: string;
     /** What the app keeps beside the text, such as its chips and files, as the app shaped it. */
@@ -3640,7 +3633,6 @@ export interface ClosedAgent {
 /** What a call that takes nothing is sent; whatever a client sends reads as nothing. */
 export type NoParams = Record<string, never>;
 
-/** Messages waiting behind an agent's turn, by id. */
 export interface QueuedParams {
     agentId: string;
     ids: string[];
@@ -3655,7 +3647,6 @@ export interface QueuedMessageParams {
     context?: ChatContext[];
 }
 
-/** A person's message `message_id` written again as `text`, sent with the files at `paths`. */
 export interface EditParams {
     agentId: string;
     messageId: string;
@@ -3813,7 +3804,6 @@ export interface ProjectEntriesParams {
     limit?: number;
 }
 
-/** A project's file or folder, as `rank_entries` finds it. */
 export interface ProjectEntry {
     path: string;
     folder: boolean;
@@ -3837,7 +3827,6 @@ export interface AttachStashParams {
     draft?: boolean;
 }
 
-/** What attaching an item put in the chat's draft. */
 export interface AttachedStash {
     agentId: string;
     /** Where the item's file was kept on this host, when it has one. */
@@ -3970,10 +3959,8 @@ export interface MessageRow {
     tone: MessageTone | null;
 }
 
-/** What a message between agents is. */
 export type MessageKind = "message" | "report" | "question" | "answer" | "notice";
 
-/** What became of a message. */
 export type MessageOutcome = "steered" | "newTurn" | "typed" | "waiting" | "delivered" | "returned" | "repeat" | "refused" | "dropped";
 
 /** Whether a message still waits for its agent, or never reached it. */
@@ -3984,7 +3971,6 @@ export interface BoardParams {
     project: string;
 }
 
-/** A card the person adds to a project's board. */
 export interface BoardAddParams {
     project: string;
     title: string;
@@ -3994,9 +3980,7 @@ export interface BoardAddParams {
     promise?: string;
     /** The goal's assertions it fulfils, as a slice. */
     asserts?: number[];
-    /** The card it goes under. */
     parent?: number;
-    /** The cards it waits on. */
     dependsOn?: number[];
     ticket?: BoardTicketParams;
     /**
@@ -4020,7 +4004,6 @@ export interface BoardHandOffParams {
     project: string;
     /** What the person typed, which the agent is sent and the slice promises. */
     text: string;
-    /** The files that go with it. */
     files?: string[];
     /** The app's launcher the agent starts with; none for the first that works. */
     launcher?: string;
@@ -4036,7 +4019,6 @@ export interface HandedOff {
     board: ProjectBoard;
 }
 
-/** One card on a project's board. */
 export interface BoardCardParams {
     project: string;
     id: number;
@@ -4111,14 +4093,12 @@ export interface BoardSettingsParams {
     environments?: Environment[];
 }
 
-/** The agent the person picks to review each change. */
 export interface BoardReviewerParams {
     launcher?: string;
     provider?: string;
     model?: string;
 }
 
-/** The person answers the environments an agent proposed. */
 export interface BoardProposalParams {
     project: string;
     accept: boolean;
@@ -4391,7 +4371,6 @@ export interface DesksParams {
 
 export interface AssertParams {
     project: string;
-    /** The goal's card. */
     card: number;
     /** The assertion to correct or retire; none to write a new one. */
     assertion: number | null;
@@ -4402,7 +4381,6 @@ export interface AssertParams {
 
 export interface DecideParams {
     project: string;
-    /** The goal's card. */
     card: number;
     /** The decision to correct or retire; none to record a new one. */
     decision: number | null;
@@ -4413,7 +4391,6 @@ export interface DecideParams {
 
 export interface TriageParams {
     project: string;
-    /** What the person typed so far. */
     text: string;
 }
 
@@ -4670,7 +4647,6 @@ export interface ChatGoalParams {
     agentId: string;
 }
 
-/** The person passes a gate of a slice. */
 export interface BoardPassParams {
     project: string;
     card: number;
