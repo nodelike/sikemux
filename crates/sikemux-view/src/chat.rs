@@ -674,6 +674,9 @@ pub struct ChatMessage {
     /// The finished turn it belongs to, when that turn folds its work away.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fold: Option<WorkFold>,
+    /// The run of messages between agents it belongs to, which folds to one line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<TeamFold>,
     /// Emoji the agent reacted to it with, on a message to the agent.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reactions: Vec<String>,
@@ -718,6 +721,86 @@ pub struct WorkFold {
     pub took: Option<u64>,
     /// Everything folded is thinking.
     pub thought: bool,
+}
+
+/// A row of a run of messages between agents. A run ends where something stays in view, so a
+/// long job reads as its answers with one line between each.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamFold {
+    /// The run's first row, which names the fold, though a client may not hold that row.
+    pub id: String,
+    /// Which of this row's parts stay in view while the fold is closed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shown: Vec<u64>,
+    /// What the fold's line says, on the run's last row, so it comes with any window that holds
+    /// some of the run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line: Option<TeamLine>,
+}
+
+/// The one line a run of messages between agents folds to.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamLine {
+    /// Who sent the messages in it, in the order they first did, the first four.
+    pub agents: Vec<TeamAgent>,
+    /// How many others sent some.
+    pub more: u64,
+    /// What it holds that says something: the agents' messages and what the chat's agent wrote.
+    pub messages: u64,
+    /// The row the fold opens on; those before it wait behind `earlier`.
+    pub from: String,
+    /// How many of `messages` come before `from`.
+    pub earlier: u64,
+    /// The latest message in it, on one line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest: Option<TeamSaid>,
+    /// What someone in it needs of the person, which takes over from `latest` until it is settled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub need: Option<TeamNeed>,
+    /// How long it lasted, from its first row to its last.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub took: Option<u64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamAgent {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub agent_id: String,
+    pub cli: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSaid {
+    pub name: String,
+    pub text: String,
+}
+
+/// What an agent in a run needs of the person, as the core knows it: never read from what it wrote.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamNeed {
+    pub kind: TeamNeedKind,
+    pub name: String,
+    /// What it asks or what went wrong, in a line, when it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TeamNeedKind {
+    /// It asked the person something and has no answer yet.
+    Asks,
+    /// It waits on the person for something else, such as a permission.
+    Waits,
+    /// Its last turn failed.
+    Failed,
+    /// It ended or never started.
+    Stopped,
 }
 
 /// Where an `@` mention of another agent points.

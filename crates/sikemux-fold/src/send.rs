@@ -269,6 +269,7 @@ fn field(row: &ChatMessage, name: &str) -> Value {
         "opensTurn" => serde_json::to_value(&row.opens_turn),
         "meta" => serde_json::to_value(&row.meta),
         "fold" => serde_json::to_value(&row.fold),
+        "team" => serde_json::to_value(&row.team),
         "context" => serde_json::to_value(&row.context),
         "letters" => serde_json::to_value(&row.letters),
         "reactions" => serde_json::to_value(&row.reactions),

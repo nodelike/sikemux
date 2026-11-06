@@ -1636,6 +1636,8 @@ export interface ChatMessage {
     meta?: RowMeta;
     /** The finished turn it belongs to, when that turn folds its work away. */
     fold?: WorkFold;
+    /** The run of messages between agents it belongs to, which folds to one line. */
+    team?: TeamFold;
     /** Emoji the agent reacted to it with, on a message to the agent. */
     reactions?: string[];
     /**
@@ -2038,6 +2040,62 @@ export interface WorkFold {
     /** Everything folded is thinking. */
     thought: boolean;
 }
+
+/**
+ * A row of a run of messages between agents. A run ends where something stays in view, so a
+ * long job reads as its answers with one line between each.
+ */
+export interface TeamFold {
+    /** The run's first row, which names the fold, though a client may not hold that row. */
+    id: string;
+    /** Which of this row's parts stay in view while the fold is closed. */
+    shown?: number[];
+    /**
+     * What the fold's line says, on the run's last row, so it comes with any window that holds
+     * some of the run.
+     */
+    line?: TeamLine;
+}
+
+/** The one line a run of messages between agents folds to. */
+export interface TeamLine {
+    /** Who sent the messages in it, in the order they first did, the first four. */
+    agents: TeamAgent[];
+    /** How many others sent some. */
+    more: number;
+    /** What it holds that says something: the agents' messages and what the chat's agent wrote. */
+    messages: number;
+    /** The row the fold opens on; those before it wait behind `earlier`. */
+    from: string;
+    /** How many of `messages` come before `from`. */
+    earlier: number;
+    /** The latest message in it, on one line. */
+    latest?: TeamSaid;
+    /** What someone in it needs of the person, which takes over from `latest` until it is settled. */
+    need?: TeamNeed;
+    /** How long it lasted, from its first row to its last. */
+    took?: number;
+}
+
+export interface TeamAgent {
+    agentId?: string;
+    cli: string;
+}
+
+export interface TeamSaid {
+    name: string;
+    text: string;
+}
+
+/** What an agent in a run needs of the person, as the core knows it: never read from what it wrote. */
+export interface TeamNeed {
+    kind: TeamNeedKind;
+    name: string;
+    /** What it asks or what went wrong, in a line, when it says. */
+    text?: string;
+}
+
+export type TeamNeedKind = "asks" | "waits" | "failed" | "stopped";
 
 /** Rows from before or after what a client holds, oldest first. */
 export interface ChatPage {

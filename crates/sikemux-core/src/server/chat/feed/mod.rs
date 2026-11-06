@@ -23,8 +23,8 @@ use super::super::connection::{ClientConn, ClientId};
 use super::history::{History, HistoryState, Page, MAX_HISTORY_BYTES};
 use super::queue::{batch_len, Queued, MAX_QUEUED};
 use super::states::Subagent;
+use sikemux_fold::{AgentNeed, Fold, PageOf, PAGE_BYTES as ROW_BYTES};
 use sikemux_fold::{ChatEventKind, Place, UpdateKind};
-use sikemux_fold::{Fold, PageOf, PAGE_BYTES as ROW_BYTES};
 
 mod replay;
 mod residency;
@@ -90,6 +90,8 @@ struct Inner {
     triggers: Vec<ChatTrigger>,
     goal: Option<ChatGoal>,
     goal_offer: Option<String>,
+    /// What other agents need of the person.
+    needs: Vec<AgentNeed>,
     /// The folder the chat's agent works in, and where its edits sit in their files,
     /// for each fold made for it.
     work: Option<(PathBuf, Place)>,
@@ -216,6 +218,7 @@ impl Feed {
                 triggers: Vec::new(),
                 goal: None,
                 goal_offer: None,
+                needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
                 reach: None,
@@ -296,6 +299,7 @@ impl Feed {
                 triggers: Vec::new(),
                 goal: None,
                 goal_offer: None,
+                needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
                 reach: state.reach,
@@ -375,6 +379,7 @@ impl Feed {
             fold.set_triggers(inner.triggers.clone());
             fold.set_goal(inner.goal.clone());
             fold.set_goal_offer(inner.goal_offer.clone());
+            fold.set_needs(inner.needs.clone());
             if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
                 fold.set_earlier_lost();
             }
@@ -547,6 +552,19 @@ impl Feed {
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_goal(goal);
             fold.set_goal_offer(offer);
+            self.flush_locked(&mut inner);
+        }
+    }
+
+    /// What other agents need of the person changed; clients already hearing the chat are told.
+    pub(crate) fn set_needs(&self, needs: &[AgentNeed]) {
+        let mut inner = self.inner.locked();
+        if inner.needs == needs {
+            return;
+        }
+        inner.needs = needs.to_vec();
+        if let Some(fold) = inner.fold.as_mut() {
+            fold.set_needs(needs.to_vec());
             self.flush_locked(&mut inner);
         }
     }

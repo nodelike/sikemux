@@ -21,7 +21,7 @@ use sikemux_view::inbox::{
 };
 use sikemux_view::workspace::{AgentFace, WorkspaceAgent};
 use sikemux_wire::protocol::{
-    AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, SessionInfo,
+    AgentGroup, AgentState, AgentStatus, ChatInfo, ChatState, SessionId, SessionInfo,
 };
 
 use super::board::{self, RunHold, Summary, Waits};
@@ -30,6 +30,8 @@ use super::display;
 use super::notify::provider_name;
 use super::roster;
 use super::{Core, CoreResult};
+use sikemux_fold::AgentNeed;
+use sikemux_view::chat::TeamNeedKind;
 use sikemux_view::slice::Gate;
 
 use super::board::environments::Step;
@@ -317,6 +319,14 @@ impl Turns {
         (self.turns.locked().get(agent_id))
             .and_then(|turn| turn.problem.as_ref())
             .is_some_and(|problem| problem.fault.is_some())
+    }
+
+    /// What went wrong in the agent's latest turn, while that waits on the person.
+    fn failure(&self, agent_id: &str) -> Option<String> {
+        (self.turns.locked().get(agent_id))
+            .and_then(|turn| turn.problem.as_ref())
+            .filter(|problem| matches!(problem.fault, Some(Fault::Account | Fault::Broke)))
+            .map(|problem| problem.said.clone())
     }
 
     /// The agent committed, so what its last turn left is worked out again.
@@ -1348,6 +1358,57 @@ pub(crate) fn told(core: &Core) -> Vec<InboxItem> {
         .into_iter()
         .filter(|item| item.need.is_some() && !signalled(item.kind))
         .collect()
+}
+
+/// What each agent needs of the person, for the runs of its messages in other chats to say:
+/// the same questions, holds and failures the inbox lists, and an agent that ended. A failure
+/// is only a turn its driver saw fail; what an agent says went wrong in its work is not read.
+pub(crate) fn agent_needs(core: &Core) -> Vec<AgentNeed> {
+    let (chats, sessions) = core.ranked_infos();
+    let agents = agents(core, &chats, &sessions);
+    let mut needs: Vec<AgentNeed> = Vec::new();
+    let mut add = |agent_id: &str, kind, text: Option<String>| {
+        if !needs.iter().any(|need| need.agent_id == agent_id) {
+            needs.push(AgentNeed {
+                agent_id: agent_id.to_owned(),
+                kind,
+                text,
+            });
+        }
+    };
+    let waits = waiting(core, &agents, &sessions);
+    let held = (waits.iter()).filter(|item| item.need.is_some());
+    let (asked, others): (Vec<_>, Vec<_>) = held.partition(|item| item.kind == InboxKind::Question);
+    for item in asked {
+        if let Some(agent_id) = &item.agent_id {
+            add(agent_id, TeamNeedKind::Asks, item.detail.clone());
+        }
+    }
+    for item in others {
+        if let Some(agent_id) = &item.agent_id {
+            add(agent_id, TeamNeedKind::Waits, Some(item.what.clone()));
+        }
+    }
+    for agent in &agents {
+        if let Some(said) = core.inbox.failure(&agent.id) {
+            let said = clipped_line(&said, MAX_LINE_CHARS);
+            add(&agent.id, TeamNeedKind::Failed, Some(said));
+        }
+    }
+    for chat in chats.iter().filter(|chat| chat.state == ChatState::Stopped) {
+        add(&chat.agent_id, TeamNeedKind::Stopped, None);
+    }
+    for session in &sessions {
+        if let Some(agent_id) = session
+            .agent_id
+            .as_ref()
+            .filter(|_| session.status == Some(AgentStatus::Stopped))
+        {
+            add(agent_id, TeamNeedKind::Stopped, None);
+        }
+    }
+    needs.sort_by(|one, other| one.agent_id.cmp(&other.agent_id));
+    needs
 }
 
 /// Everything that waits on the person besides how agents' turns went.

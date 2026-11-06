@@ -10,6 +10,7 @@ mod prompt;
 pub use prompt::{sent_spans, SentNames};
 mod row;
 mod send;
+mod team;
 #[cfg(test)]
 mod tests;
 mod tool_rows;
@@ -41,6 +42,7 @@ use tools::WithRow;
 pub use event::{ChatEvent, ChatEventKind};
 pub use find::{found_in, matches, searchable, Found, Query};
 pub use send::{with_trees, PageOf, PAGE_BYTES, TAIL_TURNS};
+pub use team::AgentNeed;
 pub use update::UpdateKind;
 use update::{finished_compaction, stamped_at};
 
@@ -99,6 +101,8 @@ struct Row {
     bytes: usize,
     /// A message a person sent, which the agent's echo never adds to.
     local: bool,
+    /// A message to the agent that came while a turn ran, so it did not start its own.
+    steered: bool,
     /// What a message to the agent held as it came, before its context and
     /// letters were read out of it.
     raw: Vec<ChatPart>,
@@ -129,6 +133,7 @@ impl Row {
                 opens_turn: None,
                 meta: None,
                 fold: None,
+                team: None,
                 from_event: Some(index),
                 reactions: Vec::new(),
             },
@@ -136,6 +141,7 @@ impl Row {
             v: 0,
             bytes: 0,
             local: false,
+            steered: false,
             raw: Vec::new(),
             sent_context: Vec::new(),
             stream: None,
@@ -304,6 +310,8 @@ pub struct Fold {
     dropped: Option<String>,
     /// The main rows from this position on may have new folds or meta.
     settle_from: Option<usize>,
+    /// What other agents need of the person now, and the run that says so for each.
+    needs: team::Needs,
     /// The number of the change it takes in now.
     seq: u64,
     /// The change that last said whether a turn runs.
@@ -574,6 +582,7 @@ impl Fold {
             head_dirty: BTreeSet::new(),
             dropped: None,
             settle_from: None,
+            needs: team::Needs::default(),
             seq: 1,
             running_v: 0,
             offers_effort: false,
@@ -946,6 +955,7 @@ impl Fold {
         let id = self.row_id(index, &None);
         let mut row = Row::new(id, ChatRole::User, index);
         row.local = true;
+        row.steered = self.head.running;
         row.msg.prompt_id = text_of(payload.get("messageId")).map(str::to_owned);
         row.msg.sent_at = Some(payload.get("at").and_then(Value::as_u64).unwrap_or(at));
         row.msg.attachments = paths;
@@ -1016,6 +1026,7 @@ impl Fold {
         self.head.stop_reason = None;
         self.set_head("plan");
         self.set_head("stopReason");
+        self.needs_moved();
         self.settle_from = Some(
             self.settle_from
                 .map_or(at, |from| from.min(at))
@@ -1105,6 +1116,10 @@ impl Fold {
                 let last = self.main.rows.len() - 1;
                 self.main.rows[last].msg.opens_turn = opening.clone();
                 self.main.rows[last].set("opensTurn");
+            }
+            if kind == UpdateKind::UserMessageChunk && self.main.rows.len() > rows {
+                let last = self.main.rows.len() - 1;
+                self.main.rows[last].steered = timed || update::steers(update);
             }
             self.recorded_time(update, timed);
             let turn_opening = if opened { None } else { opening };

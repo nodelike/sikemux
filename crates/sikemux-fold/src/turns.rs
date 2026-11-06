@@ -14,7 +14,7 @@ const CHARS_PER_TOKEN: f64 = 4.0;
 /// all, so it gets no rate rather than a wrong one.
 const MIN_SAMPLE_MS: u64 = 400;
 
-fn is_reply(part: &ChatPart) -> bool {
+pub(super) fn is_reply(part: &ChatPart) -> bool {
     matches!(
         part,
         ChatPart::Text { .. } | ChatPart::Content { .. } | ChatPart::Tool { gif: Some(_), .. }
@@ -137,13 +137,25 @@ impl TurnFold {
     }
 }
 
-fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
-    let parts = turn_parts(rows, start, end);
-    let closing = run_start(&parts, parts.len());
-    if !parts[closing..]
+fn closes_with_writing(parts: &[(usize, usize, &ChatPart)]) -> bool {
+    let closing = run_start(parts, parts.len());
+    parts[closing..]
         .iter()
         .any(|(_, _, part)| matches!(part, ChatPart::Text { .. }))
-    {
+}
+
+/// The row and part the reply of the run `start..=end` starts at, when it closes with one.
+pub(super) fn reply_at(rows: &[Row], start: usize, end: usize) -> Option<(usize, usize)> {
+    let parts = turn_parts(rows, start, end);
+    closes_with_writing(&parts).then(|| {
+        let from = reply_from(&parts);
+        (parts[from].0, parts[from].1)
+    })
+}
+
+fn work_fold(rows: &[Row], start: usize, end: usize) -> Option<TurnFold> {
+    let parts = turn_parts(rows, start, end);
+    if !closes_with_writing(&parts) {
         return None;
     }
     let from = reply_from(&parts);
@@ -279,6 +291,7 @@ impl Fold {
         for index in touched {
             self.main.queue(index);
         }
+        self.settle_team(from);
     }
 }
 
@@ -307,4 +320,5 @@ pub(super) fn settle_all(rows: &mut [Row]) {
         }
         at = end + 1;
     }
+    super::team::settle_page(rows);
 }

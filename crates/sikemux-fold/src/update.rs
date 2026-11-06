@@ -376,8 +376,19 @@ pub fn stamp_replayed(update: &mut Value, at: Option<u64>, opens_turn: bool) {
     }
 }
 
+/// Marks a replayed message to the agent as sent into a turn already running, which history
+/// says and the chat rebuilding from it cannot tell.
+pub fn stamp_steered(update: &mut Value) {
+    update["_meta"]["sikemux"]["steers"] = json!(true);
+}
+
 fn sikemux_meta(update: &Value) -> Option<&Map<String, Value>> {
     update.get("_meta")?.get("sikemux")?.as_object()
+}
+
+/// Whether a replayed message to the agent came into a turn already running.
+pub fn steers(update: &Value) -> bool {
+    sikemux_meta(update).is_some_and(|kept| kept.get("steers") == Some(&Value::Bool(true)))
 }
 
 /// When a replayed update first happened, as [`stamp_replayed`] marked it.

@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use sikemux_fold::update::stamp_replayed;
+use sikemux_fold::update::{stamp_replayed, stamp_steered};
 use tokio::sync::mpsc;
 
 use crate::agent_catalog::ChatDriver;
