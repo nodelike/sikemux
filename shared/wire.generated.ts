@@ -4720,7 +4720,6 @@ export interface AgentOwner {
     open?: string;
     /** The CLI's own session, which resuming the agent needs. */
     sessionId?: string;
-    /** The project its session ran in. */
     project?: string;
     /**
      * The lines it wrote in the commit, as the commit's note says, when the
