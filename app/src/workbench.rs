@@ -7,7 +7,6 @@ use sikemux_core::server::call;
 use sikemux_core::server::workspace::SessionChoice;
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
-use sikemux_wire::changed::Topic;
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -291,19 +290,6 @@ impl Workbench {
         let here = Target::here(&asks);
         for read in Read::FROM_THE_START {
             here.watch(read, json!({}));
-        }
-        let _ = asks.send(Ask::Follow(Topic::Git));
-        let _ = asks.send(Ask::Follow(Topic::Files));
-        let _ = asks.send(Ask::Follow(Topic::Lsp));
-        let _ = asks.send(Ask::Follow(Topic::Boards));
-        let _ = asks.send(Ask::Follow(Topic::Memory));
-        let _ = asks.send(Ask::Follow(Topic::GoalSummary));
-        let _ = asks.send(Ask::Follow(Topic::AgentSignIn));
-        let _ = asks.send(Ask::Follow(Topic::AgentStatus));
-        let _ = asks.send(Ask::Follow(Topic::AgentAccounts));
-        let _ = asks.send(Ask::Follow(Topic::Mods));
-        for topic in [Topic::Tasks, Topic::Runs, Topic::Usage, Topic::Questions] {
-            let _ = asks.send(Ask::Follow(topic));
         }
         cx.spawn(async move |this, cx| loop {
             cx.background_executor()

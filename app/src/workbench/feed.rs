@@ -213,7 +213,7 @@ impl Workbench {
         if topic == Topic::Files {
             crate::editor::changed(self, &place, paths.as_deref().unwrap_or_default(), cx);
         }
-        self.project_changed(&place, topic, project.clone(), paths.clone(), cx);
+        self.project_changed(&place, topic, project.as_deref(), paths.as_deref(), cx);
         if topic == Topic::Mods {
             self.mods_moved(&place, paths.as_deref(), cx);
         }
@@ -266,33 +266,31 @@ impl Workbench {
         &mut self,
         place: &Place,
         topic: Topic,
-        project: Option<String>,
-        paths: Option<Vec<String>>,
+        project: Option<&str>,
+        paths: Option<&[String]>,
         cx: &mut Context<Self>,
     ) {
         if self.place() != *place {
             return;
         }
-        let root = self
-            .files
-            .root
-            .as_ref()
-            .map(|root| root.to_string_lossy().into_owned());
         if topic == Topic::Git {
             match (&self.git.pane, self.git_in_front()) {
-                (Some(pane), true) => pane.update(cx, |pane, cx| {
-                    pane.git_moved(project.as_deref(), paths.as_deref(), cx)
-                }),
+                (Some(pane), true) => {
+                    pane.update(cx, |pane, cx| pane.git_moved(project, paths, cx))
+                }
                 (Some(_), false) => self.git.behind = true,
                 (None, _) => {}
             }
         }
-        if topic == Topic::Git && (project.is_none() || project == root) {
-            if self.files.changed(paths.as_deref()) {
-                self.parts.redraw(&self.parts.tabs, cx);
-            }
-            if self.overlays.finder.is_some() {
-                self.project_files.read(root.as_deref(), &self.target());
+        if topic == Topic::Git {
+            let root = (self.files.root.as_ref()).map(|root| root.to_string_lossy().into_owned());
+            if project.is_none() || project == root.as_deref() {
+                if self.files.changed(paths) {
+                    self.parts.redraw(&self.parts.tabs, cx);
+                }
+                if self.overlays.finder.is_some() {
+                    self.project_files.read(root.as_deref(), &self.target());
+                }
             }
         }
         if topic == Topic::Files {

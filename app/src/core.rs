@@ -83,7 +83,7 @@ pub enum Update {
     Chat(String, ChatNews),
     /// Something the core asks of a window, such as an agent's browser step.
     WindowCall(CallId, WindowCall),
-    /// The core at `place` said something under a followed topic moved; no paths means anything
+    /// The core at `place` said something under a topic moved; no paths means anything
     /// may have.
     Changed {
         place: Place,
@@ -289,8 +289,6 @@ pub enum Ask {
         detection: Detection,
         reply: oneshot::Sender<Result<Value, String>>,
     },
-    /// Hands the window the core's changes under `topic`, with what moved.
-    Follow(Topic),
     /// Makes this window the one the core hands its calls to, as when it comes to the front.
     RegisterWindow,
     /// The agents the window shows, and whether the person is looking at it, so the core
@@ -1223,7 +1221,6 @@ async fn run(
     mut asks: mpsc::UnboundedReceiver<Ask>,
 ) {
     let mut watches = Watches::default();
-    let mut followed: Vec<Topic> = Vec::new();
     let mut linked: Option<Arc<Linked>> = None;
     let mut heard: Option<mpsc::UnboundedReceiver<Happened>> = None;
     let current = watches.generations.clone();
@@ -1366,9 +1363,7 @@ async fn run(
                                 for (&key, watch) in watches.here.iter().filter(|(&key, watch)| watch.moved_by(key, topic, project.as_deref())) {
                                     read(&client, key, watch, (&current, &failed), &updates);
                                 }
-                                if followed.contains(&topic) {
-                                    let _ = updates.send(Update::Changed { place: Place::This, topic, project, paths });
-                                }
+                                let _ = updates.send(Update::Changed { place: Place::This, topic, project, paths });
                             }
                             Some(ClientEvent::WindowCall { call_id, call }) => {
                                 let _ = updates.send(Update::WindowCall(call_id, call));
@@ -1434,9 +1429,7 @@ async fn run(
                                     for (&key, watch) in changed {
                                         read_on(&linked, &host, key, watch, &current, &updates);
                                     }
-                                    if followed.contains(&topic) {
-                                        let _ = updates.send(Update::Changed { place: Place::Account(host), topic, project, paths });
-                                    }
+                                    let _ = updates.send(Update::Changed { place: Place::Account(host), topic, project, paths });
                                 }
                                 ClientEvent::Event(Event::Stream { stream, items, done, error }) => {
                                     if let Some(parts) = streamed.get(&stream) {
@@ -1471,11 +1464,6 @@ async fn run(
                             }
                             Some(Ask::AnswerWindow(call_id, answer)) => client.answer_window(call_id, answer),
                             Some(Ask::WindowOpenClosed(call_id)) => client.window_open_closed(call_id),
-                            Some(Ask::Follow(topic)) => {
-                                if !followed.contains(&topic) {
-                                    followed.push(topic);
-                                }
-                            }
                             Some(Ask::Answer { read, params }) => {
                                 let (client, updates) = (client.clone(), updates.clone());
                                 tokio::spawn(async move {
@@ -1695,7 +1683,7 @@ async fn run(
                 }
                 if stopping {
                     let _ = updates.send(Update::Stopped);
-                    if !wait_to_start(&home, &mut asks, &mut watches, &mut followed).await {
+                    if !wait_to_start(&home, &mut asks, &mut watches).await {
                         return;
                     }
                     reconnect.reset();
@@ -1720,7 +1708,7 @@ async fn run(
                 };
                 eprintln!("sikemux: the core, pid {pid}, holds the socket but does not answer");
                 let _ = updates.send(Update::Stuck(pid));
-                if !wait_to_start(&home, &mut asks, &mut watches, &mut followed).await {
+                if !wait_to_start(&home, &mut asks, &mut watches).await {
                     return;
                 }
                 let socket = home.socket.clone();
@@ -1748,7 +1736,6 @@ async fn wait_to_start(
     home: &Home,
     asks: &mut mpsc::UnboundedReceiver<Ask>,
     watches: &mut Watches,
-    followed: &mut Vec<Topic>,
 ) -> bool {
     let mut look = tokio::time::interval(STOPPED_LOOK);
     look.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -1760,11 +1747,6 @@ async fn wait_to_start(
                     watches.set(None, key, watch);
                 }
                 Some(Ask::Unwatch(key)) => watches.remove(key),
-                Some(Ask::Follow(topic)) => {
-                    if !followed.contains(&topic) {
-                        followed.push(topic);
-                    }
-                }
                 Some(_) => {}
                 None => return false,
             },

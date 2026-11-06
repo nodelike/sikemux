@@ -409,6 +409,7 @@ impl GoalsPane {
         self.room.reading = true;
         self.room.stale = false;
         let asked = core::Target::here(&self.asks).request_typed::<call::Goals>(NoParams {});
+        let asked = cx.background_spawn(asked);
         self.room._reading = cx.spawn(async move |pane, cx| {
             let answer = asked.await;
             let again = pane.update(cx, |pane, cx| {
