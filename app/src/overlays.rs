@@ -2,10 +2,11 @@
 //! title being edited. Each is held here, and [`Overlay`] says of each what it does with the keys
 //! and where it draws, so the window answers what is open from one list.
 
-use gpui_kit::Entity;
+use gpui_kit::{AnyElement, Context, Entity, IntoElement};
 
 use crate::agents::retitle::Retitling;
 use crate::asking::Asking;
+use crate::workbench::Workbench;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Layer {
@@ -13,14 +14,16 @@ pub enum Layer {
     Finder,
     /// Over the whole window, in the part that covers it.
     Over,
-    /// Where it belongs: a dialog over the window, a card on the stage, a field in a row.
+    /// A dialog over the window, in the order this table lists them.
+    Dialog,
+    /// Where it belongs: a card on the stage, a field in a row, a question.
     InPlace,
 }
 
 macro_rules! overlays {
     ($(
         $(#[$doc:meta])*
-        $field:ident: $held:ty => $overlay:ident, $layer:ident, $keys:literal;
+        $field:ident: $held:ty => $overlay:ident, $layer:ident, $keys:literal $(, $draw:path)?;
     )*) => {
         #[derive(Clone, Copy, PartialEq, Eq, Debug)]
         pub enum Overlay {
@@ -41,6 +44,13 @@ macro_rules! overlays {
                     $(Overlay::$overlay => Layer::$layer,)*
                 }
             }
+        }
+
+        /// Draws the dialogs open, each from its row of the table.
+        pub fn dialogs(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
+            let mut drawn = Vec::new();
+            $($(drawn.extend($draw(bench, cx).map(IntoElement::into_any_element));)?)*
+            drawn
         }
 
         #[derive(Default)]
@@ -65,10 +75,10 @@ overlays! {
     finder: crate::pickers::finder::Finder => Finder, Finder, true;
     switcher: crate::pickers::switcher::PlaceSwitcher => Switcher, Finder, true;
     /// The process the person is writing in the Add a process dialog, while it is open.
-    adding_task: crate::tasks::add_task::AddTask => AddingTask, InPlace, true;
-    adding_provider: crate::add_provider::AddProvider => AddingProvider, InPlace, true;
-    buddy_picker: crate::buddy_picker::BuddyPicker => BuddyPicker, InPlace, true;
-    sharing: crate::share::Sharing => Sharing, InPlace, true;
+    adding_task: crate::tasks::add_task::AddTask => AddingTask, Dialog, true, crate::tasks::add_task::view;
+    adding_provider: crate::add_provider::AddProvider => AddingProvider, Dialog, true, crate::add_provider::view;
+    buddy_picker: crate::buddy_picker::BuddyPicker => BuddyPicker, Dialog, true, crate::buddy_picker::view;
+    sharing: crate::share::Sharing => Sharing, Dialog, true, crate::share::view;
     /// A task its checks held back, waiting on the person. Its card sits on the Run chip and asks
     /// nothing of the keys.
     run_check: crate::tasks::run_check::RunCheck => RunCheck, InPlace, false;
