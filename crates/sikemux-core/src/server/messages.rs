@@ -1371,7 +1371,7 @@ async fn handed(
     if !notice {
         mailbox.note_sent(&letter, &target.agent_id);
         if !letter.by_sikemux() {
-            super::board::reached_by_more_than_offer(core, &target.agent_id);
+            super::board::offers::reached_by_more_than_offer(core, &target.agent_id);
         }
     }
     if held.is_none() && mailbox.has_waiting(&target.agent_id) {

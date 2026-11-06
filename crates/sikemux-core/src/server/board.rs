@@ -41,10 +41,11 @@ pub mod goal;
 mod hand_off;
 mod lease;
 mod migrate;
+pub(crate) mod offers;
 mod page;
 mod review;
 mod slice;
-mod tickets;
+pub(crate) mod tickets;
 mod wait;
 mod workflows;
 
@@ -81,9 +82,6 @@ const MAX_URL_CHARS: usize = 2048;
 /// card is asked for in full.
 const LISTED_TEXT_CHARS: usize = 240;
 const RECENT_DONE: usize = 10;
-/// How long an agent has been idle before the board offers it cards.
-const IDLE_BEFORE_OFFER_MS: u64 = 5_000;
-const MAX_OFFERED: usize = 6;
 const MAX_RECORDINGS: usize = 8;
 const ONLY_PERSON_ACCEPTS: &str =
     "Only the person writes a card's acceptance criteria; leave out acceptance";
@@ -1145,6 +1143,27 @@ impl Card {
         }
     }
 
+    /// Its owner lost it, so it's open to anyone. Its team and slice stay as they were, for
+    /// whoever takes it up.
+    fn lose_owner(&mut self, at: u64) {
+        self.owner = None;
+        self.status = CardStatus::Open;
+        self.updated_at = at;
+    }
+
+    /// `owner`, an agent Auto started for this card's run, works it and leads its team.
+    fn run_by(&mut self, owner: Owner, team: Team) {
+        self.owner = Some(owner);
+        self.team = Some(team);
+    }
+
+    /// Auto's part ended, and nobody took the card from it.
+    fn auto_lets_go(&mut self) {
+        self.auto = None;
+        self.owner = None;
+        self.team = None;
+    }
+
     /// Which of an agent's cards it works now: the highest of these.
     fn work_rank(&self) -> (bool, u64) {
         (self.status == CardStatus::Progress, self.acted_at)
@@ -1670,7 +1689,6 @@ pub(crate) fn add_for_trigger(
         ..Adding::default()
     };
     add_card(core, project, &By::Auto("Trigger"), adding, None)?;
-    tell_clients(core);
     Ok(())
 }
 
@@ -2831,168 +2849,6 @@ pub(crate) async fn person_add(
     .map_err(|error| error.to_string())
 }
 
-const MAX_TICKET_DETAILS_CHARS: usize = 4000;
-
-/// A ticket made a card: its title on one line and its description cut to
-/// what a card holds.
-fn ticket_card(
-    title: &str,
-    details: &str,
-    ticket: Option<BoardTicketParams>,
-) -> Result<Adding, String> {
-    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
-    let details = if chars(details) <= MAX_TICKET_DETAILS_CHARS {
-        details.to_owned()
-    } else {
-        let kept: String = details.chars().take(MAX_TICKET_DETAILS_CHARS).collect();
-        format!("{kept}\n\n[Cut short; the ticket has the rest.]")
-    };
-    Ok(Adding {
-        title: title_of(&clipped(&title, MAX_TITLE_CHARS))?,
-        details: long_text("details", &details)?,
-        ticket: ticket.map(BoardTicketParams::ticket).transpose()?,
-        ..Adding::default()
-    })
-}
-
-/// The card on `project`'s board for ticket `key`, an open one before a done
-/// one.
-fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<TicketHeld> {
-    let state = core.boards.state.locked();
-    let card = (state.boards.get(project)?.cards.iter())
-        .filter(|card| {
-            card.ticket
-                .as_ref()
-                .is_some_and(|ticket| ticket.key.eq_ignore_ascii_case(key))
-        })
-        .min_by_key(|card| card.status == CardStatus::Done)?;
-    let parent_done = card
-        .parent
-        .and_then(|parent| state.boards.get(project)?.card(parent).ok())
-        .is_some_and(|parent| parent.status == CardStatus::Done);
-    Some(TicketHeld {
-        id: card.id,
-        parent: card.parent,
-        parent_done,
-        depends_on: card.depends_on.clone(),
-        done: card.status == CardStatus::Done,
-    })
-}
-
-struct TicketHeld {
-    id: u64,
-    parent: Option<u64>,
-    parent_done: bool,
-    depends_on: Vec<u64>,
-    done: bool,
-}
-
-/// The person puts a ticket on the board: its subtasks go under it, it waits
-/// on the tickets that block it and the ones it blocks wait on it, when those
-/// are on the board too. Answers with the board, and what could not be done
-/// besides adding the ticket.
-pub(crate) async fn person_add_ticket(
-    core: &Arc<Core>,
-    params: BoardAddTicketParams,
-) -> Result<ProjectBoard, String> {
-    let (view, notices) = {
-        let core = core.clone();
-        blocking(move || {
-            let project = project_at(&core, &params.project)?;
-            let key = params.ticket.key.clone();
-            add_card(
-                &core,
-                &project,
-                &By::Person,
-                ticket_card(&params.title, &params.details, Some(params.ticket))?,
-                None,
-            )?;
-            let made = card_of_ticket(&core, &project, &key).ok_or("The ticket's card is gone")?;
-            let (made, waited) = (made.id, made.depends_on);
-            let mut notices = Vec::new();
-            let mut problems = Vec::new();
-            let change = |id: u64, changes: Changes| {
-                change_card(&core, &project, &By::Person, id, changes).map(|(_, sent)| sent)
-            };
-            let mut note = |done: Result<Vec<Notice>, String>, what: String| match done {
-                Ok(sent) => notices.extend(sent),
-                Err(error) => problems.push(format!("Could not {what}: {error}")),
-            };
-            for sub in params.subtasks {
-                let Some(sub_key) = sub.ticket.as_ref().map(|ticket| ticket.key.clone()) else {
-                    continue;
-                };
-                match card_of_ticket(&core, &project, &sub_key) {
-                    None => note(
-                        ticket_card(&sub.title, &sub.details, sub.ticket).and_then(|mut adding| {
-                            adding.parent = Some(made);
-                            add_card(&core, &project, &By::Person, adding, None).map(|_| Vec::new())
-                        }),
-                        format!("put {sub_key} under it"),
-                    ),
-                    Some(sub) if !sub.done && (sub.parent.is_none() || sub.parent_done) => note(
-                        change(
-                            sub.id,
-                            Changes {
-                                parent: Some(Some(made)),
-                                ..Changes::default()
-                            },
-                        ),
-                        format!("put {sub_key} under it"),
-                    ),
-                    Some(_) => {}
-                }
-            }
-            let blockers: Vec<u64> = params
-                .blocked_by
-                .iter()
-                .filter_map(|blocker| card_of_ticket(&core, &project, blocker).map(|held| held.id))
-                .filter(|id| !waited.contains(id))
-                .collect();
-            if !blockers.is_empty() {
-                let waits = waited.into_iter().chain(blockers).collect();
-                note(
-                    distinct_cards(waits, "dependsOn").and_then(|waits| {
-                        change(
-                            made,
-                            Changes {
-                                depends_on: Some(waits),
-                                ..Changes::default()
-                            },
-                        )
-                    }),
-                    "make it wait on its blockers".into(),
-                );
-            }
-            for blocked in params.blocks {
-                if let Some(held) = card_of_ticket(&core, &project, &blocked) {
-                    let mut depends = held.depends_on;
-                    if !depends.contains(&made) {
-                        depends.push(made);
-                        note(
-                            change(
-                                held.id,
-                                Changes {
-                                    depends_on: Some(depends),
-                                    ..Changes::default()
-                                },
-                            ),
-                            format!("make {blocked} wait on it"),
-                        );
-                    }
-                }
-            }
-            let mut view = project_view(&core, &project);
-            view.problems = problems;
-            Ok((view, notices))
-        })
-        .await
-        .map_err(|error| error.to_string())?
-    };
-    send_notices(core, notices);
-    Ok(view)
-}
-
 pub(crate) async fn person_update(
     core: &Arc<Core>,
     params: BoardUpdateParams,
@@ -3179,167 +3035,11 @@ pub(crate) async fn person_remove(
     Ok(view)
 }
 
-/// From when the agent has sat idle a while with nothing waiting for it, or
-/// none while it is at work or something waits for it.
-fn idle_from(core: &Core, agent_id: &str) -> Option<u64> {
-    let now = core.agent_now(agent_id);
-    if now.waits_on_something() {
-        return None;
-    }
-    now.resting().then(|| {
-        core.seen
-            .active_at(agent_id)
-            .map_or(0, |at| at + IDLE_BEFORE_OFFER_MS)
-    })
-}
-
-/// Tells each idle agent another agent started of the open cards of its team
-/// that nobody holds and nothing holds up, once per card, unless its lead is
-/// at work and so may hand it one itself. Answers when an agent that has such
-/// cards will have been idle long enough.
-fn offer(core: &Arc<Core>) -> Option<u64> {
-    forget_stale_offers(core);
-    let now = epoch_ms();
-    let running = core.running_agents();
-    let workers: Vec<(String, String)> = running
-        .iter()
-        .filter_map(|agent| {
-            let named = core.names.get(agent)?;
-            let lead = named.parent.as_ref()?;
-            idle_from(core, lead)
-                .is_some()
-                .then(|| (agent.clone(), named.project))
-        })
-        .collect();
-    if workers.is_empty() {
-        return None;
-    }
-    let mut next = None;
-    let mut offers: Vec<(String, Vec<String>, String)> = Vec::new();
-    {
-        let mut state = core.boards.state.locked();
-        let State {
-            boards,
-            offered,
-            woken,
-            ..
-        } = &mut *state;
-        for (agent, project) in workers {
-            let Some(board) = boards.get(&project) else {
-                continue;
-            };
-            let busy = board.cards.iter().any(|card| {
-                card.owner_id() == Some(agent.as_str()) && card.status == CardStatus::Progress
-            });
-            if busy {
-                continue;
-            }
-            let team = core.names.team_of(&agent);
-            let free: Vec<&Card> = board
-                .cards
-                .iter()
-                .filter(|card| {
-                    card.status == CardStatus::Open
-                        && card.owner.is_none()
-                        && board.waits_on(card).is_empty()
-                        && !board
-                            .cards
-                            .iter()
-                            .any(|other| other.parent == Some(card.id))
-                        && !offered.contains(&(project.clone(), card.id, agent.clone()))
-                        && team_of(core, board, card).is_some_and(|ours| ours.lead == team)
-                })
-                .take(MAX_OFFERED)
-                .collect();
-            if free.is_empty() {
-                continue;
-            }
-            match idle_from(core, &agent) {
-                Some(from) if from <= now => {}
-                Some(from) => {
-                    next = sooner(next, Some(from));
-                    continue;
-                }
-                None => continue,
-            }
-            for card in &free {
-                offered.insert((project.clone(), card.id, agent.clone()));
-            }
-            woken.insert(agent.clone());
-            offers.push((
-                agent,
-                free.iter().map(|card| card.label()).collect(),
-                name_of(core, &team),
-            ));
-        }
-    }
-    for (agent, cards, lead) in offers {
-        let text = format!(
-            "Open cards on your team's board that nobody has taken:\n\n{}\n\nIf one is yours to do, claim it with board_claim and do it; board_list with card shows one in full. If none is, end your turn without doing anything.",
-            cards.join("\n")
-        );
-        let note = format!(
-            "Sent by Sikemux's board, not by another agent, because you are idle and these cards are {lead}'s team's."
-        );
-        let core = core.clone();
-        tokio::spawn(async move {
-            let sent = messages::from_board(&core, agent.clone(), text, note).await;
-            let new_turn = sent.is_ok_and(|sent| sent["delivery"] == "newTurn");
-            if !new_turn {
-                core.boards.state.locked().woken.remove(&agent);
-            }
-        });
-    }
-    next
-}
-
-/// Forgets offers of cards no longer open, or gone, and offers to agents
-/// since closed.
-fn forget_stale_offers(core: &Core) {
-    let mut state = core.boards.state.locked();
-    if state.offered.is_empty() {
-        return;
-    }
-    let offered_to: HashSet<String> = state
-        .offered
-        .iter()
-        .map(|(_, _, agent)| agent.clone())
-        .collect();
-    let named: HashSet<String> = core
-        .names
-        .of(&offered_to)
-        .into_iter()
-        .map(|named| named.agent_id)
-        .collect();
-    let State {
-        boards, offered, ..
-    } = &mut *state;
-    offered.retain(|(project, id, agent)| {
-        named.contains(agent)
-            && boards
-                .get(project)
-                .and_then(|board| board.card(*id).ok())
-                .is_some_and(|card| card.status == CardStatus::Open)
-    });
-}
-
-/// Whether the agent's turn was one the board started to offer it cards, in
-/// which it took none and changed nothing on the board. Ends that turn's mark.
-pub(crate) fn offer_turn_ignored(core: &Core, agent_id: &str) -> bool {
-    core.boards.state.locked().woken.remove(agent_id)
-}
-
-/// Something besides the board's offer reached the agent in the turn the
-/// offer started, so that turn's end is worth reporting.
-pub(crate) fn reached_by_more_than_offer(core: &Core, agent_id: &str) {
-    core.boards.state.locked().woken.remove(agent_id);
-}
-
 /// Offers idle workers their team's free cards, moves Auto's runs and the
 /// cards' tickets on, and sends the window the boards that changed. Runs when
 /// a board or the agents change, and again when a run or ticket is next due.
 pub(crate) fn settle(core: &Arc<Core>) {
-    let mut next = offer(core);
+    let mut next = offers::offer(core);
     finish::clear_dropped(core);
     next = sooner(next, lease::settle(core));
     auto::start_free(core);
@@ -3373,9 +3073,20 @@ impl Boards {
     /// Changes one card and keeps the board, marking when it changed. Nothing happens when the
     /// card has gone.
     fn edit<T>(&self, project: &str, id: u64, change: impl FnOnce(&mut Card) -> T) -> Option<T> {
+        self.edit_if(project, id, |card| Some(change(card)))
+    }
+
+    /// As [`Self::edit`], for a change that may find nothing to do: answering None leaves the
+    /// card unmarked and the board unsaved.
+    fn edit_if<T>(
+        &self,
+        project: &str,
+        id: u64,
+        change: impl FnOnce(&mut Card) -> Option<T>,
+    ) -> Option<T> {
         let mut state = self.state.locked();
         let card = state.boards.get_mut(project)?.card_mut(id).ok()?;
-        let answer = change(card);
+        let answer = change(card)?;
         card.updated_at = epoch_ms();
         self.save(&mut state, project);
         Some(answer)

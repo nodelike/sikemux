@@ -647,15 +647,17 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
     let provider = launch.provider.clone();
     let text = task(&card, &tree, &settings, ticket);
     let placed = finish::change_run(core, project, id, agent, |card, run| {
-        card.owner = Some(Owner {
-            id: agent.to_owned(),
-            name: Some(name.clone()),
-            cli: Some(provider.clone()),
-        });
-        card.team = Some(Team {
-            lead: agent.to_owned(),
-            name: name.clone(),
-        });
+        card.run_by(
+            Owner {
+                id: agent.to_owned(),
+                name: Some(name.clone()),
+                cli: Some(provider.clone()),
+            },
+            Team {
+                lead: agent.to_owned(),
+                name: name.clone(),
+            },
+        );
         run.repo = tree.repo.to_string_lossy().into_owned();
         run.worktree = tree.path.to_string_lossy().into_owned();
         run.branch = tree.branch.clone();
@@ -673,7 +675,6 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
         .ok();
         return Ok(());
     }
-    super::tell_clients(core);
     let chat = chat::begin(core, launch, None, Some(launcher), false, true)
         .map_err(|error| error.to_string())?;
     let _ = core.workspaces.edit_agent(agent, |agent| {

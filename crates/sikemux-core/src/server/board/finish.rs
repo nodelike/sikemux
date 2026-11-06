@@ -43,25 +43,17 @@ pub(super) fn change_run(
     agent: &str,
     change: impl FnOnce(&mut Card, &mut AutoRun),
 ) -> bool {
-    let mut state = core.boards.state.locked();
-    let Some(card) = state
-        .boards
-        .get_mut(project)
-        .and_then(|board| board.card_mut(id).ok())
-    else {
-        return false;
-    };
-    if card.run().is_none_or(|run| run.agent != agent) {
-        return false;
-    }
-    let Some(mut run) = card.auto.take() else {
-        return false;
-    };
-    change(card, &mut run);
-    card.auto = Some(run);
-    card.updated_at = epoch_ms();
-    core.boards.save(&mut state, project);
-    true
+    core.boards
+        .edit_if(project, id, |card| {
+            if card.run().is_none_or(|run| run.agent != agent) {
+                return None;
+            }
+            let mut run = card.auto.take()?;
+            change(card, &mut run);
+            card.auto = Some(run);
+            Some(())
+        })
+        .is_some()
 }
 
 pub(super) fn note(core: &Core, project: &str, id: u64, agent: &str, stage: RunStage, note: &str) {
@@ -957,15 +949,7 @@ async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
     send_notices(core, notices);
     if !all_passed {
         // Auto's part ended at the merge; what it deploys next is for whoever takes the card.
-        let mut state = core.boards.state.locked();
-        if let Some(card) =
-            (state.boards.get_mut(&step.project)).and_then(|board| board.card_mut(step.id).ok())
-        {
-            card.auto = None;
-            card.owner = None;
-            card.team = None;
-        }
-        core.boards.save(&mut state, &step.project);
+        core.boards.edit(&step.project, step.id, Card::auto_lets_go);
     }
     if core.chats.stop(step.agent()) {
         core.note_agent_gone(step.agent());

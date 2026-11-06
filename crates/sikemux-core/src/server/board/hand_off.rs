@@ -212,7 +212,6 @@ async fn start_worker(
             unclaimed.0 = None;
             core.changed(What::Event(&Event::ChatBegun { chat: chat.info() }));
             core.changed(What::View);
-            super::tell_clients(&core);
             Ok(Started {
                 project,
                 card,

@@ -104,7 +104,7 @@ impl Core {
     /// it ended.
     pub(crate) fn note_ending(self: &Arc<Self>, agent_id: &str, ending: Ending) {
         super::board::auto::turn_ended(self, agent_id, &ending);
-        let ignored = super::board::offer_turn_ignored(self, agent_id);
+        let ignored = super::board::offers::offer_turn_ignored(self, agent_id);
         super::spawn::report_to_lead(self, agent_id, ending, ignored);
     }
 

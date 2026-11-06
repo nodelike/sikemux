@@ -420,14 +420,15 @@ fn redraft(core: &Core, project: &str, card: u64, guess: &str, draft: goal_summa
     else {
         return;
     };
-    core.boards.edit(project, card, |held| {
+    core.boards.edit_if(project, card, |held| {
         if held.title != guess {
-            return;
+            return None;
         }
         held.title = title;
         if let Some(slice) = &mut held.slice {
             slice.promise = promise;
         }
+        Some(())
     });
 }
 

@@ -11,7 +11,11 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::auto::Landing;
-use super::{change_card, send_notices, By, CardStatus, CardTicket, Changes, Tracker};
+use super::{
+    add_card, change_card, chars, clipped, distinct_cards, long_text, project_at, project_view,
+    send_notices, title_of, Adding, BoardAddTicketParams, BoardTicketParams, By, CardStatus,
+    CardTicket, Changes, Notice, ProjectBoard, Tracker, MAX_TITLE_CHARS,
+};
 use crate::server::connection::blocking;
 use crate::server::plugins::{self, PluginFailure, Provided};
 use crate::server::wake::sooner;
@@ -236,23 +240,12 @@ fn into_category(transitions: &Value, category: &str) -> Option<String> {
 /// The ticket closed with nothing landed was opened again in its tracker, so
 /// it no longer waits for the person, and goes back in step with its card.
 fn reopened(core: &Core, project: &str, id: u64, key: &str) {
-    let mut state = core.boards.state.locked();
-    let Some(card) = state
-        .boards
-        .get_mut(project)
-        .and_then(|board| board.card_mut(id).ok())
-    else {
-        return;
-    };
-    let Some(ticket) = (card.ticket.as_mut()).filter(|ticket| ticket.key == key) else {
-        return;
-    };
-    ticket.done_unlanded = false;
-    ticket.synced = None;
-    card.updated_at = epoch_ms();
-    core.boards.save(&mut state, project);
-    drop(state);
-    core.boards.wake.now();
+    core.boards.edit_if(project, id, |card| {
+        let ticket = card.ticket.as_mut().filter(|ticket| ticket.key == key)?;
+        ticket.done_unlanded = false;
+        ticket.synced = None;
+        Some(())
+    });
 }
 
 /// Notes on the card's ticket how its update went.
@@ -338,4 +331,166 @@ async fn close(core: &Arc<Core>, project: &str, id: u64, key: &str) {
     .await
     .unwrap_or_default();
     send_notices(core, notices);
+}
+
+const MAX_TICKET_DETAILS_CHARS: usize = 4000;
+
+/// A ticket made a card: its title on one line and its description cut to
+/// what a card holds.
+fn ticket_card(
+    title: &str,
+    details: &str,
+    ticket: Option<BoardTicketParams>,
+) -> Result<Adding, String> {
+    let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+    let details = if chars(details) <= MAX_TICKET_DETAILS_CHARS {
+        details.to_owned()
+    } else {
+        let kept: String = details.chars().take(MAX_TICKET_DETAILS_CHARS).collect();
+        format!("{kept}\n\n[Cut short; the ticket has the rest.]")
+    };
+    Ok(Adding {
+        title: title_of(&clipped(&title, MAX_TITLE_CHARS))?,
+        details: long_text("details", &details)?,
+        ticket: ticket.map(BoardTicketParams::ticket).transpose()?,
+        ..Adding::default()
+    })
+}
+
+/// The card on `project`'s board for ticket `key`, an open one before a done
+/// one.
+fn card_of_ticket(core: &Core, project: &str, key: &str) -> Option<TicketHeld> {
+    let state = core.boards.state.locked();
+    let card = (state.boards.get(project)?.cards.iter())
+        .filter(|card| {
+            card.ticket
+                .as_ref()
+                .is_some_and(|ticket| ticket.key.eq_ignore_ascii_case(key))
+        })
+        .min_by_key(|card| card.status == CardStatus::Done)?;
+    let parent_done = card
+        .parent
+        .and_then(|parent| state.boards.get(project)?.card(parent).ok())
+        .is_some_and(|parent| parent.status == CardStatus::Done);
+    Some(TicketHeld {
+        id: card.id,
+        parent: card.parent,
+        parent_done,
+        depends_on: card.depends_on.clone(),
+        done: card.status == CardStatus::Done,
+    })
+}
+
+struct TicketHeld {
+    id: u64,
+    parent: Option<u64>,
+    parent_done: bool,
+    depends_on: Vec<u64>,
+    done: bool,
+}
+
+/// The person puts a ticket on the board: its subtasks go under it, it waits
+/// on the tickets that block it and the ones it blocks wait on it, when those
+/// are on the board too. Answers with the board, and what could not be done
+/// besides adding the ticket.
+pub(crate) async fn person_add_ticket(
+    core: &Arc<Core>,
+    params: BoardAddTicketParams,
+) -> Result<ProjectBoard, String> {
+    let (view, notices) = {
+        let core = core.clone();
+        blocking(move || {
+            let project = project_at(&core, &params.project)?;
+            let key = params.ticket.key.clone();
+            add_card(
+                &core,
+                &project,
+                &By::Person,
+                ticket_card(&params.title, &params.details, Some(params.ticket))?,
+                None,
+            )?;
+            let made = card_of_ticket(&core, &project, &key).ok_or("The ticket's card is gone")?;
+            let (made, waited) = (made.id, made.depends_on);
+            let mut notices = Vec::new();
+            let mut problems = Vec::new();
+            let change = |id: u64, changes: Changes| {
+                change_card(&core, &project, &By::Person, id, changes).map(|(_, sent)| sent)
+            };
+            let mut note = |done: Result<Vec<Notice>, String>, what: String| match done {
+                Ok(sent) => notices.extend(sent),
+                Err(error) => problems.push(format!("Could not {what}: {error}")),
+            };
+            for sub in params.subtasks {
+                let Some(sub_key) = sub.ticket.as_ref().map(|ticket| ticket.key.clone()) else {
+                    continue;
+                };
+                match card_of_ticket(&core, &project, &sub_key) {
+                    None => note(
+                        ticket_card(&sub.title, &sub.details, sub.ticket).and_then(|mut adding| {
+                            adding.parent = Some(made);
+                            add_card(&core, &project, &By::Person, adding, None).map(|_| Vec::new())
+                        }),
+                        format!("put {sub_key} under it"),
+                    ),
+                    Some(sub) if !sub.done && (sub.parent.is_none() || sub.parent_done) => note(
+                        change(
+                            sub.id,
+                            Changes {
+                                parent: Some(Some(made)),
+                                ..Changes::default()
+                            },
+                        ),
+                        format!("put {sub_key} under it"),
+                    ),
+                    Some(_) => {}
+                }
+            }
+            let blockers: Vec<u64> = params
+                .blocked_by
+                .iter()
+                .filter_map(|blocker| card_of_ticket(&core, &project, blocker).map(|held| held.id))
+                .filter(|id| !waited.contains(id))
+                .collect();
+            if !blockers.is_empty() {
+                let waits = waited.into_iter().chain(blockers).collect();
+                note(
+                    distinct_cards(waits, "dependsOn").and_then(|waits| {
+                        change(
+                            made,
+                            Changes {
+                                depends_on: Some(waits),
+                                ..Changes::default()
+                            },
+                        )
+                    }),
+                    "make it wait on its blockers".into(),
+                );
+            }
+            for blocked in params.blocks {
+                if let Some(held) = card_of_ticket(&core, &project, &blocked) {
+                    let mut depends = held.depends_on;
+                    if !depends.contains(&made) {
+                        depends.push(made);
+                        note(
+                            change(
+                                held.id,
+                                Changes {
+                                    depends_on: Some(depends),
+                                    ..Changes::default()
+                                },
+                            ),
+                            format!("make {blocked} wait on it"),
+                        );
+                    }
+                }
+            }
+            let mut view = project_view(&core, &project);
+            view.problems = problems;
+            Ok((view, notices))
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    };
+    send_notices(core, notices);
+    Ok(view)
 }

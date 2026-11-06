@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::slice::short;
-use super::{add_card, tell_clients, Adding, Board, By, MAX_TITLE_CHARS};
+use super::{add_card, Adding, Board, By, MAX_TITLE_CHARS};
 use crate::server::codehost::repo::FailedJob;
 use crate::server::Core;
 use crate::text::clipped;
@@ -204,8 +204,7 @@ pub(crate) fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[Faile
         ci: Some(broke),
         ..super::Adding::default()
     };
-    match add_card(core, project, &By::Auto("CI"), adding, None) {
-        Ok(_) => tell_clients(core),
-        Err(error) => eprintln!("sikemux core: CI failing on {project} made no card: {error}"),
+    if let Err(error) = add_card(core, project, &By::Auto("CI"), adding, None) {
+        eprintln!("sikemux core: CI failing on {project} made no card: {error}");
     }
 }

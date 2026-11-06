@@ -13,8 +13,8 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::{
-    hand_off, hand_off::HandOnParams, holder, name_of, project_at, project_view, take_on,
-    tell_clients, wait, BoardCardParams, Card, CardStatus, ProjectBoard,
+    hand_off, hand_off::HandOnParams, holder, name_of, project_at, project_view, take_on, wait,
+    BoardCardParams, Card, CardStatus, ProjectBoard,
 };
 use crate::server::connection::blocking;
 use crate::server::wake::sooner;
@@ -178,9 +178,7 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
             agent: slice.owner,
             why,
         });
-        card.owner = None;
-        card.status = CardStatus::Open;
-        card.updated_at = now;
+        card.lose_owner(now);
         state
             .offered
             .retain(|(project, id, _)| !(*project == slice.project && *id == slice.id));
@@ -315,7 +313,6 @@ pub(crate) async fn person_resume(
     let (project, stalled, label) = stalled_card(core, &params).await?;
     let agent = bring_back(core, &stalled).await?;
     give(core, &project, params.id, &agent)?;
-    tell_clients(core);
     tell(core, &agent, format!(
         "You lost your slice {label} because you stalled, and the person gave it back to you. board_list with card {} shows where it stands: carry on with it.",
         params.id
@@ -347,7 +344,6 @@ pub(crate) async fn person_hand_on(
         return Err(format!("{} isn't open any more", name_of(core, &agent)));
     }
     give(core, &project, id, &agent)?;
-    tell_clients(core);
     tell(core, &agent, format!(
         "The person handed you a slice. {from} It is yours now: board_list with card {id} shows where it stands, so carry it on."
     ))

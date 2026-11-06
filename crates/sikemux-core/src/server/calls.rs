@@ -452,7 +452,7 @@ calls! { core, client, method, params;
     "boardResumeOwner" BoardResumeOwner (board::BoardCardParams) -> board::ProjectBoard: Full => board::person_resume(&core, params).await?,
     "boardHandOn" BoardHandOn (board::HandOnParams) -> board::ProjectBoard: Full => board::person_hand_on(&core, params).await?,
     "boardAddTicket" BoardAddTicket (board::BoardAddTicketParams) -> board::ProjectBoard: Full, counted => {
-        board::person_add_ticket(&core, params).await?
+        board::tickets::person_add_ticket(&core, params).await?
     },
     "boardUpdate" BoardUpdate (board::BoardUpdateParams) -> board::ProjectBoard: Full, counted => board::person_update(&core, params).await?,
     "boardRemove" BoardRemove (board::BoardCardParams) -> board::ProjectBoard: Full => board::person_remove(&core, params).await?,
