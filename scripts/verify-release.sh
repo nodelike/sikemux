@@ -187,7 +187,6 @@ DMG_BYTES="$(stat -f %z "$DMG")"
 ((DMG_BYTES <= DMG_BUDGET_BYTES)) || fail "$DMG is $DMG_BYTES bytes, over the $DMG_BUDGET_BYTES byte budget"
 
 [[ "$ARCHS" == "arm64" ]] || fail "unsupported executable architecture: $ARCHS"
-PLATFORMS=(darwin-aarch64)
 
 PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # Artifacts live on a tag that never moves. The nightly release carries only
@@ -206,17 +205,18 @@ CREDITS="$(node scripts/release-credits.mjs "$VERSION" "$(git rev-parse HEAD)")"
   echo "! Could not gather release credits; latest.json ships without them." >&2
   CREDITS=""
 }
-PLATFORM_LIST="${PLATFORMS[*]}" VERSION="$VERSION" NOTES="$NOTES" PUB_DATE="$PUB_DATE" SIG="$SIG" TAR_URL="$TAR_URL" MANIFEST="$MANIFEST" CREDITS="$CREDITS" python3 - <<'PY'
+VERSION="$VERSION" NOTES="$NOTES" PUB_DATE="$PUB_DATE" SIG="$SIG" TAR_URL="$TAR_URL" MANIFEST="$MANIFEST" CREDITS="$CREDITS" python3 - <<'PY'
 import json, os, pathlib
-entry = {
-    "signature": pathlib.Path(os.environ["SIG"]).read_text().strip(),
-    "url": os.environ["TAR_URL"],
-}
 manifest = {
     "version": os.environ["VERSION"],
     "notes": os.environ["NOTES"],
     "pub_date": os.environ["PUB_DATE"],
-    "platforms": {platform: dict(entry) for platform in os.environ["PLATFORM_LIST"].split()},
+    "platforms": {
+        "darwin-aarch64": {
+            "signature": pathlib.Path(os.environ["SIG"]).read_text().strip(),
+            "url": os.environ["TAR_URL"],
+        },
+    },
 }
 if os.environ["CREDITS"]:
     manifest["credits"] = json.loads(os.environ["CREDITS"])
