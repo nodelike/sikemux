@@ -34,6 +34,7 @@ use crate::{syntax, tabs, theme, ui};
 use sikemux_core::server::git::call as git_call;
 
 /// What the Git tab holds: the local workbench pane.
+#[derive(Default)]
 pub struct GitTab {
     /// The Git pane of the project whose Git tab was last in front.
     pub(crate) pane: Option<gpui_kit::Entity<GitPane>>,

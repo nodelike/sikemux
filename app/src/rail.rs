@@ -1,5 +1,6 @@
 use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
+use std::collections::HashSet;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -68,6 +69,29 @@ const PEEK_CLOSE: Duration = Duration::from_millis(180);
 const PEEK_REACH: f32 = 28.;
 
 impl Rails {
+    pub fn new(cx: &mut Context<Workbench>) -> Self {
+        Self {
+            side_open: true,
+            tab_open: true,
+            side_width: SIDE_RAIL.initial,
+            tab_width: crate::agents::TAB_RAIL.initial,
+            resizers: [cx.focus_handle(), cx.focus_handle()],
+            peeking: None,
+            unpeek: None,
+            page: TabRailPage::Agents,
+            keeping: None,
+            all_projects: false,
+            goal_focus: None,
+            all_harnesses: false,
+            folded_teams: HashSet::new(),
+            seen: Default::default(),
+            scroll: Default::default(),
+            glide: Default::default(),
+            frame: Rc::default(),
+            slide: crate::track::Slide::default(),
+        }
+    }
+
     /// Opens, sizes and pages the rails as the person's preferences keep them.
     pub fn follow(&mut self, preferences: &Preferences) {
         self.side_open = preferences.side_rail_open;

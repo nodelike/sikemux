@@ -385,26 +385,7 @@ impl Workbench {
             reorder: None,
             place: None,
             last_place: None,
-            rails: crate::rail::Rails {
-                side_open: true,
-                tab_open: true,
-                side_width: rail::SIDE_RAIL.initial,
-                tab_width: agents::TAB_RAIL.initial,
-                resizers: [cx.focus_handle(), cx.focus_handle()],
-                peeking: None,
-                unpeek: None,
-                page: TabRailPage::Agents,
-                keeping: None,
-                all_projects: false,
-                goal_focus: None,
-                all_harnesses: false,
-                folded_teams: HashSet::new(),
-                seen: Default::default(),
-                scroll: Default::default(),
-                glide: Default::default(),
-                frame: Rc::default(),
-                slide: crate::track::Slide::default(),
-            },
+            rails: crate::rail::Rails::new(cx),
             strip: Default::default(),
             closing_tabs: Default::default(),
             agent_card: crate::agents::card::Card::default(),
@@ -419,13 +400,7 @@ impl Workbench {
             trust: Trust::default(),
             skills_offered: HashSet::new(),
             chats: crate::chat::Chats::default(),
-            git: crate::git::GitTab {
-                pane: None,
-                picked: None,
-                listing: false,
-                behind: false,
-                wanted_commit: None,
-            },
+            git: crate::git::GitTab::default(),
             run_clock: cx.new(|_| crate::tasks::chip::RunClock::default()),
             files: FileTree::default(),
             files_focus: cx.focus_handle(),
@@ -566,6 +541,17 @@ impl Workbench {
     }
 
     /// The path of the project whose tasks, runs and ports the store watches.
+    /// Makes what the tab in front needs before it is drawn, which takes a window: its composer
+    /// and the hint in it, its pane, its mods' panes and its desk, then who waits for the keys.
+    fn settle_front(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.compose(window, cx);
+        self.hint(window, cx);
+        self.make_front_pane(window, cx);
+        self.mod_panes(cx);
+        crate::desk::prepare(self, window, cx);
+        self.settle_takes_keys();
+    }
+
     /// Whether the person chose the rails' Compact density.
     pub fn rail_compact(&self) -> bool {
         self.preferences().rail_density == sikemux_view::prefs::RailDensity::Compact
@@ -1581,12 +1567,7 @@ impl Parts {
             ),
             stage: part(
                 |bench, window, cx| {
-                    bench.compose(window, cx);
-                    bench.hint(window, cx);
-                    bench.make_front_pane(window, cx);
-                    bench.mod_panes(cx);
-                    crate::desk::prepare(bench, window, cx);
-                    bench.settle_takes_keys();
+                    bench.settle_front(window, cx);
                     // The frame being drawn is not done, so a view not drawn yet may still show in it.
                     if bench.keys(window, cx) == crate::keyboard::Keys::Loose {
                         cx.defer_in(window, |bench, window, cx| bench.settle_keys(window, cx));
