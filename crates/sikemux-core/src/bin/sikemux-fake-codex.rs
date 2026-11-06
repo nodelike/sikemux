@@ -87,7 +87,7 @@ impl Codex {
         self.waiting.locked().insert(id, answer);
         self.send(json!({ "id": id, "method": method, "params": params }));
         answered
-            .recv_timeout(Duration::from_secs(30))
+            .recv_timeout(Duration::from_secs(600))
             .unwrap_or(Value::Null)
     }
 

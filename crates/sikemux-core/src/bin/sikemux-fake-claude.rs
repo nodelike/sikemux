@@ -121,7 +121,7 @@ impl Claude {
         self.waiting.locked().insert(id.clone(), answer);
         self.send(json!({ "type": "control_request", "request_id": id, "request": request }));
         answered
-            .recv_timeout(Duration::from_secs(30))
+            .recv_timeout(Duration::from_secs(600))
             .unwrap_or(Value::Null)
     }
 

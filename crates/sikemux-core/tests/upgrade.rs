@@ -36,6 +36,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 
 const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");
 const WAIT: Duration = Duration::from_secs(30);
+/// A hand-over starts a new core and every chat's agent again, which takes this long at load 40.
+const UPDATE_WAIT: Duration = Duration::from_secs(120);
 
 struct CoreProcess {
     child: Child,
@@ -191,11 +193,12 @@ impl CoreProcess {
             built_at: 0,
             source: from.into(),
         };
-        let hello =
-            tokio::task::spawn_blocking(move || await_upgrade(&socket, pid, Some(&old), WAIT))
-                .await
-                .expect("join")
-                .unwrap_or_else(|error| panic!("{error}\n{}", self.log()));
+        let hello = tokio::task::spawn_blocking(move || {
+            await_upgrade(&socket, pid, Some(&old), UPDATE_WAIT)
+        })
+        .await
+        .expect("join")
+        .unwrap_or_else(|error| panic!("{error}\n{}", self.log()));
         assert_eq!(hello.pid, self.pid());
         hello.build
     }
@@ -864,7 +867,12 @@ async fn an_upgrade_carries_running_chats_over_with_their_agents() {
     let chats = client.ask(ask::AcpList).await.expect("list");
     assert_eq!(chats.len(), 6, "{}", core.log());
     for chat in &chats {
-        assert!(chat.running, "{} stopped in the update", chat.agent_id);
+        assert!(
+            chat.running,
+            "{} stopped in the update\n{}",
+            chat.agent_id,
+            core.log()
+        );
         assert_eq!(
             chat.session_id.as_ref(),
             sessions.get(&chat.agent_id),
@@ -1214,11 +1222,12 @@ async fn after_deferred_update(core: &CoreProcess) -> BuildIdentity {
         built_at: 0,
         source: "first".into(),
     };
-    let hello =
-        tokio::task::spawn_blocking(move || await_deferred_upgrade(&socket, pid, Some(&old), WAIT))
-            .await
-            .expect("join")
-            .unwrap_or_else(|error| panic!("{error}\n{}", core.log()));
+    let hello = tokio::task::spawn_blocking(move || {
+        await_deferred_upgrade(&socket, pid, Some(&old), UPDATE_WAIT)
+    })
+    .await
+    .expect("join")
+    .unwrap_or_else(|error| panic!("{error}\n{}", core.log()));
     assert_eq!(hello.pid, core.pid());
     hello.build
 }
