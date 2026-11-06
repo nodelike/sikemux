@@ -31,8 +31,9 @@ STEP="${BUILD_STEP:-all}"
 # A release builds the voice and simulator helpers first and signs them; they
 # are published beside the app, never inside it.
 if [[ "${FROM_RELEASE:-0}" != "1" && "$STEP" != "package" ]]; then
-  node "$ROOT/scripts/build-voice-helper.mjs"
-  node "$ROOT/scripts/build-sim-helper.mjs"
+  for helper in "${PUBLISHED_HELPERS[@]}"; do
+    node "$ROOT/scripts/build-${helper#sikemux-}-helper.mjs"
+  done
 fi
 GPUI="$ROOT/app"
 if [[ "$STEP" != "package" ]]; then
@@ -147,7 +148,7 @@ check_libraries() {
 }
 # The published helpers must be built and signed but stay out of the app.
 for helper in "${PUBLISHED_HELPERS[@]}"; do
-  executable="$ROOT/packaging/binaries/$helper-aarch64-apple-darwin"
+  executable="$ROOT/packaging/binaries/$helper-$MAC_TARGET"
   [[ -x "$executable" ]] || fail "$helper is missing or not executable"
   [[ ! -e "$APP_PATH/Contents/MacOS/$helper" ]] || fail "$helper is bundled in the app"
   /usr/bin/codesign --verify --strict "$executable" || fail "$helper signature is invalid"
@@ -184,7 +185,7 @@ fi
 
 # The signed helpers must still start under the hardened runtime.
 for helper in "${PUBLISHED_HELPERS[@]}"; do
-  "$ROOT/packaging/binaries/$helper-aarch64-apple-darwin" --version | grep -Fq "$helper" || fail "signed $helper does not start"
+  "$ROOT/packaging/binaries/$helper-$MAC_TARGET" --version | grep -Fq "$helper" || fail "signed $helper does not start"
 done
 
 # A release requires a structurally valid ad hoc signature before it signs the app again.

@@ -32,10 +32,7 @@ shopt -s nullglob
 DMG_CANDIDATES=("$BUNDLE"/dmg/*.dmg)
 shopt -u nullglob
 [[ ${#DMG_CANDIDATES[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMG_CANDIDATES[@]}"
-HELPERS=()
-for helper in "${PUBLISHED_HELPERS[@]}"; do
-  HELPERS+=("$ROOT/packaging/binaries/$helper-aarch64-apple-darwin")
-done
+HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")
 DMG="${DMG_CANDIDATES[0]}"
 
 EXTRACTED=""
@@ -166,7 +163,7 @@ if [[ "$NOTARIZED" == "1" ]]; then
   fi
 fi
 for helper in "${PUBLISHED_HELPERS[@]}"; do
-  "$ROOT/packaging/binaries/$helper-aarch64-apple-darwin" --version | grep -Fq "$helper" || fail "signed $helper does not start"
+  "$ROOT/packaging/binaries/$helper-$MAC_TARGET" --version | grep -Fq "$helper" || fail "signed $helper does not start"
 done
 
 DMG_MOUNT="$(mktemp -d)"

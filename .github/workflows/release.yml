@@ -146,7 +146,8 @@ jobs:
           flags=(--stage helpers)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
-          (cd packaging/binaries && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" sikemux-voice-* sikemux-sim-*)
+          source scripts/release-shape.sh
+          (cd packaging/binaries && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" "${PUBLISHED_HELPER_FILES[@]}")
 
       - name: Keep the unsigned helpers
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -253,10 +254,9 @@ jobs:
           fi
           mkdir "$RUNNER_TEMP/helpers"
           tar -xf "$RUNNER_TEMP/unsigned/helpers.tar" -C "$RUNNER_TEMP/helpers"
-          helpers=("$RUNNER_TEMP"/helpers/*)
-          [[ ${#helpers[@]} -eq 2 ]] || { echo "::error::Expected the voice and simulator helpers, found ${#helpers[@]} files"; exit 1; }
-          ./scripts/sign-helper.sh "${helpers[@]}"
-          (cd "$RUNNER_TEMP/helpers" && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" sikemux-voice-* sikemux-sim-*)
+          source scripts/release-shape.sh
+          ./scripts/sign-helper.sh "${PUBLISHED_HELPER_FILES[@]/#/$RUNNER_TEMP/helpers/}"
+          (cd "$RUNNER_TEMP/helpers" && COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/helpers.tar" "${PUBLISHED_HELPER_FILES[@]}")
 
       - name: Keep the signed helpers
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -533,8 +533,7 @@ jobs:
             target/release/bundle/macos/*.app.tar.gz
             target/release/bundle/macos/*.app.tar.gz.sig
             target/release/bundle/latest.json
-            packaging/binaries/sikemux-voice-*
-            packaging/binaries/sikemux-sim-*
+            packaging/binaries/*
             latest.json
 
   build-linux:

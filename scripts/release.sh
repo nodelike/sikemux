@@ -256,23 +256,24 @@ snapshot_expected
 BUNDLE="$ROOT/target/release/bundle"
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 APP="$BUNDLE/macos/${APP_NAME}.app"
-HOST="$(rustc -vV | sed -n 's/^host: //p')"
-VOICE="$ROOT/packaging/binaries/sikemux-voice-$HOST"
-SIM="$ROOT/packaging/binaries/sikemux-sim-$HOST"
+HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")
 # Remove stale outputs before the one release build. Their absence afterwards
 # is stronger evidence of freshness than directory mtimes, which do not change
 # when a bundler updates files in place.
 if [[ "$STAGE" == "all" || "$STAGE" == "helpers" ]]; then
-  rm -f "$VOICE" "$SIM"
-  echo "→ Building the voice and simulator helpers for v$VERSION"
-  node "$ROOT/scripts/build-voice-helper.mjs"
-  node "$ROOT/scripts/build-sim-helper.mjs"
+  rm -f "${HELPERS[@]}"
+  echo "→ Building the published helpers for v$VERSION"
+  for helper in "${PUBLISHED_HELPERS[@]}"; do
+    node "$ROOT/scripts/build-${helper#sikemux-}-helper.mjs"
+  done
 fi
 if [[ "$STAGE" == "all" ]]; then
-  signing "$ROOT/scripts/sign-helper.sh" "$VOICE" "$SIM"
+  signing "$ROOT/scripts/sign-helper.sh" "${HELPERS[@]}"
 fi
 if [[ "$STAGE" != "helpers" ]]; then
-  [[ -x "$VOICE" && -x "$SIM" ]] || fail "the signed voice and simulator helpers are missing"
+  for helper in "${HELPERS[@]}"; do
+    [[ -x "$helper" ]] || fail "the signed $(basename "$helper") is missing"
+  done
   rm -rf "$APP" "$BUNDLE/macos/${APP_NAME}.app.tar.gz" "$BUNDLE/macos/${APP_NAME}.app.tar.gz.sig" "$BUNDLE/dmg"
   echo "→ Building v$VERSION"
   step=all

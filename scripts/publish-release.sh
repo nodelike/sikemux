@@ -17,6 +17,8 @@ fail() {
 [[ -n "$VERSION" && -n "$NOTES" ]] || { echo "Usage: $0 <version> <notes> [--nightly]" >&2; exit 2; }
 [[ "${GITHUB_ACTIONS:-}" == "true" ]] || fail "releases publish from the Release workflow"
 
+# shellcheck source=/dev/null
+source "$ROOT/scripts/release-shape.sh"
 BUNDLE="$ROOT/target/release/bundle"
 APP_NAME="$(node scripts/app-metadata.mjs name)"
 TAR="$BUNDLE/macos/${APP_NAME}.app.tar.gz"
@@ -28,8 +30,6 @@ else
 fi
 shopt -s nullglob
 DMGS=("$BUNDLE"/dmg/*.dmg)
-VOICES=("$ROOT"/packaging/binaries/sikemux-voice-*)
-SIMS=("$ROOT"/packaging/binaries/sikemux-sim-*)
 DEBS=("$BUNDLE"/deb/*.deb)
 RPMS=("$BUNDLE"/rpm/*.rpm)
 APPIMAGES=("$BUNDLE"/appimage/*.AppImage)
@@ -37,8 +37,6 @@ HOSTS=("$ROOT"/target/host/sikemux-host-"$VERSION"-linux-*.tar.gz)
 SYMBOLS=("$ROOT"/target/symbols/Sikemux_"$VERSION"_*.dSYM.zip)
 shopt -u nullglob
 [[ ${#DMGS[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMGS[@]}"
-[[ ${#VOICES[@]} -eq 1 ]] || fail "expected exactly one voice helper, found ${#VOICES[@]}"
-[[ ${#SIMS[@]} -eq 1 ]] || fail "expected exactly one simulator helper, found ${#SIMS[@]}"
 [[ ${#DEBS[@]} -eq 1 ]] || fail "expected exactly one deb, found ${#DEBS[@]}"
 [[ ${#RPMS[@]} -eq 1 ]] || fail "expected exactly one rpm, found ${#RPMS[@]}"
 [[ ${#APPIMAGES[@]} -eq 1 ]] || fail "expected exactly one AppImage, found ${#APPIMAGES[@]}"
@@ -46,14 +44,13 @@ shopt -u nullglob
 [[ ${#SYMBOLS[@]} -eq 2 ]] || fail "expected the Mac app's and core's symbols, found ${#SYMBOLS[@]}"
 HOST_SIGS=("${HOSTS[@]/%/.sig}")
 DMG="${DMGS[0]}"
-VOICE="${VOICES[0]}"
-SIM="${SIMS[0]}"
+HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")
 DEB="${DEBS[0]}"
 RPM="${RPMS[0]}"
 APPIMAGE="${APPIMAGES[0]}"
 APPIMAGE_SIG="$APPIMAGE.sig"
 INSTALLER="$ROOT/scripts/install.sh"
-for file in "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}" "$MANIFEST"; do
+for file in "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}" "$MANIFEST"; do
   [[ -s "$file" ]] || fail "$file is missing or empty"
 done
 [[ "$(node -p "require('$MANIFEST').version")" == "$VERSION" ]] || fail "$MANIFEST is not for v$VERSION"
@@ -82,7 +79,7 @@ for host in sys.argv[1:]:
 path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 
-RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "$VOICE" "$SIM" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}")
+RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}")
 POINTER_NOTES="Update feed for the nightly channel.
 
 The installable build for this feed is [v$VERSION](https://github.com/nodelike/sikemux/releases/tag/v$VERSION).

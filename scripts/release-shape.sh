@@ -5,6 +5,8 @@
 
 # Published beside the app, which downloads them when first used, so they stay out of it.
 PUBLISHED_HELPERS=(sikemux-voice sikemux-sim)
+MAC_TARGET=aarch64-apple-darwin
+PUBLISHED_HELPER_FILES=("${PUBLISHED_HELPERS[@]/%/-$MAC_TARGET}")
 # The README and sikemux.com promise a small download.
 DMG_BUDGET_BYTES=30000000
 TEAM=D577WD6Z5U

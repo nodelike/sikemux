@@ -80,12 +80,15 @@ if (!publish.includes('"$APPIMAGE_SIG" "${SYMBOLS[@]}"')) fail("releases do not 
 if (!publish.includes('manifest["platforms"]["linux-x86_64"]')) fail("the update feed does not offer the AppImage");
 if (!publish.includes('manifest["platforms"][f"host-linux-{arch}"]')) fail("the update feed does not offer the host cores");
 if (!releaseWorkflow.includes("scripts/smoke-host-install.sh")) fail("the Release workflow does not install the host core with its own installer");
-if (!macBuild.includes("build-voice-helper.mjs")) fail("macOS build does not build the voice helper");
+const helpers = fs.readFileSync("scripts/release-shape.sh", "utf8").match(/^PUBLISHED_HELPERS=\((.*)\)$/m)?.[1].split(" ") ?? [];
+if (helpers.join(" ") !== "sikemux-voice sikemux-sim") fail("a release no longer publishes the voice and simulator helpers the app downloads");
+for (const helper of helpers) {
+  if (!fs.existsSync(`scripts/build-${helper.replace("sikemux-", "")}-helper.mjs`)) fail(`no build script for ${helper}`);
+}
+if (!macBuild.includes('build-${helper#sikemux-}-helper.mjs')) fail("macOS build does not build the published helpers");
 if (!macBuild.includes("build-notch-helper.mjs")) fail("macOS build does not build the notch helper");
 if (!macBuild.includes('"$ROOT/packaging/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"')) fail("the macOS bundle must carry the notch helper app");
-if (!publish.includes('"$SIG" "$VOICE"')) fail("releases do not publish the voice helper the app downloads");
-if (!macBuild.includes("build-sim-helper.mjs")) fail("macOS build does not build the simulator helper");
-if (!publish.includes('"$VOICE" "$SIM"')) fail("releases do not publish the simulator helper the app downloads");
+if (!publish.includes('"$SIG" "${HELPERS[@]}" "$DEB"')) fail("releases do not publish the helpers the app downloads");
 if (!linuxBuild.includes('"$PI_TOOLS" "$PACKAGE/usr/lib/sikemux/sikemux_pi_tools.ts"')) fail("Linux packages do not carry the Pi browser extension");
 if (!macBuild.includes("build-core.mjs")) fail("macOS build does not build the core");
 if (!macBuild.includes('"$ROOT/packaging/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"')) fail("the macOS bundle must carry the core app");
