@@ -12,6 +12,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
+use sikemux_view::workspace::WorkspaceAgent;
 
 use crate::cli::protocol::HarnessRequest;
 use crate::launch::PermissionMode;
@@ -26,6 +27,7 @@ use super::launching;
 use super::messages;
 use super::names::{Adopted, AgentName, Worker};
 use super::saved::{self, Saved};
+use super::workspace::{new_agent, LauncherId};
 use super::workspace::{Lead, Paid};
 use super::worktree::agent::Unclaimed;
 use super::worktree::{self, AgentWorktree};
@@ -680,29 +682,28 @@ async fn open_terminal(core: &Arc<Core>, opening: &Opening) -> Result<(), String
         .agent(&opening.lead_id)
         .ok_or("the agent that asked for it is no longer open in Sikemux")?;
     let same = lead.provider == opening.provider;
-    let on_launcher = opening.launcher.as_deref().and_then(|launcher| {
-        launcher
-            .strip_prefix(&format!("{}:", opening.provider))
-            .map(str::to_owned)
-    });
-    let agent = json!({
-        "id": opening.agent_id,
-        "provider": opening.provider,
-        "project": lead.project,
-        "cwd": lead.cwd,
-        "title": opening.provider,
-        "lead": lead.id,
-        "permissionMode": opening.permission_mode,
-        "profileId": on_launcher.or(lead.profile_id.filter(|_| same)),
-        "model": opening.model,
-        "effort": lead.effort.filter(|_| same),
-        "worktree": lead.worktree,
-    });
-    let Value::Object(agent) = agent else {
-        return Err("the agent could not be described".into());
-    };
+    let on_launcher = opening
+        .launcher
+        .as_deref()
+        .map(LauncherId::parse)
+        .filter(|launcher| launcher.kind == opening.provider)
+        .and_then(|launcher| launcher.account)
+        .map(str::to_owned);
     core.workspaces
-        .put_agent(agent)
+        .put_agent(WorkspaceAgent {
+            lead: Some(lead.id),
+            profile_id: on_launcher.or(lead.profile_id.filter(|_| same)),
+            model: opening.model.clone(),
+            effort: lead.effort.filter(|_| same),
+            worktree: lead.worktree,
+            ..new_agent(
+                opening.agent_id.clone(),
+                opening.provider.clone(),
+                lead.project,
+                lead.cwd,
+                opening.permission_mode,
+            )
+        })
         .map_err(|error| error.to_string())?;
     super::launching::start_terminal(
         core,

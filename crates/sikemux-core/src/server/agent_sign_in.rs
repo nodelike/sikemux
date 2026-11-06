@@ -116,13 +116,11 @@ pub(super) struct LauncherParams {
 /// Signs the person in to the account a launcher starts agents on, as
 /// [`sign_in`] does.
 pub(super) async fn sign_in_launcher(core: &Arc<Core>, params: LauncherParams) -> CoreResult<()> {
-    let (provider, profile) = match params.launcher.split_once(':') {
-        Some((provider, profile)) => (provider, Some(profile)),
-        None => (params.launcher.as_str(), None),
-    };
-    let agent = AgentKind::from_name(provider)
+    let launcher = super::workspace::LauncherId::parse(&params.launcher);
+    let agent = AgentKind::from_name(launcher.kind)
         .ok_or_else(|| CoreError::from("that agent is not one Sikemux knows"))?;
-    let profile = profile.and_then(|id| core.workspaces.accounts()?.profile(id).cloned());
+    let profile =
+        (launcher.account).and_then(|id| core.workspaces.accounts()?.profile(id).cloned());
     let account = Account {
         agent,
         executable_path: profile

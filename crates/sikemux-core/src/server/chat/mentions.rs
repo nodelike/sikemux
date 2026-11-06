@@ -5,11 +5,11 @@
 use crate::server::changed::What;
 use std::sync::Arc;
 
-use serde_json::{json, Value};
-
 use crate::server::connection::blocking;
+use crate::server::workspace::{new_agent, LauncherId};
 use crate::server::{display, launching, saved, Core, CoreError, CoreResult};
 use sikemux_view::chat::{AGENT_URI, EARLIER_URI, WOKEN_URI};
+use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::{ChatContext, ChatState};
 
 /// Whether `context` names an earlier chat to open again before the message goes.
@@ -73,20 +73,18 @@ async fn woken(
     }
     let launcher = core.workspaces.launcher(&found.cli)?;
     let project = core.workspaces.project_for(&found.project)?;
-    let profile = launcher.id.split_once(':').map(|(_, profile)| profile);
-    let draft = json!({
-        "provider": found.cli,
-        "project": project,
-        "cwd": found.project,
-        "title": found.title,
-        "resumeId": found.session_id,
-        "permissionMode": launcher.permission_mode,
-        "profileId": profile,
-    });
-    let Value::Object(draft) = draft else {
-        unreachable!("an object literal")
-    };
-    let agent = core.workspaces.put_agent(draft)?;
+    let agent = core.workspaces.put_agent(WorkspaceAgent {
+        title: found.title.clone(),
+        resume_id: Some(found.session_id.clone()),
+        profile_id: LauncherId::parse(&launcher.id).account.map(str::to_owned),
+        ..new_agent(
+            crate::server::names::new_agent_id(),
+            found.cli.clone(),
+            project,
+            found.project.clone(),
+            launcher.permission_mode,
+        )
+    })?;
     let (name, kept) = {
         let (owner, agent_id, cwd) = (core.clone(), agent.id.clone(), agent.cwd.clone());
         let (provider, resume) = (found.cli.clone(), found.session_id.clone());

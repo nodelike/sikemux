@@ -211,6 +211,40 @@ fn named(agent: &WorkspaceAgent) -> Option<String> {
     Some(agent.title.clone()).filter(|title| !title.trim().is_empty() && title != &agent.provider)
 }
 
+/// An agent new to the workspace, with nothing yet of what its running adds.
+pub(crate) fn new_agent(
+    id: String,
+    provider: String,
+    project: String,
+    cwd: PathBuf,
+    permission_mode: PermissionMode,
+) -> WorkspaceAgent {
+    WorkspaceAgent {
+        id,
+        name: None,
+        title: provider.clone(),
+        provider,
+        project,
+        cwd,
+        renamed: false,
+        lead: None,
+        resume_id: None,
+        permission_mode,
+        profile_id: None,
+        model: None,
+        model_provider: None,
+        effort: None,
+        keep_alive: false,
+        asleep: false,
+        worktree: None,
+        buddy: None,
+        face: None,
+        pty_id: None,
+        terminal: false,
+        created_at: epoch_ms(),
+    }
+}
+
 /// The project an agent working in `cwd` belongs to: the app's project that
 /// holds it, else `cwd` itself. A folder in a git worktree counts as the same
 /// folder in the main checkout.
@@ -621,9 +655,12 @@ impl Workspaces {
             .map(|kept| kept.agent.clone())
     }
 
-    /// Adds an agent, or replaces the one with its id. Without an id the core
-    /// names it.
-    pub(crate) fn put_agent(&self, mut draft: Map<String, Value>) -> CoreResult<WorkspaceAgent> {
+    /// Adds an agent a client or another host describes, or replaces the one with its id.
+    /// Without an id the core names it.
+    pub(crate) fn put_agent_draft(
+        &self,
+        mut draft: Map<String, Value>,
+    ) -> CoreResult<WorkspaceAgent> {
         if !draft.contains_key("id") {
             let id = crate::server::names::new_agent_id();
             draft.insert("id".into(), Value::String(id));
@@ -631,8 +668,13 @@ impl Workspaces {
         if !draft.contains_key("createdAt") {
             draft.insert("createdAt".into(), epoch_ms().into());
         }
-        let mut agent: WorkspaceAgent = serde_json::from_value(Value::Object(draft))
+        let agent: WorkspaceAgent = serde_json::from_value(Value::Object(draft))
             .map_err(|error| CoreError::from(format!("that is not an agent: {error}")))?;
+        self.put_agent(agent)
+    }
+
+    /// Adds an agent, or replaces the one with its id.
+    pub(crate) fn put_agent(&self, mut agent: WorkspaceAgent) -> CoreResult<WorkspaceAgent> {
         let put = self.change(|saved| {
             if agent.buddy.is_none() {
                 agent.buddy = saved
@@ -853,11 +895,11 @@ impl Workspaces {
                 }
             },
         };
-        let profile_id = chat.origin.launcher.as_deref().and_then(|launcher| {
-            launcher
-                .strip_prefix(&format!("{}:", launch.provider))
-                .map(str::to_owned)
-        });
+        let profile_id = (chat.origin.launcher.as_deref())
+            .map(LauncherId::parse)
+            .filter(|launcher| launcher.kind == launch.provider)
+            .and_then(|launcher| launcher.account)
+            .map(str::to_owned);
         let worktree = lead.as_ref().and_then(|lead| {
             let worktree = lead.worktree.as_ref()?;
             launch
@@ -889,10 +931,7 @@ impl Workspaces {
             terminal: false,
             created_at: epoch_ms(),
         };
-        let Ok(Value::Object(draft)) = serde_json::to_value(agent) else {
-            return;
-        };
-        if let Err(error) = self.put_agent(draft) {
+        if let Err(error) = self.put_agent(agent) {
             eprintln!("sikemux core: a chat that started was not kept: {error}");
         }
         self.note_program(chat);
@@ -1289,7 +1328,7 @@ pub(crate) struct CreateAgentParams {
 
 /// Adds an agent to the workspace, or replaces the one with its id.
 pub(crate) fn create_agent(core: &Core, params: CreateAgentParams) -> CoreResult<WorkspaceAgent> {
-    core.workspaces.put_agent(params.agent)
+    core.workspaces.put_agent_draft(params.agent)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1773,7 +1812,7 @@ mod tests {
                 "title": "claude", "permissionMode": "bypass",
             });
             workspaces
-                .put_agent(agent.as_object().unwrap().clone())
+                .put_agent_draft(agent.as_object().unwrap().clone())
                 .unwrap();
         };
         let title = |id: &str| workspaces.agent(id).unwrap().title;

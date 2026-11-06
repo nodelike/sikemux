@@ -17,6 +17,7 @@ use crate::launch::{AgentSpec, PermissionMode};
 use serde_json::{json, Value};
 use sikemux_process::vars;
 use sikemux_pty::launch::{LaunchKind, PtyAgentProfile, PtyContext, PtyDirectCommand};
+use sikemux_view::workspace::WorkspaceAgent;
 use sikemux_wire::protocol::{
     ask, ChatAccount, ChatLaunch, ChatStart, Continuation, Event, LaunchIdentity, RequestId,
     SessionId, SpawnTarget, TerminalSpawn, WAKE_WAIT,
@@ -26,7 +27,9 @@ use super::chat;
 use super::connection::{blocking, ClientConn};
 use super::prepare::{prepare_task, prepare_terminal};
 use super::session::PendingStart;
-use super::workspace::{launcher_of, ChatChoice, ResumeChoice, SessionChoice};
+use super::workspace::{
+    launcher_of, new_agent, ChatChoice, LauncherId, ResumeChoice, SessionChoice,
+};
 use super::{lifecycle, Core, CoreError, CoreResult};
 
 /// Where this core's agents reach their tools; none for a core without a
@@ -434,36 +437,26 @@ async fn start_new(
     choice: ChatChoice,
 ) -> CoreResult<(String, ChatStart)> {
     let agent_id = crate::server::names::new_agent_id();
-    let kind = choice
-        .launcher
-        .split(':')
-        .next()
-        .unwrap_or_default()
-        .to_owned();
+    let kind = LauncherId::parse(&choice.launcher).kind.to_owned();
     let project = core.workspaces.project_path(&choice.project)?;
     let (cwd, worktree) = match choice.cwd {
         Some(cwd) => blocking(move || Ok(super::worktree::agent::resumed_in(cwd, project))).await?,
         None => (project, None),
     };
     if let Some(launcher) = core.workspaces.terminal_launcher(&choice.launcher) {
-        let agent = json!({
-            "id": agent_id,
-            "provider": kind,
-            "project": choice.project,
-            "cwd": cwd,
-            "title": kind,
-            "permissionMode": choice
-                .permission_mode
-                .unwrap_or(launcher.permission_mode),
-            "profileId": launcher.id.strip_prefix(&format!("{kind}:")),
-            "resumeId": choice.resume_id,
-            "worktree": worktree,
-            "terminal": true,
-        });
-        let Value::Object(agent) = agent else {
-            unreachable!("an object literal")
-        };
-        core.workspaces.put_agent(agent)?;
+        core.workspaces.put_agent(WorkspaceAgent {
+            profile_id: LauncherId::parse(&launcher.id).account.map(str::to_owned),
+            resume_id: choice.resume_id,
+            worktree,
+            terminal: true,
+            ..new_agent(
+                agent_id.clone(),
+                kind.clone(),
+                choice.project,
+                cwd,
+                choice.permission_mode.unwrap_or(launcher.permission_mode),
+            )
+        })?;
         let size = super::spare::opening_size(core);
         if let Err(error) = start_terminal(core, &agent_id, size, None).await {
             super::workspace::close_gone(core, std::slice::from_ref(&agent_id));

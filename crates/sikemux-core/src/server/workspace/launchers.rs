@@ -4,12 +4,52 @@
 use super::*;
 use crate::server::changed::What;
 
+/// A launcher's id: the CLI it starts and the account it starts it on, written `kind` or
+/// `kind:account`.
+#[derive(Clone, Copy)]
+pub(crate) struct LauncherId<'a> {
+    pub kind: &'a str,
+    pub account: Option<&'a str>,
+}
+
+impl<'a> LauncherId<'a> {
+    pub(crate) fn parse(id: &'a str) -> Self {
+        match id.split_once(':') {
+            Some((kind, account)) => Self {
+                kind,
+                account: Some(account),
+            },
+            None => Self {
+                kind: id,
+                account: None,
+            },
+        }
+    }
+
+    pub(crate) fn on(kind: &'a str, account: &'a str) -> Self {
+        Self {
+            kind,
+            account: Some(account),
+        }
+    }
+}
+
+impl std::fmt::Display for LauncherId<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.account {
+            Some(account) => write!(f, "{}:{account}", self.kind),
+            None => f.write_str(self.kind),
+        }
+    }
+}
+
 /// The launcher that starts `agent`: its CLI on the account it runs on.
 pub(crate) fn launcher_of(agent: &WorkspaceAgent) -> String {
-    match &agent.profile_id {
-        Some(profile) => format!("{}:{profile}", agent.provider),
-        None => agent.provider.clone(),
+    LauncherId {
+        kind: &agent.provider,
+        account: agent.profile_id.as_deref(),
     }
+    .to_string()
 }
 
 /// The launcher, of those offered as (id, agent kind), that starts agents of `kind`: the one on the
@@ -21,7 +61,7 @@ pub(crate) fn launcher_for<'a>(
 ) -> Option<String> {
     let chosen = accounts
         .and_then(|book| book.selected.get(kind))
-        .map(|account| format!("{kind}:{account}"));
+        .map(|account| LauncherId::on(kind, account).to_string());
     let mut of_kind = offered.filter(|(_, provider)| *provider == kind);
     chosen
         .filter(|id| of_kind.clone().any(|(offered, _)| offered == id))
@@ -35,7 +75,7 @@ pub(super) fn chat_launcher<'a>(published: &'a Published, chat: &Recent) -> Opti
         .saved
         .accounts
         .as_ref()
-        .map(|book| format!("{}:{}", chat.provider, book.chosen(&chat.provider)));
+        .map(|book| LauncherId::on(&chat.provider, &book.chosen(&chat.provider)).to_string());
     published
         .every_launcher()
         .filter(|launcher| launcher.agent.provider == chat.provider)
@@ -238,7 +278,7 @@ impl Workspaces {
                     1 => def.label.to_owned(),
                     _ => format!("{} · {}", def.label, profile.name),
                 };
-                let id = format!("{}:{}", def.kind, profile.id);
+                let id = LauncherId::on(def.kind, &profile.id).to_string();
                 offered.push(launcher(id, label, profile.spec()));
             }
         }

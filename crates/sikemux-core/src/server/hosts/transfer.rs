@@ -349,7 +349,7 @@ pub(super) async fn take_here(core: &Arc<Core>, params: Take, body: Option<Recei
         {
             draft.insert("buddy".into(), buddy);
         }
-        if let Ok(made) = core.workspaces.put_agent(draft) {
+        if let Ok(made) = core.workspaces.put_agent_draft(draft) {
             agents.insert(chat.id, made.id);
         }
     }
