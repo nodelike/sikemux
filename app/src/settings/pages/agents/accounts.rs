@@ -24,6 +24,11 @@ use crate::workbench::Workbench;
 use sikemux_core::agent_accounts::status::AccountStatus;
 use sikemux_core::agent_accounts::BUILT_IN;
 
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
+    crate::settings::index::section(crate::settings::index::Page::Accounts, "Accounts", "profiles executable path sign in login logout email subscription max pro plus chatgpt switch rotate limit add second work personal claude codex"),
+];
+
 /// What the account is called: a built-in one still under its agent's name goes by
 /// the name on the account instead.
 fn name(bench: &Workbench, profile: &Profile, status: Option<&AccountStatus>) -> String {

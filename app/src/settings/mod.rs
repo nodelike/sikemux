@@ -4,6 +4,7 @@
 
 use sikemux_core::server::call;
 use sikemux_core::server::preferences::SetPreferenceParams;
+use std::cell::Cell;
 use std::time::{Duration, Instant};
 
 use gpui_kit::component::input::{InputEvent, InputState};
@@ -92,6 +93,8 @@ pub struct Open {
     chosen: usize,
     /// A place a search led to, lit for a moment.
     flash: Option<(&'static str, Instant)>,
+    /// The section to scroll to once its page has drawn.
+    reveal_section: Cell<Option<&'static str>>,
     scroll: ScrollHandle,
     /// Held while settings are open, so Escape and their other keys reach them wherever the
     /// person clicked.
@@ -139,6 +142,7 @@ pub fn open(bench: &mut Workbench, page: Page, window: &mut Window, cx: &mut Con
         query: SharedString::default(),
         chosen: 0,
         flash: None,
+        reveal_section: Cell::new(None),
         scroll: ScrollHandle::new(),
         focus: cx.focus_handle(),
         nav: ScrollHandle::new(),
@@ -288,12 +292,7 @@ fn go_to(
         settings
             .search
             .update(cx, |search, cx| search.set_value("", window, cx));
-        let section = index::sections(entry.page)
-            .iter()
-            .position(|section| *section == entry.section);
-        if let Some(at) = section {
-            settings.scroll.scroll_to_item(at + 1);
-        }
+        settings.reveal_section.set(Some(entry.section));
     });
     if shown.is_none() {
         return;
@@ -320,6 +319,7 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
     if settings.query.trim().is_empty() {
         let page = settings.page;
         cx.set_global(rows::Shown(page.name()));
+        cx.set_global(rows::Drawn::default());
         pages::prepare(bench, page, window, cx);
         dialogs = pages::dialogs(bench, &this, window, cx);
     }
@@ -609,6 +609,12 @@ pub fn view(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> 
                 .filter(|(_, at)| at.elapsed() < FLASH)
                 .map(|(section, _)| section);
             let mut sections = pages::render(bench, settings, flash, &this, window, cx);
+            if let Some(wanted) = settings.reveal_section.take() {
+                let drawn = cx.global::<rows::Drawn>().0.borrow();
+                if let Some(at) = drawn.iter().position(|title| title.as_ref() == wanted) {
+                    settings.scroll.scroll_to_item(at + 1);
+                }
+            }
             sections.extend(dialogs);
             sections
         }

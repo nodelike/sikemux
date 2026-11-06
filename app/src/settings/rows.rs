@@ -1,6 +1,8 @@
 //! What every settings page is made of: sections under a heading, and rows
 //! with a name, a line about them, and the control that changes them.
 
+use std::cell::RefCell;
+
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::IndexPath;
@@ -22,6 +24,13 @@ use crate::workbench::Workbench;
 pub struct Shown(pub &'static str);
 
 impl Global for Shown {}
+
+/// The sections a page drew this frame, in order, so a search's hit scrolls to the one that
+/// drew rather than counting the page's list, some of whose sections show only at times.
+#[derive(Default)]
+pub struct Drawn(pub RefCell<Vec<SharedString>>);
+
+impl Global for Drawn {}
 
 /// The fill under a section's card: the theme's ground, held back enough that the
 /// pane's picture still shows around the cards while their words stay readable over it.
@@ -55,6 +64,9 @@ pub fn section_with(
 ) -> AnyElement {
     let t = Tokens::get(cx);
     let title: SharedString = title.into();
+    if let Some(drawn) = cx.try_global::<Drawn>() {
+        drawn.0.borrow_mut().push(title.clone());
+    }
     let named = cx
         .try_global::<Shown>()
         .is_none_or(|shown| shown.0 != title.as_ref());

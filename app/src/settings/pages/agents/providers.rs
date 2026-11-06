@@ -27,6 +27,28 @@ use crate::ui;
 use crate::ui::numbers::compact;
 use crate::workbench::Workbench;
 
+/// What a search finds on this page.
+pub(in crate::settings) const HELPERS: &[crate::settings::index::Entry] = &[
+    crate::settings::index::section(
+        crate::settings::index::Page::Helpers,
+        "Helpers",
+        "cheap model workers scouts reviewers subagents spawn paid by provider",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Helpers,
+        "Helpers",
+        "Agent",
+        "helper worker scout reviewer subagent cheap model provider",
+    ),
+];
+
+/// What a search finds on this page.
+pub(in crate::settings) const MODELS: &[crate::settings::index::Entry] = &[
+    crate::settings::index::section(crate::settings::index::Page::Plans, "Coding plans", "zai glm minimax kimi code opencode go synthetic ollama subscription plan key claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::Providers, "API providers", "openrouter baseten together fireworks groq cerebras deepseek moonshot kimi mistral vercel api key hosted open models opencode pi omp claude codex"),
+    crate::settings::index::section(crate::settings::index::Page::LocalModels, "Local models", "ollama lm studio lmstudio local offline runner claude codex"),
+];
+
 pub struct Fields {
     providers: Vec<ModelProvider>,
     helper: Option<Helper>,

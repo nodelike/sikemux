@@ -263,12 +263,18 @@ fn entries() -> impl Iterator<Item = &'static Entry> {
         pages::devices::ACCOUNT,
         pages::general::ENTRIES,
         pages::keybindings::ENTRIES,
-        pages::agents::NOTIFICATIONS,
+        pages::agents::sessions::NOTIFICATIONS,
         pages::appearance::THEME,
         pages::appearance::INTERFACE,
         pages::appearance::BUDDIES,
         pages::appearance::WINDOW,
-        pages::agents::ENTRIES,
+        pages::agents::setup::ENTRIES,
+        pages::agents::sessions::ENTRIES,
+        pages::agents::skills::ENTRIES,
+        pages::agents::providers::HELPERS,
+        pages::agents::accounts::ENTRIES,
+        pages::agents::providers::MODELS,
+        pages::agents::device::ENTRIES,
         pages::devices::ENTRIES,
         pages::connectors::ENTRIES,
         pages::mods::ENTRIES,
@@ -285,17 +291,6 @@ fn entries() -> impl Iterator<Item = &'static Entry> {
 /// Whether `section` of `page` is on this system.
 pub fn here(page: Page, section: &str) -> bool {
     page.here() && (cfg!(target_os = "macos") || !MAC_ONLY_SECTIONS.contains(&(page, section)))
-}
-
-/// The sections of `page` in the order it shows them, as searches name them.
-pub fn sections(page: Page) -> Vec<&'static str> {
-    let mut sections: Vec<&'static str> = Vec::new();
-    for entry in entries().filter(|entry| entry.page == page && here(page, entry.section)) {
-        if !sections.contains(&entry.section) {
-            sections.push(entry.section);
-        }
-    }
-    sections
 }
 
 /// The places whose words hold every word of `query`, those whose label

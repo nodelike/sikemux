@@ -13,6 +13,14 @@ use crate::theme::{SPACE_1H, SPACE_2, TEXT_2XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] =
+    &[crate::settings::index::section(
+        crate::settings::index::Page::Installed,
+        "Agents on this host",
+        "install reinstall missing claude codex opencode hermes pi omp grok cli",
+    )];
+
 pub fn render(
     bench: &Workbench,
     setup: &Setup,

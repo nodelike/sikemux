@@ -23,6 +23,27 @@ use crate::theme::{
 use crate::ui;
 use crate::workbench::Workbench;
 
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
+    crate::settings::index::section(
+        crate::settings::index::Page::Skills,
+        "Skills",
+        "skill SKILL.md library claude codex opencode pi omp hermes grok global own move",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Skills,
+        "Skills",
+        "Add a skill",
+        "new create install git folder",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Skills,
+        "Skills",
+        "Your own skills",
+        "global folder move adopt",
+    ),
+];
+
 #[derive(Clone, Copy, PartialEq)]
 enum Form {
     Create,

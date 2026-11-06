@@ -17,6 +17,67 @@ use crate::workbench::Workbench;
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::DefaultsParams;
 
+/// What a search finds on this page.
+pub(in crate::settings) const NOTIFICATIONS: &[crate::settings::index::Entry] = &[
+    crate::settings::index::section(
+        crate::settings::index::Page::Notifications,
+        "Notifications",
+        "notification alert badge dock permission finished",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notifications,
+        "Notifications",
+        "Notify when an agent needs you",
+        "notification alert badge dock permission finished",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notifications,
+        "Notifications",
+        "Notify when a goal moves",
+        "notification goal slice landed finished eta slipped progress",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notifications,
+        "Notifications",
+        "Test notification",
+        "notification sound permission send try",
+    ),
+];
+
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
+    crate::settings::index::section(
+        crate::settings::index::Page::Permissions,
+        "Launch boundary",
+        "permissions yolo sandbox safety bypass approval",
+    ),
+    crate::settings::index::section(crate::settings::index::Page::Chats, "Chats", "sessions"),
+    crate::settings::index::row(
+        crate::settings::index::Page::Chats,
+        "Chats",
+        "Sending while an agent works",
+        "steer queue interrupt enter",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Chats,
+        "Chats",
+        "Rail density",
+        "compact comfortable sidebar",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Chats,
+        "Chats",
+        "Agent names",
+        "name theme anime nature naruto one piece characters words",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Chats,
+        "Chats",
+        "Idle chats",
+        "sleep memory process agents",
+    ),
+];
+
 pub struct Fields {
     mid_turn: Choice,
     density: Choice,

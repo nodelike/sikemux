@@ -12,6 +12,115 @@ use crate::settings::Page;
 use crate::voice::Phase;
 use crate::workbench::Workbench;
 
+/// What a search finds on this page.
+pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
+    crate::settings::index::section(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "island dynamic menu bar notch overlay agents running",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "Show the island",
+        "notch dynamic island enable disable",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "Show on",
+        "display monitor external screen",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "Open with",
+        "hover click",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "In full-screen apps",
+        "fullscreen hide",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "Peek when",
+        "peek finished needs you",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "Answer permissions in the notch",
+        "allow deny permission",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "Sound when an agent needs you",
+        "sound alert",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "Haptic feedback",
+        "haptics trackpad force touch tick vibration swipe",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Notch,
+        "Notch",
+        "Step aside for Sikemux Dev",
+        "dev build development",
+    ),
+    crate::settings::index::section(
+        crate::settings::index::Page::Voice,
+        "Voice",
+        "dictation microphone speech talk transcribe",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Voice,
+        "Voice",
+        "Dictate with right Option",
+        "dictation microphone speech push to talk hold",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Voice,
+        "Voice",
+        "Speech model",
+        "parakeet download neural engine",
+    ),
+    crate::settings::index::section(
+        crate::settings::index::Page::Simulator,
+        "iOS Simulator",
+        "iphone ipad xcode devicehub simulator phone mobile bezel frame buttons",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Simulator,
+        "iOS Simulator",
+        "Let agents drive the iOS Simulator",
+        "iphone tap swipe app test mobile",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Simulator,
+        "iOS Simulator",
+        "Xcode",
+        "xcode-select developer tools",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Simulator,
+        "iOS Simulator",
+        "iOS runtimes",
+        "ios version runtime",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Simulator,
+        "iOS Simulator",
+        "Simulator helper",
+        "download idb",
+    ),
+];
+
 pub struct Fields {
     displays: Choice,
     open_with: Choice,
