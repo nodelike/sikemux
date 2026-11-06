@@ -740,14 +740,25 @@ fn seed_goals(driver: &Driver, base: &Path, goals: usize, agents: usize) -> Vec<
     let chats: Vec<(String, usize)> = (0..agents)
         .map(|at| {
             let project = at % projects.len();
-            let (chat, _) = driver
-                .runtime
-                .block_on(driver.client.start_chat(
+            let start = || {
+                driver.runtime.block_on(driver.client.start_chat(
                     "opencode:fake".into(),
                     projects[project].0.clone(),
                     None,
                 ))
-                .expect("a chat starts");
+            };
+            // A busy machine can time out the core's version check, which it tries again after 15s.
+            let mut waited = 0;
+            let (chat, _) = loop {
+                match start() {
+                    Ok(started) => break started,
+                    Err(_) if waited < 30 => {
+                        waited += 1;
+                        std::thread::sleep(Duration::from_secs(1));
+                    }
+                    Err(error) => panic!("a chat starts: {error}"),
+                }
+            };
             (chat, project)
         })
         .collect();
@@ -791,7 +802,8 @@ fn seed_goals(driver: &Driver, base: &Path, goals: usize, agents: usize) -> Vec<
             goal / GOAL_TITLES.len() + 1
         );
         let done = goal % 6 == 2;
-        let owner = done.then(|| &chats[goal % projects.len()].0);
+        let owner =
+            Some(&chats[goal % projects.len()].0).filter(|owner| done && named.contains(*owner));
         let added = driver.call(
             "boardAdd",
             json!({ "project": folder, "title": title, "owner": owner }),
