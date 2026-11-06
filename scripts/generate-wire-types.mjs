@@ -355,7 +355,7 @@ function items(file, text) {
         file,
         name: match[3],
         kind: match[2],
-        public: match[1] !== undefined,
+        public: match[1] !== undefined && !match[1].includes("super"),
         generics: match[4],
         docs,
         attrs,
