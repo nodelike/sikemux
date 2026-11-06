@@ -203,6 +203,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
             project: project.id.clone(),
             title: text(agent, "title").unwrap_or_else(|| provider.clone()),
             renamed: agent["renamed"].as_bool().unwrap_or(false),
+            titled: false,
             lead: text(agent, "lead"),
             resume_id: text(agent, "resumeId"),
             permission_mode,

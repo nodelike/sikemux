@@ -97,19 +97,10 @@ impl Workbench {
         view: &DeviceView,
         agent: &sikemux_view::workspace::WorkspaceAgent,
     ) -> AgentRow {
-        let shown = view
-            .inbox
-            .agents
-            .iter()
+        let shown = (view.inbox.agents.iter())
+            .chain(&view.inbox.kept)
             .find(|row| row.agent_id == agent.id);
-        let status = shown.map_or(
-            if agent.asleep {
-                AgentStatus::Asleep
-            } else {
-                AgentStatus::Idle
-            },
-            |row| row.status,
-        );
+        let status = shown.map_or(AgentStatus::Idle, |row| row.status);
         AgentRow {
             active_at: shown.and_then(|row| row.active_at).unwrap_or(0),
             next_trigger: shown.and_then(|row| row.next_trigger),
@@ -118,7 +109,7 @@ impl Workbench {
             id: agent.id.clone(),
             provider: agent.provider.clone(),
             title: self.title_of(agent),
-            name: agent.name.clone().filter(|_| self.titled(agent)),
+            name: agent.name.clone().filter(|_| agent.titled),
             status,
             group: status.group(),
             busy: shown.is_some_and(|row| row.busy),
@@ -151,20 +142,11 @@ impl Workbench {
         rows
     }
 
-    /// Whether the agent has a title of its own: the person named it, or it is neither empty,
-    /// its kind nor its account's name. Until then its @name stands as its title.
-    pub fn titled(&self, agent: &sikemux_view::workspace::WorkspaceAgent) -> bool {
-        let title = agent.title.trim();
-        let account = (agent.profile_id.as_deref())
-            .and_then(|id| self.accounts.profile(id))
-            .map(|profile| profile.name.as_str());
-        agent.renamed || !(title.is_empty() || title == agent.provider || Some(title) == account)
-    }
-
-    /// What the agent is called in its header, tab and rail row.
+    /// What the agent is called in its header, tab and rail row: until it has a title of its
+    /// own, its @name.
     pub fn title_of(&self, agent: &sikemux_view::workspace::WorkspaceAgent) -> String {
         match &agent.name {
-            Some(name) if !self.titled(agent) => format!("@{name}"),
+            Some(name) if !agent.titled => format!("@{name}"),
             _ => agent.title.clone(),
         }
     }

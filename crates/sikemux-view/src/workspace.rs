@@ -312,6 +312,10 @@ pub struct WorkspaceAgent {
     /// The person named it, so the agent's own titles no longer replace it.
     #[serde(default)]
     pub renamed: bool,
+    /// Its title is its own: the person named it, or it is neither empty, its kind nor its
+    /// account's name. The core fills it in; clients only read it.
+    #[serde(default)]
+    pub titled: bool,
     /// The agent that started it, when one did.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lead: Option<String>,

@@ -153,6 +153,10 @@ pub struct InboxItem {
     pub kind: InboxKind,
     /// What its row leads with: what it is about, or what it says when that already names it.
     pub heading: String,
+    /// What it is about, while `what` does not already name that. `heading` then says it,
+    /// and `what` goes beneath.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub about: Option<String>,
     /// What the person is needed for; none while nothing waits on them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub need: Option<InboxNeed>,
@@ -160,6 +164,9 @@ pub struct InboxItem {
     pub name: Option<String>,
     pub cli: Option<String>,
     pub project: Option<String>,
+    /// What to call `project`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
     /// The chat's or terminal's title.
     pub title: Option<String>,
     /// What is needed or what happened, in a line.
@@ -235,6 +242,9 @@ pub struct Inbox {
     pub remote_agents: Vec<RemoteAgent>,
     /// Every open agent here as devices show it, in the order they list them.
     pub agents: Vec<AgentShown>,
+    /// The agents the workspace keeps that run nothing now, asleep or ended.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept: Vec<AgentShown>,
     /// How each project's open agents show together, by project id.
     pub projects: BTreeMap<String, AgentRollup>,
     /// How many items wait on the person in each project, by the id of the project their
@@ -252,11 +262,20 @@ pub struct Inbox {
 #[serde(rename_all = "camelCase")]
 pub struct AgentShown {
     pub agent_id: String,
+    /// What the core calls it, such as Otter.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// The CLI it runs, such as `claude`.
     pub cli: String,
     /// What its row is titled: the chat's or terminal's own title, else what
     /// it is, such as "New Claude chat".
     pub title: String,
+    /// `title` is its own, not only what it is. A client may show its name instead.
+    #[serde(default)]
+    pub titled: bool,
+    /// Its terminal; none for a chat.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<SessionId>,
     pub status: AgentStatus,
     pub group: AgentGroup,
     /// The word shown for its group, such as "Needs input".
@@ -287,6 +306,12 @@ pub struct AgentShown {
     /// The workspace project it is in, by id; none for one outside every project.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
+    /// What to call where it works: its project, else its folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_name: Option<String>,
+    /// The attempt it is retrying a failed request on, 0 when it did not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reconnecting: Option<u32>,
 }
 
 /// Where an agent sits on its team: the lead heads it, the last worker ends it.

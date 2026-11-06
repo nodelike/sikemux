@@ -305,7 +305,7 @@ struct AskHeader: View {
         HeaderBand(geometry: geometry) {
             if let entry {
                 AgentLook(entry: entry, size: 20).matchedGeometryEffect(id: entry.id, in: marks)
-                Text(entry.item.name ?? agentName(entry.provider)).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
+                Text(entry.name ?? agentName(entry.provider)).font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
             }
         } trailing: {
             Text("Needs you").font(Theme.ui(12, .semibold)).foregroundStyle(Theme.warn)
@@ -360,7 +360,7 @@ struct AskDetail: View {
     var body: some View {
         if let ask = entry.ask {
             CommandText(ask: ask, darker: darker)
-        } else if let text = entry.question?.text ?? entry.item.detail {
+        } else if let text = entry.question?.text ?? entry.item?.detail {
             Text(text)
                 .font(Theme.ui(13))
                 .foregroundStyle(Theme.ink)
@@ -423,7 +423,7 @@ struct AnswerButtons: View {
     }
 
     private func answer(_ ask: Ask, _ option: String) {
-        store.answer(ask, agentId: entry.item.agentId, optionId: option)
+        store.answer(ask, agentId: entry.agentId, optionId: option)
         if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
     }
 

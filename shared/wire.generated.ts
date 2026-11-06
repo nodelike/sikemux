@@ -268,6 +268,11 @@ export interface WorkspaceAgent {
     title: string;
     /** The person named it, so the agent's own titles no longer replace it. */
     renamed?: boolean;
+    /**
+     * Its title is its own: the person named it, or it is neither empty, its kind nor its
+     * account's name. The core fills it in; clients only read it.
+     */
+    titled?: boolean;
     /** The agent that started it, when one did. */
     lead?: string;
     /** The provider's session, which resumes it. */
@@ -630,6 +635,8 @@ export interface Inbox {
     remoteAgents: RemoteAgent[];
     /** Every open agent here as devices show it, in the order they list them. */
     agents: AgentShown[];
+    /** The agents the workspace keeps that run nothing now, asleep or ended. */
+    kept?: AgentShown[];
     /** How each project's open agents show together, by project id. */
     projects: Record<string, AgentRollup>;
     /**
@@ -651,12 +658,19 @@ export interface InboxItem {
     kind: InboxKind;
     /** What its row leads with: what it is about, or what it says when that already names it. */
     heading: string;
+    /**
+     * What it is about, while `what` does not already name that. `heading` then says it,
+     * and `what` goes beneath.
+     */
+    about?: string;
     /** What the person is needed for; none while nothing waits on them. */
     need?: InboxNeed;
     agentId: string | null;
     name: string | null;
     cli: string | null;
     project: string | null;
+    /** What to call `project`. */
+    projectName?: string;
     /** The chat's or terminal's title. */
     title: string | null;
     /** What is needed or what happened, in a line. */
@@ -900,6 +914,8 @@ export type TeamLink = "head" | "member" | "last";
 /** How devices show an open agent here. */
 export interface AgentShown {
     agentId: string;
+    /** What the core calls it, such as Otter. */
+    name?: string;
     /** The CLI it runs, such as `claude`. */
     cli: string;
     /**
@@ -907,6 +923,10 @@ export interface AgentShown {
      * it is, such as "New Claude chat".
      */
     title: string;
+    /** `title` is its own, not only what it is. A client may show its name instead. */
+    titled?: boolean;
+    /** Its terminal; none for a chat. */
+    session?: number;
     status: AgentStatus;
     group: AgentGroup;
     /** The word shown for its group, such as "Needs input". */
@@ -937,6 +957,10 @@ export interface AgentShown {
     team?: TeamLink;
     /** The workspace project it is in, by id; none for one outside every project. */
     project?: string;
+    /** What to call where it works: its project, else its folder. */
+    projectName?: string;
+    /** The attempt it is retrying a failed request on, 0 when it did not say. */
+    reconnecting?: number;
 }
 
 /**

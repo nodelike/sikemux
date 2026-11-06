@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
@@ -17,6 +18,7 @@ use sikemux_view::inbox::{
     InboxKind, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent, ShipHold, ShipKind,
     TeamLink,
 };
+use sikemux_view::workspace::{AgentFace, WorkspaceAgent};
 use sikemux_wire::protocol::{
     AgentGroup, AgentState, AgentStatus, ChatInfo, SessionId, SessionInfo,
 };
@@ -162,8 +164,11 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
     let group = status.group();
     AgentShown {
         agent_id,
+        name: None,
         cli,
         title,
+        titled: false,
+        session: None,
         status,
         group,
         label: display::group_label(group).to_owned(),
@@ -179,6 +184,8 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         face: None,
         team: None,
         project: None,
+        project_name: None,
+        reconnecting: None,
     }
 }
 
@@ -502,6 +509,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
     };
     InboxItem {
         heading: String::new(),
+        about: None,
         id,
         tier,
         kind,
@@ -510,6 +518,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         name: None,
         cli: None,
         project: None,
+        project_name: None,
         title: None,
         what,
         detail: None,
@@ -1008,15 +1017,34 @@ fn ranked(mut items: Vec<InboxItem>) -> Vec<InboxItem> {
 
 /// The inbox, from the chats and terminals the device view lists.
 pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Inbox {
-    let mut listed = in_teams(shown(core, chats, sessions), &core.workspaces.agent_leads());
-    let mut faces = core.agent_faces();
+    let workspace_agents = core.workspace_agents();
+    let own_titles: HashMap<&str, bool> = (workspace_agents.iter())
+        .map(|agent| (agent.id.as_str(), agent.titled))
+        .collect();
+    let mut listed = in_teams(
+        shown(core, chats, sessions, &own_titles),
+        &core.workspaces.agent_leads(),
+    );
+    let project_names = core.workspaces.project_names();
+    let called = |place: &str| {
+        (project_names.get(place).cloned()).or_else(|| {
+            let folder = Path::new(place).file_name()?;
+            Some(folder.to_string_lossy().into_owned())
+        })
+    };
+    let faces: HashMap<&str, &AgentFace> = (workspace_agents.iter())
+        .filter_map(|agent| Some((agent.id.as_str(), agent.face.as_ref()?)))
+        .collect();
     for agent in &mut listed {
-        agent.face = faces.remove(&agent.agent_id);
+        agent.face = faces.get(agent.agent_id.as_str()).map(|&face| face.clone());
     }
+    let kept = kept_agents(core, &workspace_agents, &listed, &called);
     let mut by_project: BTreeMap<String, Vec<&AgentShown>> = BTreeMap::new();
     let project_of = core.workspaces.agent_projects();
     for agent in &mut listed {
         agent.project = project_of.get(&agent.agent_id).cloned();
+        let place = agent.project.clone().or(agent.project_name.take());
+        agent.project_name = place.and_then(|place| called(&place));
     }
     for agent in &listed {
         if let Some(project) = &agent.project {
@@ -1040,10 +1068,11 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
             .map(|agent| agent.title.as_str())
             .or(item.title.as_deref())
             .or(item.card.as_ref().map(|card| card.title.as_str()));
-        item.heading = about
+        item.about = about
             .filter(|about| !item.what.contains(about))
-            .unwrap_or(&item.what)
-            .to_owned();
+            .map(str::to_owned);
+        item.heading = item.about.clone().unwrap_or_else(|| item.what.clone());
+        item.project_name = item.project.as_deref().and_then(called);
     }
     let mut needs: BTreeMap<String, usize> = BTreeMap::new();
     let mut needed = 0;
@@ -1062,8 +1091,39 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         needs,
         needed,
         agents: listed,
+        kept,
         ..view
     }
+}
+
+/// The agents the workspace keeps that run nothing now, as a client lists them.
+fn kept_agents(
+    core: &Core,
+    agents: &[WorkspaceAgent],
+    listed: &[AgentShown],
+    called: impl Fn(&str) -> Option<String>,
+) -> Vec<AgentShown> {
+    let open: HashSet<&str> = listed.iter().map(|agent| agent.agent_id.as_str()).collect();
+    (agents.iter())
+        .filter(|agent| !open.contains(agent.id.as_str()))
+        .map(|agent| {
+            let status = match agent.asleep {
+                true => AgentStatus::Asleep,
+                false => AgentStatus::Idle,
+            };
+            let title = match agent.titled {
+                true => agent.title.clone(),
+                false => provider_name(core, &agent.provider),
+            };
+            let mut shown = agent_shown(agent.id.clone(), agent.provider.clone(), title, status);
+            shown.name = agent.name.clone();
+            shown.titled = agent.titled;
+            shown.face = agent.face.clone();
+            shown.project = Some(agent.project.clone());
+            shown.project_name = called(&agent.project);
+            shown
+        })
+        .collect()
 }
 
 /// Adds the workers agents here started on linked hosts to their leads' teams: each team
@@ -1189,14 +1249,23 @@ fn in_teams(agents: Vec<AgentShown>, leads: &HashMap<String, String>) -> Vec<Age
         .collect()
 }
 
-fn shown(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<AgentShown> {
+fn shown(
+    core: &Core,
+    chats: &[ChatInfo],
+    sessions: &[SessionInfo],
+    own_titles: &HashMap<&str, bool>,
+) -> Vec<AgentShown> {
+    let own = |agent_id: &str, title: &Option<String>| {
+        (title.clone())
+            .filter(|title| !title.is_empty())
+            .filter(|_| own_titles.get(agent_id) != Some(&false))
+    };
     let mut ranked: Vec<(u32, AgentShown)> = chats
         .iter()
         .map(|chat| {
-            let title = chat
-                .title
-                .clone()
-                .filter(|title| !title.is_empty())
+            let title = own(&chat.agent_id, &chat.title);
+            let titled = title.is_some();
+            let title = title
                 .unwrap_or_else(|| format!("New {} chat", provider_name(core, &chat.provider)));
             let mut shown = agent_shown(
                 chat.agent_id.clone(),
@@ -1204,6 +1273,10 @@ fn shown(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agent
                 title,
                 chat.status,
             );
+            shown.titled = titled;
+            shown.name = chat.name.clone();
+            shown.project_name = Some(chat.cwd.to_string_lossy().into_owned());
+            shown.reconnecting = chat.reconnecting;
             shown.subagents = chat.subagents;
             shown.tasks = chat.tasks;
             shown.background = chat.subagents + chat.tasks > 0;
@@ -1217,12 +1290,14 @@ fn shown(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) -> Vec<Agent
     ranked.extend(
         roster::terminals(chats, sessions).filter_map(|(session, agent_id)| {
             let cli = session.agent_type.clone().unwrap_or_else(|| "agent".into());
-            let title = session
-                .title
-                .clone()
-                .filter(|title| !title.is_empty())
-                .unwrap_or_else(|| provider_name(core, &cli));
+            let title = own(agent_id, &session.title);
+            let titled = title.is_some();
+            let title = title.unwrap_or_else(|| provider_name(core, &cli));
             let mut shown = agent_shown(agent_id.to_owned(), cli, title, session.status?);
+            shown.titled = titled;
+            shown.name = session.agent_name.clone();
+            shown.session = Some(session.id);
+            shown.project_name = session.project.clone();
             shown.unread = session.unread;
             shown.active_at = session.active_at;
             shown.next_trigger = session.next_trigger;
@@ -1278,6 +1353,7 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
     }
     Inbox {
         items: ranked(items),
+        kept: Vec::new(),
         working,
         away: core.notify.absence().1,
         agent_messages: core.harness.mailbox.log.latest(),

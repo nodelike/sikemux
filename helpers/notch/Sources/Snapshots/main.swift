@@ -40,49 +40,36 @@ let fixture = #"""
     "palette": {},
     "backdrop": {"texture": false, "image": null}
   },
-  "chats": [
-    {"agentId": "a1", "name": "Otter", "provider": "claude", "cwd": "/Users/me/sikemux", "attentionRank": 0, "subagents": 0, "tasks": 0},
-    {"agentId": "a2", "name": "Flint", "provider": "codex", "cwd": "/Users/me/server", "attentionRank": 5, "subagents": 3, "tasks": 0},
-    {"agentId": "a3", "name": "Wren", "provider": "opencode", "cwd": "/Users/me/sikemux", "attentionRank": 6, "subagents": 0, "tasks": 0, "reconnecting": 3},
-    {"agentId": "a4", "name": "Birch", "provider": "grok", "cwd": "/Users/me/sikemux-front", "attentionRank": 2, "subagents": 0, "tasks": 0},
-    {"agentId": "a5", "name": "Heron", "provider": "claude", "title": "Profile the terminal flood", "cwd": "/Users/me/sikemux", "attentionRank": 7, "subagents": 0, "tasks": 2},
-    {"agentId": "a9", "name": "Maple", "provider": "codex", "cwd": "/Users/me/server", "attentionRank": 1, "subagents": 0, "tasks": 0},
-    {"agentId": "a10", "name": "Pine", "provider": "claude", "cwd": "/Users/me/server", "attentionRank": 3, "subagents": 0, "tasks": 0},
-    {"agentId": "a11", "name": "Moss", "provider": "claude", "cwd": "/Users/me/sikemux", "attentionRank": 4, "subagents": 0, "tasks": 0}
-  ],
-  "sessions": [
-    {"id": 7, "running": true, "project": "p-front", "agentId": "t1", "agentName": "Cedar", "agentType": "claude", "title": "Tighten the rail spacing", "attentionRank": 8}
-  ],
   "attentions": [
     {"id": "p1", "agentId": "a1",
      "choices": {"allowOnce": "o1", "allowAlways": "o2", "reject": "o3", "command": "pnpm test --filter core -- --runInBand", "title": "Run tests"}}
   ],
   "faceStyle": {"motion": true},
   "inbox": {"working": 2, "rollup": {"subagents": 3, "tasks": 2}, "agents": [
-    {"agentId": "a1", "title": "Fix the login flake", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a9", "title": "Move the ledger import", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a4", "title": "Bump Astro to 6", "group": "done", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(1080)},
-    {"agentId": "a10", "title": "Rotate the signing keys", "group": "done", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a11", "title": "Tidy the changelog", "group": "done", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a2", "title": "Refactor the auth middleware", "group": "working", "failed": false, "subagents": 3, "tasks": 0},
-    {"agentId": "a3", "title": "Draft the notch spec", "group": "working", "failed": false, "subagents": 0, "tasks": 0},
-    {"agentId": "a5", "title": "Profile the terminal flood", "group": "idle", "failed": false, "subagents": 0, "tasks": 2},
-    {"agentId": "t1", "title": "Tighten the rail spacing", "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(10800)}
+    {"agentId": "a1", "name": "Otter", "cli": "claude", "projectName": "sikemux", "title": "Fix the login flake", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a9", "name": "Maple", "cli": "codex", "projectName": "server", "title": "Move the ledger import", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a4", "name": "Birch", "cli": "grok", "projectName": "sikemux-front", "title": "Bump Astro to 6", "group": "done", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(1080)},
+    {"agentId": "a10", "name": "Pine", "cli": "claude", "projectName": "server", "title": "Rotate the signing keys", "group": "done", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a11", "name": "Moss", "cli": "claude", "projectName": "sikemux", "title": "Tidy the changelog", "group": "done", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a2", "name": "Flint", "cli": "codex", "projectName": "server", "title": "Refactor the auth middleware", "group": "working", "failed": false, "subagents": 3, "tasks": 0},
+    {"agentId": "a3", "name": "Wren", "cli": "opencode", "projectName": "sikemux", "reconnecting": 3, "title": "Draft the notch spec", "group": "working", "failed": false, "subagents": 0, "tasks": 0},
+    {"agentId": "a5", "name": "Heron", "cli": "claude", "projectName": "sikemux", "title": "Profile the terminal flood", "group": "idle", "failed": false, "subagents": 0, "tasks": 2},
+    {"agentId": "t1", "name": "Cedar", "cli": "claude", "projectName": "sikemux-front", "session": 7, "title": "Tighten the rail spacing", "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(10800)}
   ], "items": [
-    {"id": "permission:a1:p1", "tier": "needs", "kind": "permission", "heading": "Fix the login flake", "agentId": "a1", "name": "Otter", "cli": "claude", "project": "p-sikemux",
+    {"id": "permission:a1:p1", "tier": "needs", "kind": "permission", "heading": "Fix the login flake", "about": "Fix the login flake", "agentId": "a1", "name": "Otter", "cli": "claude", "projectName": "sikemux",
      "title": "Fix the login flake", "what": "Needs your permission", "detail": "pnpm test --filter core -- --runInBand", "at": AGO(134), "requestId": "p1"},
-    {"id": "question:q1", "tier": "needs", "kind": "question", "heading": "Move the ledger import", "agentId": "a9", "name": "Maple", "cli": "codex", "project": "p-server",
+    {"id": "question:q1", "tier": "needs", "kind": "question", "heading": "Move the ledger import", "about": "Move the ledger import", "agentId": "a9", "name": "Maple", "cli": "codex", "projectName": "server",
      "title": "Move the ledger import", "what": "Asks you", "detail": "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
      "at": AGO(1), "questionId": "q1"},
-    {"id": "agent:a4", "tier": "review", "kind": "changes", "heading": "Bump Astro to 6", "agentId": "a4", "name": "Birch", "cli": "grok", "project": "p-front",
+    {"id": "agent:a4", "tier": "review", "kind": "changes", "heading": "Bump Astro to 6", "about": "Bump Astro to 6", "agentId": "a4", "name": "Birch", "cli": "grok", "projectName": "sikemux-front",
      "title": "Bump Astro to 6", "what": "Finished, with changes to review", "at": AGO(70)},
-    {"id": "agent:a10", "tier": "finished", "kind": "failed", "heading": "Rotate the signing keys", "agentId": "a10", "name": "Pine", "cli": "claude", "project": "p-server",
+    {"id": "agent:a10", "tier": "finished", "kind": "failed", "heading": "Rotate the signing keys", "about": "Rotate the signing keys", "agentId": "a10", "name": "Pine", "cli": "claude", "projectName": "server",
      "title": "Rotate the signing keys", "what": "Ran into a problem", "detail": "The keychain refused the new key", "at": AGO(300)},
-    {"id": "agent:a11", "tier": "finished", "kind": "finished", "heading": "Tidy the changelog", "agentId": "a11", "name": "Moss", "cli": "claude", "project": "p-sikemux",
+    {"id": "agent:a11", "tier": "finished", "kind": "finished", "heading": "Tidy the changelog", "about": "Tidy the changelog", "agentId": "a11", "name": "Moss", "cli": "claude", "projectName": "sikemux",
      "title": "Tidy the changelog", "what": "Finished", "at": AGO(900)},
-    {"id": "agent:a2", "tier": "progress", "kind": "working", "heading": "Refactor the auth middleware", "agentId": "a2", "name": "Flint", "cli": "codex", "project": "p-server",
+    {"id": "agent:a2", "tier": "progress", "kind": "working", "heading": "Refactor the auth middleware", "about": "Refactor the auth middleware", "agentId": "a2", "name": "Flint", "cli": "codex", "projectName": "server",
      "title": "Refactor the auth middleware", "what": "Working", "at": AGO(252)},
-    {"id": "agent:a3", "tier": "progress", "kind": "working", "heading": "Draft the notch spec", "agentId": "a3", "name": "Wren", "cli": "opencode", "project": "p-sikemux",
+    {"id": "agent:a3", "tier": "progress", "kind": "working", "heading": "Draft the notch spec", "about": "Draft the notch spec", "agentId": "a3", "name": "Wren", "cli": "opencode", "projectName": "sikemux",
      "title": "Draft the notch spec", "what": "Working", "at": AGO(48)}
   ]}
 }
@@ -136,11 +123,11 @@ func catalogueFaces() -> [AgentFace] {
 }
 let faces = arguments.contains("--faces") ? catalogueFaces() : []
 let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumerated().map { index, agent in
-    AgentShown(agentId: agent.agentId, title: agent.title, group: agent.group, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, calledAt: agent.calledAt,
-               face: faces[index % faces.count])
+    AgentShown(agentId: agent.agentId, name: agent.name, cli: agent.cli, title: agent.title, session: agent.session, group: agent.group, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, calledAt: agent.calledAt,
+               face: faces[index % faces.count], projectName: agent.projectName, reconnecting: agent.reconnecting)
 }
 let full = DeviceView(
-    workspace: decoded.workspace, sessions: decoded.sessions, chats: decoded.chats, attentions: decoded.attentions,
+    workspace: decoded.workspace, attentions: decoded.attentions,
     inbox: Inbox(items: decoded.inbox.items, working: decoded.inbox.working, agents: agents, rollup: decoded.inbox.rollup),
     faceStyle: decoded.faceStyle
 )
@@ -151,8 +138,6 @@ func view(keeping ids: Set<String>?) -> DeviceView {
     let agents = full.inbox.agents.filter { ids.contains($0.agentId) }
     return DeviceView(
         workspace: full.workspace,
-        sessions: full.sessions.filter { $0.agentId.map(ids.contains) ?? false },
-        chats: full.chats.filter { ids.contains($0.agentId) },
         attentions: full.attentions.filter { ids.contains($0.agentId) },
         inbox: Inbox(
             items: items, working: items.filter { $0.kind == .working }.count,

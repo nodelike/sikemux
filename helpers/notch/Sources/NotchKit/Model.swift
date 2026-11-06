@@ -2,7 +2,7 @@ import Foundation
 
 extension DeviceView {
     static let empty = DeviceView(
-        workspace: Workspace(projects: [], launchers: []), sessions: [], chats: [], attentions: [],
+        workspace: Workspace(projects: [], launchers: []), attentions: [],
         inbox: Inbox(items: [], working: 0, agents: [], rollup: nil),
         faceStyle: FaceStyle(motion: true)
     )
@@ -44,21 +44,23 @@ struct Ask: Equatable {
     }
 }
 
-/// One row of the island: an inbox item with how the core shows its agent.
+/// One row of the island: an open agent as the core shows it, with what the inbox says about it, or an item of an
+/// agent on another host.
 struct Entry: Identifiable, Equatable {
-    let item: InboxItem
-    /// How the core shows the item's agent, while it is open here.
+    let item: InboxItem?
     let agent: AgentShown?
-    let project: String
     let ask: Ask?
     var question: AgentQuestion? = nil
-    /// The attempt its agent is retrying a failed request on, 0 when it did not say.
-    var reconnecting: Int? = nil
 
-    var id: String { item.id }
-    var provider: String { item.cli ?? "" }
+    var id: String { item?.id ?? "agent:\(agent?.agentId ?? "")" }
+    var agentId: String? { agent?.agentId ?? item?.agentId }
+    var name: String? { item?.name ?? agent?.name }
+    var provider: String { item?.cli ?? agent?.cli ?? "" }
+    var project: String { item?.projectName ?? agent?.projectName ?? "" }
     /// What the core says its row leads with; an agent the inbox has nothing about goes by its title.
-    var title: String { item.heading.isEmpty ? agent?.title ?? item.what : item.heading }
+    var title: String { item?.heading ?? agent?.title ?? "" }
+    /// The attempt its agent is retrying a failed request on, 0 when it did not say.
+    var reconnecting: Int? { agent?.reconnecting }
     /// Subagents, and shells or monitors, its agent still has going.
     var subagents: Int { agent?.subagents ?? 0 }
     var tasks: Int { agent?.tasks ?? 0 }
@@ -69,8 +71,9 @@ struct Entry: Identifiable, Equatable {
     }
     /// When its agent was last named with `@` or messaged by another agent.
     var calledAt: Int? { agent?.calledAt }
-    var isChat: Bool { item.agentId != nil && item.session == nil && item.cli != nil }
-    var since: Date? { item.at > 0 ? Date(timeIntervalSince1970: Double(item.at) / 1000) : nil }
+    var isChat: Bool { agentId != nil && session == nil && !provider.isEmpty }
+    var session: Int? { agent?.session ?? item?.session }
+    var since: Date? { item.map { Date(timeIntervalSince1970: Double($0.at) / 1000) } }
 
     var mark: Mark {
         switch agent?.group {
@@ -80,17 +83,17 @@ struct Entry: Identifiable, Equatable {
         case .idle: return .idle
         case .unknown, nil: break
         }
-        return switch item.tier {
+        return switch item?.tier {
         case .needs: .needs
         case .progress: .working
-        case .review, .finished: item.kind == .failed ? .failed : .done
-        case .unknown: .idle
+        case .review, .finished: item?.kind == .failed ? .failed : .done
+        case .unknown, nil: .idle
         }
     }
 
     /// What the item says, and for a question why it reached the person rather than its lead.
     var what: String {
-        [title == item.what ? nil : item.what, question?.viaNote]
+        [item?.about == nil ? nil : item?.what, question?.viaNote]
             .compactMap { $0 }.joined(separator: " · ")
     }
 }
@@ -105,14 +108,6 @@ func agentName(_ provider: String) -> String {
 }
 
 extension DeviceView {
-    private func projectName(_ value: String?) -> String {
-        guard let value, !value.isEmpty else { return "" }
-        if let project = workspace.projects.first(where: { $0.id == value || $0.path == value }) {
-            return project.name
-        }
-        return URL(fileURLWithPath: value).lastPathComponent
-    }
-
     /// Every open agent once, in the order the core lists them on every device, each with what the inbox says about it
     /// and the question it asks from `questions`. Agents on other hosts the inbox lists follow; items that are not about
     /// an agent are left out.
@@ -120,34 +115,15 @@ extension DeviceView {
         let listed = Set(inbox.agents.map(\.agentId))
         var seen = Set<String>()
         let others = inbox.items.compactMap(\.agentId).filter { !listed.contains($0) && seen.insert($0).inserted }
-        return (inbox.agents.map(\.agentId) + others).compactMap { agentId in
-            let agent = inbox.agents.first { $0.agentId == agentId }
-            guard let item = inbox.items.first(where: { $0.agentId == agentId }) ?? idleItem(agentId) else { return nil }
+        return (inbox.agents.map(\.agentId) + others).map { agentId in
+            let item = inbox.items.first { $0.agentId == agentId }
             return Entry(
                 item: item,
-                agent: agent,
-                project: projectName(item.project),
-                ask: attentions.first { $0.id == item.requestId }.map(Ask.init),
-                question: questions.first { $0.id == item.questionId },
-                reconnecting: chats.first { $0.agentId == agentId }?.reconnecting
+                agent: inbox.agents.first { $0.agentId == agentId },
+                ask: attentions.first { $0.id == item?.requestId }.map(Ask.init),
+                question: questions.first { $0.id == item?.questionId }
             )
         }
-    }
-
-    private func idleItem(_ agentId: String) -> InboxItem? {
-        if let chat = chats.first(where: { $0.agentId == agentId }) {
-            return InboxItem(
-                id: "agent:\(agentId)", tier: .unknown, kind: .unknown, heading: "", agentId: agentId, name: chat.name, cli: chat.provider,
-                project: chat.cwd, title: nil, what: "", detail: nil, at: 0,
-                session: nil, card: nil, requestId: nil, questionId: nil, url: nil
-            )
-        }
-        guard let session = sessions.first(where: { $0.agentId == agentId }) else { return nil }
-        return InboxItem(
-            id: "agent:\(agentId)", tier: .unknown, kind: .unknown, heading: "", agentId: agentId, name: session.agentName,
-            cli: session.agentType, project: session.project, title: nil, what: "", detail: nil, at: 0,
-            session: session.id, card: nil, requestId: nil, questionId: nil, url: nil
-        )
     }
 }
 

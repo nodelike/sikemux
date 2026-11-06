@@ -110,7 +110,7 @@ final class NotchStore {
     }
 
     func apply(_ view: DeviceView) {
-        let before = Dictionary(entries.map { ($0.id, $0.item.kind) }, uniquingKeysWith: { first, _ in first })
+        let before = Dictionary(entries.compactMap { entry in entry.item.map { (entry.id, $0.kind) } }, uniquingKeysWith: { first, _ in first })
         self.view = view
         withAnimation(Motion.open) { entries = view.entries(questions) }
         if !Set(view.inbox.items.compactMap(\.questionId)).isSubset(of: questions.map(\.id)) { readQuestions() }
@@ -196,9 +196,9 @@ final class NotchStore {
 
     /// Shows what the entry is about: its agent in Sikemux, or else its pull request.
     func open(_ entry: Entry) {
-        if let agentId = entry.item.agentId {
+        if let agentId = entry.agentId {
             focus(agentId)
-        } else if let url = entry.item.url.flatMap(URL.init(string:)) {
+        } else if let url = entry.item?.url.flatMap(URL.init(string:)) {
             NSWorkspace.shared.open(url)
         } else {
             openApp()
@@ -285,9 +285,9 @@ final class NotchStore {
 
     /// Hands files to an agent: into the turn it is running, or as its next prompt.
     func send(_ paths: [String], to entry: Entry) {
-        guard let agentId = entry.item.agentId else { return }
+        guard let agentId = entry.agentId else { return }
         let text = paths.map { ($0 as NSString).lastPathComponent }.joined(separator: ", ")
-        if entry.item.kind == .working {
+        if entry.item?.kind == .working {
             link?.request(CoreRequest.AcpSteer(agentId: agentId, text: text, paths: paths, context: [])) {
                 [weak self] result in
                 if case .success(let answer) = result, answer.outcome == "promptRequired" {

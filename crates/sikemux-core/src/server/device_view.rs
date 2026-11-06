@@ -141,15 +141,12 @@ impl Core {
         (chats, sessions)
     }
 
-    /// The face each agent wears, by agent id; one showing its logo has none.
-    pub(crate) fn agent_faces(&self) -> HashMap<String, sikemux_view::workspace::AgentFace> {
+    /// The workspace's agents as clients are sent them, each under its name and in its face.
+    pub(crate) fn workspace_agents(&self) -> Vec<sikemux_view::workspace::WorkspaceAgent> {
         let mut agents = self.workspaces.view().agents;
         self.names.fill(&mut agents);
         self.faces.fill(&mut agents);
         agents
-            .into_iter()
-            .filter_map(|agent| Some((agent.id, agent.face?)))
-            .collect()
     }
 
     /// The workspace as clients are sent it, each agent under its name and

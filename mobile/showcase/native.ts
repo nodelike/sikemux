@@ -62,8 +62,12 @@ function shown() {
     const group = asks ? 'blocked' : chat.running ? 'working' : 'idle';
     return {
       agentId: chat.agentId,
+      name: chat.name,
       cli: chat.provider,
       title: chat.title,
+      titled: true,
+      project: chat.project,
+      projectName: PROJECTS.find((project) => project.id === chat.project)?.name,
       status: group,
       group,
       label: GROUP_LABELS[group],

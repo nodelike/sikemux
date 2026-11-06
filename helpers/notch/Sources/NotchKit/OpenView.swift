@@ -61,7 +61,7 @@ struct OpenHeader: View {
         }
         HoverCapsule {
             store.openApp()
-            if let agentId = store.entries.lazy.compactMap(\.item.agentId).first { store.focus(agentId) }
+            if let agentId = store.entries.lazy.compactMap(\.agentId).first { store.focus(agentId) }
         } label: {
             IconView(icon: Icons.brand, size: 14)
                 .foregroundStyle(Theme.ink)
@@ -213,9 +213,9 @@ struct RowLine: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             ProjectLabel(project: entry.project).frame(maxWidth: 150, alignment: .trailing).fixedSize()
-            if entry.item.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.nextTrigger != nil || entry.mark != .idle {
+            if entry.name != nil || entry.subagents > 0 || entry.tasks > 0 || entry.nextTrigger != nil || entry.mark != .idle {
                 HStack(spacing: 8) {
-                    if let name = entry.item.name {
+                    if let name = entry.name {
                         Text("@\(name)").font(Theme.ui(11)).foregroundStyle(Theme.inkFaint).lineLimit(1).fixedSize()
                     }
                     if entry.subagents > 0 { SubagentCount(count: entry.subagents) }

@@ -286,8 +286,6 @@ enum CoreChangeTopic: String, Codable, Hashable {
 
 struct DeviceView: Codable, Hashable {
     let workspace: Workspace
-    let sessions: [SessionInfo]
-    let chats: [ChatInfo]
     let attentions: [Attention]
     /// What waits on the person, ranked.
     let inbox: Inbox
@@ -330,28 +328,6 @@ struct ConfigChoice: Codable, Hashable {
     let label: String
 }
 
-struct SessionInfo: Codable, Hashable {
-    let id: Int
-    /// The workspace project it runs in, by id; none for a terminal outside
-    /// every project.
-    let project: String?
-    let agentId: String?
-    /// What the core calls an agent terminal's agent, such as Otter.
-    let agentName: String?
-    let agentType: String?
-}
-
-struct ChatInfo: Codable, Hashable {
-    let agentId: String
-    /// What the core calls the agent, such as Otter.
-    let name: String?
-    let provider: String
-    let cwd: String
-    /// The agent is retrying a request that got no answer over the network:
-    /// the attempt it is on, or 0 when it did not say.
-    let reconnecting: Int?
-}
-
 /// Something an agent is waiting on a person for.
 struct Attention: Codable, Hashable {
     let id: String
@@ -391,12 +367,14 @@ struct InboxItem: Codable, Hashable {
     let kind: InboxKind
     /// What its row leads with: what it is about, or what it says when that already names it.
     let heading: String
+    /// What it is about, while `what` does not already name that. `heading` then says it,
+    /// and `what` goes beneath.
+    let about: String?
     let agentId: String?
     let name: String?
     let cli: String?
-    let project: String?
-    /// The chat's or terminal's title.
-    let title: String?
+    /// What to call `project`.
+    let projectName: String?
     /// What is needed or what happened, in a line.
     let what: String
     let detail: String?
@@ -473,9 +451,15 @@ struct InboxCard: Codable, Hashable {
 /// How devices show an open agent here.
 struct AgentShown: Codable, Hashable {
     let agentId: String
+    /// What the core calls it, such as Otter.
+    let name: String?
+    /// The CLI it runs, such as `claude`.
+    let cli: String
     /// What its row is titled: the chat's or terminal's own title, else what
     /// it is, such as "New Claude chat".
     let title: String
+    /// Its terminal; none for a chat.
+    let session: Int?
     let group: AgentGroup
     let subagents: Int
     let tasks: Int
@@ -488,6 +472,10 @@ struct AgentShown: Codable, Hashable {
     /// The face it wears, as the workspace's agent does; none while it shows
     /// its CLI's logo.
     let face: AgentFace?
+    /// What to call where it works: its project, else its folder.
+    let projectName: String?
+    /// The attempt it is retrying a failed request on, 0 when it did not say.
+    let reconnecting: Int?
 }
 
 /// Where an agent stands for the person, in the order lists show the groups:

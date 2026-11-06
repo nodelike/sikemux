@@ -854,6 +854,22 @@ impl Workspaces {
             .collect()
     }
 
+    /// What each project is called, by its id and by its folder, as clients know it by either.
+    pub(crate) fn project_names(&self) -> HashMap<String, String> {
+        let published = self.published.locked();
+        (published.saved.projects.iter())
+            .flat_map(|project| {
+                [
+                    (project.id.clone(), project.name.clone()),
+                    (
+                        project.path.to_string_lossy().into_owned(),
+                        project.name.clone(),
+                    ),
+                ]
+            })
+            .collect()
+    }
+
     pub(crate) fn agent_projects(&self) -> HashMap<String, String> {
         self.published
             .locked()
@@ -915,6 +931,7 @@ impl Workspaces {
             cwd: launch.cwd.clone(),
             title: launch.provider.clone(),
             renamed: false,
+            titled: false,
             lead: lead.map(|lead| lead.id),
             resume_id: launch.resume_id.clone(),
             permission_mode: launch.permission_mode,
@@ -1168,7 +1185,13 @@ impl Workspaces {
                 })
                 .collect(),
             spaces: saved.spaces.clone(),
-            agents: saved.agents.iter().map(|kept| kept.agent.clone()).collect(),
+            agents: (saved.agents.iter())
+                .map(|kept| {
+                    let mut agent = kept.agent.clone();
+                    agent.titled = agent.renamed || !untitled(saved, &agent);
+                    agent
+                })
+                .collect(),
             pinned: saved.pinned.clone(),
             permission_mode: saved.permission_mode.unwrap_or(PermissionMode::Bypass),
             disabled_plugins: Default::default(),
