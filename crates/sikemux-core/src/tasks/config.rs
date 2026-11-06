@@ -279,7 +279,7 @@ pub struct ProjectConfig {
     pub plan_first: Option<PathGlobs>,
     /// The project's own commands that leave this machine, such as
     /// `make deploy`, which an agent runs only once the person allows it.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ship: Vec<String>,
 }
 
@@ -1399,5 +1399,26 @@ mod env_map {
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
         serializer.collect_map(env.iter().map(|(name, value)| (name, value)))
+    }
+}
+
+#[cfg(test)]
+mod reading_back {
+    use super::*;
+
+    #[test]
+    fn a_config_with_nothing_optional_reads_back_as_clients_get_it() {
+        let project = tempfile::tempdir().unwrap();
+        std::fs::write(
+            project.path().join("sikemux.json"),
+            r#"{ "version": 1, "tasks": [{ "id": "dev", "label": "Dev", "command": "make dev" }] }"#,
+        )
+        .unwrap();
+        let answer = serde_json::to_value(load(project.path())).unwrap();
+        let read: ConfigLoad = serde_json::from_value(answer).unwrap();
+        let ConfigLoad::Valid { config, .. } = read else {
+            panic!("a valid file reads back as one");
+        };
+        assert_eq!(config.tasks[0].id, "dev");
     }
 }
