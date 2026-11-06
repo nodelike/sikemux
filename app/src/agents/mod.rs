@@ -69,7 +69,7 @@ pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             .absolute()
             .size_full(),
         )
-        .map(|rail| match goals_page(bench, cx) {
+        .map(|rail| match crate::goals::goals_page(bench, cx) {
             Some(goals) => rail.child(goals),
             None => rail
                 .child(crate::track::rail(
@@ -80,51 +80,6 @@ pub fn tab_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
                 .child(pages(bench, cx)),
         })
         .into_any_element()
-}
-
-/// While the window is on the goals, the rail lists only the goals of the project in front.
-fn goals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let panel = (bench.goals.as_ref())
-        .filter(|_| bench.showing_goals())
-        .and_then(|goals| {
-            goals
-                .read(cx)
-                .shows_panel()
-                .then(|| goals.update(cx, |goals, cx| goals.panel(cx)))
-        });
-    if let Some(panel) = panel {
-        let panel = panel.cached(gpui_kit::StyleRefinement::default().size_full());
-        return Some(panel.into_any_element());
-    }
-    let rows = crate::goals::goal_rows(bench, cx)?;
-    let list = match (rows.is_empty(), bench.project()) {
-        (false, _) => div()
-            .id("goals-rail-scroll")
-            .flex_1()
-            .min_h_0()
-            .p(SPACE_2H)
-            .overflow_y_scroll()
-            .children(rows)
-            .into_any_element(),
-        (true, Some(project)) => rail_empty(
-            Icon::Steps,
-            format!("No goals in {}", project.name),
-            None,
-            cx,
-        ),
-        (true, None) => rail_empty(
-            Icon::Steps,
-            "No project open",
-            Some(("project.open", "open one")),
-            cx,
-        ),
-    };
-    Some(
-        page_body()
-            .child(page_header("Goals", bench, cx))
-            .child(list)
-            .into_any_element(),
-    )
 }
 
 /// Says the rail lists only one goal's agents, and takes that away.
@@ -139,7 +94,7 @@ fn goal_focus_row(title: &str, cx: &mut Context<Workbench>) -> AnyElement {
 
 /// What one of the rail's pages holds; the rail's frame and its page switch stay put while
 /// the pages slide inside it.
-fn page_body() -> gpui_kit::Div {
+pub(crate) fn page_body() -> gpui_kit::Div {
     div().size_full().flex().flex_col().overflow_hidden()
 }
 
@@ -1221,7 +1176,7 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
 }
 
 /// A rail page's title bar.
-fn page_header(
+pub(crate) fn page_header(
     title: impl Into<SharedString>,
     bench: &Workbench,
     cx: &mut Context<Workbench>,
@@ -1240,7 +1195,7 @@ fn other_host(bench: &Workbench) -> Option<SharedString> {
     }
 }
 
-fn rail_empty(
+pub(crate) fn rail_empty(
     glyph: Icon,
     title: impl Into<SharedString>,
     press: Option<(&str, &'static str)>,

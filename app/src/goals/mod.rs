@@ -62,7 +62,7 @@ mod start;
 const CRUMB_MAX: f32 = 280.;
 
 pub(crate) use evidence::thumb_face;
-pub use rails::{goal_rows, places};
+pub(crate) use rails::{goals_page, places};
 pub use start::start_composer;
 
 /// The view moved to another place, or what it shows changed, which the window's rails show.

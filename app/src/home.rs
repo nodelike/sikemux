@@ -18,7 +18,6 @@ use crate::theme::{
     TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, Button, IconButton, PaneHeader, Segmented, Variant};
-use sikemux_view::prefs::WindowView;
 
 use crate::agents::rows::AgentRow;
 use crate::workbench::Workbench;
@@ -39,7 +38,7 @@ pub fn stage(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) ->
     if bench.settings.read(cx).is_open() {
         return crate::settings::view(bench, window, cx);
     }
-    if let (WindowView::Goals, Some(goals)) = (bench.window_view, &bench.goals) {
+    if let Some(goals) = bench.goals_in_front() {
         return goals.clone().into_any_element();
     }
     if bench

@@ -521,12 +521,9 @@ impl Workbench {
         if let Some(id) = crate::terminal::focused(self) {
             return crate::terminal::take_dropped(self, id, paths);
         }
-        let into = match self.window_view {
-            WindowView::Goals => match self.chat_in_goals(cx) {
-                Some(agent) => Some(agent),
-                None => Some(START.to_owned()),
-            },
-            WindowView::Workbench => self.chats.focused.clone().map(|(agent, _)| agent),
+        let into = match self.showing_goals() {
+            true => Some(self.chat_in_goals(cx).unwrap_or_else(|| START.to_owned())),
+            false => self.chats.focused.clone().map(|(agent, _)| agent),
         };
         if let Some(into) = into {
             self.attach(&into, paths.to_vec(), window, cx);
@@ -898,7 +895,7 @@ impl Workbench {
 
     /// Shows the workbench in place of the goals, as anything opened in one of its tabs needs.
     pub fn show_workbench(&mut self, cx: &mut Context<Self>) {
-        if self.window_view == WindowView::Goals {
+        if self.showing_goals() {
             self.toggle_goals_view(cx);
         }
     }
@@ -907,7 +904,7 @@ impl Workbench {
     pub fn chat_in_goals(&self, cx: &App) -> Option<String> {
         let goals = self.goals.as_ref()?;
         let chat = goals.read(cx).chat_shown()?.to_owned();
-        (self.window_view == WindowView::Goals).then_some(chat)
+        self.showing_goals().then_some(chat)
     }
 
     /// Switches the window between the workbench and the goals, which open on Home.
@@ -925,7 +922,7 @@ impl Workbench {
 
     /// Shows `goal` in the goals view.
     pub fn open_goal(&mut self, goal: &NoticeGoal, cx: &mut Context<Self>) {
-        if self.window_view != WindowView::Goals {
+        if !self.showing_goals() {
             self.toggle_goals_view(cx);
         }
         self.goals_view(cx)
@@ -935,6 +932,11 @@ impl Workbench {
     /// Whether the window shows the goals rather than the workbench.
     pub fn showing_goals(&self) -> bool {
         self.window_view == WindowView::Goals
+    }
+
+    /// The goals' pane, while the window shows the goals rather than the workbench.
+    pub fn goals_in_front(&self) -> Option<&Entity<crate::goals::GoalsPane>> {
+        self.goals.as_ref().filter(|_| self.showing_goals())
     }
 
     /// The goals view, made the first time it shows.
@@ -1651,7 +1653,7 @@ impl Render for Workbench {
             let (ease, shortest) = (motion::RAIL_DRAWER, motion::RAIL_DRAWER_SHORTEST);
             motion::follow_share(id, tucked, ease, shortest, window, cx)
         });
-        let goals = self.window_view == WindowView::Goals;
+        let goals = self.showing_goals();
         if goals {
             self.goals_view(cx);
         }

@@ -16,7 +16,7 @@ use serde_json::json;
 use sikemux_core::server::call;
 use sikemux_core::server::chat::calls::QueuedParams;
 use sikemux_core::server::chat::queue::QueuedMessageParams as QueuedMessage;
-use sikemux_view::prefs::{MidTurnSend, WindowView};
+use sikemux_view::prefs::MidTurnSend;
 use sikemux_wire::protocol::PermissionMode;
 
 use super::*;
@@ -896,7 +896,7 @@ impl Workbench {
     /// Makes the composer of the chat in front, unless the goals cover it, and of the goals' Home
     /// while they show, which needs the window.
     pub(crate) fn compose(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.window_view == WindowView::Goals {
+        if self.showing_goals() {
             if self.chats.start.is_none() {
                 let mut composing = self.new_composing(START, window, cx);
                 composing.draft.update(cx, |draft, cx| {
@@ -915,7 +915,7 @@ impl Workbench {
         let Some(agent) = self.agent().map(|agent| agent.id) else {
             return;
         };
-        let covered = self.window_view == WindowView::Goals
+        let covered = self.showing_goals()
             && !(self.goals.as_ref()).is_some_and(|goals| goals.read(cx).wants_chat(&agent));
         if covered {
             return;

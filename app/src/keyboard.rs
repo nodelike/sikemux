@@ -6,7 +6,6 @@ use std::path::PathBuf;
 
 use gpui_kit::{App, Context, FocusHandle, Subscription, Window};
 use sikemux_view::layout::PaneKind;
-use sikemux_view::prefs::WindowView;
 
 use crate::tabs;
 use crate::workbench::Workbench;
@@ -148,13 +147,13 @@ impl Workbench {
             }
             return;
         }
-        match (self.window_view, &self.goals) {
-            (WindowView::Goals, Some(goals)) => {
+        match self.goals_in_front() {
+            Some(goals) => {
                 if let Some(keys) = goals.read(cx).keys_go_to(&self.chats, cx) {
                     keys.focus(window, cx);
                 }
             }
-            _ => {
+            None => {
                 if let Some(view) = self.focused_view() {
                     self.focus_view(&view, window, cx);
                 }

@@ -12,7 +12,6 @@ use gpui_kit::{
     Window, WindowControlArea,
 };
 use sikemux_view::layout::{Pane, PaneKind, Tab as LayoutTab};
-use sikemux_view::prefs::WindowView;
 use sikemux_wire::pty::shell_protocol::SshLink;
 
 use crate::agents::menu::AgentMenu;
@@ -42,7 +41,7 @@ pub fn top_height(bench: &Workbench) -> f32 {
 
 /// Switches the window between the workbench and the goals, lit while the goals show.
 fn goals_toggle(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
-    let goals = bench.window_view == WindowView::Goals;
+    let goals = bench.showing_goals();
     let label = match goals {
         true => "Back to the workbench",
         false => "Goals",
@@ -60,7 +59,7 @@ fn goals_toggle(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElem
 /// The strip in front while it holds a tab: a place with none shows no row at all, and nor
 /// does the goals view.
 fn strip_with_tabs(bench: &Workbench) -> Option<Strip> {
-    (bench.window_view == WindowView::Workbench)
+    (!bench.showing_goals())
         .then(|| bench.strip())
         .flatten()
         .filter(|strip| !bench.tabs(strip).is_empty())

@@ -16,7 +16,7 @@ use sikemux_core::server::hosts::HostFound;
 use sikemux_core::server::hosts::HostReach;
 use sikemux_view::device::AccountInfo;
 use sikemux_view::layout::PaneKind;
-use sikemux_view::prefs::{Preferences, TabRailPage, TabRailScope, WindowView};
+use sikemux_view::prefs::{Preferences, TabRailPage, TabRailScope};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus, ProjectInfo};
 
 use crate::agents::rows::AgentRow;
@@ -814,7 +814,7 @@ fn project_tree(
 /// tab in front is a surface the tab rail has no page for, such as Git; none on the goals,
 /// where Home or Overnight is lit instead.
 fn lit_surface(bench: &Workbench) -> Option<PaneKind> {
-    if bench.window_view == WindowView::Goals {
+    if bench.showing_goals() {
         return None;
     }
     let front = bench
