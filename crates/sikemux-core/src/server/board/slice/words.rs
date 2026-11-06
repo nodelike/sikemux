@@ -33,7 +33,6 @@ impl Slice {
     }
 }
 
-/// One piece of evidence as a pull request's description lists it.
 pub(crate) fn pull_line(evidence: &Evidence) -> String {
     let named = |path: &str| {
         Path::new(path).file_name().map_or_else(

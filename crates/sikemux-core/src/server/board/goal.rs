@@ -184,7 +184,6 @@ impl Kept for GoalRule {
     }
 }
 
-/// Which of a goal's lists a change is to.
 #[derive(Clone, Copy)]
 pub(crate) enum List {
     Decisions,
@@ -196,7 +195,6 @@ pub(crate) enum Change {
     New {
         text: String,
         why: Option<String>,
-        /// What an assertion's evidence is.
         evidence: Option<Collect>,
     },
     Correct {
@@ -514,7 +512,6 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
 #[serde(rename_all = "camelCase")]
 pub struct DecideParams {
     pub project: String,
-    /// The goal's card.
     pub card: u64,
     /// The decision to correct or retire; none to record a new one.
     pub decision: Option<u64>,
@@ -524,7 +521,6 @@ pub struct DecideParams {
     pub retire: bool,
 }
 
-/// The person records, corrects or retires a goal's decision; answers with the board.
 pub(crate) async fn person_decide(
     core: &Arc<Core>,
     params: DecideParams,
@@ -618,7 +614,6 @@ pub(crate) async fn tool_assert(
 #[serde(rename_all = "camelCase")]
 pub struct AssertParams {
     pub project: String,
-    /// The goal's card.
     pub card: u64,
     /// The assertion to correct or retire; none to write a new one.
     pub assertion: Option<u64>,
@@ -628,7 +623,6 @@ pub struct AssertParams {
     pub retire: bool,
 }
 
-/// The person writes, corrects or retires a goal's assertion; answers with the board.
 pub(crate) async fn person_assert(
     core: &Arc<Core>,
     params: AssertParams,

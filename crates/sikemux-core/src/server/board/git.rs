@@ -28,7 +28,6 @@ pub(super) fn commit_all(
     Ok(true)
 }
 
-/// How many commits the worktree's branch has on top of where it started.
 pub(super) fn ahead(tree: &Path, start_sha: &str) -> Result<usize, String> {
     Git::quick(tree)
         .trimmed(&["rev-list", "--count", &format!("{start_sha}..HEAD")])

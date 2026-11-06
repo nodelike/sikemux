@@ -72,7 +72,6 @@ pub(crate) struct Deploy {
     by_person: bool,
 }
 
-/// A held action the person answered.
 #[derive(Clone)]
 pub(crate) struct Answered {
     pub agent_id: String,
@@ -102,7 +101,6 @@ struct Allowed {
     heard: bool,
 }
 
-/// What the person allowed.
 enum Permit {
     /// Exactly this, from there.
     Exactly { ship: Ship, cwd: PathBuf },
@@ -119,7 +117,6 @@ pub(crate) struct Waiting {
 }
 
 impl Ships {
-    /// Whether an action of the agent's waits on the person.
     pub(crate) fn holds(&self, agent_id: &str) -> bool {
         (self.state.locked().holds.iter()).any(|hold| hold.agent_id == agent_id)
     }

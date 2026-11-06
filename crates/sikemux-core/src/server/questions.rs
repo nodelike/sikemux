@@ -306,7 +306,6 @@ pub(crate) struct Questions {
     pub(crate) wake: Wake,
 }
 
-/// A question that waits on the person.
 #[derive(Clone)]
 pub(crate) struct ForPerson {
     pub id: String,
@@ -320,7 +319,6 @@ pub(crate) struct ForPerson {
     pub at: u64,
 }
 
-/// A question as an agent asked it.
 struct Asked {
     text: String,
     header: Option<String>,
@@ -418,7 +416,6 @@ impl Questions {
         self.wake.now();
     }
 
-    /// Whether the agent waits on the person to answer a question.
     pub(crate) fn blocks_on_person(&self, agent_id: &str) -> bool {
         self.state.locked().open.iter().any(|question| {
             question.agent_id == agent_id && question.blocked && question.asks_person()
@@ -501,7 +498,6 @@ impl Questions {
             .collect()
     }
 
-    /// Whether the agent's last turn ended asking the person something in its reply.
     pub(crate) fn asks_in_reply(&self, agent_id: &str) -> bool {
         (self.state.locked().reply_questions.iter()).any(|question| question.agent_id == agent_id)
     }

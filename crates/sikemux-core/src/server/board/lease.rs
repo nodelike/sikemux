@@ -26,7 +26,6 @@ use crate::server::{launching, messages, saved, Core};
 /// person stepping away from an agent they talk with is no stall.
 const QUIET_MS: u64 = 30 * 60 * 1000;
 
-/// Why an owner lost its slice.
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Why {
@@ -326,7 +325,6 @@ pub(crate) async fn person_resume(
     Ok(project_view(core, &project))
 }
 
-/// The person hands a slice whose owner stalled to another agent. Answers with the board.
 pub(crate) async fn person_hand_on(
     core: &Arc<Core>,
     params: HandOnParams,

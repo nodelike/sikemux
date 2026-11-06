@@ -100,7 +100,6 @@ fn wait(on: WaitOn, since: u64, ends: Option<u64>, now: u64) -> Wait {
     }
 }
 
-/// What `card`'s slice waits on now, if anything.
 pub(super) fn of(core: &Core, board: &Board, card: &Card, now: u64) -> Option<Wait> {
     if card.status == Status::Done {
         return None;

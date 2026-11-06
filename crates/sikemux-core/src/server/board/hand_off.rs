@@ -30,7 +30,6 @@ pub struct HandOffParams {
     pub project: String,
     /// What the person typed, which the agent is sent and the slice promises.
     pub text: String,
-    /// The files that go with it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<String>,
     /// The app's launcher the agent starts with; none for the first that works.

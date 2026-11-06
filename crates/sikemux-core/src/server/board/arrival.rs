@@ -57,7 +57,6 @@ impl<'a> Key<'a> {
     }
 }
 
-/// The open card that already holds `key`.
 pub(super) fn holder(board: &Board, key: &Key) -> Option<u64> {
     board
         .cards

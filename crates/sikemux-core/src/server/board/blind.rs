@@ -29,12 +29,10 @@ const MAX_FINDINGS: usize = 50;
 const MAX_FINDING_CHARS: usize = 4000;
 const MAX_PATH_CHARS: usize = 1024;
 
-/// The reviewer at work on a card's change.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Reviewer {
     pub agent: String,
-    /// The commit it reviews.
     pub head: String,
     pub repo: String,
     /// Its read-only checkout, once made.
@@ -63,7 +61,6 @@ impl Finding {
     }
 }
 
-/// What a reviewer said of the commit it reviewed.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Verdict {
@@ -73,7 +70,6 @@ pub(crate) struct Verdict {
     pub findings: Vec<Finding>,
 }
 
-/// The card `agent_id` reviews for Auto.
 pub(super) fn reviewed_card<'a>(
     state: &'a State,
     agent_id: &str,
@@ -97,7 +93,6 @@ fn reviews(card: &Card, agent_id: &str) -> bool {
     })
 }
 
-/// What a reviewer is asked to do.
 fn task(card: &Card, cwd: &Path, head: &str, from: &str, diff: &str, cut: bool) -> String {
     let short = |sha: &str| sha[..sha.len().min(10)].to_owned();
     let mut text = format!(
@@ -369,7 +364,6 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
     finish::ask(core, &step, text, &note, |run| run.review.rounds += 1).await;
 }
 
-/// Keeps the verdict the reviewer `agent_id` gave, for Auto to act on.
 pub(super) fn record(core: &Core, agent_id: &str, params: &Value) -> Result<Value, String> {
     let approve = params
         .get("approve")

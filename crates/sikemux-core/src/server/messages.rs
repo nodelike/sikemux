@@ -62,7 +62,6 @@ const TURN_OUTPUT_MS: u64 = 1000;
 /// typing into it until it starts a turn of its own.
 const MAX_MISSED_PASTES: u8 = 3;
 
-/// What a message between agents is.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Kind {
@@ -213,7 +212,6 @@ struct MailboxRecord {
     waiting: HashMap<String, Vec<Queued>>,
 }
 
-/// Who sent a message and what it is.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Origin {
@@ -445,7 +443,6 @@ impl Mailbox {
         dropped
     }
 
-    /// The pairs of agents whose messages to each other are held.
     pub(crate) fn loops(&self) -> Vec<Loop> {
         let state = self.state.locked();
         let mut loops: Vec<Loop> = Vec::new();

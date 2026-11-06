@@ -21,7 +21,6 @@ const FEWEST_TIMES: usize = 3;
 /// promised if that is more, has not slipped.
 const LEAST_SLIP_MS: u64 = 2 * 60_000;
 
-/// The middle of `times`.
 pub(super) fn middle(mut times: Vec<u64>) -> Option<u64> {
     times.sort_unstable();
     times.get(times.len() / 2).copied()
@@ -183,7 +182,6 @@ fn reach(board: &Board, waits: &HashMap<u64, Wait>, card: &Card, behind: &mut Ve
     }
 }
 
-/// How a goal's work stands against the time.
 enum Outlook {
     By {
         at: u64,
@@ -251,7 +249,6 @@ fn why(board: &Board, goal: &Card, waits: &HashMap<u64, Wait>, made: u64) -> Sli
     Slip::TakingLonger
 }
 
-/// What a board's promises came to.
 #[derive(Default)]
 pub(super) struct Promised {
     pub due: Option<u64>,

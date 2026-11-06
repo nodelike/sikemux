@@ -91,7 +91,6 @@ pub struct EnvironmentsProposal {
     pub at: u64,
 }
 
-/// The person answers the environments an agent proposed.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProposalParams {
@@ -100,7 +99,6 @@ pub struct ProposalParams {
 }
 
 impl Environment {
-    /// Who passes it, in the core's words.
     pub(crate) fn passes_words(&self) -> String {
         match self.passes {
             Passes::Nobody => format!("{} goes freely, marked safe", self.name),
@@ -146,7 +144,6 @@ impl Environment {
             })
     }
 
-    /// Whether what it recognises reads as production by itself.
     fn reads_as_production(&self) -> bool {
         says_production(&self.name)
             || self.recognise.iter().any(|fact| match fact {
@@ -411,7 +408,6 @@ pub(super) struct Settled {
     pub later: Later,
 }
 
-/// The person accepts or turns down the environments an agent proposed.
 pub(super) fn answer_proposal(
     core: &Core,
     state: &mut State,

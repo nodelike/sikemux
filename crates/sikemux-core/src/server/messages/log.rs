@@ -18,7 +18,6 @@ const FOLDER: &str = "agent-messages";
 const MAX_FILE_BYTES: u64 = 256 * 1024;
 pub(crate) const MAX_READ: usize = 500;
 
-/// What became of a message.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Outcome {

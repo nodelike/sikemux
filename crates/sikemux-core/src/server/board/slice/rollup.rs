@@ -12,7 +12,6 @@ pub(crate) fn goal_stalled(board: &Board, goal: &Card) -> bool {
     left.peek().is_some() && left.all(|slice| slice.stalled.is_some())
 }
 
-/// Whether every slice of the goal has passed all its gates.
 pub(crate) fn goal_done(board: &Board, goal: &Card) -> bool {
     let mut slices = (board.held_by_goal(goal).into_iter())
         .filter_map(|card| card.slice.as_ref())

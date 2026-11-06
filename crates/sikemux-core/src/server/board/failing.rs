@@ -56,7 +56,6 @@ impl Failure {
 pub(super) struct Broke {
     pub(super) failures: Vec<Failure>,
     pub(super) sha: String,
-    /// What the failing jobs printed.
     pub(super) output: String,
 }
 
@@ -70,7 +69,6 @@ impl Broke {
         checks.join(", ")
     }
 
-    /// Whether `card` already holds one of its failures.
     pub(super) fn held_by(&self, card: &[Failure]) -> bool {
         (self.failures.iter()).any(|failure| card.iter().any(|held| held.same(failure)))
     }

@@ -64,7 +64,6 @@ const AFTER_NOT_NOW: Bar = Bar {
 const MAX_CHATS: usize = 512;
 const FILE: &str = "chat-goals.json";
 
-/// What a chat has done.
 #[derive(Clone, Copy, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Tally {
@@ -215,7 +214,6 @@ fn count(core: &Core, agent: &str, add: impl FnOnce(&mut Tally)) {
     goals.save(&mut chats);
 }
 
-/// The agent made a commit.
 pub(crate) fn committed(core: &Core, agent: &str) {
     count(core, agent, |tally| tally.commits += 1);
 }
@@ -225,7 +223,6 @@ pub(crate) fn hired(core: &Core, lead: &str) {
     count(core, lead, |tally| tally.teammates += 1);
 }
 
-/// The chat's agent started a subagent of its own.
 pub(crate) fn subagent_started(core: &Core, agent: &str) {
     count(core, agent, |tally| tally.subagents += 1);
 }

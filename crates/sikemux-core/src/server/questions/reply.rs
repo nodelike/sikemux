@@ -89,7 +89,6 @@ pub(super) fn paragraphs(reply: &str) -> Vec<String> {
     paragraphs
 }
 
-/// A list item's text without its marker.
 pub(super) fn list_item(line: &str) -> Option<&str> {
     let marked = ["- ", "* ", "+ "]
         .iter()

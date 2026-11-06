@@ -23,7 +23,6 @@ use sikemux_wire::protocol::Event;
 
 pub(super) const MAX_SLOTS: u32 = 8;
 const DEFAULT_SLOTS: u32 = 2;
-/// Where the person picks the agents Auto starts.
 pub(super) const PICKED_IN: &str = "in the board's Auto settings";
 const MAX_LAUNCHER_CHARS: usize = 256;
 const MAX_MODEL_CHARS: usize = 200;
@@ -42,7 +41,6 @@ pub enum Landing {
     Person,
 }
 
-/// The agent that reviews a card's change before Auto merges it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ReviewerChoice {
@@ -58,7 +56,6 @@ pub struct ReviewerChoice {
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
     pub auto: bool,
-    /// How many of Auto's agents work at once.
     pub slots: u32,
     /// The app's launcher Auto's agents start with; none for the first that works.
     pub launcher: Option<String>,
@@ -80,7 +77,6 @@ impl Settings {
         self.environments.iter().find(|known| known.name == name)
     }
 
-    /// Who passes the environment called `name`, while the project has it.
     pub(super) fn passes(&self, name: &str) -> Option<Passes> {
         self.environment(name).map(|environment| environment.passes)
     }
@@ -99,7 +95,6 @@ impl Settings {
             .map_or("A person", Environment::step_words)
     }
 
-    /// Where a deploy's health is read after it, for the environment called `name`.
     pub(crate) fn health(&self, name: &str) -> Option<String> {
         self.environment(name)?.health.clone()
     }
@@ -170,7 +165,6 @@ pub struct SettingsParams {
     pub environments: Option<Vec<Environment>>,
 }
 
-/// The agent the person picks to review each change.
 #[derive(Serialize, Deserialize)]
 pub struct ReviewerParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -289,7 +283,6 @@ impl Stage {
     }
 }
 
-/// A card's pull request.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Pull {
@@ -433,7 +426,6 @@ pub(super) fn running(core: &Core, board: &Board) -> usize {
         .count()
 }
 
-/// Whether Auto may start an agent on the card.
 fn takes(board: &Board, card: &Card) -> bool {
     card.status == Status::Open
         && card.owner.is_none()
@@ -550,7 +542,6 @@ pub(super) fn start_free(core: &Arc<Core>) {
     }
 }
 
-/// What the agent is asked to do.
 fn task(card: &Card, tree: &worktree::Tree, settings: &Settings, ticket: Option<String>) -> String {
     let mut text = format!(
         "Sikemux's Auto started you to do card #{} of this project's board on your own, in a git worktree nobody else works in.\n\nCard #{}: {}",

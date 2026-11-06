@@ -25,7 +25,6 @@ use super::edits::{self, authors, before, changed, line_count, replaced, Change,
 use super::wake::{sooner, Wake};
 use super::Core;
 
-/// Files bigger than this are not kept.
 const MAX_FILE_BYTES: u64 = 1024 * 1024;
 /// What all the kept copies may add up to.
 const MAX_KEPT_BYTES: usize = 32 * 1024 * 1024;
@@ -408,7 +407,6 @@ impl Collisions {
         began
     }
 
-    /// Keeps `text` as the copy of `path` the agent last saw.
     fn keep_seen(&self, agent_id: &str, path: &Path, text: Arc<str>) {
         self.observe(path, text.clone(), None);
         let mut state = self.state.locked();
@@ -774,7 +772,6 @@ impl Collisions {
         self.wake.now();
     }
 
-    /// The pairs of agents that keep colliding.
     pub(crate) fn pairs(&self) -> Vec<Pair> {
         let state = self.state.locked();
         let mut pairs: Vec<Pair> = Vec::new();
@@ -1342,7 +1339,6 @@ impl Collisions {
         (running.into_keys().collect(), terminals)
     }
 
-    /// Whether an agent's edit tool is changing `path` now.
     pub(crate) fn editing(&self, path: &Path) -> bool {
         self.state.locked().calls.values().any(|call| {
             matches!(call.kind.as_str(), "edit" | "delete" | "move")

@@ -30,7 +30,6 @@ pub(crate) struct Review {
 }
 
 impl Review {
-    /// The pull request moved since its comments were last read.
     pub(super) fn moved(&self, mark: &str) -> bool {
         self.mark != mark
     }
@@ -79,7 +78,6 @@ fn place(item: &Feedback) -> String {
     }
 }
 
-/// What the agent is asked to do about the comments in `asked`.
 pub(super) fn task(asked: &[Feedback], url: &str, branch: &str, round: u32) -> String {
     let mut text = format!("Reviewers left comments on your pull request {url}:");
     for (index, item) in asked.iter().enumerate() {

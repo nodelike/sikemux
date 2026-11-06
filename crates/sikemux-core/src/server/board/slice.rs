@@ -1,11 +1,10 @@
 //! A card that is a slice of a goal: the promise it makes, its ladder of
 //! gates, and the evidence the core collected toward them. One table says who
-//! passes each gate and what it needs first; views, passing and the inbox all
-//! read it. An agent saying its slice is done passes nothing by itself; only
-//! what the core collected can, checked against git as it is then. The board
-//! follows the project's commits, landings and checks as repository events,
-//! never by being called from git, and when it may have missed one it holds
-//! back rather than pass.
+//! passes each gate and what it needs first. An agent saying its slice is
+//! done passes nothing by itself; only what the core collected can, checked
+//! against git as it is then. The board follows the project's commits,
+//! landings and checks as repository events, never by being called from git,
+//! and when it may have missed one it holds back rather than pass.
 
 mod follow;
 mod ladder;
@@ -49,7 +48,6 @@ use crate::tasks::config::ProjectCheck;
 /// Evidence kept besides the pieces notes are pinned to; the oldest goes first.
 const MAX_EVIDENCE: usize = 24;
 const MAX_NOTES: usize = 32;
-/// What the board_add and board_update tools allow, which their check reads.
 pub(super) const MAX_PROMISE_CHARS: usize = 200;
 const MAX_NOTE_CHARS: usize = 4000;
 const DIFF_FILES: usize = 8;
@@ -73,7 +71,6 @@ pub(super) fn promise_of(text: &str) -> Result<String, String> {
     Ok(promise.to_owned())
 }
 
-/// Who passed a gate.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) enum PassedBy {
@@ -102,7 +99,6 @@ struct Work {
     /// On the project's branch, rather than only in the owner's own checkout,
     /// as the commit, the landing or git said when `head` was last set.
     on_branch: bool,
-    /// What the project's check said of `head`.
     check: Option<Check>,
     /// When `head` became its latest work.
     #[serde(default)]
@@ -433,12 +429,10 @@ impl Slice {
         }
     }
 
-    /// The ids of the assertions it fulfils.
     pub(super) fn asserts(&self) -> impl Iterator<Item = u64> + '_ {
         self.asserts.iter().map(|named| named.id)
     }
 
-    /// The assertions it fulfils whose evidence is of `kind`.
     pub(super) fn asserting(&self, kind: Collect) -> Vec<u64> {
         (self.asserts.iter())
             .filter(|named| named.evidence == kind)
@@ -446,7 +440,6 @@ impl Slice {
             .collect()
     }
 
-    /// The latest evidence of its kind collected for the assertion.
     fn latest_for(&self, named: &Named) -> Option<&Evidence> {
         (self.evidence.iter().rev()).find(|evidence| {
             evidence.assertions.contains(&named.id)
@@ -559,7 +552,6 @@ impl Slice {
         self.asserts = named;
     }
 
-    /// Whether it is bound to an assertion.
     pub(super) fn bound(&self) -> bool {
         !self.asserts.is_empty()
     }
@@ -854,7 +846,6 @@ impl Slice {
             })
     }
 
-    /// The latest deploy to the environment `step` is failed.
     fn deploy_failed(&self, step: &Step) -> bool {
         step.environment().is_some()
             && (self.evidence.iter().rev())
@@ -1130,7 +1121,6 @@ impl Slice {
         Ok((on.and_then(|on| on.agent), about))
     }
 
-    /// The files of the screenshots the core keeps as its evidence.
     pub(super) fn screenshot_files(&self) -> impl Iterator<Item = &str> {
         self.evidence
             .iter()
@@ -1282,7 +1272,6 @@ pub(super) use crate::git::short;
 /// How the project checks a slice's work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Checking {
-    /// It names no check.
     Nothing,
     /// Its check command runs on commits on the project's branch.
     Command,
@@ -1382,7 +1371,6 @@ impl Later {
 /// Where a slice got to once its ladder moved on as far as it goes now.
 pub(super) struct Moved {
     pub passed: Vec<Step>,
-    /// Its last gate passed, so the card is done.
     pub done: bool,
     pub later: Later,
 }
@@ -1698,7 +1686,6 @@ pub(super) fn auto_slice(card: &mut Card, settings: &Settings) {
     slice.begin(epoch_ms());
 }
 
-/// The slice takes `head` as its work so far.
 pub(super) fn took_work(card: &mut Card, head: &Head) {
     let owner = card.owner_id().map(str::to_owned);
     if let Some(slice) = card.slice.as_mut() {
@@ -1920,7 +1907,6 @@ pub(crate) fn check_stands(
     passed.then_some(()).ok_or_else(|| not_yet(head))
 }
 
-/// The person passes a gate of a slice.
 #[derive(Serialize, Deserialize)]
 pub struct PassParams {
     pub project: String,
