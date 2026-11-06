@@ -84,6 +84,17 @@ const BUILTIN_LSP: &[(&str, &str, &[&str])] = &[
 
 const OVERRIDE_PREFIX: &str = "SIKEMUX_LSP_";
 
+/// How a client offers to install a server the core knows how to: what to call it, and whether
+/// doing so needs Homebrew on this host.
+pub(super) fn install_of(bin: &str) -> Option<serde_json::Value> {
+    let (label, by_brew) = match bin {
+        "gopls" => ("Go LSP", false),
+        "jdtls" => ("Java LSP", true),
+        _ => return None,
+    };
+    Some(serde_json::json!({ "label": label, "byBrew": by_brew }))
+}
+
 /// Every language a server can start for: the built-in ones and any that a
 /// `SIKEMUX_LSP_<LANG>` variable names.
 pub(super) fn server_languages() -> Vec<String> {

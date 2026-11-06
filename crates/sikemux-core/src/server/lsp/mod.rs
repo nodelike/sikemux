@@ -55,7 +55,9 @@ impl LspError {
     pub(crate) fn missing(language: &str, bin: &str) -> Self {
         Self {
             message: format!("lsp server `{bin}` for {language} not found"),
-            missing: Some(json!({ "language": language, "bin": bin })),
+            missing: Some(
+                json!({ "language": language, "bin": bin, "install": discovery::install_of(bin) }),
+            ),
         }
     }
 }

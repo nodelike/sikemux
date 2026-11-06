@@ -34,13 +34,6 @@ const KINDS: [&str; 4] = [
     "implementation",
 ];
 
-/// Language servers the core installs: the language, its program, its name, and whether
-/// Homebrew is what installs it.
-const INSTALLABLE: [(&str, &str, &str, bool); 2] = [
-    ("go", "gopls", "Go LSP", false),
-    ("java", "jdtls", "Java LSP", true),
-];
-
 /// A file open with a language server, named as the core keeps it.
 pub(super) struct Served {
     project: String,
@@ -232,27 +225,31 @@ fn report(
     {
         return;
     }
-    let missing_bin = error
+    let missing = error
         .detail
         .as_ref()
         .filter(|_| error.kind == Some(ErrorKind::LanguageServerMissing))
-        .and_then(|detail| detail["bin"].as_str());
-    let missing = INSTALLABLE
-        .into_iter()
-        .find(|(name, bin, _, _)| *name == language && missing_bin == Some(*bin));
-    let Some((_, bin, label, by_brew)) = missing else {
+        .and_then(|detail| {
+            let install = &detail["install"];
+            Some((
+                detail["bin"].as_str()?.to_owned(),
+                install["label"].as_str()?.to_owned(),
+                install["byBrew"].as_bool()?,
+            ))
+        });
+    let Some((bin, label, by_brew)) = missing else {
         bench.notify(toast::error(format!("LSP {language} open: {error}")), cx);
         return;
     };
     if !by_brew {
-        return offer_install(bench, language, bin, label, path, cx);
+        return offer_install(bench, language, &bin, &label, path, cx);
     }
     let (asks, language) = (bench.asks.clone(), language.to_owned());
     cx.spawn(async move |bench, cx| {
         let tools = core::request(&asks, "hostTools", json!({})).await;
         let brew = tools.is_ok_and(|tools| tools["brew"] == true);
         let _ = bench.update(cx, |bench, cx| match brew {
-            true => offer_install(bench, &language, bin, label, path, cx),
+            true => offer_install(bench, &language, &bin, &label, path, cx),
             false => bench.notify(
                 toast::error(format!(
                     "{label} needs {bin}. Install the {bin} package with your system's package manager to enable go-to-definition and references."
@@ -267,23 +264,28 @@ fn report(
 fn offer_install(
     bench: &mut Workbench,
     language: &str,
-    bin: &'static str,
+    bin: &str,
     label: &str,
     path: PathBuf,
     cx: &mut Context<Workbench>,
 ) {
-    let (this, language) = (cx.weak_entity(), language.to_owned());
+    let (this, language, bin) = (cx.weak_entity(), language.to_owned(), bin.to_owned());
     let note = toast::error(format!(
         "{label} needs {bin}. Install it to enable go-to-definition and references."
     ))
     .action(move |_, _, cx| {
-        let (this, language, path, note) =
-            (this.clone(), language.clone(), path.clone(), cx.entity());
+        let (this, language, path, note, bin) = (
+            this.clone(),
+            language.clone(),
+            path.clone(),
+            cx.entity(),
+            bin.clone(),
+        );
         Button::new("lsp-install")
             .label(format!("Install {bin}"))
             .on_click(move |_, window, cx| {
                 note.update(cx, |note, cx| note.dismiss(window, cx));
-                let (language, path) = (language.clone(), path.clone());
+                let (language, path, bin) = (language.clone(), path.clone(), bin.clone());
                 let _ = this.update(cx, |bench, cx| {
                     install(bench, language, bin, path, window, cx)
                 });
@@ -296,7 +298,7 @@ fn offer_install(
 fn install(
     bench: &mut Workbench,
     language: String,
-    bin: &'static str,
+    bin: String,
     path: PathBuf,
     window: &mut Window,
     cx: &mut Context<Workbench>,
