@@ -15,22 +15,55 @@ fn git(args: &[&str]) -> Option<String> {
         .filter(|text| !text.is_empty())
 }
 
-/// Everything the background core is compiled from. A change to any of it
-/// makes a new build that a running core upgrades to.
-const CORE_SOURCES: &[&str] = &[
-    "../sikemux-core/src",
-    "../sikemux-core/Cargo.toml",
-    "../sikemux-pty/src",
-    "../sikemux-pty/Cargo.toml",
-    "../sikemux-client/src",
-    "../sikemux-client/Cargo.toml",
-    "../sikemux-wire/src",
-    "../sikemux-wire/Cargo.toml",
-    "../sikemux-view/src",
-    "../sikemux-view/Cargo.toml",
-    "src/core_mode.rs",
-    "../../Cargo.lock",
+/// What the core embeds from outside the `src` of the crates it links, from the workspace root.
+const EMBEDDED: &[&str] = &[
+    "crates/sikemux-core/resources",
+    "crates/sikemux-core/models-dev.json",
+    "crates/sikemux-core/model-providers.json",
+    "tools",
+    "app/Cargo.toml",
+    "Cargo.lock",
 ];
+
+/// The `path` of every dependency `manifest` writes as `name = { path = "..." }`.
+fn path_dependencies(manifest: &str) -> Vec<&str> {
+    manifest
+        .lines()
+        .filter_map(|line| {
+            let (_, table) = line.split_once("= {")?;
+            let (_, path) = table.split_once("path = \"")?;
+            path.split('"').next()
+        })
+        .collect()
+}
+
+/// Everything the background core is compiled from, found by following the path
+/// dependencies from this crate. A change to any of it makes a new build that a
+/// running core upgrades to.
+fn core_sources(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut crates = std::collections::BTreeSet::new();
+    let mut waiting = vec![std::path::PathBuf::from(".")];
+    while let Some(dir) = waiting.pop() {
+        let Ok(dir) = std::fs::canonicalize(dir) else {
+            continue;
+        };
+        if crates.contains(&dir) {
+            continue;
+        }
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default();
+        waiting.extend(
+            path_dependencies(&manifest)
+                .into_iter()
+                .map(|path| dir.join(path)),
+        );
+        crates.insert(dir);
+    }
+    crates
+        .iter()
+        .flat_map(|dir| [dir.join("src"), dir.join("Cargo.toml")])
+        .chain(EMBEDDED.iter().map(|path| root.join(path)))
+        .collect()
+}
 
 fn collect_files(path: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
     if path.is_dir() {
@@ -48,15 +81,17 @@ fn collect_files(path: &std::path::Path, files: &mut Vec<std::path::PathBuf>) {
 /// The app and its core are compiled separately, at different times and
 /// with different features, so they compare this instead of build times.
 fn core_source_fingerprint() -> String {
+    let root = std::fs::canonicalize("../..").unwrap_or_default();
     let mut files = Vec::new();
-    for source in CORE_SOURCES {
-        println!("cargo:rerun-if-changed={source}");
-        collect_files(std::path::Path::new(source), &mut files);
+    for source in core_sources(&root) {
+        println!("cargo:rerun-if-changed={}", source.display());
+        collect_files(&source, &mut files);
     }
     files.sort();
     let mut digest = Sha256::new();
     for file in files {
-        digest.update(file.to_string_lossy().as_bytes());
+        let name = file.strip_prefix(&root).unwrap_or(&file);
+        digest.update(name.to_string_lossy().as_bytes());
         digest.update([0]);
         digest.update(std::fs::read(&file).unwrap_or_default());
         digest.update([0]);
