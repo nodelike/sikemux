@@ -36,12 +36,12 @@ host_asks! {
     OpenProject "openProject" open::OpenParams;
     TakeSession "takeSession" transfer::Take;
     Hire "hire" route::HireParams;
-    Forget "forget" route::AgentParams;
+    Forget "forget" route::AboutAgent;
     Read "read" route::ReadParams;
     Happened "happened" route::HappenedParams;
     Team "team" route::TeamParams;
-    Worked "worked" route::AgentParams;
-    Commits "commits" code::Landing;
+    Worked "worked" route::AboutAgent;
+    Commits "commits" code::ArrivingCommits;
     PassOn "passOn" route::PassOnParams;
     QuestionClosed "questionClosed" route::ClosedParams;
 }

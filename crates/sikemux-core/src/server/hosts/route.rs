@@ -618,12 +618,12 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
 /// Which agent an ask is about.
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct AgentParams {
+pub(super) struct AboutAgent {
     pub(super) agent_id: String,
 }
 
 /// A worker this host named for another host never started there.
-pub(super) fn forget_here(core: &Core, host: &str, params: AgentParams) -> CoreResult<Value> {
+pub(super) fn forget_here(core: &Core, host: &str, params: AboutAgent) -> CoreResult<Value> {
     let agent_id = params.agent_id.as_str();
     if core
         .hosts
@@ -651,7 +651,7 @@ pub(crate) fn worked(core: &Core, agent_id: &str) {
             &host,
             Sending {
                 method: asks::Worked::METHOD,
-                params: params_of::<asks::Worked>(&AgentParams {
+                params: params_of::<asks::Worked>(&AboutAgent {
                     agent_id: agent_id.to_owned(),
                 }),
                 key: Some(format!("worked:{agent_id}")),
@@ -662,7 +662,7 @@ pub(crate) fn worked(core: &Core, agent_id: &str) {
     }
 }
 
-pub(super) fn worked_here(core: &Core, host: &str, params: AgentParams) -> CoreResult<Value> {
+pub(super) fn worked_here(core: &Core, host: &str, params: AboutAgent) -> CoreResult<Value> {
     let agent_id = params.agent_id.as_str();
     if core
         .hosts

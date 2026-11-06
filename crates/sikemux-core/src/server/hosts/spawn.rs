@@ -391,7 +391,7 @@ pub(crate) async fn send_commits(core: &Arc<Core>, worker: &str) {
                 &host,
                 Sending {
                     method: asks::Commits::METHOD,
-                    params: params_of::<asks::Commits>(&code::Landing {
+                    params: params_of::<asks::Commits>(&code::ArrivingCommits {
                         agent_id: worker.to_owned(),
                         head: head.clone(),
                         count,
@@ -447,7 +447,7 @@ pub(crate) fn never_started(core: &Core, hired: &Hired) {
         host,
         Sending {
             method: asks::Forget::METHOD,
-            params: params_of::<asks::Forget>(&super::route::AgentParams {
+            params: params_of::<asks::Forget>(&super::route::AboutAgent {
                 agent_id: agent_id.clone(),
             }),
             key: None,

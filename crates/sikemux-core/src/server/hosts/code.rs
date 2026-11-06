@@ -556,7 +556,7 @@ pub(crate) fn commits(tree: &Tree, into: &Path) -> Result<Option<(String, usize)
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(super) struct Landing {
+pub(super) struct ArrivingCommits {
     pub(super) agent_id: String,
     #[serde(default)]
     pub(super) head: String,
@@ -568,7 +568,7 @@ pub(super) struct Landing {
 pub(crate) async fn land(
     core: &Arc<Core>,
     host: &str,
-    params: Landing,
+    params: ArrivingCommits,
     body: Option<Received>,
 ) -> Result<Value, String> {
     let landing = params;
