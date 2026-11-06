@@ -1203,6 +1203,20 @@ pub(crate) async fn from_sikemux(
     deliver(core, &target, letter).await
 }
 
+/// Sends an agent back to what it offered, for a rule of its project to decide. It starts a turn
+/// when the agent is at rest, where a notice would be dropped. Fails when the agent has stopped or
+/// is gone.
+pub(crate) async fn over_rule(core: &Arc<Core>, to: String, text: String) -> Result<Value, String> {
+    let target = running(core, to).await?;
+    let letter = Letter::from_sender(
+        Sender::Sikemux,
+        MessageKind::Message,
+        text,
+        Some("Sent by Sikemux itself over a rule of this project, not by the person.".to_owned()),
+    );
+    deliver(core, &target, letter).await
+}
+
 /// Tells an agent what the person decided about something of its that
 /// Sikemux held for them, which starts a turn when it is at rest. Fails when
 /// the agent has stopped or is gone.

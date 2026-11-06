@@ -943,9 +943,10 @@ agents it started, and only what follows reaches the person.
 - A decision never passes a hold. A push, merge, deploy, publish or production
   write still stops for the person, whatever a lead answered.
 - Do not end a turn offering more work ("Want me to commit it?"). A yes-or-no offer
-  is not put to the person. If a project rule covers it, Sikemux sends you back to
-  follow the rule; otherwise it shows on you as how your turn left things, and the
-  person takes it up in your chat if they want it.
+  is not put to the person. If a project rule is about it, Sikemux sends you back
+  once and the rule decides: do the work if it says to, and if it says to wait for
+  the person, leave the work and end your turn. Otherwise it shows on you as how
+  your turn left things, and the person takes it up in your chat if they want it.
 
 ### Keeping messages few
 

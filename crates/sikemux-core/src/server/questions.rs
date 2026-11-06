@@ -314,9 +314,9 @@ struct State {
     open: Vec<Question>,
     /// The questions of each agent's latest reply, in the order it asked them.
     reply_questions: Vec<ReplyQuestion>,
-    /// The offer each agent was last sent back to do because a rule covers it, so the same
-    /// offer does not go round again.
-    followed_offers: HashMap<String, String>,
+    /// The rule each agent was last sent back to over what it offered, so the same rule does not
+    /// send it back again until a turn ends offering nothing a rule is about.
+    followed_rules: HashMap<String, String>,
     /// Oldest first.
     answered: Vec<Answered>,
     /// Something changed that the window has not been sent yet.
@@ -1159,6 +1159,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         "questionId": question.id,
         "askedOf": match &question.stage {
             Stage::Lead { lead_name, .. } => lead_name.clone(),
+            Stage::Person { .. } if question.stands() => "nobody".to_owned(),
             Stage::Person { .. } => "the person".to_owned(),
         },
         "note": sent_note(&question),
@@ -1414,8 +1415,9 @@ pub(crate) fn offer_in(reply: &str) -> Option<String> {
     asks.find_map(|(ask, yes_or_no)| yes_or_no.then_some(ask))
 }
 
-/// Sends the agent back to the first of its offers a project rule covers, rather than leaving it
-/// for the person, once for each offer.
+/// Sends the agent back to the first of its offers a project rule is about, for the rule to say
+/// whether it does the work or leaves it for the person. A rule sends it back once in a row, so
+/// offering it again leaves it as state.
 fn follow_rule(
     core: &Arc<Core>,
     agent_id: &str,
@@ -1427,24 +1429,26 @@ fn follow_rule(
         Some((offer, rule))
     });
     let Some((offer, rule)) = covered else {
-        let followed = &mut core.harness.questions.state.locked().followed_offers;
+        let followed = &mut core.harness.questions.state.locked().followed_rules;
         followed.remove(agent_id);
         return;
     };
     let mut state = core.harness.questions.state.locked();
-    if state.followed_offers.get(agent_id) == Some(&offer) {
+    if state.followed_rules.get(agent_id) == Some(&rule) {
         return;
     }
     state
-        .followed_offers
-        .insert(agent_id.to_owned(), offer.clone());
+        .followed_rules
+        .insert(agent_id.to_owned(), rule.clone());
     drop(state);
     let (core, agent_id) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {
         let text = format!(
-            "You ended your turn offering: {offer}\n\nA rule of this project covers that: {rule}\n\nFollow the rule rather than asking the person. What leaves this machine still stops for them."
+            "You ended your turn offering: {offer}\n\nA rule of this project is about that: {rule}\n\nThe rule decides, not this note. If it tells you to do the work, do it. If it says to wait for the person's word, or not to do it, leave the work as it is and end your turn without offering it again: the person sees how you left it on your row and takes it up in your chat. What leaves this machine still stops for them."
         );
-        let _ = messages::from_sikemux(&core, agent_id, text).await;
+        if let Err(error) = messages::over_rule(&core, agent_id, text).await {
+            eprintln!("sikemux core: an agent was not sent back over a rule: {error}");
+        }
     });
 }
 
