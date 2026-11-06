@@ -734,14 +734,8 @@ pub fn label(bench: &Workbench, tab: &LayoutTab) -> SharedString {
 pub fn view_label(bench: &Workbench, pane: &Pane) -> SharedString {
     match first_view(pane) {
         Some((PaneKind::Agent, target)) => bench
-            .this_view()
-            .and_then(|view| {
-                view.workspace
-                    .agents
-                    .iter()
-                    .find(|agent| &agent.id == target)
-            })
-            .map_or_else(|| "Agent".into(), |agent| bench.title_of(agent).into()),
+            .agent_by_id(target)
+            .map_or_else(|| "Agent".into(), |agent| agent.title.into()),
         Some((PaneKind::Terminal, target)) => bench
             .session(target)
             .and_then(|session| {

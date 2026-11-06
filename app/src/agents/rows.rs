@@ -2,7 +2,7 @@
 
 use gpui_kit::{AnyElement, App};
 use sikemux_view::device::{DeviceView, RecentInfo};
-use sikemux_view::inbox::TeamLink;
+use sikemux_view::inbox::{AgentShown, TeamLink};
 use sikemux_view::layout::PaneKind;
 use sikemux_view::workspace::AgentFace;
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
@@ -62,64 +62,20 @@ impl Workbench {
     }
 
     pub fn agent_by_id(&self, id: &str) -> Option<AgentRow> {
-        let view = self.shown()?;
-        let agent = view.workspace.agents.iter().find(|agent| agent.id == id)?;
-        Some(self.agent_row(view, agent))
+        rows_of(self.shown()?)
+            .find(|row| row.agent_id == id)
+            .and_then(agent_row)
     }
 
+    /// The project's agents, those running first as the core ranks them.
     pub fn agents_of(&self, project: &str) -> Vec<AgentRow> {
         let Some(view) = self.shown() else {
             return Vec::new();
         };
-        let ranked: Vec<&str> = view
-            .inbox
-            .agents
-            .iter()
-            .map(|agent| agent.agent_id.as_str())
-            .collect();
-        let mut rows: Vec<AgentRow> = view
-            .workspace
-            .agents
-            .iter()
-            .filter(|agent| agent.project == project)
-            .map(|agent| self.agent_row(view, agent))
-            .collect();
-        rows.sort_by_key(|row| {
-            ranked
-                .iter()
-                .position(|id| *id == row.id)
-                .unwrap_or(usize::MAX)
-        });
-        rows
-    }
-
-    pub(crate) fn agent_row(
-        &self,
-        view: &DeviceView,
-        agent: &sikemux_view::workspace::WorkspaceAgent,
-    ) -> AgentRow {
-        let shown = (view.inbox.agents.iter())
-            .chain(&view.inbox.kept)
-            .find(|row| row.agent_id == agent.id);
-        let status = shown.map_or(AgentStatus::Idle, |row| row.status);
-        AgentRow {
-            active_at: shown.and_then(|row| row.active_at).unwrap_or(0),
-            next_trigger: shown.and_then(|row| row.next_trigger),
-            called_at: shown.and_then(|row| row.called_at),
-            team: shown.and_then(|row| row.team),
-            id: agent.id.clone(),
-            provider: agent.provider.clone(),
-            title: self.title_of(agent),
-            name: agent.name.clone().filter(|_| agent.titled),
-            status,
-            group: status.group(),
-            busy: shown.is_some_and(|row| row.busy),
-            background: shown.is_some_and(|row| row.background),
-            subagents: shown.map_or(0, |row| row.subagents),
-            tasks: shown.map_or(0, |row| row.tasks),
-            project: agent.project.clone(),
-            face: agent.face.clone(),
-        }
+        rows_of(view)
+            .filter(|row| row.project.as_deref() == Some(project))
+            .filter_map(agent_row)
+            .collect()
     }
 
     /// The rows the agent rail lists: this project's, or every project's.
@@ -141,15 +97,6 @@ impl Workbench {
         let filter = self.filter_text();
         rows.retain(|row| row.title.to_lowercase().contains(filter));
         rows
-    }
-
-    /// What the agent is called in its header, tab and rail row: until it has a title of its
-    /// own, its @name.
-    pub fn title_of(&self, agent: &sikemux_view::workspace::WorkspaceAgent) -> String {
-        match &agent.name {
-            Some(name) if !agent.titled => format!("@{name}"),
-            _ => agent.title.clone(),
-        }
     }
 
     /// The project's saved chats no agent holds, which the agent list already shows.
@@ -184,4 +131,35 @@ impl Workbench {
             .filter(|recent| recent.title.to_lowercase().contains(self.filter_text()))
             .collect()
     }
+}
+
+/// Every agent the view lists, running or kept.
+fn rows_of(view: &DeviceView) -> impl Iterator<Item = &AgentShown> {
+    view.inbox.agents.iter().chain(&view.inbox.kept)
+}
+
+/// `row` as the rails and tabs show it, or none for one outside every project, such as an agent
+/// the core only noticed running in a terminal.
+fn agent_row(row: &AgentShown) -> Option<AgentRow> {
+    Some(AgentRow {
+        id: row.agent_id.clone(),
+        provider: row.cli.clone(),
+        title: match &row.name {
+            Some(name) if !row.titled => format!("@{name}"),
+            _ => row.title.clone(),
+        },
+        name: row.name.clone().filter(|_| row.titled),
+        status: row.status,
+        subagents: row.subagents,
+        tasks: row.tasks,
+        project: row.project.clone()?,
+        face: row.face.clone(),
+        group: row.group,
+        busy: row.busy,
+        background: row.background,
+        active_at: row.active_at.unwrap_or(0),
+        next_trigger: row.next_trigger,
+        called_at: row.called_at,
+        team: row.team,
+    })
 }
