@@ -88,6 +88,7 @@ struct MintedToken {
     id: String,
 }
 
+/// Drive the j_security_check → /tokens/{user} flow.
 async fn perform_login(req: &LoginRequest) -> RundeckResult<MintedToken> {
     let url = req.url.trim_end_matches('/');
     let transport = config::validate_transport(url, req.allow_insecure_private_http).await?;

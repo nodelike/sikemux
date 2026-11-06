@@ -136,6 +136,7 @@ impl ClientConn {
         self.closed.load(Ordering::Acquire)
     }
 
+    /// The bytes sent to the client that it has not read yet.
     pub(crate) fn backlog(&self) -> usize {
         self.queued.load(Ordering::Acquire)
     }

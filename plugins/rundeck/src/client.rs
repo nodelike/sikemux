@@ -34,6 +34,7 @@ const PATH_SEGMENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'.')
     .remove(b'~');
 
+/// Percent-encodes one value for use as a single URL path segment.
 pub fn seg(value: &str) -> RundeckResult<String> {
     if matches!(value, "" | "." | "..") {
         return Err(RundeckError::BadArg(

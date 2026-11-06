@@ -199,6 +199,9 @@ fn clip_text_and_ranges(
         let text = String::from_utf8_lossy(bytes).into_owned();
         return (text, false, ranges);
     }
+    // Anchor a window starting ~64 bytes before the first hit so the user
+    // sees some leading context. Bias rightward only when the hit is past
+    // the cap; otherwise start from byte 0.
     let first_hit = ranges.first().map(|r| r.start as usize).unwrap_or(0);
     let window_start = if first_hit > MAX_MATCH_TEXT_BYTES.saturating_sub(64) {
         first_hit.saturating_sub(64)
@@ -207,6 +210,7 @@ fn clip_text_and_ranges(
     };
     let window_end = (window_start + MAX_MATCH_TEXT_BYTES).min(bytes.len());
 
+    // Round window edges to char boundaries so from_utf8_lossy stays sane.
     let window_start = floor_char_boundary(bytes, window_start);
     let window_end = floor_char_boundary(bytes, window_end);
 
@@ -783,10 +787,15 @@ fn run_replace(
                 });
             }
 
+            // Fast no-match short-circuit: skips both the alloc + rename
+            // dance for files that survived globbing but have no hits.
             if !rewrite_re.is_match(&original) {
                 return Ok(None);
             }
 
+            // Count + rewrite in one pass: replace_all does the work; we
+            // re-count separately via find_iter (cheap on bytes we just
+            // matched against in cache) for the per-file count report.
             let match_count = rewrite_re.find_iter(&original).count();
             let rewritten = rewrite_re
                 .replace_all(&original, replace.as_bytes())

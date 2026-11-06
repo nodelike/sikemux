@@ -415,6 +415,7 @@ pub(crate) fn start_adopted(
     }
 }
 
+/// Starts the readers a failed hand-over stopped.
 pub(crate) fn thaw(core: &Arc<Core>, session: Arc<Session>) {
     if session.reader_frozen.swap(false, Ordering::AcqRel) {
         tokio::spawn(read_output(core.clone(), session));
@@ -1293,6 +1294,7 @@ pub(crate) fn detach_all(session: &Session) {
     }
 }
 
+/// The client drew every frame of the stream up to `frame`.
 pub(crate) fn ack(session: &Session, stream: StreamId, frame: u32) {
     {
         let mut subscribers = session.subscribers.locked();

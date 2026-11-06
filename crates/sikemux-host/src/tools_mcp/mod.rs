@@ -467,6 +467,7 @@ impl Calls {
             .insert(id.to_string(), (name.to_owned(), false));
     }
 
+    /// Marks the call cancelled, and names its tool.
     fn cancel(&self, id: &Value) -> Option<String> {
         let mut calls = self.0.locked();
         let (name, cancelled) = calls.get_mut(&id.to_string())?;

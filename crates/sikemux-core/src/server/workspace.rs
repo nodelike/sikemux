@@ -1284,6 +1284,7 @@ pub(crate) struct CreateAgentParams {
     agent: Map<String, Value>,
 }
 
+/// Adds an agent to the workspace, or replaces the one with its id.
 pub(crate) fn create_agent(core: &Core, params: CreateAgentParams) -> CoreResult<WorkspaceAgent> {
     core.workspaces.put_agent(params.agent)
 }

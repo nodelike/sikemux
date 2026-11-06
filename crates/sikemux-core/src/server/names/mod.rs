@@ -165,6 +165,7 @@ pub struct ClosedAgent {
     pub buddy: Option<AgentBuddy>,
 }
 
+/// An agent another agent starts.
 pub(crate) struct Worker<'a> {
     pub agent_id: &'a str,
     pub lead: &'a str,
@@ -177,6 +178,7 @@ pub(crate) struct Worker<'a> {
     pub reports: bool,
 }
 
+/// An agent that wants a name.
 pub(crate) struct Starting<'a> {
     pub agent_id: &'a str,
     pub project: String,

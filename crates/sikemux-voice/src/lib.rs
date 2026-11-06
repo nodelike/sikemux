@@ -62,6 +62,7 @@ pub enum VoiceEvent {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Stage {
+    /// The speech model and the helper are downloading.
     Download,
     #[serde(other)]
     Preparing,

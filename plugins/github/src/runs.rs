@@ -72,6 +72,7 @@ struct RunList {
     workflow_runs: Vec<RunRow>,
 }
 
+/// A run is over once GitHub says it is completed; everything else is still moving.
 pub fn is_finished(status: &str) -> bool {
     status == "completed"
 }

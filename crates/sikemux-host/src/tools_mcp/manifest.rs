@@ -250,6 +250,7 @@ fn guide_topics(guide: &str) -> Vec<(&str, usize)> {
     topics
 }
 
+/// The guide's opening, under `None`, and each topic by name, with its text.
 fn guide_parts(guide: &str) -> std::collections::BTreeMap<Option<&str>, &str> {
     let topics = guide_topics(guide);
     let mut parts = std::collections::BTreeMap::new();

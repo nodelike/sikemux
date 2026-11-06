@@ -147,6 +147,8 @@ impl Driver {
         Box::new(move |chosen| driver.answer_permission(reply, chosen))
     }
 
+    /// Tells the agent the option the person chose for the permission
+    /// request `reply` names, or that they never chose.
     fn answer_permission(&self, reply: Asked, chosen: Option<String>) {
         let outcome = match chosen {
             Some(option_id) => {

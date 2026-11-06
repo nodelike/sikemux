@@ -47,6 +47,7 @@ pub trait Account: Send + Sync + 'static {
     fn sign_live(&self, nonce: &str) -> Option<(String, String)>;
     /// Answering [`Want::Stop`] ends the connection for good.
     fn want(&self) -> Want;
+    /// The id of the last event applied.
     fn cursor(&self) -> i64;
     /// Applies `events`, oldest first, all newer than the cursor, and moves
     /// the cursor to the last.

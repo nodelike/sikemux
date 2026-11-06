@@ -214,6 +214,7 @@ pub enum FileKind {
     Dir,
 }
 
+/// Which paths exist, and which of those are folders.
 pub fn kinds(params: FileKindsParams) -> Result<Vec<Option<FileKind>>> {
     if params.paths.len() > MAX_KINDS {
         return Err(format!("invalid argument: one ask may name at most {MAX_KINDS} paths").into());

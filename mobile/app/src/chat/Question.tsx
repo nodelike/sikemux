@@ -134,6 +134,7 @@ function title(question: AgentQuestion, index: number, count: number) {
   return question.header ?? (count > 1 ? `Question ${index + 1}` : 'Question');
 }
 
+/** The ring of a choice on a question that takes one, or the box of one on a question that takes several. */
 function Key({ multi, on }: { multi: boolean; on: boolean }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);

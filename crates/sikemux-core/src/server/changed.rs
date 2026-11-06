@@ -104,6 +104,7 @@ impl Core {
     }
 }
 
+/// The topics whose reads a device's view also holds.
 fn shown_on_devices(topic: Topic) -> bool {
     matches!(topic, Topic::Account | Topic::Plugins | Topic::Preferences)
 }

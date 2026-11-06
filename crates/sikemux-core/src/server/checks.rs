@@ -825,6 +825,7 @@ impl ProjectChecks {
         self.state.locked().refs_moved(project);
     }
 
+    /// The projects broken long enough that the person should hear of it.
     pub(crate) fn failing(&self) -> Vec<Failing> {
         self.state.locked().failing().cloned().collect()
     }

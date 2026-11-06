@@ -799,6 +799,7 @@ async fn failed(core: &Arc<Core>, step: &Step, what: &str) {
     .await;
 }
 
+/// Sends the agent back to work on its card with `text`.
 pub(super) async fn ask(
     core: &Arc<Core>,
     step: &Step,

@@ -552,6 +552,7 @@ impl Slice {
         self.asserts = named;
     }
 
+    /// Whether it is bound to an assertion.
     pub(super) fn bound(&self) -> bool {
         !self.asserts.is_empty()
     }

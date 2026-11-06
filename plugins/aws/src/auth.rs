@@ -364,6 +364,8 @@ pub struct AwsLoginResult {
 pub(crate) async fn sso_login(profile: String) -> AwsLoginResult {
     let target = Target::named(&profile);
     let r = run_aws_cli_async(&["sso", "login"], &target).await;
+    // Drop the cached "expired" identity so the next identity call doesn't
+    // lie about state.
     id_cache().locked().remove(&profile);
     match r {
         Ok((ok, out, err)) => AwsLoginResult {

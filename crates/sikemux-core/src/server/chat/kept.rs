@@ -70,6 +70,8 @@ impl KeptAgent {
 }
 
 impl KeptChat {
+    /// Takes the keys and the person's shell variables out of the launch,
+    /// keeping only their names.
     fn seal(&mut self) {
         let keys = providers::key_names();
         for (name, value) in std::mem::take(&mut self.launch.env) {

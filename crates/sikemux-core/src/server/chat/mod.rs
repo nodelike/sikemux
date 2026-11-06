@@ -624,6 +624,7 @@ impl Chat {
         }
     }
 
+    /// The work nobody here asked for is over.
     pub(crate) fn work_ended(&self, stop_reason: StopReason) {
         if self.end_unprompted() {
             self.emit(ChatEventKind::TurnCompleted, turn_answer(stop_reason));

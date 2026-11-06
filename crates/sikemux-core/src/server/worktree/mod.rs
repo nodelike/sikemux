@@ -236,6 +236,7 @@ fn matches_part(pattern: &str, name: &str) -> bool {
     rest.is_empty()
 }
 
+/// A card's own checkout.
 pub(crate) struct Tree {
     pub repo: PathBuf,
     pub path: PathBuf,

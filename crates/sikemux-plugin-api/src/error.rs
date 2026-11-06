@@ -18,6 +18,7 @@ pub enum FailureCategory {
     BadParams,
     NotFound,
     Unsupported,
+    /// The repository does not take that way of merging.
     MergeMethod,
     Keychain,
     /// The service answered in a shape the plugin did not expect.

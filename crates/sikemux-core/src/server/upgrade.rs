@@ -58,6 +58,7 @@ impl Updating {
         let _ = frozen.wait_for(|frozen| *frozen).await;
     }
 
+    /// Hears each time the core freezes or thaws.
     pub(crate) fn watch(&self) -> watch::Receiver<bool> {
         self.frozen.subscribe()
     }

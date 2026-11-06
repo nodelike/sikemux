@@ -32,6 +32,7 @@ pub(super) fn connect_or_launch(endpoint_path: &Path) -> Result<CliEndpointDescr
         .ok_or_else(|| "Sikemux did not become ready within 15 seconds".into())
 }
 
+/// Whether the window is open, once the endpoint answers.
 pub(super) fn probe(descriptor: &CliEndpointDescriptor) -> Result<bool, String> {
     let mut session = session(descriptor)?;
     session.send(&CliClientCommand::Ping {

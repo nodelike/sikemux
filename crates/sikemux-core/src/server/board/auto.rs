@@ -96,6 +96,7 @@ impl BoardSettings {
             .map_or("A person", Environment::step_words)
     }
 
+    /// Where a deploy's health is read after it, for the environment called `name`.
     pub(crate) fn health(&self, name: &str) -> Option<String> {
         self.environment(name)?.health.clone()
     }
@@ -433,6 +434,7 @@ pub(super) fn running(core: &Core, board: &Board) -> usize {
         .count()
 }
 
+/// Whether Auto may start an agent on the card.
 fn takes(board: &Board, card: &Card) -> bool {
     card.status == CardStatus::Open
         && card.owner.is_none()

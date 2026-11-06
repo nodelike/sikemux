@@ -507,6 +507,7 @@ fn real(name: &str) -> Option<PathBuf> {
         .find(|found| !is_shim(found))
 }
 
+/// The git this shim stands in for, never the shim itself.
 fn real_git() -> Option<PathBuf> {
     std::env::var_os(vars::REAL_GIT)
         .map(PathBuf::from)

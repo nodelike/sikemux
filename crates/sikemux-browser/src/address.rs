@@ -78,6 +78,7 @@ pub fn is_local_host(host: &str) -> bool {
     }
 }
 
+/// Whether two addresses are on one site, by origin.
 pub(crate) fn same_site(one: &str, other: &str) -> bool {
     match (url::Url::parse(one), url::Url::parse(other)) {
         (Ok(one), Ok(other)) => one.origin() == other.origin(),

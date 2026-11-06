@@ -435,6 +435,7 @@ impl Remote {
         self.inner.locked().stored.owner.clone()
     }
 
+    /// This build is older than the accounts server works with.
     pub(crate) fn too_old(&self) -> bool {
         self.inner.locked().update_required.is_some()
     }
@@ -627,6 +628,7 @@ impl Remote {
         })
     }
 
+    /// The key this host signs with, once it has loaded.
     pub(crate) fn host_key(&self) -> Option<SecretKey> {
         self.inner.locked().secret.clone()
     }

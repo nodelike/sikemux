@@ -212,6 +212,7 @@ async fn remember(
     Ok(bearer(&config.url, &tokens.access_token))
 }
 
+/// Makes the next request renew the session, as if its token had run out.
 #[cfg(test)]
 pub async fn expire_access() {
     if let Some(current) = ACCESS.lock().await.as_mut() {

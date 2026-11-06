@@ -676,6 +676,7 @@ impl SimulatorManager {
     }
 }
 
+/// This Mac can run the helper and Xcode's simulators.
 pub fn capable() -> bool {
     unsupported_reason().is_none()
 }

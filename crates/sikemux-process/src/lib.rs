@@ -104,6 +104,7 @@ fn kill_group(pid: u32) {
     terminate_tree(pid, true);
 }
 
+/// Kills the child and everything it started, then reaps it.
 pub fn kill_and_reap(child: &mut std::process::Child) {
     kill_group(child.id());
     let _ = child.kill();

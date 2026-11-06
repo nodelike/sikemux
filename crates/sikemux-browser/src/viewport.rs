@@ -112,6 +112,7 @@ pub fn collapsed(area: &BrowserBounds) -> bool {
     area.width < MIN_SHOWN || area.height < MIN_SHOWN
 }
 
+/// Where the scaled page goes inside the pane's page area.
 fn fit(area: &BrowserBounds, viewport: Viewport) -> BrowserBounds {
     let (width, height) = viewport.size();
     let scale = (area.width / width).min(area.height / height).min(1.0);

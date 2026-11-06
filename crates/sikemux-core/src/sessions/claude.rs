@@ -86,6 +86,8 @@ pub(super) fn claude_sessions(cwd: &str, config_path: Option<&str>) -> Vec<Agent
             .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl")),
     );
     paths.truncate(MAX_AGENT_TRANSCRIPTS_INSPECTED);
+    // Titles come from reading each transcript, so fan the per-file work out
+    // across rayon's pool instead of scanning sessions one at a time.
     let mut out: Vec<AgentSession> = paths
         .par_iter()
         .filter_map(|(path, stamp)| claude_session(path, *stamp))

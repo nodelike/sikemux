@@ -251,6 +251,7 @@ pub async fn domains(data_dir: &Path, input: ProjectRef) -> VercelResult<Vec<Dom
         .collect())
 }
 
+/// An environment variable without its value, which never leaves Vercel through here.
 pub fn variable(value: &Value) -> Variable {
     let target = match at(value, "/target") {
         Value::String(one) => vec![one.clone()],

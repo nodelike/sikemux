@@ -194,6 +194,7 @@ impl<S: Service> Http<S> {
             .ok_or_else(|| ServiceError::Transport("could not start the HTTP client".into()))
     }
 
+    /// Runs `work` once one of the request slots is free.
     pub async fn limited<T>(&self, work: impl Future<Output = T>) -> T {
         let _permit = self.permits.acquire().await;
         work.await
@@ -255,6 +256,7 @@ impl<S: Service> Http<S> {
         }
     }
 
+    /// Refuses a request while `account`'s limit is spent.
     pub fn check(&self, account: &str) -> Result<(), ServiceError<S>> {
         self.limits
             .as_ref()
@@ -284,6 +286,7 @@ impl<S: Service> Http<S> {
     }
 }
 
+/// How much of an answer to keep.
 #[derive(Clone, Copy)]
 pub enum Read {
     Whole(usize),

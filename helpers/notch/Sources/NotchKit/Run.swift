@@ -26,6 +26,7 @@ public func runNotch(_ arguments: [String]) -> Never {
     exit(0)
 }
 
+/// Ends this helper when the dev app that started it ends.
 private func exitWith(_ pid: pid_t) {
     guard kill(pid, 0) == 0 else { exit(0) }
     let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)

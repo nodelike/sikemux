@@ -30,6 +30,7 @@ pub(crate) struct Review {
 }
 
 impl Review {
+    /// The pull request moved since its comments were last read.
     pub(super) fn moved(&self, mark: &str) -> bool {
         self.mark != mark
     }

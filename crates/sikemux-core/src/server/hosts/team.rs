@@ -25,6 +25,7 @@ pub(crate) enum Role {
     Lead,
 }
 
+/// An agent on a linked host.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Foreign {

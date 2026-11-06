@@ -22,6 +22,7 @@ fn env_tokens(name: &str) -> Vec<String> {
     std::iter::once(lower).chain(words).collect()
 }
 
+/// Whether `name`, or a word of it, is one of `prod_envs`.
 fn names_production(name: &str, prod_envs: &[String]) -> bool {
     env_tokens(name).iter().any(|token| {
         prod_envs

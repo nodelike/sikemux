@@ -73,6 +73,9 @@ pub(crate) fn resolve(params: ResolveParams) -> Resolved {
     }
 }
 
+// DFS within `root` up to `remaining` levels deep. Within the walk, only
+// git repos are emitted; repos are also terminal — we never descend into
+// one.
 fn walk(
     root: &Path,
     depth: i64,

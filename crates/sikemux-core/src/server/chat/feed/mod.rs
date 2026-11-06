@@ -264,6 +264,7 @@ impl Feed {
         self.account(&inner);
     }
 
+    /// Takes up a feed an earlier core let go of.
     pub(crate) fn restored(agent_id: String, state: FeedState) -> Arc<Self> {
         let mut replay = state.replay;
         replay.history = state.history.map(History::reopen);
@@ -386,6 +387,8 @@ impl Feed {
         inner.fold.as_mut().expect("just built")
     }
 
+    /// Writes the newest event to the history once it has had a while to
+    /// take in more.
     fn settle_later(self: &Arc<Self>, inner: &mut Inner) {
         if inner.settle_scheduled || !inner.replay.keeps_history() {
             return;
@@ -750,6 +753,7 @@ impl Feed {
         self.inner.locked().reach = Some((session.to_owned(), reach));
     }
 
+    /// How far into the CLI's record of `session` the history reaches, when it follows it.
     pub(crate) fn reach(&self, session: &str) -> Option<Reach> {
         let inner = self.inner.locked();
         let (followed, reach) = inner.reach.as_ref()?;
@@ -761,6 +765,7 @@ impl Feed {
         self.inner.locked().title.clone()
     }
 
+    /// What the chat said from index `from` on, or over its last `turns`.
     pub(crate) fn excerpt(&self, from: Option<u64>, turns: usize, max_bytes: usize) -> Excerpt {
         self.viewed();
         let mut inner = self.inner.locked();

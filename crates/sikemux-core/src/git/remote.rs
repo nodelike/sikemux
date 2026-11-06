@@ -282,6 +282,9 @@ pub async fn git_remote_branches(
             ],
         )?;
 
+        // Build the local-branch → upstream map once so we can annotate each
+        // remote branch with its tracking local. The cheap form:
+        // `git for-each-ref refs/heads --format='%(refname:short)\t%(upstream:short)'`.
         let mut upstreams: std::collections::HashMap<String, String> = Default::default();
         if let Ok(locals) = git_ok(
             &repo,
