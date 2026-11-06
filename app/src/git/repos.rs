@@ -30,7 +30,8 @@ fn set_default(bench: &Workbench, folder: &str, repo: Option<&str>) {
 pub fn picker(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let folder = bench
-        .watched_project
+        .watched
+        .project
         .as_deref()
         .unwrap_or_default()
         .to_owned();

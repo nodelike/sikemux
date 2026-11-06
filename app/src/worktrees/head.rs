@@ -32,10 +32,10 @@ impl Workbench {
             let folder = known.worktree.as_ref()?.path.to_str()?.to_owned();
             Some((agent.id, folder, self.place()))
         });
-        if watched == self.watched_worktree {
+        if watched == self.watched.worktree {
             return;
         }
-        if let Some((_, _, was)) = &self.watched_worktree {
+        if let Some((_, _, was)) = &self.watched.worktree {
             let left = Target::new(&self.asks, was.clone());
             for read in [Read::WorktreePulls, Read::WorktreeMerged] {
                 left.unwatch(read);
@@ -65,7 +65,7 @@ impl Workbench {
                 None => target.watch::<call::WorktreeMerged>(Read::WorktreeMerged, merged),
             }
         }
-        self.watched_worktree = watched;
+        self.watched.worktree = watched;
     }
 }
 
@@ -85,7 +85,7 @@ fn pull<'a>(bench: &'a Workbench, branch: &str) -> Option<&'a Pull> {
 /// front, while its worktree has them. A teammate that lands as it goes reads as merged after
 /// each land, so the button waits until the agent is done.
 pub fn badges(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let (watched, _, _) = bench.watched_worktree.as_ref()?;
+    let (watched, _, _) = bench.watched.worktree.as_ref()?;
     if watched != agent {
         return None;
     }

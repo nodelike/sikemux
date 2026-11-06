@@ -40,7 +40,7 @@ enum How {
 impl Workbench {
     /// Starts `task` in the project in front once its checks pass.
     pub fn start_task(&mut self, task: &str, cx: &mut Context<Self>) {
-        if let Some(project) = self.watched_project.clone() {
+        if let Some(project) = self.watched.project.clone() {
             self.start_task_in(project, task, cx);
         }
     }
@@ -94,7 +94,7 @@ impl Workbench {
                         None => {
                             bench.overlays.run_check = None;
                             if let Some(execution) = answer["executionId"].as_str() {
-                                bench.runs_to_show.insert(execution.to_owned());
+                                bench.tasks.to_show.insert(execution.to_owned());
                                 bench.show_started_runs();
                             }
                             bench.notify(toast::success(format!("Started process: {label}")), cx);
@@ -116,13 +116,13 @@ impl Workbench {
     /// Opens the terminal of each run the person started here once the run has one, and
     /// forgets a run that ended without one.
     pub(crate) fn show_started_runs(&mut self) {
-        if self.runs_to_show.is_empty() {
+        if self.tasks.to_show.is_empty() {
             return;
         }
         let runs: Vec<(String, Option<u64>, bool, String, String)> =
             (self.feeds.in_front().runs.iter())
                 .map(|listed| &listed.run)
-                .filter(|run| self.runs_to_show.contains(&run.execution_id))
+                .filter(|run| self.tasks.to_show.contains(&run.execution_id))
                 .map(|run| {
                     (
                         run.execution_id.clone(),
@@ -149,7 +149,7 @@ impl Workbench {
                 (None, _) if waiting => continue,
                 _ => {}
             }
-            self.runs_to_show.remove(&execution);
+            self.tasks.to_show.remove(&execution);
         }
     }
 

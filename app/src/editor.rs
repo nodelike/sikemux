@@ -1,6 +1,7 @@
 //! The editor's tab: a file read and saved through the core, edited on Kit's
 //! code editor, and opened from anywhere at a line.
 
+use sikemux_view::layout::At;
 use sikemux_view::layout::OpenTab;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1776,4 +1777,36 @@ fn show_rendered(
 /// The editors' text scale the person chose.
 fn text_scale(bench: &Workbench) -> f64 {
     bench.preferences().editor_text_scale
+}
+
+impl Workbench {
+    /// The file the tab in front shows, when it is an editor.
+    pub fn front_file(&self) -> Option<PathBuf> {
+        let (kind, target) = crate::tabs::first_view(&self.tab()?.pane)?;
+        (kind == PaneKind::Files).then(|| PathBuf::from(target))
+    }
+
+    /// Brings the file's editor tab to the front, opening one when none shows it.
+    pub fn open_file(&mut self, path: &Path, cx: &mut App) {
+        self.take_keys_when_shown(TakesKeys::File(path.to_owned()), cx);
+        self.show_file(path, false);
+    }
+
+    /// Opens the file's editor to look at, in place of the one opened that way last.
+    pub fn preview_file(&self, path: &Path) {
+        self.show_file(path, true);
+    }
+
+    pub(crate) fn show_file(&self, path: &Path, preview: bool) {
+        if let Some(project) = self.project() {
+            self.open_in_front(
+                OpenTab::new(
+                    At::project(&project.id),
+                    PaneKind::Files,
+                    path.to_string_lossy(),
+                )
+                .preview(preview),
+            );
+        }
+    }
 }

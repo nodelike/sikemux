@@ -921,7 +921,7 @@ impl Workbench {
             return;
         };
         let covered = self.showing_goals()
-            && !(self.goals.as_ref()).is_some_and(|goals| goals.read(cx).wants_chat(&agent));
+            && !(self.goals.pane.as_ref()).is_some_and(|goals| goals.read(cx).wants_chat(&agent));
         if covered {
             return;
         }
@@ -1020,7 +1020,7 @@ impl Workbench {
             cx.new(|cx| crate::voice::MicButton::new(voice, owner, toggle, cx))
         };
         let bench = cx.weak_entity();
-        let goals = self.goals.clone().filter(|_| owner == START);
+        let goals = self.goals.pane.clone().filter(|_| owner == START);
         let view = cx.new(|cx| crate::chat::ComposerView {
             bench,
             owner: owner.to_owned(),

@@ -599,7 +599,7 @@ impl Workbench {
     /// list, else the core's pick, the folder when it is one or the one chosen among those
     /// inside it. None while the person has to pick.
     pub(crate) fn git_repo(&self) -> Option<String> {
-        let folder = self.watched_project.as_ref()?;
+        let folder = self.watched.project.as_ref()?;
         if self.git.listing {
             return None;
         }
@@ -629,7 +629,7 @@ impl Workbench {
     /// Opens `repo` in the project's Git views until the project changes.
     pub(crate) fn pick_git_repo(&mut self, repo: String, cx: &mut Context<Self>) {
         let was = self.git_repo();
-        self.git.picked = self.watched_project.clone().map(|folder| (folder, repo));
+        self.git.picked = self.watched.project.clone().map(|folder| (folder, repo));
         self.git.listing = false;
         self.follow_git_repo(was, cx);
     }
@@ -678,7 +678,7 @@ impl Workbench {
         let Some(repo) = self.git_repo() else {
             return;
         };
-        if project.path.to_string_lossy() != *self.watched_project.as_deref().unwrap_or_default() {
+        if project.path.to_string_lossy() != *self.watched.project.as_deref().unwrap_or_default() {
             return;
         }
         let target = self.target();

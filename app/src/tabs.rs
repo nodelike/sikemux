@@ -1,6 +1,15 @@
 use crate::battery::battery_chip;
+use crate::core::Target;
+use crate::tabs;
 use crate::tasks::chip::run_chip;
+use sikemux_core::server::call;
+use sikemux_core::server::layout::TabParams;
+use sikemux_core::server::layout::TabsParams;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::ProjectLayout;
 use std::path::Path;
+use std::time::Duration;
 
 use gpui_kit::component::menu::{ContextMenuExt, PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
@@ -778,4 +787,247 @@ fn clock(cx: &App) -> impl IntoElement {
                 .ml(SPACE_1)
                 .text_color(t.text_tertiary),
         )
+}
+
+/// How long a tab asked to close stays closing in the window if the core never says it
+/// went, such as when its closing failed.
+const CLOSE_SETTLES: Duration = Duration::from_secs(2);
+
+impl Workbench {
+    /// Brings forward the project's tab showing `target`, opening one when none does.
+    pub fn show(&self, kind: PaneKind, target: &str, title: Option<&str>) {
+        if let Some(project) = self.project() {
+            let tab = OpenTab::new(At::project(&project.id), kind, target);
+            self.open_in_front(OpenTab {
+                title: title.map(str::to_owned),
+                ..tab
+            });
+        }
+    }
+
+    pub fn open_in_front(&self, tab: OpenTab) {
+        self.target().call_typed::<call::OpenTab>(tab);
+    }
+
+    pub fn open_here(&self, tab: OpenTab) {
+        Target::here(&self.asks).call_typed::<call::OpenTab>(tab);
+    }
+
+    /// Brings forward the tab `by` places from the one in front, among those `same`
+    /// accepts, going round the strip.
+    pub(crate) fn step_tab(&self, by: isize, same: impl Fn(&LayoutTab, &LayoutTab) -> bool) {
+        let (Some(strip), Some(front)) = (self.strip(), self.tab()) else {
+            return;
+        };
+        let tabs: Vec<&LayoutTab> = self
+            .tabs(&strip)
+            .iter()
+            .filter(|tab| same(tab, front))
+            .collect();
+        let Some(at) = tabs.iter().position(|tab| tab.id == front.id) else {
+            return;
+        };
+        let to = (at as isize + by).rem_euclid(tabs.len() as isize) as usize;
+        self.activate_tab(&strip, &tabs[to].id);
+    }
+
+    /// Brings forward the tab at `place` in the strip, counting from one, or the last tab.
+    pub(crate) fn go_to_tab(&self, place: Option<usize>) {
+        let Some(strip) = self.strip() else {
+            return;
+        };
+        let tabs = self.tabs(&strip);
+        if let Some(tab) = place.map_or(tabs.last(), |place| tabs.get(place - 1)) {
+            self.activate_tab(&strip, &tab.id);
+        }
+    }
+
+    /// Brings forward the first terminal tab in the strip in front, else opens a terminal.
+    pub(crate) fn focus_terminal(&self, cx: &mut App) {
+        let terminal = self.strip().and_then(|strip| {
+            let tab = self.tabs(&strip).iter().find(|tab| {
+                tabs::first_view(&tab.pane).is_some_and(|(kind, _)| kind == PaneKind::Terminal)
+            })?;
+            Some((strip.clone(), tab.id.clone()))
+        });
+        match terminal {
+            Some((strip, tab)) => self.activate_tab(&strip, &tab),
+            None => self.new_terminal(cx),
+        }
+    }
+
+    /// Makes the pane of the tab in front, for the kinds made the first time they come to the
+    /// front.
+    pub(crate) fn make_front_pane(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.tell_reach(cx);
+        let front = self
+            .tab()
+            .and_then(|tab| tabs::first_view(&tab.pane))
+            .map(|(kind, _)| kind);
+        if let Some(kind) = front {
+            crate::pane_kind::make(kind, self, window, cx);
+        }
+    }
+
+    /// The strip in front: the terminals or SSH host shown instead of a project, else the
+    /// project in front.
+    pub fn strip(&self) -> Option<Strip> {
+        let layout = &self.shown()?.layout;
+        if layout.terminals_in_front {
+            return Some(Strip::Terminals);
+        }
+        match layout
+            .active_host
+            .as_ref()
+            .filter(|host| layout.hosts.contains_key(*host))
+        {
+            Some(host) => Some(Strip::Host(host.clone())),
+            None => self
+                .project()
+                .map(|project| Strip::Project(project.id.clone())),
+        }
+    }
+
+    pub(crate) fn layout_of(&self, strip: &Strip) -> Option<&ProjectLayout> {
+        let layout = &self.shown()?.layout;
+        match strip {
+            Strip::Project(id) => layout.projects.get(id),
+            Strip::Host(alias) => layout.hosts.get(alias),
+            Strip::Terminals => Some(&layout.terminals),
+        }
+    }
+
+    pub fn tabs(&self, strip: &Strip) -> &[LayoutTab] {
+        self.layout_of(strip)
+            .map_or(&[], |layout| layout.tabs.as_slice())
+    }
+
+    /// The tab in front in the strip in front.
+    pub fn tab(&self) -> Option<&LayoutTab> {
+        self.front_tab(&self.strip()?)
+    }
+
+    /// The tab in front in `strip`. While the one in front is closing, it is the one the core
+    /// brings forward in its place, the next open tab after it, else the nearest before it.
+    pub fn front_tab(&self, strip: &Strip) -> Option<&LayoutTab> {
+        let layout = self.layout_of(strip)?;
+        let tabs = layout.tabs.as_slice();
+        let open = |tab: &&LayoutTab| !self.closing(&tab.id);
+        let active = layout
+            .active
+            .as_deref()
+            .and_then(|id| tabs.iter().position(|tab| tab.id == id));
+        match active {
+            Some(at) if open(&&tabs[at]) => Some(&tabs[at]),
+            Some(at) => tabs[at..]
+                .iter()
+                .find(open)
+                .or_else(|| tabs[..at].iter().rev().find(open)),
+            None => tabs.iter().find(open),
+        }
+    }
+
+    /// Whether `tab` was asked to close a moment ago and the layout has not caught up yet.
+    pub(crate) fn closing(&self, tab: &str) -> bool {
+        self.closing_tabs
+            .borrow()
+            .get(tab)
+            .is_some_and(|asked| asked.elapsed() < CLOSE_SETTLES)
+    }
+
+    /// Forgets the tabs asked to close that the layout no longer lists, or that it has had
+    /// time to answer for.
+    pub(crate) fn settle_closing(&self) {
+        let Some(layout) = self.shown().map(|view| &view.layout) else {
+            return;
+        };
+        let listed = |id: &str| {
+            std::iter::once(&layout.terminals)
+                .chain(layout.projects.values())
+                .chain(layout.hosts.values())
+                .any(|strip| strip.tabs.iter().any(|tab| tab.id == id))
+        };
+        self.closing_tabs
+            .borrow_mut()
+            .retain(|id, asked| asked.elapsed() < CLOSE_SETTLES && listed(id));
+    }
+
+    pub fn activate_tab(&self, strip: &Strip, tab: &str) {
+        if !self.closing(tab) {
+            self.target()
+                .call_typed::<call::ActivateTab>(TabParams::new(strip.at(), tab));
+        }
+    }
+
+    /// Moves a tab to `to` in its strip, counted as the strip is now.
+    pub fn move_tab(&self, strip: &Strip, tab: &str, to: usize) {
+        if !self.closing(tab) {
+            self.target().call_typed::<call::MoveTab>(TabParams {
+                to: Some(to),
+                ..TabParams::new(strip.at(), tab)
+            });
+        }
+    }
+
+    /// Keeps a tab opened to look at, so the next one opens beside it.
+    pub fn keep_tab(&self, strip: &Strip, tab: &str) {
+        if !self.closing(tab) {
+            self.target()
+                .call_typed::<call::KeepTab>(TabParams::new(strip.at(), tab));
+        }
+    }
+
+    pub fn close_tabs(&self, strip: &Strip, tabs: &[String]) {
+        let tabs: Vec<String> = (tabs.iter())
+            .filter(|tab| !self.closing(tab))
+            .cloned()
+            .collect();
+        if tabs.is_empty() {
+            return;
+        }
+        let asked = std::time::Instant::now();
+        self.closing_tabs
+            .borrow_mut()
+            .extend(tabs.iter().map(|tab| (tab.clone(), asked)));
+        self.target().call_typed::<call::CloseTabs>(TabsParams {
+            at: strip.at(),
+            tabs,
+        });
+    }
+
+    /// Names a tab; an empty name gives back the one its view gives it.
+    pub fn rename_tab(&self, strip: &Strip, tab: &str, title: &str) {
+        if !self.closing(tab) {
+            self.target().call_typed::<call::RenameTab>(TabParams {
+                title: Some(title.to_owned()),
+                ..TabParams::new(strip.at(), tab)
+            });
+        }
+    }
+
+    /// Opens a copy of a tab beside it, with new shells for its terminals.
+    pub fn duplicate_tab(&self, strip: &Strip, tab: &str) {
+        if !self.closing(tab) {
+            self.target()
+                .call_typed::<call::DuplicateTab>(TabParams::new(strip.at(), tab));
+        }
+    }
+
+    /// The id of the agent the tab in front shows.
+    pub fn front_tab_agent(&self) -> Option<&str> {
+        shows(self.tab()?, PaneKind::Agent).map(String::as_str)
+    }
+}
+
+/// Whether two tabs show the same kind of pane, as ⌃LayoutTab steps between them.
+pub(crate) fn same_kind(tab: &LayoutTab, front: &LayoutTab) -> bool {
+    let kind = |tab: &LayoutTab| tabs::first_view(&tab.pane).map(|(kind, _)| kind);
+    kind(tab) == kind(front)
+}
+
+/// What the tab's first view of `kind` shows, among its splits.
+pub fn shows(tab: &LayoutTab, kind: PaneKind) -> Option<&String> {
+    crate::panes::views(&tab.pane)
+        .find(|view| view.kind == kind)
+        .map(|view| view.target)
 }

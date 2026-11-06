@@ -113,6 +113,14 @@ struct OpenChat {
     in_front: bool,
 }
 
+/// The goals, made the first time the window shows them, and the window hearing them move,
+/// which its rails show.
+#[derive(Default)]
+pub struct GoalsTab {
+    pub pane: Option<Entity<GoalsPane>>,
+    pub(crate) moved: Option<gpui_kit::Subscription>,
+}
+
 pub struct GoalsPane {
     asks: UnboundedSender<Ask>,
     bench: WeakEntity<Workbench>,

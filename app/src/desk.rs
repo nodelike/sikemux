@@ -4,6 +4,7 @@ mod address;
 mod downloads;
 
 use crate::desk::downloads::downloaded;
+use gpui_kit::Task;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
@@ -32,12 +33,13 @@ use tokio::sync::mpsc;
 
 use crate::core::Ask;
 use crate::icons::Icon;
+use crate::tabs::shows;
 use crate::theme::{
     Tokens, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_6, TEXT_XS, TEXT_XS_H,
 };
 use crate::toast;
 use crate::ui::{self, IconButton};
-use crate::workbench::{shows, Strip, Workbench};
+use crate::workbench::{Strip, Workbench};
 
 /// The browser engine and what the desks show of it.
 pub struct Desks {
@@ -631,13 +633,13 @@ impl Workbench {
 
     /// The desks changed, so the core hears what they hold once they settle.
     pub(crate) fn desks_moved(&mut self, cx: &mut Context<Self>) {
-        if self.desks_telling.is_some() {
+        if self.desk_news.telling.is_some() {
             return;
         }
-        self.desks_telling = Some(cx.spawn(async move |bench, cx| {
+        self.desk_news.telling = Some(cx.spawn(async move |bench, cx| {
             cx.background_executor().timer(DESKS_SETTLE).await;
             let _ = bench.update(cx, |bench, cx| {
-                bench.desks_telling = None;
+                bench.desk_news.telling = None;
                 bench.tell_desks(cx);
             });
         }));
@@ -647,10 +649,10 @@ impl Workbench {
         let params = sikemux_view::goals::DesksParams {
             desks: self.desks.read(cx).held(self.sims.read(cx)),
         };
-        if self.desks_sent.as_ref() == Some(&params) {
+        if self.desk_news.sent.as_ref() == Some(&params) {
             return;
         }
-        self.desks_sent = Some(params.clone());
+        self.desk_news.sent = Some(params.clone());
         let told = crate::core::Target::here(&self.asks)
             .request_typed::<sikemux_core::server::call::SetDesks>(params);
         cx.foreground_executor()
@@ -2352,3 +2354,41 @@ fn simulator_desk(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -
 }
 
 impl Workbench {}
+
+/// How the core hears what the desks hold.
+pub(crate) struct DeskNews {
+    /// What the core was last told the desks hold.
+    pub sent: Option<sikemux_view::goals::DesksParams>,
+    /// Telling the core what the desks hold, once they settle.
+    pub telling: Option<Task<()>>,
+    watched: Vec<Subscription>,
+    _ears: DeskEars,
+}
+
+impl DeskNews {
+    pub(crate) fn new(
+        desks: &Entity<Desks>,
+        window: &mut Window,
+        cx: &mut Context<Workbench>,
+    ) -> Self {
+        Self {
+            sent: None,
+            telling: None,
+            watched: Vec::new(),
+            _ears: listen(desks, window, cx),
+        }
+    }
+
+    /// Tells the core again whenever the desks or the simulators move.
+    pub(crate) fn follow(
+        &mut self,
+        desks: &Entity<Desks>,
+        sims: &Entity<crate::sim::pane::Simulators>,
+        cx: &mut Context<Workbench>,
+    ) {
+        self.watched = vec![
+            cx.observe(desks, |bench, _, cx| bench.desks_moved(cx)),
+            cx.observe(sims, |bench, _, cx| bench.desks_moved(cx)),
+        ];
+    }
+}

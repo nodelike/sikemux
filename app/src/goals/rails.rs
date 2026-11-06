@@ -4,10 +4,16 @@
 
 use crate::theme::SPACE_2H;
 use gpui_kit::div;
+use gpui_kit::App;
+use gpui_kit::AppContext as _;
+use gpui_kit::Entity;
 use gpui_kit::InteractiveElement;
 use gpui_kit::ParentElement;
 use gpui_kit::StatefulInteractiveElement;
 use gpui_kit::{AnyElement, Context, IntoElement, SharedString, Styled};
+use sikemux_view::prefs::TabRailPage;
+use sikemux_view::prefs::WindowView;
+use sikemux_wire::protocol::NoticeGoal;
 
 use super::{goal_mark, goal_name, goals_of, state_mark, At, GoalsPane};
 use crate::icons::Icon;
@@ -86,7 +92,7 @@ pub fn goal_rows(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<Vec<A
 
 /// While the window is on the goals, the rail lists only the goals of the project in front.
 pub(crate) fn goals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let panel = (bench.goals.as_ref())
+    let panel = (bench.goals.pane.as_ref())
         .filter(|_| bench.showing_goals())
         .and_then(|goals| {
             goals
@@ -127,4 +133,112 @@ pub(crate) fn goals_page(bench: &Workbench, cx: &mut Context<Workbench>) -> Opti
             .child(list)
             .into_any_element(),
     )
+}
+
+impl Workbench {
+    /// Shows the workbench in place of the goals, as anything opened in one of its tabs needs.
+    pub fn show_workbench(&mut self, cx: &mut Context<Self>) {
+        if self.showing_goals() {
+            self.toggle_goals_view(cx);
+        }
+    }
+
+    /// The agent whose chat the goals show, while they do.
+    pub fn chat_in_goals(&self, cx: &App) -> Option<String> {
+        let goals = self.goals.pane.as_ref()?;
+        let chat = goals.read(cx).chat_shown()?.to_owned();
+        self.showing_goals().then_some(chat)
+    }
+
+    /// Switches the window between the workbench and the goals, which open on Home.
+    pub fn toggle_goals_view(&mut self, cx: &mut Context<Self>) {
+        self.window_view = match self.window_view {
+            WindowView::Workbench => WindowView::Goals,
+            WindowView::Goals => WindowView::Workbench,
+        };
+        if let (WindowView::Goals, Some(goals)) = (self.window_view, &self.goals.pane) {
+            goals.update(cx, |goals, cx| goals.home(cx));
+        }
+        self.keep_rails(cx);
+        cx.notify();
+    }
+
+    pub fn open_goal(&mut self, goal: &NoticeGoal, cx: &mut Context<Self>) {
+        if !self.showing_goals() {
+            self.toggle_goals_view(cx);
+        }
+        self.goals_view(cx)
+            .update(cx, |goals, cx| goals.open_goal(goal, cx));
+    }
+
+    pub fn showing_goals(&self) -> bool {
+        self.window_view == WindowView::Goals
+    }
+
+    /// The goals' pane, while the window shows the goals rather than the workbench.
+    pub fn goals_in_front(&self) -> Option<&Entity<crate::goals::GoalsPane>> {
+        self.goals.pane.as_ref().filter(|_| self.showing_goals())
+    }
+
+    /// The goals view, made the first time it shows.
+    pub(crate) fn goals_view(&mut self, cx: &mut Context<Self>) -> Entity<crate::goals::GoalsPane> {
+        if let Some(goals) = &self.goals.pane {
+            return goals.clone();
+        }
+        let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
+        let here = (self.project()).map(|project| project.path.to_string_lossy().into_owned());
+        let goals = cx.new(|cx| crate::goals::GoalsPane::new(asks, bench, here, cx));
+        self.goals.moved =
+            Some(cx.subscribe(&goals, |_, _, _: &crate::goals::Moved, cx| cx.notify()));
+        self.goals.pane = Some(goals.clone());
+        goals
+    }
+
+    /// Narrows the agent rail to a goal's agents and shows the workbench with the first in front.
+    pub fn focus_goal(
+        &mut self,
+        title: String,
+        agents: Vec<String>,
+        project: &str,
+        card: u64,
+        cx: &mut Context<Self>,
+    ) {
+        let first = agents.first().cloned();
+        self.rails.goal_focus = Some(crate::rail::GoalFocus {
+            project: project.to_owned(),
+            card,
+            title,
+            agents,
+        });
+        self.rails.page = TabRailPage::Agents;
+        self.rails.tab_open = true;
+        self.show_workbench(cx);
+        if let Some(agent) = first {
+            self.bring_agent(&agent);
+        }
+        cx.notify();
+    }
+
+    pub fn clear_goal_focus(&mut self, cx: &mut Context<Self>) {
+        self.rails.goal_focus = None;
+        cx.notify();
+    }
+
+    /// Keeps the rail's goal up with who works it now; a goal gone takes the narrowing with it.
+    pub fn refocus_goal(&mut self, goals: &sikemux_view::goals::GoalsView, cx: &mut Context<Self>) {
+        let Some(focus) = self.rails.goal_focus.as_mut() else {
+            return;
+        };
+        let row =
+            (goals.goals.iter()).find(|row| row.card == focus.card && row.project == focus.project);
+        match row {
+            Some(row) if row.agents == focus.agents && row.title == focus.title => return,
+            Some(row) => {
+                focus.agents = row.agents.clone();
+                focus.title = row.title.clone();
+            }
+            None => self.rails.goal_focus = None,
+        }
+        cx.notify();
+    }
 }

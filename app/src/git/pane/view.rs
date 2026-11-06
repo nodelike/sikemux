@@ -284,7 +284,8 @@ pub(crate) fn other_repos(pane: &GitPane, cx: &mut Context<GitPane>) -> Option<i
     let bench = pane.bench.upgrade()?;
     let inside = bench
         .read(cx)
-        .watched_project
+        .watched
+        .project
         .as_deref()
         .is_some_and(|folder| folder != pane.repo && bench.read(cx).git_repos().is_some());
     inside.then(|| {

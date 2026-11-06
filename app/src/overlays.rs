@@ -4,8 +4,8 @@
 
 use gpui_kit::Entity;
 
+use crate::agents::retitle::Retitling;
 use crate::asking::Asking;
-use crate::workbench::Retitling;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Layer {

@@ -2,9 +2,13 @@
 //! listed as they arrive, the chosen one previewed in place, and every match replaced
 //! once the person has seen how many.
 
+use gpui_kit::component::input::AnyInputState;
 use sikemux_core::server::call;
 use sikemux_core::server::search::{ReplaceParams, SearchParams, WindowParams};
 use sikemux_core::server::streams::SearchStreamParams;
+use sikemux_view::layout::At;
+use sikemux_view::layout::OpenTab;
+use sikemux_view::layout::PaneKind;
 use std::collections::{HashSet, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
@@ -1443,4 +1447,62 @@ fn foot(cx: &App) -> Div {
         .child(hint("tab".into(), "replace"))
         .child(hint("⌘⏎".into(), "replace all"))
         .children(crate::keymap::hint("search.global", cx).map(|keys| hint(keys, "focus")))
+}
+
+impl Workbench {
+    /// Makes the Search pane when the project's Search tab comes to the front.
+    pub(crate) fn search_pane(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.project() else {
+            return;
+        };
+        let project = project.path.to_string_lossy().into_owned();
+        let target = self.target();
+        if self.search.as_ref().is_some_and(|pane| {
+            let pane = pane.read(cx);
+            pane.project == project && pane.place() == target.place()
+        }) {
+            return;
+        }
+        let bench = cx.weak_entity();
+        self.search = Some(cx.new(|cx| SearchPane::new(target, project, bench, cx)));
+    }
+
+    /// Brings the project's Search tab to the front with the keyboard in its find field,
+    /// opening one when it has none, and searching for what is selected, as on the Mac.
+    pub(crate) fn open_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(project) = self.project() else {
+            return;
+        };
+        self.open_in_front(OpenTab::new(
+            At::project(&project.id),
+            PaneKind::Search,
+            project.path.to_string_lossy(),
+        ));
+        let seed = self.selection(window, cx);
+        self.search_pane(cx);
+        if let Some(search) = self.search.clone() {
+            search.update(cx, |search, cx| search.focus_find(seed, window, cx));
+        }
+    }
+
+    /// The first line of the text selected where the keyboard is: a field or file, or a chat.
+    pub(crate) fn selection(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<String> {
+        let selected = match window.focused_input(cx) {
+            Some(AnyInputState::Input(state)) => Some(state.read(cx).selected_text().to_string()),
+            Some(AnyInputState::Textarea(state)) => {
+                Some(state.read(cx).selected_text().to_string())
+            }
+            Some(AnyInputState::Editor(state)) => Some(state.read(cx).selected_text().to_string()),
+            _ => self
+                .chats
+                .open
+                .values()
+                .find_map(|chat| chat.transcript.read(cx).focused_selection(window))
+                .or_else(|| Some(gpui_kit::base::TextSelection::selected_text(window, cx))),
+        }?;
+        selected
+            .lines()
+            .find(|line| !line.trim().is_empty())
+            .map(str::to_owned)
+    }
 }

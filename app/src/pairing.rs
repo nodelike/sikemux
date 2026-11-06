@@ -4,6 +4,7 @@
 //! notification and a bounce. Right after signing in, it first asks once about every phone
 //! already on the account, as the Mac does.
 
+use crate::reads::Read;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -508,4 +509,20 @@ pub fn overlay(
             )
             .into_any_element(),
     )
+}
+
+impl Workbench {
+    pub fn sign_in(&mut self) {
+        self.signing_in = true;
+        Target::here(&self.asks).answer::<call::AccountSignIn>(Read::SignIn, NoParams {});
+    }
+
+    /// Ends a sign-in the browser has not finished, which settles the one waiting on it.
+    pub fn cancel_sign_in(&self) {
+        self.call_typed::<call::AccountSignInCancel>(NoParams {});
+    }
+
+    pub fn sign_out(&self) {
+        self.call_typed::<call::AccountSignOut>(NoParams {});
+    }
 }

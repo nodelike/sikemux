@@ -1,5 +1,8 @@
 //! A terminal pane: the screen the core sends, drawn by gpui-terminal-grid.
 
+use crate::workbench::Strip;
+use sikemux_core::server::spare::NewTerminal;
+use sikemux_core::server::spare::SshParams;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
@@ -2085,4 +2088,52 @@ pub fn keep_blinking(bench: &mut Workbench, cx: &mut Context<Workbench>) {
             None => return,
         }
     }));
+}
+
+impl Workbench {
+    /// Opens a terminal in the project in front, or among the terminals of no project while
+    /// those are in front.
+    pub fn new_terminal(&self, cx: &mut App) {
+        match (self.strip(), self.project()) {
+            (Some(Strip::Terminals), _) => self.new_loose_terminal(cx),
+            (Some(Strip::Host(alias)), _) => self.open_ssh_terminal(&alias, cx),
+            (_, Some(project)) => {
+                self.take_keys_when_shown(TakesKeys::Terminal, cx);
+                self.target().call_typed::<call::NewTerminal>(NewTerminal {
+                    project: project.id.clone(),
+                    terminals: false,
+                })
+            }
+            _ => {}
+        }
+    }
+
+    pub fn new_loose_terminal(&self, cx: &mut App) {
+        self.take_keys_when_shown(TakesKeys::Terminal, cx);
+        self.call_typed::<call::NewTerminal>(NewTerminal::loose());
+    }
+
+    pub fn open_ssh_terminal(&self, alias: &str, cx: &mut App) {
+        self.take_keys_when_shown(TakesKeys::Terminal, cx);
+        self.call_typed::<call::OpenSshTerminal>(SshParams {
+            host: alias.to_owned(),
+        });
+    }
+
+    pub fn session(&self, id: &str) -> Option<&SessionInfo> {
+        self.this_view()?
+            .sessions
+            .iter()
+            .find(|session| session.id.to_string() == id)
+    }
+
+    /// Terminals started outside every project, which the core numbers.
+    pub fn loose_terminals(&self) -> Vec<&SessionInfo> {
+        self.shown().map_or(Vec::new(), |view| {
+            view.sessions
+                .iter()
+                .filter(|session| session.rail_name.is_some() && session.exit.is_none())
+                .collect()
+        })
+    }
 }

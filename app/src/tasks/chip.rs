@@ -28,11 +28,12 @@ use crate::workbench::Workbench;
 pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
     let tasks = &bench.feeds.in_front().tasks.as_ref()?.tasks;
-    let project = bench.watched_project.as_deref()?;
+    let project = bench.watched.project.as_deref()?;
     let (running, last) = bench.person_runs();
     let task_of = |run: &RunView| tasks.iter().find(|task| task.id == run.run.task_id);
     let picked = bench
-        .picked_tasks
+        .tasks
+        .picked
         .get(project)
         .and_then(|id| tasks.iter().find(|task| task.id == *id));
     let selected = running.and_then(task_of).or(picked).or(tasks.first())?;
@@ -64,7 +65,7 @@ pub(crate) fn run_chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option
     };
     let status = match (port_number, running, &failed, &passed) {
         (Some(port), ..) => Some(said(format!(":{port}"), t.text_tertiary)),
-        (None, Some(_), ..) => Some(bench.run_clock.clone().into_any_element()),
+        (None, Some(_), ..) => Some(bench.tasks.clock.clone().into_any_element()),
         (None, None, Some(failed), _) => Some(said(failed.clone(), t.danger)),
         (None, None, None, Some(passed)) => Some(said(passed.clone(), t.live)),
         _ => needs_java.map(|text| said(text, t.warn)),

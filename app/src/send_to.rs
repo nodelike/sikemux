@@ -10,7 +10,8 @@ use sikemux_view::workspace::LauncherInfo;
 use tokio::sync::oneshot;
 
 use crate::icons::Icon;
-use crate::workbench::{shows, Strip, Workbench};
+use crate::tabs::shows;
+use crate::workbench::{Strip, Workbench};
 
 /// An agent text can go to.
 #[derive(Clone)]

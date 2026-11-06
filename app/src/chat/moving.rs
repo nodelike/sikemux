@@ -98,8 +98,8 @@ impl Workbench {
         let Some(tab) = self.tab() else {
             return;
         };
-        let agent = crate::workbench::shows(tab, sikemux_view::layout::PaneKind::Agent)
-            .or_else(|| crate::workbench::shows(tab, sikemux_view::layout::PaneKind::Desk));
+        let agent = crate::tabs::shows(tab, sikemux_view::layout::PaneKind::Agent)
+            .or_else(|| crate::tabs::shows(tab, sikemux_view::layout::PaneKind::Desk));
         if let Some(agent) = agent {
             self.toggle_yolo(agent);
         }

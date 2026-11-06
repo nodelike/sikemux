@@ -7,7 +7,8 @@ use sikemux_view::layout::PaneKind;
 use sikemux_view::workspace::AgentFace;
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
-use crate::workbench::{shows, Workbench};
+use crate::tabs::shows;
+use crate::workbench::Workbench;
 
 #[derive(Clone)]
 pub struct AgentRow {

@@ -83,7 +83,7 @@ impl RunCards {
 /// Whether the chip offers "Why?": failed tests whose card was closed, or a run that stopped
 /// without tests whose card is not open.
 pub fn offers_why(bench: &Workbench, finished: &Finished) -> bool {
-    let shown = bench.run_cards.open(finished);
+    let shown = bench.tasks.cards.open(finished);
     match finished.tests() {
         Some(_) => finished.failed() > 0 && !shown,
         None => finished.stopped().is_some() && !shown,
@@ -97,8 +97,8 @@ pub fn why(bench: &mut Workbench) {
         return;
     };
     match run.tests.is_some() {
-        true => bench.run_cards.tests_closed = None,
-        false => bench.run_cards.why_open = Some(run.run.execution_id.clone()),
+        true => bench.tasks.cards.tests_closed = None,
+        false => bench.tasks.cards.why_open = Some(run.run.execution_id.clone()),
     }
 }
 
@@ -110,7 +110,7 @@ pub fn card(
     output: Option<(u64, String)>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
-    let shown = bench.run_cards.open(finished);
+    let shown = bench.tasks.cards.open(finished);
     let body = match finished.tests() {
         Some(tests) if finished.failed() > 0 => {
             if !shown {
@@ -419,7 +419,8 @@ fn short_class(class: &str) -> String {
 
 fn project_path(bench: &Workbench) -> String {
     bench
-        .watched_project
+        .watched
+        .project
         .as_deref()
         .unwrap_or_default()
         .to_owned()
@@ -456,9 +457,9 @@ impl Workbench {
         let (running, last) = self.person_runs();
         if running.is_none() {
             if let Some(run) = last {
-                self.run_cards.tests_closed = Some(run.run.execution_id.clone());
+                self.tasks.cards.tests_closed = Some(run.run.execution_id.clone());
             }
         }
-        self.run_cards.why_open = None;
+        self.tasks.cards.why_open = None;
     }
 }

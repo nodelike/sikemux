@@ -115,7 +115,7 @@ impl Start {
 impl Workbench {
     /// Starts the work Home's composer holds, once the window is done with what sent it.
     pub fn start_from_home(&self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(goals) = self.goals.clone() {
+        if let Some(goals) = self.goals.pane.clone() {
             window.defer(cx, move |window, cx| {
                 goals.update(cx, |goals, cx| goals.start_work(window, cx))
             });
@@ -125,7 +125,7 @@ impl Workbench {
     /// Asks the core how to start what Home's composer holds, once the window is done with the
     /// change.
     pub fn start_typed(&self, cx: &mut Context<Self>) {
-        if let Some(goals) = self.goals.clone() {
+        if let Some(goals) = self.goals.pane.clone() {
             cx.defer(move |cx| goals.update(cx, |goals, cx| goals.typed(cx)));
         }
     }
@@ -517,7 +517,7 @@ fn agent_menu(
 /// Home's composer: the chat's, with where the work starts, the way it starts and the agent
 /// that takes it.
 pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> AnyElement {
-    let Some(goals) = bench.goals.clone() else {
+    let Some(goals) = bench.goals.pane.clone() else {
         return div().into_any_element();
     };
     let weak = goals.downgrade();

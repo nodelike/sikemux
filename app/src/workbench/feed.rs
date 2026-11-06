@@ -20,6 +20,17 @@ use crate::toast;
 use crate::workbench::Workbench;
 use sikemux_core::server::layout::HostParams;
 
+/// What the watches that follow the front were last made for.
+#[derive(Default)]
+pub(crate) struct Watched {
+    /// The project the per-project watches were made for, by path.
+    pub project: Option<String>,
+    /// The host whose core those watches went to.
+    pub place: Place,
+    /// The agent in front whose worktree its header reads, by id and folder, and where it is.
+    pub worktree: Option<(String, String, Place)>,
+}
+
 impl Workbench {
     pub(crate) fn apply(&mut self, update: Update, cx: &mut Context<Self>) {
         #[cfg(feature = "drive")]
@@ -36,7 +47,7 @@ impl Workbench {
                     self.usage_wanted = true;
                 }
                 self.on_screen = None;
-                self.desks_sent = None;
+                self.desk_news.sent = None;
                 self.desks_moved(cx);
                 for (agent, chat) in self.chats.open.iter().filter(|(_, chat)| !chat.resting) {
                     self.ask_chat(ChatAsk::Attach {
@@ -229,22 +240,22 @@ impl Workbench {
             return;
         }
         if topic == Topic::Boards {
-            if let Some(board) = &self.board {
+            if let Some(board) = &self.board.pane {
                 board.update(cx, |board, cx| board.changed(cx));
             }
         }
         if matches!(topic, Topic::Boards | Topic::Memory) {
-            if let Some(goals) = &self.goals {
+            if let Some(goals) = &self.goals.pane {
                 goals.update(cx, |goals, cx| goals.changed(cx));
             }
         }
         if topic == Topic::GoalSummary {
-            if let Some(goals) = &self.goals {
+            if let Some(goals) = &self.goals.pane {
                 goals.update(cx, |goals, cx| goals.summary_moved(cx));
             }
         }
         if matches!(topic, Topic::Boards | Topic::Goals) {
-            if let Some(goals) = &self.goals {
+            if let Some(goals) = &self.goals.pane {
                 let on_screen = self.showing_goals();
                 let focused = self.rails.goal_focus.is_some();
                 goals.update(cx, |goals, cx| goals.goals_moved(on_screen, focused, cx));
@@ -310,10 +321,10 @@ impl Workbench {
             .project()
             .map(|project| project.path.to_string_lossy().into_owned());
         let place = self.place();
-        if path == self.watched_project && place == self.watched_place {
+        if path == self.watched.project && place == self.watched.place {
             return;
         }
-        if place != self.watched_place {
+        if place != self.watched.place {
             self.leave_place(&place);
         }
         let target = Target::new(&self.asks, place.clone());
@@ -368,20 +379,20 @@ impl Workbench {
             }
         }
         self.files.show(path.clone().map(PathBuf::from), &target);
-        self.watched_project = path;
-        self.watched_place = place;
+        self.watched.project = path;
+        self.watched.place = place;
         self.watch_drafts();
     }
 
     /// Stops the core the window watched for the project in front, as `place` takes over, and
     /// starts on what an account host in front is watched for.
     fn leave_place(&mut self, place: &Place) {
-        let left = Target::new(&self.asks, self.watched_place.clone());
+        let left = Target::new(&self.asks, self.watched.place.clone());
         for read in Read::OF_THE_PROJECT_IN_FRONT {
             left.unwatch(read);
         }
-        self.feeds.at_mut(&self.watched_place).leave();
-        if self.watched_place != Place::This {
+        self.feeds.at_mut(&self.watched.place).leave();
+        if self.watched.place != Place::This {
             for read in Read::OF_THE_HOST_IN_FRONT {
                 left.unwatch(read);
             }

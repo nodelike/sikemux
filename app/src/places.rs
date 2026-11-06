@@ -187,7 +187,7 @@ impl Workbench {
         };
         self.show_workbench(cx);
         self.activate_project(&project.id);
-        self.board_card = Some((folder.to_owned(), card));
+        self.board.card = Some((folder.to_owned(), card));
         self.open_board(&project, cx);
     }
 
@@ -196,7 +196,7 @@ impl Workbench {
     /// The goals show no tab to close, so there a chat only goes back, and nothing else happens.
     pub fn close_front(&mut self, window: &Window, cx: &mut Context<Self>) {
         if self.showing_goals() {
-            if let Some(goals) = self.goals.clone() {
+            if let Some(goals) = self.goals.pane.clone() {
                 goals.update(cx, |goals, cx| goals.leave_chat(window, cx));
             }
             return;

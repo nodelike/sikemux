@@ -516,7 +516,7 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
 
 /// The field an agent's title is edited in, at `size`; Escape leaves the title as it was.
 pub fn retitle_field(
-    retitling: &crate::workbench::Retitling,
+    retitling: &crate::agents::retitle::Retitling,
     size: f32,
     cx: &mut Context<Workbench>,
 ) -> gpui_kit::Div {

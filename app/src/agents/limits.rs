@@ -1,6 +1,9 @@
 //! The Limits panel: how much of its plan each account has used, and signing one
 //! in.
 
+use sikemux_core::server::call;
+use sikemux_core::server::calls::NoParams;
+use sikemux_view::prefs::TabRailPage;
 use std::f32::consts::FRAC_PI_2;
 
 use gpui_kit::{
@@ -589,4 +592,22 @@ pub(crate) fn signal(percent: f64, t: &Tokens) -> Hsla {
 pub(crate) fn reset_at(window: &UsageWindow) -> Option<chrono::DateTime<chrono::Utc>> {
     let at = window.resets_at.as_ref()?.unix_ms()?;
     chrono::DateTime::from_timestamp_millis(i64::try_from(at).ok()?)
+}
+
+impl Workbench {
+    /// Whether the Limits panel is on screen: the tab rail open on its agents page, for one
+    /// agent.
+    pub(crate) fn limits_shown(&self) -> bool {
+        self.rails.tab_open
+            && self.rails.page == TabRailPage::Agents
+            && !self.rails.all_harnesses
+            && self.launcher().is_some()
+    }
+
+    /// Reads the plan limits again: each lookup reaches the agent's service on the person's
+    /// sign-in, so it runs as the app starts, every few minutes while the Limits panel shows,
+    /// and when the person asks.
+    pub fn read_usage(&self) {
+        self.call_typed::<call::ReadAgentUsages>(NoParams {});
+    }
 }

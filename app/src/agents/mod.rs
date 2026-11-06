@@ -1,9 +1,13 @@
 use crate::agents::limits::limits;
 use crate::agents::terminal_pages::ssh_page;
 use crate::agents::terminal_pages::terminals_page;
+use crate::hosts::Place;
+use sikemux_core::server::agent_view::AgentViewKind;
+use sikemux_core::server::agent_view::AgentViewParams;
 use sikemux_core::server::call;
 use sikemux_core::server::saved_sessions::{RecentChat, RecentRenamed};
 use sikemux_core::server::workspace::PinChatParams;
+use sikemux_wire::protocol::SessionId;
 use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 
@@ -43,6 +47,7 @@ pub mod card;
 pub(crate) mod limits;
 pub mod menu;
 pub mod palette;
+pub(crate) mod retitle;
 pub mod review;
 pub mod rows;
 pub mod setup;
@@ -1290,4 +1295,53 @@ fn waiting_elsewhere(bench: &Workbench) -> usize {
         .filter(|(project, _)| **project != here.id && **project != path)
         .map(|(_, count)| count)
         .sum()
+}
+
+impl Workbench {
+    /// The terminal an agent runs in, and the host it is on, while it runs in one rather than
+    /// as a chat.
+    pub fn agent_terminal(&self, agent: &str) -> Option<(Place, SessionId)> {
+        let place = self.chat_target(agent).place().clone();
+        let session = self.kept_agent(agent)?.pty_id?;
+        Some((place, session))
+    }
+
+    /// Whether the agent runs in its CLI in a terminal, there now or starting again.
+    pub fn in_terminal(&self, agent: &str) -> bool {
+        self.kept_agent(agent)
+            .is_some_and(|kept| kept.terminal || kept.pty_id.is_some())
+    }
+
+    /// Whether the agent is asleep with its terminal ended, to start again on its session.
+    pub fn terminal_asleep(&self, agent: &str) -> bool {
+        self.kept_agent(agent)
+            .is_some_and(|kept| kept.terminal && kept.asleep && kept.pty_id.is_none())
+    }
+
+    /// The agent as the core of the host it runs on keeps it.
+    pub(crate) fn kept_agent(
+        &self,
+        agent: &str,
+    ) -> Option<&sikemux_view::workspace::WorkspaceAgent> {
+        self.view_at(self.chat_target(agent).place())?
+            .workspace
+            .agents
+            .iter()
+            .find(|kept| kept.id == agent)
+    }
+
+    /// Moves an agent between its chat and its own CLI in a terminal, carrying what was
+    /// typed and not sent.
+    pub fn switch_view(&self, agent: &str, terminal: bool) {
+        let to = if terminal {
+            AgentViewKind::Terminal
+        } else {
+            AgentViewKind::Chat
+        };
+        self.chat_target(agent)
+            .call_typed::<call::SwitchAgentView>(AgentViewParams {
+                agent_id: agent.to_owned(),
+                to,
+            });
+    }
 }

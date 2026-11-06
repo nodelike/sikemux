@@ -6,10 +6,11 @@ use sikemux_core::server::call;
 use sikemux_view::layout::SplitDir;
 use tokio::sync::mpsc;
 
-use super::{same_kind, Workbench};
+use super::Workbench;
 use crate::core::Ask;
 use crate::keymap::{Minimize, RunProjectAction, ToggleFullScreen, Zoom};
 use crate::panes::Towards;
+use crate::tabs::same_kind;
 use sikemux_core::server::calls::NoParams;
 
 /// How a command stands with what covers the window.

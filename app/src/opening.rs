@@ -3,6 +3,15 @@
 //! when a waiting `open`'s tabs have all closed.
 
 use crate::core::Target;
+use crate::hosts::Place;
+use crate::tabs::shows;
+use crate::toast;
+use crate::workbench::Strip;
+use gpui_kit::Window;
+use sikemux_core::server::layout::HostParams;
+use sikemux_core::server::workspace::SessionChoice;
+use sikemux_view::device::DeviceView;
+use sikemux_view::device::RecentInfo;
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -440,5 +449,118 @@ impl Workbench {
             };
             answer(shown.await);
         });
+    }
+}
+
+impl Workbench {
+    /// Starts a chat in the project in front, or in the one picked when no project is in front,
+    /// or on an SSH host's strip opens its Install Sikemux pane.
+    pub fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.strip() {
+            Some(Strip::Host(alias)) => self.open_install_pane(&alias),
+            Some(Strip::Project(project)) => self.start_chat_in(&project, window, cx),
+            _ => self.pick_project(crate::pickers::picker::ThenPicked::StartChat, window, cx),
+        }
+    }
+
+    /// Starts a chat in `project` with the agent the rail starts with, or offers every agent when
+    /// none is installed.
+    pub fn start_chat_in(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
+        match self.launcher() {
+            Some(launcher) => {
+                self.target()
+                    .start_chat(launcher.id.clone(), project.to_owned(), None, None)
+            }
+            None => self.toggle_agent_palette(window, cx),
+        }
+    }
+
+    /// Takes up a saved chat again, in the project it ran in, and brings its tab forward.
+    /// It goes by the chat's session rather than its place in the core's list, which forgets
+    /// the oldest chats any device paged to.
+    pub fn resume_chat(&self, recent: &RecentInfo, cx: &mut Context<Self>) {
+        let Some(project) = self
+            .projects()
+            .iter()
+            .find(|known| known.id == recent.project)
+        else {
+            return;
+        };
+        let session = recent
+            .id
+            .strip_prefix(&format!("{}:", recent.provider))
+            .unwrap_or(&recent.id);
+        let asked = SessionChoice {
+            provider: recent.provider.clone(),
+            session_id: session.to_owned(),
+            project: project.path.clone(),
+            cwd: Some(recent.cwd.clone()),
+            title: Some(recent.title.clone()),
+        };
+        let target = self.target();
+        let taken = target.request_typed::<call::ResumeSession>(asked);
+        cx.spawn(async move |bench, cx| match taken.await {
+            Ok(taken) => {
+                target.call_typed::<call::OpenTab>(OpenTab::new(
+                    At::project(&taken.project),
+                    PaneKind::Agent,
+                    taken.agent_id,
+                ));
+            }
+            Err(error) => {
+                let note = toast::error(format!("The chat did not open: {error}"));
+                let _ = bench.update(cx, |bench, cx| bench.notify(note, cx));
+            }
+        })
+        .detach();
+    }
+
+    /// Brings the tab of the agent `id` to the front, in its project, opening one when none
+    /// shows it, with the workbench in place of the goals.
+    pub fn open_agent(&mut self, id: &str, cx: &mut Context<Self>) {
+        self.show_workbench(cx);
+        self.bring_agent(id);
+    }
+
+    /// Brings the tab of the agent `id` to the front, in its project, opening one when none
+    /// shows it.
+    pub fn bring_agent(&mut self, id: &str) {
+        let project_on = |view: &DeviceView| {
+            view.workspace
+                .agents
+                .iter()
+                .find(|agent| agent.id == id)
+                .map(|agent| agent.project.clone())
+        };
+        let tab = |project: String| OpenTab::new(At::project(&project), PaneKind::Agent, id);
+        let Some(project) = self.shown().and_then(project_on) else {
+            // Opening a tab on a host's layout brings that host forward there.
+            if let Some(project) = self.this_view().and_then(project_on) {
+                return self.open_here(tab(project));
+            }
+            if let Some((host, project)) = self
+                .feeds
+                .hosts()
+                .find_map(|(host, feed)| Some((host.clone(), project_on(feed.view.as_ref()?)?)))
+            {
+                self.call_typed::<call::ChooseHost>(HostParams {
+                    host: format!("host:{host}"),
+                });
+                Target::new(&self.asks, Place::Account(host))
+                    .call_typed::<call::OpenTab>(tab(project));
+            }
+            return;
+        };
+        let strip = Strip::Project(project.clone());
+        let shown = (self.tabs(&strip).iter())
+            .find(|tab| shows(tab, PaneKind::Agent).is_some_and(|shown| shown == id))
+            .map(|tab| tab.id.clone());
+        match shown {
+            Some(shown) => {
+                self.activate_project(&project);
+                self.activate_tab(&strip, &shown);
+            }
+            None => self.open_in_front(tab(project)),
+        }
     }
 }

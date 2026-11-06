@@ -111,6 +111,14 @@ struct Lane {
     cards: Vec<u64>,
 }
 
+/// The board pane of the project whose board was last in front.
+#[derive(Default)]
+pub struct BoardTab {
+    pub pane: Option<Entity<BoardPane>>,
+    /// The card to open beside the board of the project at the folder named, once it shows.
+    pub(crate) card: Option<(String, u64)>,
+}
+
 pub struct BoardPane {
     asks: UnboundedSender<Ask>,
     /// The project's folder, which the core's board calls take.
@@ -134,7 +142,7 @@ pub struct BoardPane {
 
 /// The project's board, which takes the keys when it was just opened.
 pub(crate) fn pane(bench: &Workbench, window: &Window, cx: &mut Context<Workbench>) -> AnyElement {
-    let Some(pane) = &bench.board else {
+    let Some(pane) = &bench.board.pane else {
         return crate::ui::pane(cx).into_any_element();
     };
     if bench.claims_keys(crate::keyboard::TakesKeys::Board) {
@@ -1124,4 +1132,27 @@ pub(crate) fn owner(card: &BoardCard, cx: &gpui_kit::App) -> AnyElement {
             owner.child(ui::meta(paid, cx))
         })
         .into_any_element()
+}
+
+impl Workbench {
+    /// Makes the board pane when the project's board tab comes to the front.
+    pub(crate) fn board_pane(&mut self, cx: &mut Context<Self>) {
+        let Some(project) = self.project() else {
+            return;
+        };
+        let folder = project.path.to_string_lossy().into_owned();
+        let pane = match self.board.pane.clone() {
+            Some(pane) if pane.read(cx).folder == folder => pane,
+            _ => {
+                let (asks, bench) = (self.asks.clone(), cx.entity().downgrade());
+                let pane =
+                    cx.new(|cx| crate::board::BoardPane::new(asks, folder.clone(), bench, cx));
+                self.board.pane = Some(pane.clone());
+                pane
+            }
+        };
+        if let Some((_, card)) = self.board.card.take_if(|(at, _)| *at == folder) {
+            pane.update(cx, |pane, cx| pane.reveal(card, cx));
+        }
+    }
 }

@@ -1,6 +1,9 @@
 //! The front project's saved chats beyond the core's recent ones: paged further back, or
 //! searched by the rail's filter, for the rail and ⌘⇧N to take up again.
 
+use gpui_kit::component::input::InputEvent;
+use gpui_kit::AppContext as _;
+use gpui_kit::Window;
 use std::time::Duration;
 
 use gpui_kit::component::input::InputState;
@@ -160,5 +163,37 @@ impl Workbench {
         let recent = self.shown()?.recent.iter();
         let older = self.older.iter().flat_map(|older| &older.chats);
         recent.chain(older).find(|chat| chat.id == id)
+    }
+}
+
+impl Workbench {
+    pub fn toggle_filter(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.filter.take().is_some() {
+            self.look_for_older(false, crate::pickers::recent::PAGE, cx);
+            return;
+        }
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder("filter recent chats…"));
+        let changes = cx.subscribe(&input, |bench, input, event: &InputEvent, cx| {
+            if let InputEvent::Change = event {
+                if let Some(filter) = bench.filter.as_mut() {
+                    filter.text = input.read(cx).value().to_lowercase();
+                }
+                bench.look_for_older(false, crate::pickers::recent::PAGE, cx);
+                cx.notify();
+            }
+        });
+        input.update(cx, |state, cx| state.focus(window, cx));
+        self.filter = Some(crate::pickers::recent::Filter {
+            input,
+            text: String::new(),
+            _changes: changes,
+        });
+    }
+
+    /// What the rail's filter holds, in lower case; empty while it does not show.
+    pub fn filter_text(&self) -> &str {
+        self.filter
+            .as_ref()
+            .map_or("", |filter| filter.text.as_str())
     }
 }

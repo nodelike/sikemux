@@ -46,11 +46,12 @@ use crate::chat::composer::{Act, Composer, Notice, Strip};
 use crate::core::{Ask, ChatAsk, ChatNews, Target};
 use crate::icons::Icon;
 use crate::picture::Picture;
+use crate::tabs::shows;
 use crate::theme::Tokens;
 use crate::ui::shimmer::shimmer;
 use crate::ui::{Button, IconButton, Variant};
 use crate::workbench::actions::{TextSizeDecrease, TextSizeIncrease, TextSizeReset};
-use crate::workbench::{shows, Workbench};
+use crate::workbench::Workbench;
 use crate::worktrees::switch::Switch;
 use crate::{motion, syntax, theme, ui};
 
