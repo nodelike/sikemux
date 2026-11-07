@@ -1578,7 +1578,12 @@ pub fn pane(
             crate::stash::takes_drops(attach::takes_drops(pane, id, bench.clone()), id, bench)
         })
         .when(asking, |pane| {
-            question_keys(pane, id, true, &cx.weak_entity())
+            question_keys(
+                pane.key_context("QuestionDock"),
+                id,
+                true,
+                &cx.weak_entity(),
+            )
         })
         .child(rows)
         .children(file_menu)

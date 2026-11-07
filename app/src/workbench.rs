@@ -800,6 +800,10 @@ impl Render for Workbench {
             crate::drive::trace(format_args!("question drawn"));
         }
         let asking = self.asking_freely(window, cx);
+        let context = match asking {
+            Some(_) => format!("{SHELL} QuestionDock"),
+            None => SHELL.to_owned(),
+        };
         let this = cx.weak_entity();
         crate::see_through::follow(window, cx);
         let [side_tuck, tab_tuck] = [
@@ -820,7 +824,7 @@ impl Render for Workbench {
         let parts = &self.parts;
         div()
             .id("shell")
-            .key_context(SHELL)
+            .key_context(context.as_str())
             .track_focus(&self.keys.focus)
             .relative()
             .size_full()

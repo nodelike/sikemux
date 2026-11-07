@@ -106,7 +106,8 @@ pub(super) struct Pick {
 
 /// Hands a key's action to the question on show; one it does not take goes on to the draft.
 /// The keys the open question on show takes: its choices by number and the arrows, and with
-/// `all`, space to tick and return to pick, which only the chat itself takes.
+/// `all`, space to tick and return to pick, which only the chat itself takes. They are bound
+/// under `QuestionDock`, which `keyed` must name in its key context.
 pub fn question_keys<E: InteractiveElement + FluentBuilder>(
     keyed: E,
     agent: &str,
@@ -114,7 +115,6 @@ pub fn question_keys<E: InteractiveElement + FluentBuilder>(
     bench: &WeakEntity<Workbench>,
 ) -> E {
     keyed
-        .key_context("QuestionDock")
         .on_action(pressed(
             agent,
             |choose: &Choose| Press::Choose(choose.0),
