@@ -4,6 +4,7 @@
 //! them; the pane only groups them under the goal each item is on.
 
 use crate::board::ChangesBoards;
+use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -11,20 +12,24 @@ use gpui_kit::{
     InteractiveElement, IntoElement, ParentElement, Pixels, SharedString, Stateful,
     StatefulInteractiveElement, StyleRefinement, Styled, Window,
 };
+use gpui_kit::{AppContext, Entity, KeyDownEvent, Subscription};
 use sikemux_core::server::board::BoardCardParams;
+use sikemux_core::server::board::BoardNoteParams;
 use sikemux_core::server::board::BoardPassParams;
 use sikemux_core::server::board::HandOnParams as BoardHandOnParams;
 use sikemux_core::server::call;
 use sikemux_core::server::questions::AnswerParams;
-use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed, RaisedFor, SwarmDecision};
-use sikemux_view::slice::{Evidence, Gate, Proof};
+use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed, LookPicture, RaisedFor, SwarmDecision};
+use sikemux_view::slice::{Gate, Proof};
 
 use super::evidence::minute;
 use super::goal::{crumb, row};
 use super::room::Chosen;
 use super::{empty, goal_name, At, GoalsPane};
 use crate::chat::{NewerPrompt, OlderPrompt, START};
-use crate::theme::{self, Tokens, RADIUS_2, RADIUS_3, SPACE_1, SPACE_1H, SPACE_2, SPACE_3};
+use crate::theme::{
+    self, Tokens, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3,
+};
 use crate::theme::{SPACE_3H, SPACE_5, TEXT_2XS, TEXT_MD, TEXT_SM, TEXT_XL, TEXT_XS};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
@@ -34,8 +39,6 @@ const ROW_SAYS_MIN_W: Pixels = px(180.);
 /// How much of a question shows before the rest waits behind Show all.
 const ASKED_LINES: usize = 6;
 const ASKED_CHARS: usize = 420;
-/// How many of a slice's pictures a Looks right card shows.
-const PICTURES_SHOWN: usize = 4;
 
 /// Something that finished or failed while the person was away.
 #[derive(Clone, Copy)]
@@ -331,14 +334,16 @@ pub(super) fn call_card(
                         .map(|why| ui::meta(why, cx).whitespace_normal()),
                 )
         }))
-        .child(
-            div()
+        .child(match note_line(pane, item, cx) {
+            Some(note) => note.into_any_element(),
+            None => div()
                 .pt(SPACE_1)
                 .flex()
                 .flex_wrap()
                 .gap(SPACE_1H)
-                .children(call_buttons(pane, item, cx)),
-        )
+                .children(call_buttons(pane, item, cx))
+                .into_any_element(),
+        })
         .children(if_wrong.map(|words| ui::meta(words, cx).whitespace_normal()));
     super::with_agent_menu(card, item.agent_id.clone(), &pane.bench)
 }
@@ -378,51 +383,37 @@ fn asked(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Div
         })
 }
 
-/// The pictures waiting at Looks right: for a goal's look, every one its slices hold, slice by
-/// slice with how it was before how it is now; else the slice's own, newest first. Each is shown
-/// full size on a click.
+/// The pictures a goal waiting at Looks right collected, slice by slice with how it was before
+/// how it is now. A click shows one full size, or while a note is open pins the note to it.
 fn pictures(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<Div> {
-    if item.gate != Some(Gate::LooksRight) {
-        return None;
-    }
-    let card = item.card.as_ref()?;
-    let mut shown: Vec<(u64, &Evidence)> = match &item.look {
-        Some(look) => (look.slices.iter())
-            .flat_map(|slice| {
-                let of = move |before: bool| {
-                    (look.pictures.iter()).filter(move |picture| {
-                        picture.card == slice.card && picture.before == before
-                    })
-                };
-                of(true).chain(of(false))
-            })
-            .map(|picture| (picture.card, &picture.evidence))
-            .collect(),
-        None => {
-            let slice = (pane.board_of(&card.project))
-                .and_then(|board| board.cards.iter().find(|known| known.id == card.id))
-                .and_then(|known| known.slice.as_ref());
-            let kept = slice.map_or(&[][..], |slice| slice.evidence.as_slice());
-            (kept.iter().rev())
-                .filter(|evidence| matches!(evidence.proof, Proof::Picture { .. }))
-                .take(PICTURES_SHOWN)
-                .map(|evidence| (card.id, evidence))
-                .collect()
-        }
-    };
-    if shown.is_empty() {
-        shown.extend(item.evidence.iter().map(|evidence| (card.id, evidence)));
-    }
+    let look = item
+        .look
+        .as_ref()
+        .filter(|_| item.gate == Some(Gate::LooksRight))?;
+    let folder = item.card.as_ref()?.project.clone();
+    let shown: Vec<&LookPicture> = (look.slices.iter())
+        .flat_map(|slice| {
+            let of = move |before: bool| {
+                (look.pictures.iter())
+                    .filter(move |picture| picture.card == slice.card && picture.before == before)
+            };
+            of(true).chain(of(false))
+        })
+        .collect();
     if shown.is_empty() {
         return None;
     }
-    let folder = card.project.clone();
+    let note = (pane.call_note.as_ref()).filter(|note| note.item == item.id);
+    let pinned = note.and_then(|note| note.pinned);
+    let noting = note.is_some();
     Some(
         div()
             .flex()
             .flex_wrap()
             .gap(SPACE_1H)
-            .children(shown.into_iter().map(|(slice, evidence)| {
+            .children(shown.into_iter().map(|picture| {
+                let (slice, evidence) = (picture.card, &picture.evidence);
+                let spot = (slice, evidence.id);
                 let still = match &evidence.proof {
                     Proof::Picture {
                         path,
@@ -437,16 +428,153 @@ fn pictures(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> 
                         "call-picture-{slice}-{}",
                         evidence.id
                     )))
+                    .flex()
+                    .flex_col()
+                    .gap(SPACE_0)
                     .cursor_pointer()
-                    .child(super::thumb_face(evidence, false, cx))
+                    .child(super::thumb_face(evidence, pinned == Some(spot), cx))
+                    .child(ui::meta(
+                        if picture.before { "before" } else { "after" },
+                        cx,
+                    ))
                     .on_click(cx.listener(move |pane, _, window, cx| {
                         cx.stop_propagation();
+                        if noting {
+                            return pane.pin_call_note(spot, cx);
+                        }
                         match &still {
                             Some(path) => pane.show_picture(path, window, cx),
                             None => pane.open_slice(&folder, slice, cx),
                         }
                     }))
             })),
+    )
+}
+
+/// The note the person writes on a Looks right card about what needs work, while it is open.
+pub(super) struct CallNote {
+    /// The inbox item whose card it is on.
+    item: String,
+    /// The picture it is pinned to, by the slice that holds it and its id.
+    pinned: Option<(u64, u64)>,
+    input: Entity<InputState>,
+    _sending: Subscription,
+}
+
+impl GoalsPane {
+    /// Opens the line on call `item`'s card that says what needs work.
+    fn write_call_note(&mut self, item: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| {
+            InputState::new(window, cx).placeholder("What needs work, for the goal's agents")
+        });
+        let sending = cx.subscribe_in(&input, window, |pane, _, event, _, cx| {
+            if let InputEvent::PressEnter { .. } = event {
+                pane.send_call_note(cx);
+            }
+        });
+        input.update(cx, |input, cx| input.focus(window, cx));
+        self.call_note = Some(CallNote {
+            item: item.to_owned(),
+            pinned: None,
+            input,
+            _sending: sending,
+        });
+        self.room.reflow();
+        cx.notify();
+    }
+
+    /// Pins the open note to one picture, or unpins it from the one it is on.
+    fn pin_call_note(&mut self, spot: (u64, u64), cx: &mut Context<Self>) {
+        if let Some(note) = self.call_note.as_mut() {
+            note.pinned = (note.pinned != Some(spot)).then_some(spot);
+            cx.notify();
+        }
+    }
+
+    fn close_call_note(&mut self, cx: &mut Context<Self>) {
+        self.call_note = None;
+        self.room.reflow();
+        cx.notify();
+    }
+
+    /// Sends the open note: to the slice holding the picture it is pinned to, else to the goal.
+    fn send_call_note(&mut self, cx: &mut Context<Self>) {
+        let Some(note) = self.call_note.as_ref() else {
+            return;
+        };
+        let text = note.input.read(cx).value().trim().to_owned();
+        let goal = (self.inbox_item(&note.item, cx)).and_then(|item| item.card);
+        let (Some(goal), false, false) = (goal, text.is_empty(), self.busy) else {
+            return;
+        };
+        let params = BoardNoteParams {
+            project: goal.project,
+            card: note.pinned.map_or(goal.id, |(slice, _)| slice),
+            text,
+            evidence: note.pinned.map(|(_, evidence)| evidence),
+        };
+        self.ask::<call::BoardNote>(
+            params,
+            |pane, cx| {
+                pane.close_call_note(cx);
+                crate::toast::show(&pane.bench, crate::toast::success("Note sent"), cx);
+                cx.emit(super::Moved);
+            },
+            cx,
+        );
+    }
+}
+
+/// The open note on a card, in place of its buttons: the line, what it goes to, Send and Cancel.
+fn note_line(
+    pane: &GoalsPane,
+    item: &InboxItem,
+    cx: &mut Context<GoalsPane>,
+) -> Option<Stateful<Div>> {
+    let note = (pane.call_note.as_ref()).filter(|note| note.item == item.id)?;
+    let goes_to = match note.pinned {
+        Some(_) => "On the picture you picked; click it again to unpin",
+        None => "To the goal's agents. Click a picture to pin the note to it",
+    };
+    let send = Button::new(
+        SharedString::from(format!("note-send-{}", item.id)),
+        "Send",
+        Variant::Primary,
+    )
+    .disabled(pane.busy)
+    .on_click(cx.listener(|pane, _, _, cx| {
+        cx.stop_propagation();
+        pane.send_call_note(cx);
+    }));
+    let cancel = Button::new(
+        SharedString::from(format!("note-cancel-{}", item.id)),
+        "Cancel",
+        Variant::Outline,
+    )
+    .on_click(cx.listener(|pane, _, _, cx| {
+        cx.stop_propagation();
+        pane.close_call_note(cx);
+    }));
+    Some(
+        div()
+            .id(SharedString::from(format!("note-{}", item.id)))
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .pt(SPACE_1)
+            .flex()
+            .flex_col()
+            .gap(SPACE_1H)
+            .child(
+                div()
+                    .capture_key_down(cx.listener(|pane, event: &KeyDownEvent, _, cx| {
+                        if event.keystroke.key == "escape" {
+                            cx.stop_propagation();
+                            pane.close_call_note(cx);
+                        }
+                    }))
+                    .child(ui::Field::new(&note.input).small()),
+            )
+            .child(ui::meta(goes_to, cx))
+            .child(div().flex().gap(SPACE_1H).child(send).child(cancel)),
     )
 }
 
@@ -461,6 +589,7 @@ fn call_buttons(
         let (project, id, environment) = (card.project.clone(), card.id, item.environment.clone());
         let folder = project.clone();
         let looks = gate == Gate::LooksRight;
+        let noted = looks.then(|| item.id.clone());
         let pass_words = match (&environment, looks) {
             (_, true) => "Looks right".to_owned(),
             (Some(environment), false) => format!("Pass {environment}"),
@@ -490,9 +619,12 @@ fn call_buttons(
             },
             Variant::Outline,
         )
-        .on_click(cx.listener(move |pane, _, _, cx| {
+        .on_click(cx.listener(move |pane, _, window, cx| {
             cx.stop_propagation();
-            pane.open_slice(&folder, id, cx)
+            match &noted {
+                Some(item) => pane.write_call_note(item, window, cx),
+                None => pane.open_slice(&folder, id, cx),
+            }
         }));
         return vec![pass.into_any_element(), other.into_any_element()];
     }

@@ -162,6 +162,8 @@ pub struct GoalsPane {
     picked: Option<u64>,
     /// The note being written on what needs work, while it is open.
     note: Option<(Entity<InputState>, Subscription)>,
+    /// The note being written on a Looks right card, while it is open.
+    call_note: Option<home::CallNote>,
     busy: bool,
     /// Home's list of every goal and agent.
     room: room::Room,
@@ -208,6 +210,7 @@ impl GoalsPane {
             chat: None,
             picked: None,
             note: None,
+            call_note: None,
             busy: false,
             room: room::Room::new(cx),
             panel: None,
