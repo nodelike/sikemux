@@ -441,7 +441,8 @@ Sikemux is in the background the page is told about the hover but CSS
 of the element and took the click instead. `browser_navigate` with `go:
 "back"` or `go: "forward"` moves through the current tab's history.
 
-`browser_type` with an `index` or `selector` focuses that element and
+`browser_type` with an `index`, a `selector` or a `field`, the field's label,
+placeholder or name, focuses that element and
 replaces its value. Without one it types at the caret of whatever is focused,
 so it adds to the text there; `replace: true` selects the focused field's
 text first so the typing replaces it. `submit: true` presses Enter
@@ -451,15 +452,31 @@ afterwards. The result names the field it typed `into` and carries its
 still empty. A `<select>` picks the option whose value or label matches the
 text.
 
-`browser_act` plays up to 20 `steps` in one call, each an `action` of
-`click`, `type` or `press` with the same fields as that tool (`index`,
-`text`, `role`, `selector`, `expectLabel`, `x`, `y`, `replace`, `submit`,
-`key`). Use it to fill a
-form and submit it, or to open a menu and pick from it by `text`. It stops at
-the first step that fails, and after any step that navigates, opens a dialog
-or changes tab, because the steps after it were planned for the old page.
-`done` lists what each step did, `stopped` names the step it stopped at and
-why, and `report` covers the page once at the end.
+`browser_act` plays up to 20 `steps` in one call and answers once. Each step
+is an `action` with the fields of its tool:
+
+- `navigate`: `url`, or `go` back, forward or reload.
+- `click`, `type`, `press`: as `browser_click`, `browser_type` and
+  `browser_press` (`index`, `text`, `role`, `selector`, `field`,
+  `expectLabel`, `x`, `y`, `replace`, `submit`, `key`).
+- `wait`: `text`, `textGone`, `selector`, `selectorGone`, `url`, `urlGone`
+  or `networkIdle`, with `timeoutMs`, as `browser_wait`; a wait that runs out
+  fails its step.
+- `find`: `query` and `role`, as `browser_find`.
+- `read`: the text of what `selector` matches, or the page's state without one.
+
+Put every step you can plan ahead in one call, dependent ones too: open a
+page, sign in, wait for the next page, fill its form, submit, wait for the
+result and read it. Name elements by `text`, `field` or `selector` rather
+than by number, since numbers belong to the page you last read, and put a
+`wait` after a step that loads a page or starts work the next step needs. The
+call stops at the first step that fails, and when the page moves on while a
+later step names an element by `index` or `x` and `y`, opens a dialog or
+changes tab. `done` lists what each step did, with what `find` and `read`
+returned, `stopped` names the step it stopped at and why, and `report`
+covers the page once at the end: `outcome` when a step reads, else
+`changes`. A call that runs long stops before its time runs out and says
+which steps to send again.
 
 `browser_press` sends one key to the focused element: `Enter`, `Tab`,
 `Escape`, `Backspace`, `Delete`, `ArrowDown`, `Home`, `PageDown`, `Space`, or

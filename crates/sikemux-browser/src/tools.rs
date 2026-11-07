@@ -35,6 +35,10 @@ const UPLOAD_TIMEOUT: Duration = Duration::from_secs(3);
 const UPLOAD_LANDING: Duration = Duration::from_secs(2);
 /// How long a click waits for the element it names to show up.
 const APPEAR_WAIT: Duration = Duration::from_secs(3);
+/// A browser_act call stops starting steps in time to answer within the core's wait.
+const ACT_TIME: Duration = Duration::from_millis(MAX_BLOCKING_MS - 10_000);
+/// What a step may take at worst: a click waiting for its element and then a load.
+const STEP_RESERVE: Duration = Duration::from_secs(LOAD_TIMEOUT.as_secs() + APPEAR_WAIT.as_secs());
 const UPLOAD_POLL: Duration = Duration::from_millis(50);
 const MAX_UPLOAD_FILES: usize = 20;
 const DRAG_STEPS: u32 = 12;
@@ -407,6 +411,9 @@ async fn run(
             }
             if let Some(selector) = text("selector") {
                 at.insert("selector".into(), json!(selector));
+            }
+            if let Some(field) = text("field") {
+                at.insert("text".into(), json!(field));
             }
             let at = if at.is_empty() {
                 Value::Null
@@ -855,40 +862,71 @@ async fn step(
     arrived(manager, agent_id, &tab_id, params, started).await
 }
 
-/// Plays the steps in order and stops at the first that fails or that takes
-/// the tab somewhere else, since what came after was planned for the old page.
+/// Plays the steps in order and stops at the first that fails, or once the
+/// page moves on when a later step names an element by number or point,
+/// since those belong to the old page.
 async fn act(manager: &BrowserManager, agent_id: &str, params: &Value) -> Result<Value, String> {
     let steps = params
         .get("steps")
         .and_then(Value::as_array)
         .filter(|steps| !steps.is_empty())
         .ok_or("steps must list at least one action")?;
-    let before = outcome(manager, agent_id)?;
+    let calls = steps.iter().map(step_call).collect::<Result<Vec<_>, _>>()?;
+    let deadline = Instant::now() + ACT_TIME;
     let mut done = Vec::new();
     let mut stopped = None;
-    for (number, step) in steps.iter().enumerate() {
-        let (method, step_params) = step_call(step)?;
-        match Box::pin(run(manager, agent_id, method, &step_params)).await {
-            Ok(result) => done.push(step_summary(step, result)),
-            Err(error) => {
-                stopped = Some(json!({ "step": number, "error": error }));
-                break;
-            }
-        }
-        let now = outcome(manager, agent_id)?;
-        if number + 1 < steps.len() && moved_on(&before, &now) {
+    for (number, (step, (method, mut step_params))) in steps.iter().zip(calls).enumerate() {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left < STEP_RESERVE {
             stopped = Some(json!({
                 "step": number,
-                "reason": "the page moved on, so the steps after it were not run",
+                "reason": "the call ran out of time, so this step and the ones after it were not run; send them again",
             }));
             break;
+        }
+        if method == "browser.wait" {
+            let asked = step_params
+                .get("timeoutMs")
+                .and_then(Value::as_u64)
+                .unwrap_or(DEFAULT_CONDITION_WAIT_MS);
+            step_params["timeoutMs"] = json!(asked.min(left.as_millis() as u64));
+        }
+        let before = outcome(manager, agent_id).ok();
+        let failed = match Box::pin(run(manager, agent_id, method, &step_params)).await {
+            Ok(result) => {
+                let failed = step_failure(&result);
+                done.push(step_summary(step, result));
+                failed
+            }
+            Err(error) => Some(error),
+        };
+        if let Some(error) = failed {
+            stopped = Some(json!({ "step": number, "action": step["action"], "error": error }));
+            break;
+        }
+        let rest = &steps[number + 1..];
+        if let Some(reason) = before
+            .zip(outcome(manager, agent_id).ok())
+            .and_then(|(before, now)| blocks_the_rest(&before, &now, rest))
+        {
+            if !rest.is_empty() {
+                stopped = Some(json!({ "step": number, "reason": reason }));
+                break;
+            }
         }
     }
     let mut result = json!({ "done": done });
     if let Some(stopped) = stopped {
         result["stopped"] = stopped;
     }
-    merge(result, report(manager, agent_id, params).await?)
+    let reads = steps
+        .iter()
+        .any(|step| matches!(step["action"].as_str(), Some("read" | "find")));
+    let mut report_params = params.clone();
+    if reads && params.get("report").is_none() {
+        report_params["report"] = json!("outcome");
+    }
+    merge(result, report(manager, agent_id, &report_params).await?)
 }
 
 fn step_call(step: &Value) -> Result<(&'static str, Value), String> {
@@ -896,7 +934,20 @@ fn step_call(step: &Value) -> Result<(&'static str, Value), String> {
         Some("click") => "browser.click",
         Some("type") => "browser.type",
         Some("press") => "browser.press",
-        _ => return Err("each step's action must be click, type or press".into()),
+        Some("navigate") => "browser.navigate",
+        Some("wait") if wait_condition(step).is_some() => "browser.wait",
+        Some("wait") => return Err(
+            "a wait step needs text, textGone, selector, selectorGone, url, urlGone or networkIdle"
+                .into(),
+        ),
+        Some("find") => "browser.find",
+        Some("read") => "browser.state",
+        _ => {
+            return Err(
+                "each step's action must be click, type, press, navigate, wait, find or read"
+                    .into(),
+            )
+        }
     };
     let mut params = step.clone();
     if let Value::Object(map) = &mut params {
@@ -906,10 +957,29 @@ fn step_call(step: &Value) -> Result<(&'static str, Value), String> {
     Ok((method, params))
 }
 
+/// Why a step that answered still did not do what it was for: a wait that ran
+/// out, or a page that failed to load.
+fn step_failure(result: &Value) -> Option<String> {
+    if result["met"] == json!(false) {
+        let failing = result["failing"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join("; ");
+        return Some(format!(
+            "waited {} ms, and still {failing}",
+            result["waitedMs"]
+        ));
+    }
+    result["loadError"].as_str().map(str::to_owned)
+}
+
 /// What one step did, without the page details every step would repeat.
 fn step_summary(step: &Value, mut result: Value) -> Value {
     if let Value::Object(map) = &mut result {
-        for key in ["tabId", "url", "title", "loading", "tabs"] {
+        for key in ["tabId", "url", "title", "loading", "tabs", "visible"] {
             map.remove(key);
         }
         map.insert("action".into(), step["action"].clone());
@@ -917,11 +987,25 @@ fn step_summary(step: &Value, mut result: Value) -> Value {
     result
 }
 
-fn moved_on(before: &Value, now: &Value) -> bool {
-    now.get("dialog").is_some()
-        || now["loading"] == json!(true)
-        || before["tabId"] != now["tabId"]
-        || before["url"] != now["url"]
+/// Why the steps after this one cannot run on the page it left the tab on.
+fn blocks_the_rest(before: &Value, now: &Value, rest: &[Value]) -> Option<&'static str> {
+    if now.get("dialog").is_some() {
+        return Some(
+            "a dialog opened, so the steps after it were not run; answer it with browser_dialog",
+        );
+    }
+    if before["tabId"] != now["tabId"] {
+        return Some("another tab came to the front, so the steps after it were not run");
+    }
+    let moved = now["loading"] == json!(true) || before["url"] != now["url"];
+    let by_place = rest.iter().any(|step| {
+        ["index", "x", "y"]
+            .iter()
+            .any(|key| step.get(*key).is_some())
+    });
+    (moved && by_place).then_some(
+        "the page moved on, and a later step names an element by number or point from the old page, so the steps after it were not run",
+    )
 }
 
 /// Whether `script` reads as an expression or as statements, or the syntax error that

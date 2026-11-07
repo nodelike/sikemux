@@ -182,7 +182,7 @@
     },
     {
       "name": "browser_type",
-      "row": {"verb": "type", "kind": "edit", "icon": "text", "target": ["into {selector}", "into element {index}", "into the focused field"]},
+      "row": {"verb": "type", "kind": "edit", "icon": "text", "target": ["into {field}", "into {selector}", "into element {index}", "into the focused field"]},
       "method": "browser.type",
       "description": "Type into a field, replacing it or at the caret.",
       "properties": {
@@ -190,6 +190,12 @@
           "description": "Field number; omit to type at the caret",
           "type": "integer",
           "minimum": 0
+        },
+        "field": {
+          "description": "Instead of index: the field's label, placeholder or name",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
         },
         "selector": {
           "type": "string",
@@ -246,10 +252,10 @@
       "name": "browser_act",
       "row": {"verb": "act", "kind": "edit", "icon": "steps", "target": ["{steps}-step sequence"]},
       "method": "browser.act",
-      "description": "Run clicks, typing and keys in one call.",
+      "description": "Batch navigate, click, type, wait, read.",
       "properties": {
         "steps": {
-          "description": "Up to 20 click, type or press steps, with those tools' fields",
+          "description": "Up to 20 steps, each with its tool's fields; read takes a selector",
           "type": "array",
           "minItems": 1,
           "maxItems": 20,
@@ -258,7 +264,47 @@
             "additionalProperties": false,
             "properties": {
               "action": {
-                "enum": ["click", "type", "press"]
+                "enum": ["navigate", "click", "type", "press", "wait", "find", "read"]
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 8192
+              },
+              "go": {
+                "enum": ["back", "forward", "reload"]
+              },
+              "field": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "query": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "textGone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "selectorGone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "urlGone": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048
+              },
+              "networkIdle": {
+                "type": "boolean"
+              },
+              "timeoutMs": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 60000
               },
               "index": {
                 "type": "integer",

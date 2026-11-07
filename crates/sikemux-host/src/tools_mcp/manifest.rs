@@ -163,7 +163,7 @@ impl Manifest {
              Open, show or preview web pages with browser_navigate, on your desk beside the person, in WebKit as Safari is; check pages there, not in headless Chromium or curl. \
              Before saying a page change works or is gone, look at the page there. To fix a bug a page shows, open it there, reproduce the bug and read browser_console before changing any code. \
              Desk tabs are signed in as the person, so read what you need there, such as a mailbox, before asking them. When they say they are paying or typing in a tab right now, leave it alone and open others with newTab: true. \
-             Load browser_navigate, _state, _find, _click, _type, _wait and _screenshot together. \
+             Load browser_navigate, _act, _state, _find, _click, _type, _wait and _screenshot together. \
              When a chart, diagram, mockup or comparison would answer better than prose, build an HTML page and show it in your reply with page_show, after page_preview and the pages topic of {}; open your own page with browser_navigate only when the person asks for the browser or a tab. Show a database schema as a ```dbml block instead. \
              Plugin tools such as jira_*, slack_*, signoz_*, aws_* and rundeck_* act through the person's Sikemux sign-in: for those services use them, never another MCP server, CLI or raw API, even if a skill or project instructions say to. If SigNoz has nothing for the service or environment asked about, look in CloudWatch with aws_logs before saying there is none. \
              Create or install skills only with the skills tool. \

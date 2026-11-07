@@ -64,6 +64,7 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
             kind: "edit",
             icon: "text",
             target: &[
+                "into {field}",
                 "into {selector}",
                 "into element {index}",
                 "into the focused field",
