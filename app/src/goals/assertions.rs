@@ -579,9 +579,10 @@ pub(super) fn ticks(
                         )
                         .child(
                             ui::meta(
-                                match asserted.awaits_approval {
-                                    true => "awaits your approval".to_owned(),
-                                    false => kind_words(&assertion.evidence),
+                                match (asserted.awaits_approval, asserted.turned_down) {
+                                    (true, _) => "awaits your approval".to_owned(),
+                                    (_, true) => "you turned down a file it names".to_owned(),
+                                    _ => kind_words(&assertion.evidence),
                                 },
                                 cx,
                             )

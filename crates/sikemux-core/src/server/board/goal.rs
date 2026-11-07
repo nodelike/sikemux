@@ -99,6 +99,7 @@ impl Goal {
         };
         let files = &mut kept.files;
         files.changed.retain(|changed| changed.card != card);
+        files.refused.retain(|refused| refused.card != card);
         let (refused, asked): (Vec<NamedFile>, Vec<NamedFile>) = (named.iter())
             .filter(|file| match file.blob {
                 Some(_) => !files.accepted.contains(file),
@@ -116,6 +117,13 @@ impl Goal {
                 head: head.to_owned(),
                 file,
             }));
+        files
+            .refused
+            .extend(refused.iter().cloned().map(|file| ChangedFile {
+                card,
+                head: head.to_owned(),
+                file,
+            }));
         (asked, refused)
     }
 }
@@ -124,7 +132,9 @@ impl Goal {
 /// Whether any went.
 pub(super) fn forget_moved_on(board: &mut Board) -> bool {
     let waiting = |card: &super::Card| {
-        (card.goal.assertions.iter()).any(|assertion| !assertion.files.changed.is_empty())
+        (card.goal.assertions.iter()).any(|assertion| {
+            !assertion.files.changed.is_empty() || !assertion.files.refused.is_empty()
+        })
     };
     if !board.cards.iter().any(waiting) {
         return false;
@@ -135,11 +145,14 @@ pub(super) fn forget_moved_on(board: &mut Board) -> bool {
         .collect();
     let mut forgot = false;
     for assertion in (board.cards.iter_mut()).flat_map(|card| card.goal.assertions.iter_mut()) {
-        let before = assertion.files.changed.len();
-        (assertion.files.changed).retain(|changed| {
-            (heads.iter()).any(|(card, head)| *card == changed.card && *head == changed.head)
-        });
-        forgot |= assertion.files.changed.len() != before;
+        let files = &mut assertion.files;
+        let before = files.changed.len() + files.refused.len();
+        let current = |kept: &ChangedFile| {
+            (heads.iter()).any(|(card, head)| *card == kept.card && *head == kept.head)
+        };
+        files.changed.retain(current);
+        files.refused.retain(current);
+        forgot |= files.changed.len() + files.refused.len() != before;
     }
     if forgot {
         super::slice::rebind(board);
@@ -1051,10 +1064,13 @@ pub(crate) async fn person_answer_command(
                     ),
                 })
             } else {
-                let answered = (kept.files.changed.drain(..)).map(|changed| changed.file);
+                let answered: Vec<ChangedFile> = kept.files.changed.drain(..).collect();
                 match params.accept {
-                    true => kept.files.accepted.extend(answered),
-                    false => kept.files.turned_down.extend(answered),
+                    true => (kept.files.accepted).extend(answered.into_iter().map(|changed| changed.file)),
+                    false => {
+                        (kept.files.turned_down).extend(answered.iter().map(|changed| changed.file.clone()));
+                        kept.files.refused.extend(answered);
+                    }
                 }
                 None
             };

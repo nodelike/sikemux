@@ -170,6 +170,9 @@ pub(super) struct Named {
     /// The commit of the slice where a file that command names waits for the person to accept it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held_at: Option<String>,
+    /// The commit of the slice where a file that command names is as the person turned it down.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused_at: Option<String>,
 }
 
 impl Named {
@@ -183,6 +186,9 @@ impl Named {
             held_at: (assertion.files.changed.iter())
                 .find(|changed| changed.card == card)
                 .map(|changed| changed.head.clone()),
+            refused_at: (assertion.files.refused.iter())
+                .find(|refused| refused.card == card)
+                .map(|refused| refused.head.clone()),
         }
     }
 }
@@ -1370,6 +1376,8 @@ impl Slice {
                     assertion: named.id,
                     met: self.asserted(named),
                     awaits_approval: self.unapproved(named),
+                    turned_down: named.refused_at.is_some()
+                        && named.refused_at.as_deref() == self.head(),
                 })
                 .collect(),
             detached: self.detached.iter().map(|named| named.id).collect(),

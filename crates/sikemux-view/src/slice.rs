@@ -407,6 +407,10 @@ pub struct Asserted {
     /// Its command waits for the person to approve it, and does not run until they do.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub awaits_approval: bool,
+    /// Its command does not run on the slice's latest commit, which holds a file it names as the
+    /// person turned it down.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub turned_down: bool,
 }
 
 /// What must hold once a goal's slices are done, agreed before they are cut,
@@ -491,6 +495,10 @@ pub struct CommandFiles {
     /// of again.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub turned_down: Vec<NamedFile>,
+    /// The slices whose latest commit holds a content they turned down, which wait until it
+    /// changes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub refused: Vec<ChangedFile>,
 }
 
 impl CommandFiles {
@@ -499,6 +507,7 @@ impl CommandFiles {
             && self.proposed.is_empty()
             && self.changed.is_empty()
             && self.turned_down.is_empty()
+            && self.refused.is_empty()
     }
 }
 

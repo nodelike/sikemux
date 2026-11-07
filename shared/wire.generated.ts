@@ -2794,6 +2794,11 @@ export interface Asserted {
     met: boolean;
     /** Its command waits for the person to approve it, and does not run until they do. */
     awaitsApproval?: boolean;
+    /**
+     * Its command does not run on the slice's latest commit, which holds a file it names as the
+     * person turned it down.
+     */
+    turnedDown?: boolean;
 }
 
 /** What a slice waits on now, since when, and roughly how long it takes. */
@@ -3051,6 +3056,11 @@ export interface CommandFiles {
      * of again.
      */
     turnedDown?: NamedFile[];
+    /**
+     * The slices whose latest commit holds a content they turned down, which wait until it
+     * changes.
+     */
+    refused?: ChangedFile[];
 }
 
 /** A file in the repository, as a commit holds it. */

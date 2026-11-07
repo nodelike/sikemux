@@ -1207,6 +1207,14 @@ fn waiting_words(card: &BoardCard, slice: &SliceView) -> Option<String> {
             step_name(gate)
         ));
     }
+    if gate.needs.contains(&Need::Assertions)
+        && slice.asserts.iter().any(|asserted| asserted.turned_down)
+    {
+        return Some(format!(
+            "{} · you turned down a file its command names",
+            step_name(gate)
+        ));
+    }
     Some(match gate.needs.as_slice() {
         [] if gate.passer == Passer::Person => {
             format!("{} · waiting for you", step_name(gate))
