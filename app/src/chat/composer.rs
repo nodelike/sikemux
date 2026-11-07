@@ -331,10 +331,12 @@ impl RenderOnce for Composer {
             .is_some_and(|(picked, _)| !picked.locked);
         let model_menu = self.model_menu.map(|(picked, bench)| {
             let enabled = settable || !picked.locked;
-            let label = picked.model.as_ref().map_or_else(
-                || self.agent_label.to_string(),
-                |model| chosen(model, "Model"),
-            );
+            let label = (picked.model.as_ref())
+                .filter(|model| !model.current.is_empty())
+                .map_or_else(
+                    || self.agent_label.to_string(),
+                    |model| chosen(model, "Model"),
+                );
             let trigger = picker_trigger(
                 "model",
                 label,

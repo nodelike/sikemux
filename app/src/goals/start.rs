@@ -464,8 +464,8 @@ fn agent_menu(
 ) -> Picked {
     let launchers = bench.launchers().to_vec();
     let mut model = shown.model.clone();
-    if let (Some(model), Some(picked)) = (model.as_mut(), &chosen.model) {
-        model.current = picked.clone();
+    if let Some(model) = model.as_mut() {
+        model.current = chosen.model.clone().unwrap_or_default();
     }
     let goals = goals.clone();
     let choose = move |cx: &mut App, change: &dyn Fn(&mut Chosen)| {
