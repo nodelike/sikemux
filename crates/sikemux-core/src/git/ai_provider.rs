@@ -105,7 +105,11 @@ impl AiStreamDecoder {
                         }
                     }
                 } else if event.get("type").and_then(|value| value.as_str()) == Some("result") {
-                    if let Some(text) = event.get("result").and_then(|value| value.as_str()) {
+                    let text = event.get("result").and_then(|value| value.as_str());
+                    if event.get("is_error").and_then(|value| value.as_bool()) == Some(true) {
+                        return Err(text.unwrap_or("it gave no reason").to_owned());
+                    }
+                    if let Some(text) = text {
                         self.apply_snapshot(text)?;
                     }
                 }
@@ -667,7 +671,10 @@ where
             .map_err(|_| "Local AI stderr reader panicked".to_string())?
             .map_err(|e| e.to_string())?;
         if !status.success() {
-            let detail = String::from_utf8_lossy(&stderr).trim().to_string();
+            let mut detail = String::from_utf8_lossy(&stderr).trim().to_string();
+            if detail.is_empty() {
+                detail = message.err().unwrap_or_default();
+            }
             return Err(if detail.is_empty() {
                 format!("{} exited with {status}", program)
             } else {
@@ -786,6 +793,15 @@ mod tests {
         }
 
         assert_eq!(decoder.finish().expect("finish"), "feat(git): stream ✨");
+    }
+
+    #[test]
+    fn a_claude_result_marked_as_an_error_is_the_error() {
+        let mut decoder = AiStreamDecoder::new(AiOutputFormat::ClaudeJson);
+        let failed = decoder.push(
+            b"{\"type\":\"result\",\"is_error\":true,\"result\":\"You've hit your weekly limit\"}\n",
+        );
+        assert_eq!(failed, Err("You've hit your weekly limit".into()));
     }
 
     #[test]
