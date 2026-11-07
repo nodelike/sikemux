@@ -457,7 +457,7 @@ impl Slice {
 
     fn met(&self, need: Need) -> bool {
         let Some(work) = &self.work else {
-            return false;
+            return need == Need::Assertions && self.asserts.is_empty();
         };
         match need {
             Need::PassingCheck => work
