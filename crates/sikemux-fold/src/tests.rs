@@ -414,7 +414,9 @@ mod reducer {
     #[test]
     fn a_catch_up_after_the_turn_clears_what_the_agent_was_doing() {
         let mut chat = Chat::new();
-        chat.ready().prompt(json!({ "text": "Run it" })).turn_started();
+        chat.ready()
+            .prompt(json!({ "text": "Run it" }))
+            .turn_started();
         chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "tool-1", "title": "Terminal", "kind": "execute", "status": "pending" }));
         chat.flush();
         chat.fold.number(5);

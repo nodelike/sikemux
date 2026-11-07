@@ -2828,7 +2828,7 @@ export type WaitOn =
           sha: string;
           run: CheckRun;
       }
-    /** Another card it waits on, not done yet. */
+    /** Another card it waits on, neither done nor built on the project's branch yet. */
     | {
           kind: "card";
           card: number;

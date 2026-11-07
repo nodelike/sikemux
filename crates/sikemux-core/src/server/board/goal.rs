@@ -1077,7 +1077,7 @@ pub(crate) async fn person_answer_command(
                     ),
                 })
             } else {
-                let answered: Vec<ChangedFile> = kept.files.changed.drain(..).collect();
+                let answered: Vec<ChangedFile> = std::mem::take(&mut kept.files.changed);
                 match params.accept {
                     true => (kept.files.accepted).extend(answered.into_iter().map(|changed| changed.file)),
                     false => {
