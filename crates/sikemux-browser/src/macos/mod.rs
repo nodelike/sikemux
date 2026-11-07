@@ -276,7 +276,6 @@ pub fn open(
     unsafe {
         webview.setUIDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         webview.setNavigationDelegate(Some(ProtocolObject::from_ref(&*navigation)));
-        webview.setAllowsBackForwardNavigationGestures(true);
         webview.setAllowsMagnification(true);
         let watched: &[&str] = if watches_responsiveness {
             &[URL_KEY_PATH, TITLE_KEY_PATH, RESPONSIVE_KEY_PATH]
@@ -430,6 +429,18 @@ pub fn keep_running_when_covered(webview: &WKWebView, keep_running: bool) {
         // SAFETY: `respondsToSelector` just confirmed this private method exists; it takes
         // one BOOL and returns nothing.
         let _: () = unsafe { msg_send![&*webview, _setWindowOcclusionDetectionEnabled: enabled] };
+    }
+}
+
+/// With history swipes on, WebKit snapshots the page on every navigation for the
+/// swipe to show. A hidden parked tab never swipes, and those snapshots have
+/// aborted the app inside QuartzCore when the GPU could not take another.
+pub fn swipe_through_history(webview: &WKWebView, allowed: bool) {
+    // SAFETY: main thread (where `Tab` runs every call).
+    unsafe {
+        if webview.allowsBackForwardNavigationGestures() != allowed {
+            webview.setAllowsBackForwardNavigationGestures(allowed);
+        }
     }
 }
 

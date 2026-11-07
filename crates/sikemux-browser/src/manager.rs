@@ -1177,6 +1177,7 @@ pub(crate) fn place(view: &Tab, layout: viewport::Layout, awake: bool) {
     use objc2_foundation::{NSPoint, NSRect, NSSize};
     view.run(move |tab| {
         macos::keep_running_when_covered(tab, awake);
+        macos::swipe_through_history(tab, matches!(layout, viewport::Layout::Shown { .. }));
         match layout {
             viewport::Layout::Shown { frame, page } => {
                 macos::place(
