@@ -433,6 +433,9 @@ calls! { core, client, method, params;
     "boardAnswerProposal" BoardAnswerProposal (board::BoardProposalParams) -> board::ProjectBoard: Full => {
         board::person_answer_proposal(&core, params).await?
     },
+    "boardForgetInherited" BoardForgetInherited (board::ForgetInheritedParams) -> board::ProjectBoard: Full => {
+        board::person_forget_inherited(&core, params).await?
+    },
     "goalSummary" GoalSummary (sikemux_view::slice::GoalSummaryParams) -> sikemux_view::slice::GoalSummaryView: Full => {
         goal_summary::read(&core, params).await?
     },

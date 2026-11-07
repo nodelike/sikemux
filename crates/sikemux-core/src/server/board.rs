@@ -533,6 +533,9 @@ struct State {
     commands: commands::Runs,
     /// Boards from before version 3, whose stalls `lease::clear_old_stalls` is yet to clear.
     old_stalls: Vec<String>,
+    /// Environments the person set for a folder, which every project under it inherits, by
+    /// the folder's path.
+    folders: BTreeMap<String, Vec<Environment>>,
 }
 
 /// What the core keeps about a card only while it runs, never saved. It goes
@@ -592,10 +595,14 @@ pub(crate) struct Boards {
     /// Offers cards, runs Auto and keeps tickets and the window up to date.
     pub(crate) wake: Wake,
     chat_goals: chat_goal::ChatGoals,
+    folders: kept::Kept,
     /// When this core started: an owner's lease runs from no earlier, since a restart
     /// stopped it and what it last did before then was not seen.
     born: u64,
 }
+
+/// The file in the data folder that holds the environments set for folders.
+const FOLDERS_FILE: &str = "folder-environments.json";
 
 /// The folder in the data folder that holds the screenshots kept as evidence.
 const EVIDENCE: &str = "evidence";
@@ -731,7 +738,11 @@ struct Notice {
 impl Boards {
     pub(crate) fn new(data_dir: Option<&Path>) -> Self {
         let folder = data_dir.map(|dir| dir.join(FOLDER));
-        let mut state = State::default();
+        let folders = kept::Kept::new(data_dir, FOLDERS_FILE);
+        let mut state = State {
+            folders: folders.load(),
+            ..State::default()
+        };
         let mut upgraded = Vec::new();
         for mut board in kept::load_all_upgraded::<Board>(folder.as_deref(), migrate::carry_over) {
             if board.version < 3 {
@@ -754,6 +765,7 @@ impl Boards {
             footers: slice::Footers::default(),
             wake: Wake::default(),
             chat_goals: chat_goal::ChatGoals::new(data_dir),
+            folders,
             born: epoch_ms(),
         };
         {
@@ -785,6 +797,17 @@ impl Boards {
         });
         self.writer
             .hand(folder.join(kept::file_for(project)), board.saved(), prune);
+    }
+
+    /// Keeps the folders' environments, and tells clients of each board under `folder`.
+    fn save_folders(&self, state: &mut State, folder: &str) {
+        let under: Vec<String> = (state.boards.keys())
+            .filter(|project| Path::new(project).starts_with(folder))
+            .cloned()
+            .collect();
+        state.dirty.extend(under);
+        self.wake.now();
+        self.folders.save_soon(&state.folders);
     }
 
     /// A new file for a screenshot kept as evidence on card `id` of `project`,
@@ -1392,6 +1415,18 @@ pub struct ProjectBoard {
     pub problems: Vec<String>,
     /// The triggers that add cards to it when their time comes, soonest first.
     pub triggers: Vec<sikemux_view::chat::ChatTrigger>,
+    /// What it inherits from the folders above it, nearest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inherited: Vec<InheritedEnvironment>,
+}
+
+/// An environment a folder above a project holds, which the project inherits.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InheritedEnvironment {
+    /// The folder's path.
+    pub folder: String,
+    pub environment: Environment,
 }
 
 /// How a goal with no slices and no owner stands, as its card's column does.
@@ -1479,7 +1514,7 @@ fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
         .filter(|_| title_is_chopped(&card.title, &card.details))
 }
 
-fn board_view(core: &Core, board: &Board) -> ProjectBoard {
+fn board_view(core: &Core, state: &State, board: &Board) -> ProjectBoard {
     ProjectBoard {
         project: board.project.clone(),
         cards: board
@@ -1493,6 +1528,14 @@ fn board_view(core: &Core, board: &Board) -> ProjectBoard {
         auto_note: board.auto_note.clone(),
         problems: Vec::new(),
         triggers: core.triggers.on_board(&board.project),
+        inherited: (inherited(state, &board.project).into_iter())
+            .flat_map(|(folder, environments)| {
+                environments.iter().map(|environment| InheritedEnvironment {
+                    folder: folder.clone(),
+                    environment: environment.clone(),
+                })
+            })
+            .collect(),
     }
 }
 
@@ -2701,15 +2744,15 @@ pub(crate) fn boards(core: &Core) -> Vec<ProjectBoard> {
     state
         .boards
         .values()
-        .map(|board| board_view(core, board))
+        .map(|board| board_view(core, &state, board))
         .collect()
 }
 
 pub(crate) fn project_view(core: &Core, project: &str) -> ProjectBoard {
     let state = core.boards.state.locked();
     match state.boards.get(project) {
-        Some(board) => board_view(core, board),
-        None => board_view(core, &Board::empty(project)),
+        Some(board) => board_view(core, &state, board),
+        None => board_view(core, &state, &Board::empty(project)),
     }
 }
 
@@ -3066,52 +3109,126 @@ pub(crate) fn proposed_commands(core: &Core) -> Vec<ProposedCommand> {
     proposed
 }
 
+/// The environments set for the folders above `project`, nearest first, by folder.
+fn inherited<'a>(state: &'a State, project: &str) -> Vec<(&'a String, &'a Vec<Environment>)> {
+    (Path::new(project).ancestors().skip(1))
+        .filter_map(|folder| state.folders.get_key_value(folder.to_str()?))
+        .collect()
+}
+
+/// `project`'s own environments, then those it inherits, nearest first.
+fn levels<'a>(state: &'a State, project: &str) -> Vec<&'a [Environment]> {
+    let own = (state.boards.get(project)).map_or(&[][..], |board| &board.settings.environments);
+    let above = inherited(state, project).into_iter();
+    std::iter::once(own)
+        .chain(above.map(|(_, environments)| environments.as_slice()))
+        .collect()
+}
+
 pub(crate) fn judge_ship(
     core: &Core,
     project: &str,
     ship: &crate::ship::Ship,
 ) -> environments::Judged {
     let state = core.boards.state.locked();
-    let none = Vec::new();
-    let known = state
-        .boards
-        .get(project)
-        .map_or(&none, |board| &board.settings.environments);
-    environments::judged(known, ship)
+    environments::judged_within(&levels(&state, project), ship)
 }
 
-/// What the person could let go without asking from now on, of a deploy of `project` that holds.
-pub(crate) fn unasked_offer(
+/// The folder that holds `project` and others of the person's projects, such as one
+/// product's repositories, which an allowance can cover. Never the home folder or the root.
+fn shared_folder(core: &Core, project: &str) -> Option<String> {
+    let folder = Path::new(project).parent()?;
+    if folder.parent().is_none() || sikemux_process::paths::home().as_deref() == Some(folder) {
+        return None;
+    }
+    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let others = (core.workspaces.project_paths().iter())
+        .map(|path| canonical(path))
+        .any(|path| path != Path::new(project) && path.starts_with(folder));
+    others.then(|| folder.to_string_lossy().into_owned())
+}
+
+/// What the person could always allow, of a deploy of `project` that holds: for every
+/// project in its folder when that folder holds others, else for it alone.
+pub(crate) fn always_offer(
     core: &Core,
     project: &str,
     ship: &crate::ship::Ship,
-) -> Option<String> {
+) -> Option<environments::Always> {
+    if ship.kind != sikemux_view::inbox::ShipKind::Deploy {
+        return None;
+    }
+    let folder = shared_folder(core, project);
+    let ships = crate::git_guard::shim::project_ships(Path::new(project));
     let state = core.boards.state.locked();
-    let none = Vec::new();
-    let known = state
-        .boards
-        .get(project)
-        .map_or(&none, |board| &board.settings.environments);
-    environments::unasked_pattern(known, ship)
+    let levels = levels(&state, project);
+    let into = match &folder {
+        Some(folder) => state.folders.get(folder).map_or(&[][..], Vec::as_slice),
+        None => levels[0],
+    };
+    let always = environments::always_offer(&levels, into, ship, &ships)?;
+    Some(environments::Always { folder, ..always })
 }
 
-/// The person lets what the held `ship` lands in go without asking from now on, which
-/// no agent can do: agents only propose environments. What now goes, as it reads.
-pub(crate) fn let_go_unasked(
+/// The person always allows what `always` covers from now on, which no agent can do:
+/// agents only propose environments.
+pub(crate) fn allow_always(
     core: &Core,
     project: &str,
-    ship: &crate::ship::Ship,
-) -> Result<String, String> {
+    always: &environments::Always,
+) -> Result<(), String> {
     let mut state = core.boards.state.locked();
-    let board = state
-        .boards
-        .entry(project.to_owned())
-        .or_insert_with(|| Board::empty(project));
-    let path = environments::unasked_pattern(&board.settings.environments, ship);
-    board.settings.environments =
-        environments::letting_go(board.settings.environments.clone(), ship)?;
-    core.boards.save(&mut state, project);
-    Ok(path.unwrap_or_default())
+    match &always.folder {
+        Some(folder) => {
+            let kept = state.folders.get(folder).cloned().unwrap_or_default();
+            let environments = environments::allowing(kept, always)?;
+            state.folders.insert(folder.clone(), environments);
+            core.boards.save_folders(&mut state, folder);
+        }
+        None => {
+            let board = state
+                .boards
+                .entry(project.to_owned())
+                .or_insert_with(|| Board::empty(project));
+            board.settings.environments =
+                environments::allowing(board.settings.environments.clone(), always)?;
+            core.boards.save(&mut state, project);
+        }
+    }
+    Ok(())
+}
+
+/// The folder environment the person removes, from a project under it.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgetInheritedParams {
+    pub project: String,
+    pub folder: String,
+    pub name: String,
+}
+
+/// The person removes an environment a folder holds, for every project under it.
+pub(crate) async fn person_forget_inherited(
+    core: &Arc<Core>,
+    params: ForgetInheritedParams,
+) -> Result<ProjectBoard, String> {
+    let core = core.clone();
+    blocking(move || {
+        let project = project_at(&core, &params.project)?;
+        {
+            let mut state = core.boards.state.locked();
+            let kept = (state.folders.get_mut(&params.folder))
+                .ok_or("that folder holds no environments now")?;
+            kept.retain(|environment| environment.name != params.name);
+            if kept.is_empty() {
+                state.folders.remove(&params.folder);
+            }
+            core.boards.save_folders(&mut state, &params.folder);
+        }
+        Ok(project_view(&core, &project))
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// The address a deploy to `environment` of `project` is read healthy at.
@@ -3230,6 +3347,7 @@ impl super::part::Part for Boards {
     fn flush(&self) {
         self.writer.flush();
         self.chat_goals.flush();
+        self.folders.flush();
     }
 }
 

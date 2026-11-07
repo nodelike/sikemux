@@ -65,10 +65,13 @@ pub struct ShipHold {
     /// Why it waits, in the core's words, in a project with environments.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub why: Option<String>,
-    /// What the person can let go without asking from now on, such as `dev/*`, in place of
-    /// allowing this once. Only what reads as no production offers it.
+    /// What the person can always allow from now on, such as `dev/*`, in place of allowing
+    /// this once. Only what reads as no production offers it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub let_go: Option<String>,
+    /// The name of the folder whose every project it covers, when it covers more than this one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub let_go_in: Option<String>,
 }
 
 /// What the id of an item begins with when it asks about environments an agent proposed.

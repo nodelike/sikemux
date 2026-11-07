@@ -24,9 +24,9 @@ The same two buttons show on the agent's own chat, above its composer, and besid
 
 - **Allow once** lets exactly that command or call run one time. The agent hears it may and runs it again; the approval ends with the agent's turn, used or not.
 - **Refuse** tells the agent not to run it.
-- **Let `dev/*` go unasked** shows on a Rundeck deploy whose folder says it isn't production, such as `dev/backend/deploy-api`, when no environment covers it yet. It lets that whole folder go without asking from now on, and any deploy held for there goes.
+- **Always allow** shows on a deploy that reads as no production when no environment covers it yet, naming the narrowest thing that covers it: a Rundeck folder such as `dev/*` for `dev/backend/deploy-api`, Vercel previews, an AWS profile, kube context or Terraform workspace with a word such as `dev` or `staging` in its name, or one of the project's own `ship` commands with such a word, such as `./deploy.sh dev`. That goes without asking from now on, and any deploy held for there goes. When the project's folder holds other projects of yours, as `~/proj/swishx` holds each of a product's repositories, it reads **Always allow `dev/*` in swishx** and covers every project in that folder.
 
-A deploy to an environment you marked safe in a project's [environments](/agents/goals/#environments) goes without asking. Production, what Sikemux can't recognise, publishes and production databases always wait.
+A deploy to an environment you marked safe in a project's [environments](/agents/goals/#environments), or always allowed for its folder, goes without asking. Production, what Sikemux can't recognise, publishes and production databases always wait, and so does anything with a production word such as `prod` or `live` in its path or command.
 
 What counts:
 

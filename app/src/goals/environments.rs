@@ -13,6 +13,7 @@ use sikemux_core::server::board::BoardSettingsParams;
 use sikemux_core::server::board::Environment;
 use sikemux_core::server::board::Passes as EnvironmentPasses;
 use sikemux_core::server::board::Recognise as EnvironmentRecognise;
+use sikemux_core::server::board::{ForgetInheritedParams, InheritedEnvironment};
 use sikemux_core::server::call;
 
 use super::goal::quiet_section;
@@ -251,6 +252,18 @@ impl GoalsPane {
         self.ask_moved::<call::BoardSettings>(params, |pane| pane.environments = None, cx);
     }
 
+    fn forget_inherited(&mut self, folder: String, name: String, cx: &mut Context<Self>) {
+        let Some(project) = self.here.clone() else {
+            return;
+        };
+        let params = ForgetInheritedParams {
+            project,
+            folder,
+            name,
+        };
+        self.ask_moved::<call::BoardForgetInherited>(params, |_| {}, cx);
+    }
+
     fn answer_proposal(&mut self, accept: bool, cx: &mut Context<Self>) {
         let Some(project) = self.here.clone() else {
             return;
@@ -276,9 +289,12 @@ pub(super) fn page(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
         .map(|board| board.settings.environments.clone())
         .unwrap_or_default();
     let proposal = board.and_then(|board| board.environments_proposal.clone());
+    let inherited = board
+        .map(|board| board.inherited.clone())
+        .unwrap_or_default();
     let t = Tokens::get(cx).clone();
     let busy = pane.busy;
-    let listed = kept.len();
+    let listed = kept.len() + inherited.len();
     let title = (pane.bench.upgrade().zip(pane.here.as_deref()))
         .map_or("Environments".to_owned(), |(bench, folder)| {
             format!("{} environments", project_name(bench.read(cx), folder))
@@ -338,15 +354,22 @@ pub(super) fn page(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement 
         });
     let view = match &pane.environments {
         Some(editing) => view.child(editor(editing, busy, cx)),
-        None => view.child(listing(&kept, busy, cx)),
+        None => view.child(listing(&kept, &inherited, busy, cx)),
     };
     view.into_any_element()
 }
 
-fn listing(kept: &[Environment], busy: bool, cx: &mut Context<GoalsPane>) -> AnyElement {
+fn listing(
+    kept: &[Environment],
+    inherited: &[InheritedEnvironment],
+    busy: bool,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let hint = if kept.is_empty() {
+    let hint = if kept.is_empty() && inherited.is_empty() {
         "None set: every deploy waits for you, and slices go Built, Looks right, Landed."
+    } else if kept.is_empty() {
+        "None of its own: slices go Built, Looks right, Landed. What Sikemux doesn't recognise waits as production."
     } else {
         "Slices take a step for each, in this order. What Sikemux doesn't recognise waits as production."
     };
@@ -377,6 +400,48 @@ fn listing(kept: &[Environment], busy: bool, cx: &mut Context<GoalsPane>) -> Any
                 ))
                 .child(div().flex_1())
                 .child(ui::meta(facts.join(", "), cx).truncate())
+        }))
+        .children(inherited.iter().enumerate().map(|(at, inherited)| {
+            let environment = &inherited.environment;
+            let facts: Vec<String> = environment.recognise.iter().map(fact_words).collect();
+            let from = std::path::Path::new(&inherited.folder)
+                .file_name()
+                .map_or_else(
+                    || inherited.folder.clone(),
+                    |name| name.to_string_lossy().into_owned(),
+                );
+            let (folder, name) = (inherited.folder.clone(), environment.name.clone());
+            div()
+                .py(SPACE_1H)
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .child(
+                    div()
+                        .w(px(96.))
+                        .truncate()
+                        .text_size(theme::ui_text(TEXT_XS_H))
+                        .text_color(t.text_secondary)
+                        .child(environment.name.clone()),
+                )
+                .child(ui::meta(
+                    format!("{}, from {from}", passes_words(environment.passes)),
+                    cx,
+                ))
+                .child(div().flex_1())
+                .child(ui::meta(facts.join(", "), cx).truncate())
+                .child(
+                    IconButton::new(
+                        SharedString::from(format!("environment-forget-{at}")),
+                        Icon::Close,
+                        format!("Remove for every project in {from}"),
+                    )
+                    .small()
+                    .disabled(busy)
+                    .on_click(cx.listener(move |pane, _, _, cx| {
+                        pane.forget_inherited(folder.clone(), name.clone(), cx)
+                    })),
+                )
         }))
         .child(
             div()

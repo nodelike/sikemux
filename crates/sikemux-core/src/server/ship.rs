@@ -19,7 +19,8 @@ use sikemux_process::sync::Locked;
 use sikemux_view::inbox::{ShipHold, ShipKind};
 use sikemux_view::slice::Verdict;
 
-use super::board::{self, auto::Landing, environments::Goes, DeployRan};
+use super::board::environments::{Always, Goes};
+use super::board::{self, auto::Landing, DeployRan};
 use super::connection::blocking;
 use super::plugins::Provided;
 use super::repo_events::RepoEvent;
@@ -92,8 +93,8 @@ struct Hold {
     /// The environment it lands in and why it waits, in a project with environments.
     environment: Option<String>,
     why: Option<String>,
-    /// What the person could let go without asking from now on.
-    let_go: Option<String>,
+    /// What the person could always allow from now on.
+    let_go: Option<Always>,
 }
 
 /// An action the person allowed the agent to take once.
@@ -135,7 +136,11 @@ impl Ships {
                     what: hold.ship.what.clone(),
                     environment: hold.environment.clone(),
                     why: hold.why.clone(),
-                    let_go: hold.let_go.clone(),
+                    let_go: hold.let_go.as_ref().map(|always| always.covers.clone()),
+                    let_go_in: (hold.let_go.as_ref())
+                        .and_then(|always| always.folder.as_deref())
+                        .and_then(|folder| Path::new(folder).file_name())
+                        .map(|name| name.to_string_lossy().into_owned()),
                 },
                 agent_id: hold.agent_id.clone(),
                 project: hold.project.clone(),
@@ -235,7 +240,7 @@ pub(crate) fn check(
         said = format!("{said} {why}");
     }
     let let_go = deploy(true);
-    let unasked = board::unasked_offer(core, &project, &ship);
+    let unasked = board::always_offer(core, &project, &ship);
     {
         let mut state = core.ship.state.locked();
         let same =
@@ -745,31 +750,36 @@ pub(crate) async fn permit_environment(
     permitted(core, agent.to_owned(), permit, text).await;
 }
 
-/// The person lets what the held action lands in go without asking from now on. Each
-/// deploy held for there goes, and its agent is told to run it again.
+/// The person always allows what the held action lands in, for its project or for every
+/// project in its folder. Each deploy held for there goes, and its agent is told to run it again.
 pub(crate) async fn let_go(core: &Arc<Core>, params: HoldParams) -> CoreResult<()> {
-    let (project, ship) = {
+    let (project, always) = {
         let state = core.ship.state.locked();
         let hold = (state.holds.iter())
             .find(|hold| hold.id.to_string() == params.hold)
             .ok_or("that action no longer waits on you")?;
-        (hold.project.clone(), hold.ship.clone())
+        let always = (hold.let_go.clone()).ok_or("this action can't be always allowed")?;
+        (hold.project.clone(), always)
     };
-    let (letting, there) = (core.clone(), project.clone());
-    let path = blocking(move || Ok(board::let_go_unasked(&letting, &there, &ship)?)).await?;
-    let held: Vec<(u64, Ship)> = (core.ship.state.locked().holds.iter())
-        .filter(|hold| hold.project == project)
-        .map(|hold| (hold.id, hold.ship.clone()))
+    let (allowing, there, kept) = (core.clone(), project.clone(), always.clone());
+    blocking(move || Ok(board::allow_always(&allowing, &there, &kept)?)).await?;
+    let covered = |held: &str| match &always.folder {
+        Some(folder) => Path::new(held).starts_with(folder),
+        None => held == project,
+    };
+    let held: Vec<(u64, String, Ship)> = (core.ship.state.locked().holds.iter())
+        .filter(|hold| covered(&hold.project))
+        .map(|hold| (hold.id, hold.project.clone(), hold.ship.clone()))
         .collect();
-    for (id, ship) in held {
+    for (id, project, ship) in held {
         if board::judge_ship(core, &project, &ship).goes != Goes::Freely {
             continue;
         }
         if let Ok(hold) = take(core, &id.to_string()) {
             core.ship.remember(&hold, true);
             let text = format!(
-                "The person let `{path}` go without asking. Run `{}` again now.",
-                hold.ship.what
+                "The person always allows {} now. Run `{}` again now.",
+                always.covers, hold.ship.what
             );
             let _ = messages::for_person(core, hold.agent_id, text).await;
         }

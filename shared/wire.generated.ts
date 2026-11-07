@@ -850,10 +850,12 @@ export interface ShipHold {
     /** Why it waits, in the core's words, in a project with environments. */
     why?: string;
     /**
-     * What the person can let go without asking from now on, such as `dev/*`, in place of
-     * allowing this once. Only what reads as no production offers it.
+     * What the person can always allow from now on, such as `dev/*`, in place of allowing
+     * this once. Only what reads as no production offers it.
      */
     letGo?: string;
+    /** The name of the folder whose every project it covers, when it covers more than this one. */
+    letGoIn?: string;
 }
 
 /** What an agent's action does once it leaves this machine. */
@@ -2588,6 +2590,8 @@ export interface ProjectBoard {
     problems?: string[];
     /** The triggers that add cards to it when their time comes, soonest first. */
     triggers: ChatTrigger[];
+    /** What it inherits from the folders above it, nearest first. */
+    inherited?: InheritedEnvironment[];
 }
 
 export interface BoardCard {
@@ -3172,6 +3176,13 @@ export interface EnvironmentsProposal {
     /** The agent that proposed them, by name. */
     by: string;
     at: number;
+}
+
+/** An environment a folder above a project holds, which the project inherits. */
+export interface InheritedEnvironment {
+    /** The folder's path. */
+    folder: string;
+    environment: Environment;
 }
 
 /** The computer a core runs on, as a person would recognise it. */

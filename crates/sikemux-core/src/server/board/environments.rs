@@ -208,49 +208,134 @@ fn has_word(name: &str, words: &[&str]) -> bool {
         .any(|word| words.iter().any(|said| word.eq_ignore_ascii_case(said)))
 }
 
-/// What a held deploy could be let go by from now on, such as `dev/*`: a Rundeck job
-/// in a folder that says it isn't production, with nothing in its path saying it is,
-/// where no environment of the project has a say yet.
-pub(crate) fn unasked_pattern(environments: &[Environment], ship: &Ship) -> Option<String> {
-    let Some(Target::RundeckJob {
-        path,
-        production: false,
-    }) = ship
-        .target
-        .as_ref()
-        .filter(|_| ship.kind == ShipKind::Deploy)
-    else {
-        return None;
-    };
-    let (folder, _) = path.split_once('/')?;
-    let free = !says_production(path)
-        && has_word(folder, &NOT_PRODUCTION_WORDS)
-        && folder.chars().count() <= MAX_NAME_CHARS
-        && environments.len() < MAX_ENVIRONMENTS
-        && !environments.iter().any(|environment| {
-            environment.recognises(ship) || environment.name.eq_ignore_ascii_case(folder)
-        });
-    free.then(|| format!("{folder}/*"))
+/// What the person can always allow from a held deploy, in place of allowing it once.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Always {
+    /// What it covers, as the person reads it, such as `dev/*`.
+    pub covers: String,
+    pub fact: Recognise,
+    /// The environment it joins or starts.
+    pub name: String,
+    /// The folder every project under which it holds for; none for the project alone.
+    pub folder: Option<String>,
 }
 
-/// `environments` with what `ship` lands in going without asking. It takes no step, so
-/// letting one go from a hold leaves the project's slices climbing what they climbed.
-pub(super) fn letting_go(
-    mut environments: Vec<Environment>,
-    ship: &Ship,
-) -> Result<Vec<Environment>, String> {
-    let path = unasked_pattern(&environments, ship)
-        .ok_or("this deploy can't be let go without asking any more")?;
-    let folder = path.trim_end_matches("/*");
-    let mut letters = folder.chars();
+fn reads_not_production(name: &str) -> bool {
+    !says_production(name) && has_word(name, &NOT_PRODUCTION_WORDS)
+}
+
+fn titled(word: &str) -> String {
+    let mut letters = word.chars();
     let first = letters.next().map(|letter| letter.to_ascii_uppercase());
-    environments.push(Environment {
-        name: first.into_iter().chain(letters).collect(),
-        passes: Passes::Nobody,
-        recognise: vec![Recognise::RundeckJob { path }],
-        health: None,
-        no_step: true,
-    });
+    first.into_iter().chain(letters).collect()
+}
+
+/// The narrowest fact that covers `ship` and reads as no production, with what it covers and
+/// the environment it would be: a Rundeck folder such as `dev/*`, Vercel's previews, an AWS
+/// profile, kube context or Terraform workspace, or one of the project's own `ships` commands.
+fn freeing(ship: &Ship, ships: &[String]) -> Option<(String, Recognise, String)> {
+    match &ship.target {
+        Some(Target::RundeckJob {
+            path,
+            production: false,
+        }) => {
+            let (folder, _) = path.split_once('/')?;
+            let pattern = format!("{folder}/*");
+            (!says_production(path) && has_word(folder, &NOT_PRODUCTION_WORDS)).then(|| {
+                let fact = Recognise::RundeckJob {
+                    path: pattern.clone(),
+                };
+                (pattern, fact, titled(folder))
+            })
+        }
+        Some(Target::Vercel { production: false }) => Some((
+            "Vercel previews".to_owned(),
+            Recognise::VercelTarget { production: false },
+            "Preview".to_owned(),
+        )),
+        Some(Target::AwsProfile { name }) if reads_not_production(name) => Some((
+            format!("AWS {name}"),
+            Recognise::AwsProfile { name: name.clone() },
+            name.clone(),
+        )),
+        Some(Target::KubeContext { name }) if reads_not_production(name) => Some((
+            format!("context {name}"),
+            Recognise::KubeContext { name: name.clone() },
+            name.clone(),
+        )),
+        Some(Target::TerraformWorkspace { name }) if reads_not_production(name) => Some((
+            format!("workspace {name}"),
+            Recognise::TerraformWorkspace { name: name.clone() },
+            name.clone(),
+        )),
+        None => {
+            let words: Vec<String> = ship.what.split_whitespace().map(str::to_owned).collect();
+            let listed = ships.iter().any(|listed| leads(listed, &words));
+            let word = (ship.what.split(|c: char| !c.is_ascii_alphanumeric()))
+                .find(|word| has_word(word, &NOT_PRODUCTION_WORDS))?;
+            (listed && !says_production(&ship.what)).then(|| {
+                let fact = Recognise::Command {
+                    words: ship.what.clone(),
+                };
+                (format!("`{}`", ship.what), fact, titled(word))
+            })
+        }
+        _ => None,
+    }
+}
+
+/// What a held deploy could always be allowed by, where no environment of any of `levels`
+/// has a say on it yet, as it would join `into`. Only what reads as no production offers it.
+/// `ships` are the project's own commands that deploy.
+pub(crate) fn always_offer(
+    levels: &[&[Environment]],
+    into: &[Environment],
+    ship: &Ship,
+    ships: &[String],
+) -> Option<Always> {
+    let unclaimed =
+        (levels.iter()).all(|level| !level.iter().any(|environment| environment.recognises(ship)));
+    if ship.kind != ShipKind::Deploy || !unclaimed {
+        return None;
+    }
+    let (covers, fact, name) = freeing(ship, ships)?;
+    let always = Always {
+        covers,
+        fact,
+        name,
+        folder: None,
+    };
+    allowing(into.to_vec(), &always).is_ok().then_some(always)
+}
+
+/// `environments` with what `always` covers going without asking, in an environment that
+/// takes no step, so the project's slices climb what they climbed.
+pub(super) fn allowing(
+    mut environments: Vec<Environment>,
+    always: &Always,
+) -> Result<Vec<Environment>, String> {
+    let named = (environments.iter_mut())
+        .find(|environment| environment.name.eq_ignore_ascii_case(&always.name));
+    match named {
+        Some(environment) if environment.passes == Passes::Nobody && environment.no_step => {
+            if !environment.recognise.contains(&always.fact) {
+                environment.recognise.push(always.fact.clone());
+            }
+        }
+        Some(environment) => {
+            return Err(format!(
+                "{} is already an environment that waits, so change it under Environments",
+                environment.name
+            ))
+        }
+        None => environments.push(Environment {
+            name: always.name.clone(),
+            passes: Passes::Nobody,
+            recognise: vec![always.fact.clone()],
+            health: None,
+            no_step: true,
+        }),
+    }
     checked(environments)
 }
 
@@ -370,10 +455,13 @@ pub(crate) fn judged(environments: &[Environment], ship: &Ship) -> Judged {
         );
     };
     let words = environment.passes_words();
-    let lands_in_production = ship.target.as_ref().is_some_and(|target| {
-        target.production()
-            || matches!(target, Target::RundeckJob { path, .. } if says_production(path))
-    });
+    let lands_in_production = match &ship.target {
+        Some(target) => {
+            target.production()
+                || matches!(target, Target::RundeckJob { path, .. } if says_production(path))
+        }
+        None => says_production(&ship.what),
+    };
     if lands_in_production {
         let why = format!(
             "{} lands in production, which always waits for a person.",
@@ -391,6 +479,15 @@ pub(crate) fn judged(environments: &[Environment], ship: &Ship) -> Judged {
         goes,
         why: Some(format!("{words}.")),
     }
+}
+
+/// [`judged`] for a project that inherits environments: `levels` are its own, then each
+/// folder's above it, nearest first. The nearest level that recognises the action decides.
+pub(crate) fn judged_within(levels: &[&[Environment]], ship: &Ship) -> Judged {
+    let recognising =
+        (levels.iter()).find(|level| level.iter().any(|environment| environment.recognises(ship)));
+    let deciding = recognising.or_else(|| levels.iter().find(|level| !level.is_empty()));
+    judged(deciding.copied().unwrap_or_default(), ship)
 }
 
 /// `board_decide` with environments: keeps what an agent proposed for the person to
@@ -747,8 +844,9 @@ mod tests {
         assert!(try_ship(&core, dev.clone()).is_err());
         let waiting = core.ship.waiting();
         assert_eq!(waiting[0].hold.let_go.as_deref(), Some("dev/*"));
-        let ship = deploy(dev.clone());
-        crate::server::board::let_go_unasked(&core, PROJECT, &ship).unwrap();
+        assert_eq!(waiting[0].hold.let_go_in, None);
+        let always = crate::server::board::always_offer(&core, PROJECT, &deploy(dev.clone()));
+        crate::server::board::allow_always(&core, PROJECT, &always.unwrap()).unwrap();
 
         assert_eq!(try_ship(&core, dev), Ok(true));
         assert_eq!(
@@ -776,7 +874,7 @@ mod tests {
                 try_ship(&core, still_waits.clone()).is_err(),
                 "{still_waits:?}"
             );
-            let offered = unasked_pattern(&[], &deploy(still_waits));
+            let offered = always_offer(&[], &[], &deploy(still_waits), &[]);
             assert_eq!(offered, None);
         }
     }

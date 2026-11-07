@@ -77,7 +77,7 @@ pub fn held_action(id: &str, what: &str, cx: &App) -> AnyElement {
 }
 
 /// Allows a held action once, or refuses it, without opening anything; where the core offers it,
-/// lets all of what the action lands in go from now on.
+/// always allows what the action lands in, in its project or every project of its folder.
 pub fn ship_buttons(
     hold: &ShipHold,
     busy: bool,
@@ -85,6 +85,7 @@ pub fn ship_buttons(
     bench: WeakEntity<Workbench>,
 ) -> AnyElement {
     let id = hold.id.as_str();
+    let hold_folder = hold.let_go_in.clone();
     let button = |label: &'static str, key: String, allow: bool| {
         let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
         Button::new(SharedString::from(key), label, Variant::Outline)
@@ -104,13 +105,23 @@ pub fn ship_buttons(
         .gap(SPACE_1)
         .when_some(hold.let_go.clone(), |row, covers| {
             let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
+            let (label, tooltip) = match &hold_folder {
+                Some(folder) => (
+                    format!("Always allow {covers} in {folder}"),
+                    format!("Deploys there stop asking you in every project in {folder}. Production still waits. Remove it under Environments."),
+                ),
+                None => (
+                    format!("Always allow {covers}"),
+                    "Deploys there stop asking you in this project. Production still waits. Change it under Environments.".to_owned(),
+                ),
+            };
             row.child(
                 Button::new(
                     SharedString::from(format!("ship-let-go-{hold}")),
-                    format!("Let {covers} go unasked"),
+                    label,
                     Variant::Outline,
                 )
-                .tooltip("Deploys there stop asking you. Production still waits. Change it under Environments.")
+                .tooltip(tooltip)
                 .disabled(busy)
                 .on_click(move |_, _, cx| {
                     cx.stop_propagation();
