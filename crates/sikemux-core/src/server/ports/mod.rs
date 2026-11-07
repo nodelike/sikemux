@@ -356,7 +356,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     });
 }
 
-fn preview_port(url: &str) -> Option<u16> {
+pub(crate) fn preview_port(url: &str) -> Option<u16> {
     let parsed = url::Url::parse(url).ok()?;
     let host = parsed.host_str()?;
     if !LOCAL_HOSTS.contains(&host) {

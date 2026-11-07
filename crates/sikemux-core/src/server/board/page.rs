@@ -1,8 +1,8 @@
 //! The page a slice's change shows, which the core opens and takes itself in
 //! its owner's browser once the check passed on a change to the project's
 //! pages, so evidence of the running thing exists without the agent asking.
-//! It opens only a server that is running already, and only the server's own
-//! address, never the route the change touched.
+//! It opens only a server that is running already, at the server's own
+//! address or the project's preview URL on it, never the route the change touched.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -61,7 +61,8 @@ pub(super) fn take(core: &Core, project: String, card: u64, owner: String, head:
 }
 
 /// Where the owner's change can be seen running: a server the owner started
-/// itself, which serves its own checkout; else, when the owner works in the
+/// itself, which serves its own checkout, at the preview URL when that points
+/// at the same port; else, when the owner works in the
 /// project's own checkout, what the project's preview points at, or a server
 /// its run task started. None when the project turns this off with
 /// `"preview": false`, or nothing is running.
@@ -79,7 +80,11 @@ fn address(core: &Core, project: &str, owner: &str) -> Option<String> {
         .iter()
         .find(|listening| listening.owner.started_by(owner))
     {
-        return Some(format!("http://localhost:{}/", own.port));
+        let preview_url = (preview.as_ref())
+            .and_then(Stated::given)
+            .and_then(|preview| preview.url.clone())
+            .filter(|url| ports::preview_port(url) == Some(own.port));
+        return Some(preview_url.unwrap_or_else(|| format!("http://localhost:{}/", own.port)));
     }
     let own_checkout = core
         .workspaces
