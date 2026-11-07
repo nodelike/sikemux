@@ -121,7 +121,7 @@ function inbox() {
     id: `agent:${known.agentId}`,
     tier: 'review',
     kind: 'changes',
-    what: 'Finished, with changes to review',
+    what: 'Finished, changed 3 files',
     at: Date.now() - 1_800_000,
     handoff: { answer: known.handoff?.answer, files: known.handoff?.files, edited: known.handoff?.files.length },
     recordings: known.handoff?.recording

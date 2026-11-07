@@ -670,6 +670,9 @@ struct ToolDecide {
     why: Option<String>,
     #[serde(default)]
     retire: bool,
+    /// The person chose it, in their answer to the agent's question that started this turn.
+    #[serde(default)]
+    person: bool,
     /// Not a decision of a goal: where the project deploys, for the person to accept.
     #[serde(default)]
     environments: Option<Vec<super::Environment>>,
@@ -704,7 +707,17 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         let goal = goal_of(&core, &agent).ok_or(
             "You work on no card that is not done, so there is no goal to decide for; claim your card first",
         )?;
-        let by = learned(&core, Some(&agent));
+        let mut by = learned(&core, Some(&agent));
+        if given.person {
+            let answered = (core.chats.get(&agent))
+                .and_then(|chat| chat.feed.turn_prompt())
+                .is_some_and(|prompt| prompt.trim_start().starts_with("<question-answer "));
+            if !answered {
+                return Err("person: true is for what the person chose in their answer to your question, and no answer of theirs started this turn; record it without person".into());
+            }
+            by.agent = None;
+            by.name = None;
+        }
         let said = change(&core, &goal.project, goal.card, List::Decisions, deciding, by)?;
         Ok(json!({ "goal": goal.card, "note": said }))
     })

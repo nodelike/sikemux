@@ -1996,6 +1996,10 @@
         },
         "retire": {
           "type": "boolean"
+        },
+        "person": {
+          "description": "The person chose it, in their answer that started this turn",
+          "type": "boolean"
         }
       },
       "required": []

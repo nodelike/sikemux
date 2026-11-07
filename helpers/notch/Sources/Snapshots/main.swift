@@ -62,7 +62,7 @@ let fixture = #"""
      "title": "Move the ledger import", "what": "Asks you", "detail": "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
      "at": AGO(1), "questionId": "q1"},
     {"id": "agent:a4", "tier": "review", "kind": "changes", "heading": "Bump Astro to 6", "about": "Bump Astro to 6", "agentId": "a4", "name": "Birch", "cli": "grok", "projectName": "sikemux-front",
-     "title": "Bump Astro to 6", "what": "Finished, with changes to review", "at": AGO(70)},
+     "title": "Bump Astro to 6", "what": "Finished, changed 3 files", "at": AGO(70)},
     {"id": "agent:a10", "tier": "finished", "kind": "failed", "heading": "Rotate the signing keys", "about": "Rotate the signing keys", "agentId": "a10", "name": "Pine", "cli": "claude", "projectName": "server",
      "title": "Rotate the signing keys", "what": "Ran into a problem", "detail": "The keychain refused the new key", "at": AGO(300)},
     {"id": "agent:a11", "tier": "finished", "kind": "finished", "heading": "Tidy the changelog", "about": "Tidy the changelog", "agentId": "a11", "name": "Moss", "cli": "claude", "projectName": "sikemux",

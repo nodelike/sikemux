@@ -851,17 +851,25 @@ fn agent_item(core: &Core, agent: &Agent, working: bool) -> InboxItem {
         let mut handoff = handoff(core, &agent.id);
         handoff.result = card.as_ref().and_then(|card| card.result.clone());
         let (case, what) = match &problem {
-            Some(problem) => (Case::Failed(problem.fault), "Ran into a problem"),
-            None if handoff.uncommitted => (Case::Changes, DONE_UNCOMMITTED),
-            None if handoff.edited > 0 || card.as_ref().is_some_and(|card| card.done) => {
-                (Case::Changes, "Finished, with changes to review")
+            Some(problem) => (Case::Failed(problem.fault), "Ran into a problem".to_owned()),
+            None if handoff.uncommitted => (Case::Changes, DONE_UNCOMMITTED.to_owned()),
+            None if card.as_ref().is_some_and(|card| card.done) => {
+                (Case::Finished, "Done".to_owned())
             }
-            None => (Case::Finished, "Finished"),
+            None if handoff.edited > 0 => (
+                Case::Changes,
+                format!(
+                    "Finished, changed {} {}",
+                    handoff.edited,
+                    if handoff.edited == 1 { "file" } else { "files" }
+                ),
+            ),
+            None => (Case::Finished, "Finished".to_owned()),
         };
         let mut item = item(
             format!("agent:{}", agent.id),
             case,
-            what.into(),
+            what,
             ended_at.unwrap_or(agent.at),
         );
         item.detail = (problem.map(|problem| clipped_line(&problem.said, MAX_LINE_CHARS)))

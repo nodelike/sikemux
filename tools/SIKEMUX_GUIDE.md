@@ -1432,7 +1432,9 @@ Sikemux's own test, stays out of briefs and waits in the person's inbox.
 `text` and `why`. It stays on the goal's card, the card at the top, for as
 long as the goal. Pass
 `decision` with its number to correct it with new `text` or `why`, or with
-`retire: true` when it no longer stands.
+`retire: true` when it no longer stands. Pass `person: true` when the person
+chose it in their answer to your question that started this turn, so it is kept
+as theirs rather than listed as decided without them.
 
 `board_decide` with `environments` and `why` proposes where the project deploys,
 in order, for the person to accept; only they can set it. Each has a `name`; `passes`, one of `nobody`, `check`, `person` or `production`; `recognise`,
