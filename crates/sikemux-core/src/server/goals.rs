@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use sikemux_process::sync::Locked;
 use sikemux_view::goals::{
     AgentDesk, DeskCounts, DesksParams, GoalAgent, GoalClock, GoalNext, GoalRow, GoalSlice,
-    GoalsView, LooseNeed,
+    GoalsThrough, GoalsView, LooseNeed,
 };
 use sikemux_view::inbox::{AgentShown, Inbox, InboxItem, InboxKind, InboxNeed};
 use sikemux_view::slice::{Passer, SliceState, WaitOn};
@@ -149,6 +149,18 @@ pub(super) fn view(core: &Core) -> GoalsView {
         }
     };
     rows.sort_by_key(order);
+    let under_way = (rows.iter())
+        .filter(|placed| placed.row.state != SliceState::Done)
+        .filter_map(|placed| placed.goal.eta.as_ref());
+    let through = under_way.fold(None, |through: Option<GoalsThrough>, eta| {
+        let Some(at) = eta.at else {
+            return through;
+        };
+        Some(GoalsThrough {
+            at: through.map_or(at, |through| through.at.max(at)),
+            then_you: through.is_some_and(|through| through.then_you) || eta.then_you,
+        })
+    });
     let done = (rows.iter())
         .filter(|placed| placed.row.state == SliceState::Done)
         .count();
@@ -160,9 +172,13 @@ pub(super) fn view(core: &Core) -> GoalsView {
         .filter(|row| row.state != SliceState::Done)
         .flat_map(|row| row.agents.iter().map(String::as_str))
         .collect();
+    let asking: HashSet<&str> = (loose_needs.iter())
+        .filter_map(|need| need.agent.as_deref())
+        .collect();
     let no_goal = (inbox.agents.iter())
-        .filter(|agent| !working.contains(agent.agent_id.as_str()))
-        .map(|agent| agent.agent_id.clone())
+        .map(|agent| agent.agent_id.as_str())
+        .filter(|agent| !working.contains(agent) && !asking.contains(agent))
+        .map(str::to_owned)
         .collect();
     let names = core.workspaces.view();
     let names: HashMap<&str, Option<String>> = (names.agents.iter())
@@ -193,6 +209,7 @@ pub(super) fn view(core: &Core) -> GoalsView {
         agents,
         no_goal,
         loose_needs,
+        through,
     }
 }
 

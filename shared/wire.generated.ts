@@ -903,6 +903,7 @@ export interface InboxHandTo {
  * decided and `answers` the options.
  */
 export interface InboxRaised {
+    reason: RaisedFor;
     /** The lead that raised it, when it was not the asker. */
     by?: string;
     /** The option it would take. */
@@ -910,6 +911,9 @@ export interface InboxRaised {
     /** What breaks if that is wrong, or what stays stuck without the access it asks for. */
     breaks: string;
 }
+
+/** Why a decision is the person's to make rather than a lead's. */
+export type RaisedFor = "irreversible" | "money" | "taste" | "access";
 
 /** An agent on a linked host that works with agents here. */
 export interface RemoteAgent {

@@ -20,10 +20,22 @@ pub struct GoalsView {
     pub done_earlier: usize,
     /// Every open agent, whether or not it works a goal.
     pub agents: Vec<GoalAgent>,
-    /// The open agents working no goal still open, by id.
+    /// The open agents working no goal still open, by id, but for those waiting on the person
+    /// about no goal, whom `loose_needs` names.
     pub no_goal: Vec<String>,
     /// What waits on the person about no goal, in the inbox's order.
     pub loose_needs: Vec<LooseNeed>,
+    /// When every goal under way should be through, by the latest of their estimates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub through: Option<GoalsThrough>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalsThrough {
+    pub at: u64,
+    /// A gate only the person passes is left on one of them once they are.
+    pub then_you: bool,
 }
 
 /// A row for something that waits on the person about no goal.

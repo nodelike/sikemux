@@ -19,7 +19,7 @@ use sikemux_process::sync::Locked;
 
 use crate::cli::protocol::HarnessRequest;
 use crate::text::clipped;
-use sikemux_view::inbox::InboxRaised;
+use sikemux_view::inbox::{InboxRaised, RaisedFor};
 use sikemux_view::questions::{AgentQuestion, QuestionChoice, QuestionState};
 use sikemux_wire::protocol::ChatContext;
 use sikemux_wire::protocol::WindowCall;
@@ -84,16 +84,6 @@ enum Stage {
         lead: Option<(String, String)>,
         passed: bool,
     },
-}
-
-/// Why something is the person's to decide rather than a lead's.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-enum RaisedFor {
-    Irreversible,
-    Money,
-    Taste,
-    Access,
 }
 
 /// What makes a decision put to the person stand alone, beside its question and choices.
@@ -520,6 +510,7 @@ impl Questions {
                 },
                 at: question.at,
                 raised: question.raise.as_ref().map(|raise| InboxRaised {
+                    reason: raise.reason,
                     by: match &question.stage {
                         Stage::Person {
                             lead: Some((_, name)),

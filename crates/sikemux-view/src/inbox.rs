@@ -232,9 +232,10 @@ pub struct InboxItem {
 
 /// A decision a lead raised to the person, which stands alone: `detail` says what is being
 /// decided and `answers` the options.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InboxRaised {
+    pub reason: RaisedFor,
     /// The lead that raised it, when it was not the asker.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
@@ -243,6 +244,16 @@ pub struct InboxRaised {
     pub pick: Option<String>,
     /// What breaks if that is wrong, or what stays stuck without the access it asks for.
     pub breaks: String,
+}
+
+/// Why a decision is the person's to make rather than a lead's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RaisedFor {
+    Irreversible,
+    Money,
+    Taste,
+    Access,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
