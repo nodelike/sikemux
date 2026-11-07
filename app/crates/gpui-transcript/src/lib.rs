@@ -23,6 +23,4 @@ pub use draw::{
 };
 pub use find::{DocFind, FoundChanged, Query};
 pub use markdown::{Kind, Markdown, Marks, Node, Picture, Piece, Rich, Table};
-pub use transcript::{
-    init, AwayChanged, Change, Copy, EmptyChanged, Row, RowsChanged, Transcript, ViewMoved,
-};
+pub use transcript::{init, AwayChanged, Change, Copy, EmptyChanged, Row, RowsChanged, Transcript};

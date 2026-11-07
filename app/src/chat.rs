@@ -22,7 +22,7 @@ use gpui_kit::{
 };
 use gpui_transcript::{
     AwayChanged, Change, CodeColours, EmptyChanged, FoundChanged, Markdown, Pen, Row, RowsChanged,
-    Style, Transcript, ViewMoved,
+    Style, Transcript,
 };
 use looks::*;
 use questions::*;
@@ -466,8 +466,6 @@ struct Reading {
     /// The runs of messages between agents the reader opened, and whether all of each shows,
     /// by the run.
     teams: HashMap<String, bool>,
-    /// The message the reader just jumped to, lit for a moment.
-    lit: Option<String>,
 }
 
 impl Reading {
@@ -520,7 +518,7 @@ pub struct Chat {
     _rows: [Subscription; 2],
     /// The stage draws the find bar's count and the way back to the latest rows, so it hears
     /// when what was found changes and when the reader scrolls away from the end.
-    _found: [Subscription; 3],
+    _found: [Subscription; 2],
     /// The find bar over the transcript, while it is open.
     pub finding: Option<find::Finding>,
     plan_open: bool,
@@ -646,16 +644,6 @@ impl Chat {
                 let stage = stage.clone();
                 cx.subscribe(&transcript, move |_, _: &AwayChanged, cx| {
                     redraw(&stage, cx)
-                })
-            },
-            {
-                let stage = stage.clone();
-                let was_above = Cell::new(false);
-                cx.subscribe(&transcript, move |transcript, _: &ViewMoved, cx| {
-                    let above = team::asked_above_view(transcript.read(cx)).is_some();
-                    if was_above.replace(above) != above {
-                        redraw(&stage, cx)
-                    }
                 })
             },
         ];
@@ -1410,7 +1398,6 @@ pub fn pane(
             ),
         )
         .children(scrollbar)
-        .children(team::asked(chat, cx))
         .children(chat.finding.as_ref().map(|finding| {
             let transcript = chat.transcript.read(cx);
             let (found, local) = (transcript.found(), transcript.found_at());

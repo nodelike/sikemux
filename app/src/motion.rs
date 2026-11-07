@@ -117,9 +117,6 @@ pub const ARRIVE_SLIDE: Ease = Ease::new(190, Curve::OUT);
 pub const UNFOLD: Ease = Ease::new(180, Curve::OUT);
 pub const FOLD_AWAY: Ease = Ease::new(140, Curve::Bezier(0.4, 0., 1., 1.));
 
-/// A message the reader jumped to lighting up, and going out again.
-pub const LIT: Ease = Ease::new(220, Curve::OUT);
-
 /// A line's words giving way to new ones, as what the agent is doing changes or a running
 /// clock settles on how long it took.
 pub const TEXT_SWAP: Ease = Ease::new(140, Curve::OUT);

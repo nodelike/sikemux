@@ -124,8 +124,6 @@ pub struct Transcript<R: Row> {
     pending: Option<(SharedString, SharedString, usize)>,
     /// Where each row was last placed in the window, as its texts were.
     row_tops: Rc<RefCell<HashMap<SharedString, Pixels>>>,
-    /// Where each row last ended in the window.
-    row_bottoms: Rc<RefCell<HashMap<SharedString, Pixels>>>,
     /// The first and last rows the frame being drawn holds, the list's extra ones around the view too.
     drawn: Option<Range<usize>>,
     /// How a row that just arrived rises into place, when rows do.
@@ -214,7 +212,6 @@ impl<R: Row> Transcript<R> {
             layout_budget: Rc::default(),
             pending: None,
             row_tops: Rc::default(),
-            row_bottoms: Rc::default(),
             drawn: None,
             rise: None,
             arrived: Vec::new(),
@@ -252,20 +249,6 @@ impl<R: Row> Transcript<R> {
         self.away && !self.rows.is_empty()
     }
 
-    /// Whether the last frame had `row` wholly above the view. Following the latest rows, the
-    /// list knows only that it is at the end, so this goes by where each row was drawn.
-    pub fn above_view(&self, row: &str) -> bool {
-        let Some((ix, drawn)) = self.position(row).zip(self.drawn.as_ref()) else {
-            return false;
-        };
-        if ix < drawn.start {
-            return true;
-        }
-        let bottom = self.row_bottoms.borrow().get(row).copied();
-        drawn.contains(&ix)
-            && bottom.is_some_and(|bottom| bottom <= self.list.viewport_bounds().top())
-    }
-
     /// Keeps the rows in view where they are while rows below the top of the view change height,
     /// rather than following the latest rows up the screen.
     pub fn hold_place(&mut self, cx: &mut Context<Self>) {
@@ -273,17 +256,6 @@ impl<R: Row> Transcript<R> {
         if !self.away {
             self.away = true;
             cx.emit(AwayChanged(true));
-        }
-    }
-
-    /// Brings the top of `row` into view, once the rows hold it.
-    pub fn to_row(&mut self, row: &str, cx: &mut Context<Self>) {
-        if let Some(item_ix) = self.position(row) {
-            self.list.scroll_to(ListOffset {
-                item_ix,
-                offset_in_item: px(0.),
-            });
-            cx.notify();
         }
     }
 
@@ -676,9 +648,6 @@ impl<R: Row> Transcript<R> {
             self.row_tops
                 .borrow_mut()
                 .retain(|id, _| held.contains(id.as_ref()));
-            self.row_bottoms
-                .borrow_mut()
-                .retain(|id, _| held.contains(id.as_ref()));
         }
         if changed {
             cx.emit(RowsChanged);
@@ -850,11 +819,6 @@ pub struct AwayChanged(pub bool);
 
 impl<R: Row> EventEmitter<AwayChanged> for Transcript<R> {}
 
-/// A frame placed the rows anew.
-pub struct ViewMoved;
-
-impl<R: Row> EventEmitter<ViewMoved> for Transcript<R> {}
-
 impl<R: Row> Render for Transcript<R> {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.layout_budget.reset();
@@ -914,11 +878,7 @@ impl<R: Row> Render for Transcript<R> {
                     Some(range) => range.start.min(ix)..range.end.max(ix + 1),
                     None => ix..ix + 1,
                 });
-                let (Some(row), tops, bottoms) = (
-                    this.rows.get(ix),
-                    this.row_tops.clone(),
-                    this.row_bottoms.clone(),
-                ) else {
+                let (Some(row), tops) = (this.rows.get(ix), this.row_tops.clone()) else {
                     return drawn;
                 };
                 let id: SharedString = row.id().to_owned().into();
@@ -937,7 +897,6 @@ impl<R: Row> Render for Transcript<R> {
                     .on_children_prepainted(move |bounds, _, _| {
                         if let Some(row) = bounds.first() {
                             tops.borrow_mut().insert(id.clone(), row.top());
-                            bottoms.borrow_mut().insert(id.clone(), row.bottom());
                         }
                     });
                 let Some(risen) = rise else {
@@ -987,10 +946,7 @@ impl<R: Row> Render for Transcript<R> {
                 let moved = moved.clone();
                 window.defer(cx, move |window, cx| {
                     moved
-                        .update(cx, |this, cx| {
-                            cx.emit(ViewMoved);
-                            this.ask_earlier_when_short(window, cx);
-                        })
+                        .update(cx, |this, cx| this.ask_earlier_when_short(window, cx))
                         .ok();
                 });
             })

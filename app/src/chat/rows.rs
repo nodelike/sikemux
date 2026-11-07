@@ -207,18 +207,6 @@ pub(super) fn row(
                 looks,
             )),
             None => {
-                let lit = motion::follow(
-                    SharedString::from(format!("prompt-lit:{}", message.id)),
-                    if looks.reading.lit.as_deref() == Some(message.id.as_str()) {
-                        1.
-                    } else {
-                        0.
-                    },
-                    motion::LIT,
-                    window,
-                    cx,
-                );
-                let bubble = theme::mix(Tokens::get(cx).text_primary, looks.bubble, 0.12 * lit);
                 let group = SharedString::from(format!("sent:{}", message.id));
                 let bench = looks.bench.clone();
                 let open = move |path: PathBuf, window: &mut Window, cx: &mut App| {
@@ -242,7 +230,7 @@ pub(super) fn row(
                                 .border_1()
                                 .border_color(looks.line)
                                 .rounded(theme::RADIUS_3)
-                                .bg(bubble)
+                                .bg(looks.bubble)
                                 .children(parts),
                         )
                     })

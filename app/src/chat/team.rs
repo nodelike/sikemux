@@ -1,17 +1,13 @@
 //! Messages between agents, which the core folds into runs: the one line a closed run shows,
-//! what it holds once opened, and the strip that keeps the person's own prompt in reach.
+//! and what it holds once opened.
 
 use super::*;
 
-use std::time::Duration;
-
-use crate::theme::{SPACE_0, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_XS_H};
+use crate::theme::{SPACE_0, SPACE_1, SPACE_1H, TEXT_2XS, TEXT_XS_H};
 
 /// How far a run's rows sit in from its line, past the width of its chevron.
 pub(super) const INSIDE: f32 = 40.;
 const MARK: f32 = 16.;
-/// How long a message the reader jumped to stays lit.
-const LIT_FOR: Duration = Duration::from_millis(900);
 
 fn same_run<'a>(rows: &'a [ChatRow], id: &'a str) -> impl Iterator<Item = &'a ChatRow> {
     rows.iter()
@@ -209,93 +205,4 @@ pub(super) fn head(
         .child(row)
         .children(earlier)
         .into_any_element()
-}
-
-/// The person's last message, while it has scrolled off the top of what they are reading.
-pub(super) fn asked_above_view(transcript: &Transcript<ChatRow>) -> Option<&ChatRow> {
-    let rows = transcript.rows();
-    let prompt = rows
-        .iter()
-        .rposition(|row| row.message.role == ChatRole::User && row.message.letters.is_empty())?;
-    transcript
-        .above_view(rows[prompt].id())
-        .then(|| &rows[prompt])
-}
-
-/// A strip over the top of the rows naming what the person last asked, which takes them back to it.
-pub(super) fn asked(chat: &Chat, cx: &mut Context<Workbench>) -> Option<AnyElement> {
-    let transcript = chat.transcript.read(cx);
-    let prompt = asked_above_view(transcript)?;
-    let id = prompt.message.id.clone();
-    let text: String = prompt
-        .message
-        .parts
-        .iter()
-        .filter_map(text_of)
-        .map(|(text, _)| text)
-        .collect();
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let t = Tokens::get(cx).clone();
-    let (reader, transcript) = (chat.reader.clone(), chat.transcript.clone());
-    let hover = theme::mix(t.text_primary, t.surface_raised, 0.05);
-    Some(
-        div()
-            .id("asked-strip")
-            .absolute()
-            .top_0()
-            .left_0()
-            .right_0()
-            .h(px(28.))
-            .flex()
-            .justify_center()
-            .border_b_1()
-            .border_color(t.border)
-            .bg(t.surface_raised)
-            .cursor_pointer()
-            .hover(move |strip| strip.bg(hover))
-            .on_click(cx.listener(move |_, _, _, cx| {
-                transcript.update(cx, |transcript, cx| transcript.to_row(&id, cx));
-                reader.update(cx, |reading, cx| {
-                    reading.lit = Some(id.clone());
-                    cx.notify();
-                });
-                let reader = reader.clone();
-                let lit = id.clone();
-                cx.spawn(async move |_, cx| {
-                    cx.background_executor().timer(LIT_FOR).await;
-                    reader.update(cx, |reading, cx| {
-                        if reading.lit.as_deref() == Some(lit.as_str()) {
-                            reading.lit = None;
-                            cx.notify();
-                        }
-                    });
-                })
-                .detach();
-            }))
-            .child(
-                div()
-                    .w_full()
-                    .max_w(px(800.))
-                    .px(px(22.))
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_2)
-                    .text_size(crate::theme::ui_text(TEXT_XS_H))
-                    .child(
-                        div()
-                            .flex_none()
-                            .text_color(t.text_tertiary)
-                            .child("You asked"),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_color(t.text_primary)
-                            .child(text),
-                    ),
-            )
-            .into_any_element(),
-    )
 }
