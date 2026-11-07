@@ -1,15 +1,12 @@
 //! Messages between agents, folded so they do not bury what the person asked and what they were
-//! answered. Everything in a turn another agent started folds but its last message, and a
-//! message sent into the person's own turn folds alone; anything left in view ends a run.
+//! answered. Messages from other agents in a row fold into one run; anything else ends it.
 
 use std::collections::HashMap;
 
 use sikemux_view::chat::{
-    ChatPart, ChatRole, LetterKind, SubagentState, TeamAgent, TeamFold, TeamLine, TeamNeed,
-    TeamNeedKind, TeamSaid,
+    ChatRole, LetterKind, TeamAgent, TeamFold, TeamLine, TeamNeed, TeamNeedKind, TeamSaid,
 };
 
-use super::turns::{is_reply, reply_at};
 use super::{Fold, Row};
 
 /// The senders a line shows before it only counts them.
@@ -45,64 +42,18 @@ fn from_an_agent(row: &Row) -> bool {
         && (row.msg.letters.iter()).all(|letter| letter.kind == LetterKind::Message)
 }
 
-/// Whether the row at `at` starts a turn. The first answer to a message is marked as opening a
-/// turn too, but only one that follows no message is the agent starting one by itself.
-fn starts_turn(rows: &[Row], at: usize) -> bool {
-    let row = &rows[at];
-    match row.msg.role {
-        ChatRole::User => !(from_an_agent(row) && row.steered),
-        ChatRole::Assistant => {
-            row.msg.opens_turn.is_some()
-                && at
-                    .checked_sub(1)
-                    .is_none_or(|before| rows[before].msg.role != ChatRole::User)
-        }
-    }
-}
-
-fn continues_answer(rows: &[Row], at: usize) -> bool {
-    rows[at].msg.role == ChatRole::Assistant && rows[at].msg.opens_turn.is_none()
-}
-
-/// Where a change at `from` starts to matter: in another agent's turn, the start of that turn
-/// or of the run that reaches into it; in the person's, only the rows around the change.
+/// Where a change at `from` starts to matter: the start of the run it continues.
 fn read_from(rows: &[Row], from: usize) -> usize {
-    let from = from.min(rows.len() - 1);
-    let mut at = from;
-    while at > 0 && !starts_turn(rows, at) {
-        at -= 1;
-    }
-    if !from_an_agent(&rows[at]) {
-        at = at.max(from.saturating_sub(1));
-    }
+    let at = from.min(rows.len() - 1);
     let Some(before) = at.checked_sub(1) else {
         return at;
     };
     match &rows[before].msg.team {
-        Some(team) if team.shown.is_empty() => rows[..=before]
+        Some(team) => rows[..=before]
             .iter()
             .rposition(|row| row.msg.id == team.id)
             .unwrap_or(at),
-        _ => at,
-    }
-}
-
-/// Whether another agent started the turn the row at `at` falls in.
-fn agent_turn_before(rows: &[Row], at: usize) -> bool {
-    (0..at)
-        .rev()
-        .find(|before| starts_turn(rows, *before))
-        .is_some_and(|before| from_an_agent(&rows[before]))
-}
-
-/// A page, a subagent at work and where a goal began stay in view when a turn folds. Unlike a
-/// finished turn's own fold, a GIF does not: agents send them in passing, and each would split the run.
-fn stays(part: &ChatPart) -> bool {
-    match part {
-        ChatPart::Tool { page, .. } => page.is_some(),
-        ChatPart::Subagent { subagent, .. } => subagent.state == SubagentState::Running,
-        ChatPart::AgentNotice { notice, .. } => notice.goal.is_some(),
-        _ => false,
+        None => at,
     }
 }
 
@@ -131,8 +82,7 @@ fn time_of(row: &Row) -> Option<u64> {
 /// A run as it is read, row by row.
 #[derive(Default)]
 struct Run {
-    /// Each row in it and the parts it keeps in view.
-    rows: Vec<(usize, Vec<u64>)>,
+    rows: Vec<usize>,
     /// The rows that say something, and how much.
     said: Vec<(usize, u64)>,
     agents: Vec<TeamAgent>,
@@ -140,7 +90,7 @@ struct Run {
 }
 
 impl Run {
-    fn add(&mut self, rows: &mut [Row], at: usize, kept: Vec<u64>, out: &mut Reading) {
+    fn add(&mut self, rows: &mut [Row], at: usize, out: &mut Reading) {
         if self.rows.len() >= MOST_ROWS {
             self.close(rows, out);
         }
@@ -163,15 +113,8 @@ impl Run {
                 .iter()
                 .any(|need| need.agent_id == letter.agent_id);
         }
-        let writes = (row.msg.parts.iter().enumerate()).any(|(index, part)| {
-            matches!(part, ChatPart::Text { .. } | ChatPart::Content { .. })
-                && !kept.contains(&(index as u64))
-        });
-        let says = (row.msg.letters.len() as u64).max(writes as u64);
-        if says > 0 {
-            self.said.push((at, says));
-        }
-        self.rows.push((at, kept));
+        self.said.push((at, row.msg.letters.len() as u64));
+        self.rows.push(at);
     }
 
     /// Ends the run, writing what it came to on its rows.
@@ -180,7 +123,7 @@ impl Run {
         let said = std::mem::take(&mut self.said);
         let agents = std::mem::take(&mut self.agents);
         let latest = self.latest.take();
-        let (Some((first, _)), Some((last, _))) = (members.first(), members.last()) else {
+        let (Some(first), Some(last)) = (members.first(), members.last()) else {
             return;
         };
         let (first, last) = (*first, *last);
@@ -197,7 +140,7 @@ impl Run {
         if shown == messages {
             from = first;
         }
-        let times = || members.iter().filter_map(|(at, _)| time_of(&rows[*at]));
+        let times = || members.iter().filter_map(|at| time_of(&rows[*at]));
         let took = (times().min())
             .zip(times().max())
             .map(|(began, ended)| ended - began)
@@ -212,12 +155,12 @@ impl Run {
             need: out.needs.placed.get(&id).cloned(),
             took,
         };
-        let v = members.iter().map(|(at, _)| rows[*at].v).max().unwrap_or(0);
+        let v = members.iter().map(|at| rows[*at].v).max().unwrap_or(0);
         let mut line = Some(line);
-        for (at, kept) in members {
+        for at in members {
             let team = TeamFold {
                 id: id.clone(),
-                shown: kept,
+                shown: Vec::new(),
                 line: if at == last { line.take() } else { None },
             };
             put(&mut rows[at], Some(team), v, at, &mut out.touched);
@@ -240,82 +183,19 @@ struct Reading<'a> {
     needs: &'a mut Needs,
 }
 
-/// The parts of a row in an agent's turn that stay in view while the run around it is closed.
-fn kept_parts(row: &Row, index: usize, reply: Option<(usize, usize)>, live: bool) -> Vec<u64> {
-    let parts = row.msg.parts.iter().enumerate();
-    parts
-        .filter(|(at, part)| {
-            let replying = reply.is_some_and(|reply| (index, *at) >= reply && is_reply(part));
-            live || replying || stays(part)
-        })
-        .map(|(at, _)| at as u64)
-        .collect()
-}
-
-fn read(rows: &mut [Row], from: usize, running: bool, needs: &mut Needs) -> Vec<usize> {
+fn read(rows: &mut [Row], from: usize, needs: &mut Needs) -> Vec<usize> {
     let mut out = Reading {
         touched: Vec::new(),
         needs,
     };
-    let mut at = read_from(rows, from);
-    let mut agent_turn = agent_turn_before(rows, at);
     let mut run = Run::default();
-    while at < rows.len() {
-        if rows[at].msg.role == ChatRole::User {
-            if from_an_agent(&rows[at]) {
-                agent_turn |= !rows[at].steered;
-                run.add(rows, at, Vec::new(), &mut out);
-            } else {
-                agent_turn = false;
-                run.close(rows, &mut out);
-                put(&mut rows[at], None, 0, at, &mut out.touched);
-            }
-            at += 1;
-            continue;
-        }
-        agent_turn &= !starts_turn(rows, at);
-        let mut end = at;
-        while end + 1 < rows.len() && continues_answer(rows, end + 1) {
-            end += 1;
-        }
-        if !agent_turn {
+    for at in read_from(rows, from)..rows.len() {
+        if from_an_agent(&rows[at]) {
+            run.add(rows, at, &mut out);
+        } else {
             run.close(rows, &mut out);
-            for (index, row) in rows.iter_mut().enumerate().take(end + 1).skip(at) {
-                put(row, None, 0, index, &mut out.touched);
-            }
-            at = end + 1;
-            continue;
+            put(&mut rows[at], None, 0, at, &mut out.touched);
         }
-        let mut first = at;
-        while first > 0
-            && rows[first - 1].msg.role == ChatRole::Assistant
-            && continues_answer(rows, first)
-        {
-            first -= 1;
-        }
-        // The answer being written stays in view until the next one comes, and only the turn's
-        // last answer has a reply to keep.
-        let writing = running && end + 1 == rows.len();
-        let last_of_turn = rows
-            .get(end + 1)
-            .is_none_or(|next| !next.steered || !from_an_agent(next));
-        let reply = (last_of_turn && !writing)
-            .then(|| reply_at(rows, first, end))
-            .flatten();
-        for index in at..=end {
-            let kept = kept_parts(&rows[index], index, reply, writing && index == end);
-            if !kept.is_empty() && kept.len() == rows[index].msg.parts.len() {
-                run.close(rows, &mut out);
-                put(&mut rows[index], None, 0, index, &mut out.touched);
-                continue;
-            }
-            let ends = !kept.is_empty();
-            run.add(rows, index, kept, &mut out);
-            if ends {
-                run.close(rows, &mut out);
-            }
-        }
-        at = end + 1;
     }
     run.close(rows, &mut out);
     out.touched
@@ -324,7 +204,7 @@ fn read(rows: &mut [Row], from: usize, running: bool, needs: &mut Needs) -> Vec<
 /// The folds of rows read on their own, such as an earlier page.
 pub(super) fn settle_page(rows: &mut [Row]) {
     if !rows.is_empty() {
-        read(rows, 0, false, &mut Needs::default());
+        read(rows, 0, &mut Needs::default());
     }
 }
 
@@ -347,8 +227,7 @@ impl Fold {
         if self.main.rows.is_empty() {
             return;
         }
-        let running = self.head.running;
-        for at in read(&mut self.main.rows, from, running, &mut self.needs) {
+        for at in read(&mut self.main.rows, from, &mut self.needs) {
             self.main.queue(at);
         }
         if std::mem::take(&mut self.needs.moved) {

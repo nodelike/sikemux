@@ -940,8 +940,6 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
     // tasks by itself; the prompt that wakes it is hidden, so a reply that
     // follows a finished turn begins a new one.
     let mut turn_over = false;
-    // A message after an answer whose turn had not ended was sent into that turn.
-    let mut answering = false;
     // Pictures from before the last compaction would be most of a long
     // chat's bytes; their rows still say what they were.
     let pictures_from = records
@@ -1031,9 +1029,6 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
                 && !wakes
             {
                 turn_over = false;
-                if answering {
-                    super::super::stamp_steered(&mut update);
-                }
             }
             if let Some(session_id) = &woken_by {
                 update["subagentSessionId"] = json!(session_id);
@@ -1044,7 +1039,6 @@ pub fn replay(records: &[Value], session_id: &str, cwd: &Path) -> Vec<(String, V
         }
         if is_assistant && main_thread {
             turn_over = str_field(message, "stop_reason") == Some("end_turn");
-            answering = !turn_over;
         }
     }
     replay.finish()

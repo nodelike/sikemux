@@ -101,8 +101,6 @@ struct Row {
     bytes: usize,
     /// A message a person sent, which the agent's echo never adds to.
     local: bool,
-    /// A message to the agent that came while a turn ran, so it did not start its own.
-    steered: bool,
     /// What a message to the agent held as it came, before its context and
     /// letters were read out of it.
     raw: Vec<ChatPart>,
@@ -141,7 +139,6 @@ impl Row {
             v: 0,
             bytes: 0,
             local: false,
-            steered: false,
             raw: Vec::new(),
             sent_context: Vec::new(),
             stream: None,
@@ -955,7 +952,6 @@ impl Fold {
         let id = self.row_id(index, &None);
         let mut row = Row::new(id, ChatRole::User, index);
         row.local = true;
-        row.steered = self.head.running;
         row.msg.prompt_id = text_of(payload.get("messageId")).map(str::to_owned);
         row.msg.sent_at = Some(payload.get("at").and_then(Value::as_u64).unwrap_or(at));
         row.msg.attachments = paths;
@@ -1116,10 +1112,6 @@ impl Fold {
                 let last = self.main.rows.len() - 1;
                 self.main.rows[last].msg.opens_turn = opening.clone();
                 self.main.rows[last].set("opensTurn");
-            }
-            if kind == UpdateKind::UserMessageChunk && self.main.rows.len() > rows {
-                let last = self.main.rows.len() - 1;
-                self.main.rows[last].steered = timed || update::steers(update);
             }
             self.recorded_time(update, timed);
             let turn_opening = if opened { None } else { opening };

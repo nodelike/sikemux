@@ -139,7 +139,6 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
                 let said = head.kind == "userMessage";
                 if said {
                     let id = if first_message { turn.id } else { head.id };
-                    let steers = !first_message;
                     first_message = false;
                     let mut blocks = Value::Array(items::user_blocks(item).into_iter().collect());
                     let mut for_agent = crate::server::chat::prompt::take_for_agent(&mut blocks);
@@ -147,9 +146,6 @@ impl<R: Fn(&str) -> Option<String>> Replaying<'_, R> {
                         let mut update = json!({ "sessionUpdate": UpdateKind::UserMessageChunk, "messageId": id, "content": block });
                         if !for_agent.is_empty() {
                             update["forAgent"] = json!(std::mem::take(&mut for_agent));
-                        }
-                        if steers {
-                            super::super::stamp_steered(&mut update);
                         }
                         self.out.push((session.clone(), update));
                     }
