@@ -121,7 +121,7 @@ fn compare_files(
     let Some(board) = boards.get_mut(project) else {
         return looked;
     };
-    let slices: Vec<(u64, Option<String>, String, Vec<(u64, u64)>)> = (board.cards.iter())
+    let slices: Vec<_> = (board.cards.iter())
         .filter_map(|card| {
             let slice = card
                 .slice
