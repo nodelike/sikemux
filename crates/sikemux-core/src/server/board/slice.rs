@@ -852,9 +852,7 @@ impl Slice {
             return;
         }
         let base = match &self.work {
-            Some(work) if work.head == at.from && work.on_branch == at.on_branch => {
-                work.base.clone()
-            }
+            Some(work) if work.head == at.from => work.base.clone(),
             _ => at.from.clone(),
         };
         self.work = Some(Work {

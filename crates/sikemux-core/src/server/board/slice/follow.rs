@@ -201,42 +201,44 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
         super::super::chat_goal::committed(core, agent);
         core.inbox.committed(agent);
     }
+    let known = match &event {
+        RepoEvent::Committed { project, agent, .. } | RepoEvent::Landed { project, agent, .. } => {
+            let state = core.boards.state.locked();
+            state.boards.get(project).and_then(|board| {
+                let card = board.working_card(agent)?;
+                card.slice.as_ref()?.head().map(str::to_owned)
+            })
+        }
+        RepoEvent::Deployed { .. } | RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => {
+            None
+        }
+    };
+    let ancestor = |project: &str, older: &str, newer: &str| {
+        Git::quick(Path::new(project))
+            .trimmed(&["merge-base", "--is-ancestor", older, newer])
+            .is_ok()
+    };
     let from = match &event {
         RepoEvent::Committed { project, sha, .. } => Git::quick(Path::new(project))
             .trimmed(&["rev-parse", &format!("{sha}^")])
             .unwrap_or_else(|_| sha.clone()),
-        RepoEvent::Landed { onto, .. } => onto.clone(),
+        // Nothing reached the branch since the slice's commits were made on it, so the landed
+        // ones carry on the slice's run rather than starting one of their own.
+        RepoEvent::Landed { project, onto, .. } => match &known {
+            Some(known) if ancestor(project, onto, known) => known.clone(),
+            _ => onto.clone(),
+        },
         RepoEvent::Deployed { .. } | RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => {
             String::new()
         }
     };
     let older = match &event {
-        RepoEvent::Committed {
-            project,
-            agent,
-            sha,
-            ..
-        }
+        RepoEvent::Committed { project, sha, .. }
         | RepoEvent::Landed {
-            project,
-            agent,
-            tip: sha,
-            ..
-        } => {
-            let known = {
-                let state = core.boards.state.locked();
-                state.boards.get(project).and_then(|board| {
-                    let card = board.working_card(agent)?;
-                    card.slice.as_ref()?.head().map(str::to_owned)
-                })
-            };
-            known.filter(|known| {
-                known != sha
-                    && Git::quick(Path::new(project))
-                        .trimmed(&["merge-base", "--is-ancestor", sha, known])
-                        .is_ok()
-            })
-        }
+            project, tip: sha, ..
+        } => known
+            .clone()
+            .filter(|known| known != sha && ancestor(project, sha, known)),
         RepoEvent::Deployed { .. } | RepoEvent::CheckStarted { .. } | RepoEvent::Checked { .. } => {
             None
         }
