@@ -378,34 +378,51 @@ fn asked(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Div
         })
 }
 
-/// The pictures a slice waiting at Looks right collected, newest first, each shown full size on
-/// a click.
+/// The pictures waiting at Looks right: for a goal's look, every one its slices hold, slice by
+/// slice with how it was before how it is now; else the slice's own, newest first. Each is shown
+/// full size on a click.
 fn pictures(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<Div> {
     if item.gate != Some(Gate::LooksRight) {
         return None;
     }
     let card = item.card.as_ref()?;
-    let slice = (pane.board_of(&card.project))
-        .and_then(|board| board.cards.iter().find(|known| known.id == card.id))
-        .and_then(|known| known.slice.as_ref());
-    let kept = slice.map_or(&[][..], |slice| slice.evidence.as_slice());
-    let mut shown: Vec<&Evidence> = (kept.iter().rev())
-        .filter(|evidence| matches!(evidence.proof, Proof::Picture { .. }))
-        .take(PICTURES_SHOWN)
-        .collect();
+    let mut shown: Vec<(u64, &Evidence)> = match &item.look {
+        Some(look) => (look.slices.iter())
+            .flat_map(|slice| {
+                let of = move |before: bool| {
+                    (look.pictures.iter()).filter(move |picture| {
+                        picture.card == slice.card && picture.before == before
+                    })
+                };
+                of(true).chain(of(false))
+            })
+            .map(|picture| (picture.card, &picture.evidence))
+            .collect(),
+        None => {
+            let slice = (pane.board_of(&card.project))
+                .and_then(|board| board.cards.iter().find(|known| known.id == card.id))
+                .and_then(|known| known.slice.as_ref());
+            let kept = slice.map_or(&[][..], |slice| slice.evidence.as_slice());
+            (kept.iter().rev())
+                .filter(|evidence| matches!(evidence.proof, Proof::Picture { .. }))
+                .take(PICTURES_SHOWN)
+                .map(|evidence| (card.id, evidence))
+                .collect()
+        }
+    };
     if shown.is_empty() {
-        shown.extend(item.evidence.iter());
+        shown.extend(item.evidence.iter().map(|evidence| (card.id, evidence)));
     }
     if shown.is_empty() {
         return None;
     }
-    let (folder, slice) = (card.project.clone(), card.id);
+    let folder = card.project.clone();
     Some(
         div()
             .flex()
             .flex_wrap()
             .gap(SPACE_1H)
-            .children(shown.into_iter().map(|evidence| {
+            .children(shown.into_iter().map(|(slice, evidence)| {
                 let still = match &evidence.proof {
                     Proof::Picture {
                         path,
@@ -416,7 +433,10 @@ fn pictures(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> 
                 };
                 let folder = folder.clone();
                 div()
-                    .id(SharedString::from(format!("call-picture-{}", evidence.id)))
+                    .id(SharedString::from(format!(
+                        "call-picture-{slice}-{}",
+                        evidence.id
+                    )))
                     .cursor_pointer()
                     .child(super::thumb_face(evidence, false, cx))
                     .on_click(cx.listener(move |pane, _, window, cx| {
