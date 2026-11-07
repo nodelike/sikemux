@@ -1826,7 +1826,7 @@
           ]
         },
         "pick": {
-          "description": "Raising: the choice you would take",
+          "description": "The choice you would take",
           "type": "string",
           "minLength": 1,
           "maxLength": 200

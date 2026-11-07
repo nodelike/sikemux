@@ -231,6 +231,9 @@ pub struct InboxItem {
     /// What a lead says about the decision it raised to the person.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raised: Option<InboxRaised>,
+    /// The one of `answers` the agent that asked would take.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pick: Option<String>,
 }
 
 /// The one look the person takes at a goal whose work changes what people see, once every slice

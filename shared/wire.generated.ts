@@ -711,6 +711,8 @@ export interface InboxItem {
     stalled?: InboxStalled;
     /** What a lead says about the decision it raised to the person. */
     raised?: InboxRaised;
+    /** The one of `answers` the agent that asked would take. */
+    pick?: string;
 }
 
 export type InboxTier = "needs" | "review" | "finished" | "progress";

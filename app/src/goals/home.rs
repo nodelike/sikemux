@@ -641,7 +641,11 @@ fn call_buttons(
         return stall_buttons(item, cx).into_iter().collect();
     }
     if let (Some(question), false) = (&item.question_id, item.answers.is_empty()) {
-        let pick = (item.raised.as_ref()).and_then(|raised| raised.pick.as_deref());
+        let pick = item.pick.as_deref();
+        let picked_by = match item.raised {
+            Some(_) => "lead's pick",
+            None => "agent's pick",
+        };
         let mut answers: Vec<(usize, &String)> = item.answers.iter().enumerate().collect();
         answers.sort_by_key(|(_, answer)| Some(answer.as_str()) != pick);
         return answers
@@ -659,7 +663,7 @@ fn call_buttons(
                     },
                 )
                 .when(picked, |button| {
-                    button.trail(ui::text("lead's pick", TEXT_2XS, FontWeight::NORMAL).opacity(0.7))
+                    button.trail(ui::text(picked_by, TEXT_2XS, FontWeight::NORMAL).opacity(0.7))
                 })
                 .on_click(cx.listener(move |pane, _, _, cx| {
                     cx.stop_propagation();

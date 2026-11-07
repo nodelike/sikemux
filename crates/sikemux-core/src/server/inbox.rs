@@ -625,6 +625,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         request_id: None,
         stalled: None,
         raised: None,
+        pick: None,
         choices: None,
         question_id: None,
         answers: Vec::new(),
@@ -962,6 +963,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         item.question_id = Some(question.id.clone());
         item.answers.clone_from(&question.answers);
         item.raised.clone_from(&question.raised);
+        item.pick.clone_from(&question.pick);
         items.push(item);
     }
     for waiting in core.ship.waiting() {

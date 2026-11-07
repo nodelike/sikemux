@@ -253,6 +253,8 @@ struct ReplyQuestion {
     cli: String,
     project: String,
     text: String,
+    /// The options of a choice the reply leaves to the person, the agent's pick marked.
+    choices: Vec<QuestionChoice>,
     /// The person's answer, held until every question of the same reply has one, so the
     /// agent hears them all in one message.
     given: Option<String>,
@@ -274,7 +276,7 @@ impl ReplyQuestion {
             asked: self.text.clone(),
             text: self.text.clone(),
             header: None,
-            choices: Vec::new(),
+            choices: self.choices.clone(),
             multi: false,
             blocked: false,
             assumption: None,
@@ -345,6 +347,14 @@ pub(crate) struct ForPerson {
     pub answers: Vec<String>,
     pub at: u64,
     pub raised: Option<InboxRaised>,
+    /// The one of `answers` its asker would take.
+    pub pick: Option<String>,
+}
+
+fn recommended_of(choices: &[QuestionChoice]) -> Option<String> {
+    (choices.iter())
+        .find(|choice| choice.recommended)
+        .map(|choice| choice.label.clone())
 }
 
 struct Asked {
@@ -521,6 +531,7 @@ impl Questions {
                     pick: raise.pick.clone(),
                     breaks: raise.breaks.clone(),
                 }),
+                pick: recommended_of(&question.choices),
             });
         let replied = (state.reply_questions.iter())
             .filter(|question| question.waits())
@@ -531,9 +542,12 @@ impl Questions {
                 blocked: true,
                 assumption: None,
                 access: false,
-                answers: Vec::new(),
+                answers: (question.choices.iter())
+                    .map(|choice| choice.label.clone())
+                    .collect(),
                 at: question.at,
                 raised: None,
+                pick: recommended_of(&question.choices),
             });
         let questions: Vec<ForPerson> = asked.chain(replied).collect();
         let waits = |question: &ForPerson| question.assumption.is_none() || question.blocked;
@@ -799,16 +813,7 @@ fn raise_of(
         None => None,
     };
     let needs_choice = reason != Some(RaisedFor::Access);
-    let picked = text_param(params, "pick", MAX_LABEL_CHARS)?;
-    if let Some(pick) = &picked {
-        let Some(at) = (choices.iter()).position(|choice| choice.label.eq_ignore_ascii_case(pick))
-        else {
-            return Err(format!("pick must be one of the choices, not {pick}"));
-        };
-        for (index, choice) in choices.iter_mut().enumerate() {
-            choice.recommended = index == at;
-        }
-    }
+    mark_pick(params, choices)?;
     let pick = (choices.iter())
         .find(|choice| choice.recommended)
         .map(|choice| choice.label.clone());
@@ -842,6 +847,21 @@ fn raise_of(
             missing.join("\n- ")
         )),
     }
+}
+
+/// Marks the choice `ask` was given as `pick` as the one recommended.
+fn mark_pick(params: &Value, choices: &mut [QuestionChoice]) -> Result<(), String> {
+    let Some(pick) = text_param(params, "pick", MAX_LABEL_CHARS)? else {
+        return Ok(());
+    };
+    let Some(at) = (choices.iter()).position(|choice| choice.label.eq_ignore_ascii_case(&pick))
+    else {
+        return Err(format!("pick must be one of the choices, not {pick}"));
+    };
+    for (index, choice) in choices.iter_mut().enumerate() {
+        choice.recommended = index == at;
+    }
+    Ok(())
 }
 
 /// Whether the person closed the agent, so its questions go with it.
@@ -1121,6 +1141,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
     let raise = raised
         .then(|| raise_of(params, &text, &mut choices))
         .transpose()?;
+    mark_pick(params, &mut choices)?;
     let question = open(
         core,
         &agent_id,
@@ -1362,9 +1383,8 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
     let Some(reply) = chat.feed.last_answer() else {
         return;
     };
-    let (offers, asks): (Vec<_>, Vec<_>) = asked_in(&reply)
-        .into_iter()
-        .partition(|(_, yes_or_no)| *yes_or_no);
+    let (offers, asks): (Vec<Ask>, Vec<Ask>) =
+        asked_in(&reply).into_iter().partition(|ask| ask.polar);
     let name = (named.as_ref()).map_or_else(|| agent_id.to_owned(), |named| named.name.clone());
     let project = (named.map(|named| named.project))
         .unwrap_or_else(|| core.workspaces.project_of(&chat.launch.cwd));
@@ -1372,26 +1392,28 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
         core,
         agent_id,
         &project,
-        offers.into_iter().map(|(offer, _)| offer),
+        offers.into_iter().map(|offer| offer.text),
     );
     let was_sent_back = (core.harness.questions.state.locked().sent_back).remove(agent_id);
     if asks.is_empty() {
         return;
     }
     let started_by = (chat.feed.turn_prompt().as_deref()).and_then(messages::sent_by_agent);
-    let leaning = asks.iter().any(|(ask, _)| leans(ask));
-    if (started_by.is_some() || leaning) && !was_sent_back {
-        let asked: Vec<&str> = asks.iter().map(|(ask, _)| ask.as_str()).collect();
-        return send_back(core, agent_id, started_by.as_deref(), &asked);
+    let leaning = asks.iter().any(|ask| leans(&ask.text));
+    let choosing = asks.iter().any(|ask| ask.choice.is_some());
+    if (started_by.is_some() || leaning || choosing) && !was_sent_back {
+        let asked: Vec<&str> = asks.iter().map(|ask| ask.text.as_str()).collect();
+        return send_back(core, agent_id, started_by.as_deref(), choosing, &asked);
     }
     let at = epoch_ms();
-    let asked = (asks.into_iter().take(MAX_OPEN_PER_AGENT)).map(|(text, _)| ReplyQuestion {
+    let asked = (asks.into_iter().take(MAX_OPEN_PER_AGENT)).map(|ask| ReplyQuestion {
         id: format!("reply-{}", uuid::Uuid::new_v4().simple()),
         agent_id: agent_id.to_owned(),
         name: name.clone(),
         cli: chat.provider().to_owned(),
         project: project.clone(),
-        text: clipped(&text, MAX_QUESTION_BYTES),
+        text: clipped(&ask.text, MAX_QUESTION_BYTES),
+        choices: ask.choice.map(reply_choices).unwrap_or_default(),
         given: None,
         at,
     });
@@ -1410,22 +1432,39 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
     questions.shown_changed(&mut state);
 }
 
+/// A choice the reply leaves to the person, as the options they pick from.
+fn reply_choices(choice: Choice) -> Vec<QuestionChoice> {
+    (choice.options.iter())
+        .map(|option| QuestionChoice {
+            label: clipped(option, MAX_LABEL_CHARS),
+            detail: None,
+            recommended: choice.pick.as_ref() == Some(option),
+        })
+        .collect()
+}
+
 /// Sends the agent back to the questions its turn ended with, which would not stand before the
-/// person: the turn was another agent's to answer, having started with its message, or a question
-/// says nothing without the chat. Sent back once in a row, so asking again reaches the person.
-fn send_back(core: &Arc<Core>, agent_id: &str, started_by: Option<&str>, asked: &[&str]) {
+/// person: the turn was another agent's to answer, having started with its message, a choice was
+/// left to the person in prose rather than with `ask`, or a question says nothing without the
+/// chat. Sent back once in a row, so asking again reaches the person.
+fn send_back(
+    core: &Arc<Core>,
+    agent_id: &str,
+    started_by: Option<&str>,
+    choosing: bool,
+    asked: &[&str],
+) {
     (core.harness.questions.state.locked().sent_back).insert(agent_id.to_owned());
     let asked = asked.join("\n");
     let why = match started_by {
         Some(other) => {
             let other = core.names.name(other).unwrap_or_else(|| other.to_owned());
-            format!("A message from @{other} started that turn, so what it raises is between you and @{other}: settle it with agent_send, or decide it yourself if it is yours.")
+            format!("A message from @{other} started that turn, so what it raises is between you and @{other}: settle it with agent_send, or decide it yourself if it is yours. {RAISE_RULE}, saying what is being decided so it makes sense on its own.")
         }
-        None => "It says nothing without your chat, so it did not reach the person. Decide it yourself if it is yours.".to_owned(),
+        None if choosing => format!("A choice for the person goes through ask, never only in your reply, so it did not reach them. Decide it yourself if it is yours. {RAISE_RULE}, with a question that says what is being decided so it makes sense without your chat, a header of two or three words and the choice you recommend first, then end your turn without writing the choice out in your reply again."),
+        None => format!("It says nothing without your chat, so it did not reach the person. Decide it yourself if it is yours. {RAISE_RULE}, saying what is being decided so it makes sense on its own."),
     };
-    let text = format!(
-        "Your turn ended asking:\n\n{asked}\n\n{why} {RAISE_RULE}, saying what is being decided so it makes sense on its own."
-    );
+    let text = format!("Your turn ended asking:\n\n{asked}\n\n{why}");
     let (core, agent_id) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {
         if let Err(error) = messages::ask_again(&core, agent_id, text).await {
@@ -1437,7 +1476,7 @@ fn send_back(core: &Arc<Core>, agent_id: &str, started_by: Option<&str>, asked: 
 /// The first offer of more work in an agent's reply, which a yes or a no answers.
 pub(crate) fn offer_in(reply: &str) -> Option<String> {
     let mut asks = asked_in(reply).into_iter();
-    asks.find_map(|(ask, yes_or_no)| yes_or_no.then_some(ask))
+    asks.find_map(|ask| ask.polar.then_some(ask.text))
 }
 
 /// Sends the agent back to the first of its offers a project rule is about, for the rule to say
@@ -1739,7 +1778,12 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
             let question = (state.reply_questions.iter())
                 .find(|question| question.id == given.id && question.waits())
                 .ok_or("That has been answered already")?;
-            let text = reply_text(given)?;
+            let text = match given.choice {
+                Some(choice) => (question.choices.get(choice))
+                    .map(|choice| choice.label.clone())
+                    .ok_or("That choice is not one of the question's")?,
+                None => reply_text(given)?,
+            };
             answers.push((question.id.clone(), text));
         }
         let mut askers: Vec<String> = Vec::new();
@@ -2256,7 +2300,13 @@ fn tell_window(core: &Arc<Core>) {
 
 #[cfg(test)]
 mod tests {
-    use super::asked_in;
+    use super::reply::{Ask, Choice};
+
+    fn asked_in(reply: &str) -> Vec<(String, bool)> {
+        (super::asked_in(reply).into_iter())
+            .map(|ask| (ask.text, ask.polar))
+            .collect()
+    }
 
     /// The shape of a reply whose three offers showed as one question, cut inside its bold.
     const THREE_OFFERS: &str = "The claims read is the slow part now.\n\n\
@@ -2337,6 +2387,76 @@ mod tests {
         assert_eq!(
             asked_in("We could cache it.\n\nThoughts?"),
             vec![("We could cache it. Thoughts?".to_owned(), false)]
+        );
+    }
+
+    fn choice(text: &str, options: &[&str], pick: Option<&str>) -> Ask {
+        Ask {
+            text: text.to_owned(),
+            polar: false,
+            choice: Some(Choice {
+                options: options.iter().map(|option| (*option).to_owned()).collect(),
+                pick: pick.map(str::to_owned),
+            }),
+        }
+    }
+
+    /// The endings of three replies whose choice between two mockups never reached Needs you.
+    const OTHER_OPEN_CALL: &str = "Want me to make it automatic and remove the prompt, or drop \
+        chat-to-goal tracking entirely? Your A/B pick on the Home mockup is still the other open \
+        call.";
+    const LEANING: &str = "Two Home mockups are on your desk.\n\n\
+        - **A** — one board for every goal\n\
+        - **B** — goals split by project\n\n\
+        Which one? I'm leaning A. I won't touch the layout until you pick.";
+    const SAY_A_OR_B: &str =
+        "Say \"A\" (my pick) or \"B\" and I'll start teammates on the redesign…";
+    const PICK_ONE: &str = "Two Home mockups are on your desk.\n\n\
+        ### A: one board\n\nEvery goal on one board.\n\n\
+        ### B: by project\n\nGoals split by project.\n\n\
+        Pick one, or point at what you'd change.";
+
+    #[test]
+    fn a_choice_left_in_prose_is_asked_with_its_options_and_the_agents_pick() {
+        assert_eq!(
+            super::asked_in(OTHER_OPEN_CALL),
+            vec![choice(
+                "Want me to make it automatic and remove the prompt, or drop chat-to-goal \
+                 tracking entirely? Your A/B pick on the Home mockup is still the other open call.",
+                &[
+                    "Make it automatic and remove the prompt",
+                    "Drop chat-to-goal tracking entirely"
+                ],
+                None,
+            )]
+        );
+        assert_eq!(
+            super::asked_in(LEANING),
+            vec![choice(
+                "Which one? I'm leaning A. I won't touch the layout until you pick.",
+                &["A", "B"],
+                Some("A"),
+            )]
+        );
+        assert_eq!(
+            super::asked_in(SAY_A_OR_B),
+            vec![choice(
+                "Say \"A\" (my pick) or \"B\" and I'll start teammates on the redesign…",
+                &["A", "B"],
+                Some("A"),
+            )]
+        );
+        assert_eq!(
+            super::asked_in(PICK_ONE),
+            vec![choice(
+                "Pick one, or point at what you'd change.",
+                &["A", "B"],
+                None
+            )]
+        );
+        assert_eq!(
+            asked_in("Run make dev to get your build back. Then say if it looks right."),
+            Vec::new()
         );
     }
 }
