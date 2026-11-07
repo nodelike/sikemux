@@ -32,7 +32,7 @@ pub(crate) fn draft_goal(core: &Core, agent: &str) -> Option<GoalDraft> {
     let chat = core.chats.get(agent)?;
     let ran = core.names.ran_session(agent)?;
     let kind = AgentKind::from_name(&ran.provider).filter(|kind| ASKED.contains(kind))?;
-    let (_, account) = saved::session_file(core, kind, &ran.session_id, &ran.project)?;
+    let (_, account) = saved::session_file(core, agent, kind, &ran.session_id, &ran.project)?;
     let ask = kind.ops().ask_once()?;
     let model = kind.entry().commit_models.first()?;
     let mut chat_said = String::new();

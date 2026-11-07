@@ -95,15 +95,17 @@ fn scope_of(core: &Core, projects: Vec<String>) -> Scope {
     })
 }
 
-/// The file of `session`, a session of `agent`, on whichever of the person's accounts keeps it,
-/// with that account.
+/// The file of `session`, a session of `agent` that the chat `agent_id` ran, and the account it
+/// runs on. Accounts can share one sessions folder, so where the file lies names the account only
+/// once the chat is closed.
 pub(crate) fn session_file(
     core: &Core,
+    agent_id: &str,
     agent: AgentKind,
     session: &str,
     project: &str,
 ) -> Option<(PathBuf, Option<String>)> {
-    providers(core)
+    let (file, kept_on) = providers(core)
         .into_iter()
         .filter(|provider| provider.agent == agent)
         .find_map(|provider| {
@@ -113,7 +115,12 @@ pub(crate) fn session_file(
             )?;
             crate::sessions::transcript::find(agent, &root, Some(project), session)
                 .map(|file| (file, provider.config_path))
-        })
+        })?;
+    let account = match core.chats.get(agent_id) {
+        Some(chat) => named_account(agent.as_str(), &chat.current_launch().env).map(str::to_owned),
+        None => kept_on,
+    };
+    Some((file, account))
 }
 
 /// What the person typed in `project`'s saved sessions, a list per session,

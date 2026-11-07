@@ -816,10 +816,9 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
             });
             continue;
         }
-        let file = ran
-            .as_ref()
-            .zip(asked_kind)
-            .and_then(|(ran, kind)| saved::session_file(core, kind, &ran.session_id, &ran.project));
+        let file = ran.as_ref().zip(asked_kind).and_then(|(ran, kind)| {
+            saved::session_file(core, &worker.id, kind, &ran.session_id, &ran.project)
+        });
         let (Some((path, config)), Some(kind)) = (file, asked_kind) else {
             left_out.push(LeftOut {
                 name,
