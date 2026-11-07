@@ -1,59 +1,42 @@
-//! Home's list of every goal, as the core works them out: the stats over it, its filter tabs and
-//! find box, and the rows, of which only those in view are drawn. Filtering, ranking and which row
-//! is chosen are the only things decided here.
+//! Home's list, as the core works it out: a line saying how many calls wait on the person, the
+//! calls themselves as cards, then one line for each goal and agent at work, with idle chats and
+//! finished goals folded into one quiet line. Narrowing to a project or found words, and which row
+//! is chosen, are the only things decided here.
 
 use crate::board::ChangesBoards;
-use std::cell::Cell;
-use std::rc::Rc;
 use std::time::Duration;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    canvas, div, linear_color_stop, linear_gradient, list, px, relative, AnyElement, App,
-    AppContext, ClickEvent, Context, Div, Entity, FocusHandle, Focusable, FontWeight, Hsla,
-    InteractiveElement, IntoElement, ListAlignment, ListOffset, ListState, ParentElement,
-    SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Task, Window,
+    div, list, px, relative, AnyElement, App, AppContext, ClickEvent, Context, Div, Entity,
+    FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ListAlignment,
+    ListOffset, ListState, ParentElement, SharedString, Stateful, StatefulInteractiveElement,
+    Styled, Subscription, Task, Window,
 };
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
-use sikemux_view::goals::{
-    DeskCounts, GoalAgent, GoalClock, GoalNext, GoalRow, GoalsView, LooseNeed,
-};
-use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed};
+use sikemux_view::goals::{GoalAgent, GoalClock, GoalNext, GoalRow, GoalsView};
+use sikemux_view::inbox::{InboxItem, InboxNeed};
 use sikemux_view::memory::Seeding;
 use sikemux_view::slice::SliceState;
 use sikemux_wire::protocol::{AgentGroup, AgentStatus, NoticeGoal};
 
-use super::home::project_name;
+use super::home::{call_card, project_name};
 use super::{state_dot, At, FindGoal, GoalsPane, NextGoal, OpenChosen, PreviousGoal};
 use crate::core;
 use crate::icons::Icon;
-use crate::theme::{self, Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3};
-use crate::theme::{SPACE_0, SPACE_3H, SPACE_4, TEXT_2XS_H, TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H};
+use crate::theme::{Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3};
+use crate::theme::{SPACE_3H, SPACE_5, TEXT_2XS_H, TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H};
 use crate::ui::{self, Row};
 use crate::workbench::Workbench;
 
-/// How large the numbers over the list stand.
-const STAT_SIZE: f32 = 30.;
-/// A goal's row, two lines with room around them.
-const ROW_HEIGHT: f32 = 50.;
+/// A goal's line.
+const ROW_HEIGHT: f32 = 32.;
 const TITLE_SIZE: f32 = 13.5;
-/// The columns at a row's end, all rows lining up.
-const BAR_W: f32 = 54.;
-const CREW_W: f32 = 112.;
-const DESK_W: f32 = 112.;
-const CLOCK_W: f32 = 46.;
-const MARK_SIZE: f32 = 16.;
-const MARKS_SHOWN: usize = 4;
-/// The agents' column once it holds one mark and how many more.
-const CREW_ONE_W: f32 = 44.;
-/// What a row takes besides its title and end columns: its mark, padding and gaps.
-const ROW_LEAD: f32 = 51.;
-/// The room a title keeps before the row's end columns start to go.
-const TITLE_MIN_W: f32 = 300.;
+/// The column at a line's end, all lines lining up.
+const END_W: f32 = 96.;
 const FIND_W: f32 = 190.;
-/// The least each keeps on a narrow row; the find box shows all its placeholder.
 const FIND_MIN_W: f32 = 140.;
 const SCOPE_MIN_W: f32 = 56.;
 /// How long after one read the goals are read again, however often the core says they moved.
@@ -61,212 +44,18 @@ const READ_SPACING: Duration = Duration::from_millis(500);
 /// How often the clocks on the rows are drawn again.
 const CLOCK_TICK: Duration = Duration::from_secs(30);
 
-/// Which of a row's end columns its width leaves room for. All rows share them, so they line up.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct Fit {
-    clock: bool,
-    bar: bool,
-    desk: bool,
-    marks: usize,
-}
-
-impl Fit {
-    /// As a row narrows its title keeps its room: the clock goes, then the slice bar, then the
-    /// desk counts, then all but one of the agents' marks.
-    const WIDEST_FIRST: [Fit; 5] = [
-        Fit {
-            clock: true,
-            bar: true,
-            desk: true,
-            marks: MARKS_SHOWN,
-        },
-        Fit {
-            clock: false,
-            bar: true,
-            desk: true,
-            marks: MARKS_SHOWN,
-        },
-        Fit {
-            clock: false,
-            bar: false,
-            desk: true,
-            marks: MARKS_SHOWN,
-        },
-        Fit {
-            clock: false,
-            bar: false,
-            desk: false,
-            marks: MARKS_SHOWN,
-        },
-        Fit {
-            clock: false,
-            bar: false,
-            desk: false,
-            marks: 1,
-        },
-    ];
-
-    fn of(row_width: f32) -> Fit {
-        let fits = |fit: &&Fit| row_width - ROW_LEAD - fit.ends_width() >= TITLE_MIN_W;
-        (Self::WIDEST_FIRST.iter().find(fits))
-            .copied()
-            .unwrap_or(Self::WIDEST_FIRST[4])
-    }
-
-    fn crew_width(self) -> f32 {
-        if self.marks == 1 {
-            CREW_ONE_W
-        } else {
-            CREW_W
-        }
-    }
-
-    fn ends_width(self) -> f32 {
-        let gap = f32::from(SPACE_3);
-        let column = |shown: bool, width: f32| if shown { width + gap } else { 0. };
-        self.crew_width()
-            + column(self.bar, BAR_W)
-            + column(self.desk, DESK_W)
-            + column(self.clock, CLOCK_W)
-    }
-}
-
-/// How the numbers over the list stand, as the width runs out.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum StatsFit {
-    Full,
-    /// Only the line saying how many need the person stays under its number.
-    NoSmallLines,
-    SmallNumbers,
-    /// All six on one row of number and name, which wraps if even that won't fit.
-    Compact,
-}
-
-/// How the filter tabs stand, as the width runs out.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum TabsFit {
-    Roomy,
-    /// Their words stay, with less room around them.
-    Close,
-    /// Only the chosen tab keeps its words; the others show a mark and a count, and name
-    /// themselves on hover.
-    Marks,
-}
-
-/// How the part of Home above the rows stands at the rows' width, from what its words take at
-/// the normal text size. All of these widths are of the rows; the rest of the head is a little
-/// wider or narrower, by the padding each part keeps.
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct Head {
-    stats: StatsFit,
-    tabs: TabsFit,
-    happened_words: bool,
-    /// Too little room for the find box beside how much happened at their smallest, and beside
-    /// the project chip too, so they take a line each.
-    ends_tight: bool,
-    ends_tight_with_project: bool,
-}
-
-impl Head {
-    const STATS_FULL_W: f32 = 470.;
-    const STATS_NO_SMALL_LINES_W: f32 = 430.;
-    const STATS_SMALL_NUMBERS_W: f32 = 350.;
-    /// What the tabs take in each step when every count has two digits, with the padding the
-    /// head keeps beside them.
-    const TABS_ROOMY_W: f32 = 510.;
-    const TABS_CLOSE_W: f32 = 410.;
-    const TABS_MARKS_W: f32 = 245.;
-    const HAPPENED_W: f32 = 190.;
-    const HAPPENED_SHORT_W: f32 = 82.;
-
-    fn of(row_width: f32) -> Head {
-        let stats = match row_width {
-            width if width >= Self::STATS_FULL_W => StatsFit::Full,
-            width if width >= Self::STATS_NO_SMALL_LINES_W => StatsFit::NoSmallLines,
-            width if width >= Self::STATS_SMALL_NUMBERS_W => StatsFit::SmallNumbers,
-            _ => StatsFit::Compact,
-        };
-        let (tabs, tabs_w) = match row_width {
-            width if width >= Self::TABS_ROOMY_W => (TabsFit::Roomy, Self::TABS_ROOMY_W),
-            width if width >= Self::TABS_CLOSE_W => (TabsFit::Close, Self::TABS_CLOSE_W),
-            _ => (TabsFit::Marks, Self::TABS_MARKS_W),
-        };
-        let room = match tabs {
-            TabsFit::Roomy => row_width - 16.,
-            _ => row_width,
-        };
-        let beside_tabs = row_width >= tabs_w + FIND_MIN_W + Self::HAPPENED_SHORT_W;
-        let happened_words = match beside_tabs {
-            true => row_width >= tabs_w + FIND_W + Self::HAPPENED_W,
-            false => room >= FIND_MIN_W + Self::HAPPENED_W,
-        };
-        let ends_smallest = FIND_MIN_W + Self::HAPPENED_SHORT_W + f32::from(SPACE_1);
-        Head {
-            stats,
-            tabs,
-            happened_words,
-            ends_tight: room < ends_smallest,
-            ends_tight_with_project: room < ends_smallest + SCOPE_MIN_W + f32::from(SPACE_1),
-        }
-    }
-}
-
-/// The tabs over the list.
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub(super) enum Filter {
-    #[default]
-    Active,
-    Needs,
-    Moving,
-    Waiting,
-    Done,
-}
-
-/// What a stat ranks the list by, in place of its sections.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Rank {
-    Agents,
-    Terminals,
-    Pages,
-    Simulators,
-    Files,
-}
-
-impl Rank {
-    fn of(self, row: &GoalRow) -> usize {
-        match self {
-            Rank::Agents => row.agents.len(),
-            Rank::Terminals => row.desk.terminals,
-            Rank::Pages => row.desk.pages,
-            Rank::Simulators => row.desk.simulators,
-            Rank::Files => row.desk.files,
-        }
-    }
-}
-
 /// One line of the list, by what stays the same while the rows around it change.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 enum Entry {
-    Section(&'static str, usize),
+    Section(&'static str),
+    /// Something only the person can decide, by the inbox's id.
+    Call(String),
     /// A goal, by its project's folder and card.
     Goal(String, u64),
-    /// Something that waits on the person about no goal, by the inbox's id.
-    Need(String),
     /// An agent working no goal, by id.
     Agent(String),
-}
-
-impl PartialEq for Entry {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Entry::Section(one, _), Entry::Section(two, _)) => one == two,
-            (Entry::Goal(one, card), Entry::Goal(two, other)) => card == other && one == two,
-            (Entry::Need(one), Entry::Need(two)) | (Entry::Agent(one), Entry::Agent(two)) => {
-                one == two
-            }
-            _ => false,
-        }
-    }
+    /// The quiet line that holds idle chats and finished goals.
+    Folded,
 }
 
 /// The row the panel beside the list shows.
@@ -277,23 +66,14 @@ pub(super) enum Chosen {
     Agent(String),
 }
 
+/// What the line over the list counts, for what the view is narrowed to.
 #[derive(Default, Clone, Copy)]
 struct Counts {
-    active: usize,
-    /// Every row All active lists: those goals and needs, and the agents on no goal.
-    listed: usize,
-    needs: usize,
-    moving: usize,
-    waiting: usize,
-    done: usize,
-}
-
-/// The numbers over the list, for what the view is narrowed to.
-#[derive(Default, Clone, Copy)]
-struct Stats {
-    agents: usize,
+    calls: usize,
+    goals: usize,
     working: usize,
-    desk: DeskCounts,
+    idle: usize,
+    done: usize,
 }
 
 pub(super) struct Room {
@@ -302,8 +82,6 @@ pub(super) struct Room {
     reading: bool,
     /// The core said the goals moved during a read, or while they did not show.
     stale: bool,
-    filter: Filter,
-    rank: Option<Rank>,
     /// The project a click in the side rail narrowed the list to, by folder.
     scope: Option<String>,
     /// The project in front changing means the person picked it here, not on the workbench.
@@ -311,13 +89,10 @@ pub(super) struct Room {
     find: String,
     find_input: Option<(Entity<InputState>, Subscription)>,
     pub(super) chosen: Option<Chosen>,
+    /// The idle chats and finished goals show under their quiet line.
+    unfolded: bool,
     entries: Vec<Entry>,
-    /// What the rows' width, as last drawn, leaves room for.
-    fit: Rc<Cell<Fit>>,
-    /// What the same width leaves room for above the rows.
-    head: Rc<Cell<Head>>,
     counts: Counts,
-    stats: Stats,
     rows: ListState,
     pub(super) keys: FocusHandle,
     _reading: Task<()>,
@@ -326,7 +101,7 @@ pub(super) struct Room {
 
 impl Room {
     pub(super) fn new(cx: &mut Context<GoalsPane>) -> Self {
-        let rows = ListState::new(0, ListAlignment::Top, px(ROW_HEIGHT * 6.));
+        let rows = ListState::new(0, ListAlignment::Top, px(ROW_HEIGHT * 10.));
         let ticking = cx.spawn(async move |pane, cx| loop {
             cx.background_executor().timer(CLOCK_TICK).await;
             let alive = pane.update(cx, |pane, cx| {
@@ -343,18 +118,14 @@ impl Room {
             read: false,
             reading: false,
             stale: false,
-            filter: Filter::default(),
-            rank: None,
             scope: None,
             picks_project: false,
             find: String::new(),
             find_input: None,
             chosen: None,
+            unfolded: false,
             entries: Vec::new(),
-            fit: Rc::new(Cell::new(Fit::WIDEST_FIRST[0])),
-            head: Rc::new(Cell::new(Head::of(f32::MAX))),
             counts: Counts::default(),
-            stats: Stats::default(),
             rows,
             keys: cx.focus_handle(),
             _reading: Task::ready(()),
@@ -370,27 +141,18 @@ impl Room {
         self.view.agents.iter().find(|agent| agent.id == id)
     }
 
+    /// Measures the rows again, as after a card's words changed without the list doing so.
+    pub(super) fn reflow(&self) {
+        self.rows.remeasure();
+    }
+
     fn entry_chosen(&self, entry: &Entry) -> Option<Chosen> {
         match entry {
-            Entry::Section(..) => None,
+            Entry::Section(..) | Entry::Folded => None,
+            Entry::Call(id) => Some(Chosen::Need(id.clone())),
             Entry::Goal(project, card) => Some(Chosen::Goal(project.clone(), *card)),
-            Entry::Need(id) => Some(Chosen::Need(id.clone())),
             Entry::Agent(id) => Some(Chosen::Agent(id.clone())),
         }
-    }
-}
-
-fn needs_you(state: SliceState) -> bool {
-    matches!(state, SliceState::NeedsYou | SliceState::Failed)
-}
-
-fn listed(filter: Filter, state: SliceState) -> bool {
-    match filter {
-        Filter::Active => state != SliceState::Done,
-        Filter::Needs => needs_you(state),
-        Filter::Moving => state == SliceState::Moving,
-        Filter::Waiting => state == SliceState::Waiting,
-        Filter::Done => state == SliceState::Done,
     }
 }
 
@@ -400,6 +162,11 @@ fn folder_of(bench: &Workbench, project: Option<&str>) -> Option<String> {
     (bench.projects().iter())
         .find(|project| project.id == id)
         .map(|project| project.path.to_string_lossy().into_owned())
+}
+
+/// Whether an agent is at work, which keeps its line among the goals rather than folded away.
+fn at_work(agent: &GoalAgent) -> bool {
+    matches!(agent.state, SliceState::Moving | SliceState::NeedsYou)
 }
 
 impl GoalsPane {
@@ -456,6 +223,8 @@ impl GoalsPane {
         }
     }
 
+    /// Takes the goals as the core answered. The core reads them again when what waits on the
+    /// person moves, so the cards are measured again even when the goals stand as they did.
     fn take_goals(&mut self, view: GoalsView, cx: &mut Context<Self>) {
         let moved = self.room.view != view;
         self.room.view = view;
@@ -469,10 +238,13 @@ impl GoalsPane {
             let _ = self
                 .bench
                 .update(cx, |bench, cx| bench.refocus_goal(goals, cx));
+        } else {
+            self.room.reflow();
+            cx.notify();
         }
     }
 
-    /// Works out the rows, counts and numbers again, keeping what is in view where it is.
+    /// Works out the lines and counts again, keeping what is in view where it is.
     pub(super) fn relist(&mut self, cx: &mut Context<Self>) {
         let Some(bench) = self.bench.upgrade() else {
             return;
@@ -481,141 +253,109 @@ impl GoalsPane {
         let room = &self.room;
         let scope = room.scope.as_deref();
         let find = room.find.trim().trim_start_matches('@').to_lowercase();
+        let has = |words: &str| words.to_lowercase().contains(&find);
+        let named = |name: Option<&str>| name.is_some_and(has);
         let agent_named = |id: &String| {
-            room.agent(id).is_some_and(|agent| {
-                (agent.name.as_deref()).is_some_and(|name| name.to_lowercase().contains(&find))
-            })
+            room.agent(id)
+                .is_some_and(|agent| named(agent.name.as_deref()))
         };
         let in_scope = |row: &GoalRow| scope.is_none_or(|scope| row.project == scope);
         let found = |row: &GoalRow| {
-            find.is_empty()
-                || row.title.to_lowercase().contains(&find)
-                || row.agents.iter().any(agent_named)
+            find.is_empty() || has(&row.title) || row.agents.iter().any(agent_named)
         };
-        let scoped: Vec<&GoalRow> = room.view.goals.iter().filter(|row| in_scope(row)).collect();
-        let loose: Vec<&LooseNeed> = (room.view.loose_needs.iter())
-            .filter(|need| {
-                scope.is_none_or(|scope| {
-                    let named = need.project.as_deref();
-                    named == Some(scope) || folder_of(bench, named).as_deref() == Some(scope)
-                })
-            })
-            .collect();
         let agent_scoped = |agent: &GoalAgent| {
             scope.is_none_or(|scope| {
                 folder_of(bench, agent.project.as_deref()).as_deref() == Some(scope)
             })
         };
+        let agent_found =
+            |agent: &GoalAgent| find.is_empty() || has(&agent.task) || named(agent.name.as_deref());
+        let scoped: Vec<&GoalRow> = room.view.goals.iter().filter(|row| in_scope(row)).collect();
+        let loose = (room.view.loose_needs.iter()).filter(|need| {
+            scope.is_none_or(|scope| {
+                let named = need.project.as_deref();
+                named == Some(scope) || folder_of(bench, named).as_deref() == Some(scope)
+            })
+        });
+        let placed: std::collections::HashSet<&str> = (scoped.iter())
+            .flat_map(|row| row.needs.iter().map(String::as_str))
+            .chain(loose.map(|need| need.id.as_str()))
+            .collect();
+        let items = bench
+            .shown()
+            .map_or(&[][..], |view| view.inbox.items.as_slice());
+        let calls: Vec<&InboxItem> = (items.iter())
+            .filter(|item| item.need.is_some() && placed.contains(item.id.as_str()))
+            .collect();
+        let call_found = |item: &&&InboxItem| {
+            find.is_empty()
+                || has(&item.what)
+                || (item.asked.as_deref().or(item.detail.as_deref())).is_some_and(has)
+                || named(item.name.as_deref())
+        };
         let no_goal: Vec<&GoalAgent> = (room.view.no_goal.iter())
             .filter_map(|id| room.agent(id))
             .filter(|agent| agent_scoped(agent))
             .collect();
-
-        let count = |state: SliceState| scoped.iter().filter(|row| row.state == state).count();
-        let needs = count(SliceState::NeedsYou) + count(SliceState::Failed) + loose.len();
-        let active = scoped
-            .iter()
-            .filter(|row| row.state != SliceState::Done)
-            .count()
-            + loose.len();
+        let (working, idle): (Vec<&GoalAgent>, Vec<&GoalAgent>) =
+            no_goal.into_iter().partition(|agent| at_work(agent));
+        let (open, done): (Vec<&GoalRow>, Vec<&GoalRow>) =
+            (scoped.iter().copied()).partition(|row| row.state != SliceState::Done);
+        let done_earlier = if scope.is_none() {
+            room.view.done_earlier
+        } else {
+            0
+        };
         let counts = Counts {
-            active,
-            listed: active + no_goal.len(),
-            needs,
-            moving: count(SliceState::Moving),
-            waiting: count(SliceState::Waiting),
-            done: count(SliceState::Done) + room.view.done_earlier,
+            calls: calls.len(),
+            goals: open.len(),
+            working: (room.view.agents.iter())
+                .filter(|agent| agent_scoped(agent) && agent.group == AgentGroup::Working)
+                .count(),
+            idle: idle.len(),
+            done: done.len() + done_earlier,
         };
-        let mut stats = Stats::default();
-        for agent in room.view.agents.iter().filter(|agent| agent_scoped(agent)) {
-            stats.agents += 1;
-            stats.working += usize::from(agent.group == AgentGroup::Working);
-            stats.desk.add(&agent.desk);
+
+        let goal_entry = |row: &&GoalRow| Entry::Goal(row.project.clone(), row.card);
+        let agent_entry = |agent: &&GoalAgent| Entry::Agent(agent.id.clone());
+        let mut entries = Vec::new();
+        let found_calls: Vec<Entry> = (calls.iter())
+            .filter(call_found)
+            .map(|item| Entry::Call(item.id.clone()))
+            .collect();
+        if !found_calls.is_empty() {
+            entries.push(Entry::Section("Your calls"));
+            entries.extend(found_calls);
         }
-
-        let goal_at = |at: &usize| &room.view.goals[*at];
-        let goal_entry = |at: usize| {
-            let row = &room.view.goals[at];
-            Entry::Goal(row.project.clone(), row.card)
-        };
-        let shown: Vec<usize> = (0..room.view.goals.len())
-            .filter(|at| {
-                let row = goal_at(at);
-                in_scope(row) && listed(room.filter, row.state) && found(row)
-            })
+        let lines: Vec<Entry> = (open.iter())
+            .filter(|row| found(row))
+            .map(goal_entry)
+            .chain(
+                (working.iter())
+                    .filter(|agent| agent_found(agent))
+                    .map(agent_entry),
+            )
             .collect();
-        let need_found = |need: &&LooseNeed| {
-            find.is_empty()
-                || need.what.to_lowercase().contains(&find)
-                || (need.name.as_deref()).is_some_and(|name| name.to_lowercase().contains(&find))
-        };
-        let loose_ids: Vec<String> = match room.filter {
-            Filter::Active | Filter::Needs => (loose.iter())
-                .copied()
-                .filter(need_found)
-                .map(|need| need.id.clone())
-                .collect(),
-            _ => Vec::new(),
-        };
-        let agent_found = |agent: &&GoalAgent| {
-            find.is_empty()
-                || agent.task.to_lowercase().contains(&find)
-                || (agent.name.as_deref()).is_some_and(|name| name.to_lowercase().contains(&find))
-        };
-        let loose_agents: Vec<String> = (no_goal.iter().copied())
-            .filter(|_| room.filter == Filter::Active)
-            .filter(agent_found)
-            .map(|agent| agent.id.clone())
-            .collect();
-
-        let mut entries =
-            Vec::with_capacity(shown.len() + loose_ids.len() + loose_agents.len() + 5);
-        match room.rank {
-            Some(rank) => {
-                let mut ranked = shown;
-                ranked.sort_by_key(|at| std::cmp::Reverse(rank.of(goal_at(at))));
-                entries.extend(ranked.into_iter().map(goal_entry));
-                entries.extend(loose_ids.into_iter().map(Entry::Need));
-                entries.extend(loose_agents.into_iter().map(Entry::Agent));
-            }
-            None => {
-                let of = |state: SliceState| {
-                    (shown.iter().copied()).filter(move |at| goal_at(at).state == state)
-                };
-                let needing = of(SliceState::NeedsYou).count()
-                    + of(SliceState::Failed).count()
-                    + loose_ids.len();
-                if needing > 0 {
-                    entries.push(Entry::Section("Needs you", needing));
-                    entries.extend(of(SliceState::NeedsYou).map(goal_entry));
-                    entries.extend(loose_ids.into_iter().map(Entry::Need));
-                    entries.extend(of(SliceState::Failed).map(goal_entry));
-                }
-                for (name, state) in [
-                    ("Moving", SliceState::Moving),
-                    ("Waiting", SliceState::Waiting),
-                ] {
-                    let count = of(state).count();
-                    if count > 0 {
-                        entries.push(Entry::Section(name, count));
-                        entries.extend(of(state).map(goal_entry));
-                    }
-                }
-                if !loose_agents.is_empty() {
-                    entries.push(Entry::Section("No goal", loose_agents.len()));
-                    entries.extend(loose_agents.into_iter().map(Entry::Agent));
-                }
-                let count = of(SliceState::Done).count();
-                if count > 0 {
-                    entries.push(Entry::Section("Done", count + room.view.done_earlier));
-                    entries.extend(of(SliceState::Done).map(goal_entry));
-                }
+        if !lines.is_empty() {
+            entries.push(Entry::Section("Goals"));
+            entries.extend(lines);
+        }
+        if counts.idle + counts.done > 0 {
+            entries.push(Entry::Folded);
+            if room.unfolded || !find.is_empty() {
+                entries.extend(
+                    (idle.iter())
+                        .filter(|agent| agent_found(agent))
+                        .map(agent_entry),
+                );
+                entries.extend(done.iter().filter(|row| found(row)).map(goal_entry));
             }
         }
 
         let top = self.room.rows.logical_scroll_top();
         let anchor = self.room.entries.get(top.item_ix).cloned();
         crate::ui::relist(&self.room.rows, &self.room.entries, &entries);
+        self.room.rows.remeasure();
         if top.item_ix > 0 || top.offset_in_item > px(0.) {
             let kept = anchor.and_then(|anchor| entries.iter().position(|entry| *entry == anchor));
             self.room.rows.scroll_to(match kept {
@@ -631,7 +371,6 @@ impl GoalsPane {
         }
         self.room.entries = entries;
         self.room.counts = counts;
-        self.room.stats = stats;
         let kept = (self.room.chosen.as_ref()).filter(|chosen| {
             (self.room.entries.iter())
                 .any(|entry| self.room.entry_chosen(entry).as_ref() == Some(*chosen))
@@ -641,18 +380,6 @@ impl GoalsPane {
                 (self.room.entries.iter()).find_map(|entry| self.room.entry_chosen(entry));
         }
         cx.notify();
-    }
-
-    /// The section the top of the list is in, once rows have gone under its name.
-    fn section_on_top(&self) -> Option<(&'static str, usize)> {
-        let top = self.room.rows.logical_scroll_top();
-        if top.item_ix == 0 && top.offset_in_item <= px(0.) {
-            return None;
-        }
-        (self.room.entries.get(..=top.item_ix)?.iter().rev()).find_map(|entry| match entry {
-            Entry::Section(name, count) => Some((*name, *count)),
-            _ => None,
-        })
     }
 
     /// Follows a project brought to the front from the side rail: the list narrows to it, until
@@ -669,13 +396,8 @@ impl GoalsPane {
         }
     }
 
-    fn set_filter(&mut self, filter: Filter, cx: &mut Context<Self>) {
-        self.room.filter = filter;
-        self.relist(cx);
-    }
-
-    fn set_rank(&mut self, rank: Option<Rank>, cx: &mut Context<Self>) {
-        self.room.rank = if self.room.rank == rank { None } else { rank };
+    fn toggle_folded(&mut self, cx: &mut Context<Self>) {
+        self.room.unfolded = !self.room.unfolded;
         self.relist(cx);
     }
 
@@ -834,7 +556,7 @@ impl GoalsPane {
     }
 }
 
-/// Home's numbers, tabs and rows.
+/// Home's line of what waits on the person, the find box, and the calls and goals under them.
 pub(super) fn draw(
     pane: &mut GoalsPane,
     window: &mut Window,
@@ -853,219 +575,25 @@ pub(super) fn draw(
         .size_full()
         .flex()
         .flex_col()
-        .child(stats(pane, cx))
-        .child(tools(pane, happened, window, cx))
+        .child(head(pane, happened, window, cx))
         .when(reading_rules, |list| {
             list.children(
                 super::rules::offer(pane, false, cx)
-                    .map(|reading| div().px(px(32.)).child(reading)),
+                    .map(|reading| div().px(px(28.)).child(reading)),
             )
         })
         .child(rows(pane, cx))
         .into_any_element()
 }
 
-/// The six numbers over the list. Clicking one ranks the list by it; again goes back.
-fn stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let fit = pane.room.head.get().stats;
-    if fit == StatsFit::Compact {
-        return compact_stats(pane, cx).into_any_element();
-    }
-    let t = Tokens::get(cx).clone();
-    let (counts, stats, rank) = (pane.room.counts, pane.room.stats, pane.room.rank);
-    let small = fit == StatsFit::SmallNumbers;
-    let sub = |words: String, tint: Option<Hsla>| {
-        ui::text(words, TEXT_2XS_H, FontWeight::NORMAL)
-            .mt(px(1.))
-            .text_color(tint.unwrap_or(t.text_tertiary))
-    };
-    let stat = |id: &'static str,
-                value: usize,
-                label: &'static str,
-                under: Option<Div>,
-                ranks: Option<Rank>,
-                first: bool,
-                cx: &mut Context<GoalsPane>| {
-        let lit = ranks.is_some() && ranks == rank;
-        div()
-            .id(id)
-            .flex_1()
-            .cursor_pointer()
-            .when(!first, |stat| {
-                stat.pl(px(if small { 12. } else { 18. }))
-                    .border_l_1()
-                    .border_color(t.border)
-            })
-            .child(
-                ui::text(
-                    value.to_string(),
-                    if small { TEXT_XL } else { STAT_SIZE },
-                    FontWeight::NORMAL,
-                )
-                .line_height(relative(1.1))
-                .letter_spacing(-0.03)
-                .font_features(theme::tabular())
-                .text_color(t.text_primary),
-            )
-            .child(
-                ui::text(label, TEXT_XS, FontWeight::NORMAL)
-                    .mt(px(if small { 2. } else { 5. }))
-                    .text_color(if lit {
-                        t.text_primary
-                    } else {
-                        t.text_secondary
-                    })
-                    .when(lit, |label| label.underline()),
-            )
-            .children(under)
-            .on_click(cx.listener(move |pane, _, _, cx| pane.set_rank(ranks, cx)))
-    };
-    let needing = (counts.needs > 0).then_some(t.warn);
-    let working = (stats.working > 0).then_some(t.live);
-    let small_line = |words: &str| (fit == StatsFit::Full).then(|| sub(words.to_owned(), None));
-    div()
-        .flex()
-        .flex_none()
-        .pt(px(if small { 16. } else { 22. }))
-        .pb(px(if small { 12. } else { 18. }))
-        .px(px(if small { 16. } else { 28. }))
-        .child(stat(
-            "stat-goals",
-            counts.active,
-            "Goals",
-            Some(sub(format!("{} need you", counts.needs), needing)),
-            None,
-            true,
-            cx,
-        ))
-        .child(stat(
-            "stat-agents",
-            stats.agents,
-            "Agents",
-            (fit == StatsFit::Full).then(|| sub(format!("{} working", stats.working), working)),
-            Some(Rank::Agents),
-            false,
-            cx,
-        ))
-        .child(stat(
-            "stat-terminals",
-            stats.desk.terminals,
-            "Terminals",
-            small_line("running"),
-            Some(Rank::Terminals),
-            false,
-            cx,
-        ))
-        .child(stat(
-            "stat-pages",
-            stats.desk.pages,
-            "Browser tabs",
-            small_line("open"),
-            Some(Rank::Pages),
-            false,
-            cx,
-        ))
-        .child(stat(
-            "stat-sims",
-            stats.desk.simulators,
-            "Sims",
-            small_line("attached"),
-            Some(Rank::Simulators),
-            false,
-            cx,
-        ))
-        .child(stat(
-            "stat-files",
-            stats.desk.files,
-            "Files",
-            small_line("on desks"),
-            Some(Rank::Files),
-            false,
-            cx,
-        ))
-        .into_any_element()
+fn plural(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
 }
 
-/// The six numbers as one row of number and name, with how many need the person after the first.
-fn compact_stats(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
-    let (counts, stats, rank) = (pane.room.counts, pane.room.stats, pane.room.rank);
-    let needing = if counts.needs > 0 {
-        t.warn
-    } else {
-        t.text_tertiary
-    };
-    let need_you = ui::text(
-        format!("{} need you", counts.needs),
-        TEXT_XS,
-        FontWeight::NORMAL,
-    )
-    .ml(SPACE_1H)
-    .text_color(needing);
-    let mut need_you = Some(need_you);
-    let items = [
-        ("stat-goals", counts.active, "Goals", None),
-        ("stat-agents", stats.agents, "Agents", Some(Rank::Agents)),
-        (
-            "stat-terminals",
-            stats.desk.terminals,
-            "Terminals",
-            Some(Rank::Terminals),
-        ),
-        (
-            "stat-pages",
-            stats.desk.pages,
-            "Browser tabs",
-            Some(Rank::Pages),
-        ),
-        (
-            "stat-sims",
-            stats.desk.simulators,
-            "Sims",
-            Some(Rank::Simulators),
-        ),
-        ("stat-files", stats.desk.files, "Files", Some(Rank::Files)),
-    ];
-    div()
-        .flex()
-        .flex_wrap()
-        .flex_none()
-        .gap_x(SPACE_3)
-        .gap_y(SPACE_0)
-        .pt(SPACE_3H)
-        .pb(SPACE_2)
-        .px(SPACE_4)
-        .children(items.map(|(id, value, label, ranks)| {
-            let lit = ranks.is_some() && ranks == rank;
-            div()
-                .id(id)
-                .flex()
-                .flex_none()
-                .items_baseline()
-                .gap(SPACE_1)
-                .cursor_pointer()
-                .child(
-                    ui::text(value.to_string(), TEXT_SM, FontWeight::MEDIUM)
-                        .font_features(theme::tabular())
-                        .text_color(t.text_primary),
-                )
-                .child(
-                    ui::text(label, TEXT_XS, FontWeight::NORMAL)
-                        .text_color(if lit {
-                            t.text_primary
-                        } else {
-                            t.text_secondary
-                        })
-                        .when(lit, |label| label.underline()),
-                )
-                .children(need_you.take())
-                .on_click(cx.listener(move |pane, _, _, cx| pane.set_rank(ranks, cx)))
-        }))
-}
-
-/// The filter tabs, then how much happened while the person was away and the find box, which
-/// take a line of their own when the tabs leave them too little.
-fn tools(
+/// How many calls wait on the person, and quietly beside it how many agents work, on how many
+/// goals, and when all of it should be through; then how much happened while they were away and
+/// the find box.
+fn head(
     pane: &mut GoalsPane,
     happened: usize,
     window: &mut Window,
@@ -1073,44 +601,26 @@ fn tools(
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let counts = pane.room.counts;
-    let tabs = [
-        (
-            "tab-active",
-            Filter::Active,
-            "All active",
-            counts.listed,
-            None,
-        ),
-        (
-            "tab-needs",
-            Filter::Needs,
-            "Needs you",
-            counts.needs,
-            Some(SliceState::NeedsYou),
-        ),
-        (
-            "tab-moving",
-            Filter::Moving,
-            "Moving",
-            counts.moving,
-            Some(SliceState::Moving),
-        ),
-        (
-            "tab-waiting",
-            Filter::Waiting,
-            "Waiting",
-            counts.waiting,
-            Some(SliceState::Waiting),
-        ),
-        (
-            "tab-done",
-            Filter::Done,
-            "Done",
-            counts.done,
-            Some(SliceState::Done),
-        ),
-    ];
-    let chosen = pane.room.filter;
+    let says = match counts.calls {
+        0 => "Nothing needs you".to_owned(),
+        calls => plural(calls, "call for you", "calls for you"),
+    };
+    let through = pane.room.view.through.map(|through| {
+        let at = ui::time::clock(through.at);
+        match through.then_you {
+            true => format!("all through by {at}, then you"),
+            false => format!("all through by {at}"),
+        }
+    });
+    let quiet = [
+        Some(plural(counts.working, "agent working", "agents working")),
+        Some(plural(counts.goals, "goal", "goals")),
+        through,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ");
     let scope = pane.room.scope.clone().map(|folder| {
         let name = (pane.bench.upgrade())
             .map(|bench| project_name(bench.read(cx), &folder))
@@ -1137,88 +647,35 @@ fn tools(
             .on_click(cx.listener(|pane, _, _, cx| pane.narrow_to(None, cx)))
     });
     let find = pane.find_field(window, cx);
-    let head = pane.room.head.get();
-    let roomy = head.tabs == TabsFit::Roomy;
-    let spacing = f32::from(SPACE_1);
-    let ends_min = FIND_MIN_W
-        + if happened > 0 {
-            Head::HAPPENED_SHORT_W + spacing
-        } else {
-            0.
-        }
-        + if scope.is_some() {
-            SCOPE_MIN_W + spacing
-        } else {
-            0.
-        };
-    let ends_wrap = match (scope.is_some(), happened > 0) {
-        (true, _) => head.ends_tight_with_project,
-        (false, true) => head.ends_tight,
-        (false, false) => false,
-    };
     div()
         .flex()
         .flex_wrap()
         .flex_none()
         .items_center()
-        .gap_x(if roomy { SPACE_1 } else { SPACE_0 })
-        .gap_y(SPACE_1)
-        .px(px(if roomy { 22. } else { 14. }))
-        .pb(SPACE_2H)
-        .children(tabs.map(|(id, filter, label, count, state)| {
-            let on = filter == chosen;
-            let words = head.tabs != TabsFit::Marks || on;
-            let shown = match (words, state) {
-                (true, _) => Some(label),
-                (false, None) => Some("All"),
-                (false, Some(_)) => None,
-            };
-            div()
-                .id(id)
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(if roomy { 7. } else { 5. }))
-                .h(px(26.))
-                .px(if roomy { SPACE_2H } else { SPACE_1 })
-                .rounded(RADIUS_2)
-                .cursor_pointer()
-                .when(!words, |tab| tab.tooltip(ui::tooltip(label.to_owned())))
-                .text_color(if on { t.text_primary } else { t.text_tertiary })
-                .when(on, |tab| tab.bg(t.surface_chosen))
-                .hover(move |tab| {
-                    let tab = tab.text_color(if on { t.text_primary } else { t.text_secondary });
-                    if on {
-                        tab
-                    } else {
-                        tab.bg(t.surface_hover)
-                    }
-                })
-                .children(state.map(|state| state_dot(state, 9., cx)))
-                .children(shown.map(|shown| ui::text(shown, TEXT_XS_H, FontWeight::NORMAL)))
-                .child(
-                    ui::text(count.to_string(), TEXT_2XS_H, FontWeight::NORMAL)
-                        .font_features(theme::tabular())
-                        .text_color(t.text_tertiary),
-                )
-                .on_click(cx.listener(move |pane, _, _, cx| pane.set_filter(filter, cx)))
-        }))
+        .gap_x(SPACE_3)
+        .gap_y(SPACE_2)
+        .pt(SPACE_5)
+        .pb(SPACE_2)
+        .px(px(28.))
         .child(
             div()
                 .flex()
+                .flex_wrap()
                 .flex_1()
-                .flex_basis(px(0.))
-                .min_w(px(if ends_wrap { FIND_MIN_W } else { ends_min }))
-                .when(ends_wrap, |ends| ends.flex_wrap())
+                .min_w(px(220.))
+                .items_baseline()
+                .gap_x(SPACE_3)
+                .gap_y(SPACE_1)
+                .child(ui::text(says, TEXT_XL, FontWeight::SEMIBOLD).text_color(t.text_primary))
+                .child(ui::text(quiet, TEXT_SM, FontWeight::NORMAL).text_color(t.text_secondary)),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_none()
                 .items_center()
-                .justify_end()
                 .gap(SPACE_1)
                 .when(happened > 0, |ends| {
-                    let said = format!("{happened} happened while you were away");
-                    let shown = match head.happened_words {
-                        true => said.clone(),
-                        false => format!("{happened} happened"),
-                    };
                     ends.child(
                         div()
                             .id("goals-overnight")
@@ -1227,8 +684,14 @@ fn tools(
                             .cursor_pointer()
                             .text_color(t.text_tertiary)
                             .hover(move |link| link.text_color(t.text_secondary))
-                            .tooltip(ui::tooltip(said))
-                            .child(ui::text(shown, TEXT_2XS_H, FontWeight::NORMAL))
+                            .tooltip(ui::tooltip(format!(
+                                "{happened} happened while you were away"
+                            )))
+                            .child(ui::text(
+                                format!("{happened} happened"),
+                                TEXT_2XS_H,
+                                FontWeight::NORMAL,
+                            ))
                             .on_click(cx.listener(|pane, _, _, cx| pane.go(At::Overnight, cx))),
                     )
                 })
@@ -1246,16 +709,13 @@ fn tools(
         )
 }
 
-/// The rows. Only those in view are drawn, under the name of the section the top one is in.
+/// The lines. Only those in view are drawn.
 fn rows(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
-    let t = Tokens::get(cx).clone();
     let view = cx.entity();
     let rows = list(pane.room.rows.clone(), move |at, _, cx| {
         view.update(cx, |pane, cx| entry_row(pane, at, cx))
     })
     .size_full();
-    let clear = crate::see_through::clear(cx);
-    let (fit, head) = (pane.room.fit.clone(), pane.room.head.clone());
     div()
         .id("goals-rows")
         .key_context("GoalsList")
@@ -1263,7 +723,7 @@ fn rows(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
         .relative()
         .flex_1()
         .min_h_0()
-        .px(px(14.))
+        .px(px(20.))
         .on_action(cx.listener(GoalsPane::next_goal))
         .on_action(cx.listener(GoalsPane::previous_goal))
         .on_action(cx.listener(GoalsPane::find_goal))
@@ -1278,38 +738,6 @@ fn rows(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> impl IntoElement {
             )
         })
         .child(rows)
-        .child(
-            canvas(
-                |_, _, _| {},
-                move |bounds, _, window, cx| {
-                    let width = f32::from(bounds.size.width) / theme::text_scale(cx);
-                    let (now, above) = (Fit::of(width), Head::of(width));
-                    if fit.replace(now) != now || head.replace(above) != above {
-                        window.refresh();
-                    }
-                },
-            )
-            .absolute()
-            .top_0()
-            .bottom_0()
-            .left(px(14.))
-            .right(px(14.)),
-        )
-        .when_some(pane.section_on_top().filter(|_| !clear), |rows, section| {
-            rows.child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left(px(14.))
-                    .right(px(14.))
-                    .bg(linear_gradient(
-                        180.,
-                        linear_color_stop(t.surface, 0.75),
-                        linear_color_stop(t.surface.opacity(0.), 1.),
-                    ))
-                    .child(section_line(section.0, section.1, cx)),
-            )
-        })
 }
 
 fn empty_words(pane: &GoalsPane) -> &'static str {
@@ -1322,56 +750,62 @@ fn empty_words(pane: &GoalsPane) -> &'static str {
     }
 }
 
-fn section_line(name: &'static str, count: usize, cx: &App) -> Div {
-    let t = Tokens::get(cx);
+/// The name over a part of the list, in spaced capitals.
+fn section_line(name: &'static str, cx: &App) -> Div {
     div()
-        .flex()
-        .items_baseline()
-        .gap(px(7.))
         .pt(SPACE_3H)
         .pb(SPACE_1H)
-        .px(SPACE_2H)
-        .child(ui::text(name, TEXT_XS_H, FontWeight::MEDIUM).text_color(t.text_primary))
-        .child(
-            ui::text(count.to_string(), TEXT_2XS_H, FontWeight::NORMAL).text_color(t.text_tertiary),
-        )
+        .px(SPACE_2)
+        .child(ui::caps(name, cx))
 }
 
 fn entry_row(pane: &GoalsPane, at: usize, cx: &mut Context<GoalsPane>) -> AnyElement {
     match pane.room.entries.get(at) {
-        Some(Entry::Section(name, count)) => section_line(name, *count, cx).into_any_element(),
+        Some(Entry::Section(name)) => section_line(name, cx).into_any_element(),
+        Some(Entry::Call(id)) => match pane.inbox_item(id, cx) {
+            Some(item) => {
+                let chosen = pane.room.chosen.as_ref() == Some(&Chosen::Need(id.clone()));
+                div()
+                    .pb(SPACE_2)
+                    .child(call_card(pane, &item, true, chosen, cx))
+                    .into_any_element()
+            }
+            None => div().into_any_element(),
+        },
         Some(Entry::Goal(project, card)) => match pane.room.goal(project, *card) {
             Some(row) => goal_row(pane, row, cx),
             None => div().into_any_element(),
         },
-        Some(Entry::Need(id)) => {
-            match (pane.room.view.loose_needs.iter()).find(|need| need.id == *id) {
-                Some(need) => need_row(pane, need, cx),
-                None => div().into_any_element(),
-            }
-        }
         Some(Entry::Agent(agent)) => match pane.room.agent(agent) {
             Some(agent) => agent_row(pane, agent, cx),
             None => div().into_any_element(),
         },
+        Some(Entry::Folded) => folded_line(pane, cx),
         None => div().into_any_element(),
     }
 }
 
-/// A word on what a need is for, as a goal's next line starts.
-pub(super) fn need_word(need: InboxNeed) -> &'static str {
-    match need {
-        InboxNeed::Decide => "Decide",
-        InboxNeed::Unblock => "Unblock",
-        InboxNeed::Fix => "Fix",
-    }
+/// What a goal's line says of it, plainly: what moves, or what it waits on. What the person is
+/// asked shows on its card, so a goal waiting on them only says so.
+pub(super) fn goal_says(row: &GoalRow) -> Option<String> {
+    Some(match row.next.as_ref()? {
+        GoalNext::Need {
+            need: InboxNeed::Decide,
+            ..
+        } => "waits on your call".to_owned(),
+        GoalNext::Need {
+            need: InboxNeed::Unblock,
+            ..
+        } => "waits on you to unblock it".to_owned(),
+        next => next_words(next),
+    })
 }
 
-/// What a goal's row says comes next.
+/// What comes next for a goal, in a line.
 pub(super) fn next_words(next: &GoalNext) -> String {
     match next {
-        GoalNext::Need { need, what } => format!("{} · {what}", need_word(*need)),
-        GoalNext::Failed { slice } => format!("Fix · {slice} failed"),
+        GoalNext::Need { what, .. } => what.clone(),
+        GoalNext::Failed { slice } => format!("{slice} failed"),
         GoalNext::Gate { gate, slice, owner } => {
             super::goal::step_words(gate, slice, owner.as_deref())
         }
@@ -1391,7 +825,7 @@ pub(super) fn clock_words(clock: GoalClock) -> String {
     }
 }
 
-/// The ink for what a row says is next.
+/// The ink for what a line says is next.
 pub(super) fn next_ink(state: SliceState, cx: &App) -> Hsla {
     let t = Tokens::get(cx);
     match state {
@@ -1401,72 +835,66 @@ pub(super) fn next_ink(state: SliceState, cx: &App) -> Hsla {
     }
 }
 
-/// The tint across a row that needs the person, fading out before its end.
-fn row_tint(tint: Hsla) -> gpui_kit::Background {
-    linear_gradient(
-        95.,
-        linear_color_stop(tint.opacity(0.11), 0.),
-        linear_color_stop(tint.opacity(0.), 0.62),
-    )
-}
-
-/// The two lines every row has: its title, and what is next and where, over its state's mark.
-fn two_lines(
+/// A line of the list: its mark, its title, what it says in a plain phrase, and at its end when
+/// it should be through or where it is.
+fn line(
     id: SharedString,
-    title: impl Into<SharedString>,
+    title: String,
     state: SliceState,
-    next: Option<String>,
-    project: Option<String>,
+    says: Option<String>,
+    end: Option<String>,
     chosen: bool,
     cx: &App,
 ) -> Row {
     let t = Tokens::get(cx);
-    let title: SharedString = title.into();
     let done = state == SliceState::Done;
-    let ink = if done {
-        t.text_tertiary
-    } else {
-        t.text_primary
-    };
-    let under = div()
+    let words = div()
         .flex()
+        .flex_1()
         .min_w_0()
-        .mt(px(2.))
-        .gap(px(4.))
-        .text_size(theme::ui_text(TEXT_XS))
-        .whitespace_nowrap()
-        .overflow_hidden()
-        .text_color(t.text_tertiary)
-        .children(next.as_ref().map(|next| {
-            div()
-                .flex_shrink_1()
+        .items_center()
+        .gap(SPACE_3)
+        .child(
+            ui::text(title.clone(), TITLE_SIZE, FontWeight::NORMAL)
+                .flex_shrink_0()
+                .max_w(relative(0.62))
+                .truncate()
+                .text_color(if done {
+                    t.text_tertiary
+                } else {
+                    t.text_primary
+                }),
+        )
+        .children(says.map(|says| {
+            ui::text(says, TEXT_XS, FontWeight::NORMAL)
+                .flex_1()
                 .min_w_0()
                 .truncate()
-                .text_color(next_ink(state, cx))
-                .child(next.clone())
-        }))
-        .when(next.is_some() && project.is_some(), |under| {
-            under.child("·")
-        })
-        .children(project.map(|project| div().flex_none().child(project)));
-    let row = Row::new(id, title.clone())
-        .title_view(Some(
-            ui::text(title, TITLE_SIZE, FontWeight::NORMAL)
-                .min_w_0()
-                .truncate()
-                .text_color(ink),
-        ))
+                .text_color(if done {
+                    t.text_tertiary
+                } else {
+                    next_ink(state, cx)
+                })
+        }));
+    Row::new(id, title)
+        .title_view(Some(words))
         .mark(14., mark(state, cx))
         .centered()
         .height(ROW_HEIGHT)
         .chosen(chosen)
-        .subtitle(under)
-        .padding_right(SPACE_2H.into());
-    match state {
-        SliceState::NeedsYou => row.ground(row_tint(t.warn)),
-        SliceState::Failed => row.ground(row_tint(t.danger)),
-        _ => row,
-    }
+        .padding_right(SPACE_2H.into())
+        .child(
+            div()
+                .w(px(END_W))
+                .flex_none()
+                .flex()
+                .justify_end()
+                .children(end.map(|end| {
+                    ui::text(end, TEXT_XS, FontWeight::NORMAL)
+                        .truncate()
+                        .text_color(t.text_tertiary)
+                })),
+        )
 }
 
 fn mark(state: SliceState, cx: &App) -> AnyElement {
@@ -1477,24 +905,28 @@ fn mark(state: SliceState, cx: &App) -> AnyElement {
     }
 }
 
-/// A row with the space kept round it, its second click opening what it is about.
+/// A line with its click: the first chooses it, a second opens what it is about.
 fn spaced(id: SharedString, row: impl IntoElement) -> Stateful<Div> {
-    div().id(id).pb(px(2.)).child(row)
+    div().id(id).child(row)
 }
 
 fn goal_row(pane: &GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> AnyElement {
     let chosen = pane.room.chosen == Some(Chosen::Goal(row.project.clone(), row.card));
-    let project = (pane.bench.upgrade()).map(|bench| project_name(bench.read(cx), &row.project));
-    let next = row.next.as_ref().map(next_words);
+    let end = match row.clock {
+        Some(GoalClock::Until { at }) => Some(format!("ETA {}", ui::time::clock(at))),
+        Some(GoalClock::Late { .. }) => Some("late".to_owned()),
+        Some(GoalClock::Finished { at }) => Some(ui::time::ago(at)),
+        _ => (pane.bench.upgrade()).map(|bench| project_name(bench.read(cx), &row.project)),
+    };
     let picks = Chosen::Goal(row.project.clone(), row.card);
     let (folder, card) = (row.project.clone(), row.card);
     let id = SharedString::from(format!("goal-{}-{}", row.project, row.card));
-    let line = two_lines(
+    let shown = line(
         id.clone(),
         row.title.clone(),
         row.state,
-        next,
-        project,
+        goal_says(row),
+        end,
         chosen,
         cx,
     )
@@ -1505,78 +937,12 @@ fn goal_row(pane: &GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
         if event.click_count() == 2 {
             pane.open_row(&folder, card, cx);
         }
-    }))
-    .child(ends(
-        pane.room.fit.get(),
-        slice_bar(row, cx).into_any_element(),
-        crew(pane, &row.agents, cx).into_any_element(),
-        desk_counts(&row.desk, cx).into_any_element(),
-        row.clock.map(clock_words),
-        cx,
-    ));
+    }));
     let owner = row.agents.first().cloned();
-    super::with_agent_menu(spaced(id, line), owner, &pane.bench)
+    super::with_agent_menu(spaced(id, shown), owner, &pane.bench)
 }
 
-/// A row for something that waits on the person about no goal.
-fn need_row(pane: &GoalsPane, need: &LooseNeed, cx: &mut Context<GoalsPane>) -> AnyElement {
-    let chosen = pane.room.chosen == Some(Chosen::Need(need.id.clone()));
-    let project = (pane.bench.upgrade()).and_then(|bench| {
-        let bench = bench.read(cx);
-        let folder = need.project.as_deref()?;
-        let named = (bench.projects().iter())
-            .find(|project| project.id == folder)
-            .map(|project| project.name.clone());
-        Some(named.unwrap_or_else(|| project_name(bench, folder)))
-    });
-    let state = match need.need {
-        InboxNeed::Fix => SliceState::Failed,
-        _ => SliceState::NeedsYou,
-    };
-    let who = (need.name.as_ref()).map_or(String::new(), |name| format!(" · @{name}"));
-    let next = Some(format!("{}{who}", need_word(need.need)));
-    let picks = Chosen::Need(need.id.clone());
-    let opened = need.id.clone();
-    let id = SharedString::from(format!("need-{}", need.id));
-    let line = two_lines(
-        id.clone(),
-        need.what.clone(),
-        state,
-        next,
-        project,
-        chosen,
-        cx,
-    )
-    .on_click(cx.listener(move |pane, event: &ClickEvent, window, cx| {
-        pane.room.keys.focus(window, cx);
-        pane.room.chosen = Some(picks.clone());
-        cx.notify();
-        if event.click_count() == 2 {
-            if let Some(item) = pane.inbox_item(&opened, cx) {
-                pane.open(&item, cx);
-            }
-        }
-    }))
-    .child(ends(
-        pane.room.fit.get(),
-        div().into_any_element(),
-        crew(pane, need.agent.as_slice(), cx).into_any_element(),
-        div().into_any_element(),
-        Some(ui::time::age(need.at)),
-        cx,
-    ));
-    super::with_agent_menu(spaced(id, line), need.agent.clone(), &pane.bench)
-}
-
-/// What a need asks, in a line: what an agent asked, else what the core says it is.
-pub(super) fn need_title(item: &InboxItem) -> String {
-    match (item.kind, &item.detail) {
-        (InboxKind::Question, Some(asked)) => asked.clone(),
-        _ => item.what.clone(),
-    }
-}
-
-/// A row for an agent working no goal.
+/// A line for an agent working no goal.
 fn agent_row(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -> AnyElement {
     let chosen = pane.room.chosen == Some(Chosen::Agent(agent.id.clone()));
     let project = (pane.bench.upgrade()).and_then(|bench| {
@@ -1585,22 +951,19 @@ fn agent_row(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -
             .find(|project| Some(project.id.as_str()) == agent.project.as_deref())
             .map(|project| project.name.clone())
     });
-    let state = agent.state;
     let who = agent.name.as_ref().map(|name| format!("@{name}"));
-    let next = [agent.left.clone(), who]
+    let says = [agent.left.clone(), who]
         .into_iter()
         .flatten()
         .reduce(|left, who| format!("{left} · {who}"));
     let picks = Chosen::Agent(agent.id.clone());
     let opened = agent.id.clone();
     let id = SharedString::from(format!("loose-{}", agent.id));
-    let mut desk = DeskCounts::default();
-    desk.add(&agent.desk);
-    let line = two_lines(
+    let shown = line(
         id.clone(),
         agent.task.clone(),
-        state,
-        next,
+        agent.state,
+        says,
         project,
         chosen,
         cx,
@@ -1612,102 +975,44 @@ fn agent_row(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -
         if event.click_count() == 2 {
             pane.open_agent(&opened, cx);
         }
-    }))
-    .child(ends(
-        pane.room.fit.get(),
-        div().into_any_element(),
-        crew(pane, std::slice::from_ref(&agent.id), cx).into_any_element(),
-        desk_counts(&desk, cx).into_any_element(),
-        None,
-        cx,
-    ));
-    super::with_agent_menu(spaced(id, line), Some(agent.id.clone()), &pane.bench)
+    }));
+    super::with_agent_menu(spaced(id, shown), Some(agent.id.clone()), &pane.bench)
 }
 
-/// A row's end columns, as many as its width leaves room for: its slices, its agents, what is
-/// on their desks and its clock.
-fn ends(
-    fit: Fit,
-    bar: AnyElement,
-    crew: AnyElement,
-    desk: AnyElement,
-    clock: Option<String>,
-    cx: &App,
-) -> impl IntoElement {
+/// The quiet line that holds idle chats and finished goals, which opens to list them.
+fn folded_line(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let counts = pane.room.counts;
+    let words = [
+        (counts.idle > 0).then(|| plural(counts.idle, "idle chat", "idle chats")),
+        (counts.done > 0).then(|| format!("{} done", counts.done)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ");
+    let open = pane.room.unfolded || !pane.room.find.trim().is_empty();
     div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(SPACE_3)
-        .ml(SPACE_1)
-        .when(fit.bar, |ends| {
-            ends.child(div().w(px(BAR_W)).flex_none().child(bar))
-        })
-        .child(div().w(px(fit.crew_width())).flex_none().child(crew))
-        .when(fit.desk, |ends| {
-            ends.child(div().w(px(DESK_W)).flex_none().child(desk))
-        })
-        .when(fit.clock, |ends| {
-            ends.child(
-                div()
-                    .w(px(CLOCK_W))
-                    .flex_none()
-                    .flex()
-                    .justify_end()
-                    .children(clock.map(|clock| {
-                        ui::text(clock, TEXT_XS, FontWeight::NORMAL)
-                            .text_color(Tokens::get(cx).text_tertiary)
-                    })),
-            )
-        })
-}
-
-/// A goal's slices as a slim line of segments, each in its state's colour; one with no slices
-/// has one segment, for the goal.
-fn slice_bar(row: &GoalRow, cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    let states: Vec<SliceState> = match row.slices.as_slice() {
-        [] => vec![row.state],
-        slices => slices.iter().map(|slice| slice.state).collect(),
-    };
-    div()
-        .flex()
-        .gap(px(2.))
-        .h(px(3.))
-        .children(states.into_iter().map(|state| {
-            let tint = match state {
-                SliceState::Done => t.live.opacity(0.5),
-                SliceState::Moving => t.live,
-                SliceState::NeedsYou => t.warn,
-                SliceState::Failed => t.danger,
-                SliceState::Waiting => t.text_primary.opacity(0.12),
-            };
-            div().flex_1().h_full().rounded(px(2.)).bg(tint)
-        }))
-}
-
-/// The first of a row's agents by their own marks, and how many more there are.
-fn crew(pane: &GoalsPane, agents: &[String], cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    let shown = pane.room.fit.get().marks;
-    let extra = agents.len().saturating_sub(shown);
-    div()
+        .id("goals-folded")
+        .group("goals-folded")
+        .mt(SPACE_1)
+        .py(SPACE_2)
+        .px(SPACE_2)
         .flex()
         .items_center()
-        .when(shown > 1, |crew| crew.justify_end())
-        .gap(px(2.))
-        .children(
-            (agents.iter().take(shown))
-                .filter_map(|id| pane.room.agent(id))
-                .map(|agent| agent_face(agent, MARK_SIZE, cx)),
-        )
-        .when(extra > 0, |crew| {
-            crew.child(
-                ui::text(format!("+{extra}"), TEXT_2XS_H, FontWeight::NORMAL)
-                    .ml(SPACE_1H)
-                    .text_color(t.text_tertiary),
-            )
-        })
+        .gap(SPACE_1H)
+        .cursor_pointer()
+        .text_color(t.text_tertiary)
+        .hover(move |line| line.text_color(t.text_secondary))
+        .child(crate::motion::turn(
+            "goals-folded-chevron",
+            crate::motion::fold_angle(open),
+            crate::motion::DETAIL_FOLD,
+            ui::icon(Icon::Chevron, 10.).text_color(t.text_tertiary),
+        ))
+        .child(ui::text(words, TEXT_XS, FontWeight::NORMAL))
+        .on_click(cx.listener(|pane, _, _, cx| pane.toggle_folded(cx)))
+        .into_any_element()
 }
 
 /// An agent's own mark, held still so a long list draws nothing while its agents work, with a dot
@@ -1742,38 +1047,4 @@ pub(super) fn agent_face(agent: &GoalAgent, size: f32, cx: &App) -> AnyElement {
                 .bg(flag)
         }))
         .into_any_element()
-}
-
-/// How much is on a row's desks, by icon, leaving out what there is none of.
-fn desk_counts(desk: &DeskCounts, cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    let kinds = [
-        (Icon::Terminal, desk.terminals),
-        (Icon::Globe, desk.pages),
-        (Icon::Phone, desk.simulators),
-        (Icon::Editor, desk.files),
-    ];
-    div()
-        .flex()
-        .items_center()
-        .justify_end()
-        .gap(px(9.))
-        .children(
-            kinds
-                .into_iter()
-                .filter(|(_, count)| *count > 0)
-                .map(|(glyph, count)| {
-                    div()
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(3.))
-                        .text_color(t.text_tertiary)
-                        .child(ui::icon(glyph, 12.).text_color(t.text_tertiary))
-                        .child(
-                            ui::text(count.to_string(), TEXT_XS, FontWeight::NORMAL)
-                                .font_features(theme::tabular()),
-                        )
-                }),
-        )
 }

@@ -5,9 +5,8 @@ use std::sync::Arc;
 use gpui_kit::base::{Button as BaseButton, Selectable};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, App, Background, ClickEvent, ElementId, FontWeight, InteractiveElement,
-    IntoElement, ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    Window,
+    div, px, AnyElement, App, ClickEvent, ElementId, FontWeight, InteractiveElement, IntoElement,
+    ParentElement, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
 };
 use smallvec::SmallVec;
 
@@ -60,8 +59,6 @@ pub struct Row {
     centered: bool,
     /// Its height, for a row taller than the rail's.
     height: Option<f32>,
-    /// A tint laid over its surface, such as for a row that needs the person.
-    ground: Option<Background>,
     subtitle: Option<AnyElement>,
     detail: Option<SharedString>,
     status: Option<AnyElement>,
@@ -88,7 +85,6 @@ impl Row {
             compact: false,
             centered: false,
             height: None,
-            ground: None,
             subtitle: None,
             detail: None,
             status: None,
@@ -143,11 +139,6 @@ impl Row {
 
     pub fn height(mut self, height: f32) -> Self {
         self.height = Some(height);
-        self
-    }
-
-    pub fn ground(mut self, ground: Background) -> Self {
-        self.ground = Some(ground);
         self
     }
 
@@ -271,10 +262,6 @@ impl RenderOnce for Row {
                 row.cursor_pointer()
                     .on_click(move |event, window, cx| handler(event, window, cx))
             })
-            .children(
-                self.ground
-                    .map(|ground| div().absolute().inset_0().rounded(RADIUS_2).bg(ground)),
-            )
             .children(
                 self.mark.map(|mark| {
                     mark_box(self.slot, mark).when(top_aligned, |slot| slot.mt(px(-2.)))

@@ -1,6 +1,6 @@
-//! One goal: who leads it, what needs the person, what happened and what was decided, what runs
-//! and comes next. Under that, quieter and only where a goal has them, its slices and assertions,
-//! how the project's slices land and the rules its agents follow.
+//! One goal: who leads it, what happened and what was decided, the calls only the person can make
+//! on it, what runs and comes next, and its slices. Its assertions, how the project's slices land
+//! and the rules its agents follow fold under one quiet Details line.
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -31,20 +31,15 @@ const STATES: [SliceState; 5] = [
     SliceState::Waiting,
 ];
 
-/// Goal `id`: its title and team, what needs the person, what happened, what was decided, what
-/// runs and comes next, and then whatever slices and assertions it has.
+/// Goal `id`: its title and team, what happened, what was decided, its calls, what runs and comes
+/// next, its slices, and folded under them the rest.
 pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let Some(goal) = pane.card(id) else {
         return div().into_any_element();
     };
     let slices = pane.slices(id);
-    let needs_you = pane.needs_of(goal, cx);
-    let kept_assertions = goal
-        .assertions
-        .iter()
-        .any(|assertion| assertion.retired.is_none());
-    let below = !slices.is_empty() || kept_assertions;
+    let calls = pane.needs_of(goal, cx);
     div()
         .flex()
         .flex_col()
@@ -71,22 +66,25 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
                 .child(super::on_board(goal.id, cx)),
         )
         .child(team(goal, &slices, cx))
-        .when(!needs_you.is_empty(), |view| {
-            view.child(heading("Needs you", Some(needs_you.len()), None, cx))
-                .children((needs_you.iter()).map(|item| super::home::need_line(pane, item, cx)))
-        })
         .children(super::happened::what_happened(pane, id, cx))
         .children(super::happened::decided(pane, goal, cx))
+        .when(!calls.is_empty(), |view| {
+            view.child(heading("Your calls", Some(calls.len()), None, cx))
+                .child(div().flex().flex_col().gap(SPACE_2).children(
+                    (calls.iter()).map(|item| super::home::call_card(pane, item, false, false, cx)),
+                ))
+        })
         .children(running_and_next(pane, goal, &slices, cx))
-        .when(below, |view| view.child(quieter(pane, goal, &slices, cx)))
+        .when(!slices.is_empty(), |view| {
+            view.child(slices_part(pane, &slices, cx))
+        })
+        .child(details(pane, goal, cx))
         .into_any_element()
 }
 
-/// What the goal also keeps: its slices and assertions, how they land and the rules its agents
-/// follow, below what the person reads first.
-fn quieter(
+/// The goal's slices: one strip of their states, what they count, and a line for each.
+fn slices_part(
     pane: &GoalsPane,
-    goal: &BoardCard,
     slices: &[(&BoardCard, &SliceView)],
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
@@ -101,27 +99,59 @@ fn quieter(
         .mt(SPACE_6)
         .flex()
         .flex_col()
-        .when(!slices.is_empty(), |view| {
-            view.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(SPACE_1H)
-                    .child(strip(slices, gpui_kit::relative(1.), cx))
-                    .child(ui::meta(counts, cx)),
-            )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(SPACE_1H)
+                .child(strip(slices, gpui_kit::relative(1.), cx))
+                .child(ui::meta(counts, cx)),
+        )
+        .child(quiet_section("Slices", slices.len(), cx))
+        .children(
+            slices
+                .iter()
+                .map(|(card, slice)| slice_row(pane, card, slice, cx)),
+        )
+        .into_any_element()
+}
+
+/// What the goal also keeps, folded under one quiet line: its assertions, how the project's
+/// slices land and the rules its agents follow.
+fn details(pane: &GoalsPane, goal: &BoardCard, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let open = pane.details;
+    div()
+        .mt(SPACE_6)
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .id("goal-details")
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .py(SPACE_1)
+                .cursor_pointer()
+                .text_color(t.text_tertiary)
+                .hover(move |line| line.text_color(t.text_secondary))
+                .child(crate::motion::turn(
+                    "goal-details-chevron",
+                    crate::motion::fold_angle(open),
+                    crate::motion::DETAIL_FOLD,
+                    ui::icon(crate::icons::Icon::Chevron, 10.).text_color(t.text_tertiary),
+                ))
+                .child(ui::text("Details", TEXT_XS, FontWeight::NORMAL))
+                .on_click(cx.listener(|pane, _, _, cx| {
+                    pane.details = !pane.details;
+                    cx.notify();
+                })),
+        )
+        .when(open, |view| {
+            view.child(super::assertions::section_of(pane, goal, cx))
+                .children(landing(pane, cx))
+                .child(super::rules::rules(pane, goal, cx))
         })
-        .child(super::assertions::section_of(pane, goal, cx))
-        .when(!slices.is_empty(), |view| {
-            view.child(quiet_section("Slices", slices.len(), cx))
-                .children(
-                    slices
-                        .iter()
-                        .map(|(card, slice)| slice_row(pane, card, slice, cx)),
-                )
-        })
-        .children(landing(pane, cx))
-        .child(super::rules::rules(pane, goal, cx))
         .into_any_element()
 }
 

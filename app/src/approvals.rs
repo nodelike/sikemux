@@ -4,8 +4,7 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, AnyElement, App, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled, WeakEntity,
+    div, AnyElement, App, IntoElement, ParentElement, SharedString, Styled, WeakEntity,
 };
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -15,9 +14,9 @@ use sikemux_core::server::ship::HoldParams;
 use sikemux_view::inbox::{InboxItem, InboxKind, ShipHold};
 
 use crate::core::Target;
-use crate::theme::{SPACE_1, TEXT_XS};
+use crate::theme::SPACE_1;
 use crate::toast;
-use crate::ui::{self, Button, Variant};
+use crate::ui::{Button, Variant};
 use crate::workbench::Workbench;
 
 impl Workbench {
@@ -62,22 +61,9 @@ fn answer<C: Call + 'static>(
     .detach();
 }
 
-/// The exact command or call a held action runs, which allowing it lets through once: clipped
-/// on one line, whole on hover.
-pub fn held_action(id: &str, what: &str, cx: &App) -> AnyElement {
-    let t = crate::theme::Tokens::get(cx);
-    ui::mono(what.to_owned(), TEXT_XS, cx)
-        .id(SharedString::from(format!("held-action-{id}")))
-        .flex_shrink_1()
-        .min_w_0()
-        .truncate()
-        .text_color(t.text_secondary)
-        .tooltip(ui::tooltip(what.to_owned()))
-        .into_any_element()
-}
-
 /// Allows a held action once, or refuses it, without opening anything; where the core offers it,
-/// always allows what the action lands in, in its project or every project of its folder.
+/// always allows what the action lands in, in its project or every project of its folder. The
+/// buttons wrap rather than run past a narrow column.
 pub fn ship_buttons(
     hold: &ShipHold,
     busy: bool,
@@ -88,7 +74,12 @@ pub fn ship_buttons(
     let hold_folder = hold.let_go_in.clone();
     let button = |label: &'static str, key: String, allow: bool| {
         let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
-        Button::new(SharedString::from(key), label, Variant::Outline)
+        let variant = if allow {
+            Variant::Primary
+        } else {
+            Variant::Outline
+        };
+        Button::new(SharedString::from(key), label, variant)
             .disabled(busy)
             .on_click(move |_, _, cx| {
                 cx.stop_propagation();
@@ -101,8 +92,10 @@ pub fn ship_buttons(
     };
     div()
         .flex()
-        .flex_none()
+        .flex_wrap()
+        .min_w_0()
         .gap(SPACE_1)
+        .child(button("Allow once", format!("ship-allow-{id}"), true))
         .when_some(hold.let_go.clone(), |row, covers| {
             let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
             let (label, tooltip) = match &hold_folder {
@@ -131,7 +124,6 @@ pub fn ship_buttons(
                 }),
             )
         })
-        .child(button("Allow once", format!("ship-allow-{id}"), true))
         .child(button("Refuse", format!("ship-refuse-{id}"), false))
         .into_any_element()
 }

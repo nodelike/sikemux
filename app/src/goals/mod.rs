@@ -167,9 +167,11 @@ pub struct GoalsPane {
     room: room::Room,
     /// What takes the tab rail's place while Home shows.
     panel: Option<Entity<panel::PaneView>>,
-    /// The inbox item whose long question the panel shows whole.
+    /// The inbox item whose long question its card shows whole.
     unclamped: Option<String>,
-    /// Home's numbers, tabs and rows.
+    /// A goal's page shows its assertions, how slices land and its rules.
+    details: bool,
+    /// Home's calls and goals.
     list: Option<Entity<panel::PaneView>>,
     /// The box that starts work, at the top of Home.
     start: start::Start,
@@ -210,6 +212,7 @@ impl GoalsPane {
             room: room::Room::new(cx),
             panel: None,
             unclamped: None,
+            details: false,
             list: None,
             start: start::Start::default(),
             asserting: None,
@@ -233,7 +236,7 @@ impl GoalsPane {
             .clone()
     }
 
-    /// Home's numbers, tabs and rows, made the first time they show.
+    /// Home's calls and goals, made the first time they show.
     fn list(&mut self, cx: &mut Context<Self>) -> Entity<panel::PaneView> {
         let pane = cx.entity();
         self.list
