@@ -347,8 +347,9 @@ pub(crate) fn of_program(
             sub if !GIT_COMMANDS.contains(&sub) => {
                 let stands_for = alias(sub)?;
                 match stands_for.strip_prefix('!') {
-                    Some(shell) => (of_command(shell, &[], Looks::Every, Path::new("")).first())
-                        .map(|ship| ship.kind),
+                    Some(shell) => (of_command(shell, &[], Looks::Every, Path::new(""), &|_| None)
+                        .first())
+                    .map(|ship| ship.kind),
                     None => (stands_for.split_whitespace().next() == Some("push"))
                         .then_some(ShipKind::Push),
                 }
@@ -386,9 +387,16 @@ pub(crate) enum Looks {
 
 /// Every command of a shell command line that leaves this machine, in order,
 /// as each is checked by itself. `extra` are the project's own commands that
-/// do, such as `make deploy`, each matched by its leading words. A `cd` earlier
-/// on the line leaves where a command lands open.
-pub(crate) fn of_command(line: &str, extra: &[String], looks: Looks, cwd: &Path) -> Vec<Ship> {
+/// do, such as `make deploy`, each matched by its leading words. `env` is what
+/// the line runs under, beneath what it sets itself. A `cd` earlier on the line
+/// leaves where a command lands open.
+pub(crate) fn of_command(
+    line: &str,
+    extra: &[String],
+    looks: Looks,
+    cwd: &Path,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Vec<Ship> {
     let lines = segments(line);
     let moved = lines
         .iter()
@@ -400,7 +408,7 @@ pub(crate) fn of_command(line: &str, extra: &[String], looks: Looks, cwd: &Path)
                 return Vec::new();
             };
             if let Some(script) = shell_script(words) {
-                return of_command(script, extra, looks, cwd);
+                return of_command(script, extra, looks, cwd, env);
             }
             let Some((program, args)) = words.split_first() else {
                 return Vec::new();
@@ -420,14 +428,14 @@ pub(crate) fn of_command(line: &str, extra: &[String], looks: Looks, cwd: &Path)
                 return Vec::new();
             };
             let set_before = &all[..all.len() - words.len()];
-            let env = |name: &str| {
+            let set = |name: &str| {
                 let said = (set_before.iter())
                     .filter_map(|word| word.strip_prefix(name)?.strip_prefix('='))
                     .next_back();
-                said.map(str::to_owned).or_else(|| std::env::var(name).ok())
+                said.map(str::to_owned).or_else(|| env(name))
             };
             let target = (!moved)
-                .then(|| target_of(program, args, &env, cwd))
+                .then(|| target_of(program, args, &set, cwd))
                 .flatten();
             vec![Ship {
                 kind,
@@ -616,7 +624,7 @@ mod environment_tests {
     #[test]
     fn every_command_on_a_line_is_judged_by_itself() {
         let line = "kubectl --context dev apply -f a && kubectl --context prod apply -f b";
-        let ships = of_command(line, &[], Looks::Every, Path::new("/nowhere"));
+        let ships = of_command(line, &[], Looks::Every, Path::new("/nowhere"), &|_| None);
         let names: Vec<_> = ships.into_iter().map(|ship| ship.target).collect();
         assert_eq!(
             names,
@@ -632,7 +640,7 @@ mod environment_tests {
     #[test]
     fn a_change_of_folder_on_the_line_leaves_where_it_lands_open() {
         let line = "cd infra && TF_WORKSPACE=dev terraform apply";
-        let ships = of_command(line, &[], Looks::Every, Path::new("/nowhere"));
+        let ships = of_command(line, &[], Looks::Every, Path::new("/nowhere"), &|_| None);
         assert_eq!(ships.len(), 1);
         assert_eq!(ships[0].target, None);
     }

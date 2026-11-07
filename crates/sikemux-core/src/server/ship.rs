@@ -26,7 +26,7 @@ use super::repo_events::RepoEvent;
 use super::{messages, plugins, Core, CoreResult};
 use crate::cli::protocol::HarnessRequest;
 use crate::git::Git;
-use crate::ship::{Ship, Target, ToolShip};
+use crate::ship::{Looks, Ship, Target, ToolShip};
 
 /// More than an agent waits on at once; past this its oldest hold goes.
 const MAX_HOLDS_PER_AGENT: usize = 16;
@@ -350,6 +350,50 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         }
         Err(said) => json!({ "allowed": false, "said": said }),
     })
+}
+
+/// Whether the process `command`, which agent `agent_id` starts in `cwd` with `env` set,
+/// may run: each of its commands that leaves this machine, as [`check`] says. The core
+/// starts the process outside the agent's own, so the shim inside it can't tell it is the
+/// agent's.
+pub(crate) async fn check_process(
+    core: &Arc<Core>,
+    agent_id: &str,
+    command: &str,
+    env: &[(String, String)],
+    cwd: &Path,
+) -> Result<(), String> {
+    let (checking, agent_id, command, env, cwd) = (
+        core.clone(),
+        agent_id.to_owned(),
+        command.to_owned(),
+        env.to_vec(),
+        cwd.to_owned(),
+    );
+    let going = tokio::task::spawn_blocking(move || {
+        let extra = crate::git_guard::shim::project_ships(&cwd);
+        let set = |name: &str| {
+            (env.iter().rev())
+                .find(|(set, _)| set == name)
+                .map(|(_, value)| value.clone())
+                .or_else(|| sikemux_process::user_environment::var(name))
+        };
+        let ships = crate::ship::of_command(&command, &extra, Looks::Every, &cwd, &set);
+        let mut going = Vec::new();
+        for ship in ships {
+            let checked = check(&checking, &agent_id, ship, &cwd)
+                .map_err(|said| format!("{said} Start the process with a new idempotencyKey."))?;
+            going.extend(checked);
+        }
+        Ok::<_, String>(going)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    for deploy in going {
+        let core = core.clone();
+        tokio::spawn(async move { ended(core, deploy, None, String::new()).await });
+    }
+    Ok(())
 }
 
 /// How a deploy the shim followed ended, by the `went` the core gave it.
@@ -755,4 +799,24 @@ fn take(core: &Core, id: &str) -> CoreResult<Hold> {
     };
     core.changed(What::Agents);
     Ok(hold)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `"ship": ["./deploy.sh"]` in a QA project's sikemux.json, and `./deploy.sh` ran with no
+    /// hold once the agent started it with process_start.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_ship_command_started_as_a_process_waits_for_the_person() {
+        let project = tempfile::tempdir().unwrap();
+        let config = r#"{ "version": 1, "ship": ["./deploy.sh"] }"#;
+        std::fs::write(project.path().join("sikemux.json"), config).unwrap();
+        let core = Core::new(Default::default(), None).unwrap();
+        let said = check_process(&core, "agent", "./deploy.sh", &[], project.path())
+            .await
+            .unwrap_err();
+        assert!(said.starts_with("Held for the person"), "{said}");
+        assert_eq!(core.ship.waiting().len(), 1);
+    }
 }

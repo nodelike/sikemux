@@ -281,7 +281,9 @@ fn run_hook(ship_only: bool) -> i32 {
         true => crate::ship::Looks::PastTheShim,
         false => crate::ship::Looks::Every,
     };
-    let ships = crate::ship::of_command(command, &extra, looks, &cwd);
+    let ships = crate::ship::of_command(command, &extra, looks, &cwd, &|name| {
+        std::env::var(name).ok()
+    });
     let held = ships
         .iter()
         .find_map(|ship| match asked(ship, &cwd, false) {
@@ -299,7 +301,7 @@ fn run_hook(ship_only: bool) -> i32 {
 
 /// The commands the project `cwd` is in lists in its sikemux.json as leaving
 /// this machine, such as `make deploy`.
-fn project_ships(cwd: &Path) -> Vec<String> {
+pub(crate) fn project_ships(cwd: &Path) -> Vec<String> {
     let project = cwd
         .ancestors()
         .find(|dir| dir.join(crate::tasks::config::CONFIG_FILE).is_file());

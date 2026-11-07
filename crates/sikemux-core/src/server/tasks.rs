@@ -801,6 +801,9 @@ pub(crate) async fn launch(
             }
         }
     }
+    if let Some(agent_id) = &run.agent_id {
+        super::ship::check_process(core, agent_id, &task.command, &task.env, &task.cwd).await?;
+    }
     let mut preview_url = match &config {
         ConfigLoad::Valid { config, .. } if task.source == Source::Project => config
             .preview
