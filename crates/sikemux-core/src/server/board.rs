@@ -1899,11 +1899,13 @@ fn change_in(
     let mut status = changes.status;
     let mut pending = None;
     let mut later = slice::Later::default();
+    let mut closed = Vec::new();
     if let (Some(CardStatus::Done), By::Agent(agent), Some(slice)) =
         (status, by, card.slice.as_mut())
     {
         later = slice::Later::look_again(project, id);
-        match slice.say_done(&label, &seen.checking, confirmed, &settings) {
+        let result = changes.result.as_deref();
+        match slice.say_done(&label, &seen.checking, confirmed, result, &settings) {
             Ok(slice::Said::Pending { note, recheck }) => {
                 pending = Some(note);
                 if let Some(sha) = recheck {
@@ -1911,6 +1913,9 @@ fn change_in(
                 }
             }
             Ok(slice::Said::Ready) => {}
+            Ok(slice::Said::Closed) => {
+                closed = slice.close(slice::PassedBy::Agent(agent.clone()));
+            }
             Err(refused) => {
                 return Err(match refused.failed.is_some() {
                     true => {
@@ -1964,7 +1969,7 @@ fn change_in(
     if let Some(parent) = changes.parent {
         card.parent = parent;
     }
-    let mut passed: Vec<Step> = changes.pass.into_iter().collect();
+    let mut passed: Vec<Step> = changes.pass.into_iter().chain(closed).collect();
     match status {
         Some(CardStatus::Open) => {
             if let Some(run) = card

@@ -221,6 +221,8 @@ pub(super) struct Head {
 /// How the owner saying its slice is done went, when it was not refused.
 pub(super) enum Said {
     Ready,
+    /// Its work made no commit, so its owner closes it on the result it gave.
+    Closed,
     /// Its gate passes by itself later; `recheck` is a commit to check again.
     Pending {
         note: String,
@@ -1120,14 +1122,16 @@ impl Slice {
         Ok(())
     }
 
-    /// The owner says the slice is done. Refuses, changing nothing, when
-    /// nothing the core collected can show its latest commit sound, or git
-    /// does not confirm it is its latest: `confirmed`.
+    /// The owner says the slice is done, with `result` saying what it did. Refuses, changing
+    /// nothing, when nothing the core collected can show its latest commit sound, or git does
+    /// not confirm it is its latest: `confirmed`. Work that made no commit, such as a deploy,
+    /// closes on its result, unless an assertion needs evidence on a commit.
     pub(super) fn say_done(
         &mut self,
         label: &str,
         checking: &Checking,
         confirmed: Result<(), &str>,
+        result: Option<&str>,
         settings: &BoardSettings,
     ) -> Result<Said, Refused> {
         let Some(gate) = self.waiting().cloned() else {
@@ -1149,10 +1153,18 @@ impl Slice {
         }
         let words = gate_words(&gate);
         let Some(work) = &self.work else {
-            return Err(format!(
-                "Not {words}: you have committed nothing for {label}. Commit its work with git_commit, then mark it done once the project's check passes on it"
-            )
-            .into());
+            let said = result.is_some_and(|result| !result.trim().is_empty());
+            return match (said, self.asserts.is_empty()) {
+                (true, true) => Ok(Said::Closed),
+                (_, false) => Err(format!(
+                    "Not {words}: you have committed nothing for {label}, and the assertions it fulfils need evidence on a commit. Commit its work with git_commit, then mark it done once the project's check passes on it"
+                )
+                .into()),
+                (false, true) => Err(format!(
+                    "Not {words}: you have committed nothing for {label}. Commit its work with git_commit, then mark it done once the project's check passes on it. If its work makes no commit, such as a deploy, mark it done with result saying what you did and what showed it worked"
+                )
+                .into()),
+            };
         };
         if let Err(why) = confirmed {
             return Err(format!("Not {words}: {why}").into());
