@@ -302,7 +302,7 @@ impl Slip {
 pub enum WaitOn {
     /// The project's check on its owner's latest commit.
     Check { sha: String, run: CheckRun },
-    /// Another card it waits on, not done yet.
+    /// Another card it waits on, neither done nor built on the project's branch yet.
     Card { card: u64 },
     /// The person, to pass `gate`, or the environment it stands for.
     Person {

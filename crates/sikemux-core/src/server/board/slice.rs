@@ -154,6 +154,10 @@ pub(super) struct Slice {
     /// The owner it lost, until someone takes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled: Option<super::lease::Stalled>,
+    /// Its work passed Built on the project's branch once, so the cards that wait on it go
+    /// ahead; what it needs after that, such as a look, is new work they need not wait for.
+    #[serde(default)]
+    pub(super) built_in: bool,
 }
 
 /// An assertion of its goal a slice fulfils.
@@ -297,6 +301,7 @@ impl Slice {
             started_at: None,
             fix: None,
             stalled: None,
+            built_in: false,
         };
         for recording in &recordings {
             slice.picture(owner, recording);
@@ -412,6 +417,12 @@ impl Slice {
                     && self.work.as_ref().is_some_and(|work| work.on_branch)
             }
         }
+    }
+
+    /// Notes when its work has passed Built on the project's branch.
+    fn note_built_in(&mut self) {
+        self.built_in |= self.pass_of(&Step::Gate(Gate::Built)).is_some()
+            && self.work.as_ref().is_some_and(|work| work.on_branch);
     }
 
     fn evidence(&self, id: u64) -> Option<&Evidence> {
@@ -1052,6 +1063,7 @@ impl Slice {
                 at: epoch_ms(),
             });
         }
+        self.note_built_in();
         self.waiting().is_none()
     }
 
@@ -1066,6 +1078,7 @@ impl Slice {
     pub(super) fn reopen(&mut self) {
         self.restart();
         self.work = None;
+        self.built_in = false;
     }
 
     /// The person passes `gate`, when it is the one waiting and theirs.
@@ -1554,6 +1567,7 @@ pub(super) fn progress(
         };
     };
     passed.extend(slice.advance(owner.as_deref(), settings));
+    slice.note_built_in();
     let mut later = Later::default();
     if let (Some(gate), Some(work)) = (
         passed

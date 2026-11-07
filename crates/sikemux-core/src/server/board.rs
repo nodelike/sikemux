@@ -430,15 +430,18 @@ impl Board {
             .ok_or_else(|| format!("There is no card #{id} on this project's board"))
     }
 
-    /// The cards `card` waits on that are not done yet.
+    /// The cards `card` waits on that are neither done nor, as slices, built on the project's
+    /// branch.
     fn waits_on(&self, card: &Card) -> Vec<u64> {
         card.depends_on
             .iter()
             .copied()
             .filter(|id| {
-                self.cards
-                    .iter()
-                    .any(|other| other.id == *id && other.status != CardStatus::Done)
+                self.cards.iter().any(|other| {
+                    other.id == *id
+                        && other.status != CardStatus::Done
+                        && !other.slice.as_ref().is_some_and(|slice| slice.built_in)
+                })
             })
             .collect()
     }
@@ -1682,7 +1685,7 @@ fn add_card(
             take(core, &mut card, agent);
         } else {
             note =
-                Some("It waits on cards not done yet, so it stays open; claim it once they are.");
+                Some("It waits on cards not built yet, so it stays open; you will hear when you can claim it.");
         }
     }
     board.cards.push(card);
@@ -1766,7 +1769,7 @@ fn claim_card(core: &Core, project: &str, agent: &str, id: u64) -> Result<Value,
     if !waits.is_empty() {
         let list: Vec<String> = waits.iter().map(|id| format!("#{id}")).collect();
         return Err(format!(
-            "#{id} waits on {} not done yet; claim it once they are",
+            "#{id} waits on {} not built yet; you will hear when you can claim it",
             list.join(", ")
         ));
     }
@@ -2183,31 +2186,48 @@ fn remove_card(core: &Core, project: &str, id: u64) -> Result<Vec<Notice>, Strin
     Ok(notices)
 }
 
-/// Tells the owner of each card in progress that waited on others before a
-/// change and no longer does.
+/// Tells the owner of each card in progress that waited on others before a change and no
+/// longer does, and the maker of each such card nobody holds, else its goal's lead, that it
+/// can claim it.
 fn unblocked(board: &Board, blocked_before: &[u64], by: &By) -> Vec<Notice> {
-    board
-        .cards
-        .iter()
-        .filter(|card| {
-            card.status == CardStatus::Progress
-                && blocked_before.contains(&card.id)
-                && board.waits_on(card).is_empty()
-        })
-        .filter_map(|card| {
-            let owner = card.owner_id()?;
-            if matches!(by, By::Agent(agent) if agent == owner) {
-                return None;
-            }
-            Some(Notice {
-                to: owner.to_owned(),
+    let freed = (board.cards.iter())
+        .filter(|card| blocked_before.contains(&card.id) && board.waits_on(card).is_empty());
+    let mut notices: Vec<Notice> = Vec::new();
+    let mut claimable: Vec<(String, Vec<String>)> = Vec::new();
+    for card in freed {
+        let to = match card.status {
+            CardStatus::Progress => card.owner_id(),
+            CardStatus::Open if card.owner.is_none() => card
+                .maker_id()
+                .or_else(|| board.goal_above(card).owner_id()),
+            _ => None,
+        };
+        let Some(to) = to.filter(|to| !matches!(by, By::Agent(agent) if agent == to)) else {
+            continue;
+        };
+        if card.status == CardStatus::Progress {
+            notices.push(Notice {
+                to: to.to_owned(),
                 text: format!(
-                    "Every card your card {} waits on is done, so it can go ahead.",
+                    "Every card your card {} waits on is built on the project's branch or done, so it can go ahead.",
                     card.label()
                 ),
-            })
-        })
-        .collect()
+            });
+            continue;
+        }
+        match claimable.iter_mut().find(|(agent, _)| agent == to) {
+            Some((_, labels)) => labels.push(card.label()),
+            None => claimable.push((to.to_owned(), vec![card.label()])),
+        }
+    }
+    notices.extend(claimable.into_iter().map(|(to, labels)| Notice {
+        to,
+        text: format!(
+            "Nothing holds up {} any more: what it waits on is built on the project's branch or done. Claim it with board_claim if it is yours to do.",
+            labels.join(", ")
+        ),
+    }));
+    notices
 }
 
 fn send_notices(core: &Arc<Core>, notices: Vec<Notice>) {

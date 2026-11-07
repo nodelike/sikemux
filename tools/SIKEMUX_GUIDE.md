@@ -1352,7 +1352,7 @@ can put a Jira or Linear ticket on the board as a card; you cannot attach one.
 agents it started and theirs), then the rest, work in progress before open
 cards and done ones last. Long details and results are cut short; pass `card`
 for one card in full, with the cards under it. `waitsOn` lists the cards it
-waits on that are not done yet, and `waitingOnThePerson` marks a card whose
+waits on that are neither done nor, as slices, Built on the project's branch, and `waitingOnThePerson` marks a card whose
 owner waits on the person's answer.
 
 ### Adding cards
