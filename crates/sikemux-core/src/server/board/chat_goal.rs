@@ -414,7 +414,7 @@ fn plain_state(core: &Core, board: &Board, goal: &Card) -> Option<SliceState> {
     let owner = goal.owner_id().filter(|_| goal.parent.is_none())?;
     Some(match goal.status {
         CardStatus::Done => SliceState::Done,
-        _ if waits(core, &board.settings, goal).is_some() => SliceState::NeedsYou,
+        _ if waits(core, board, goal).is_some() => SliceState::NeedsYou,
         _ if core.agent_now(owner).at_work() => SliceState::Moving,
         _ => SliceState::Waiting,
     })

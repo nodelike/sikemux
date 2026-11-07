@@ -686,6 +686,8 @@ export interface InboxItem {
     environment?: string;
     /** The evidence the gate of a Gate item leads with, without what a run printed. */
     evidence?: Evidence;
+    /** What the person looks at, for a Gate item at Looks right on a goal's card. */
+    look?: InboxLook;
     /** The action a Ship item holds. */
     hold?: ShipHold;
     requestId: string | null;
@@ -834,6 +836,40 @@ export interface Measure {
 export interface Moment {
     at: number;
     text: string;
+}
+
+/**
+ * The one look the person takes at a goal whose work changes what people see, once every slice
+ * that shows something is Built.
+ */
+export interface InboxLook {
+    /** The slices whose work it shows, in the board's order. */
+    slices: LookSlice[];
+    /**
+     * Every picture and recording those slices hold, from before each one's first commit and
+     * on its latest, in the order they were taken.
+     */
+    pictures: LookPicture[];
+}
+
+export interface LookSlice {
+    card: number;
+    title: string;
+    promise: string;
+    owner?: string;
+    ownerName?: string;
+}
+
+export interface LookPicture {
+    /** The slice that holds it, which a note on it goes to with `evidence`'s id. */
+    card: number;
+    /** Taken before the slice's first commit, so it shows how things were. */
+    before?: boolean;
+    /**
+     * A picture: its width is set for the phone's and tablet's takes, and its length for a
+     * recording.
+     */
+    evidence: Evidence;
 }
 
 /**

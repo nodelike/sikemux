@@ -204,6 +204,9 @@ pub struct InboxItem {
     /// The evidence the gate of a Gate item leads with, without what a run printed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<Evidence>,
+    /// What the person looks at, for a Gate item at Looks right on a goal's card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub look: Option<InboxLook>,
     /// The action a Ship item holds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold: Option<ShipHold>,
@@ -228,6 +231,43 @@ pub struct InboxItem {
     /// What a lead says about the decision it raised to the person.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raised: Option<InboxRaised>,
+}
+
+/// The one look the person takes at a goal whose work changes what people see, once every slice
+/// that shows something is Built.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InboxLook {
+    /// The slices whose work it shows, in the board's order.
+    pub slices: Vec<LookSlice>,
+    /// Every picture and recording those slices hold, from before each one's first commit and
+    /// on its latest, in the order they were taken.
+    pub pictures: Vec<LookPicture>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LookSlice {
+    pub card: u64,
+    pub title: String,
+    pub promise: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_name: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LookPicture {
+    /// The slice that holds it, which a note on it goes to with `evidence`'s id.
+    pub card: u64,
+    /// Taken before the slice's first commit, so it shows how things were.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub before: bool,
+    /// A picture: its width is set for the phone's and tablet's takes, and its length for a
+    /// recording.
+    pub evidence: Evidence,
 }
 
 /// A decision a lead raised to the person, which stands alone: `detail` says what is being

@@ -198,6 +198,9 @@ struct Card {
     /// What it promises and how far up its ladder it is, once it makes a promise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     slice: Option<slice::Slice>,
+    /// What the person answered when they last looked at what the goal's work shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    looked: Option<slice::Looked>,
     /// What it decided and its own rules, for a goal.
     #[serde(default, skip_serializing_if = "goal::Goal::is_none")]
     goal: goal::Goal,
@@ -211,7 +214,7 @@ struct Card {
 
 /// Bumped by a change to what a board file holds that an earlier file needs
 /// carried over to, which `migrate` does.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1385,10 +1388,10 @@ pub enum BoardColumn {
 
 /// The column a card shows in: done once done, else waiting on the person
 /// while anything on it does.
-fn column_of(core: &Core, settings: &BoardSettings, card: &Card) -> BoardColumn {
+fn column_of(core: &Core, board: &Board, card: &Card) -> BoardColumn {
     match card.status {
+        _ if waits(core, board, card).is_some() => BoardColumn::Needs,
         CardStatus::Done => BoardColumn::Done,
-        _ if waits(core, settings, card).is_some() => BoardColumn::Needs,
         CardStatus::Open => BoardColumn::Open,
         CardStatus::Progress => BoardColumn::Progress,
     }
@@ -1440,7 +1443,7 @@ fn state_by_column(column: BoardColumn) -> SliceState {
 }
 
 fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
-    let column = column_of(core, &board.settings, card);
+    let column = column_of(core, board, card);
     let team = team_of(core, board, card);
     let now = epoch_ms();
     BoardCard {
@@ -1493,7 +1496,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         goal_state: chat_goal::goal_state(core, board, card).or_else(|| {
             board
                 .is_goal(card)
-                .then(|| state_by_column(column_of(core, &board.settings, card)))
+                .then(|| state_by_column(column_of(core, board, card)))
         }),
         goal_stalled: slice::goal_stalled(board, card) || chat_goal::plain_owner_closed(core, card),
         eta: board.promises.get(&card.id).and_then(eta::Promise::view),
@@ -1602,7 +1605,7 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if let Some(result) = &card.result {
         fields.insert("result".into(), text(result).into());
     }
-    if waits(core, &board.settings, card).is_some() {
+    if waits(core, board, card).is_some() {
         fields.insert("waitingOnThePerson".into(), true.into());
     }
     if let Some(stalled) = card.slice.as_ref().and_then(|slice| slice.stalled.as_ref()) {
@@ -1664,6 +1667,7 @@ fn new_card(
         auto: None,
         recordings: Vec::new(),
         slice,
+        looked: None,
         goal: goal::Goal::default(),
         at: now,
         updated_at: now,
@@ -2517,13 +2521,20 @@ pub(crate) enum Waits {
     },
     /// Its owner asked the person something it waits on.
     Answer,
+    /// The goal waits for the person to look at what its work shows.
+    Look(Box<sikemux_view::inbox::InboxLook>),
 }
 
 /// What `card` waits on the person for, if anything: the one place every
 /// view of a card reads it from.
-fn waits(core: &Core, settings: &BoardSettings, card: &Card) -> Option<Waits> {
+fn waits(core: &Core, board: &Board, card: &Card) -> Option<Waits> {
+    let settings = &board.settings;
+    let looks = || match slice::look(board, card) {
+        slice::Look::Due(shown) => Some(Waits::Look(Box::new(slice::look_view(core, &shown)))),
+        _ => None,
+    };
     if card.status == CardStatus::Done {
-        return None;
+        return looks();
     }
     let run = card.auto.as_ref();
     if let Some((need, run)) = run.and_then(|run| Some((run.held?, run))) {
@@ -2550,6 +2561,9 @@ fn waits(core: &Core, settings: &BoardSettings, card: &Card) -> Option<Waits> {
     let url = run
         .and_then(|run| run.pull.as_ref())
         .map(|pull| pull.url.clone());
+    if let Some(look) = looks() {
+        return Some(look);
+    }
     if let Some(slice) = &card.slice {
         if let Some(gate) = slice.waits_on_person(settings) {
             return Some(Waits::Gate {
@@ -2605,7 +2619,7 @@ impl Card {
             owner_name: self.owner_name(core),
             result: self.result.clone(),
             recordings: self.recorded(),
-            waits: waits(core, &board.settings, self),
+            waits: waits(core, board, self),
             updated_at: self.updated_at,
         }
     }
@@ -2654,7 +2668,7 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
         .values()
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
         .filter(|(board, card)| {
-            waits(core, &board.settings, card).is_some_and(|waits| !matches!(waits, Waits::Answer))
+            waits(core, board, card).is_some_and(|waits| !matches!(waits, Waits::Answer))
                 || done_since.is_some_and(|since| {
                     card.status == CardStatus::Done && card.updated_at >= since
                 })

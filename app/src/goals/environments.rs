@@ -367,9 +367,9 @@ fn listing(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let hint = if kept.is_empty() && inherited.is_empty() {
-        "None set: every deploy waits for you, and slices go Built, Looks right, Landed."
+        "None set: every deploy waits for you, and slices go Built, then Landed."
     } else if kept.is_empty() {
-        "None of its own: slices go Built, Looks right, Landed. What Sikemux doesn't recognise waits as production."
+        "None of its own: slices go Built, then Landed. What Sikemux doesn't recognise waits as production."
     } else {
         "Slices take a step for each, in this order. What Sikemux doesn't recognise waits as production."
     };

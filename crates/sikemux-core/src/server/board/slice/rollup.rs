@@ -12,11 +12,14 @@ pub(crate) fn goal_stalled(board: &Board, goal: &Card) -> bool {
     left.peek().is_some() && left.all(|slice| slice.stalled.is_some())
 }
 
+/// Every slice in the goal is done, and the person looked at what they show if they had to.
 pub(crate) fn goal_done(board: &Board, goal: &Card) -> bool {
     let mut slices = (board.held_by_goal(goal).into_iter())
         .filter_map(|card| card.slice.as_ref())
         .peekable();
-    slices.peek().is_some() && slices.all(|slice| slice.waiting().is_none())
+    slices.peek().is_some()
+        && slices.all(|slice| slice.waiting().is_none())
+        && look(board, goal).settled()
 }
 
 /// Whether nothing moves the slice `card` on: nobody holds it, it waits on another card, or its
@@ -32,26 +35,40 @@ pub(crate) fn state_of(core: &Core, board: &Board, card: &Card) -> Option<SliceS
 }
 
 /// How a goal's slices stand together, marked as one: failed when one
-/// failed, needing the person when one does, moving when one moves, done when
-/// every one is, else waiting. None for a card that is no goal.
+/// failed, needing the person when one does or the goal waits for them to
+/// look, moving when one moves, done when every one is and nothing is left to
+/// look at, else waiting. None for a card that is no goal.
 pub(crate) fn goal_state(core: &Core, board: &Board, goal: &Card) -> Option<SliceState> {
     let states: Vec<SliceState> = (board.held_by_goal(goal).into_iter())
         .filter_map(|card| state_of(core, board, card))
         .collect();
     let any = |state: SliceState| states.contains(&state);
+    let look = look(board, goal);
     Some(match () {
         _ if states.is_empty() => return None,
         _ if any(SliceState::Failed) => SliceState::Failed,
-        _ if any(SliceState::NeedsYou) => SliceState::NeedsYou,
+        _ if any(SliceState::NeedsYou) || matches!(look, Look::Due(_)) => SliceState::NeedsYou,
         _ if any(SliceState::Moving) => SliceState::Moving,
-        _ if states.iter().all(|state| *state == SliceState::Done) => SliceState::Done,
+        _ if states.iter().all(|state| *state == SliceState::Done) && look.settled() => {
+            SliceState::Done
+        }
         _ => SliceState::Waiting,
+    })
+}
+
+/// How the look at a goal stands as one of its steps; none when it needs no look.
+fn look_step(board: &Board, goal: &Card) -> Option<SliceState> {
+    Some(match look(board, goal) {
+        Look::Unneeded => return None,
+        Look::Due(_) => SliceState::NeedsYou,
+        Look::Passed => SliceState::Done,
+        Look::Ahead | Look::SentBack => SliceState::Waiting,
     })
 }
 
 /// How a goal stands step by step for a chat's strip: one step per gate of a goal of one slice,
 /// where each passed gate is done and the one it waits at stands as the slice does, else one per
-/// slice, and whether the steps are gates.
+/// slice, then one for the person's look when it needs one, and whether the steps are gates.
 pub(crate) fn goal_steps(core: &Core, board: &Board, goal: &Card) -> (Vec<SliceState>, bool) {
     let cards: Vec<&Card> = (board.held_by_goal(goal).into_iter())
         .filter(|card| card.slice.is_some())
@@ -71,14 +88,19 @@ pub(crate) fn goal_steps(core: &Core, board: &Board, goal: &Card) -> (Vec<SliceS
                     SliceState::Waiting
                 }
             })
+            .chain(look_step(board, goal))
             .collect();
         return (steps, true);
     }
-    (cards.into_iter().filter_map(state_of).collect(), false)
+    let steps = (cards.into_iter().filter_map(state_of))
+        .chain(look_step(board, goal))
+        .collect();
+    (steps, false)
 }
 
 /// The gates a goal's slices wait at, in the order they will be reached: a
-/// slice that waits on another comes after it. Each says what it waits on now.
+/// slice that waits on another comes after it, and the person's look at the
+/// goal comes last while it is still to come. Each says what it waits on now.
 pub(crate) fn next_gates(core: &Core, board: &Board, goal: &Card, now: u64) -> Vec<NextGate> {
     let under = board.held_by_goal(goal);
     let mut placed: Vec<u64> = Vec::new();
@@ -109,6 +131,15 @@ pub(crate) fn next_gates(core: &Core, board: &Board, goal: &Card, now: u64) -> V
                 });
             }
         }
+    }
+    if look(board, goal).coming() {
+        next.push(NextGate {
+            card: goal.id,
+            gate: Gate::LooksRight,
+            passer: Passer::Person,
+            wait: None,
+            environment: None,
+        });
     }
     next
 }

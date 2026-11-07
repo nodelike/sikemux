@@ -16,8 +16,8 @@ use crate::git::Git;
 use crate::text::{clipped, clipped_line};
 use sikemux_view::inbox::{
     AgentRollup, AgentShown, Inbox, InboxCard, InboxDigest, InboxHandTo, InboxHandoff, InboxItem,
-    InboxKind, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent, ShipHold, ShipKind,
-    TeamLink,
+    InboxKind, InboxLook, InboxNeed, InboxRecording, InboxStalled, InboxTier, RemoteAgent,
+    ShipHold, ShipKind, TeamLink,
 };
 use sikemux_view::workspace::{AgentFace, WorkspaceAgent};
 use sikemux_wire::protocol::{
@@ -32,7 +32,7 @@ use super::roster;
 use super::{Core, CoreResult};
 use sikemux_fold::AgentNeed;
 use sikemux_view::chat::TeamNeedKind;
-use sikemux_view::slice::Gate;
+use sikemux_view::slice::{Gate, Proof};
 
 use super::board::environments::Step;
 
@@ -617,6 +617,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
             _ => None,
         },
         evidence: None,
+        look: None,
         hold: match case {
             Case::Ship(hold) => Some(hold),
             _ => None,
@@ -813,10 +814,46 @@ fn card_item(card: &Summary, waits: &Waits, agents: &[Agent]) -> Option<InboxIte
             });
             item
         }
+        Waits::Look(look) => {
+            let mut item = gate_item(card, &Step::Gate(Gate::LooksRight), &look_detail(look));
+            item.evidence = (look.pictures.iter().rev())
+                .find(|picture| !picture.before)
+                .or(look.pictures.last())
+                .map(|picture| picture.evidence.clone());
+            item.recordings = (look.pictures.iter())
+                .map(|picture| &picture.evidence)
+                .filter_map(|evidence| match &evidence.proof {
+                    Proof::Picture {
+                        path,
+                        seconds: Some(seconds),
+                        feed,
+                        turn,
+                        ..
+                    } => Some(InboxRecording {
+                        path: path.clone(),
+                        seconds: *seconds,
+                        at: evidence.at,
+                        feed: feed.clone(),
+                        turn: *turn,
+                    }),
+                    _ => None,
+                })
+                .collect();
+            item.look = Some((**look).clone());
+            item
+        }
         Waits::Answer => return None,
     };
     item = item.on_card(Some(card));
     Some(item)
+}
+
+/// What a goal's look is about: its one slice's promise, else how many slices it covers.
+fn look_detail(look: &InboxLook) -> String {
+    match look.slices.as_slice() {
+        [one] => one.promise.clone(),
+        many => format!("What its {} slices change, to look at once", many.len()),
+    }
 }
 
 /// A slice waiting for the person to pass `gate`: the one way a Gate item is made.

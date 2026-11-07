@@ -13,19 +13,20 @@ When the project's check is its CI, CI failing the same way on two runs in a row
 
 ## Slices
 
-A card that makes a **promise**, one sentence saying what it changes, is a slice. A slice goes up three gates before it is done:
+A card that makes a **promise**, one sentence saying what it changes, is a slice. A slice goes up two gates before it is done:
 
 | Gate | Who passes it | What it needs first |
 | --- | --- | --- |
 | **Built** | The agent that holds the card | The project's check passed on the agent's latest commit |
-| **Looks right** | You | Built |
-| **Landed** | Sikemux, or you when the project says so | Looks right, and the slice's commits on the branch |
+| **Landed** | Sikemux, or you when the project says so | Built, and the slice's commits on the branch |
+
+Whether the work looks right is asked once for its whole goal, and only when it changes what people see; see [looking once at a goal](/agents/goals/#looking-once-at-a-goal).
 
 A project with [environments](/agents/goals/#environments) has a different ladder: Built, then a step for each environment.
 
 An agent saying a slice is done passes nothing by itself. When it marks the card done, Sikemux looks at the latest check run on the agent's latest commit. If that run failed, or the agent committed nothing and gave no result, the card stays in progress and the agent is told why. If the check has not run on that commit yet, Built passes by itself once it does, and the agent hears. Sikemux reads the agent's latest commit from git each time before Built passes, so a commit it didn't hear about can't slip through. In the project's own checkout with commit attribution off, git can't tell whose a commit is, so Sikemux goes by the latest commit it saw the agent make with `git_commit`. A project whose `sikemux.json` names no `check` can't pass Built. The check is a command Sikemux runs, or the project's CI, which counts only once the agent's commit is on the project's branch and pushed; see [the project's check](/getting-started/projects/#the-projects-check).
 
-A check command runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass; so does CI, once the project's branch is pushed. Work can land before you look at it; Landed passes as soon as you pass Looks right, unless the project lands only when you say.
+A check command runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass; so does CI, once the project's branch is pushed. Work lands before you look at it: Landed passes once Built has and the commits are on the branch, unless the project lands only when you say.
 
 A slice whose work makes no commit, such as a deploy, has nothing for Built to check. Its agent closes it by marking it done with a result saying what it did and what showed it worked, which passes every gate it has left as the agent's, without asking you. A slice bound to assertions still needs their evidence on a commit.
 
@@ -34,13 +35,13 @@ A slice whose work makes no commit, such as a deploy, has nothing for Built to c
 Each project says once who passes Landed, under **Lands** in the board's settings or **Slices land** on a goal:
 
 - **Once on the branch**: Sikemux passes Landed as soon as the slice's commits are on the project's branch, and Auto merges its pull requests itself once their checks pass and a reviewer approves. Agents push and merge without asking you; deploys still wait for you ([what leaves this machine](/agents/permissions/#what-leaves-this-machine)).
-- **When you pass it**: nothing counts as landed until you pass Landed yourself. Auto leaves its pull requests open for you to merge, and merging one passes Landed as yours. An agent can still land its own commits with `git_commit`, but its slice then waits for you at Landed. Its pushes and merges wait for you to allow each once ([what leaves this machine](/agents/permissions/#what-leaves-this-machine)). A new commit on a slice that isn't done yet undoes Built and Looks right, so you never pass work you didn't see. Marking a slice done yourself passes every gate it has left, and moving it back to Open clears them. A Jira ticket closed with nothing of its slice landed doesn't close the slice either: it waits for you under **Decide**, saying the ticket says done but nothing landed, until you pass Landed, mark the slice done, or the ticket is opened again. Auto doesn't start an agent on it meanwhile.
+- **When you pass it**: nothing counts as landed until you pass Landed yourself. Auto leaves its pull requests open for you to merge, and merging one passes Landed as yours. An agent can still land its own commits with `git_commit`, but its slice then waits for you at Landed. Its pushes and merges wait for you to allow each once ([what leaves this machine](/agents/permissions/#what-leaves-this-machine)). A new commit on a slice that isn't done yet undoes Built, so you never pass work you didn't see. Marking a slice done yourself passes every gate it has left, and moving it back to Open clears them. A Jira ticket closed with nothing of its slice landed doesn't close the slice either: it waits for you under **Decide**, saying the ticket says done but nothing landed, until you pass Landed, mark the slice done, or the ticket is opened again. Auto doesn't start an agent on it meanwhile.
 
 ## Assertions
 
 A goal can say, before its slices are cut, what must hold once they're done, so the checks aren't shaped by the work. Each assertion is one sentence and the evidence that shows it, which Sikemux collects itself: the project's check passing, a named CI workflow passing, a browser recording, a screenshot of a page, or a command exiting with success. You or the agent leading the goal writes them, with `board_assert`; once a slice that fulfils one has started, only you can change it. A command an agent writes doesn't run or count until you accept that exact command; see [Goals](/agents/goals).
 
-A slice names the assertions it fulfils. Built then also needs evidence of each one's kind on the slice's latest commit: the project's check passing on it, its workflow passing on the pushed tip of the project's branch once that holds the commit (a re-run that passes counts after one that failed or was cancelled), its command exiting with success in a clean checkout of it, or a recording or screenshot the agent took while the slice was its card. When a screenshot is kept this way, Sikemux also takes the same page at a phone's width (390 px) and a tablet's (820 px), by resizing it only, so nothing reloads, then puts the tab back as it was, so you see all three; a newer screenshot replaces all three. You judge recordings and screenshots at Looks right. An assertion that's retired, or whose goal goes, no longer binds the slice, which shows it as detached; moving a slice to another goal frees it of its assertions until they're named again.
+A slice names the assertions it fulfils. Built then also needs evidence of each one's kind on the slice's latest commit: the project's check passing on it, its workflow passing on the pushed tip of the project's branch once that holds the commit (a re-run that passes counts after one that failed or was cancelled), its command exiting with success in a clean checkout of it, or a recording or screenshot the agent took while the slice was its card. When a screenshot is kept this way, Sikemux also takes the same page at a phone's width (390 px) and a tablet's (820 px), by resizing it only, so nothing reloads, then puts the tab back as it was, so you see all three; a newer screenshot replaces all three. You judge recordings and screenshots when you look at the goal. An assertion that's retired, or whose goal goes, no longer binds the slice, which shows it as detached; moving a slice to another goal frees it of its assertions until they're named again.
 
 When Built is refused because the project's check failed, Sikemux files the fix as a card under the slice, held by the same agent, and the slice waits on it. A later failure goes to the same card while it's open. Once the fix card is done, the agent marks the slice done again.
 
@@ -48,8 +49,10 @@ When Built is refused because the project's check failed, Sikemux files the fix 
 
 When Auto takes a card, the card becomes a slice, promising what its title says unless it already makes a promise. Shipping its work counts as the agent saying it's done, and Built passes once the pull request's checks pass on the commit Auto pushed.
 
-- When the project's slices land once on the branch, Auto merges the work itself once its reviewer approves, and the card has no Looks right gate: it passes Built, then Landed when it merges.
-- When they land only when you pass it, Auto leaves the pull request for you to merge, and the card waits for you at Looks right with its pull request. Merging it yourself passes Looks right and Landed as yours.
+- When the project's slices land once on the branch, Auto merges the work itself once its reviewer approves: the card passes Built, then Landed when it merges.
+- When they land only when you pass it, Auto leaves the pull request for you to merge, and the card waits for you at Landed with its pull request. Merging it yourself passes Landed as yours.
+
+Either way, a card whose work changes what people see asks you to look at it once it is Built, as any goal does.
 
 A pull request Auto opens lists the slice's evidence on its latest commit in the description: each check run and how it went, the change, and the screenshots and recordings by name. The files themselves stay with the card on the host that took them, since no code host takes them.
 
@@ -67,4 +70,6 @@ A slice keeps its latest 24 pieces of evidence, and every piece you wrote a note
 
 ## When a slice needs you
 
-A slice waiting at **Looks right** shows in the inbox as something to decide, with its promise and recordings, and in the board's **Needs you** column. Pass it once it looks right. If it needs more work, write a note on the slice, or on one piece of its evidence: the note goes to the agent whose work that piece shows, else to the agent that holds the card, as a message from you. The slice then goes back to the agent that holds it and leaves **Needs you**: it climbs again from Built once the agent commits what you asked, or answers you, and marks it done again.
+A slice waiting at a gate only you pass, such as **Landed** where you land slices or an environment's step, shows in the inbox as something to decide, with its promise and recordings, and in the board's **Needs you** column. Pass it once it is ready. If it needs more work, write a note on the slice, or on one piece of its evidence: the note goes to the agent whose work that piece shows, else to the agent that holds the card, as a message from you. The slice then goes back to the agent that holds it and leaves **Needs you**: it climbs again from Built once the agent commits what you asked, or answers you, and marks it done again.
+
+A goal whose work changes what people see waits for you to look at it once, on its own card in the **Needs you** column; see [looking once at a goal](/agents/goals/#looking-once-at-a-goal).

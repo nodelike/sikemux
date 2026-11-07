@@ -866,7 +866,7 @@ mod tests {
         );
         let state = core.boards.state.locked();
         let board = state.boards.get(PROJECT).unwrap();
-        let ladder = super::super::slice::ladder_of(&board.settings, false);
+        let ladder = super::super::slice::ladder_of(&board.settings);
         assert!(ladder.iter().all(|step| step.environment().is_none()));
         drop(state);
 

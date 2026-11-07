@@ -206,6 +206,7 @@ fn outlook(board: &Board, goal: &Card, waits: &HashMap<u64, Wait>) -> Outlook {
             Reach::Unknown => return Outlook::Unknown,
         }
     }
+    you |= slice::look(board, goal).coming();
     match latest {
         Some(at) => Outlook::By { at, then_you: you },
         None => Outlook::Through,

@@ -8,12 +8,14 @@
 
 mod follow;
 mod ladder;
+mod look;
 mod rollup;
 mod shots;
 mod words;
 
 pub(crate) use follow::*;
 pub(crate) use ladder::*;
+pub(crate) use look::*;
 pub(crate) use rollup::*;
 pub(crate) use shots::*;
 pub(crate) use words::*;
@@ -158,6 +160,9 @@ pub(super) struct Slice {
     /// ahead; what it needs after that, such as a look, is new work they need not wait for.
     #[serde(default)]
     pub(super) built_in: bool,
+    /// Its latest change touches files a browser draws a page from.
+    #[serde(default)]
+    pages: bool,
 }
 
 /// An assertion of its goal a slice fulfils.
@@ -290,7 +295,7 @@ impl Slice {
     ) -> Self {
         let mut slice = Self {
             promise,
-            ladder: ladder_of(settings, false),
+            ladder: ladder_of(settings),
             passes: Vec::new(),
             evidence: Vec::new(),
             next_evidence: 1,
@@ -304,6 +309,7 @@ impl Slice {
             fix: None,
             stalled: None,
             built_in: false,
+            pages: false,
         };
         for recording in &recordings {
             slice.picture(owner, recording);
@@ -499,7 +505,7 @@ impl Slice {
     /// passed, for one the check shows; its workflow's run passed there, for
     /// one a workflow shows; the approved command exited with success there,
     /// for one a command shows; else a recording or screenshot was collected
-    /// for it there, which the person judges at Looks right.
+    /// for it there, which the person judges when they look at the goal.
     fn asserted(&self, named: &Named) -> bool {
         let on_head = self
             .latest_for(named)
@@ -826,11 +832,11 @@ impl Slice {
     }
 
     /// Keeps the screenshots the core took itself of the page at `opened`,
-    /// which the change ending at `head` shows, toward the gate it waits at.
+    /// which the change ending at `head` shows, toward the gate it waits at,
+    /// or its last once it is done, as landing can be before they are taken.
     /// They show the running thing, but no assertion's evidence.
     pub(super) fn page(&mut self, owner: &str, head: &str, opened: &str, shots: &[Shot]) {
-        let Some(gate) = self
-            .waiting()
+        let Some(gate) = (self.waiting().or(self.ladder.last()))
             .filter(|_| self.head() == Some(head))
             .cloned()
         else {
@@ -1669,6 +1675,7 @@ fn collect_diff(core: &Core, diff: DiffWork) {
             return;
         };
         slice.add_evidence(&diff.gate, epoch_ms(), owner.clone(), None, proof, &[]);
+        slice.pages = pages;
         core.boards.save(&mut state, &diff.project);
         owner
     };
@@ -1871,16 +1878,12 @@ pub(super) fn earlier_work(
 }
 
 /// Auto takes the card: it becomes a slice, promising what its title says
-/// when it promised nothing, on the ladder for how Auto finishes it.
+/// when it promised nothing.
 pub(super) fn auto_slice(card: &mut Card, settings: &BoardSettings) {
-    let ladder = ladder_of(settings, settings.landing == Landing::Core);
     let recordings = std::mem::take(&mut card.recordings);
     let slice = card
         .slice
         .get_or_insert_with(|| Slice::new(card.title.clone(), recordings, None, settings));
-    if slice.passes.is_empty() {
-        slice.ladder = ladder;
-    }
     slice.begin(epoch_ms());
 }
 
@@ -2009,9 +2012,8 @@ pub(super) fn settle_ladders(board: &mut Board) {
         if card.status == CardStatus::Done {
             continue;
         }
-        let merges = card.auto.is_some() && settings.landing == Landing::Core;
         if let Some(slice) = &mut card.slice {
-            slice.take_ladder(ladder_of(&settings, merges));
+            slice.take_ladder(ladder_of(&settings));
         }
     }
 }
@@ -2149,7 +2151,30 @@ pub(crate) async fn person_pass(
         }
         return Ok(project_view(&core, &project));
     }
+    if params.gate == Gate::LooksRight {
+        return looked_right(core, params).await;
+    }
     pass_step(core, params).await
+}
+
+/// The person looked at what the goal of the card they named shows, and it looks right.
+async fn looked_right(core: Arc<Core>, params: BoardPassParams) -> Result<ProjectBoard, String> {
+    blocking(move || {
+        let project = project_at(&core, &params.project)?;
+        let notice = {
+            let mut state = core.boards.state.locked();
+            let board = (state.boards.get_mut(&project)).ok_or_else(|| {
+                format!("There is no card #{} on this project's board", params.card)
+            })?;
+            let notice = looks_right(board, params.card)?;
+            core.boards.save(&mut state, &project);
+            notice
+        };
+        send_notices(&core, notice.into_iter().collect());
+        Ok(project_view(&core, &project))
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// Passes the step the person named, and what moves on from it.
@@ -2171,7 +2196,8 @@ async fn pass_step(core: Arc<Core>, params: BoardPassParams) -> Result<ProjectBo
 /// The person writes on a slice, on a piece of its evidence when given. The
 /// note goes to the agent whose work that evidence shows, else to the slice's
 /// owner, as a message from the person. Written at a gate of theirs, it says the
-/// slice needs work, so the slice goes back to its owner until it is done again.
+/// slice needs work, so the slice goes back to its owner until it is done again;
+/// written while its goal waits for them to look, it says the goal needs work.
 /// Answers with the board.
 pub(crate) async fn person_note(
     core: &Arc<Core>,
@@ -2187,40 +2213,57 @@ pub(crate) async fn person_note(
                 format!("text must be a note of at most {MAX_NOTE_CHARS} characters").into(),
             );
         }
-        let (to, message) = {
+        let told = {
             let mut state = core.boards.state.locked();
             let board = state
                 .boards
                 .get_mut(&project)
                 .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
-            let settings = board.settings.clone();
-            let card = board.card_mut(id)?;
-            let label = card.label();
-            let owner = card.owner_id().map(str::to_owned);
-            let slice = card
-                .slice
-                .as_mut()
-                .ok_or_else(|| format!("{label} is not a slice, so it takes no notes"))?;
-            let needs_work = slice.waits_on_person(&settings).is_some();
-            let (agent, about) = slice
-                .note(text.clone(), params.evidence)
-                .map_err(|error| format!("{label}: {error}"))?;
-            let mut message = format!("On card {label}, about {about}:\n\n{text}");
-            if needs_work {
-                slice.back_to_work();
-                message.push_str("\n\nThe card is back with you: commit what the note asks, or answer it, then mark the card done again.");
-            }
-            card.updated_at = epoch_ms();
+            let told = match answers_look(board, id) {
+                true => needs_work(board, id, &text, params.evidence)?,
+                false => note_slice(board, id, text, params.evidence)?
+                    .into_iter()
+                    .collect(),
+            };
             core.boards.save(&mut state, &project);
-            (agent.or(owner), message)
+            told
         };
-        if let Some(to) = to {
+        for (to, message) in told {
             messages::from_person(&core, &to, message)?;
         }
         Ok(project_view(&core, &project))
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// The person writes `text` on the slice on card `id`, on its piece of evidence `evidence` when
+/// given. Who hears it, and what.
+fn note_slice(
+    board: &mut Board,
+    id: u64,
+    text: String,
+    evidence: Option<u64>,
+) -> Result<Option<(String, String)>, String> {
+    let settings = board.settings.clone();
+    let card = board.card_mut(id)?;
+    let label = card.label();
+    let owner = card.owner_id().map(str::to_owned);
+    let slice = card
+        .slice
+        .as_mut()
+        .ok_or_else(|| format!("{label} is not a slice, so it takes no notes"))?;
+    let needs_work = slice.waits_on_person(&settings).is_some();
+    let (agent, about) = slice
+        .note(text.clone(), evidence)
+        .map_err(|error| format!("{label}: {error}"))?;
+    let mut message = format!("On card {label}, about {about}:\n\n{text}");
+    if needs_work {
+        slice.back_to_work();
+        message.push_str("\n\nThe card is back with you: commit what the note asks, or answer it, then mark the card done again.");
+    }
+    card.updated_at = epoch_ms();
+    Ok(agent.or(owner).map(|to| (to, message)))
 }
 
 #[cfg(test)]
@@ -2281,12 +2324,12 @@ mod tests {
     }
 
     #[test]
-    fn with_nothing_set_a_slice_takes_the_three_gates() {
+    fn with_nothing_set_a_slice_takes_built_then_landed() {
         let settings = BoardSettings::default();
         let slice = Slice::new("It works.".to_owned(), Vec::new(), None, &settings);
         assert_eq!(
             serde_json::to_value(&slice.ladder).unwrap(),
-            serde_json::json!(["built", "looksRight", "landed"])
+            serde_json::json!(["built", "landed"])
         );
     }
 
@@ -2404,7 +2447,7 @@ mod tests {
         let mut slice = passed_built(&settings);
         deploy(&mut slice, "Dev", Some(Verdict::Passed));
         slice.advance(Some("owner"), &settings);
-        slice.take_ladder(ladder_of(&BoardSettings::default(), false));
-        assert_eq!(slice.waiting(), Some(&Step::Gate(Gate::LooksRight)));
+        slice.take_ladder(ladder_of(&BoardSettings::default()));
+        assert_eq!(slice.waiting(), Some(&Step::Gate(Gate::Landed)));
     }
 }

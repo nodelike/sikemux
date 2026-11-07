@@ -14,7 +14,8 @@ use crate::memory::Learned;
 pub enum Gate {
     /// Its owner says it is done, and the project's check passed on its latest commit.
     Built,
-    /// The person looked at its evidence and it looks right.
+    /// The person looked at what a goal's work shows, once for the whole goal, and it looks right.
+    /// No slice's ladder has it; a goal's card waits at it.
     LooksRight,
     /// Its commits are on the project's branch.
     Landed,

@@ -2,21 +2,17 @@
 
 use super::*;
 
-/// The ladder a card takes once it makes a promise, in a project with no environments.
-pub(crate) const LADDER: [Gate; 3] = [Gate::Built, Gate::LooksRight, Gate::Landed];
-/// The ladder of a card Auto merges itself once its reviewer approves, which
-/// leaves the person nothing to pass.
-pub(crate) const AUTO_MERGES: [Gate; 2] = [Gate::Built, Gate::Landed];
+/// The ladder a card takes once it makes a promise, in a project with no environments. Whether
+/// the work looks right is asked once for its whole goal, not of each slice.
+pub(crate) const LADDER: [Gate; 2] = [Gate::Built, Gate::Landed];
 
-/// The ladder a project gives its slices: one Auto merges itself leaves out
-/// Looks right, and its environments, when it has them, take the place of
+/// The ladder a project gives its slices: its environments, when it has them, take the place of
 /// what follows Built.
-pub(crate) fn ladder_of(settings: &BoardSettings, auto_merges: bool) -> Vec<Step> {
+pub(crate) fn ladder_of(settings: &BoardSettings) -> Vec<Step> {
     if (settings.environments.iter()).any(|environment| !environment.no_step) {
         return ladder_steps(settings.landing == Landing::Person, &settings.environments);
     }
-    let gates: &[Gate] = if auto_merges { &AUTO_MERGES } else { &LADDER };
-    gates.iter().copied().map(Step::Gate).collect()
+    LADDER.iter().copied().map(Step::Gate).collect()
 }
 
 /// What a step must have before it can pass, and what it is called. An
@@ -54,7 +50,8 @@ pub(crate) fn rule(step: &Step) -> Rule<'_> {
 }
 
 /// Who passes `step` in a project set as `settings`: the one table of who
-/// passes what. An environment it no longer has is the person's.
+/// passes what. An environment it no longer has is the person's, and so is
+/// Looks right, which a goal waits at.
 pub(crate) fn passer(step: &Step, settings: &BoardSettings) -> Passer {
     match step {
         Step::Gate(Gate::Built) => Passer::Owner,
