@@ -130,6 +130,14 @@ const OPTIONAL_HEAD: [&str; 18] = [
 
 pub type Flushed = Vec<ChatChange>;
 
+/// What a head field left out of the JSON stands for, as a client must read it.
+fn unset(field: &str) -> Value {
+    match field {
+        "changingMode" => Value::Bool(false),
+        _ => Value::Null,
+    }
+}
+
 fn md_change(n: usize, o: Patch) -> Value {
     serde_json::to_value(MdChange { n, o }).unwrap_or_default()
 }
@@ -441,7 +449,7 @@ impl Fold {
                 .map(|name| {
                     (
                         name.to_owned(),
-                        whole.get(name).cloned().unwrap_or(Value::Null),
+                        whole.get(name).cloned().unwrap_or_else(|| unset(name)),
                     )
                 })
                 .collect();
@@ -724,7 +732,7 @@ impl Fold {
         let mut set = serde_json::to_value(&head).unwrap_or_default();
         if let Some(fields) = set.as_object_mut() {
             for name in OPTIONAL_HEAD {
-                fields.entry(name).or_insert(Value::Null);
+                fields.entry(name).or_insert_with(|| unset(name));
             }
         }
         let mut out = vec![ChatChange::Head {
