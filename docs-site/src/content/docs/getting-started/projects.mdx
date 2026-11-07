@@ -88,6 +88,8 @@ Or name the CI workflows that count, when the project's CI is its check:
 
 Sikemux then reads the code host's runs on the project's branch as pushed, instead of building it, so the agent's commit has to be on that branch and pushed: an agent whose commit isn't is told to land and push it, and the slice waits until it is. Every workflow named has to pass on the pushed branch's newest commit, which holds the agent's. Other branches on the remote, such as work in progress, decide nothing. A run that is cancelled, or that doesn't start within a few minutes of the push, counts as no verdict, so the agent marks the card done again to have it checked.
 
+A check command runs only once you trust `sikemux.json`: the first commit it would check asks you. While the file has a mistake, Sikemux reads no check from it, and an agent working a slice is told what is wrong rather than that the project names none.
+
 Without a `check`, Sikemux uses the test command the project's build files suggest at its root: the `test` script in `package.json` (not the one `npm init` writes, which only fails), `cargo test` for a Cargo project, `go test` for a Go module, pytest or Django's tests for a Python project, and Maven's or Gradle's `test`. It reads them once, when Sikemux starts. This check runs only on a slice's latest commit when its agent marks it done, never on every commit, and never marks the project as broken. `"check": false` turns it off.
 
 ### The changed page

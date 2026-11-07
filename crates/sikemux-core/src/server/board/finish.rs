@@ -12,7 +12,7 @@ use sikemux_process::sync::Locked;
 
 use super::auto::{AutoPull, AutoRun, BoardSettings, Landing, RunHold, RunStage};
 use super::review::{self, MAX_ROUNDS};
-use super::{blind, change_card, git, send_notices, By, Card, CardStatus, Changes};
+use super::{blind, change_card, git, send_notices, By, Card, CardStatus, Changes, Checker};
 use crate::server::codehost::ci;
 use crate::server::codehost::repo::{self as codehost, Checks, Feedback, CI_START_WAIT_MS};
 use crate::server::connection::blocking;
@@ -711,12 +711,24 @@ async fn checking(core: &Arc<Core>, step: Step) {
         }
         Checks::None => {
             let (owner, project) = (core.clone(), step.project.clone());
-            let check = blocking(move || Ok(super::project_check(&owner, &project))).await;
+            let check = blocking(move || Ok(super::project_check(&owner, &project).ok())).await;
             let check = check.map(|check| {
-                check.and_then(|check| Some((check.label(), check.command()?.to_owned())))
+                check.and_then(|check| {
+                    let named = matches!(check, Checker::Named(_));
+                    Some((check.label(), check.command()?.to_owned(), named))
+                })
             });
             match check {
-            Ok(Some((label, command))) => {
+            Ok(Some((label, _, true)))
+                if !crate::server::tasks::config_trusted(core, Path::new(&step.project), None).await =>
+            {
+                step.hold(
+                    core,
+                    RunHold::Unblock,
+                    format!("sikemux.json is not trusted, so its check, {label}, did not run; trust it and Ship it again"),
+                );
+            }
+            Ok(Some((label, command, _))) => {
                 step.note(core, RunStage::Checking, &format!("Running {label}"));
                 let (cwd, running) = (step.tree(), command.clone());
                 let checked = blocking(move || crate::server::checks::run_command(&cwd, &running).map_err(Into::into)).await;

@@ -50,7 +50,7 @@ pub(crate) mod tickets;
 mod wait;
 mod workflows;
 
-use super::checks::{project_check, Checker};
+use super::checks::{project_check, Checker, NoCheck};
 pub(crate) use auto::AutoPull;
 use auto::AutoRun;
 pub use auto::{
@@ -1793,7 +1793,7 @@ fn change_card(
     }
     let seen = match (by, changes.status) {
         (By::Agent(_), Some(CardStatus::Done)) => {
-            slice::seen(core, project, id, project_check(core, project).as_ref())
+            slice::seen(core, project, id, &project_check(core, project))
         }
         _ => slice::Seen::unread(),
     };
@@ -1900,7 +1900,7 @@ fn change_in(
         (status, by, card.slice.as_mut())
     {
         later = slice::Later::look_again(project, id);
-        match slice.say_done(&label, seen.checking, confirmed, &settings) {
+        match slice.say_done(&label, &seen.checking, confirmed, &settings) {
             Ok(slice::Said::Pending { note, recheck }) => {
                 pending = Some(note);
                 if let Some(sha) = recheck {

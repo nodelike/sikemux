@@ -247,16 +247,16 @@ pub(crate) fn settle(core: &Arc<Core>) {
     }
     for (project, dir, mut commits) in state.startable() {
         let (command, named) = match project_check(core, &project) {
-            Some(Checker::Named(ProjectCheck::Command(command))) => (command, true),
-            Some(Checker::Named(ProjectCheck::Ci { ci })) => {
+            Ok(Checker::Named(ProjectCheck::Command(command))) => (command, true),
+            Ok(Checker::Named(ProjectCheck::Ci { ci })) => {
                 tokio::spawn(wait_for_ci(core.clone(), project, dir, commits, ci));
                 continue;
             }
-            Some(Checker::Found(command)) => {
+            Ok(Checker::Found(command)) => {
                 commits.retain(|commit| commit.asked);
                 (command, false)
             }
-            None => {
+            Err(_) => {
                 state.running.remove(&project);
                 continue;
             }
@@ -295,11 +295,10 @@ pub(crate) fn settle(core: &Arc<Core>) {
             let outcome = match crate::server::worktree::agent::integration(&core, &dir, &newest)
                 .await
             {
-                Ok(checkout) if needs_trust(&core, &project, &dir, &checkout, &commits).await => {
-                    Err(format!(
-                        "{}. The person is asked to trust it, and the check runs again if they do",
-                        crate::server::edits::generate::UNTRUSTED
-                    ))
+                Ok(checkout)
+                    if needs_trust(&core, &project, &dir, &checkout, &commits, named).await =>
+                {
+                    Err("sikemux.json is not trusted yet, so the check did not run. The person is asked to trust it, and the check runs again if they do".to_owned())
                 }
                 Ok(checkout) => {
                     let (owner, command) = (core.clone(), command.clone());
@@ -360,20 +359,27 @@ pub(crate) fn settle(core: &Arc<Core>) {
     }
 }
 
-/// Whether the check of `commits` stops at a `sikemux.json` the person has not trusted as
-/// `checkout` holds it. They are asked, once at a time, and those commits are checked again if
-/// they trust it.
+/// Whether the check of `commits` stops at a `sikemux.json` the person has not trusted: the
+/// project's, for the check it names, or `checkout`'s, for its generate command. They are
+/// asked, once at a time, and those commits are checked again if they trust it.
 async fn needs_trust(
     core: &Arc<Core>,
     project: &str,
     dir: &Path,
     checkout: &Path,
     commits: &[Commit],
+    named: bool,
 ) -> bool {
     let reading = {
         let (owner, dir, checkout) = (core.clone(), dir.to_owned(), checkout.to_owned());
         tokio::task::spawn_blocking(move || {
-            crate::server::edits::generate::trust_needed(&owner, &dir, &checkout)
+            let check = named
+                .then(|| {
+                    let load = crate::tasks::config::load(&dir);
+                    super::tasks::config_needs(&owner, &load)
+                })
+                .flatten();
+            check.or_else(|| crate::server::edits::generate::trust_needed(&owner, &dir, &checkout))
         })
         .await
     };
@@ -782,23 +788,35 @@ fn ended(
     }
 }
 
+/// Why a project has no check.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum NoCheck {
+    /// Its `sikemux.json` names none or turns it off, and its build files suggest none.
+    Unnamed,
+    /// Its `sikemux.json` is invalid, so whatever check it names is unread; says what is wrong.
+    Invalid(String),
+}
+
 /// What proves a change sound in `project`: the `check` its `sikemux.json`
-/// names, once the person trusts that file, else the test command its build
-/// files suggest, unless the file turns that off with `"check": false`.
-pub(crate) fn project_check(core: &Core, project: &str) -> Option<Checker> {
+/// names, which runs once the person trusts that file, else the test command
+/// its build files suggest, unless the file turns that off with `"check": false`.
+pub(crate) fn project_check(core: &Core, project: &str) -> Result<Checker, NoCheck> {
     use crate::tasks::config::{ConfigLoad, Stated};
-    let load = crate::tasks::config::load(Path::new(project));
-    let stated = match &load {
-        ConfigLoad::Valid { config, .. } => config.check.as_ref(),
+    let stated = match crate::tasks::config::load(Path::new(project)) {
+        ConfigLoad::Valid { config, .. } => config.check,
         ConfigLoad::Absent { .. } => None,
-        ConfigLoad::Invalid { .. } => return None,
+        ConfigLoad::Invalid { errors, .. } => {
+            return Err(NoCheck::Invalid(crate::tasks::config::invalid_words(
+                &errors,
+            )))
+        }
     };
     match stated {
-        Some(Stated::Off) => None,
-        Some(Stated::Given(check)) => super::tasks::config_needs(core, &load)
-            .is_none()
-            .then(|| Checker::Named(check.clone())),
-        None => found_check(core, project).map(Checker::Found),
+        Some(Stated::Off) => Err(NoCheck::Unnamed),
+        Some(Stated::Given(check)) => Ok(Checker::Named(check)),
+        None => found_check(core, project)
+            .map(Checker::Found)
+            .ok_or(NoCheck::Unnamed),
     }
 }
 
@@ -890,7 +908,7 @@ impl super::part::Part for ProjectChecks {
 /// `project`'s branch is at another commit, by whatever commit: its newest waits for the check,
 /// with the agents its footer names, in a project that checks each commit.
 pub(crate) fn head_moved(core: &Arc<Core>, project: &str, dir: &Path) {
-    if !matches!(project_check(core, project), Some(Checker::Named(_))) {
+    if !matches!(project_check(core, project), Ok(Checker::Named(_))) {
         return;
     }
     let Ok(head) = super::edits::git(dir, &["log", "-1", "--format=%H%x00%s"]) else {

@@ -375,7 +375,7 @@ fn heard(core: &Arc<Core>, event: RepoEvent) {
     }
     let seen: Vec<(u64, Seen)> = touched
         .into_iter()
-        .map(|id| (id, seen(core, &project, id, None)))
+        .map(|id| (id, seen(core, &project, id, &Err(NoCheck::Unnamed))))
         .collect();
     let mut later = Later::default();
     {

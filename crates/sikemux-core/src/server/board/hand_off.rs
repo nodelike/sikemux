@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::{
-    add_card, lease, long_text, project_at, project_view, slice, title_of, Adding, By, ProjectBoard,
+    add_card, lease, long_text, project_at, project_view, slice, title_of, Adding, By, NoCheck,
+    ProjectBoard,
 };
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
@@ -245,8 +246,7 @@ async fn hand_task(
         let (owner, project) = (core.clone(), project.clone());
         blocking(move || Ok(super::project_check(&owner, &project)))
             .await
-            .ok()
-            .flatten()
+            .unwrap_or(Err(NoCheck::Unnamed))
     };
     let base = checkout.base.as_deref().unwrap_or("the project's branch");
     let mut message = format!(
@@ -259,11 +259,14 @@ async fn hand_task(
         ));
     }
     message.push_str(&match checked {
-        Some(check) => format!(
+        Ok(check) => format!(
             "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true, then mark the card done with board_update. It is Built once the project's check, {}, passes on it there, which Sikemux runs itself.",
             check.label()
         ),
-        None => format!(
+        Err(NoCheck::Invalid(why)) => format!(
+            "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true. {why}, so Sikemux can't read the check it names and nothing can show the work Built until the file is fixed: tell me what is wrong with it before you mark the card done."
+        ),
+        Err(NoCheck::Unnamed) => format!(
             "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true. This project names no check, so nothing Sikemux runs can show the work Built yet: ask me how it is to be checked before you mark the card done."
         ),
     });

@@ -731,14 +731,7 @@ fn resolve(
         ConfigLoad::Absent { .. } => {
             "Project has no sikemux.json; add one that defines processes".into()
         }
-        ConfigLoad::Invalid { errors, .. } => format!(
-            "sikemux.json is invalid: {}",
-            errors
-                .iter()
-                .map(|error| format!("{} {}", error.path, error.message))
-                .collect::<Vec<_>>()
-                .join(" · ")
-        ),
+        ConfigLoad::Invalid { errors, .. } => config::invalid_words(&errors),
         ConfigLoad::Valid { .. } => "Process is not defined in sikemux.json".into(),
     })
 }

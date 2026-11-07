@@ -316,6 +316,18 @@ pub struct ConfigError {
     pub message: String,
 }
 
+/// What is wrong with an invalid `sikemux.json`, in one line.
+pub fn invalid_words(errors: &[ConfigError]) -> String {
+    format!(
+        "sikemux.json is invalid: {}",
+        errors
+            .iter()
+            .map(|error| format!("{} {}", error.path, error.message))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    )
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct TrustSummary {

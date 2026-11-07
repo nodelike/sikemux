@@ -36,7 +36,7 @@ use super::auto::{BoardSettings, Landing};
 use super::environments::{ladder_steps, Passes, Step};
 use super::{
     change_card, messages, project_at, project_view, send_notices, Board, By, Card, CardStatus,
-    Changes, Checker, Notice, ProjectBoard, State,
+    Changes, Checker, NoCheck, Notice, ProjectBoard, State,
 };
 use crate::git::Git;
 use crate::server::connection::blocking;
@@ -1110,7 +1110,7 @@ impl Slice {
     pub(super) fn say_done(
         &mut self,
         label: &str,
-        checking: Checking,
+        checking: &Checking,
         confirmed: Result<(), &str>,
         settings: &BoardSettings,
     ) -> Result<Said, Refused> {
@@ -1141,9 +1141,10 @@ impl Slice {
         if let Err(why) = confirmed {
             return Err(format!("Not {words}: {why}").into());
         }
-        let said = match (&work.check, self.unmet(&gate, settings).contains(&Need::PassingCheck)) {
-            (_, false) => Said::Ready,
-            (Some(Check { verdict: Some(Verdict::Failed), output, .. }), true) => {
+        let unmet = self.unmet(&gate, settings).contains(&Need::PassingCheck);
+        let said = match (&work.check, unmet, checking) {
+            (_, false, _) => Said::Ready,
+            (Some(Check { verdict: Some(Verdict::Failed), output, .. }), true, _) => {
                 return Err(Refused {
                     text: format!(
                         "Not {words}: the project's check failed on {}, your latest commit.\n\n{output}",
@@ -1152,34 +1153,40 @@ impl Slice {
                     failed: Some(work.head.clone()),
                 });
             }
-            (_, true) if checking == Checking::Nothing => {
+            (_, true, Checking::Nothing) => {
                 return Err(format!(
                     "Not {words}: this project names no check in sikemux.json, neither a command nor CI, and Sikemux found no test command in its build files, so nothing can show the work sound. Ask your lead or the person how it is to be checked"
                 )
                 .into())
             }
-            (_, true) if checking == (Checking::Ci { pushed: false }) => Said::Pending {
+            (_, true, Checking::Unread(why)) => {
+                return Err(format!(
+                    "Not {words}: {why}, so Sikemux can't read the check it names and nothing can show the work sound until it is fixed. Tell your lead or the person what is wrong with it"
+                )
+                .into())
+            }
+            (_, true, Checking::Ci { pushed: false }) => Said::Pending {
                 note: format!(
                     "Not {words} yet: this project's check is its CI, which checks the project's branch as pushed, and {} isn't on it there yet. Land it if it isn't on the project's branch, then push the branch; {words} passes by itself once CI passes on it, and you will hear.",
                     short(&work.head)
                 ),
                 recheck: Some(work.head.clone()),
             },
-            (_, true) if checking == (Checking::Ci { pushed: true }) => Said::Pending {
+            (_, true, Checking::Ci { pushed: true }) => Said::Pending {
                 note: format!(
                     "Not {words} yet: CI has not passed on {}, your latest commit. {words} passes by itself once it does, and you will hear.",
                     short(&work.head)
                 ),
                 recheck: Some(work.head.clone()),
             },
-            (_, true) if work.on_branch => Said::Pending {
+            (_, true, Checking::Command) if work.on_branch => Said::Pending {
                 note: format!(
                     "Not {words} yet: the project's check has not passed on {}, your latest commit. {words} passes by itself once it does, and you will hear.",
                     short(&work.head)
                 ),
                 recheck: Some(work.head.clone()),
             },
-            (_, true) => Said::Pending {
+            (_, true, Checking::Command) => Said::Pending {
                 note: format!(
                     "Not {words} yet: the project's check runs on the project's branch, and {} is only in your checkout. Land it with git_commit land true; {words} passes by itself once the check passes on it, and you will hear.",
                     short(&work.head)
@@ -1420,9 +1427,11 @@ impl Slice {
 pub(super) use crate::git::short;
 
 /// How the project checks a slice's work.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Checking {
     Nothing,
+    /// Its `sikemux.json` is invalid; says what is wrong.
+    Unread(String),
     /// Its check command runs on commits on the project's branch.
     Command,
     /// Its CI runs on the project's branch as pushed; `pushed` says whether
@@ -1697,7 +1706,7 @@ impl Footers {
 /// checkout whose commits carry no Sikemux footer, git can't tell whose a
 /// commit is, so the head the board heard of the owner's own git_commit
 /// stands once git still holds it.
-pub(super) fn seen(core: &Core, project: &str, id: u64, check: Option<&Checker>) -> Seen {
+pub(super) fn seen(core: &Core, project: &str, id: u64, check: &Result<Checker, NoCheck>) -> Seen {
     let read = {
         let state = core.boards.state.locked();
         state.boards.get(project).and_then(|board| {
@@ -1709,9 +1718,10 @@ pub(super) fn seen(core: &Core, project: &str, id: u64, check: Option<&Checker>)
         })
     };
     let checking = |head: Option<&str>| match check {
-        None => Checking::Nothing,
-        Some(Checker::Named(ProjectCheck::Command(_)) | Checker::Found(_)) => Checking::Command,
-        Some(Checker::Named(ProjectCheck::Ci { .. })) => Checking::Ci {
+        Err(NoCheck::Unnamed) => Checking::Nothing,
+        Err(NoCheck::Invalid(why)) => Checking::Unread(why.clone()),
+        Ok(Checker::Named(ProjectCheck::Command(_)) | Checker::Found(_)) => Checking::Command,
+        Ok(Checker::Named(ProjectCheck::Ci { .. })) => Checking::Ci {
             pushed: head.is_some_and(|head| crate::git::pushed(Path::new(project), head)),
         },
     };
