@@ -603,6 +603,15 @@ fn wrapped(letter: &Letter) -> String {
     )
 }
 
+/// The agent that sent `prompt`, when it is a message from another agent rather than from
+/// Sikemux or the person.
+pub(crate) fn sent_by_agent(prompt: &str) -> Option<String> {
+    let opening = prompt.trim_start().strip_prefix("<agent-message ")?;
+    let (_, rest) = opening.split_once(" agent-id=\"")?;
+    let (id, _) = rest.split_once('"')?;
+    Sender::of(id).is_none().then(|| id.to_owned())
+}
+
 /// The task a lead gives an agent it started, as that agent reads it.
 pub(crate) fn task(
     core: &Core,
@@ -1213,6 +1222,19 @@ pub(crate) async fn over_rule(core: &Arc<Core>, to: String, text: String) -> Res
         MessageKind::Message,
         text,
         Some("Sent by Sikemux itself over a rule of this project, not by the person.".to_owned()),
+    );
+    deliver(core, &target, letter).await
+}
+
+/// Sends an agent back to the questions its turn ended with, which did not reach the person. It
+/// starts a turn when the agent is at rest. Fails when the agent has stopped or is gone.
+pub(crate) async fn ask_again(core: &Arc<Core>, to: String, text: String) -> Result<Value, String> {
+    let target = running(core, to).await?;
+    let letter = Letter::from_sender(
+        Sender::Sikemux,
+        MessageKind::Message,
+        text,
+        Some("Sent by Sikemux itself about how your turn ended, not by the person.".to_owned()),
     );
     deliver(core, &target, letter).await
 }

@@ -681,6 +681,17 @@ impl Replay {
             .map(|entry| entry.index)
     }
 
+    /// What the person, or whoever wrote in their place, sent to start the latest turn.
+    pub(super) fn turn_prompt(&self) -> Option<String> {
+        let entry = self.entries.iter().rev().find(|entry| entry.starts_turn)?;
+        let payload = &entry.event.payload;
+        let text = match entry.event.kind {
+            ChatEventKind::Prompt => payload.get("text"),
+            _ => payload.pointer("/update/content/text"),
+        };
+        text.and_then(Value::as_str).map(str::to_owned)
+    }
+
     pub(crate) fn is_trimmed(&self) -> bool {
         self.trimmed
     }

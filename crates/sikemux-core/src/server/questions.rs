@@ -317,6 +317,9 @@ struct State {
     /// The rule each agent was last sent back to over what it offered, so the same rule does not
     /// send it back again until a turn ends offering nothing a rule is about.
     followed_rules: HashMap<String, String>,
+    /// The agents whose latest turn ended in questions they were sent back to, so the next such
+    /// turn reaches the person.
+    sent_back: HashSet<String>,
     /// Oldest first.
     answered: Vec<Answered>,
     /// Something changed that the window has not been sent yet.
@@ -1380,8 +1383,15 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
         &project,
         offers.into_iter().map(|(offer, _)| offer),
     );
+    let was_sent_back = (core.harness.questions.state.locked().sent_back).remove(agent_id);
     if asks.is_empty() {
         return;
+    }
+    let started_by = (chat.feed.turn_prompt().as_deref()).and_then(messages::sent_by_agent);
+    let leaning = asks.iter().any(|(ask, _)| leans(ask));
+    if (started_by.is_some() || leaning) && !was_sent_back {
+        let asked: Vec<&str> = asks.iter().map(|(ask, _)| ask.as_str()).collect();
+        return send_back(core, agent_id, started_by.as_deref(), &asked);
     }
     let at = epoch_ms();
     let asked = (asks.into_iter().take(MAX_OPEN_PER_AGENT)).map(|(text, _)| ReplyQuestion {
@@ -1407,6 +1417,30 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
         .retain(|asked| asked.agent_id != agent_id);
     state.reply_questions.extend(asked);
     questions.shown_changed(&mut state);
+}
+
+/// Sends the agent back to the questions its turn ended with, which would not stand before the
+/// person: the turn was another agent's to answer, having started with its message, or a question
+/// says nothing without the chat. Sent back once in a row, so asking again reaches the person.
+fn send_back(core: &Arc<Core>, agent_id: &str, started_by: Option<&str>, asked: &[&str]) {
+    (core.harness.questions.state.locked().sent_back).insert(agent_id.to_owned());
+    let asked = asked.join("\n");
+    let why = match started_by {
+        Some(other) => {
+            let other = core.names.name(other).unwrap_or_else(|| other.to_owned());
+            format!("A message from @{other} started that turn, so what it raises is between you and @{other}: settle it with agent_send, or decide it yourself if it is yours.")
+        }
+        None => "It says nothing without your chat, so it did not reach the person. Decide it yourself if it is yours.".to_owned(),
+    };
+    let text = format!(
+        "Your turn ended asking:\n\n{asked}\n\n{why} {RAISE_RULE}, saying what is being decided so it makes sense on its own."
+    );
+    let (core, agent_id) = (core.clone(), agent_id.to_owned());
+    tokio::spawn(async move {
+        if let Err(error) = messages::ask_again(&core, agent_id, text).await {
+            eprintln!("sikemux core: an agent was not sent back to its questions: {error}");
+        }
+    });
 }
 
 /// The first offer of more work in an agent's reply, which a yes or a no answers.

@@ -809,6 +809,14 @@ impl Feed {
         inner.replay.turn_start()
     }
 
+    /// What was sent to start the turn in progress, or the last one.
+    pub(crate) fn turn_prompt(&self) -> Option<String> {
+        let mut inner = self.inner.locked();
+        inner.replay.reload();
+        self.account(&inner);
+        inner.replay.turn_prompt()
+    }
+
     pub(crate) fn last_answer(&self) -> Option<String> {
         let mut inner = self.inner.locked();
         inner.replay.reload();

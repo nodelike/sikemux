@@ -94,6 +94,30 @@ pub(super) fn asked_in(reply: &str) -> Vec<(String, bool)> {
     found
 }
 
+/// Words that point back at something a question does not name itself.
+const POINTING: [&str; 5] = ["it", "them", "they", "these", "those"];
+
+/// Whether a question leans on what came before it, so it says nothing without the chat: it
+/// points back with a word such as "them", or ends on "this" or "that", and names nothing
+/// itself, such as a file, a command or a name.
+pub(super) fn leans(sentence: &str) -> bool {
+    let words: Vec<&str> = (sentence.split_whitespace())
+        .map(|word| word.trim_matches(|c: char| !c.is_alphanumeric()))
+        .filter(|word| !word.is_empty())
+        .collect();
+    let lower: Vec<String> = words.iter().map(|word| word.to_lowercase()).collect();
+    let points = lower.iter().any(|word| POINTING.contains(&word.as_str()))
+        || lower
+            .last()
+            .is_some_and(|last| last == "this" || last == "that");
+    let names = words.iter().enumerate().any(|(at, word)| {
+        word.contains(['.', '/', '_', '#', '@', '-'])
+            || word.chars().any(|c| c.is_ascii_digit())
+            || (at > 0 && *word != "I" && word.starts_with(char::is_uppercase))
+    });
+    points && !names
+}
+
 /// The reply's paragraphs and list items, as one line each. Code, quotes, headings and table
 /// rows say nothing to the person.
 pub(super) fn paragraphs(reply: &str) -> Vec<String> {
