@@ -1,7 +1,7 @@
 use serde_json::json;
 use sikemux_view::chat::{
-    ChatChange, ChatView, DiffLine, DiffSummary, OutputImage, OutputSummary, PageRef, PlanEntry,
-    PlanPriority, PlanStatus, RowMeta, StopReason, ToolCall, ToolOutput, ToolStatus,
+    ChatActivity, ChatChange, ChatView, DiffLine, DiffSummary, OutputImage, OutputSummary, PageRef,
+    PlanEntry, PlanPriority, PlanStatus, RowMeta, StopReason, ToolCall, ToolOutput, ToolStatus,
 };
 
 use super::*;
@@ -395,6 +395,37 @@ mod reducer {
             vec![ChatRole::User, ChatRole::Assistant]
         );
         assert_eq!(rows[0].attachments, vec!["/tmp/example.ts".to_owned()]);
+    }
+
+    #[test]
+    fn activity_follows_the_call_in_the_same_flush() {
+        let mut chat = Chat::running();
+        chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "tool-1", "title": "Terminal", "kind": "execute", "status": "pending" }));
+        chat.flush();
+        assert!(matches!(
+            chat.head().activity,
+            Some(ChatActivity::Call { .. })
+        ));
+        chat.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "tool-1", "status": "completed" }));
+        chat.flush();
+        assert_eq!(chat.head().activity, Some(ChatActivity::Thinking));
+    }
+
+    #[test]
+    fn a_catch_up_after_the_turn_clears_what_the_agent_was_doing() {
+        let mut chat = Chat::new();
+        chat.ready().prompt(json!({ "text": "Run it" })).turn_started();
+        chat.update(json!({ "sessionUpdate": "tool_call", "toolCallId": "tool-1", "title": "Terminal", "kind": "execute", "status": "pending" }));
+        chat.flush();
+        chat.fold.number(5);
+        chat.update(json!({ "sessionUpdate": "tool_call_update", "toolCallId": "tool-1", "status": "completed" }))
+            .turn_completed(Some("end_turn"));
+        chat.flush();
+        let missed = chat.fold.catch_up(4).expect("still holds what it missed");
+        let ChatChange::Head { set, .. } = &missed[0] else {
+            panic!("a client catching up hears the head first");
+        };
+        assert_eq!(set.get("activity"), Some(&Value::Null));
     }
 
     #[test]

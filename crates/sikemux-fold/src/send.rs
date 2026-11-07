@@ -4,7 +4,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value};
 use sikemux_markdown::{Doc, MarkdownOptions, MdChange, MdOp, Patch};
 
 use sikemux_view::chat::{
@@ -107,8 +107,9 @@ fn within(rows: &mut Vec<ChatMessage>, budget: usize, newest: bool) -> bool {
 
 /// The head's fields a client drops when they are absent, so a catch-up
 /// names each one.
-const OPTIONAL_HEAD: [&str; 12] = [
+const OPTIONAL_HEAD: [&str; 19] = [
     "sessionId",
+    "changingMode",
     "turnOpening",
     "retrying",
     "error",
@@ -117,9 +118,15 @@ const OPTIONAL_HEAD: [&str; 12] = [
     "title",
     "usage",
     "plan",
+    "compactions",
+    "model",
+    "effort",
     "activeTool",
+    "activity",
     "ended",
     "draft",
+    "goal",
+    "goalOffer",
 ];
 
 pub type Flushed = Vec<ChatChange>;
@@ -422,6 +429,7 @@ fn flush_transcript(
 impl Fold {
     pub fn flush(&mut self) -> Flushed {
         self.settle_runs();
+        self.settle_active_tool();
         self.settle_activity();
         let mut out = Vec::new();
         if let Some(from) = self.dropped.take() {
@@ -440,14 +448,6 @@ impl Fold {
                 .collect();
             out.push(ChatChange::Head {
                 set: Value::Object(set),
-                follows: None,
-            });
-        }
-        let active = self.active_tool();
-        if active != self.head.active_tool {
-            self.head.active_tool = active.clone();
-            out.push(ChatChange::Head {
-                set: json!({ "activeTool": active }),
                 follows: None,
             });
         }
@@ -518,6 +518,14 @@ impl Fold {
                 Some(ChatActivity::Connecting)
             }
             _ => None,
+        }
+    }
+
+    fn settle_active_tool(&mut self) {
+        let active = self.active_tool();
+        if self.head.active_tool != active {
+            self.head.active_tool = active;
+            self.set_head("activeTool");
         }
     }
 

@@ -142,7 +142,14 @@
       {
         "op": "head",
         "set": {
-          "activeTool": "m2.1"
+          "activeTool": "m2.1",
+          "activity": {
+            "kind": "call",
+            "row": {
+              "action": "execute",
+              "target": "cargo test"
+            }
+          }
         }
       },
       {
@@ -172,19 +179,10 @@
       {
         "op": "head",
         "set": {
+          "activeTool": null,
           "activity": {
-            "kind": "call",
-            "row": {
-              "action": "execute",
-              "target": "cargo test"
-            }
+            "kind": "thinking"
           }
-        }
-      },
-      {
-        "op": "head",
-        "set": {
-          "activeTool": null
         }
       },
       {
@@ -212,14 +210,6 @@
       }
     ],
     [
-      {
-        "op": "head",
-        "set": {
-          "activity": {
-            "kind": "thinking"
-          }
-        }
-      },
       {
         "op": "part",
         "row": "m2",
