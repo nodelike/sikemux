@@ -1,8 +1,9 @@
 //! A chat picking up a goal. A goal stays a unit of work a chat takes on, never the chat itself:
 //! one chat can hold several over its life, and finishing one leaves the chat going. The core
-//! counts what a chat does and suggests tracking it; only the person turns that into a card.
+//! counts what a chat does and, once it looks like real work, tells the chat's agent, which
+//! decides whether to track it as a goal.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -13,19 +14,12 @@ use sikemux_process::sync::Locked;
 use sikemux_view::chat::{ChatGoal, GoalMarker};
 use sikemux_view::slice::{SliceState, Wait, WaitOn};
 
-use super::{
-    add_card, holder, lease, slice, title_of, waits, Adding, Board, By, Card, CardStatus,
-    MAX_TITLE_CHARS,
-};
+use super::{holder, lease, slice, waits, Board, Card, CardStatus};
 use crate::server::chat::feed::Feed;
 use crate::server::chat::Chat;
 use crate::server::connection::blocking;
-use crate::server::goal_summary;
 use crate::server::kept::Kept;
 use crate::server::Core;
-use crate::sessions::asked::may_hold_secret;
-use crate::sessions::transcript::Said;
-use crate::text::clipped;
 use sikemux_fold::update::goal_notice;
 use sikemux_fold::ChatEventKind;
 use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
@@ -41,7 +35,7 @@ const LONG_TURN_POINTS: u32 = 2;
 /// least and none waives the time a bar asks: the chat's clock runs while they do.
 const SUBAGENT_POINTS: u32 = 1;
 
-/// How much a chat must have done for a suggestion. Points alone are not enough, as a few
+/// How much a chat must have done before its agent is told. Points alone are not enough, as a few
 /// commits in five minutes are a quick chat; a teammate waives the time, as the chat's own
 /// clock stops while its teammates work.
 struct Bar {
@@ -54,8 +48,9 @@ const FIRST_BAR: Bar = Bar {
     points: 6,
     worked_ms: 10 * 60 * 1000,
 };
-/// After Not now or Undo: twice as much again, counted from that moment.
-const AFTER_NOT_NOW: Bar = Bar {
+/// After the agent was told, or the person took a goal back: twice as much again, counted from
+/// that moment.
+const AFTER_TOLD: Bar = Bar {
     points: 12,
     worked_ms: 20 * 60 * 1000,
 };
@@ -93,7 +88,7 @@ impl Tally {
         points >= bar.points && (self.worked_ms >= bar.worked_ms || self.teammates > 0)
     }
 
-    /// Why this looks like real work, as the person reads it.
+    /// Why this looks like real work, as the agent is told it.
     fn reason(self) -> String {
         let counted = |count: u64, one: &str| match count {
             0 => None,
@@ -116,7 +111,7 @@ struct Attached {
     project: String,
     card: u64,
     name: String,
-    /// The person only just tracked it and can still take that back.
+    /// The agent only just added it, and the person can still take that back.
     undoable: bool,
     /// Its line in the chat waits until that has passed, so the chat never shows a goal that was
     /// taken back.
@@ -127,17 +122,16 @@ struct Attached {
 #[serde(rename_all = "camelCase")]
 struct Record {
     tally: Tally,
-    /// What an earlier answer or goal already covered, so only what came after counts.
+    /// What an earlier goal already covered, so only what came after counts.
     #[serde(default)]
     covered: Tally,
-    /// The person said Not now or Undo since, which raises the bar.
-    #[serde(default)]
-    declined: bool,
+    /// How far the chat had got when its agent was last told or the person took a goal back,
+    /// which raises the bar for telling it again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    offer: Option<String>,
+    told: Option<Tally>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     goal: Option<Attached>,
-    /// What the agent is told with its next message, so tracking starts no turn of its own.
+    /// What the agent is told with the person's next message, so it starts no turn of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     note: Option<ChatContext>,
     #[serde(skip)]
@@ -147,20 +141,36 @@ struct Record {
 }
 
 impl Record {
-    fn answered(&mut self, declined: bool) {
+    /// A goal ended: only work after this counts, towards the higher bar when it was taken away
+    /// rather than finished.
+    fn ended(&mut self, finished: bool) {
         self.covered = self.tally;
-        self.declined = declined;
-        self.offer = None;
+        self.told = (!finished).then_some(self.tally);
     }
 
+    /// Tells the agent, with the person's next message, once its chat has done enough to look
+    /// like real work.
     fn weigh(&mut self) {
-        let bar = if self.declined {
-            &AFTER_NOT_NOW
-        } else {
-            &FIRST_BAR
+        if self.goal.is_some() {
+            return;
+        }
+        let (from, bar) = match self.told {
+            Some(told) => (told, &AFTER_TOLD),
+            None => (self.covered, &FIRST_BAR),
         };
-        let done = self.tally.since(self.covered);
-        self.offer = (self.goal.is_none() && done.clears(bar)).then(|| done.reason());
+        let done = self.tally.since(from);
+        if !done.clears(bar) {
+            return;
+        }
+        self.told = Some(self.tally);
+        self.note = Some(ChatContext {
+            uri: track_note_uri(),
+            title: "Real work".to_owned(),
+            text: format!(
+                "This chat has grown into real work: {}. If it is one piece of work with an end, track it as a goal yourself, without asking the person: board_add with a title, a promise saying what is true once it is done, and claim: true, then carry on, and mark it done with board_update and a result when it is. If it is not, carry on as you were. Don't mention this note.",
+                done.reason()
+            ),
+        });
     }
 }
 
@@ -259,8 +269,8 @@ pub(crate) fn turn_started(core: &Core, agent: &str) {
     }
 }
 
-/// A turn ended: it counts towards the chat's work, and one that ran its course can bring the
-/// suggestion, since that is when the person reads what the chat did.
+/// A turn ended: it counts towards the chat's work, and one that ran its course can tell the
+/// agent so.
 pub(crate) fn turn_ended(core: &Core, agent: &str, ran_its_course: bool) {
     let goals = &core.boards.chat_goals;
     let mut chats = goals.chats.locked();
@@ -278,20 +288,6 @@ pub(crate) fn turn_ended(core: &Core, agent: &str, ran_its_course: bool) {
         record.weigh();
     }
     goals.save(&mut chats);
-    drop(chats);
-    push_head(core, agent);
-}
-
-/// The person's answer to a suggestion: quiet until clearly more work has happened.
-pub(crate) fn not_now(core: &Core, agent: &str) {
-    let goals = &core.boards.chat_goals;
-    let mut chats = goals.chats.locked();
-    if let Some(record) = chats.get_mut(agent) {
-        record.answered(true);
-        goals.save(&mut chats);
-    }
-    drop(chats);
-    push_head(core, agent);
 }
 
 /// The agent lost its slice to the lease, which ends the moment it could be taken back.
@@ -307,133 +303,25 @@ pub(super) fn lease_lapsed(core: &Core, agent: &str) {
     }
 }
 
-/// What the agent is told with the person's next message, once.
+/// What the agent is told with the person's next message, once. Being told its work looks like a
+/// goal no longer applies once the chat has one.
 pub(crate) fn take_note(core: &Core, agent: &str) -> Option<ChatContext> {
     let goals = &core.boards.chat_goals;
     let mut chats = goals.chats.locked();
-    let note = chats.get_mut(agent)?.note.take()?;
+    let record = chats.get_mut(agent)?;
+    let note = record.note.take()?;
+    let stale = record.goal.is_some() && note.uri == track_note_uri();
     goals.save(&mut chats);
-    Some(note)
+    (!stale).then_some(note)
 }
 
-/// Whether a chat's title can name a goal: short enough for a card, and not something pasted or
-/// that may hold a secret.
-fn usable_title(title: &str) -> bool {
-    !title.contains("```") && title.chars().count() <= MAX_TITLE_CHARS && !may_hold_secret(title)
-}
-
-/// The first draft of a goal, there at once: the title the chat goes by, or else what the person
-/// last asked, which is not always what the agent was last sent, as a teammate's report comes in
-/// too.
-fn first_guess(core: &Core, chat: &Chat) -> (String, String, String) {
-    const READ_TURNS: usize = 6;
-    const READ_BYTES: usize = 64 * 1024;
-    let said = chat.feed.excerpt(None, READ_TURNS, READ_BYTES).said;
-    let asked = (said.iter().rev())
-        .find_map(|(_, _, said)| match said {
-            Said::Asked(text) => goal_summary::person_said(text),
-            _ => None,
-        })
-        .unwrap_or_default();
-    let shown = (core.workspaces.title_given(chat.agent_id())).filter(|title| usable_title(title));
-    let title = match shown {
-        Some(title) => title,
-        None if asked.is_empty() => "Work in this chat".to_owned(),
-        None => clipped(&asked, MAX_TITLE_CHARS),
-    };
-    let promise = match asked.as_str() {
-        "" => title.clone(),
-        line => clipped(line, slice::MAX_PROMISE_CHARS),
-    };
-    (title, promise, asked)
-}
-
-/// Track as goal: a card the chat's agent holds, a slice from the first so its gates, Failed and
-/// strip all work. A model's better draft replaces the first one when it arrives.
-pub(crate) async fn track(core: &Arc<Core>, agent: String) -> Result<(), String> {
-    let (project, card, guess) = {
-        let (core, agent) = (core.clone(), agent.clone());
-        blocking(move || Ok(track_now(&core, &agent)?))
-            .await
-            .map_err(|error| error.to_string())?
-    };
-    push_head(core, &agent);
-    let core = core.clone();
-    tokio::task::spawn_blocking(move || {
-        if let Some(draft) = goal_summary::draft_goal(&core, &agent) {
-            redraft(&core, &project, card, &guess, draft);
-        }
-    });
-    Ok(())
-}
-
-fn track_now(core: &Arc<Core>, agent: &str) -> Result<(String, u64, String), String> {
-    let chat = core.chats.get(agent).ok_or("That chat isn't open")?;
-    let project = (core.names.get(agent))
-        .ok_or("That chat has no project yet")?
-        .project;
-    let (title, promise, asked) = first_guess(core, &chat);
-    let goals = &core.boards.chat_goals;
-    // Held across adding the card, so a settle that runs at once finds the chat already attached.
-    let mut chats = goals.chats.locked();
-    let record = chats.entry(agent.to_owned()).or_default();
-    if record.goal.is_some() {
-        return Err("This chat already has a goal".into());
-    }
-    let adding = Adding {
-        title: title_of(&title)?,
-        details: super::long_text("details", &asked)?,
-        promise: Some(slice::promise_of(&promise)?),
-        ..super::Adding::default()
-    };
-    let commits = record.tally.since(record.covered).commits as usize;
-    let (card, _) = add_card(core, &project, &By::Person, adding, Some(agent))?;
-    record.goal = Some(Attached {
-        project: project.clone(),
-        card,
-        name: title.clone(),
-        undoable: true,
-        unshown: true,
-    });
-    record.offer = None;
-    record.at = epoch_ms();
-    record.note = Some(ChatContext {
-        uri: format!("{FOR_AGENT_URI}goal-{card}"),
-        title: format!("Goal #{card}"),
-        text: format!(
-            "The person is now tracking this work as goal #{card}, and you hold its card. Carry on as you were. When the work is done, mark the card done with board_update and a result; board_list with card {card} shows where it stands."
-        ),
-    });
-    goals.save(&mut chats);
-    drop(chats);
-    // What it committed before now is the slice's work, so it can pass Built without a new commit.
-    if let Some(head) = slice::earlier_work(core, &project, agent, commits) {
-        core.boards
-            .edit(&project, card, |held| slice::took_work(held, &head));
-    }
-    Ok((project, card, title))
-}
-
-/// Takes the model's draft, unless someone already changed the card.
-fn redraft(core: &Core, project: &str, card: u64, guess: &str, draft: goal_summary::GoalDraft) {
-    let (Ok(title), Ok(promise)) = (title_of(&draft.title), slice::promise_of(&draft.promise))
-    else {
-        return;
-    };
-    core.boards.edit_if(project, card, |held| {
-        if held.title != guess {
-            return None;
-        }
-        held.title = title;
-        if let Some(slice) = &mut held.slice {
-            slice.promise = promise;
-        }
-        Some(())
-    });
+fn track_note_uri() -> String {
+    format!("{FOR_AGENT_URI}track-goal")
 }
 
 /// Undo: the card goes as if it never was, and the chat stays quiet until clearly more work
-/// has happened. The agent was never told of it, so it isn't told it went.
+/// has happened. The agent hears of it with the person's next message rather than in a turn of
+/// its own.
 pub(crate) async fn undo(core: &Arc<Core>, agent: String) -> Result<(), String> {
     let notices = {
         let (core, agent) = (core.clone(), agent.clone());
@@ -446,8 +334,15 @@ pub(crate) async fn undo(core: &Arc<Core>, agent: String) -> Result<(), String> 
                     .ok_or("This chat has no goal to take back")?;
                 let goal = (record.goal.take_if(|goal| goal.undoable))
                     .ok_or("This chat's goal can no longer be taken back")?;
-                record.note = None;
-                record.answered(true);
+                record.ended(false);
+                record.note = Some(ChatContext {
+                    uri: format!("{FOR_AGENT_URI}goal-{}", goal.card),
+                    title: format!("Goal #{}", goal.card),
+                    text: format!(
+                        "The person took goal #{} off the board, so this work is not tracked as a goal. Carry on as you were, and don't add it again.",
+                        goal.card
+                    ),
+                });
                 goals.save(&mut chats);
                 goal
             };
@@ -585,7 +480,7 @@ fn finished(core: &Core, goal: &Attached) -> bool {
 
 /// Tells each chat of its goal and marks where goals began and ended. Runs when a board or the
 /// agents change, so a goal's strip clears, and the line stays, as soon as it finishes.
-pub(super) fn settle(core: &Core) {
+pub(super) fn settle(core: &Arc<Core>) {
     tell_owner_changes(core);
     let open = core.chats.all();
     let resting = core.chats.resting_feeds();
@@ -593,8 +488,10 @@ pub(super) fn settle(core: &Core) {
         core,
         (open.iter().map(|chat| chat.agent_id())).chain(resting.iter().map(|(a, _)| a.as_str())),
     );
+    let added_itself = added_itself(core, &held);
     let goals = &core.boards.chat_goals;
     let mut lines: Vec<(Arc<Chat>, Option<Attached>, Option<Attached>)> = Vec::new();
+    let mut earlier_work = Vec::new();
     {
         let mut chats = goals.chats.locked();
         let mut changed = false;
@@ -625,27 +522,45 @@ pub(super) fn settle(core: &Core) {
             changed = true;
             let done = was.as_ref().filter(|was| finished(core, was)).cloned();
             if was.is_some() {
-                record.answered(done.is_none());
+                record.ended(done.is_some());
             }
+            let undoable = added_itself.contains(agent);
             let started = now.map(|now| Attached {
                 project: now.project.clone(),
                 card: now.card,
                 name: now.name.clone(),
-                undoable: false,
-                unshown: false,
+                undoable,
+                unshown: undoable,
             });
             record.goal.clone_from(&started);
-            record.offer = record.offer.take().filter(|_| started.is_none());
+            if let Some(started) = started.as_ref().filter(|started| started.undoable) {
+                let commits = record.tally.since(record.covered).commits as usize;
+                earlier_work.push((
+                    agent.to_owned(),
+                    started.project.clone(),
+                    started.card,
+                    commits,
+                ));
+            }
             // A goal still waiting out its Undo has shown no line yet, so its end shows both.
             let unshown = was.filter(|was| was.unshown && done.is_some());
             if let Some(unshown) = unshown {
                 lines.push((chat.clone(), Some(unshown), None));
             }
+            let started = started.filter(|started| !started.unshown);
             lines.push((chat.clone(), started, done));
         }
         if changed {
             goals.save(&mut chats);
         }
+    }
+    if !earlier_work.is_empty() {
+        let core = core.clone();
+        tokio::task::spawn_blocking(move || {
+            for (agent, project, card, commits) in earlier_work {
+                take_earlier_work(&core, &agent, &project, card, commits);
+            }
+        });
     }
     for (chat, started, done) in lines {
         if let Some(done) = &done {
@@ -665,6 +580,30 @@ pub(super) fn settle(core: &Core) {
     }
     for (agent, feed) in &resting {
         apply_head(core, agent, feed, held.get(agent).cloned());
+    }
+}
+
+/// The chats whose own agent added the goal it now holds, which the person can take back while
+/// it is new. Agents another agent started answer to their lead instead.
+fn added_itself(core: &Core, held: &HashMap<String, ChatGoal>) -> HashSet<String> {
+    let state = core.boards.state.locked();
+    (held.iter())
+        .filter(|(agent, goal)| {
+            (state.boards.get(&goal.project))
+                .and_then(|board| board.card(goal.card).ok())
+                .is_some_and(|card| card.maker_id() == Some(agent.as_str()))
+        })
+        .map(|(agent, _)| agent.clone())
+        .filter(|agent| counted(core, agent))
+        .collect()
+}
+
+/// What the agent committed before it added the goal is the slice's work, so it can pass Built
+/// without a new commit.
+fn take_earlier_work(core: &Core, agent: &str, project: &str, card: u64, commits: usize) {
+    if let Some(head) = slice::earlier_work(core, project, agent, commits) {
+        core.boards
+            .edit(project, card, |held| slice::took_work(held, &head));
     }
 }
 
@@ -706,9 +645,8 @@ fn apply_head(core: &Core, agent: &str, feed: &Feed, goal: Option<ChatGoal>) {
             .is_some_and(|held| held.card == goal.card && held.undoable),
         ..goal
     });
-    let offer = record.and_then(|record| record.offer.clone());
     drop(chats);
-    feed.set_goal(goal, offer);
+    feed.set_goal(goal);
 }
 
 fn push_head(core: &Core, agent: &str) {

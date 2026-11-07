@@ -304,9 +304,6 @@ pub struct ChatHead {
     /// The goal the chat works on now.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub goal: Option<ChatGoal>,
-    /// Why the chat's work looks worth tracking as a goal, for the person to decide.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub goal_offer: Option<String>,
 }
 
 /// The goal a chat works on, as its composer shows it.
@@ -324,7 +321,7 @@ pub struct ChatGoal {
     /// Its steps are gates rather than slices.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub of_gates: bool,
-    /// The person only just tracked it, and can still take that back.
+    /// The chat's agent only just added it, and the person can still take that back.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub undoable: bool,
 }

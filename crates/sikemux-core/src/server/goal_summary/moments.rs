@@ -40,7 +40,7 @@ const MAX_LOG_COMMITS: &str = "--max-count=400";
 /// A prompt written just before its card was added belongs to the card.
 const START_SLACK_MS: u64 = 5 * 60 * 1000;
 /// Only these agents' one-shot answer keeps no session, uses no tools and runs no hooks.
-pub(super) const ASKED: [AgentKind; 2] = [AgentKind::Claude, AgentKind::Codex];
+const ASKED: [AgentKind; 2] = [AgentKind::Claude, AgentKind::Codex];
 /// Commands that check work, among what an agent ran.
 const CHECKS: [&str; 15] = [
     "cargo test",
@@ -206,7 +206,7 @@ fn workers(
 
 /// What the person's message `text` says, without the tag an answer to an agent's question
 /// comes in.
-pub(crate) fn person_said(text: &str) -> Option<String> {
+fn person_said(text: &str) -> Option<String> {
     let text = text.trim();
     if !text.starts_with("<question-answer") {
         return person_prose(text).map(|line| clipped(&line, MAX_PERSON_CHARS));
@@ -221,7 +221,7 @@ pub(crate) fn person_said(text: &str) -> Option<String> {
 }
 
 /// The start and end of a long answer, which are where it says what it did and what is left.
-pub(super) fn answer_text(text: &str) -> String {
+fn answer_text(text: &str) -> String {
     let line = crate::text::one_line(&sikemux_markdown::words(&prose_of(text)));
     let count = line.chars().count();
     if count <= MAX_ANSWER_CHARS {

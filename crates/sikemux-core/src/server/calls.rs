@@ -462,13 +462,9 @@ calls! { core, client, method, params;
     "promoteRule" PromoteRule (memory::MemoryEntryParams) -> MemoryView: Owner => memory::promote(&core, client.peer.clone(), params).await?,
     "keepSeededRules" KeepSeededRules (memory::KeepSeededParams) -> MemoryView: Owner => memory::keep_seeded(&core, client.peer.clone(), params).await?,
     "seedRules" SeedRules (memory::MemoryParams) -> MemoryView: Owner => memory::seed_again(&core, client.peer.clone(), params).await?,
-    "chatGoalTrack" ChatGoalTrack (board::chat_goal::ChatGoalParams) -> (): Full => {
-        board::chat_goal::track(&core, params.agent_id).await?
-    },
     "chatGoalUndo" ChatGoalUndo (board::chat_goal::ChatGoalParams) -> (): Full => {
         board::chat_goal::undo(&core, params.agent_id).await?
     },
-    "chatGoalNotNow" ChatGoalNotNow (board::chat_goal::ChatGoalParams) -> (): Full => board::chat_goal::not_now(&core, &params.agent_id),
     "boardRetry" BoardRetry (board::BoardCardParams) -> board::ProjectBoard: Full => board::person_retry(&core, params).await?,
     "boardPass" BoardPass (board::BoardPassParams) -> board::ProjectBoard: Full => board::person_pass(&core, params).await?,
     "boardNote" BoardNote (board::BoardNoteParams) -> board::ProjectBoard: Full => board::person_note(&core, params).await?,

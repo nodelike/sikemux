@@ -760,16 +760,6 @@ impl Workspaces {
         .unwrap_or(false)
     }
 
-    /// The title the agent goes by, unless that is still only its agent's or account's name, or
-    /// its first prompt cut short.
-    pub(crate) fn title_given(&self, agent_id: &str) -> Option<String> {
-        let published = self.published.locked();
-        let agent = &published.saved.kept(agent_id)?.agent;
-        let cut_short = agent.title.chars().count() == STAND_IN_TITLE_CHARS;
-        (!untitled(&published.saved, agent) && (agent.renamed || !cut_short))
-            .then(|| agent.title.trim().to_owned())
-    }
-
     /// Holds every agent asleep until the person, or an agent they set going
     /// again, opens or messages it, as the person stops everything.
     pub(crate) fn hold_all(&self) {

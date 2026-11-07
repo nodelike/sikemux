@@ -107,7 +107,7 @@ fn within(rows: &mut Vec<ChatMessage>, budget: usize, newest: bool) -> bool {
 
 /// The head's fields a client drops when they are absent, so a catch-up
 /// names each one.
-const OPTIONAL_HEAD: [&str; 19] = [
+const OPTIONAL_HEAD: [&str; 18] = [
     "sessionId",
     "changingMode",
     "turnOpening",
@@ -126,7 +126,6 @@ const OPTIONAL_HEAD: [&str; 19] = [
     "ended",
     "draft",
     "goal",
-    "goalOffer",
 ];
 
 pub type Flushed = Vec<ChatChange>;

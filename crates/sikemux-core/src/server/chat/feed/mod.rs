@@ -89,7 +89,6 @@ struct Inner {
     queued: Vec<Queued>,
     triggers: Vec<ChatTrigger>,
     goal: Option<ChatGoal>,
-    goal_offer: Option<String>,
     /// What other agents need of the person.
     needs: Vec<AgentNeed>,
     /// The folder the chat's agent works in, and where its edits sit in their files,
@@ -217,7 +216,6 @@ impl Feed {
                 queued: Vec::new(),
                 triggers: Vec::new(),
                 goal: None,
-                goal_offer: None,
                 needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
@@ -298,7 +296,6 @@ impl Feed {
                 queued: Vec::new(),
                 triggers: Vec::new(),
                 goal: None,
-                goal_offer: None,
                 needs: Vec::new(),
                 work: None,
                 waits_for_person: false,
@@ -378,7 +375,6 @@ impl Feed {
             fold.set_queued(queued_view(&inner.queued));
             fold.set_triggers(inner.triggers.clone());
             fold.set_goal(inner.goal.clone());
-            fold.set_goal_offer(inner.goal_offer.clone());
             fold.set_needs(inner.needs.clone());
             if inner.replay.is_trimmed() && !inner.replay.keeps_history() {
                 fold.set_earlier_lost();
@@ -540,18 +536,15 @@ impl Feed {
         }
     }
 
-    /// The goal the chat works on or the suggestion to track one changed; clients already
-    /// hearing the chat are told.
-    pub(crate) fn set_goal(&self, goal: Option<ChatGoal>, offer: Option<String>) {
+    /// The goal the chat works on changed; clients already hearing the chat are told.
+    pub(crate) fn set_goal(&self, goal: Option<ChatGoal>) {
         let mut inner = self.inner.locked();
-        if inner.goal == goal && inner.goal_offer == offer {
+        if inner.goal == goal {
             return;
         }
         inner.goal.clone_from(&goal);
-        inner.goal_offer.clone_from(&offer);
         if let Some(fold) = inner.fold.as_mut() {
             fold.set_goal(goal);
-            fold.set_goal_offer(offer);
             self.flush_locked(&mut inner);
         }
     }

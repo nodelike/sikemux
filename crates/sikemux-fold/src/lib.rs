@@ -700,13 +700,6 @@ impl Fold {
         }
     }
 
-    pub fn set_goal_offer(&mut self, offer: Option<String>) {
-        if self.head.goal_offer != offer {
-            self.head.goal_offer = offer;
-            self.set_head("goalOffer");
-        }
-    }
-
     /// A sent message read before the agent named its commands may have named one.
     fn read_sent_again(&mut self) {
         for at in 0..self.main.rows.len() {

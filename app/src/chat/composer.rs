@@ -36,8 +36,6 @@ pub enum Notice {
     Waiting(SharedString),
     /// Something just done, and how to take it back.
     Done(SharedString, (SharedString, Act)),
-    /// What the core suggests and why: the one link that acts on it, and the one that declines.
-    Suggest(SharedString, (SharedString, Act), (SharedString, Act)),
 }
 type Pick = Rc<dyn Fn(&str, &str, &mut Window, &mut App)>;
 type Paste = Rc<dyn Fn(&ClipboardItem, &mut Window, &mut App) -> bool>;
@@ -495,21 +493,6 @@ impl RenderOnce for Composer {
                         .child(
                             ui::sign_in::link("composer-notice-undo", label, cx)
                                 .on_click(move |_, window, cx| act(window, cx)),
-                        ),
-                    Notice::Suggest(words, (label, act), (decline, not_now)) => line
-                        .text_color(t.text_secondary)
-                        .child(div().min_w_0().truncate().child(words))
-                        .child(div().flex_none().text_color(t.text_disabled).child("·"))
-                        .child(
-                            ui::sign_in::link("composer-notice-suggest", label, cx)
-                                .text_color(t.accent)
-                                .on_click(move |_, window, cx| act(window, cx)),
-                        )
-                        .child(div().flex_none().text_color(t.text_disabled).child("·"))
-                        .child(
-                            ui::sign_in::link("composer-notice-decline", decline, cx)
-                                .text_color(t.text_tertiary)
-                                .on_click(move |_, window, cx| not_now(window, cx)),
                         ),
                 }
             }))

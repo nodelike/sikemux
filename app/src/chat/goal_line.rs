@@ -1,5 +1,5 @@
-//! A chat and its goal, as the composer shows them: the suggestion to track its work, the Undo
-//! right after, and the goal on the strip. The core decides all of it; this only draws it.
+//! A chat and its goal, as the composer shows them: the Undo right after its agent tracks one,
+//! and the goal on the strip. The core decides all of it; this only draws it.
 
 use std::rc::Rc;
 
@@ -23,46 +23,30 @@ const STEP_WIDTH: f32 = 14.;
 const STEP_GAP: f32 = 3.;
 const STRIP_MOST: f32 = 120.;
 
-fn goal_act<C: sikemux_core::server::call::Call<Params = ChatGoalParams> + 'static>(
-    this: &WeakEntity<Workbench>,
-    agent: &str,
-) -> Act {
+fn undo(this: &WeakEntity<Workbench>, agent: &str) -> Act {
     let (this, agent) = (this.clone(), agent.to_owned());
     Rc::new(move |_: &mut Window, cx: &mut App| {
         let agent_id = agent.clone();
         this.update(cx, |bench, _| {
             bench
                 .chat_target(&agent)
-                .call_typed::<C>(ChatGoalParams { agent_id });
+                .call_typed::<call::ChatGoalUndo>(ChatGoalParams { agent_id });
         })
         .ok();
     })
 }
 
-/// The line under the composer: right after tracking, how to take it back; else the suggestion.
+/// The line under the composer right after the chat's agent tracked its work, with how to take
+/// that back.
 pub(super) fn notice(
     head: Option<&ChatHead>,
     agent: &str,
     this: &WeakEntity<Workbench>,
 ) -> Option<Notice> {
-    let head = head?;
-    if let Some(goal) = head.goal.as_ref().filter(|goal| goal.undoable) {
-        return Some(Notice::Done(
-            format!("Tracking as “{}”", goal.name).into(),
-            ("Undo".into(), goal_act::<call::ChatGoalUndo>(this, agent)),
-        ));
-    }
-    let reason = head.goal_offer.as_ref()?;
-    Some(Notice::Suggest(
-        format!("This looks like real work: {reason}").into(),
-        (
-            "Track as goal".into(),
-            goal_act::<call::ChatGoalTrack>(this, agent),
-        ),
-        (
-            "Not now".into(),
-            goal_act::<call::ChatGoalNotNow>(this, agent),
-        ),
+    let goal = head?.goal.as_ref().filter(|goal| goal.undoable)?;
+    Some(Notice::Done(
+        format!("Tracking as “{}”", goal.name).into(),
+        ("Undo".into(), undo(this, agent)),
     ))
 }
 

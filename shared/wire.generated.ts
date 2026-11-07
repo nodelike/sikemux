@@ -1242,8 +1242,6 @@ export interface ChatHead {
     draft?: ChatDraft;
     /** The goal the chat works on now. */
     goal?: ChatGoal;
-    /** Why the chat's work looks worth tracking as a goal, for the person to decide. */
-    goalOffer?: string;
 }
 
 export type ChatConnection = "connecting" | "starting" | "initializing" | "ready" | "stopped" | "error";
@@ -1613,7 +1611,7 @@ export interface ChatGoal {
     steps?: SliceState[];
     /** Its steps are gates rather than slices. */
     ofGates?: boolean;
-    /** The person only just tracked it, and can still take that back. */
+    /** The chat's agent only just added it, and the person can still take that back. */
     undoable?: boolean;
 }
 
