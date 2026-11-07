@@ -874,18 +874,23 @@ impl Slice {
             at: epoch_ms(),
         });
         if new_work {
-            self.done_said = false;
-            if let Some(from) = self
-                .ladder
-                .iter()
-                .position(|gate| rule(gate).needs.contains(&Need::PassingCheck))
-            {
-                let undone = &self.ladder[from..];
-                self.passes.retain(|pass| !undone.contains(&pass.gate));
-            }
+            self.back_to_work();
         }
         if let Some(run) = runs.and_then(|runs| runs.of(&at.head)) {
             self.checked(owner, run);
+        }
+    }
+
+    /// Undoes every gate from the first that needs the check, until its owner says it is done again.
+    fn back_to_work(&mut self) {
+        self.done_said = false;
+        if let Some(from) = self
+            .ladder
+            .iter()
+            .position(|gate| rule(gate).needs.contains(&Need::PassingCheck))
+        {
+            let undone = &self.ladder[from..];
+            self.passes.retain(|pass| !undone.contains(&pass.gate));
         }
     }
 
@@ -2153,8 +2158,9 @@ async fn pass_step(core: Arc<Core>, params: BoardPassParams) -> Result<ProjectBo
 
 /// The person writes on a slice, on a piece of its evidence when given. The
 /// note goes to the agent whose work that evidence shows, else to the slice's
-/// owner, as a message from the person; the gate keeps waiting. Answers with
-/// the board.
+/// owner, as a message from the person. Written at a gate of theirs, it says the
+/// slice needs work, so the slice goes back to its owner until it is done again.
+/// Answers with the board.
 pub(crate) async fn person_note(
     core: &Arc<Core>,
     params: BoardNoteParams,
@@ -2171,25 +2177,30 @@ pub(crate) async fn person_note(
         }
         let (to, message) = {
             let mut state = core.boards.state.locked();
-            let card = state
+            let board = state
                 .boards
                 .get_mut(&project)
-                .ok_or_else(|| format!("There is no card #{id} on this project's board"))?
-                .card_mut(id)?;
+                .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
+            let settings = board.settings.clone();
+            let card = board.card_mut(id)?;
             let label = card.label();
             let owner = card.owner_id().map(str::to_owned);
-            let (agent, about) = card
+            let slice = card
                 .slice
                 .as_mut()
-                .ok_or_else(|| format!("{label} is not a slice, so it takes no notes"))?
+                .ok_or_else(|| format!("{label} is not a slice, so it takes no notes"))?;
+            let needs_work = slice.waits_on_person(&settings).is_some();
+            let (agent, about) = slice
                 .note(text.clone(), params.evidence)
                 .map_err(|error| format!("{label}: {error}"))?;
+            let mut message = format!("On card {label}, about {about}:\n\n{text}");
+            if needs_work {
+                slice.back_to_work();
+                message.push_str("\n\nThe card is back with you: commit what the note asks, or answer it, then mark the card done again.");
+            }
             card.updated_at = epoch_ms();
             core.boards.save(&mut state, &project);
-            (
-                agent.or(owner),
-                format!("On card {label}, about {about}:\n\n{text}"),
-            )
+            (agent.or(owner), message)
         };
         if let Some(to) = to {
             messages::from_person(&core, &to, message)?;
