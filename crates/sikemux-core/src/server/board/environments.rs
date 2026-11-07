@@ -13,7 +13,7 @@ use sikemux_view::slice::Gate;
 use super::slice::{Later, Seen};
 use super::{Board, By, CardStatus, Changes, Notice, State};
 use crate::server::Core;
-use crate::ship::{leads, Ship, Target};
+use crate::ship::{leads, of_program, Ship, Target};
 
 const MAX_ENVIRONMENTS: usize = 8;
 const MAX_RECOGNISED: usize = 8;
@@ -38,6 +38,9 @@ const NOT_PRODUCTION_WORDS: [&str; 13] = [
     "preview",
     "demo",
 ];
+/// The environment a project's own deploy command the person always allows joins, when no
+/// word in it names one.
+const OWN_COMMANDS: &str = "Allowed";
 
 /// Who a deploy to an environment waits on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,7 +235,8 @@ fn titled(word: &str) -> String {
 
 /// The narrowest fact that covers `ship` and reads as no production, with what it covers and
 /// the environment it would be: a Rundeck folder such as `dev/*`, Vercel's previews, an AWS
-/// profile, kube context or Terraform workspace, or one of the project's own `ships` commands.
+/// profile, kube context or Terraform workspace, or one of the project's own `ships` commands
+/// that no known deploy program's rule covers.
 fn freeing(ship: &Ship, ships: &[String]) -> Option<(String, Recognise, String)> {
     match &ship.target {
         Some(Target::RundeckJob {
@@ -270,14 +274,17 @@ fn freeing(ship: &Ship, ships: &[String]) -> Option<(String, Recognise, String)>
         )),
         None => {
             let words: Vec<String> = ship.what.split_whitespace().map(str::to_owned).collect();
+            let (program, args) = words.split_first()?;
+            let known = of_program(program, args, &|_| None).is_some();
             let listed = ships.iter().any(|listed| leads(listed, &words));
-            let word = (ship.what.split(|c: char| !c.is_ascii_alphanumeric()))
-                .find(|word| has_word(word, &NOT_PRODUCTION_WORDS))?;
-            (listed && !says_production(&ship.what)).then(|| {
+            (listed && !known && !says_production(&ship.what)).then(|| {
+                let name = (ship.what.split(|c: char| !c.is_ascii_alphanumeric()))
+                    .find(|word| has_word(word, &NOT_PRODUCTION_WORDS))
+                    .map_or_else(|| OWN_COMMANDS.to_owned(), titled);
                 let fact = Recognise::Command {
                     words: ship.what.clone(),
                 };
-                (format!("`{}`", ship.what), fact, titled(word))
+                (format!("`{}`", ship.what), fact, name)
             })
         }
         _ => None,

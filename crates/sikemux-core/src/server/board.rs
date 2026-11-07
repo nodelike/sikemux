@@ -3134,9 +3134,10 @@ pub(crate) fn judge_ship(
     environments::judged_within(&levels(&state, project), ship)
 }
 
-/// The folder that holds `project` and others of the person's projects, such as one
-/// product's repositories, which an allowance can cover. Never the home folder or the root.
-fn shared_folder(core: &Core, project: &str) -> Option<String> {
+/// The folder that holds `project` and others of the person's projects that `share` it,
+/// such as one product's repositories, which an allowance can cover. Never the home folder
+/// or the root.
+fn shared_folder(core: &Core, project: &str, share: &dyn Fn(&Path) -> bool) -> Option<String> {
     let folder = Path::new(project).parent()?;
     if folder.parent().is_none() || sikemux_process::paths::home().as_deref() == Some(folder) {
         return None;
@@ -3144,12 +3145,13 @@ fn shared_folder(core: &Core, project: &str) -> Option<String> {
     let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     let others = (core.workspaces.project_paths().iter())
         .map(|path| canonical(path))
-        .any(|path| path != Path::new(project) && path.starts_with(folder));
+        .any(|path| path != Path::new(project) && path.starts_with(folder) && share(&path));
     others.then(|| folder.to_string_lossy().into_owned())
 }
 
 /// What the person could always allow, of a deploy of `project` that holds: for every
-/// project in its folder when that folder holds others, else for it alone.
+/// project in its folder when that folder holds others, else for it alone. A project's own
+/// command covers the folder only when another project there lists it too.
 pub(crate) fn always_offer(
     core: &Core,
     project: &str,
@@ -3158,7 +3160,13 @@ pub(crate) fn always_offer(
     if ship.kind != sikemux_view::inbox::ShipKind::Deploy {
         return None;
     }
-    let folder = shared_folder(core, project);
+    let words: Vec<String> = ship.what.split_whitespace().map(str::to_owned).collect();
+    let lists_it = |path: &Path| {
+        ship.target.is_some()
+            || (crate::git_guard::shim::project_ships(path).iter())
+                .any(|listed| crate::ship::leads(listed, &words))
+    };
+    let folder = shared_folder(core, project, &lists_it);
     let ships = crate::git_guard::shim::project_ships(Path::new(project));
     let state = core.boards.state.locked();
     let levels = levels(&state, project);

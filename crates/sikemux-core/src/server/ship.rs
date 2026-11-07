@@ -827,6 +827,8 @@ mod tests {
             .await
             .unwrap_err();
         assert!(said.starts_with("Held for the person"), "{said}");
-        assert_eq!(core.ship.waiting().len(), 1);
+        let waiting = core.ship.waiting();
+        assert_eq!(waiting.len(), 1);
+        assert_eq!(waiting[0].hold.let_go.as_deref(), Some("`./deploy.sh`"));
     }
 }
