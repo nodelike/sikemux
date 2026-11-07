@@ -123,7 +123,11 @@ impl Agent {
     async fn tool(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let said = self.says(format!("tool {method} {params}"), "tool ").await;
         match said.split_once("tool answered: ") {
-            Some((_, answer)) => Ok(serde_json::from_str(answer.trim()).expect("an answer")),
+            Some((_, answer)) => Ok(serde_json::Deserializer::from_str(answer)
+                .into_iter()
+                .next()
+                .expect("an answer")
+                .expect("the answer is JSON")),
             None => Err(said),
         }
     }
