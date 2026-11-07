@@ -51,7 +51,13 @@ pub(super) fn row(
         .filter(|_| team_open)
         .is_some_and(|team| team::behind(&rows[ix..], &team.id, looks.reading));
     if team.is_some_and(|team| behind || (!team_open && team.shown.is_empty())) {
-        return div().children(team_head).into_any_element();
+        return div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .children(team_head)
+            .into_any_element();
     }
     // A run folds a turn's work with it, so its rows show whole once it is open.
     let fold = message.fold.as_ref().filter(|_| team.is_none());
