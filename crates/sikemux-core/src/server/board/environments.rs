@@ -284,7 +284,7 @@ fn freeing(ship: &Ship, ships: &[String]) -> Option<(String, Recognise, String)>
                 let fact = Recognise::Command {
                     words: ship.what.clone(),
                 };
-                (format!("`{}`", ship.what), fact, name)
+                (ship.what.clone(), fact, name)
             })
         }
         _ => None,

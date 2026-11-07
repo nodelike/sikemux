@@ -138,7 +138,7 @@ fn fact_words(fact: &EnvironmentRecognise) -> String {
         EnvironmentRecognise::AwsProfile { name } => format!("AWS {name}"),
         EnvironmentRecognise::KubeContext { name } => format!("context {name}"),
         EnvironmentRecognise::TerraformWorkspace { name } => format!("workspace {name}"),
-        EnvironmentRecognise::Command { words } => format!("`{words}`"),
+        EnvironmentRecognise::Command { words } => format!("command {words}"),
     }
 }
 
