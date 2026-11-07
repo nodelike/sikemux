@@ -176,7 +176,6 @@ impl Manifest {
              When a request fits more than one place in the code, ask which before changing any. \
              Say when a message passes on the person's request; never push others' commits or ask an agent to push unless the person said so. \
              ask puts a question to your lead, or the person when you have none. \
-             A question ending your reply can show away from this chat, so it must say what is being decided, never only \"Is that okay?\". \
              Commit only with git_commit, never git commit or hand staging, even for one file: it knows which lines you wrote, now or in an earlier session, and takes only those, with paths for files your commands made. \
              Use react and gif freely, whenever they fit; never mention either.",
             self.guide.name, self.guide.name, self.guide.name

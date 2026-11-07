@@ -938,6 +938,8 @@ agents it started, and only what follows reaches the person.
   `breaks`. `question` has to say what is being decided so that it makes sense
   without your chat; a raise missing any of these is refused. `reason: access`
   needs no `choices` or `pick`.
+- A question ending your reply can show away from this chat, so it must say what
+  is being decided, never only "Is that okay?".
 - The person sees every decision in the log and can overrule it. If they do, the
   agent that goes by it gets a message: stop going by it and undo what rests on it.
 - A decision never passes a hold. A push, merge, deploy, publish or production
