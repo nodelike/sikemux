@@ -9,9 +9,10 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 
 use super::workspace::AddProjectParams;
-use super::{launching, session, Core, CoreError, CoreResult};
+use super::{launching, layout, session, Core, CoreError, CoreResult};
 use crate::agent_catalog::{self, AgentKind};
 use crate::sessions::relocate::relocate;
+use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_view::workspace::WorkspaceAgent;
 
 #[derive(Deserialize, Serialize)]
@@ -65,6 +66,7 @@ pub(crate) async fn move_agent(core: &Arc<Core>, params: MoveParams) -> CoreResu
     if agent.cwd == to.path {
         return Ok(agent);
     }
+    let followed = layout::agent_in_front(core, &agent.id, &agent.project);
     let chat = core.chats.get(&agent.id).is_some();
     let terminal = agent
         .pty_id
@@ -104,12 +106,18 @@ pub(crate) async fn move_agent(core: &Arc<Core>, params: MoveParams) -> CoreResu
         core.chats.stop(&agent.id);
     }
     let moved = core.workspaces.edit_agent(&agent.id, |moved| {
-        moved.project = to.id;
+        moved.project = to.id.clone();
         moved.cwd = to.path;
         if terminal.is_some() {
             moved.pty_id = None;
         }
     })?;
+    if followed {
+        layout::open_tab(
+            core,
+            OpenTab::new(At::project(&to.id), PaneKind::Agent, &agent.id),
+        )?;
+    }
     if chat {
         let (core, agent_id) = (core.clone(), agent.id.clone());
         // A chat that never ran goes on waiting for the person in its new project.

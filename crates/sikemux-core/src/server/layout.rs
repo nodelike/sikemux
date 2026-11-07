@@ -143,17 +143,19 @@ fn on_linked_host(core: &Core, mut layout: Layout) -> Layout {
 }
 
 fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -> Layout {
-    let agents: HashSet<&str> = workspace
+    let agents: HashMap<&str, &str> = workspace
         .agents
         .iter()
-        .map(|agent| agent.id.as_str())
+        .map(|agent| (agent.id.as_str(), agent.project.as_str()))
         .collect();
     let terminals: HashSet<String> = sessions
         .iter()
         .map(|session| session.id.to_string())
         .collect();
-    let shown = |kind: PaneKind, target: &str| match kind {
-        PaneKind::Agent | PaneKind::Desk => agents.contains(target),
+    let shown_in = |project: Option<&str>, kind: PaneKind, target: &str| match kind {
+        PaneKind::Agent | PaneKind::Desk => agents
+            .get(target)
+            .is_some_and(|held| project.is_none_or(|project| *held == project)),
         PaneKind::Terminal => terminals.contains(target),
         // A kind no core makes any more, saved in an older layout.
         PaneKind::Unknown => false,
@@ -166,14 +168,17 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
         | PaneKind::Stash
         | PaneKind::Mod => true,
     };
+    let shown = |kind: PaneKind, target: &str| shown_in(None, kind, target);
     layout
         .projects
         .retain(|id, _| workspace.projects.iter().any(|project| &project.id == id));
     for project in &workspace.projects {
         let strip = layout.projects.entry(project.id.clone()).or_default();
+        // An agent moved to another project leaves this strip for that one's.
+        let shown_here = |kind: PaneKind, target: &str| shown_in(Some(&project.id), kind, target);
         strip
             .tabs
-            .retain_mut(|tab| keep_shown(&mut tab.pane, &shown));
+            .retain_mut(|tab| keep_shown(&mut tab.pane, &shown_here));
         let mut created: Vec<_> = workspace
             .agents
             .iter()
@@ -519,6 +524,22 @@ fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> Co
     core.changed(What::ViewNow);
     core.spares.front_changed();
     Ok(answer)
+}
+
+/// Whether whoever asks has the agent `id` in front, in the tab in front of `project`'s strip.
+pub(crate) fn agent_in_front(core: &Core, id: &str, project: &str) -> bool {
+    let layout = view(
+        core,
+        &core.workspace_view(),
+        &core.session_infos(),
+        asker().as_deref(),
+    );
+    let at = At::project(project);
+    let active = layout.projects.get(project).and_then(|strip| {
+        let active = strip.active.as_ref()?;
+        strip.tabs.iter().find(|tab| &tab.id == active)
+    });
+    in_front(&layout, &at) && active.is_some_and(|tab| holds(&tab.pane, PaneKind::Agent, id))
 }
 
 /// The project the person has in front, by id, as the layout last said.
