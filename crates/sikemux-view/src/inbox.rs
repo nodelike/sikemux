@@ -234,6 +234,9 @@ pub struct InboxItem {
     /// The one of `answers` the agent that asked would take.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pick: Option<String>,
+    /// What the agent that asked goes on assuming until the person answers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assumption: Option<String>,
 }
 
 /// The one look the person takes at a goal whose work changes what people see, once every slice

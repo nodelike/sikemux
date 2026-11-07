@@ -274,6 +274,8 @@ pub(super) fn call_card(
         Some(_) => format!("If wrong: {}", raised.breaks),
         None => format!("Without it: {}", raised.breaks),
     });
+    let assumed = (item.assumption.as_ref())
+        .map(|assumption| format!("Goes on assuming {assumption} until you answer."));
     let opened = item.clone();
     let picks = item.id.clone();
     let card = div()
@@ -344,7 +346,10 @@ pub(super) fn call_card(
                 .children(call_buttons(pane, item, cx))
                 .into_any_element(),
         })
-        .children(if_wrong.map(|words| ui::meta(words, cx).whitespace_normal()));
+        .children(
+            (if_wrong.into_iter().chain(assumed))
+                .map(|words| ui::meta(words, cx).whitespace_normal()),
+        );
     super::with_agent_menu(card, item.agent_id.clone(), &pane.bench)
 }
 

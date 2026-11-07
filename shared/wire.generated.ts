@@ -713,6 +713,8 @@ export interface InboxItem {
     raised?: InboxRaised;
     /** The one of `answers` the agent that asked would take. */
     pick?: string;
+    /** What the agent that asked goes on assuming until the person answers. */
+    assumption?: string;
 }
 
 export type InboxTier = "needs" | "review" | "finished" | "progress";

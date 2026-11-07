@@ -939,9 +939,11 @@ is working on.
 The person should not have to decide for every agent. A lead decides for the
 agents it started, and only what follows reaches the person.
 
-- `ask` goes to your lead. With no lead it goes to the person, unless you set
-  `blocked: false`: then nobody is asked, your `assumption` stands and goes on the
-  record.
+- `ask` goes to your lead. With no lead it goes to the person. With
+  `blocked: false` and no lead, your `assumption` stands and goes on the record
+  without asking anyone, unless the question is the person's: it has a `reason`,
+  offers `choices`, or names a push, merge or deploy. Then it waits under Needs
+  you as a decision, showing your assumption, while you carry on with it.
 - Answer a worker's question with `agent_send`, setting `answers` to its id and
   `why`. Your answer goes on the goal's decision log, or the project's when the
   worker is on no goal, with who decided and why.
@@ -1297,7 +1299,8 @@ through `ask` with `header`, `choices` (the one you recommend first) and
   guessing, and the answer comes to you as a message.
 - `blocked: false` with `assumption`, such as `dates are shown in UTC`, when
   you can go on: carry on as if it were true, and a message tells you if it is
-  overruled.
+  overruled. With no lead, a question that is the person's still waits for
+  them as Who decides says.
 
 - `secret: true` when the answer is a secret, such as a password or a token:
   the question goes straight to the person, never to a lead, and the answer

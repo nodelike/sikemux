@@ -197,12 +197,28 @@ impl Question {
         matches!(self.stage, Stage::Person { .. }) && self.relayed.is_none() && !self.stands()
     }
 
-    /// An assumption nobody raised needs no answer: it goes on the record as decided.
+    /// An assumption nobody raised needs no answer: it goes on the record as decided. One an
+    /// agent with no lead to ask went on with still reaches the person when it is theirs to
+    /// decide.
     fn stands(&self) -> bool {
+        let unled = matches!(self.stage, Stage::Person { lead: None, .. });
         matches!(self.stage, Stage::Person { .. })
             && self.assumption.is_some()
             && self.raise.is_none()
+            && !(unled && self.persons_call())
             && self.from_host.is_none()
+    }
+
+    /// Whether what it asks is the person's to decide: it offers them choices, or names a push,
+    /// a merge or a deploy.
+    fn persons_call(&self) -> bool {
+        let lower = self.text.to_lowercase();
+        let ships = (lower.split(|c: char| !c.is_alphanumeric())).any(|word| {
+            ["push", "merg", "deploy"]
+                .iter()
+                .any(|stem| word.starts_with(stem))
+        });
+        !self.choices.is_empty() || ships
     }
 
     fn lead_id(&self) -> Option<&str> {
@@ -2191,7 +2207,8 @@ fn tell_phones(core: &Core) {
         state.shown_devices = shown;
         let now: HashMap<String, Asking> = (state.open.iter())
             .filter(|question| {
-                (question.blocked || question.raise.is_some()) && question.asks_person()
+                let waits = question.blocked || question.raise.is_some() || question.persons_call();
+                waits && question.asks_person()
             })
             .map(|question| {
                 let asking = Asking::new(
