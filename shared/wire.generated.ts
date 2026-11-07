@@ -672,6 +672,8 @@ export interface InboxItem {
     /** What is needed or what happened, in a line. */
     what: string;
     detail: string | null;
+    /** All an agent asked, when `detail` is only its first line or cut short. */
+    asked?: string;
     at: number;
     /** The agent's terminal; none for a chat. */
     session: number | null;

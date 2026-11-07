@@ -10,10 +10,11 @@ use gpui_kit::{
 use sikemux_core::server::board::BoardCard;
 use sikemux_core::server::board::BoardSettingsParams;
 use sikemux_core::server::call;
-use sikemux_view::slice::{Gate, NextGate, Passer, SliceState, SliceView};
+use sikemux_view::slice::{Gate, NextGate, Passer, SliceState, SliceView, WaitOn};
 
 use super::{
-    eta_words, goal_name, state_count, state_mark, wait_words, waiting_words, At, GoalsPane,
+    eta_words, goal_name, state_count, state_mark, wait_eta, wait_words, waiting_words, At,
+    GoalsPane,
 };
 use crate::board::panels::{landing_choice, landing_of, landing_picks};
 use crate::theme::{
@@ -160,10 +161,10 @@ fn running_and_next(
             cx,
         ));
     }
-    for (card, slice) in slices
-        .iter()
+    let moving: Vec<&(&BoardCard, &SliceView)> = (slices.iter())
         .filter(|(_, slice)| slice.state == SliceState::Moving)
-    {
+        .collect();
+    for (card, slice) in &moving {
         let words = match waiting_words(card, slice) {
             Some(waits) => format!("{}: {waits}", card.title),
             None => card.title.clone(),
@@ -173,6 +174,7 @@ fn running_and_next(
     let steps: Vec<String> = goal
         .next
         .iter()
+        .filter(|next| !moving.iter().any(|(card, _)| card.id == next.card))
         .take(3)
         .filter_map(|next| step(pane.cards(), next))
         .collect();
@@ -368,7 +370,14 @@ pub(super) fn step_words(next: &NextGate, title: &str, owner: Option<&str>) -> S
         Some(environment) => format!("{who} deploys {title} to {environment}"),
         None => format!("{who} {verb} {title}"),
     };
-    match next.wait.as_ref().and_then(|wait| wait_words(wait, owner)) {
+    let wait = next
+        .wait
+        .as_ref()
+        .and_then(|wait| match (&wait.on, next.passer) {
+            (WaitOn::Agent { .. }, Passer::Owner) => wait_eta(wait),
+            _ => wait_words(wait, owner),
+        });
+    match wait {
         Some(wait) => format!("{step} ({wait})"),
         None => step,
     }

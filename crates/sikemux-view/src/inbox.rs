@@ -183,6 +183,9 @@ pub struct InboxItem {
     /// What is needed or what happened, in a line.
     pub what: String,
     pub detail: Option<String>,
+    /// All an agent asked, when `detail` is only its first line or cut short.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked: Option<String>,
     pub at: u64,
     /// The agent's terminal; none for a chat.
     pub session: Option<SessionId>,
@@ -394,6 +397,9 @@ pub struct InboxDigest {
     /// When they left. None when they never have, which lists nothing as
     /// finished or failed.
     pub since: Option<u64>,
+    /// When they came back, so what happened after is not listed; none while they are away.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<u64>,
     pub away: bool,
     pub finished: Vec<InboxItem>,
     pub failed: Vec<InboxItem>,

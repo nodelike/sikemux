@@ -101,11 +101,15 @@ impl GoalsPane {
 
     /// How many of those were decided while the person was away.
     pub(super) fn decided_away(&self) -> usize {
-        let Some(since) = self.digest.as_ref().and_then(|digest| digest.since) else {
+        let Some(digest) = self.digest.as_ref() else {
             return 0;
         };
+        let Some(since) = digest.since else {
+            return 0;
+        };
+        let away = |at: u64| at >= since && digest.until.is_none_or(|until| at <= until);
         (self.decided_here().iter())
-            .filter(|swarm| swarm.decision.learned.at >= since)
+            .filter(|swarm| away(swarm.decision.learned.at))
             .count()
     }
 

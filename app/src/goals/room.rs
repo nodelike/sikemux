@@ -512,8 +512,6 @@ impl GoalsPane {
             .collect();
 
         let count = |state: SliceState| scoped.iter().filter(|row| row.state == state).count();
-        let agents_at =
-            |state: SliceState| no_goal.iter().filter(|agent| agent.state == state).count();
         let needs = count(SliceState::NeedsYou) + count(SliceState::Failed) + loose.len();
         let active = scoped
             .iter()
@@ -524,9 +522,9 @@ impl GoalsPane {
             active,
             listed: active + no_goal.len(),
             needs,
-            moving: count(SliceState::Moving) + agents_at(SliceState::Moving),
-            waiting: count(SliceState::Waiting) + agents_at(SliceState::Waiting),
-            done: count(SliceState::Done) + agents_at(SliceState::Done) + room.view.done_earlier,
+            moving: count(SliceState::Moving),
+            waiting: count(SliceState::Waiting),
+            done: count(SliceState::Done) + room.view.done_earlier,
         };
         let mut stats = Stats::default();
         for agent in room.view.agents.iter().filter(|agent| agent_scoped(agent)) {
@@ -564,13 +562,8 @@ impl GoalsPane {
                 || agent.task.to_lowercase().contains(&find)
                 || (agent.name.as_deref()).is_some_and(|name| name.to_lowercase().contains(&find))
         };
-        let agent_listed = |agent: &&GoalAgent| match room.filter {
-            Filter::Active => true,
-            Filter::Needs => false,
-            filter => listed(filter, agent.state),
-        };
         let loose_agents: Vec<String> = (no_goal.iter().copied())
-            .filter(agent_listed)
+            .filter(|_| room.filter == Filter::Active)
             .filter(agent_found)
             .map(|agent| agent.id.clone())
             .collect();
@@ -614,7 +607,7 @@ impl GoalsPane {
                 }
                 let count = of(SliceState::Done).count();
                 if count > 0 {
-                    entries.push(Entry::Section("Done", count));
+                    entries.push(Entry::Section("Done", count + room.view.done_earlier));
                     entries.extend(of(SliceState::Done).map(goal_entry));
                 }
             }

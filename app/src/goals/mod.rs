@@ -167,6 +167,8 @@ pub struct GoalsPane {
     room: room::Room,
     /// What takes the tab rail's place while Home shows.
     panel: Option<Entity<panel::PaneView>>,
+    /// The inbox item whose long question the panel shows whole.
+    unclamped: Option<String>,
     /// Home's numbers, tabs and rows.
     list: Option<Entity<panel::PaneView>>,
     /// The box that starts work, at the top of Home.
@@ -207,6 +209,7 @@ impl GoalsPane {
             busy: false,
             room: room::Room::new(cx),
             panel: None,
+            unclamped: None,
             list: None,
             start: start::Start::default(),
             asserting: None,
@@ -1255,10 +1258,18 @@ fn wait_words(wait: &Wait, owner: Option<&str>) -> Option<String> {
             ..
         } => format!("CI {workflow}"),
     };
-    Some(match wait.eta() {
-        Some(at) if wait.overdue => format!("{what} · was due {}", ui::time::clock(at)),
-        Some(at) => format!("{what} · ETA {}", ui::time::clock(at)),
+    Some(match wait_eta(wait) {
+        Some(eta) => format!("{what} · {eta}"),
         None => what,
+    })
+}
+
+/// When what a slice waits on should be through, such as "ETA 16:40".
+fn wait_eta(wait: &Wait) -> Option<String> {
+    let at = wait.eta()?;
+    Some(match wait.overdue {
+        true => format!("was due {}", ui::time::clock(at)),
+        false => format!("ETA {}", ui::time::clock(at)),
     })
 }
 

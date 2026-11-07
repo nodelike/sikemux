@@ -9,7 +9,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::board::BoardPassParams;
 use sikemux_core::server::call;
-use sikemux_view::goals::{AgentDesk, GoalAgent, GoalRow, GoalSlice};
+use sikemux_view::goals::{AgentDesk, GoalAgent, GoalNext, GoalRow, GoalSlice};
 use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed};
 use sikemux_view::slice::SliceState;
 
@@ -20,6 +20,10 @@ use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_1, SPACE_1H, SPACE_2, TEXT_2XS, TEXT_2XS_H, TEXT_LG};
 use crate::theme::{TEXT_SM, TEXT_XS, TEXT_XS_H};
 use crate::ui::{self, Button, Variant};
+
+/// How much of a question shows before the rest waits behind Show all.
+const ASKED_LINES: usize = 6;
+const ASKED_CHARS: usize = 420;
 
 /// Part of Home drawn on its own and cached, so the window redrawing for an agent's stream does
 /// not draw it again unless the pane changed.
@@ -84,7 +88,7 @@ fn nothing(cx: &mut Context<GoalsPane>) -> AnyElement {
 
 /// The head of the panel: a title, a line under it with a clock, and what can be done about it.
 fn head(
-    title: String,
+    title: AnyElement,
     state: SliceState,
     line: Option<String>,
     clock: Option<String>,
@@ -111,14 +115,7 @@ fn head(
                 linear_color_stop(tint.opacity(0.), 0.85),
             ))
         })
-        .child(
-            div()
-                .text_size(theme::ui_text(TEXT_LG))
-                .font_weight(FontWeight::MEDIUM)
-                .line_height(relative(1.3))
-                .text_color(t.text_primary)
-                .child(title),
-        )
+        .child(title)
         .when(line.is_some() || clock.is_some(), |head| {
             head.child(
                 div()
@@ -163,6 +160,18 @@ fn goal(pane: &mut GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
         None => (None, &[][..]),
     };
     let mut buttons = first.map_or(Vec::new(), |item| actions(pane, item, cx));
+    let line = match (first, &row.next) {
+        (Some(item), Some(GoalNext::Need { what, .. })) => Some(need_words(item, what, &row.title)),
+        (Some(item), _) => Some(need_words(item, &need_title(item), &row.title)),
+        (None, next) => next.as_ref().map(next_words),
+    };
+    let under = first.and_then(|item| {
+        let asked =
+            asked(pane, item, TEXT_SM, cx).map(|asked| asked.mt(SPACE_2).into_any_element());
+        let held = held_lines(item, cx);
+        (asked.is_some() || held.is_some())
+            .then(|| div().children(asked).children(held).into_any_element())
+    });
     let (project, card) = (row.project.clone(), row.card);
     let failed = (row.slices.iter()).find(|slice| slice.state == SliceState::Failed);
     if let (None, Some(failed)) = (first, failed) {
@@ -197,6 +206,11 @@ fn goal(pane: &mut GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
     let agents: Vec<GoalAgent> = (row.agents.iter())
         .filter_map(|id| pane.room.agent(id).cloned())
         .collect();
+    let only_itself = match row.slices.as_slice() {
+        [] => true,
+        [slice] => slice.title == row.title,
+        _ => false,
+    };
     let t = Tokens::get(cx).clone();
     let list_ink = t.text_tertiary;
     div()
@@ -205,15 +219,15 @@ fn goal(pane: &mut GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
         .flex()
         .flex_col()
         .child(head(
-            row.title.clone(),
+            title(row.title.clone(), cx),
             row.state,
-            row.next.as_ref().map(next_words),
+            line,
             row.clock.map(clock_words),
-            first.and_then(|item| held_lines(item, cx)),
+            under,
             buttons,
             cx,
         ))
-        .when(!row.slices.is_empty(), |panel| {
+        .when(!only_itself, |panel| {
             panel.child(slice_path(&row.project, &row.slices, cx))
         })
         .child(
@@ -224,7 +238,10 @@ fn goal(pane: &mut GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
                 .overflow_y_scroll()
                 .when(!rest.is_empty(), |list| {
                     list.child(rule_label(format!("{} more need you", rest.len()), cx))
-                        .children(rest.iter().map(|item| more_need(pane, item, cx)))
+                        .children(
+                            rest.iter()
+                                .map(|item| more_need(pane, item, &row.title, cx)),
+                        )
                 })
                 .child(rule_label(
                     format!(
@@ -249,7 +266,9 @@ fn goal(pane: &mut GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
                                 .text_color(list_ink),
                             )
                         })
-                        .children(agents.iter().map(|agent| agent_block(pane, agent, cx))),
+                        .children(
+                            (agents.iter()).map(|agent| agent_block(pane, agent, &row.title, cx)),
+                        ),
                 ),
         )
         .into_any_element()
@@ -287,7 +306,10 @@ fn need(pane: &mut GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> 
         .flex_col()
         .overflow_y_scroll()
         .child(head(
-            need_title(item),
+            asked(pane, item, TEXT_LG, cx).map_or_else(
+                || title(need_title(item), cx),
+                IntoElement::into_any_element,
+            ),
             state,
             Some(line),
             Some(ui::time::age(item.at)),
@@ -299,7 +321,7 @@ fn need(pane: &mut GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> 
         .children(agent.map(|agent| {
             div()
                 .p(SPACE_2)
-                .child(agent_block(pane, &agent, cx))
+                .child(agent_block(pane, &agent, "", cx))
                 .into_any_element()
         }))
         .into_any_element()
@@ -362,7 +384,7 @@ fn loose_agent(pane: &mut GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPa
         .flex_col()
         .overflow_y_scroll()
         .child(head(
-            agent.task.clone(),
+            title(agent.task.clone(), cx),
             agent.state,
             Some(line),
             None,
@@ -371,7 +393,11 @@ fn loose_agent(pane: &mut GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPa
             cx,
         ))
         .child(rule_label(format!("{} open", on_desk(&agent.desk)), cx))
-        .child(div().p(SPACE_2).child(agent_block(pane, agent, cx)))
+        .child(
+            div()
+                .p(SPACE_2)
+                .child(agent_block(pane, agent, &agent.task, cx)),
+        )
         .into_any_element()
 }
 
@@ -452,11 +478,22 @@ fn slice_path(project: &str, slices: &[GoalSlice], cx: &mut Context<GoalsPane>) 
         .into_any_element()
 }
 
-/// One agent: what it does and its name, then what is out on its desk, each opening there.
-fn agent_block(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -> AnyElement {
+/// One agent: what it does and its name, then what is out on its desk, each opening there. A
+/// task that is the panel's `title` already is left to the title.
+fn agent_block(
+    pane: &GoalsPane,
+    agent: &GoalAgent,
+    title: &str,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let opened = agent.id.clone();
     let chips = desk_chips(agent, cx);
+    let name = agent.name.as_ref().map(|name| format!("@{name}"));
+    let (task, name) = match name {
+        Some(name) if agent.task == title => (name, None),
+        name => (agent.task.clone(), name),
+    };
     let line = div()
         .id(SharedString::from(format!("panel-agent-{}", agent.id)))
         .py(px(9.))
@@ -472,14 +509,14 @@ fn agent_block(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>)
                 .gap(px(9.))
                 .child(agent_face(agent, 18., cx))
                 .child(
-                    ui::text(agent.task.clone(), TEXT_SM, FontWeight::NORMAL)
+                    ui::text(task, TEXT_SM, FontWeight::NORMAL)
                         .flex_1()
                         .min_w_0()
                         .truncate()
                         .text_color(t.text_primary),
                 )
-                .children(agent.name.as_ref().map(|name| {
-                    ui::text(format!("@{name}"), TEXT_XS, FontWeight::NORMAL)
+                .children(name.map(|name| {
+                    ui::text(name, TEXT_XS, FontWeight::NORMAL)
                         .flex_none()
                         .text_color(t.text_tertiary)
                 })),
@@ -583,6 +620,85 @@ fn desk_chip(
         )
 }
 
+/// A panel's title, wrapping as long as it is.
+fn title(words: String, cx: &Context<GoalsPane>) -> AnyElement {
+    div()
+        .text_size(theme::ui_text(TEXT_LG))
+        .font_weight(FontWeight::MEDIUM)
+        .line_height(relative(1.3))
+        .text_color(Tokens::get(cx).text_primary)
+        .child(words)
+        .into_any_element()
+}
+
+/// What a need of the goal titled `goal` is for, the slice it is about and what it says, as
+/// `what`; a question shown whole under it says only who asks.
+fn need_words(item: &InboxItem, what: &str, goal: &str) -> String {
+    let slice = (item.card.as_ref())
+        .filter(|card| card.goal.is_some() && card.title != goal)
+        .map(|card| card.title.clone());
+    let what = match &item.asked {
+        Some(_) => item.name.as_ref().map(|name| format!("@{name} asks")),
+        None => Some(what.to_owned()),
+    };
+    [
+        item.need.map(|need| need_word(need).to_owned()),
+        slice,
+        what,
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" · ")
+}
+
+/// All an agent asked, at `size`. A long question shows its first lines, with a way to read the
+/// rest there.
+fn asked(
+    pane: &GoalsPane,
+    item: &InboxItem,
+    size: f32,
+    cx: &mut Context<GoalsPane>,
+) -> Option<Div> {
+    let asked = item.asked.clone()?;
+    let t = Tokens::get(cx).clone();
+    let long = asked.lines().count() > ASKED_LINES || asked.chars().count() > ASKED_CHARS;
+    let whole = pane.unclamped.as_deref() == Some(item.id.as_str());
+    let (big, id) = (size >= TEXT_LG, item.id.clone());
+    let text = div()
+        .text_size(theme::ui_text(size))
+        .font_weight(if big {
+            FontWeight::MEDIUM
+        } else {
+            FontWeight::NORMAL
+        })
+        .line_height(relative(1.35))
+        .text_color(if big {
+            t.text_primary
+        } else {
+            t.text_secondary
+        })
+        .when(long && !whole, |text| text.line_clamp(ASKED_LINES))
+        .child(asked);
+    Some(
+        div()
+            .flex()
+            .flex_col()
+            .gap(SPACE_1)
+            .child(text)
+            .when(long, |shown| {
+                let words = if whole { "Show less" } else { "Show all" };
+                shown.child(
+                    ui::sign_in::link(SharedString::from(format!("asked-{id}")), words, cx)
+                        .on_click(cx.listener(move |pane, _, _, cx| {
+                            pane.unclamped = (!whole).then(|| id.clone());
+                            cx.notify();
+                        })),
+                )
+            }),
+    )
+}
+
 /// The command a held action runs and why it waits, under what it is.
 fn held_lines(item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<AnyElement> {
     if let Some(raised) = &item.raised {
@@ -615,7 +731,8 @@ fn held_lines(item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<AnyElemen
 fn actions(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Vec<AnyElement> {
     if let (InboxKind::Gate, Some(gate), Some(card)) = (item.kind, item.gate, &item.card) {
         let (project, id, environment) = (card.project.clone(), card.id, item.environment.clone());
-        return vec![Button::new(
+        let folder = project.clone();
+        let approve = Button::new(
             SharedString::from(format!("approve-{}", item.id)),
             "Approve",
             Variant::Primary,
@@ -628,8 +745,14 @@ fn actions(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> V
                 environment: environment.clone(),
             };
             pane.ask_moved::<call::BoardPass>(params, |_| {}, cx);
-        }))
-        .into_any_element()];
+        }));
+        let evidence = Button::new(
+            SharedString::from(format!("evidence-{}", item.id)),
+            "See evidence",
+            Variant::Outline,
+        )
+        .on_click(cx.listener(move |pane, _, _, cx| pane.open_slice(&folder, id, cx)));
+        return vec![approve.into_any_element(), evidence.into_any_element()];
     }
     if let Some(hold) = &item.hold {
         let here = crate::core::Target::here(&pane.asks);
@@ -678,14 +801,19 @@ fn actions(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> V
     .into_any_element()]
 }
 
-/// Another need of the same goal, under the first.
-fn more_need(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> AnyElement {
+/// Another need of the goal titled `goal`, under the first.
+fn more_need(
+    pane: &GoalsPane,
+    item: &InboxItem,
+    goal: &str,
+    cx: &mut Context<GoalsPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let tint = match item.need {
         Some(InboxNeed::Fix) => t.danger,
         _ => t.warn,
     };
-    let word = item.need.map_or("", need_word);
+    let asked = asked(pane, item, TEXT_SM, cx).map(|asked| asked.mt(SPACE_1));
     div()
         .py(SPACE_2)
         .px(px(18.))
@@ -694,8 +822,9 @@ fn more_need(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) ->
                 .text_size(theme::ui_text(TEXT_XS_H))
                 .line_height(relative(1.3))
                 .text_color(tint)
-                .child(format!("{word} · {}", need_title(item))),
+                .child(need_words(item, &need_title(item), goal)),
         )
+        .children(asked)
         .children(held_lines(item, cx))
         .child(
             div()

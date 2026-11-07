@@ -126,6 +126,8 @@ struct State {
     away: bool,
     /// When the person last went away.
     left_at: Option<u64>,
+    /// When they came back from that, unless they are still away.
+    back_at: Option<u64>,
     /// Cards a phone was sent and that are still showing, by phone and card.
     alerted: HashSet<(String, String)>,
     turns: HashMap<String, u64>,
@@ -169,10 +171,11 @@ impl Notifier {
         *self.presence.locked() = Some(presence);
     }
 
-    /// When the person last went away, and whether they still are.
-    pub(crate) fn absence(&self) -> (Option<u64>, bool) {
+    /// When the person last went away, when they came back unless they are still away, and
+    /// whether they still are.
+    pub(crate) fn absence(&self) -> (Option<u64>, Option<u64>, bool) {
         let state = self.state.locked();
-        (state.left_at, state.away)
+        (state.left_at, state.back_at, state.away)
     }
 
     pub(crate) fn host_name(&self) -> String {
@@ -253,10 +256,13 @@ fn noted(core: &Core, away: bool, now: u64) {
     let left = {
         let mut state = core.notify.state.locked();
         let left = away && !state.away;
-        state.away = away;
         if left {
             state.left_at = Some(now);
+            state.back_at = None;
+        } else if state.away && !away {
+            state.back_at = Some(now);
         }
+        state.away = away;
         left
     };
     if !left {

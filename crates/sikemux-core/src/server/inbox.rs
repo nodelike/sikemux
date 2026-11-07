@@ -364,11 +364,12 @@ impl Turns {
             .map(|turn| (turn.ended_at, turn.problem.clone(), turn.recordings.clone()))
     }
 
-    fn ended_since(&self, since: u64) -> Vec<String> {
+    fn ended_between(&self, since: u64, until: Option<u64>) -> Vec<String> {
+        let within = |at: u64| at >= since && until.is_none_or(|until| at <= until);
         self.turns
             .locked()
             .iter()
-            .filter(|(_, turn)| turn.ended_at.is_some_and(|at| at >= since))
+            .filter(|(_, turn)| turn.ended_at.is_some_and(within))
             .map(|(agent_id, _)| agent_id.clone())
             .collect()
     }
@@ -600,6 +601,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         title: None,
         what,
         detail: None,
+        asked: None,
         at,
         session: None,
         feed: None,
@@ -908,7 +910,10 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
             .unwrap_or_else(|| gone_agent(core, &question.agent_id));
         let mut item = item(format!("question:{}", question.id), case, what, question.at)
             .by(&question.agent_id, Some(&asker));
-        item.detail = Some(clipped_line(&question.text, MAX_LINE_CHARS));
+        let line = clipped_line(&question.text, MAX_LINE_CHARS);
+        let asked = question.text.trim();
+        item.asked = (asked != line).then(|| asked.to_owned());
+        item.detail = Some(line);
         item.question_id = Some(question.id.clone());
         item.answers.clone_from(&question.answers);
         item.raised.clone_from(&question.raised);
@@ -1530,7 +1535,7 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
         items: ranked(items),
         kept: Vec::new(),
         working,
-        away: core.notify.absence().1,
+        away: core.notify.absence().2,
         agent_messages: core.harness.mailbox.log.latest(),
         remote_agents: remote_agents(core),
         agents: Vec::new(),
@@ -1544,15 +1549,17 @@ fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {
 /// What finished, failed and waits since the person last left, or since
 /// `since` when given.
 pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> InboxDigest {
-    let (left_at, away) = core.notify.absence();
+    let (left_at, back_at, away) = core.notify.absence();
+    let until = since.is_none().then_some(back_at).flatten();
     let since = since.or(left_at);
+    let before_until = |at: u64| until.is_none_or(|until| at <= until);
     let (chats, sessions) = core.ranked_infos();
     let agents = agents(core, &chats, &sessions);
     let waiting = ranked(waiting(core, &agents, &sessions));
     let (mut finished, mut failed) = (Vec::new(), Vec::new());
     if let Some(since) = since {
         let mut listed = HashSet::new();
-        for agent_id in core.inbox.ended_since(since) {
+        for agent_id in core.inbox.ended_between(since, until) {
             let agent = agents
                 .iter()
                 .find(|agent| agent.id == agent_id)
@@ -1570,7 +1577,7 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
                 .owner
                 .as_ref()
                 .is_some_and(|owner| listed.contains(owner));
-            if !card.done || owner_listed {
+            if !card.done || owner_listed || !before_until(card.updated_at) {
                 continue;
             }
             let mut item = item(
@@ -1595,13 +1602,16 @@ pub(crate) fn digest(core: &Core, since: Option<u64>, project: Option<&str>) -> 
             None => items,
         }
     };
+    let mut decided = board::goal::decided_since(core, since, project);
+    decided.retain(|swarm| swarm.goal.is_none() || before_until(swarm.decision.learned.at));
     InboxDigest {
         since,
+        until,
         away,
         finished: here(ranked(finished)),
         failed: here(ranked(failed)),
         waiting: here(waiting),
-        decided: board::goal::decided_since(core, since, project),
+        decided,
     }
 }
 
