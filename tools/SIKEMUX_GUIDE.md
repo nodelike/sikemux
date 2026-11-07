@@ -461,7 +461,7 @@ is an `action` with the fields of its tool:
   `expectLabel`, `x`, `y`, `replace`, `submit`, `key`).
 - `wait`: `text`, `textGone`, `selector`, `selectorGone`, `url`, `urlGone`
   or `networkIdle`, with `timeoutMs`, as `browser_wait`; a wait that runs out
-  fails its step.
+  fails its step, and one with no condition pauses for `timeoutMs`.
 - `find`: `query` and `role`, as `browser_find`.
 - `read`: the text of what `selector` matches, or the page's state without one.
 
@@ -474,8 +474,8 @@ call stops at the first step that fails, and when the page moves on while a
 later step names an element by `index` or `x` and `y`, opens a dialog or
 changes tab. `done` lists what each step did, with what `find` and `read`
 returned, `stopped` names the step it stopped at and why, and `report`
-covers the page once at the end: `outcome` when a step reads, else
-`changes`. A call that runs long stops before its time runs out and says
+covers the page once at the end: `outcome` when every step ran and one
+reads, else `changes`. A call that runs long stops before its time runs out and says
 which steps to send again.
 
 `browser_press` sends one key to the focused element: `Enter`, `Tab`,

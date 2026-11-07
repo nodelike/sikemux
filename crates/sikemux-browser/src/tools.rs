@@ -885,11 +885,16 @@ async fn act(manager: &BrowserManager, agent_id: &str, params: &Value) -> Result
             break;
         }
         if method == "browser.wait" {
+            let key = if step_params.get("ms").is_some() {
+                "ms"
+            } else {
+                "timeoutMs"
+            };
             let asked = step_params
-                .get("timeoutMs")
+                .get(key)
                 .and_then(Value::as_u64)
                 .unwrap_or(DEFAULT_CONDITION_WAIT_MS);
-            step_params["timeoutMs"] = json!(asked.min(left.as_millis() as u64));
+            step_params[key] = json!(asked.min(left.as_millis() as u64));
         }
         let before = outcome(manager, agent_id).ok();
         let failed = match Box::pin(run(manager, agent_id, method, &step_params)).await {
@@ -916,6 +921,7 @@ async fn act(manager: &BrowserManager, agent_id: &str, params: &Value) -> Result
         }
     }
     let mut result = json!({ "done": done });
+    let finished = stopped.is_none();
     if let Some(stopped) = stopped {
         result["stopped"] = stopped;
     }
@@ -923,7 +929,7 @@ async fn act(manager: &BrowserManager, agent_id: &str, params: &Value) -> Result
         .iter()
         .any(|step| matches!(step["action"].as_str(), Some("read" | "find")));
     let mut report_params = params.clone();
-    if reads && params.get("report").is_none() {
+    if finished && reads && params.get("report").is_none() {
         report_params["report"] = json!("outcome");
     }
     merge(result, report(manager, agent_id, &report_params).await?)
@@ -935,11 +941,7 @@ fn step_call(step: &Value) -> Result<(&'static str, Value), String> {
         Some("type") => "browser.type",
         Some("press") => "browser.press",
         Some("navigate") => "browser.navigate",
-        Some("wait") if wait_condition(step).is_some() => "browser.wait",
-        Some("wait") => return Err(
-            "a wait step needs text, textGone, selector, selectorGone, url, urlGone or networkIdle"
-                .into(),
-        ),
+        Some("wait") => "browser.wait",
         Some("find") => "browser.find",
         Some("read") => "browser.state",
         _ => {
@@ -953,6 +955,10 @@ fn step_call(step: &Value) -> Result<(&'static str, Value), String> {
     if let Value::Object(map) = &mut params {
         map.remove("action");
         map.insert("report".into(), json!("outcome"));
+        if method == "browser.wait" && wait_condition(step).is_none() {
+            let pause = map.remove("timeoutMs").unwrap_or(json!(1000));
+            map.insert("ms".into(), pause);
+        }
     }
     Ok((method, params))
 }
