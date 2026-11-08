@@ -7,13 +7,13 @@ use sikemux_fold::update::{
 };
 use sikemux_fold::UpdateKind;
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 use serde_json::{json, Value};
 
 use super::super::super::states::{self, Subagent, Task};
 use super::super::json::{text, text_or_empty};
 use super::super::patch;
+use super::super::words::{absolute, file_name, spoken};
 use super::notifications::ItemDelta;
 
 /// A tool call's argument JSON. Muse hands it over as the model wrote it,
@@ -54,20 +54,6 @@ fn status(item: &Value) -> &'static str {
 
 fn settled(item: &Value) -> bool {
     status(item) != "in_progress"
-}
-
-/// A tool's name read as words, such as `cron_create` as "Cron create".
-fn spoken(tool: &str) -> String {
-    let words = tool.replace(['_', '-'], " ");
-    let mut characters = words.chars();
-    match characters.next() {
-        Some(first) => first.to_uppercase().chain(characters).collect(),
-        None => "Tool".to_owned(),
-    }
-}
-
-fn file_name(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
 }
 
 /// The tools whose calls the chat leaves out: Muse's to-do list, which the chat
@@ -178,14 +164,6 @@ fn argument_diff(tool: &str, args: &Value, path: Option<&str>, cwd: &str) -> Vec
     match (old, new) {
         (Some(old), Some(new)) => vec![diff_block(&path, Some(old), new)],
         _ => Vec::new(),
-    }
-}
-
-fn absolute(path: &str, cwd: &str) -> String {
-    if path.starts_with('/') || cwd.is_empty() {
-        path.to_owned()
-    } else {
-        Path::new(cwd).join(path).to_string_lossy().into_owned()
     }
 }
 
