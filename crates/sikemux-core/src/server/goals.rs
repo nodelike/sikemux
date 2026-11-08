@@ -263,7 +263,7 @@ impl Placed<'_> {
                     let owners = next.passer == Passer::Owner;
                     let idle = owners && row.state == SliceState::Waiting && next.wait.is_none();
                     let at_work = owners
-                        && card.title == row.title
+                        && card.id == goal.id
                         && matches!(
                             next.wait.as_ref().map(|wait| &wait.on),
                             Some(WaitOn::Agent { .. })
