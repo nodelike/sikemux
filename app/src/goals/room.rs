@@ -869,7 +869,6 @@ fn line(
     says: Option<String>,
     slices: Vec<SliceState>,
     end: Option<End>,
-    chosen: bool,
     cx: &App,
 ) -> Row {
     let t = Tokens::get(cx);
@@ -882,7 +881,6 @@ fn line(
         .mark(14., mark(state, cx))
         .centered()
         .height(ROW_HEIGHT)
-        .chosen(chosen)
         .padding_right(SPACE_2H.into())
         .children(dots)
         .child(
@@ -953,9 +951,9 @@ fn goal_row(pane: &GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
         goal_says(row),
         row.slices.iter().map(|slice| slice.state).collect(),
         end,
-        chosen,
         cx,
     )
+    .chosen(chosen)
     .on_click(cx.listener(move |pane, event: &ClickEvent, window, cx| {
         pane.room.keys.focus(window, cx);
         pane.room.chosen = Some(picks.clone());
@@ -992,9 +990,9 @@ fn agent_row(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -
         says,
         Vec::new(),
         project.map(End::Where),
-        chosen,
         cx,
     )
+    .chosen(chosen)
     .on_click(cx.listener(move |pane, event: &ClickEvent, window, cx| {
         pane.room.keys.focus(window, cx);
         pane.room.chosen = Some(picks.clone());
