@@ -1,0 +1,124 @@
+From baa0fad4ffe014c8819b4eee1553c3c4b113db97 Mon Sep 17 00:00:00 2001
+From: nodelike <kishore.sensei@gmail.com>
+Date: Sun, 8 Nov 2026 12:40:32 +0530
+Subject: [PATCH] Add sikemux-bin, the Sikemux desktop app
+
+Agent: Haruhi (claude 2.1.319, opus[1m], sikemux 0.6.1-nightly.6, session 05ad21d7-ce0b-4157-b314-48172b10ff0f, chat agent-18168c423f14491fb7956df45aecf4fe, host 03c112f7c38a48c2)
+Agent-Signature: M0O1K50OmHCuI29BZmYx7AJ9Lq+66RRs9Y2p9p0F4uE0ahNGqo0N5qkVEH+VpulKR0iPRgjIUc1Q4lqC3re9Cg
+---
+ pkgbuilds/sikemux-bin/.omarchy/package.json | 10 ++++
+ pkgbuilds/sikemux-bin/PKGBUILD              | 64 +++++++++++++++++++++
+ pkgbuilds/sikemux-bin/sikemux.sysusers      |  1 +
+ pkgbuilds/sikemux-bin/sikemux.tmpfiles      |  4 ++
+ 4 files changed, 79 insertions(+)
+ create mode 100644 pkgbuilds/sikemux-bin/.omarchy/package.json
+ create mode 100644 pkgbuilds/sikemux-bin/PKGBUILD
+ create mode 100644 pkgbuilds/sikemux-bin/sikemux.sysusers
+ create mode 100644 pkgbuilds/sikemux-bin/sikemux.tmpfiles
+
+diff --git a/pkgbuilds/sikemux-bin/.omarchy/package.json b/pkgbuilds/sikemux-bin/.omarchy/package.json
+new file mode 100644
+index 0000000..baab4b9
+--- /dev/null
++++ b/pkgbuilds/sikemux-bin/.omarchy/package.json
+@@ -0,0 +1,10 @@
++{
++  "source": "local",
++  "release_ring": "fast",
++  "upstream": {
++    "watch": {
++      "github": "nodelike/sikemux",
++      "pattern": "v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)"
++    }
++  }
++}
+diff --git a/pkgbuilds/sikemux-bin/PKGBUILD b/pkgbuilds/sikemux-bin/PKGBUILD
+new file mode 100644
+index 0000000..0a8967d
+--- /dev/null
++++ b/pkgbuilds/sikemux-bin/PKGBUILD
+@@ -0,0 +1,64 @@
++# Maintainer: nodelike
++
++pkgname=sikemux-bin
++pkgver=0.6.1
++pkgrel=1
++pkgdesc='The IDE for you and your coding agents'
++arch=('x86_64')
++url='https://sikemux.com'
++# namcap rejects FSL-1.1-MIT as an SPDX licence, so it is named as our own.
++license=('LicenseRef-FSL-1.1-MIT')
++# The app opens Vulkan, EGL, Wayland and Xext while it runs rather than linking them.
++# Browser recording loads GStreamer's base and good plugins by name.
++depends=(
++  'cairo'
++  'gdk-pixbuf2'
++  'glib2'
++  'glibc'
++  'gst-plugins-base'
++  'gst-plugins-base-libs'
++  'gst-plugins-good'
++  'gstreamer'
++  'gtk3'
++  'hicolor-icon-theme'
++  'libgcc'
++  'libglvnd'
++  'libsoup3'
++  'libx11'
++  'libxcb'
++  'libxext'
++  'libxkbcommon'
++  'libxkbcommon-x11'
++  'vulkan-icd-loader'
++  'wayland'
++  'webkit2gtk-4.1'
++  'zlib'
++)
++optdepends=(
++  'gst-plugins-ugly: browser recordings as MP4 rather than WebM'
++  'vulkan-driver: the GPU driver the window draws with, such as vulkan-intel or vulkan-radeon'
++)
++provides=('sikemux')
++conflicts=('sikemux')
++options=('!strip' '!debug')
++
++_tarball="Sikemux_${pkgver}_amd64.tar.gz"
++source=('sikemux.sysusers' 'sikemux.tmpfiles')
++source_x86_64=("https://github.com/nodelike/sikemux/releases/download/v${pkgver}/${_tarball}")
++noextract=("${_tarball}")
++sha256sums=('20834e34c739b13a649a1e40c417bf0d32eef25ae01f198962b367207ca0191f'
++            'dd5d962cb4ad855254f7188d089537aeb4be4e2b04924355bfecfb452544366b')
++sha256sums_x86_64=('0000000000000000000000000000000000000000000000000000000000000000')
++
++package() {
++  bsdtar --no-same-owner -xf "${srcdir}/${_tarball}" -C "${pkgdir}" usr
++  install -dm755 "${pkgdir}/usr/share/licenses/${pkgname}"
++  bsdtar -xOf "${srcdir}/${_tarball}" LICENSE >"${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
++
++  # The core keeps each account's sign-ins in /var/lib/sikemux, which only the group
++  # sikemux may enter, and runs setgid to it. Package files must stay root:root, so
++  # systemd-tmpfiles sets the group and the setgid bit after every install and upgrade.
++  # Nobody joins the group, so the agents a person runs cannot read the store.
++  install -Dm644 "${srcdir}/sikemux.sysusers" "${pkgdir}/usr/lib/sysusers.d/sikemux.conf"
++  install -Dm644 "${srcdir}/sikemux.tmpfiles" "${pkgdir}/usr/lib/tmpfiles.d/sikemux.conf"
++}
+diff --git a/pkgbuilds/sikemux-bin/sikemux.sysusers b/pkgbuilds/sikemux-bin/sikemux.sysusers
+new file mode 100644
+index 0000000..cdc8685
+--- /dev/null
++++ b/pkgbuilds/sikemux-bin/sikemux.sysusers
+@@ -0,0 +1 @@
++g sikemux - -
+diff --git a/pkgbuilds/sikemux-bin/sikemux.tmpfiles b/pkgbuilds/sikemux-bin/sikemux.tmpfiles
+new file mode 100644
+index 0000000..7d13950
+--- /dev/null
++++ b/pkgbuilds/sikemux-bin/sikemux.tmpfiles
+@@ -0,0 +1,4 @@
++# pacman unpacks the core as root:root 0755 on every install and upgrade; this runs
++# right after and makes it setgid sikemux, so it can enter its secret store below.
++z /usr/lib/sikemux/sikemux-host 2755 root sikemux -
++d /var/lib/sikemux 0770 root sikemux -
+-- 
+2.56.0
+

@@ -1,0 +1,64 @@
+# Maintainer: nodelike
+
+pkgname=sikemux-bin
+pkgver=0.6.1
+pkgrel=1
+pkgdesc='The IDE for you and your coding agents'
+arch=('x86_64')
+url='https://sikemux.com'
+# namcap rejects FSL-1.1-MIT as an SPDX licence, so it is named as our own.
+license=('LicenseRef-FSL-1.1-MIT')
+# The app opens Vulkan, EGL, Wayland and Xext while it runs rather than linking them.
+# Browser recording loads GStreamer's base and good plugins by name.
+depends=(
+  'cairo'
+  'gdk-pixbuf2'
+  'glib2'
+  'glibc'
+  'gst-plugins-base'
+  'gst-plugins-base-libs'
+  'gst-plugins-good'
+  'gstreamer'
+  'gtk3'
+  'hicolor-icon-theme'
+  'libgcc'
+  'libglvnd'
+  'libsoup3'
+  'libx11'
+  'libxcb'
+  'libxext'
+  'libxkbcommon'
+  'libxkbcommon-x11'
+  'vulkan-icd-loader'
+  'wayland'
+  'webkit2gtk-4.1'
+  'zlib'
+)
+optdepends=(
+  'gst-plugins-ugly: browser recordings as MP4 rather than WebM'
+  'vulkan-driver: the GPU driver the window draws with, such as vulkan-intel or vulkan-radeon'
+)
+provides=('sikemux')
+conflicts=('sikemux')
+options=('!strip' '!debug')
+
+_tarball="Sikemux_${pkgver}_amd64.tar.gz"
+source=('sikemux.sysusers' 'sikemux.tmpfiles')
+source_x86_64=("https://github.com/nodelike/sikemux/releases/download/v${pkgver}/${_tarball}")
+noextract=("${_tarball}")
+sha256sums=('20834e34c739b13a649a1e40c417bf0d32eef25ae01f198962b367207ca0191f'
+            'dd5d962cb4ad855254f7188d089537aeb4be4e2b04924355bfecfb452544366b')
+sha256sums_x86_64=('0000000000000000000000000000000000000000000000000000000000000000')
+
+package() {
+  bsdtar --no-same-owner -xf "${srcdir}/${_tarball}" -C "${pkgdir}" usr
+  install -dm755 "${pkgdir}/usr/share/licenses/${pkgname}"
+  bsdtar -xOf "${srcdir}/${_tarball}" LICENSE >"${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+
+  # The core keeps each account's sign-ins in /var/lib/sikemux, which only the group
+  # sikemux may enter, and runs setgid to it. Package files must stay root:root, so
+  # systemd-tmpfiles sets the group and the setgid bit after every install and upgrade.
+  # Nobody joins the group, so the agents a person runs cannot read the store.
+  install -Dm644 "${srcdir}/sikemux.sysusers" "${pkgdir}/usr/lib/sysusers.d/sikemux.conf"
+  install -Dm644 "${srcdir}/sikemux.tmpfiles" "${pkgdir}/usr/lib/tmpfiles.d/sikemux.conf"
+}

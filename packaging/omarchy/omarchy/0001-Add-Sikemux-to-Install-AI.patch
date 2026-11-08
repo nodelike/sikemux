@@ -1,0 +1,229 @@
+From 487d9e713a7f2d92c397acbe4e987f8b8b42b382 Mon Sep 17 00:00:00 2001
+From: nodelike <kishore.sensei@gmail.com>
+Date: Sun, 8 Nov 2026 12:33:59 +0530
+Subject: [PATCH] Add Sikemux to Install > AI
+
+Agent: Haruhi (claude 2.1.319, opus[1m], sikemux 0.6.1-nightly.6, session 05ad21d7-ce0b-4157-b314-48172b10ff0f, chat agent-18168c423f14491fb7956df45aecf4fe, host 03c112f7c38a48c2)
+Agent-Signature: nZnlHMCqhQ430+0Pb5UmM/sVQIDPRNP9qOj2BwJJPcOxgXq3Ah8fu/AXNo68X1L9CjbiySrCNgCaOXGJTv1+Ag
+---
+ bin/omarchy-remove-ai-sikemux      |  57 +++++++++++++++++++++++++++++
+ default/fonts/omarchy/README.md    |   1 +
+ default/fonts/omarchy/omarchy.ttf  | Bin 16212 -> 16360 bytes
+ default/i18n/en/cli.json           |   1 +
+ default/i18n/en/menu.json          |   6 +++
+ default/omarchy/omarchy-menu.jsonc |   2 +
+ manual/17-ai.md                    |   2 +-
+ test/shell.d/remove-ai-test.sh     |  35 ++++++++++++++++++
+ 8 files changed, 103 insertions(+), 1 deletion(-)
+ create mode 100755 bin/omarchy-remove-ai-sikemux
+
+diff --git a/bin/omarchy-remove-ai-sikemux b/bin/omarchy-remove-ai-sikemux
+new file mode 100755
+index 0000000..221a4bf
+--- /dev/null
++++ b/bin/omarchy-remove-ai-sikemux
+@@ -0,0 +1,57 @@
++#!/bin/bash
++
++# omarchy:summary=Remove Sikemux along with its core service.
++# omarchy:requires-sudo=true
++
++# -u so an unset HOME is an error rather than a set of rm -rf paths rooted at /.
++set -euo pipefail
++
++# The core outlives the window: it keeps terminals and agents running, and a
++# user service may start it again at login. Stop both before the package goes,
++# or the core keeps running a binary that is no longer there.
++systemctl --user disable --now com.nodelike.sikemux.core.service &>/dev/null || true
++rm -f "$HOME/.config/systemd/user/com.nodelike.sikemux.core.service"
++systemctl --user daemon-reload &>/dev/null || true
++sikemux-host stop &>/dev/null || pkill -x sikemux-host || true
++pkill -x sikemux || true
++
++omarchy-pkg-drop sikemux-bin
++
++# What is left is the user's: chats, layouts, settings and mods under
++# ~/.local/share and ~/.config, and the sign-ins the core keeps for this
++# account in /var/lib/sikemux/<uid>, which only root can reach once the core is
++# gone. Keeping them is the default, so a reinstall picks up where it left off,
++# but a removal meant to be complete should not leave credentials behind, so
++# the choice is put in front of the user, default no. Without a terminal to ask
++# in, keeping it is the answer -- and gum draws the prompt on stderr, so a
++# redirected stderr would block on a question nobody can see.
++# Not ~/.claude, ~/.codex and the like: the agents Sikemux runs keep their own
++# state, and it outlives Sikemux.
++data_removed=false
++if [[ -t 0 && -t 2 ]]; then
++  # du answers non-zero when a directory is missing, and pipefail would turn
++  # that into an aborted removal; the size is worth no such thing.
++  size=$(du -shc "$HOME/.local/share/com.nodelike.sikemux" "$HOME/.config/com.nodelike.sikemux" "$HOME/.config/sikemux" 2>/dev/null | tail -1 | cut -f1 || true)
++  # du glues the unit to the number ("1.2G"); write the number with the
++  # language's decimal separator and digits.
++  if [[ $size =~ ^([0-9]+([.,][0-9]+)?)([A-Za-z]*)$ ]] && number=$(omarchy-i18n --number "${BASH_REMATCH[1]/,/.}"); then
++    size="$number${BASH_REMATCH[3]}"
++  fi
++  if gum confirm --default=false --affirmative "$(omarchy-i18n common.yes)" --negative "$(omarchy-i18n common.no)" "$(omarchy-i18n sikemux.deleteData "$size")"; then
++    rm -rf \
++      "$HOME/.local/share/com.nodelike.sikemux" \
++      "$HOME/.config/com.nodelike.sikemux" \
++      "$HOME/.config/sikemux"
++    sudo rm -rf "/var/lib/sikemux/$(id -u)"
++    data_removed=true
++  fi
++fi
++
++echo ""
++echo "Sikemux has been removed."
++if [[ $data_removed == "true" ]]; then
++  echo "Its chats, settings, mods and saved sign-ins are gone too."
++else
++  echo "Nothing of yours was touched: not the chats and settings in ~/.local/share/com.nodelike.sikemux"
++  echo "and ~/.config/sikemux, nor the sign-ins the core kept in /var/lib/sikemux."
++fi
+diff --git a/default/fonts/omarchy/README.md b/default/fonts/omarchy/README.md
+index df8a0d8..f916deb 100644
+--- a/default/fonts/omarchy/README.md
++++ b/default/fonts/omarchy/README.md
+@@ -34,6 +34,7 @@ The private-use glyphs in `omarchy.ttf` are:
+ - `U+E91D` — Kimi, from <https://simpleicons.org/icons/kimi.svg>
+ - `U+E91E` — Crush, the heartbit from <https://github.com/charmbracelet/crush/blob/main/internal/oauth/callback/heartbit.svg>, its eyes and mouth cut out
+ - `U+E91F` — Muse Code, from <https://simpleicons.org/icons/meta.svg>: Meta publishes no separate Muse mark and dev.meta.ai uses this one
++- `U+E920` — Sikemux, from <https://github.com/nodelike/sikemux/blob/main/brand/mark/mark-white.svg>, its two triangles and band joined into one path
+ 
+ The agent marks are monochrome so the menu can render them using the active
+ theme's foreground and selection colors.
+diff --git a/default/fonts/omarchy/omarchy.ttf b/default/fonts/omarchy/omarchy.ttf
+index 10277b494ed6027fad14f7788edade79bc8d229b..66fd7fe18267442d7937fd9917ca5827d9639b9f 100644
+GIT binary patch
+delta 391
+zcmcao_o9A+VSSxo1Oo$O2Ll6>S9(rmnqkxmZw3bDD+~;}JsGKqDSGRy`WP4t6Brm6
+z%rbxi9E>blK>iFMUnL{Aq@sm^n;*#E1LQBs$xlu^XnJNR1A`GreMoL%MFFELlL3&w
+z1;|&(OUz9*?!HqC<O9v;-dK=dT*6cPWTHI-gB{QTjPV=y$TBi2OuohVmQw+!K@=#)
+zw)r9x3*+W1%&fZg%nXGLfy`aZ>lv6BSQ(UovV!c4=ITP?VnE0WBE-bm*wxh4)Kx(Q
+z5Sp8rGk5*^`|Q^*3juz95jn<_wi<F0A}mY_Y@*5*|IBSQ)Pw|CSvfgHnI<sGPyA~<
+zv5)bfun?yR-wAmYS#>F`G-oj>eQ6*^Mp;QjU0Fw4ALuRyMi4eOPSN#fpZvtYpG^}a
+z$TImNll<fe!x|PA28P1PR}6zV#EyZLYHrpude6<MIa$swfQeCQa-Q8|PWIx=?9|-S
+G3I+iGu3b|A
+
+delta 231
+zcmaD+f2D4MVSTM&I0FM?2Ll6>S9(rm+S2pFe;62;uP`v^vSg$trs%D+>SJIqxWT}{
+zV3q+C;9z9YWMD890P<Bba!V>27`WyE`6fXAf}H&1#Dk_=KLhzd{R~05i4_HmE=&dt
+z3`QD2zCvDNZmMzjomwE@gMop2V?lm#3D4T-IS~vDwm?f6LpSb`Wn`3}e2eidr#w)D
+zC{T=T^F<~W#?4olS#`M?fntot#wt<0M<?eP`ZH=w-eb66a)MD12S@^lH8$@ude03M
+PUu73C`H$UWW}p}VvY9@P
+
+diff --git a/default/i18n/en/cli.json b/default/i18n/en/cli.json
+index 436982a..5bfd1f9 100644
+--- a/default/i18n/en/cli.json
++++ b/default/i18n/en/cli.json
+@@ -294,6 +294,7 @@
+   "share.couldNot": "Could not share",
+   "share.filesTitle": "Share files",
+   "share.folderTitle": "Share folder",
++  "sikemux.deleteData": "Also delete your Sikemux data (%1: chats, settings, mods and the sign-ins the core keeps)?",
+   "sshd.githubUserPrompt": "GitHub username> ",
+   "sshd.howToAddKey": "How would you like to add your SSH key?",
+   "sshd.keyFromGithub": "Grab key from GitHub",
+diff --git a/default/i18n/en/menu.json b/default/i18n/en/menu.json
+index c8ddf63..1b686c6 100644
+--- a/default/i18n/en/menu.json
++++ b/default/i18n/en/menu.json
+@@ -893,6 +893,9 @@
+   "install.ai.perplexity": {
+     "label": "Perplexity"
+   },
++  "install.ai.sikemux": {
++    "label": "Sikemux"
++  },
+   "install.ai.t3-code": {
+     "label": "T3 Code"
+   },
+@@ -1118,6 +1121,9 @@
+   "remove.ai.perplexity": {
+     "label": "Perplexity"
+   },
++  "remove.ai.sikemux": {
++    "label": "Sikemux"
++  },
+   "remove.ai.t3-code": {
+     "label": "T3 Code"
+   },
+diff --git a/default/omarchy/omarchy-menu.jsonc b/default/omarchy/omarchy-menu.jsonc
+index 29f4038..ecdea57 100644
+--- a/default/omarchy/omarchy-menu.jsonc
++++ b/default/omarchy/omarchy-menu.jsonc
+@@ -328,6 +328,7 @@
+   "install.ai.ollama": {"icon":"","iconFont":"omarchy","label":"Ollama","disabled":"omarchy-cmd-present ollama","action":"if omarchy-cmd-present nvidia-smi; then ollama_pkg=ollama-cuda; elif omarchy-cmd-present rocminfo; then ollama_pkg=ollama-rocm; else ollama_pkg=ollama; fi; omarchy-install-app Ollama \"$ollama_pkg\""},
+   "install.ai.openclaw": {"icon":"","iconFont":"omarchy","label":"OpenClaw","disabled":"omarchy-pkg-present openclaw","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-ai-openclaw"},
+   "install.ai.perplexity": {"icon":"","iconFont":"omarchy","label":"Perplexity","disabled":"omarchy-pkg-present perplexity","action":"omarchy-install-and-launch Perplexity perplexity perplexity"},
++  "install.ai.sikemux": {"icon":"","iconFont":"omarchy","label":"Sikemux","when":"omarchy-hw-x86","disabled":"omarchy-pkg-present sikemux-bin","action":"omarchy-install-and-launch Sikemux sikemux-bin com.nodelike.sikemux"},
+   "install.ai.t3-code": {"icon":"","iconFont":"omarchy","label":"T3 Code","disabled":"[[ -f \"$HOME/.local/share/t3code/T3-Code.AppImage\" ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-ai-t3-code"},
+   "install.gaming.steam": {"icon":"","label":"Steam","disabled":"omarchy-pkg-present steam","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-steam"},
+   "install.gaming.retroarch": {"icon":"󰯉","label":"RetroArch","disabled":"omarchy-pkg-present retroarch","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-gaming-retroarch"},
+@@ -403,6 +404,7 @@
+   "remove.ai.ollama": {"icon":"","iconFont":"omarchy","label":"Ollama","when":"omarchy-pkg-present ollama","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-ollama"},
+   "remove.ai.openclaw": {"icon":"","iconFont":"omarchy","label":"OpenClaw","when":"omarchy-pkg-present openclaw","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-openclaw"},
+   "remove.ai.perplexity": {"icon":"","iconFont":"omarchy","label":"Perplexity","when":"omarchy-pkg-present perplexity","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-perplexity"},
++  "remove.ai.sikemux": {"icon":"","iconFont":"omarchy","label":"Sikemux","when":"omarchy-pkg-present sikemux-bin","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-sikemux"},
+   "remove.ai.t3-code": {"icon":"","iconFont":"omarchy","label":"T3 Code","when":"[[ -f \"$HOME/.local/share/t3code/T3-Code.AppImage\" ]] || omarchy-pkg-present t3code-bin || omarchy-pkg-present t3code-nightly-bin","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-ai-t3-code"},
+   "remove.gaming.steam": {"icon":"","label":"Steam","when":"omarchy-pkg-present steam","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-gaming-steam"},
+   "remove.gaming.retroarch": {"icon":"","label":"RetroArch","when":"omarchy-pkg-present retroarch","action":"omarchy-launch-floating-terminal-with-presentation omarchy-remove-gaming-retroarch"},
+diff --git a/manual/17-ai.md b/manual/17-ai.md
+index d778058..c67784d 100644
+--- a/manual/17-ai.md
++++ b/manual/17-ai.md
+@@ -84,7 +84,7 @@ Crashes can also be silenced one program at a time, which is what the diagnosis
+ 
+ ### Desktop apps
+ 
+-The _Install > AI_ menu also carries a few graphical AI apps: the ChatGPT desktop app, the Claude desktop app (Anthropic's Linux beta, with Chat, Cowork, and Claude Code tabs), Grok Bot for chatting with xAI's models, Herdr Desktop, Hermes Desktop, OpenClaw, the Perplexity desktop app, and T3 Code. Grok Bot is the desktop chat app. The coding agent is the `grok` command.
++The _Install > AI_ menu also carries a few graphical AI apps: the ChatGPT desktop app, the Claude desktop app (Anthropic's Linux beta, with Chat, Cowork, and Claude Code tabs), Grok Bot for chatting with xAI's models, Herdr Desktop, Hermes Desktop, OpenClaw, the Perplexity desktop app, Sikemux (an IDE for you and your coding agents), and T3 Code. Grok Bot is the desktop chat app. The coding agent is the `grok` command.
+ 
+ Hermes Desktop is the one to know about, because a machine has one Hermes, and it is the app's: Hermes is only ever installed through the app, and the `hermes` command the default agent runs is the app's. Choosing Hermes as the default agent installs the same thing the _Install > AI_ entry does: the package, and a Hermes runtime under `~/.hermes` set up by Hermes' own installer, which takes a few minutes the first time. That runtime is the one Hermes the terminal `hermes` command, the default agent and the app all use, and it updates itself with `hermes update` rather than waiting on an Omarchy release. Installing it also hands Hermes the Omarchy theme as a skin named `omarchy`, which every Hermes surface follows as you switch themes; pick another under Hermes' Appearance settings or with `/skin` if you'd rather it didn't, and Omarchy leaves that choice alone. Removing the app under _Remove > AI_ closes Hermes first, gateway included, takes that runtime with it, and keeps your chats, memories, and the skills Hermes wrote for itself unless you tell it otherwise: it asks, defaulting to no, whether that data and your connection settings should go too.
+ 
+diff --git a/test/shell.d/remove-ai-test.sh b/test/shell.d/remove-ai-test.sh
+index be69425..0b7cbd9 100644
+--- a/test/shell.d/remove-ai-test.sh
++++ b/test/shell.d/remove-ai-test.sh
+@@ -449,3 +449,38 @@ fi
+   fail "OpenClaw removal drops a service's restart record with the service, before anything else can fail"
+ mv "$tmp_dir/omarchy-pkg-drop.real" "$tmp_dir/bin/omarchy-pkg-drop"
+ pass "OpenClaw removal drops a service's restart record with the service, before anything else can fail"
++
++# Sikemux's core outlives its window and its sign-ins sit under root in
++# /var/lib/sikemux/<uid>, one folder per account. The stubs stand in for the
++# developer's own core and for sudo, which must never reach the real machine.
++for stub in sikemux-host sudo systemctl; do
++  printf '#!/bin/bash\nprintf "%s:%%s\\n" "$*" >>"$TEST_LOG"\n' "$stub" >"$tmp_dir/bin/$stub"
++  chmod +x "$tmp_dir/bin/$stub"
++done
++
++seed_sikemux() {
++  fresh_home
++  : >"$TEST_LOG"
++  mkdir -p "$HOME/.local/share/com.nodelike.sikemux" "$HOME/.config/sikemux" "$HOME/.config/systemd/user" "$HOME/.claude"
++  touch "$HOME/.config/systemd/user/com.nodelike.sikemux.core.service"
++}
++
++seed_sikemux
++"$ROOT/bin/omarchy-remove-ai-sikemux" </dev/null >/dev/null
++grep -qx 'systemctl:--user disable --now com.nodelike.sikemux.core.service' "$TEST_LOG" &&
++  grep -qx 'sikemux-host:stop' "$TEST_LOG" &&
++  grep -qx 'drop:sikemux-bin' "$TEST_LOG" &&
++  [[ ! -e $HOME/.config/systemd/user/com.nodelike.sikemux.core.service ]] ||
++  fail "Sikemux removal stops the core and its login service before dropping the package" "$(cat "$TEST_LOG")"
++pass "Sikemux removal stops the core and its login service before dropping the package"
++
++[[ -d $HOME/.local/share/com.nodelike.sikemux && -d $HOME/.config/sikemux ]] && ! grep -q '^sudo:' "$TEST_LOG" ||
++  fail "Sikemux removal keeps the user's data and sign-ins when nobody was asked"
++pass "Sikemux removal keeps the user's data and sign-ins when nobody was asked"
++
++seed_sikemux
++TEST_GUM_STATUS=0 script -qec "'$ROOT/bin/omarchy-remove-ai-sikemux'" /dev/null >/dev/null 2>&1
++[[ ! -e $HOME/.local/share/com.nodelike.sikemux && ! -e $HOME/.config/sikemux && -d $HOME/.claude ]] &&
++  grep -qx "sudo:rm -rf /var/lib/sikemux/$(id -u)" "$TEST_LOG" ||
++  fail "Sikemux removal deletes only this account's data and sign-ins when the answer is yes" "$(cat "$TEST_LOG")"
++pass "Sikemux removal deletes only this account's data and sign-ins when the answer is yes"
+-- 
+2.56.0
+
