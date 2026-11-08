@@ -8,9 +8,9 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, relative, Anchor, AnyElement, App, ClickEvent, Context, Div, FontWeight,
-    InteractiveElement, IntoElement, ParentElement, Pixels, SharedString, Stateful,
-    StatefulInteractiveElement, StyleRefinement, Styled, Window,
+    div, img, px, relative, Anchor, AnyElement, App, ClickEvent, Context, Div, FontWeight,
+    InteractiveElement, IntoElement, ObjectFit, ParentElement, Pixels, SharedString, Stateful,
+    StatefulInteractiveElement, StyleRefinement, Styled, StyledImage, Window,
 };
 use gpui_kit::{AppContext, Entity, KeyDownEvent, Subscription};
 use sikemux_core::server::board::BoardCardParams;
@@ -19,7 +19,9 @@ use sikemux_core::server::board::BoardPassParams;
 use sikemux_core::server::board::HandOnParams as BoardHandOnParams;
 use sikemux_core::server::call;
 use sikemux_core::server::questions::AnswerParams;
-use sikemux_view::inbox::{InboxItem, InboxKind, InboxNeed, LookPicture, RaisedFor, SwarmDecision};
+use sikemux_view::inbox::{
+    InboxItem, InboxKind, InboxLook, InboxNeed, LookPicture, RaisedFor, ShipHold, SwarmDecision,
+};
 use sikemux_view::slice::{Gate, Proof};
 
 use super::evidence::minute;
@@ -27,10 +29,11 @@ use super::goal::{crumb, row};
 use super::room::Chosen;
 use super::{empty, goal_name, At, GoalsPane};
 use crate::chat::{NewerPrompt, OlderPrompt, START};
+use crate::theme::TEXT_XS;
 use crate::theme::{
-    self, Tokens, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_3,
+    self, Tokens, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
 };
-use crate::theme::{SPACE_3H, SPACE_5, TEXT_2XS, TEXT_MD, TEXT_SM, TEXT_XL, TEXT_XS};
+use crate::theme::{SPACE_3H, SPACE_4, SPACE_5, TEXT_2XS, TEXT_3XS_H, TEXT_LG, TEXT_SM, TEXT_XL};
 use crate::ui::{self, Button, Variant};
 use crate::workbench::Workbench;
 
@@ -39,6 +42,8 @@ const ROW_SAYS_MIN_W: Pixels = px(180.);
 /// How much of a question shows before the rest waits behind Show all.
 const ASKED_LINES: usize = 6;
 const ASKED_CHARS: usize = 420;
+/// How tall each of a Looks right card's two large pictures is.
+const PAIR_HEIGHT: f32 = 200.;
 
 /// Something that finished or failed while the person was away.
 #[derive(Clone, Copy)]
@@ -179,27 +184,58 @@ pub(super) fn home(pane: &mut GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElem
         .into_any_element()
 }
 
-/// What kind of call something waiting on the person is, in a word or two.
-fn call_kind(item: &InboxItem) -> Option<&'static str> {
+/// What kind of call something waiting on the person is, in a word or two, and whether it is a
+/// warning, a failure or neither.
+fn call_kind(item: &InboxItem) -> Option<(&'static str, Tone)> {
     if let Some(raised) = &item.raised {
         return Some(match raised.reason {
-            RaisedFor::Irreversible => "can't be undone",
-            RaisedFor::Money => "money",
-            RaisedFor::Taste => "taste",
-            RaisedFor::Access => "access",
+            RaisedFor::Irreversible => ("Can't be undone", Tone::Warn),
+            RaisedFor::Money => ("Money", Tone::Warn),
+            RaisedFor::Taste => ("Look", Tone::Plain),
+            RaisedFor::Access => ("Access", Tone::Plain),
         });
     }
     match (item.kind, item.need) {
-        (InboxKind::Gate, _) if item.gate == Some(Gate::LooksRight) => Some("taste"),
-        (InboxKind::Gate, _) if item.environment.is_some() => Some("leaves this Mac"),
-        (InboxKind::Ship, _) => Some("leaves this Mac"),
-        (InboxKind::Permission, _) => Some("access"),
-        (InboxKind::PullRequest, _) => Some("review"),
-        (_, _) if item.stalled.is_some() => Some("stalled"),
-        (_, Some(InboxNeed::Fix)) => Some("failed"),
-        (_, Some(InboxNeed::Unblock)) => Some("unblock"),
+        (InboxKind::Gate, _) if item.gate == Some(Gate::LooksRight) => Some(("Look", Tone::Plain)),
+        (InboxKind::Gate, _) if item.environment.is_some() => Some(("Leaves this Mac", Tone::Warn)),
+        (InboxKind::Ship, _) => Some(("Leaves this Mac", Tone::Warn)),
+        (InboxKind::Permission, _) => Some(("Access", Tone::Plain)),
+        (InboxKind::PullRequest, _) => Some(("Review", Tone::Plain)),
+        (_, _) if item.stalled.is_some() => Some(("Stalled", Tone::Failed)),
+        (_, Some(InboxNeed::Fix)) => Some(("Failed", Tone::Failed)),
+        (_, Some(InboxNeed::Unblock)) => Some(("Unblock", Tone::Plain)),
+        (_, Some(InboxNeed::Decide)) => Some(("Product", Tone::Plain)),
         _ => None,
     }
+}
+
+#[derive(Clone, Copy)]
+enum Tone {
+    Plain,
+    Warn,
+    Failed,
+}
+
+/// A call's kind as a small pill, in the ink of its tone.
+fn kind_badge(kind: &'static str, tone: Tone, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    let ink = match tone {
+        Tone::Plain => None,
+        Tone::Warn => Some(t.warn),
+        Tone::Failed => Some(t.danger),
+    };
+    div()
+        .flex_none()
+        .px(SPACE_1H)
+        .rounded_full()
+        .border_1()
+        .border_color(ink.map_or(t.border, |ink| ink.opacity(0.35)))
+        .when_some(ink, |badge, ink| badge.bg(ink.opacity(0.06)))
+        .child(
+            ui::text(kind.to_uppercase(), TEXT_3XS_H, FontWeight::SEMIBOLD)
+                .letter_spacing(0.06)
+                .text_color(ink.unwrap_or(t.text_secondary)),
+        )
 }
 
 /// Who puts the call to the person.
@@ -207,32 +243,39 @@ fn call_who(item: &InboxItem) -> Option<String> {
     let by = (item.raised.as_ref()).and_then(|raised| raised.by.as_ref());
     match (by, item.kind, &item.name) {
         (Some(by), ..) => Some(format!("raised by @{by}")),
-        (None, InboxKind::Question, Some(name)) => Some(format!("asked by @{name}")),
         (None, _, Some(name)) => Some(format!("@{name}")),
         (None, _, None) => None,
     }
 }
 
-/// What the call asks, in full.
-fn call_says(item: &InboxItem) -> String {
+/// What the call asks, in full, about the goal named `goal` when it is on one.
+fn call_says(item: &InboxItem, goal: Option<&str>) -> String {
     match item.kind {
         InboxKind::Question => (item.asked.clone())
             .or_else(|| item.detail.clone())
             .unwrap_or_else(|| item.what.clone()),
-        InboxKind::Gate if item.gate == Some(Gate::LooksRight) => match &item.card {
-            Some(card) => format!("Does {} look right?", card.title),
-            None => "Does it look right?".to_owned(),
-        },
+        InboxKind::Gate if item.gate == Some(Gate::LooksRight) => {
+            match goal.or(item.card.as_ref().map(|card| card.title.as_str())) {
+                Some(name) => format!("Does {name} look right?"),
+                None => "Does it look right?".to_owned(),
+            }
+        }
         _ => item.what.clone(),
     }
 }
 
 impl GoalsPane {
+    /// The short name of the goal the core put a call on.
+    fn call_goal(&self, item: &InboxItem) -> Option<String> {
+        (self.room.view.goals.iter())
+            .find(|row| row.needs.contains(&item.id))
+            .map(|row| row.title.clone())
+    }
+
     /// Where a call is from, for Home: the goal the core put it on, else its project.
     pub(super) fn call_from(&self, item: &InboxItem, cx: &App) -> Option<String> {
-        let goal = (self.room.view.goals.iter()).find(|row| row.needs.contains(&item.id));
-        if let Some(goal) = goal {
-            return Some(goal.title.clone());
+        if let Some(goal) = self.call_goal(item) {
+            return Some(goal);
         }
         if let Some(named) = &item.project_name {
             return Some(named.clone());
@@ -244,9 +287,10 @@ impl GoalsPane {
     }
 }
 
-/// One thing only the person can decide, as a card: where it is from, what kind of call it is and
-/// who asks, the question in full, what backs it and the answers it takes. On Home a click
-/// chooses it for the panel beside the list; on a goal's page, which names the goal, it opens.
+/// One thing only the person can decide, as a raised card: what kind of call it is, where it is
+/// from and who asks, the question, what backs it, and its answers at the bottom right with a
+/// quiet hint beside them. On Home a click chooses it for the panel beside the list; on a goal's
+/// page, which names the goal, it opens.
 pub(super) fn call_card(
     pane: &GoalsPane,
     item: &InboxItem,
@@ -255,16 +299,18 @@ pub(super) fn call_card(
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
+    let goal = pane.call_goal(item);
     let from = home.then(|| pane.call_from(item, cx)).flatten();
-    let meta = [from, call_kind(item).map(str::to_owned), call_who(item)]
+    let looked = (item.look.as_ref()).filter(|_| item.gate == Some(Gate::LooksRight));
+    let context = looked.map(|look| match look.slices.len() {
+        1 => "1 change built and checked".to_owned(),
+        many => format!("{many} changes built and checked"),
+    });
+    let place = [from, context]
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
         .join(" · ");
-    let tint = match item.need {
-        Some(InboxNeed::Fix) => t.danger,
-        _ => t.warn,
-    };
     let under = match (item.kind, &item.detail) {
         (InboxKind::Question | InboxKind::Ship, _) => None,
         (_, Some(detail)) if *detail != item.what => Some(detail.clone()),
@@ -276,6 +322,12 @@ pub(super) fn call_card(
     });
     let assumed = (item.assumption.as_ref())
         .map(|assumption| format!("Goes on assuming {assumption} until you answer."));
+    let hint = [if_wrong, assumed]
+        .into_iter()
+        .flatten()
+        .reduce(|wrong, assumed| format!("{wrong} {assumed}"))
+        .or_else(|| item.hold.as_ref().and_then(|hold| hold.why.clone()))
+        .or_else(|| looked.map(|_| "Click a picture to see it full size".to_owned()));
     let opened = item.clone();
     let picks = item.id.clone();
     let card = div()
@@ -283,16 +335,20 @@ pub(super) fn call_card(
         .flex()
         .flex_col()
         .gap(SPACE_1H)
-        .py(SPACE_3)
-        .px(SPACE_3H)
+        .pt(SPACE_3H)
+        .pb(SPACE_3)
+        .px(SPACE_4)
         .rounded(RADIUS_3)
         .border_1()
         .border_color(t.border)
-        .cursor_pointer()
-        .when(chosen, |card| card.bg(t.surface_chosen))
-        .when(!chosen, |card| {
-            card.hover(move |card| card.bg(t.surface_hover))
+        .bg(if chosen {
+            t.surface_chosen
+        } else {
+            t.surface_raised
         })
+        .shadow(t.shadow_lit())
+        .cursor_pointer()
+        .hover(move |card| card.border_color(t.border_strong))
         .on_click(cx.listener(move |pane, event: &ClickEvent, window, cx| {
             if !home {
                 return pane.open(&opened, cx);
@@ -309,54 +365,73 @@ pub(super) fn call_card(
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
-                .child(div().size(px(6.)).flex_none().rounded_full().bg(tint))
-                .child(ui::meta(meta, cx).flex_1().min_w_0().truncate())
-                .child(ui::meta(ui::time::age(item.at), cx).flex_none()),
-        )
-        .child(asked(pane, item, cx))
-        .children(under.map(|under| ui::meta(under, cx).whitespace_normal()))
-        .children(pictures(pane, item, cx))
-        .children(item.hold.as_ref().map(|hold| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(SPACE_1)
+                .children(call_kind(item).map(|(kind, tone)| kind_badge(kind, tone, cx)))
                 .child(
-                    ui::mono(hold.what.clone(), TEXT_XS, cx)
-                        .whitespace_normal()
-                        .py(SPACE_1H)
-                        .px(SPACE_2)
-                        .rounded(RADIUS_2)
-                        .bg(t.surface_sunken)
-                        .text_color(t.text_secondary),
+                    ui::text(place, TEXT_XS, FontWeight::NORMAL)
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(t.text_tertiary),
                 )
-                .children(
-                    hold.why
-                        .clone()
-                        .map(|why| ui::meta(why, cx).whitespace_normal()),
-                )
+                .children(call_who(item).map(|who| {
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(SPACE_1H)
+                        .children(item.cli.as_deref().map(|cli| ui::mark(cli, 14.)))
+                        .child(
+                            ui::text(who, TEXT_XS, FontWeight::NORMAL).text_color(t.text_secondary),
+                        )
+                })),
+        )
+        .child(asked(pane, item, goal.as_deref(), cx))
+        .children(under.map(|under| {
+            div()
+                .text_size(theme::ui_text(TEXT_SM))
+                .text_color(t.text_secondary)
+                .child(under)
         }))
-        .child(match note_line(pane, item, cx) {
-            Some(note) => note.into_any_element(),
-            None => div()
+        .children(looked.and_then(|look| look_at(pane, item, look, cx)))
+        .children(item.hold.as_ref().map(|hold| held(hold, cx)))
+        .children(options(pane, item, cx));
+    let ends = match note_line(pane, item, cx) {
+        Some(note) => note.into_any_element(),
+        None => {
+            let buttons = call_buttons(pane, item, cx);
+            div()
                 .pt(SPACE_1)
                 .flex()
                 .flex_wrap()
-                .gap(SPACE_1H)
-                .children(call_buttons(pane, item, cx))
-                .into_any_element(),
-        })
-        .children(
-            (if_wrong.into_iter().chain(assumed))
-                .map(|words| ui::meta(words, cx).whitespace_normal()),
-        );
-    super::with_agent_menu(card, item.agent_id.clone(), &pane.bench)
+                .items_center()
+                .justify_end()
+                .gap(SPACE_2)
+                .children(hint.map(|hint| {
+                    div()
+                        .flex_1()
+                        .min_w(px(160.))
+                        .text_size(theme::ui_text(TEXT_XS))
+                        .text_color(t.text_tertiary)
+                        .child(hint)
+                }))
+                .when(!buttons.is_empty(), |ends| {
+                    ends.child(div().flex().flex_none().gap(SPACE_1H).children(buttons))
+                })
+                .into_any_element()
+        }
+    };
+    super::with_agent_menu(card.child(ends), item.agent_id.clone(), &pane.bench)
 }
 
 /// What the call asks, in full; a long question shows its first lines, with a way to read the rest.
-fn asked(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Div {
+fn asked(
+    pane: &GoalsPane,
+    item: &InboxItem,
+    goal: Option<&str>,
+    cx: &mut Context<GoalsPane>,
+) -> Div {
     let t = Tokens::get(cx).clone();
-    let says = call_says(item);
+    let says = call_says(item, goal);
     let long = says.lines().count() > ASKED_LINES || says.chars().count() > ASKED_CHARS;
     let whole = pane.unclamped.as_deref() == Some(item.id.as_str());
     let id = item.id.clone();
@@ -366,8 +441,8 @@ fn asked(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Div
         .gap(SPACE_1)
         .child(
             div()
-                .text_size(theme::ui_text(TEXT_MD))
-                .font_weight(FontWeight::MEDIUM)
+                .text_size(theme::ui_text(TEXT_LG))
+                .font_weight(FontWeight::SEMIBOLD)
                 .line_height(relative(1.35))
                 .text_color(t.text_primary)
                 .when(long && !whole, |text| text.line_clamp(ASKED_LINES))
@@ -388,68 +463,336 @@ fn asked(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Div
         })
 }
 
-/// The pictures a goal waiting at Looks right collected, slice by slice with how it was before
-/// how it is now. A click shows one full size, or while a note is open pins the note to it.
-fn pictures(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<Div> {
-    let look = item
-        .look
-        .as_ref()
-        .filter(|_| item.gate == Some(Gate::LooksRight))?;
-    let folder = item.card.as_ref()?.project.clone();
-    let shown: Vec<&LookPicture> = (look.slices.iter())
-        .flat_map(|slice| {
-            let of = move |before: bool| {
-                (look.pictures.iter())
-                    .filter(move |picture| picture.card == slice.card && picture.before == before)
-            };
-            of(true).chain(of(false))
-        })
-        .collect();
-    if shown.is_empty() {
-        return None;
+/// A still picture's file, for one that is not a recording.
+fn still(picture: &LookPicture) -> Option<&str> {
+    match &picture.evidence.proof {
+        Proof::Picture {
+            path,
+            seconds: None,
+            ..
+        } => Some(path),
+        _ => None,
     }
+}
+
+/// Whether a picture was taken at a phone's or a tablet's width rather than the page's own.
+fn narrow(picture: &LookPicture) -> bool {
+    matches!(
+        picture.evidence.proof,
+        Proof::Picture { width: Some(_), .. }
+    )
+}
+
+/// The pair a Looks right card leads with: how the page was before the goal's work and how it is
+/// now, at its own width; two of how it is now when nothing was taken before.
+fn pair(look: &InboxLook) -> Vec<&LookPicture> {
+    let full =
+        || (look.pictures.iter()).filter(|picture| still(picture).is_some() && !narrow(picture));
+    let before = full().find(|picture| picture.before);
+    let mut after: Vec<&LookPicture> = full().filter(|picture| !picture.before).collect();
+    after.reverse();
+    match before {
+        Some(before) => [before]
+            .into_iter()
+            .chain(after.into_iter().take(1))
+            .collect(),
+        None => after.into_iter().take(2).collect(),
+    }
+}
+
+/// What a goal waiting at Looks right shows: one large before and after side by side, a chip for
+/// each slice its work came from, and its other pictures only when asked for. A click on a
+/// picture shows it full size, or while a note is open pins the note to it.
+fn look_at(
+    pane: &GoalsPane,
+    item: &InboxItem,
+    look: &InboxLook,
+    cx: &mut Context<GoalsPane>,
+) -> Option<Div> {
+    let t = Tokens::get(cx).clone();
+    let folder = item.card.as_ref()?.project.clone();
     let note = (pane.call_note.as_ref()).filter(|note| note.item == item.id);
     let pinned = note.and_then(|note| note.pinned);
     let noting = note.is_some();
-    Some(
+    let led = pair(look);
+    let rest: Vec<&LookPicture> = (look.pictures.iter())
+        .filter(|picture| {
+            !led.iter()
+                .any(|shown| shown.evidence.id == picture.evidence.id)
+        })
+        .collect();
+    let more_key = format!("pictures-{}", item.id);
+    let more_open = pane.unfolded.contains(&more_key);
+    let narrow_too = look.pictures.iter().any(narrow);
+    let clicked = |picture: &LookPicture| {
+        let (slice, spot) = (picture.card, (picture.card, picture.evidence.id));
+        let still = still(picture).map(str::to_owned);
+        let folder = folder.clone();
+        move |pane: &mut GoalsPane,
+              _: &ClickEvent,
+              window: &mut Window,
+              cx: &mut Context<GoalsPane>| {
+            cx.stop_propagation();
+            if noting {
+                return pane.pin_call_note(spot, cx);
+            }
+            match &still {
+                Some(path) => pane.show_picture(path, window, cx),
+                None => pane.open_slice(&folder, slice, cx),
+            }
+        }
+    };
+    let large = led.iter().map(|picture| {
+        let spot = (picture.card, picture.evidence.id);
+        let tag = match picture.before {
+            true => "Before",
+            false => "After",
+        };
+        div()
+            .id(SharedString::from(format!(
+                "call-pair-{}-{}",
+                picture.card, picture.evidence.id
+            )))
+            .relative()
+            .flex_1()
+            .min_w(px(200.))
+            .h(px(PAIR_HEIGHT))
+            .rounded(RADIUS_2)
+            .overflow_hidden()
+            .border_1()
+            .border_color(if pinned == Some(spot) {
+                t.text_secondary
+            } else {
+                t.border
+            })
+            .bg(t.surface_sunken)
+            .cursor_pointer()
+            .children(still(picture).map(|path| {
+                img(std::path::PathBuf::from(path))
+                    .size_full()
+                    .object_fit(ObjectFit::Contain)
+            }))
+            .child(
+                div()
+                    .absolute()
+                    .top(SPACE_2)
+                    .left(SPACE_2)
+                    .px(SPACE_1H)
+                    .rounded_full()
+                    .border_1()
+                    .border_color(t.border)
+                    .bg(t.surface.opacity(0.85))
+                    .child(
+                        ui::text(tag.to_uppercase(), TEXT_3XS_H, FontWeight::SEMIBOLD)
+                            .letter_spacing(0.06)
+                            .text_color(t.text_secondary),
+                    ),
+            )
+            .on_click(cx.listener(clicked(picture)))
+    });
+    let chips = look.slices.iter().map(|slice| {
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap(SPACE_1H)
+            .px(SPACE_2)
+            .rounded_full()
+            .border_1()
+            .border_color(t.line)
+            .bg(t.surface_sunken)
+            .child(div().size(px(6.)).rounded_full().bg(t.live))
+            .child(
+                ui::text(slice.title.clone(), TEXT_XS, FontWeight::NORMAL)
+                    .text_color(t.text_secondary),
+            )
+    });
+    let more = (!rest.is_empty()).then(|| {
+        let words = match more_open {
+            true => "Fewer pictures".to_owned(),
+            false => format!("All {} pictures", look.pictures.len()),
+        };
+        ui::sign_in::link(SharedString::from(format!("more-{}", item.id)), words, cx).on_click(
+            cx.listener(move |pane, _, _, cx| {
+                cx.stop_propagation();
+                if !pane.unfolded.remove(&more_key) {
+                    pane.unfolded.insert(more_key.clone());
+                }
+                pane.room.reflow();
+                cx.notify();
+            }),
+        )
+    });
+    let thumbs = more_open.then(|| {
         div()
             .flex()
             .flex_wrap()
             .gap(SPACE_1H)
-            .children(shown.into_iter().map(|picture| {
-                let (slice, evidence) = (picture.card, &picture.evidence);
-                let spot = (slice, evidence.id);
-                let still = match &evidence.proof {
-                    Proof::Picture {
-                        path,
-                        seconds: None,
-                        ..
-                    } => Some(path.clone()),
-                    _ => None,
-                };
-                let folder = folder.clone();
+            .children(rest.iter().map(|picture| {
+                let spot = (picture.card, picture.evidence.id);
                 div()
                     .id(SharedString::from(format!(
-                        "call-picture-{slice}-{}",
-                        evidence.id
+                        "call-picture-{}-{}",
+                        picture.card, picture.evidence.id
                     )))
                     .flex()
                     .flex_col()
                     .gap(SPACE_0)
                     .cursor_pointer()
-                    .child(super::thumb_face(evidence, pinned == Some(spot), cx))
-                    .child(ui::meta(
-                        if picture.before { "before" } else { "after" },
+                    .child(super::thumb_face(
+                        &picture.evidence,
+                        pinned == Some(spot),
                         cx,
                     ))
-                    .on_click(cx.listener(move |pane, _, window, cx| {
+                    .child(ui::meta(
+                        match (picture.before, narrow(picture)) {
+                            (true, _) => "before",
+                            (false, true) => "after, narrow",
+                            (false, false) => "after",
+                        },
+                        cx,
+                    ))
+                    .on_click(cx.listener(clicked(picture)))
+            }))
+    });
+    Some(
+        div()
+            .pt(SPACE_1)
+            .flex()
+            .flex_col()
+            .gap(SPACE_2H)
+            .when(!led.is_empty(), |look| {
+                look.child(div().flex().flex_wrap().gap(SPACE_2H).children(large))
+            })
+            .child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(SPACE_1H)
+                    .children(chips)
+                    .when(narrow_too, |strip| {
+                        strip.child(ui::meta("· also at phone and tablet width", cx))
+                    })
+                    .child(div().flex_1())
+                    .children(more),
+            )
+            .children(thumbs),
+    )
+}
+
+/// The action a held call would run, in a block of the machine's words, with the environment it
+/// lands in in front.
+fn held(hold: &ShipHold, cx: &App) -> Div {
+    let t = Tokens::get(cx);
+    div()
+        .flex()
+        .items_start()
+        .gap(SPACE_2H)
+        .py(SPACE_2)
+        .px(SPACE_3)
+        .rounded(RADIUS_2)
+        .border_1()
+        .border_color(t.line)
+        .bg(t.surface_sunken)
+        .children(
+            (hold.environment.clone())
+                .map(|environment| ui::mono(environment, TEXT_XS, cx).text_color(t.warn)),
+        )
+        .child(
+            ui::mono(hold.what.clone(), TEXT_XS, cx)
+                .flex_1()
+                .min_w_0()
+                .whitespace_normal()
+                .text_color(t.text_secondary),
+        )
+}
+
+/// The answers a question takes in one click, as rows with a radio, the one its asker would take
+/// first, lifted and marked.
+fn options(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<Div> {
+    let question = item
+        .question_id
+        .as_ref()
+        .filter(|_| !item.answers.is_empty())?;
+    let t = Tokens::get(cx).clone();
+    let pick = item.pick.as_deref();
+    let picked_by = match item.raised {
+        Some(_) => "lead's pick",
+        None => "agent's pick",
+    };
+    let mut answers: Vec<(usize, &String)> = item.answers.iter().enumerate().collect();
+    answers.sort_by_key(|(_, answer)| Some(answer.as_str()) != pick);
+    let busy = pane.busy;
+    Some(
+        div()
+            .pt(SPACE_1)
+            .flex()
+            .flex_col()
+            .gap(SPACE_1H)
+            .children(answers.into_iter().map(|(choice, answer)| {
+                let question = question.clone();
+                let picked = Some(answer.as_str()) == pick;
+                let (head, rest) = match answer.split_once(" — ") {
+                    Some((head, rest)) => (head.to_owned(), Some(rest.to_owned())),
+                    None => (answer.clone(), None),
+                };
+                div()
+                    .id(SharedString::from(format!("answer-{question}-{choice}")))
+                    .flex()
+                    .items_center()
+                    .gap(SPACE_2H)
+                    .py(SPACE_2)
+                    .px(SPACE_3)
+                    .rounded(RADIUS_2)
+                    .border_1()
+                    .border_color(t.border)
+                    .bg(if picked {
+                        t.surface_chosen
+                    } else {
+                        t.surface_sunken
+                    })
+                    .cursor_pointer()
+                    .hover(move |row| row.border_color(t.border_strong))
+                    .child(
+                        div()
+                            .size(px(14.))
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_full()
+                            .border(px(1.5))
+                            .border_color(if picked { t.accent } else { t.text_disabled })
+                            .when(picked, |radio| {
+                                radio.child(div().size(px(6.)).rounded_full().bg(t.accent))
+                            }),
+                    )
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(theme::ui_text(TEXT_SM))
+                            .child(
+                                ui::text(head, TEXT_SM, FontWeight::SEMIBOLD)
+                                    .whitespace_normal()
+                                    .text_color(t.text_primary),
+                            )
+                            .children(
+                                rest.map(|rest| div().text_color(t.text_tertiary).child(rest)),
+                            ),
+                    )
+                    .when(picked, |row| {
+                        row.child(
+                            ui::text(picked_by, TEXT_2XS, FontWeight::MEDIUM)
+                                .flex_none()
+                                .text_color(t.text_secondary),
+                        )
+                    })
+                    .on_click(cx.listener(move |pane, _, _, cx| {
                         cx.stop_propagation();
-                        if noting {
-                            return pane.pin_call_note(spot, cx);
-                        }
-                        match &still {
-                            Some(path) => pane.show_picture(path, window, cx),
-                            None => pane.open_slice(&folder, slice, cx),
+                        if !busy {
+                            pane.answer(question.clone(), choice, cx);
                         }
                     }))
             })),
@@ -583,8 +926,8 @@ fn note_line(
     )
 }
 
-/// What can be done about a call right here, with one primary at most: passing the gate, the
-/// lead's pick, allowing a held action once, or the one way on.
+/// What can be done about a call right here, the one primary last: passing the gate, allowing a
+/// held action once, or the one way on. A question's answers are its rows instead.
 fn call_buttons(
     pane: &GoalsPane,
     item: &InboxItem,
@@ -631,7 +974,7 @@ fn call_buttons(
                 None => pane.open_slice(&folder, id, cx),
             }
         }));
-        return vec![pass.into_any_element(), other.into_any_element()];
+        return vec![other.into_any_element(), pass.into_any_element()];
     }
     if let Some(hold) = &item.hold {
         let here = crate::core::Target::here(&pane.asks);
@@ -645,38 +988,8 @@ fn call_buttons(
     if item.stalled.is_some() {
         return stall_buttons(item, cx).into_iter().collect();
     }
-    if let (Some(question), false) = (&item.question_id, item.answers.is_empty()) {
-        let pick = item.pick.as_deref();
-        let picked_by = match item.raised {
-            Some(_) => "lead's pick",
-            None => "agent's pick",
-        };
-        let mut answers: Vec<(usize, &String)> = item.answers.iter().enumerate().collect();
-        answers.sort_by_key(|(_, answer)| Some(answer.as_str()) != pick);
-        return answers
-            .into_iter()
-            .map(|(choice, answer)| {
-                let question = question.clone();
-                let picked = Some(answer.as_str()) == pick;
-                Button::new(
-                    SharedString::from(format!("answer-{question}-{choice}")),
-                    answer.clone(),
-                    if picked {
-                        Variant::Primary
-                    } else {
-                        Variant::Outline
-                    },
-                )
-                .when(picked, |button| {
-                    button.trail(ui::text(picked_by, TEXT_2XS, FontWeight::NORMAL).opacity(0.7))
-                })
-                .on_click(cx.listener(move |pane, _, _, cx| {
-                    cx.stop_propagation();
-                    pane.answer(question.clone(), choice, cx);
-                }))
-                .into_any_element()
-            })
-            .collect();
+    if item.question_id.is_some() && !item.answers.is_empty() {
+        return Vec::new();
     }
     let (label, variant) = match item.need {
         _ if item.kind == InboxKind::SeededRules => ("Review", Variant::Primary),
