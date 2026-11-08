@@ -28,6 +28,8 @@ curl -fsSL https://sikemux.com/install | sh -s -- --app
 
 On the nightly channel, the line sets `SIKEMUX_CHANNEL=nightly` before `sh`.
 
+On Arch Linux, pacman owns the app and Sikemux never replaces its files. When a repository pacman syncs from carries the package, the copied line is `sudo pacman -Syu`. Otherwise it is the installer line above, which updates `sikemux-bin` or `sikemux-nightly-bin` with `pacman -U`; the nightly package's line always sets `SIKEMUX_CHANNEL=nightly`.
+
 ## On a server
 
 A server running just the core keeps itself up to date too, on the channel it was installed from, or on nightly if you choose it for that host. Each time it finds a newer release, and once no chat on it is in a turn, it installs the release and restarts its core in place, so terminals and chats carry on. Before installing anything it checks that Sikemux signed that very release. The core runs as you and cannot replace its own file, so with systemd the installer sets up a small service that puts it in place as root.

@@ -36,6 +36,11 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(250);
 const ANSWER_GRACE: Duration = Duration::from_secs(1);
 const UPDATES_OFF: &str =
     "updates are off for this host; turn them on in Sikemux, or with `sudo sikemux update --on`";
+/// The Arch packages the Linux app is published as: Sikemux's own, stable and
+/// nightly, and the one Omarchy's repository builds.
+const PACMAN_PACKAGES: [&str; 3] = ["sikemux-bin", "sikemux-nightly-bin", "sikemux"];
+/// Where pacman records each installed package and the files it owns.
+const PACMAN_INSTALLED: &str = "/var/lib/pacman/local";
 
 /// Where to fetch the release `available` names.
 #[derive(Clone)]
@@ -76,6 +81,9 @@ enum OwnApp {
 /// replace itself. A build made anywhere else, such as a local build, never
 /// updates, so a release can never take its place.
 fn own_app() -> Option<OwnApp> {
+    if pacman_package().is_some() {
+        return None;
+    }
     if super::usage::Install::Host.published() {
         return installed_host().then_some(OwnApp::Host);
     }
@@ -104,18 +112,71 @@ fn installed_host() -> bool {
     })
 }
 
+/// The pacman package whose files this app runs from, settled as the core
+/// starts. Pacman alone replaces those files.
+fn pacman_package() -> Option<&'static str> {
+    static PACKAGE: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
+    *PACKAGE.get_or_init(|| {
+        if !cfg!(target_os = "linux") {
+            return None;
+        }
+        let running: Vec<PathBuf> = std::env::current_exe()
+            .ok()
+            .into_iter()
+            .chain(std::env::var_os("APPIMAGE").map(PathBuf::from))
+            .collect();
+        pacman_owner(Path::new(PACMAN_INSTALLED), &running)
+    })
+}
+
+/// Which of Sikemux's packages in pacman's records owns any of `files`.
+fn pacman_owner(installed: &Path, files: &[PathBuf]) -> Option<&'static str> {
+    std::fs::read_dir(installed)
+        .ok()?
+        .filter_map(Result::ok)
+        .find_map(|entry| {
+            let folder = entry.file_name();
+            // Each package's record is named `<name>-<version>-<release>`.
+            let name = folder.to_str()?.rsplitn(3, '-').nth(2)?;
+            let package = PACMAN_PACKAGES
+                .into_iter()
+                .find(|package| *package == name)?;
+            let owned = std::fs::read_to_string(entry.path().join("files")).ok()?;
+            owned
+                .lines()
+                .any(|line| files.iter().any(|file| Path::new("/").join(line) == *file))
+                .then_some(package)
+        })
+}
+
+/// Whether a repository pacman syncs from carries `package`, so that a
+/// system upgrade updates it.
+fn in_sync_repository(package: &str) -> bool {
+    sikemux_process::user_environment::command("/usr/bin/pacman")
+        .args(["-Si", package])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
 fn is_host() -> bool {
     matches!(own_app(), Some(OwnApp::Host))
 }
 
-/// The channel to update on: the person's, or nightly on a nightly build,
-/// which the person installed on purpose and a stable release would not pass.
+/// The channel to update on: the person's, or nightly on a nightly build a
+/// host or a pacman package put in place, which the person installed on
+/// purpose and a stable release would not pass.
 fn channel(core: &Core) -> UpdateChannel {
     match (
         core.preferences.get().update_channel,
         BuildChannel::of_release(&core.config.build.version),
     ) {
-        (UpdateChannel::Stable, BuildChannel::Nightly) if is_host() => UpdateChannel::Nightly,
+        (UpdateChannel::Stable, BuildChannel::Nightly)
+            if is_host() || pacman_package().is_some() =>
+        {
+            UpdateChannel::Nightly
+        }
         (channel, _) => channel,
     }
 }
@@ -129,12 +190,16 @@ fn own_platform() -> String {
     }
 }
 
-/// A published Linux app that is a deb or an rpm was put in place by the
-/// installer, which updates it.
+/// What updates a published Linux app that is a deb, an rpm or a pacman
+/// package: a system upgrade when a repository pacman syncs from carries the
+/// package, otherwise the installer. Asks pacman, so it blocks.
 fn installer_command(channel: UpdateChannel) -> Option<String> {
     if !cfg!(target_os = "linux") || !super::usage::Install::App.published() || own_app().is_some()
     {
         return None;
+    }
+    if pacman_package().is_some_and(in_sync_repository) {
+        return Some("sudo pacman -Syu".into());
     }
     let channel = match channel {
         UpdateChannel::Stable => "",
@@ -171,7 +236,11 @@ impl Updates {
 /// Checks a little after the core starts and every half hour after, while the
 /// core runs in an app that can update.
 pub(crate) async fn serve(core: Arc<Core>) {
-    let by_installer = installer_command(core.preferences.get().update_channel);
+    let asking = core.clone();
+    let by_installer = blocking(move || Ok(installer_command(channel(&asking))))
+        .await
+        .ok()
+        .flatten();
     let automatic = match is_host() {
         true => Some(blocking(|| Ok(read_switch())).await.unwrap_or(true)),
         false => None,
@@ -233,7 +302,10 @@ async fn update_host_when_quiet(core: &Arc<Core>) {
 pub(crate) async fn check(core: &Core) -> CoreResult<UpdateStatus> {
     let status = core.updates.status();
     let channel = channel(core);
-    let by_installer = installer_command(channel);
+    let by_installer = blocking(move || Ok(installer_command(channel)))
+        .await
+        .ok()
+        .flatten();
     if !status.updates && by_installer.is_none() {
         return Err("this build does not update itself".into());
     }
