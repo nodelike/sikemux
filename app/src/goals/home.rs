@@ -494,6 +494,27 @@ fn pair(look: &InboxLook) -> Vec<&LookPicture> {
     }
 }
 
+/// A picture filling its frame like a screenshot: as wide as the frame, its top at the frame's
+/// top and the rest cut off below, or cut at the sides when it is wider than the frame.
+fn framed(path: &str, cx: &mut App) -> Div {
+    let path = std::path::PathBuf::from(path);
+    let ratio = crate::picture::loaded_size(&path, cx)
+        .filter(|size| size.height > px(0.))
+        .map(|size| size.width / size.height);
+    let picture = img(path).size_full().object_fit(ObjectFit::Cover);
+    match ratio {
+        Some(ratio) => div()
+            .absolute()
+            .top_0()
+            .left_0()
+            .w_full()
+            .min_h_full()
+            .aspect_ratio(ratio)
+            .child(picture),
+        None => div().size_full().child(picture),
+    }
+}
+
 /// What a goal waiting at Looks right shows: one large before and after side by side, a chip for
 /// each slice its work came from, and its other pictures only when asked for. A click on a
 /// picture shows it full size, or while a note is open pins the note to it.
@@ -536,54 +557,52 @@ fn look_at(
             }
         }
     };
-    let large = led.iter().map(|picture| {
-        let spot = (picture.card, picture.evidence.id);
-        let tag = match picture.before {
-            true => "Before",
-            false => "After",
-        };
-        div()
-            .id(SharedString::from(format!(
-                "call-pair-{}-{}",
-                picture.card, picture.evidence.id
-            )))
-            .relative()
-            .flex_1()
-            .min_w(px(200.))
-            .h(px(PAIR_HEIGHT))
-            .rounded(RADIUS_2)
-            .overflow_hidden()
-            .border_1()
-            .border_color(if pinned == Some(spot) {
-                t.text_secondary
-            } else {
-                t.border
-            })
-            .bg(t.surface_sunken)
-            .cursor_pointer()
-            .children(still(picture).map(|path| {
-                img(std::path::PathBuf::from(path))
-                    .size_full()
-                    .object_fit(ObjectFit::Contain)
-            }))
-            .child(
-                div()
-                    .absolute()
-                    .top(SPACE_2)
-                    .left(SPACE_2)
-                    .px(SPACE_1H)
-                    .rounded_full()
-                    .border_1()
-                    .border_color(t.border)
-                    .bg(t.surface.opacity(0.85))
-                    .child(
-                        ui::text(tag.to_uppercase(), TEXT_3XS_H, FontWeight::SEMIBOLD)
-                            .letter_spacing(0.06)
-                            .text_color(t.text_secondary),
-                    ),
-            )
-            .on_click(cx.listener(clicked(picture)))
-    });
+    let large: Vec<_> = (led.iter())
+        .map(|picture| {
+            let spot = (picture.card, picture.evidence.id);
+            let tag = match picture.before {
+                true => "Before",
+                false => "After",
+            };
+            div()
+                .id(SharedString::from(format!(
+                    "call-pair-{}-{}",
+                    picture.card, picture.evidence.id
+                )))
+                .relative()
+                .flex_1()
+                .min_w(px(200.))
+                .h(px(PAIR_HEIGHT))
+                .rounded(RADIUS_2)
+                .overflow_hidden()
+                .border_1()
+                .border_color(if pinned == Some(spot) {
+                    t.text_secondary
+                } else {
+                    t.border
+                })
+                .bg(t.surface_sunken)
+                .cursor_pointer()
+                .children(still(picture).map(|path| framed(path, cx)))
+                .child(
+                    div()
+                        .absolute()
+                        .top(SPACE_2)
+                        .left(SPACE_2)
+                        .px(SPACE_1H)
+                        .rounded_full()
+                        .border_1()
+                        .border_color(t.border)
+                        .bg(t.surface.opacity(0.85))
+                        .child(
+                            ui::text(tag.to_uppercase(), TEXT_3XS_H, FontWeight::SEMIBOLD)
+                                .letter_spacing(0.06)
+                                .text_color(t.text_secondary),
+                        ),
+                )
+                .on_click(cx.listener(clicked(picture)))
+        })
+        .collect();
     let chips = look.slices.iter().map(|slice| {
         div()
             .flex_none()

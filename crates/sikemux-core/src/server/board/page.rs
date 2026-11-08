@@ -3,6 +3,7 @@
 //! pages, so evidence of the running thing exists without the agent asking.
 //! It opens only a server that is running already, at the server's own
 //! address or the project's preview URL on it, never the route the change touched.
+//! What a server shows in place of a page, a listing of its files or an error, is not kept.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -21,6 +22,16 @@ use crate::tasks::detect;
 /// The endings of the files a browser draws a page from.
 const PAGE_FILES: [&str; 12] = [
     "tsx", "jsx", "vue", "svelte", "astro", "html", "htm", "css", "scss", "sass", "less", "styl",
+];
+
+/// How the titles start of what a server shows in place of a page: a listing of its files, or
+/// an error.
+const NOT_PAGES: [&str; 5] = [
+    "Directory listing for",
+    "Index of /",
+    "Error response",
+    "404 Not Found",
+    "502 Bad Gateway",
 ];
 
 /// How long the page may take to settle once it loads.
@@ -129,11 +140,14 @@ async fn shoot(
         .unwrap_or_default();
     let opened = asked(
         "browser.navigate",
-        json!({ "url": url, "newTab": true, "waitFor": { "networkIdle": true, "timeoutMs": SETTLE_MS } }),
+        json!({ "url": url, "newTab": true, "report": "outcome", "waitFor": { "networkIdle": true, "timeoutMs": SETTLE_MS } }),
         "open",
     );
-    let tab = match forward(core, opened).await {
-        Ok(opened) => opened["tabId"].as_str().map(str::to_owned),
+    let (tab, page) = match forward(core, opened).await {
+        Ok(opened) => (
+            opened["tabId"].as_str().map(str::to_owned),
+            no_page(&opened).map_or(Ok(()), Err),
+        ),
         Err(error) => {
             eprintln!("sikemux core: the slice's page at {url} did not open: {error}");
             return Vec::new();
@@ -141,12 +155,17 @@ async fn shoot(
     };
     let shot = asked("browser.screenshot", json!({}), "shot");
     let mut shots = Vec::new();
-    match forward(core, shot.clone()).await {
-        Ok(first) => {
-            shots.push(first);
-            shots.extend(other_widths(core, &shot, owner).await);
-        }
-        Err(error) => eprintln!("sikemux core: the slice's page at {url} was not taken: {error}"),
+    match page {
+        Err(why) => eprintln!("sikemux core: the slice's page at {url} was not taken: {why}"),
+        Ok(()) => match forward(core, shot.clone()).await {
+            Ok(first) => {
+                shots.push(first);
+                shots.extend(other_widths(core, &shot, owner).await);
+            }
+            Err(error) => {
+                eprintln!("sikemux core: the slice's page at {url} was not taken: {error}")
+            }
+        },
     }
     if let Some(tab) = tab.filter(|tab| !had.contains(tab)) {
         let close = asked("browser.tab.close", json!({ "tabId": tab }), "close");
@@ -155,6 +174,19 @@ async fn shoot(
         }
     }
     shots
+}
+
+/// Why what `opened` shows is not the project's page: it failed to load, or the server answered
+/// with a listing of its files or an error page.
+fn no_page(opened: &serde_json::Value) -> Option<String> {
+    if let Some(error) = opened["loadError"].as_str() {
+        return Some(error.to_owned());
+    }
+    let title = opened["title"].as_str().unwrap_or_default();
+    NOT_PAGES
+        .iter()
+        .any(|start| title.starts_with(start))
+        .then(|| format!("it shows \"{title}\" rather than a page"))
 }
 
 fn tab_ids(state: &serde_json::Value) -> Vec<String> {

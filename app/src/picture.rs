@@ -380,6 +380,13 @@ impl Picture {
     }
 }
 
+/// The own size of the picture file at `path`, once an `img` drawing it has loaded it.
+pub fn loaded_size(path: &Path, cx: &mut App) -> Option<Size<Pixels>> {
+    let loaded = (cx.fetch_asset::<ImgResourceLoader>(&path.to_path_buf().into())?).ok()?;
+    let pixels = loaded.size(0);
+    Some(size(px(pixels.width.0 as f32), px(pixels.height.0 as f32)))
+}
+
 /// What kind of picture the file at `path` holds, by its name.
 fn format_of(path: &Path) -> Option<ImageFormat> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
