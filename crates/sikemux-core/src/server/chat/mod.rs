@@ -52,6 +52,7 @@ use sikemux_wire::protocol::{
 use super::activity::Activity;
 use super::connection::{ClientConn, ClientId};
 use super::inbox::Fault;
+use super::model_proxy::{Grant as ModelGrant, KeptGrant};
 use super::spawn::Ending;
 use super::{Core, CoreError, CoreResult};
 use feed::{Feed, FeedState, Standing};
@@ -243,6 +244,8 @@ pub(crate) struct Chat {
     edits: super::edits::Open,
     /// The version of the agent's CLI, once the agent has said it.
     cli_version: Mutex<Option<String>>,
+    /// Keeps good the token its agent reaches the model provider with.
+    model_grant: Mutex<Option<ModelGrant>>,
     /// Writes the chat down as it changes, for a core that starts after this one.
     keeper: Keeper,
     /// The agent's process now.
@@ -287,6 +290,29 @@ impl Chat {
     /// session when the agent is started again under the chat.
     pub(crate) fn current_launch(&self) -> ChatLaunch {
         self.current.locked().clone()
+    }
+
+    /// `launch` as its agent starts on it, holding the model proxy's address and a token
+    /// of its own in place of the slots. The token of any agent before it stops working.
+    pub(super) fn with_model_token(&self, launch: &ChatLaunch) -> Result<ChatLaunch, String> {
+        let granted = match self.core.upgrade() {
+            Some(core) => core.model_proxy.grant(&core, launch)?,
+            None => None,
+        };
+        let (grant, resolved) = match granted {
+            Some((grant, resolved)) => (Some(grant), resolved),
+            None => (None, launch.clone()),
+        };
+        *self.model_grant.locked() = grant;
+        Ok(resolved)
+    }
+
+    pub(super) fn drop_model_grant(&self) {
+        *self.model_grant.locked() = None;
+    }
+
+    pub(super) fn hold_model_grant(&self, grant: ModelGrant) {
+        *self.model_grant.locked() = Some(grant);
     }
 
     fn set_current(&self, launch: ChatLaunch) {
@@ -1274,6 +1300,7 @@ impl Chat {
                 backend: handed.backend,
                 agent: handed.released.record(),
                 cli_version: self.cli_version(),
+                model_grant: self.model_grant.locked().take().map(ModelGrant::hand_over),
             },
             released: handed.released,
             subscribers,
@@ -1298,6 +1325,7 @@ pub(crate) struct LiveChat {
     backend: Value,
     pub agent: native::AgentRecord,
     cli_version: Option<String>,
+    model_grant: Option<KeptGrant>,
 }
 
 /// A [`LiveChat`] and the pipes to its agent, still open in this process.

@@ -51,7 +51,7 @@ impl Drop for Slot {
     }
 }
 
-fn new_token() -> String {
+pub(super) fn new_token() -> String {
     format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),

@@ -694,7 +694,8 @@ pub(crate) async fn run<B: Backend>(
                 chat.feed.let_out();
             }
             let brief = B::INSTRUCTIONS.then(|| chat.brief()).flatten();
-            let started = B::start(&launch, brief.as_deref(), sink.clone()).await;
+            let reaching_provider = chat.with_model_token(&launch)?;
+            let started = B::start(&reaching_provider, brief.as_deref(), sink.clone()).await;
             chat.feed.let_out();
             let (backend, opened) = started?;
             sink.loaded();

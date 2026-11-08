@@ -52,6 +52,8 @@ libc = "0.2"
 notify = "8"
 portable-pty = "0.9"
 rayon = "1"
+hyper = { version = "1", default-features = false, features = ["http1", "server"] }
+hyper-util = { version = "0.1", default-features = false, features = ["tokio"] }
 reqwest = { version = "0.13", default-features = false, features = ["form", "gzip", "json", "query", "rustls-no-provider", "stream"] }
 ring = "0.17"
 rusqlite = { version = "0.40", features = ["bundled"] }

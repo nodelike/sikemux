@@ -1,8 +1,9 @@
 //! Where agents get models besides their makers' own accounts: pay-per-token
 //! APIs, coding plans and runners on this computer. The catalogue in
 //! `model-providers.json` holds how each provider is reached, and models.dev
-//! what its models are; the keys the person connected stay in the Keychain
-//! and reach agents as they start.
+//! what its models are; the keys the person connected stay in the Keychain.
+//! An agent routed to a provider reaches it through the core's model proxy and
+//! never holds the key.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -32,6 +33,11 @@ const AGENT_ID_PREFIX: &str = "sikemux-";
 
 /// Carries the key of a provider the person added, the only one a launch runs on.
 pub const CUSTOM_KEY_ENV: &str = "SIKEMUX_MODEL_PROVIDER_KEY";
+
+/// Stand in a launch for the model proxy's address and the agent's token, which change with
+/// every start of its agent and so are filled in only as it starts.
+pub(crate) const MODEL_PROXY_SLOT: &str = "http://sikemux-model-proxy.invalid";
+pub(crate) const MODEL_TOKEN_SLOT: &str = "sikemux-model-token";
 
 /// Names the provider and model an OMP chat registers, as JSON, for the extension Sikemux hands it.
 pub(crate) const OMP_PROVIDER_ENV: &str = "SIKEMUX_OMP_PROVIDER";
@@ -403,14 +409,23 @@ impl Provider {
         }
     }
 
-    /// `agent` pointed at this provider, paying with `key` and running `model`.
+    /// Where an agent reaches this provider's `api` at `url`: through the model proxy when
+    /// it takes a key, so the agent never holds one, and directly when it does not.
+    fn reached_at(&self, api: &str, url: &str) -> String {
+        if self.key.is_some() {
+            format!("{MODEL_PROXY_SLOT}/{}/{api}", self.id)
+        } else {
+            url.to_owned()
+        }
+    }
+
+    /// `agent` pointed at this provider and running `model`.
     /// Local runners take any token; Ollama's and LM Studio's guides use their names.
     /// OMP loads the extension at `omp_extension` to learn of the provider.
     /// Agents that speak chat completions are told the model reads pictures when `images`.
     fn wiring(
         &self,
         agent: &str,
-        key: Option<&str>,
         model: Option<&str>,
         omp_extension: &Path,
         images: bool,
@@ -419,7 +434,12 @@ impl Provider {
             return None;
         }
         let mut env = BTreeMap::new();
-        let token = key.unwrap_or(&self.id).to_owned();
+        let token = if self.key.is_some() {
+            MODEL_TOKEN_SLOT.to_owned()
+        } else {
+            self.id.clone()
+        };
+        let openai = self.reached_at("openai", &self.openai);
         let api = routed_api(agent)?;
         if api == RoutedApi::Chat {
             let model = self.api_model(agent, model?);
@@ -432,7 +452,7 @@ impl Provider {
             let route = ChatRoute {
                 id: self.agent_id(),
                 label: &self.label,
-                base_url: &self.openai,
+                base_url: &openai,
                 key_name,
                 model,
                 agent_model: self.agent_model(agent, model),
@@ -451,7 +471,10 @@ impl Provider {
                 AnthropicAuth::Bearer => ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY"),
                 AnthropicAuth::XApiKey => ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"),
             };
-            env.insert("ANTHROPIC_BASE_URL".into(), api.url.clone());
+            env.insert(
+                "ANTHROPIC_BASE_URL".into(),
+                self.reached_at("anthropic", &api.url),
+            );
             env.insert(used.into(), token);
             env.insert(blanked.into(), String::new());
             if let Some(model) = model {
@@ -473,7 +496,7 @@ impl Provider {
             let name = spec.env.first()?;
             let table = format!("model_providers.{}", self.id);
             config(&format!("{table}.name"), &self.label);
-            config(&format!("{table}.base_url"), &self.openai);
+            config(&format!("{table}.base_url"), &openai);
             config(&format!("{table}.env_key"), name);
             env.insert(name.clone(), token);
         }
@@ -628,7 +651,7 @@ impl Providers {
             state.custom_stamp = custom_stamp;
         }
         let stamp = modified(&self.path);
-        if stamp != state.stamp || stamp.is_none() {
+        if stamp != state.stamp {
             state.connected = std::fs::read(&self.path)
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<BTreeSet<String>>(&bytes).ok())
@@ -736,8 +759,8 @@ impl Providers {
             .collect()
     }
 
-    /// What `agent` starts with: the keys it reads and, when `provider` is
-    /// named, what points it there in place of its maker's account. Fails
+    /// What `agent` starts with: the keys it reads or, when `provider` is
+    /// named, only what points it there in place of its maker's account. Fails
     /// rather than let that account pay for a turn meant for the provider.
     /// `model` is the one picked, or the provider's [`Providers::coding_model`].
     /// Reads the Keychain, so it blocks.
@@ -747,15 +770,14 @@ impl Providers {
         provider: Option<&str>,
         model: Option<&str>,
     ) -> Result<Wiring, String> {
-        let mut env = self.environment(agent);
-        if let Some(model) = self
+        let subagent = self
             .helper()
             .as_ref()
             .and_then(|helper| helper.subagent_model(agent, provider))
-        {
-            env.insert("CLAUDE_CODE_SUBAGENT_MODEL".into(), model.to_owned());
-        }
+            .map(|model| ("CLAUDE_CODE_SUBAGENT_MODEL".to_owned(), model.to_owned()));
         let Some(id) = provider else {
+            let mut env = self.environment(agent);
+            env.extend(subagent);
             return Ok(Wiring {
                 env,
                 args: Vec::new(),
@@ -764,12 +786,12 @@ impl Providers {
         let provider = self
             .find(id)
             .ok_or_else(|| format!("Sikemux does not know a provider called {id}"))?;
-        let key = match provider.key {
-            Some(_) => Some(self.key(id).ok_or_else(|| {
-                format!("Connect {} in Settings to run chats on it", provider.label)
-            })?),
-            None => None,
-        };
+        if provider.key.is_some() && self.key(id).is_none() {
+            return Err(format!(
+                "Connect {} in Settings to run chats on it",
+                provider.label
+            ));
+        }
         if !provider.routes(agent) {
             return Err(format!("{agent} cannot run on {}", provider.label));
         }
@@ -787,11 +809,9 @@ impl Providers {
         let images = routed_api(agent) == Some(RoutedApi::Chat)
             && model.is_none_or(|model| provider.reads_images(&self.feed(), agent, model));
         let mut wiring = provider
-            .wiring(agent, key.as_deref(), model, &self.omp_extension, images)
+            .wiring(agent, model, &self.omp_extension, images)
             .ok_or_else(|| format!("Pick a model of {} for {agent} to run", provider.label))?;
-        for (name, value) in env {
-            wiring.env.entry(name).or_insert(value);
-        }
+        wiring.env.extend(subagent);
         Ok(wiring)
     }
 }

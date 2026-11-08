@@ -37,7 +37,7 @@ Sikemux reads OpenCode as signed in when `opencode auth list` shows a credential
 
 A chat runs `opencode acp`, OpenCode's [Agent Client Protocol](https://agentclientprotocol.com) mode. OpenCode has no YOLO mode, so it always runs with its own approvals.
 
-On a [model provider](/agents/providers/), Sikemux adds that provider to the inline config it gives the chat, with the key in its environment, so your own OpenCode config stays untouched.
+On a [model provider](/agents/providers/), Sikemux adds that provider to the inline config it gives the chat, reached through Sikemux so the key stays out of the agent, and your own OpenCode config stays untouched.
 
 ## Skills
 

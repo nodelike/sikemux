@@ -25,6 +25,7 @@ struct CoreArgs {
     listener_fd: Option<RawFd>,
     lock_fd: Option<RawFd>,
     tools_fd: Option<RawFd>,
+    model_proxy_fd: Option<RawFd>,
     sessions: Vec<(SessionId, RawFd, Option<u32>)>,
     chat_fds: Vec<RawFd>,
 }
@@ -83,6 +84,9 @@ fn parse_args(mut args: impl Iterator<Item = String>) -> Result<CoreArgs, String
             "--listen-fd" => parsed.listener_fd = Some(number(args.next(), "--listen-fd")?),
             "--lock-fd" => parsed.lock_fd = Some(number(args.next(), "--lock-fd")?),
             "--tools-fd" => parsed.tools_fd = Some(number(args.next(), "--tools-fd")?),
+            "--model-proxy-fd" => {
+                parsed.model_proxy_fd = Some(number(args.next(), "--model-proxy-fd")?)
+            }
             "--session" => parsed.sessions.push(handed_over_session(args.next())?),
             "--chat-fd" => parsed.chat_fds.push(number(args.next(), "--chat-fd")?),
             flag if flag == UPGRADE_INFO_ARG => parsed.upgrade_info = true,
@@ -139,6 +143,7 @@ pub fn main(
             listener_fd: args.listener_fd,
             lock_fd: args.lock_fd,
             tools_fd: args.tools_fd,
+            model_proxy_fd: args.model_proxy_fd,
             cli_endpoint: args.cli_endpoint,
             data_dir: args.data_dir,
             idle_exit: args.idle_exit.unwrap_or(DEFAULT_IDLE_EXIT),

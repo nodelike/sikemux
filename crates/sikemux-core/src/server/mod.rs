@@ -56,6 +56,7 @@ pub mod lsp;
 pub mod memory;
 pub mod messages;
 pub mod model_providers;
+mod model_proxy;
 pub mod mods;
 pub mod move_agent;
 pub mod names;
@@ -371,6 +372,7 @@ pub(crate) struct Core {
     pub(crate) updating: upgrade::Updating,
     pub(crate) listening: Listening,
     pub(crate) tools: Mutex<Option<tools::ToolEndpoint>>,
+    pub(crate) model_proxy: model_proxy::ModelProxy,
     pub(crate) chats: chat::Chats,
     pub(crate) remote: remote::Remote,
     pub(crate) shares: share::Shares,
@@ -520,6 +522,7 @@ impl Core {
             updating: upgrade::Updating::default(),
             listening,
             tools: Mutex::new(None),
+            model_proxy: model_proxy::ModelProxy::default(),
             chats: chat::Chats::new(data_dir),
             remote: remote::Remote::default(),
             shares: share::Shares::default(),

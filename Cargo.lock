@@ -9233,6 +9233,8 @@ dependencies = [
  "grep-searcher",
  "hashlink",
  "hex",
+ "hyper",
+ "hyper-util",
  "ignore",
  "iroh",
  "libc",

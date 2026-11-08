@@ -321,6 +321,10 @@ pub(crate) fn replace_process(core: &Core, binary: &Path, handed: &mut [HandOver
         command.arg("--tools-fd").arg(tools.fd.to_string());
         keep.push(tools.fd);
     }
+    if let Some(fd) = core.model_proxy.listener_fd() {
+        command.arg("--model-proxy-fd").arg(fd.to_string());
+        keep.push(fd);
+    }
     for session in &sessions {
         let pid = session
             .pid()
@@ -359,6 +363,7 @@ pub(crate) struct Recovery {
     pub listener_fd: Option<RawFd>,
     pub lock_fd: Option<RawFd>,
     pub tools_fd: Option<RawFd>,
+    pub model_proxy_fd: Option<RawFd>,
     pub cli_endpoint: Option<PathBuf>,
     pub data_dir: Option<PathBuf>,
     pub idle_exit: Duration,
@@ -393,6 +398,7 @@ impl Recovery {
             .into_iter()
             .chain(self.lock_fd)
             .chain(self.tools_fd)
+            .chain(self.model_proxy_fd)
             .chain(self.sessions.iter().map(|(_, fd, _)| *fd))
             .chain(self.chat_fds.iter().copied())
             .collect()
@@ -916,6 +922,15 @@ pub(crate) async fn resume(recovery: Recovery, build: BuildIdentity) -> Result<(
         }
     }
 
+    if let Some(fd) = recovery.model_proxy_fd {
+        if inherited.claim(fd, libc::S_IFSOCK) {
+            // SAFETY: the descriptor was handed over open and claimed once, so the
+            // proxy is its only owner.
+            if let Err(error) = unsafe { core.model_proxy.adopt(&core, fd) } {
+                eprintln!("sikemux core: the model proxy was not kept in the update: {error}");
+            }
+        }
+    }
     let tools_fd = tools_record
         .as_ref()
         .map(|record| record.fd)

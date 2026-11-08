@@ -35,4 +35,4 @@ OMP has no sign-in check Sikemux can ask, so a chat refused for want of a sign-i
 
 A chat runs `omp acp`. Sikemux passes OMP its skills library on the command line, alongside OMP's own skills.
 
-On a [model provider](/agents/providers/), a chat runs on that provider's chat completions API. Sikemux hands OMP an extension that registers the provider for that chat alone, and the key in its environment, so your own `~/.omp` stays untouched.
+On a [model provider](/agents/providers/), a chat runs on that provider's chat completions API. Sikemux hands OMP an extension that registers the provider for that chat alone, reached through Sikemux so the key stays out of the agent, and your own `~/.omp` stays untouched.

@@ -350,6 +350,7 @@ impl Chats {
         let keeper = Keeper::new(self.kept.as_deref(), feed.id());
         let chat = Arc::new(Chat {
             generation: self.next_generation.fetch_add(1, Ordering::Relaxed),
+            model_grant: Mutex::default(),
             commands,
             task: Mutex::new(None),
             feed,

@@ -25,7 +25,7 @@ Once a chat has started, it keeps its agent and provider, and the picker lists o
 
 Sikemux asks the provider for its models to check the key. It shows how many models the provider serves before you add it. Added from a chat that hasn't started, the provider takes the chat with it: the chat moves to the agent that runs the provider, on its first model.
 
-A URL Sikemux already knows, such as OpenRouter's, connects that provider. Any other URL is added as a provider of your own. The key is kept in the macOS Keychain and handed only to the chats that run on that provider. Removing a provider you added takes its key out of the Keychain too.
+A URL Sikemux already knows, such as OpenRouter's, connects that provider. Any other URL is added as a provider of your own. The key is kept in the macOS Keychain. A chat on that provider reaches it through Sikemux, which adds the key to each request, so the agent holds only a token that stops working when its chat ends. Pi, and OpenCode or OMP chats started on their own models, read connected keys from their environment. Removing a provider you added takes its key out of the Keychain too.
 
 ## Which agent runs it
 

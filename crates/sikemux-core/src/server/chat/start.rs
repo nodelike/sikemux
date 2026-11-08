@@ -103,6 +103,7 @@ pub(super) fn launch(
             let ran = native::run(ending.clone(), launch, &mut queue, begin).await;
             if !matches!(ran, Ok(rebind::Outcome::Released)) {
                 ending.feed.agent_gone();
+                ending.drop_model_grant();
             }
             match ran {
                 Ok(rebind::Outcome::Rebind(next)) => {
@@ -492,6 +493,9 @@ pub(crate) fn adopt(
         .insert(core, live.launch, live.origin, Some((feed, live.flags)))
         .map_err(|error| error.to_string())?;
     chat.set_current(live.current);
+    if let Some(kept) = live.model_grant {
+        chat.hold_model_grant(core.model_proxy.restore(kept));
+    }
     if let Some(version) = &live.cli_version {
         chat.note_cli_version(version);
     }
