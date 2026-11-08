@@ -111,7 +111,8 @@ such as a file open or an agent's browser, go to the one that registered last.
 `app/` holds the GPUI app, the `sikemux-gpui` package. It shares the one Cargo workspace and
 lockfile at the root, which builds it only when asked with `-p`. `src/main.rs` opens one
 window; in a Wayland session it takes XWayland's display, since browser pages are X11 windows
-inside it.
+inside it, and `xwayland_scale.rs` first asks the compositor what scale to draw at, the lowest
+of the displays when they differ.
 
 **One store, one direction.** `Workbench` (`workbench.rs`) is the one store: what the core last
 said, and the little the window decides itself, such as focus, open menus, scroll and sizes.

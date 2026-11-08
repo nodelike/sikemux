@@ -81,6 +81,9 @@ objc2-metal = { version = "0.3", default-features = false, features = ["std", "M
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Already in the build through GPUI's Linux platform.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
+x11rb = { version = "0.13", features = ["randr", "resource_manager"] }
 zbus = "5"
 
 [build-dependencies]
