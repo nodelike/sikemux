@@ -94,9 +94,14 @@ fn visible<'a>(event: &'a Value, keys: &[&str]) -> Option<&'a str> {
         .filter(|said| !said.trim().is_empty())
 }
 
+/// What dialog `id`'s question is known by in the chat.
+pub(super) fn card_id(id: &str) -> String {
+    format!("pi-dialog-{id}")
+}
+
 fn card(session: &str, id: &str, title: &str, detail: Option<&str>, options: &[Value]) -> Value {
     let mut tool_call = json!({
-        "toolCallId": format!("pi-dialog-{id}"),
+        "toolCallId": card_id(id),
         "title": title,
         "kind": "other",
         "status": "pending",

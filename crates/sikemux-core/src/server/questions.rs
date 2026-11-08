@@ -1275,14 +1275,18 @@ pub(crate) fn ask_for_dialog(
     .map(drop)
 }
 
-/// Closes the questions on dialogs of `agent_id`'s that no longer wait.
-pub(crate) fn withdraw_dialogs(core: &Core, agent_id: &str) {
+/// Closes the question on `agent_id`'s dialog `only`, or on all its dialogs,
+/// when they no longer wait.
+pub(crate) fn withdraw_dialogs(core: &Core, agent_id: &str, only: Option<&str>) {
     let questions = &core.harness.questions;
     let mut state = questions.state.locked();
     let before = state.open.len();
-    state
-        .open
-        .retain(|question| question.agent_id != agent_id || question.dialog.is_none());
+    state.open.retain(|question| {
+        let dialog = question.dialog.as_deref();
+        question.agent_id != agent_id
+            || dialog.is_none()
+            || only.is_some_and(|only| dialog != Some(only))
+    });
     if state.open.len() != before {
         questions.changed(&mut state);
     }

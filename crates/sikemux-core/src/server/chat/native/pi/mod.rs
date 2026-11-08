@@ -73,7 +73,7 @@ impl Driver {
                     for id in ids {
                         self.tell_cancelled(&id);
                     }
-                    self.sink.withdraw_dialogs();
+                    self.sink.withdraw_dialogs(None);
                 }
             }
         }
@@ -245,6 +245,9 @@ impl Driver {
             )
         };
         let dialog = dialogs::read(&session_id, &cwd, event, |key| allowed.contains(key));
+        if let (Some(id), Some(timeout)) = (text(event, "id"), event["timeout"].as_u64()) {
+            self.expire_after(id.to_owned(), Duration::from_millis(timeout));
+        }
         match dialog {
             Some(Dialog::Allowed(id)) => self.wire.tell(&json!({
                 "type": "extension_ui_response",
@@ -261,6 +264,21 @@ impl Driver {
             Some(Dialog::Words(words)) => self.ask_for_words(words),
             None => self.tell_cancelled(event["id"].as_str().unwrap_or_default()),
         }
+    }
+
+    /// Pi answers a dialog itself when its timeout passes, so its question comes down then.
+    fn expire_after(&self, id: String, timeout: Duration) {
+        if timeout.is_zero() {
+            return;
+        }
+        let driver = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(timeout).await;
+            driver.sink.withdraw_permission(&dialogs::card_id(&id));
+            if driver.session.locked().word_dialogs.remove(&id).is_some() {
+                driver.sink.withdraw_dialogs(Some(&id));
+            }
+        });
     }
 
     fn ask_for_words(&self, words: dialogs::Words) {
@@ -635,7 +653,7 @@ impl Backend for Pi {
             extension_env(launch),
         )?;
         process.stop_gently(SHUTDOWN_GRACE);
-        sink.withdraw_dialogs();
+        sink.withdraw_dialogs(None);
         let cwd = launch.cwd.to_string_lossy().into_owned();
         let driver = Driver {
             wire: Wire::new(writer),

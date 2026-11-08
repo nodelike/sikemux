@@ -356,8 +356,12 @@ impl Sink {
         self.chat.ask_dialog(dialog, header, text, choices)
     }
 
-    pub fn withdraw_dialogs(&self) {
-        self.chat.withdraw_dialogs();
+    pub fn withdraw_dialogs(&self, only: Option<&str>) {
+        self.chat.withdraw_dialogs(only);
+    }
+
+    pub fn withdraw_permission(&self, tool_call_id: &str) {
+        self.chat.withdraw_permission(tool_call_id);
     }
 
     /// The person's message `text` went into the running turn.

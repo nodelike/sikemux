@@ -753,9 +753,25 @@ impl Chat {
         super::questions::ask_for_dialog(&core, self.agent_id(), dialog, header, text, choices)
     }
 
-    pub(crate) fn withdraw_dialogs(&self) {
+    pub(crate) fn withdraw_dialogs(&self, only: Option<&str>) {
         if let Some(core) = self.core.upgrade() {
-            super::questions::withdraw_dialogs(&core, self.agent_id());
+            super::questions::withdraw_dialogs(&core, self.agent_id(), only);
+        }
+    }
+
+    /// Takes down the question about the tool call `tool_call_id`, which no longer waits.
+    pub(crate) fn withdraw_permission(&self, tool_call_id: &str) {
+        let taken = {
+            let mut permissions = self.permissions.locked();
+            let found = permissions.iter().find_map(|(id, pending)| {
+                let asks = pending.request.pointer("/toolCall/toolCallId");
+                (asks.and_then(Value::as_str) == Some(tool_call_id)).then(|| id.clone())
+            });
+            found.filter(|id| permissions.remove(id).is_some())
+        };
+        if let Some(id) = taken {
+            self.feed.forget_permission(&id);
+            self.cleared(&id);
         }
     }
 
