@@ -53,4 +53,6 @@ Sikemux catches these where agents run commands: it stands in for each of those 
 - `curl` or `wget` written so their flags or address can't be read, such as through a variable or a config file, or any other program that sends data. Reading a command line can always be got around;
 - a button that isn't a form's submit button, even when the page's own code saves something when it's clicked, a form inside a frame from another site, and Space on a focused submit button;
 - in `browser_evaluate`, a write the page's own code makes after it has waited on something, since by then the agent's script is no longer what's running, and a script that sets out to avoid the check, such as by taking `fetch` from a new frame;
+- anything sent by a GET request, including data put in an address, an image or a link the agent opens with `browser_navigate`, and anything sent over a WebSocket, by `browser_upload` or by dragging;
+- a script reading a token or other secret from a page. Only sending is held;
 - connector tools outside the list above, such as Bitbucket's rerun and stop pipeline.
