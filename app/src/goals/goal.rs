@@ -12,7 +12,7 @@ use sikemux_core::server::board::BoardSettingsParams;
 use sikemux_core::server::call;
 use sikemux_view::slice::{Gate, GoalEta, NextGate, Passer, SliceState, SliceView, WaitOn};
 
-use super::{goal_name, state_mark, wait_eta, wait_words, waiting_words, At, GoalsPane};
+use super::{goal_name, stands_words, state_mark, wait_eta, wait_words, At, GoalsPane};
 use crate::board::panels::{landing_choice, landing_of, landing_picks};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_5, SPACE_6, TEXT_2XS,
@@ -384,8 +384,8 @@ pub(super) fn step_words(next: &NextGate, title: &str, owner: Option<&str>) -> S
     }
 }
 
-/// One slice: its mark and title, then its ticket and where it stands: done, what it waits on, or
-/// who holds it.
+/// One slice: its mark and title, then its ticket and where it stands in a word or two, which the
+/// title gives way to.
 fn slice_row(
     pane: &GoalsPane,
     card: &BoardCard,
@@ -394,11 +394,7 @@ fn slice_row(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = card.id;
-    let stands = match slice.state {
-        SliceState::Done => Some("done".to_owned()),
-        _ => waiting_words(card, slice)
-            .or_else(|| card.owner_name.as_ref().map(|name| format!("@{name}"))),
-    };
+    let stands = stands_words(card, slice);
     let line = row(SharedString::from(format!("slice-{id}")), cx)
         .on_click(cx.listener(move |pane, _, _, cx| pane.go(At::Slice(id), cx)))
         .child(state_mark(slice.state, cx))
@@ -417,14 +413,12 @@ fn slice_row(
         .when_some(card.ticket.as_ref(), |row, ticket| {
             row.child(ui::mono(ticket.key.clone(), TEXT_2XS, cx))
         })
-        .children(stands.map(|stands| {
+        .child(
             ui::text(stands, TEXT_XS, FontWeight::NORMAL)
-                .flex_shrink_1()
-                .min_w_0()
-                .truncate()
+                .flex_none()
                 .font_features(theme::tabular())
-                .text_color(t.text_tertiary)
-        }));
+                .text_color(t.text_tertiary),
+        );
     super::with_agent_menu(line, card.owner.clone(), &pane.bench)
 }
 

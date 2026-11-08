@@ -1192,48 +1192,28 @@ fn waiting(slice: &SliceView) -> Option<&GateView> {
         .find(|gate| gate.state == GateState::Waiting)
 }
 
-/// What a slice waits on, in a few words: what is under way and roughly how long it takes,
-/// else its gate's unmet needs, or who passes it.
-fn waiting_words(card: &BoardCard, slice: &SliceView) -> Option<String> {
-    let gate = waiting(slice)?;
-    let owner = card.owner_name.as_deref();
-    if let Some(wait) = slice.wait.as_ref().and_then(|wait| wait_words(wait, owner)) {
-        return Some(format!("{} · {wait}", step_name(gate)));
+/// Where a slice stands, in a word or two that never needs cutting short: "done", "you",
+/// "failed", "after #4", or who holds it and when it should be through, such as "@Faris · 16:10".
+fn stands_words(card: &BoardCard, slice: &SliceView) -> String {
+    match slice.state {
+        SliceState::Done => return "done".to_owned(),
+        SliceState::NeedsYou => return "you".to_owned(),
+        SliceState::Failed => return "failed".to_owned(),
+        SliceState::Waiting | SliceState::Moving => {}
     }
-    if gate.needs.contains(&Need::Assertions)
-        && slice
-            .asserts
-            .iter()
-            .any(|asserted| asserted.awaits_approval)
-    {
-        return Some(format!(
-            "{} · waiting for you to accept a command",
-            step_name(gate)
-        ));
+    let wait = slice.wait.as_ref();
+    if let Some(WaitOn::Card { card }) = wait.map(|wait| &wait.on) {
+        return format!("after #{card}");
     }
-    if gate.needs.contains(&Need::Assertions)
-        && slice.asserts.iter().any(|asserted| asserted.turned_down)
-    {
-        return Some(format!(
-            "{} · you turned down a file its command names",
-            step_name(gate)
-        ));
+    let who = match (waiting(slice).map(|gate| gate.passer), &card.owner_name) {
+        (Some(Passer::Core), _) => "Sikemux".to_owned(),
+        (_, Some(owner)) => format!("@{owner}"),
+        (_, None) => "no owner yet".to_owned(),
+    };
+    match wait.and_then(Wait::eta) {
+        Some(at) => format!("{who} · {}", ui::time::clock(at)),
+        None => who,
     }
-    Some(match gate.needs.as_slice() {
-        [] if gate.passer == Passer::Person => {
-            format!("{} · waiting for you", step_name(gate))
-        }
-        [] => format!("{} · {}", step_name(gate), passer_name(gate, card)),
-        needs => format!(
-            "{} · needs {}",
-            step_name(gate),
-            needs
-                .iter()
-                .map(|need| need_words(*need))
-                .collect::<Vec<_>>()
-                .join(" and ")
-        ),
-    })
 }
 
 /// What is under way that a slice waits on, such as "check · ETA 16:40" or "waits for #4"; none
