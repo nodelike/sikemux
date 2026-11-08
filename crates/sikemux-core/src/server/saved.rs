@@ -95,9 +95,9 @@ fn scope_of(core: &Core, projects: Vec<String>) -> Scope {
     })
 }
 
-/// The file of `session`, a session of `agent` that the chat `agent_id` ran, and the account it
-/// runs on. Accounts can share one sessions folder, so where the file lies names the account only
-/// once the chat is closed.
+/// The file of `session`, a session of `agent` that `agent_id` ran, and the account it runs on.
+/// Accounts can share one sessions folder, so where the file lies names the account only when
+/// nothing recorded it, and then the one the person chose comes first among those sharing it.
 pub(crate) fn session_file(
     core: &Core,
     agent_id: &str,
@@ -116,11 +116,39 @@ pub(crate) fn session_file(
             crate::sessions::transcript::find(agent, &root, Some(project), session)
                 .map(|file| (file, provider.config_path))
         })?;
-    let account = match core.chats.get(agent_id) {
-        Some(chat) => named_account(agent.as_str(), &chat.current_launch().env).map(str::to_owned),
-        None => kept_on,
-    };
+    let account = recorded_account(core, agent_id, agent).unwrap_or_else(|| {
+        let chosen = chosen_account(core, agent);
+        if sessions_shared(agent.as_str(), chosen.as_deref(), kept_on.as_deref()) {
+            chosen
+        } else {
+            kept_on
+        }
+    });
     Some((file, account))
+}
+
+/// The account folder `agent_id` runs on, when known: its launch's while its chat runs, else the
+/// profile its record keeps through sleep, close and restarts.
+fn recorded_account(core: &Core, agent_id: &str, agent: AgentKind) -> Option<Option<String>> {
+    if let Some(chat) = core.chats.get(agent_id) {
+        let launch = chat.current_launch();
+        return Some(named_account(agent.as_str(), &launch.env).map(str::to_owned));
+    }
+    let profile = (core.workspaces.agent(agent_id))
+        .and_then(|kept| kept.profile_id)
+        .or_else(|| core.names.ran_session(agent_id)?.profile)?;
+    let book = core.workspaces.accounts().unwrap_or_default();
+    Some(
+        book.profile(&profile)
+            .and_then(|profile| profile.config_path.clone()),
+    )
+}
+
+fn chosen_account(core: &Core, agent: AgentKind) -> Option<String> {
+    let book = core.workspaces.accounts()?;
+    book.profile(&book.chosen(agent.as_str()))?
+        .config_path
+        .clone()
 }
 
 /// What the person typed in `project`'s saved sessions, a list per session,

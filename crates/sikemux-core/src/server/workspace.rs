@@ -810,6 +810,13 @@ impl Workspaces {
     }
 
     /// Every agent in the workspace, running or not.
+    /// The account each agent in the workspace runs on, by profile id.
+    pub(crate) fn agent_profiles(&self) -> Vec<(String, Option<String>)> {
+        (self.published.locked().saved.agents.iter())
+            .map(|kept| (kept.agent.id.clone(), kept.agent.profile_id.clone()))
+            .collect()
+    }
+
     pub(crate) fn agent_ids(&self) -> std::collections::HashSet<String> {
         self.published
             .locked()
@@ -1546,13 +1553,20 @@ fn agents_closed(core: &Core, before: HashSet<String>) {
     if !forgotten.is_empty() {
         super::drafts::changed(core, forgotten);
     }
+    settle_names(core);
+}
+
+/// Agents in the workspace keep their names and the accounts they run on, and the names of
+/// agents gone from it are free again.
+fn settle_names(core: &Core) {
+    core.names.note_profiles(core.workspaces.agent_profiles());
     core.names.settle(core.open_agents());
 }
 
 /// Runs whenever the workspace changes: agents in it keep their names while
 /// nothing of them runs.
 pub(crate) fn settle(core: &Arc<Core>) {
-    core.names.settle(core.open_agents());
+    settle_names(core);
     super::session_watch::follow(core);
     core.changed(What::Agents);
 }

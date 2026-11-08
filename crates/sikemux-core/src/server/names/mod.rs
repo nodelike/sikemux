@@ -79,6 +79,9 @@ struct Entry {
     /// What it was last working on, as the app titled it.
     #[serde(skip_serializing_if = "Option::is_none")]
     title: Option<String>,
+    /// The person's account it runs on, by profile id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    profile: Option<String>,
 }
 
 impl Entry {
@@ -142,6 +145,9 @@ pub(crate) struct RanSession {
     pub provider: String,
     pub session_id: String,
     pub project: String,
+    /// The person's account it ran on, by profile id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -283,6 +289,7 @@ impl Names {
             chosen: false,
             buddy: None,
             title: None,
+            profile: None,
         };
         let named = entry.view();
         book.agents.push(entry);
@@ -416,6 +423,7 @@ impl Names {
             chosen: false,
             buddy: None,
             title: None,
+            profile: None,
         };
         let named = entry.view();
         book.agents.push(entry);
@@ -518,6 +526,7 @@ impl Names {
                 provider: entry.provider.clone()?,
                 session_id: entry.session_id.clone()?,
                 project: entry.project.clone(),
+                profile: entry.profile.clone(),
             });
         }
         book.closed_sessions
@@ -576,6 +585,25 @@ impl Names {
             .filter(|closed| closed.ran.session_id == session_id)
             .map(|closed| closed.agent_id.clone());
         open.chain(closed).collect()
+    }
+
+    /// Keeps the account each agent of `profiles` runs on, by profile id, so it is still known
+    /// once the agent closes.
+    pub(crate) fn note_profiles(&self, profiles: Vec<(String, Option<String>)>) {
+        let mut book = self.book.locked();
+        let mut changed = false;
+        for (agent_id, profile) in profiles {
+            if let Some(entry) = book
+                .entry_mut(&agent_id)
+                .filter(|entry| entry.profile != profile)
+            {
+                entry.profile = profile;
+                changed = true;
+            }
+        }
+        if changed {
+            self.save(&book);
+        }
     }
 
     pub(crate) fn note_session(&self, agent_id: &str, session_id: &str) {
@@ -775,6 +803,7 @@ impl Book {
                         provider,
                         session_id,
                         project: entry.project.clone(),
+                        profile: entry.profile.clone(),
                     },
                 });
                 self.closed_sessions.truncate(MAX_CLOSED_SESSIONS);
@@ -882,6 +911,7 @@ impl Book {
             chosen: false,
             buddy: None,
             title: None,
+            profile: None,
         };
         let named = entry.view();
         self.agents.push(entry);
