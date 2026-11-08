@@ -704,7 +704,10 @@ impl<R: Row> Transcript<R> {
     }
 
     fn press(&mut self, event: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        window.focus(&self.focus, cx);
+        // A focusable control inside a row, such as a text field, took this press.
+        if window.default_prevented() {
+            return;
+        }
         let Some(spot) = spot_at(&self.shown.borrow(), event.position) else {
             return;
         };
