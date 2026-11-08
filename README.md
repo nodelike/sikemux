@@ -20,19 +20,22 @@ Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, lo
 curl -fsSL https://sikemux.com/install | sh
 ```
 
-On a Mac this puts Sikemux in `/Applications`; on Linux it asks whether you want the desktop app (x86_64: the `.deb` or `.rpm`, or the AppImage in `~/Applications`) or just the core for a server. Add `SIKEMUX_CHANNEL=nightly` before `sh` for the nightly build.
+On a Mac this puts Sikemux in `/Applications`; on Linux it asks whether you want the desktop app (x86_64: the `.deb`, `.rpm` or Arch package, or the AppImage in `~/Applications`) or just the core for a server. Add `SIKEMUX_CHANNEL=nightly` before `sh` for the nightly build.
 
 Or download the latest `.dmg` from [sikemux.com](https://sikemux.com) or [Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 25 MB, needs macOS 11 or later on Apple Silicon, and keeps itself up to date.
 
-On x86_64 Linux, the `.deb`, `.rpm` and `.AppImage` are in the same release:
+On x86_64 Linux, the `.deb`, `.rpm`, Arch package and `.AppImage` are in the same release:
 
 ```bash
-sudo apt install ./Sikemux_<version>_amd64.deb      # Debian, Ubuntu
-sudo dnf install ./Sikemux-<version>-1.x86_64.rpm   # Fedora
-chmod +x Sikemux_<version>_amd64.AppImage           # any other distribution
+sudo apt install ./Sikemux_<version>_amd64.deb                 # Debian, Ubuntu
+sudo dnf install ./Sikemux-<version>-1.x86_64.rpm              # Fedora
+sudo pacman -U ./sikemux-bin-<version>-1-x86_64.pkg.tar.zst    # Arch, Omarchy
+chmod +x Sikemux_<version>_amd64.AppImage                      # any other distribution
 ```
 
-The AppImage keeps itself up to date. The `.deb` and `.rpm` are updated by the installer: when a new release is out, **Settings → About** shows the line to run.
+On Arch and Omarchy, `yay -S sikemux-bin` installs the same package from the AUR. Nightlies are `sikemux-nightly-bin`, on the release page only.
+
+The AppImage keeps itself up to date. The `.deb`, `.rpm` and Arch package are updated by the installer: when a new release is out, **Settings → About** shows the line to run.
 
 On a Linux server with no screen, the same line offers to install just the core, for x86_64 or arm64, and sign it in to your account. To skip the question:
 

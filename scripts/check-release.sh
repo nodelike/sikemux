@@ -7,6 +7,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 bash -n scripts/build-mac.sh scripts/release.sh scripts/sign-helper.sh scripts/sign-mac.sh scripts/mac-entitlements.sh scripts/verify-release.sh scripts/publish-release.sh scripts/sign-host.sh scripts/icons.sh scripts/check-release.sh scripts/check-rust.sh
+bash -n packaging/arch/PKGBUILD packaging/arch/prepare.sh packaging/arch/build-release.sh packaging/arch/push-aur.sh
 node --check scripts/verify-updater-signature.mjs
 node --check scripts/app-metadata.mjs
 node --check scripts/release-credits.mjs
@@ -38,6 +39,7 @@ const signHost = fs.readFileSync("scripts/sign-host.sh", "utf8");
 const coreBuild = fs.readFileSync("scripts/build-core.mjs", "utf8");
 const publish = fs.readFileSync("scripts/publish-release.sh", "utf8");
 const releaseWorkflow = fs.readFileSync(".github/workflows/release.yml", "utf8");
+const pkgbuild = fs.readFileSync("packaging/arch/PKGBUILD", "utf8");
 const ciWorkflow = fs.readFileSync(".github/workflows/ci.yml", "utf8");
 const hakari = fs.readFileSync(".config/hakari.toml", "utf8");
 const fail = (message) => { throw new Error(message); };
@@ -73,6 +75,11 @@ for (const name of ["Sikemux_${VERSION}_amd64.deb", "Sikemux-${VERSION}-1.x86_64
   if (!installer.includes(name)) fail(`the installer does not download ${name}`);
 }
 if (!linuxBuild.includes("sha256sum -c")) fail("Linux build runs packaging tools it has not checked");
+if (!linuxBuild.includes('"$BUNDLE/tar/Sikemux_${VERSION}_amd64.tar.gz"')) fail("Linux build does not make the tarball the Arch package is made from");
+if (!pkgbuild.includes("/Sikemux_${_version}_amd64.tar.gz")) fail("the PKGBUILD does not download the tarball the Linux build makes");
+if (!installer.includes("pacman -U --noconfirm") || !installer.includes("-1-x86_64.pkg.tar.zst")) fail("the installer does not install the Arch package with pacman");
+if (!releaseWorkflow.includes("packaging/arch/build-release.sh")) fail("the Release workflow does not build and install the Arch package");
+if (!publish.includes('"${SYMBOLS[@]}" "$TARBALL" "$PACMAN_PACKAGE")')) fail("releases do not publish the Linux tarball and the Arch package");
 if (/TAURI_SIGNING|signer sign/.test(linuxBuild)) fail("Linux builds must not require updater credentials");
 if (!releaseWorkflow.includes("run: pnpm build:linux")) fail("the Release workflow does not build the Linux packages");
 if (!publish.includes('"$DEB" "$RPM" "$APPIMAGE"')) fail("releases do not publish the Linux packages");

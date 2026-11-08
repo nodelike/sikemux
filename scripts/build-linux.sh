@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Build the x86_64 Linux desktop packages: the GPUI app with its core beside it, as
-# a deb, an rpm and an AppImage, named as every release has named them, since the
-# installer downloads them by name. They carry no updater signature.
+# a deb, an rpm, an AppImage and the tarball the Arch package is made from, named as
+# every release has named them, since the installer downloads them by name. They
+# carry no updater signature.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -56,8 +57,8 @@ done
 BUNDLE="$ROOT/target/release/bundle"
 WORK="$ROOT/target/release/linux"
 TOOLS="$WORK/tools"
-rm -rf "$WORK" "$BUNDLE/deb" "$BUNDLE/rpm" "$BUNDLE/appimage"
-mkdir -p "$TOOLS" "$BUNDLE/deb" "$BUNDLE/rpm" "$BUNDLE/appimage"
+rm -rf "$WORK" "$BUNDLE/deb" "$BUNDLE/rpm" "$BUNDLE/appimage" "$BUNDLE/tar"
+mkdir -p "$TOOLS" "$BUNDLE/deb" "$BUNDLE/rpm" "$BUNDLE/appimage" "$BUNDLE/tar"
 
 fetch() {
   local url="$1" sha="$2" file="$TOOLS/$3"
@@ -110,6 +111,12 @@ install -m 644 "$PI_TOOLS" "$PACKAGE/usr/lib/sikemux/sikemux_pi_tools.ts"
 ln -s ../lib/sikemux/sikemux "$PACKAGE/usr/bin/sikemux"
 ln -s ../lib/sikemux/sikemux-host "$PACKAGE/usr/bin/sikemux-host"
 lay_out_shared "$PACKAGE"
+
+echo "→ Packing the tarball"
+# packaging/arch/PKGBUILD installs this tree as it is, with the licence beside it.
+install -m 644 "$ROOT/LICENSE" "$WORK/LICENSE"
+tar --owner=0 --group=0 --numeric-owner --sort=name -czf "$BUNDLE/tar/Sikemux_${VERSION}_amd64.tar.gz" \
+  -C "$PACKAGE" usr -C "$WORK" LICENSE
 
 echo "→ Packing the deb"
 DEB_ROOT="$WORK/deb"
@@ -238,7 +245,7 @@ chmod 755 "$APPDIR/AppRun"
   ./appimagetool --no-appstream --runtime-file "$TOOLS/runtime" "$APPDIR" "$BUNDLE/appimage/Sikemux_${VERSION}_amd64.AppImage"
 )
 
-for package in "$BUNDLE/deb/Sikemux_${VERSION}_amd64.deb" "$BUNDLE/rpm/Sikemux-${VERSION}-1.x86_64.rpm" "$BUNDLE/appimage/Sikemux_${VERSION}_amd64.AppImage"; do
+for package in "$BUNDLE/tar/Sikemux_${VERSION}_amd64.tar.gz" "$BUNDLE/deb/Sikemux_${VERSION}_amd64.deb" "$BUNDLE/rpm/Sikemux-${VERSION}-1.x86_64.rpm" "$BUNDLE/appimage/Sikemux_${VERSION}_amd64.AppImage"; do
   [[ -s "$package" ]] || fail "missing $package"
   echo "✓ $(basename "$package") ($(du -h "$package" | cut -f1))"
 done

@@ -568,7 +568,7 @@ jobs:
           sudo apt-get update
           cat packaging/linux/build-packages.txt packaging/linux/pack-packages.txt | xargs sudo apt-get install -y
 
-      - name: Build the deb, rpm and AppImage
+      - name: Build the deb, rpm, AppImage and tarball
         env:
           SIKEMUX_USAGE_REPORTING: app
         run: pnpm build:linux
@@ -582,6 +582,46 @@ jobs:
             target/release/bundle/deb/*.deb
             target/release/bundle/rpm/*.rpm
             target/release/bundle/appimage/*.AppImage
+            target/release/bundle/tar/*.tar.gz
+
+  # Made from the tarball the deb and rpm are packed from, on Arch itself, where it is installed
+  # and upgraded once to check the core keeps its setgid bit.
+  build-arch:
+    name: Build the Arch package
+    needs: [plan, build-linux]
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.build-linux.result == 'success' }}
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Install makepkg and namcap
+        run: pacman -Syu --noconfirm --needed base-devel namcap
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the Linux packages
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sikemux-linux-${{ github.ref_name }}
+          path: target/release/bundle
+
+      - name: Build, install and upgrade the package
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: packaging/arch/build-release.sh "$VERSION" "target/release/bundle/tar/Sikemux_${VERSION}_amd64.tar.gz" target/release/bundle/arch
+
+      - name: Keep the package and its AUR recipe on the run
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sikemux-arch-${{ github.ref_name }}
+          if-no-files-found: error
+          include-hidden-files: true
+          path: target/release/bundle/arch
 
   build-host:
     name: Build the Linux host core (${{ matrix.arch }})
@@ -681,9 +721,19 @@ jobs:
   publish:
     name: Publish
     needs:
-      [plan, verify, build-linux, build-host, sign-host, pushed-checks, checks]
+      [
+        plan,
+        verify,
+        build-linux,
+        build-arch,
+        build-host,
+        sign-host,
+        pushed-checks,
+        checks,
+      ]
     if: >-
       !cancelled() && needs.verify.result == 'success' && needs.build-linux.result == 'success' &&
+      needs.build-arch.result == 'success' &&
       needs.build-host.result == 'success' && needs.sign-host.result == 'success' &&
       needs.pushed-checks.result == 'success' &&
       (needs.pushed-checks.outputs.passed == 'true' || needs.checks.result == 'success')
@@ -712,6 +762,12 @@ jobs:
         with:
           name: sikemux-linux-${{ github.ref_name }}
           path: target/release/bundle
+
+      - name: Fetch the Arch package
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sikemux-arch-${{ github.ref_name }}
+          path: target/release/bundle/arch
 
       - name: Fetch the Linux host cores
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -748,3 +804,44 @@ jobs:
           flags=()
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/publish-release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
+
+  # The AUR's PKGBUILD downloads the tarball from the release, so it moves only once that is out.
+  aur:
+    name: Update the AUR package
+    needs: [plan, publish]
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.plan.outputs.channel == 'stable' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - name: Look for the AUR key
+        id: key
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          if [[ -n "$AUR_SSH_PRIVATE_KEY" ]]; then
+            echo "configured=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "No AUR_SSH_PRIVATE_KEY in the release environment, so the AUR keeps its last version" >>"$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Checkout
+        if: steps.key.outputs.configured == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Fetch the AUR recipe
+        if: steps.key.outputs.configured == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sikemux-arch-${{ github.ref_name }}
+          path: target/release/bundle/arch
+
+      - name: Push it to sikemux-bin
+        if: steps.key.outputs.configured == 'true'
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: packaging/arch/push-aur.sh "${{ needs.plan.outputs.version }}" target/release/bundle/arch/aur

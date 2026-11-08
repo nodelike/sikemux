@@ -239,6 +239,21 @@ install_linux() {
     download "Sikemux-${VERSION}-1.x86_64.rpm" "the app"
     step "Installing with zypper" as_root zypper --non-interactive install --allow-unsigned-rpm "$TMP/Sikemux-${VERSION}-1.x86_64.rpm"
     done_step "Installed Sikemux" "with zypper"
+  elif command -v pacman >/dev/null 2>&1; then
+    # packaging/arch/PKGBUILD names it: pacman sorts 0.6.1nightly.6 below 0.6.1.
+    case "$VERSION" in
+      *-*) name=sikemux-nightly-bin ;;
+      *) name=sikemux-bin ;;
+    esac
+    package="$name-$(printf '%s' "$VERSION" | tr -d -)-1-x86_64.pkg.tar.zst"
+    download "$package" "the app"
+    # The other channel's package, or the Omarchy repo's, holds the same files.
+    owner=$(pacman -Qqo /usr/lib/sikemux/sikemux-host 2>/dev/null || true)
+    if [ -n "$owner" ] && [ "$owner" != "$name" ]; then
+      step "Removing $owner" as_root pacman -Rdd --noconfirm "$owner"
+    fi
+    step "Installing with pacman" as_root pacman -U --noconfirm "$TMP/$package"
+    done_step "Installed Sikemux" "with pacman"
   else
     download "Sikemux_${VERSION}_amd64.AppImage" "the app"
     mkdir -p "$HOME/Applications"
