@@ -1193,6 +1193,20 @@ pub(crate) fn asked_for_name(core: &Core, project: &str, card: u64) -> Option<St
     })
 }
 
+/// The open goals still waiting for a short name, by project, card and the agent holding each.
+pub(crate) fn unnamed_goals(core: &Core) -> Vec<(String, u64, String)> {
+    let state = core.boards.state.locked();
+    (state.boards.values())
+        .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
+        .filter(|(board, card)| card.status != CardStatus::Done && board.is_goal(card))
+        .filter(|(_, card)| wants_name(&card.title, &card.details))
+        .filter(|(board, card)| core.goal_summaries.title(&board.project, card.id).is_none())
+        .filter_map(|(board, card)| {
+            Some((board.project.clone(), card.id, card.owner_id()?.to_owned()))
+        })
+        .collect()
+}
+
 /// The goals `agent` holds, by project and card, whose titles are too long to go by and which
 /// `title` is short enough to name.
 pub(crate) fn goals_to_name(core: &Core, agent: &str, title: &str) -> Vec<(String, u64)> {
@@ -1567,6 +1581,15 @@ fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
             .title(&board.project, card.id)
             .unwrap_or_else(|| first_clause(card))
     })
+}
+
+/// The name a goal goes by once it has one: its title when that is short enough, else the
+/// short name it was given; none while it waits for that.
+fn short_name(core: &Core, board: &Board, card: &Card) -> Option<String> {
+    match wants_name(&card.title, &card.details) {
+        true => core.goal_summaries.title(&board.project, card.id),
+        false => Some(card.title.clone()),
+    }
 }
 
 fn board_view(core: &Core, state: &State, board: &Board) -> ProjectBoard {
@@ -2589,7 +2612,9 @@ pub(crate) enum Waits {
 fn waits(core: &Core, board: &Board, card: &Card) -> Option<Waits> {
     let settings = &board.settings;
     let looks = || match slice::look(board, card) {
-        slice::Look::Due(shown) => Some(Waits::Look(Box::new(slice::look_view(core, &shown)))),
+        slice::Look::Due(shown) => Some(Waits::Look(Box::new(slice::look_view(
+            core, board, card, &shown,
+        )))),
         _ => None,
     };
     if card.status == CardStatus::Done {

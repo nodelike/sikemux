@@ -3,6 +3,7 @@
 
 use sikemux_view::inbox::{InboxLook, LookPicture, LookSlice};
 
+use super::super::{display_title, short_name};
 use super::*;
 
 /// What the person answered when they last looked at what a goal's work shows.
@@ -96,14 +97,23 @@ pub(crate) fn look<'a>(board: &'a Board, goal: &'a Card) -> Look<'a> {
     }
 }
 
-/// What the person looks at for the slices `shown`.
-pub(crate) fn look_view(core: &Core, shown: &[&Card]) -> InboxLook {
+/// What the person looks at for the slices `shown` of `goal`.
+pub(crate) fn look_view(core: &Core, board: &Board, goal: &Card, shown: &[&Card]) -> InboxLook {
     let held = || (shown.iter()).filter_map(|card| Some((*card, card.slice.as_ref()?)));
     let mut pictures: Vec<LookPicture> = held()
         .flat_map(|(card, slice)| slice.to_look_at(card.id))
         .collect();
     pictures.sort_by_key(|picture| picture.evidence.at);
+    let name = short_name(core, board, goal);
     InboxLook {
+        question: match &name {
+            Some(name) => format!("Does {name} look right?"),
+            None => "Does this look right?".to_owned(),
+        },
+        unnamed: name
+            .is_none()
+            .then(|| display_title(core, board, goal))
+            .flatten(),
         slices: held()
             .map(|(card, slice)| LookSlice {
                 card: card.id,

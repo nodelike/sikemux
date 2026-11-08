@@ -244,6 +244,11 @@ pub struct InboxItem {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InboxLook {
+    /// What it asks the person, naming the goal once it has a short name.
+    pub question: String,
+    /// What the goal goes by while it waits for its short name, which `question` leaves out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unnamed: Option<String>,
     /// The slices whose work it shows, in the board's order.
     pub slices: Vec<LookSlice>,
     /// Every picture and recording those slices hold, from before each one's first commit and

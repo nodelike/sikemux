@@ -10,7 +10,7 @@ mod moments;
 mod naming;
 mod pulls;
 
-pub(crate) use naming::{chat_titled, name_new};
+pub(crate) use naming::{chat_titled, name_new, name_unnamed};
 
 use crate::server::changed::What;
 use std::collections::HashMap;

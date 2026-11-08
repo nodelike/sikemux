@@ -248,17 +248,14 @@ fn call_who(item: &InboxItem) -> Option<String> {
     }
 }
 
-/// What the call asks, in full, about the goal named `goal` when it is on one.
-fn call_says(item: &InboxItem, goal: Option<&str>) -> String {
-    match item.kind {
-        InboxKind::Question => (item.asked.clone())
+/// What the call asks, in full.
+fn call_says(item: &InboxItem) -> String {
+    match (item.kind, &item.look) {
+        (InboxKind::Question, _) => (item.asked.clone())
             .or_else(|| item.detail.clone())
             .unwrap_or_else(|| item.what.clone()),
-        InboxKind::Gate if item.gate == Some(Gate::LooksRight) => {
-            match goal.or(item.card.as_ref().map(|card| card.title.as_str())) {
-                Some(name) => format!("Does {name} look right?"),
-                None => "Does it look right?".to_owned(),
-            }
+        (InboxKind::Gate, Some(look)) if item.gate == Some(Gate::LooksRight) => {
+            look.question.clone()
         }
         _ => item.what.clone(),
     }
@@ -299,7 +296,6 @@ pub(super) fn call_card(
     cx: &mut Context<GoalsPane>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let goal = pane.call_goal(item);
     let looked = (item.look.as_ref()).filter(|_| item.gate == Some(Gate::LooksRight));
     let from = (home && looked.is_none())
         .then(|| pane.call_from(item, cx))
@@ -308,7 +304,8 @@ pub(super) fn call_card(
         1 => "1 change built and checked".to_owned(),
         many => format!("{many} changes built and checked"),
     });
-    let place = [from, context]
+    let unnamed = looked.and_then(|look| look.unnamed.clone());
+    let place = [from, unnamed, context]
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
@@ -387,7 +384,7 @@ pub(super) fn call_card(
                         )
                 })),
         )
-        .child(asked(pane, item, goal.as_deref(), cx))
+        .child(asked(pane, item, cx))
         .children(under.map(|under| {
             div()
                 .text_size(theme::ui_text(TEXT_SM))
@@ -426,14 +423,9 @@ pub(super) fn call_card(
 }
 
 /// What the call asks, in full; a long question shows its first lines, with a way to read the rest.
-fn asked(
-    pane: &GoalsPane,
-    item: &InboxItem,
-    goal: Option<&str>,
-    cx: &mut Context<GoalsPane>,
-) -> Div {
+fn asked(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Div {
     let t = Tokens::get(cx).clone();
-    let says = call_says(item, goal);
+    let says = call_says(item);
     let long = says.lines().count() > ASKED_LINES || says.chars().count() > ASKED_CHARS;
     let whole = pane.unclamped.as_deref() == Some(item.id.as_str());
     let id = item.id.clone();

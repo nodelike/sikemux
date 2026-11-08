@@ -1,5 +1,6 @@
-//! A goal's short name, given once when it is made by a model asked on the account of the agent
-//! that made or holds it, or else taken from the title that agent's chat got. Nothing waits for
+//! A goal's short name, given once when it is made, or as the core starts for one still without
+//! it, by a model asked on the account of the agent that made or holds it, or else taken from the
+//! title that agent's chat got. Nothing waits for
 //! it: until it comes, the goal goes by the first clause of what the person asked.
 
 use std::sync::Arc;
@@ -28,36 +29,52 @@ pub(crate) fn name_new(core: &Arc<Core>, project: &str, card: u64, agent: &str) 
     let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return;
     };
-    let Some(asked) = board::asked_for_name(core, project, card) else {
+    let (core, project, agent) = (core.clone(), project.to_owned(), agent.to_owned());
+    runtime.spawn(async move { name(&core, project, card, agent).await });
+}
+
+/// Names every open goal still waiting for a short name, such as one made before goals were
+/// named, one after another as the core starts.
+pub(crate) fn name_unnamed(core: &Arc<Core>) {
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
         return;
     };
-    let Some(kind) = (core.agent_now(agent).cli())
+    let core = core.clone();
+    runtime.spawn(async move {
+        for (project, card, agent) in board::unnamed_goals(&core) {
+            name(&core, project, card, agent).await;
+        }
+    });
+}
+
+async fn name(core: &Arc<Core>, project: String, card: u64, agent: String) {
+    let Some(asked) = board::asked_for_name(core, &project, card) else {
+        return;
+    };
+    let Some(kind) = (core.agent_now(&agent).cli())
         .and_then(|cli| AgentKind::from_name(&cli))
         .filter(|kind| ASKED.contains(kind))
     else {
         return;
     };
-    let (core, goal, agent) = (core.clone(), (project.to_owned(), card), agent.to_owned());
-    runtime.spawn(async move {
-        let (working, asking) = (core.clone(), agent.clone());
-        let named = blocking(move || {
-            let account = saved::account_of(&working, &asking, kind);
-            let prompt = format!(
-                "{PROMPT}\n\n<work>\n{}\n</work>",
-                clipped(&asked, MAX_ASKED_CHARS)
-            );
-            Ok(name_in(&ask(&working, kind, account.as_deref(), &prompt)?))
-        })
-        .await;
-        match named {
-            Ok(Some(name)) => return keep(&core, &goal, name),
-            Ok(None) => eprintln!("sikemux core: a goal's name came back as no name"),
-            Err(error) => eprintln!("sikemux core: a goal was not named: {error}"),
-        }
-        if let Some(title) = core.workspaces.own_title(&agent) {
-            chat_titled(&core, &agent, &title);
-        }
-    });
+    let (working, asking) = (core.clone(), agent.clone());
+    let named = blocking(move || {
+        let account = saved::account_of(&working, &asking, kind);
+        let prompt = format!(
+            "{PROMPT}\n\n<work>\n{}\n</work>",
+            clipped(&asked, MAX_ASKED_CHARS)
+        );
+        Ok(name_in(&ask(&working, kind, account.as_deref(), &prompt)?))
+    })
+    .await;
+    match named {
+        Ok(Some(name)) => return keep(core, &(project, card), name),
+        Ok(None) => eprintln!("sikemux core: a goal's name came back as no name"),
+        Err(error) => eprintln!("sikemux core: a goal was not named: {error}"),
+    }
+    if let Some(title) = core.workspaces.own_title(&agent) {
+        chat_titled(core, &agent, &title);
+    }
 }
 
 /// Names the goals `agent` holds that have no name yet after its chat's own title, when that is

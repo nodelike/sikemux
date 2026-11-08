@@ -847,6 +847,10 @@ export interface Moment {
  * that shows something is Built.
  */
 export interface InboxLook {
+    /** What it asks the person, naming the goal once it has a short name. */
+    question: string;
+    /** What the goal goes by while it waits for its short name, which `question` leaves out. */
+    unnamed?: string;
     /** The slices whose work it shows, in the board's order. */
     slices: LookSlice[];
     /**

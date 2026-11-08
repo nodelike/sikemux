@@ -1095,6 +1095,7 @@ pub(crate) async fn run_core(
     remote::start(&core, &config).await;
     git::follow_projects(&core);
     backdrop::follow(&core);
+    goal_summary::name_unnamed(&core);
     if let Some(data_dir) = config.data_dir.as_deref() {
         crate::agent_accounts::usage::keep_readings_in(data_dir.join("plan-limits.json"));
         tokio::spawn(workspace::refresh_launchers(core.clone()));
