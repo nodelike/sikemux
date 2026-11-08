@@ -820,6 +820,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let auto_on = settings.auto;
     let agent_cards = settings.agent_cards;
     let (reviewer_runs, contract) = (settings.reviewer_runs, settings.contract);
+    let scaled_review = settings.scaled_review;
     let (fast_check, culprit_finding) = (settings.fast_check, settings.culprit_finding);
     let merge_queue = settings.merge_queue;
     let reservoir = settings.reservoir;
@@ -1040,6 +1041,16 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                 )
                 .on_click(cx.listener(move |pane, _, _, cx| {
                     pane.change_settings(|params| params.reviewer_runs = Some(!reviewer_runs), cx)
+                })),
+            )
+            .child(
+                Toggle::new(
+                    "board-scaled-review",
+                    "Scale review to the risk of the change",
+                    scaled_review,
+                )
+                .on_click(cx.listener(move |pane, _, _, cx| {
+                    pane.change_settings(|params| params.scaled_review = Some(!scaled_review), cx)
                 })),
             )
             .child(
