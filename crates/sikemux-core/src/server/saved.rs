@@ -127,6 +127,12 @@ pub(crate) fn session_file(
     Some((file, account))
 }
 
+/// The account folder to ask `agent_id`'s CLI on: the one it runs on, else the one the person
+/// chose.
+pub(crate) fn account_of(core: &Core, agent_id: &str, agent: AgentKind) -> Option<String> {
+    recorded_account(core, agent_id, agent).unwrap_or_else(|| chosen_account(core, agent))
+}
+
 /// The account folder `agent_id` runs on, when known: its launch's while its chat runs, else the
 /// profile its record keeps through sleep, close and restarts.
 fn recorded_account(core: &Core, agent_id: &str, agent: AgentKind) -> Option<Option<String>> {

@@ -1171,10 +1171,60 @@ struct Maker {
     name: Option<String>,
 }
 
-/// Whether a card's title is only the start of what its details say, as one made from a long
-/// first message is.
-pub(crate) fn title_is_chopped(title: &str, details: &str) -> bool {
-    details.len() > title.len() && details.starts_with(title.trim_end_matches('…'))
+/// The most words a goal's title has and still serves as its short name.
+const MAX_NAME_WORDS: usize = 7;
+/// The most of the first clause of what the person asked a goal shows while it waits for a name.
+const MAX_CLAUSE_CHARS: usize = 60;
+
+/// Whether a goal titled `title` wants a short name: its title is too long to read at a glance,
+/// or is only the start of what its details say, as one made from a long first message is.
+pub(crate) fn wants_name(title: &str, details: &str) -> bool {
+    title.split_whitespace().count() > MAX_NAME_WORDS
+        || (details.len() > title.len() && details.starts_with(title.trim_end_matches('…')))
+}
+
+/// What the person asked for goal `card` of `project`, when its title is too long to go by.
+pub(crate) fn asked_for_name(core: &Core, project: &str, card: u64) -> Option<String> {
+    let state = core.boards.state.locked();
+    let goal = state.boards.get(project)?.card(card).ok()?;
+    wants_name(&goal.title, &goal.details).then(|| match goal.details.as_str() {
+        "" => goal.title.clone(),
+        details => details.to_owned(),
+    })
+}
+
+/// The goals `agent` holds, by project and card, whose titles are too long to go by and which
+/// `title` is short enough to name.
+pub(crate) fn goals_to_name(core: &Core, agent: &str, title: &str) -> Vec<(String, u64)> {
+    let state = core.boards.state.locked();
+    (state.boards.values())
+        .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
+        .filter(|(_, card)| card.parent.is_none() && card.owner_id() == Some(agent))
+        .filter(|(_, card)| wants_name(&card.title, &card.details))
+        .filter(|(_, card)| !wants_name(title, &card.details))
+        .map(|(board, card)| (board.project.clone(), card.id))
+        .collect()
+}
+
+/// The first clause of what the person asked, shown until the goal has its short name.
+fn first_clause(card: &Card) -> String {
+    let asked = if card.details.is_empty() {
+        &card.title
+    } else {
+        &card.details
+    };
+    let line = (asked.lines())
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or("");
+    let end = [": ", "; ", ". ", "? ", "! ", " - ", " — "]
+        .iter()
+        .filter_map(|mark| line.find(mark))
+        .min()
+        .unwrap_or(line.len());
+    clipped(
+        line[..end].trim_end_matches(['.', '?', '!', ':']),
+        MAX_CLAUSE_CHARS,
+    )
 }
 
 impl Card {
@@ -1509,12 +1559,14 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
     }
 }
 
-/// The short name a goal's summary gave it, for one whose title is only its prompt cut short.
+/// What a goal whose title is too long to go by is called: its short name, or the first clause
+/// of what the person asked until that arrives.
 fn display_title(core: &Core, board: &Board, card: &Card) -> Option<String> {
-    (card.parent.is_none())
-        .then(|| core.goal_summaries.title(&board.project, card.id))
-        .flatten()
-        .filter(|_| title_is_chopped(&card.title, &card.details))
+    (card.parent.is_none() && wants_name(&card.title, &card.details)).then(|| {
+        core.goal_summaries
+            .title(&board.project, card.id)
+            .unwrap_or_else(|| first_clause(card))
+    })
 }
 
 fn board_view(core: &Core, state: &State, board: &Board) -> ProjectBoard {
@@ -1746,6 +1798,13 @@ fn add_card(
     drop(state);
     if matches!(by, By::Person) && goal {
         super::memory::seed_once(core, project);
+    }
+    let creator = match by {
+        By::Agent(agent) => Some(agent.as_str()),
+        By::Person | By::Auto(_) => holder,
+    };
+    if let Some(creator) = creator.filter(|_| goal) {
+        super::goal_summary::name_new(core, project, id, creator);
     }
     if let (Some(note), Some(fields)) = (note, view.as_object_mut()) {
         fields.insert("note".into(), note.into());
@@ -2613,7 +2672,7 @@ impl Card {
             project: board.project.clone(),
             id: self.id,
             goal: Some(board.goal_above(self).id).filter(|goal| *goal != self.id),
-            title: self.title.clone(),
+            title: display_title(core, board, self).unwrap_or_else(|| self.title.clone()),
             done: self.status == CardStatus::Done,
             owner: self.owner_id().map(str::to_owned),
             owner_name: self.owner_name(core),

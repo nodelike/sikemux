@@ -10,7 +10,7 @@ use crate::text::clipped;
 const MAX_HAPPENED: usize = 6;
 const MAX_EXTRACTED: usize = 6;
 const MAX_SENTENCE_CHARS: usize = 400;
-const MAX_TITLE_CHARS: usize = 70;
+pub(super) const MAX_TITLE_CHARS: usize = 70;
 /// How much of an answer that holds no summary is shown as why.
 const MAX_SAID_CHARS: usize = 160;
 const MAX_SOURCES: usize = 4;
@@ -219,7 +219,7 @@ pub(super) fn read(
         .iter()
         .any(|moment| matches!(moment.source.kind, SourceKind::Evidence | SourceKind::Gate));
     let title = (answer.title.as_deref().map(crate::text::one_line))
-        .filter(|title| gathered.title_is_chopped && !title.is_empty())
+        .filter(|title| gathered.wants_name && !title.is_empty())
         .map(|title| clipped(&title, MAX_TITLE_CHARS));
     let summary = GoalSummary {
         at: epoch_ms(),

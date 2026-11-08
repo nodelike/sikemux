@@ -760,6 +760,13 @@ impl Workspaces {
         .unwrap_or(false)
     }
 
+    /// The agent's title, once it has one of its own rather than its agent's or account's name.
+    pub(crate) fn own_title(&self, agent_id: &str) -> Option<String> {
+        let published = self.published.locked();
+        let agent = &published.saved.kept(agent_id)?.agent;
+        (agent.renamed || !untitled(&published.saved, agent)).then(|| agent.title.clone())
+    }
+
     /// Holds every agent asleep until the person, or an agent they set going
     /// again, opens or messages it, as the person stops everything.
     pub(crate) fn hold_all(&self) {
@@ -1516,6 +1523,9 @@ fn untitled(saved: &Saved, agent: &WorkspaceAgent) -> bool {
 pub(crate) fn retitle(core: &Core, agent_id: &str, title: Option<String>, stand_in: bool) {
     if let Some(title) = title {
         core.workspaces.note_title(agent_id, &title, stand_in);
+        if let Some(own) = core.workspaces.own_title(agent_id).filter(|_| !stand_in) {
+            super::goal_summary::chat_titled(core, agent_id, &own);
+        }
     }
 }
 

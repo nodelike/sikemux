@@ -40,7 +40,7 @@ const MAX_LOG_COMMITS: &str = "--max-count=400";
 /// A prompt written just before its card was added belongs to the card.
 const START_SLACK_MS: u64 = 5 * 60 * 1000;
 /// Only these agents' one-shot answer keeps no session, uses no tools and runs no hooks.
-const ASKED: [AgentKind; 2] = [AgentKind::Claude, AgentKind::Codex];
+pub(super) const ASKED: [AgentKind; 2] = [AgentKind::Claude, AgentKind::Codex];
 /// Commands that check work, among what an agent ran.
 const CHECKS: [&str; 15] = [
     "cargo test",
@@ -94,7 +94,7 @@ impl Gathered {
 pub(super) struct Gathered {
     pub card: u64,
     pub title: String,
-    pub title_is_chopped: bool,
+    pub wants_name: bool,
     pub moments: Vec<Moment>,
     pub gaps: Vec<Gap>,
     pub recorded: Vec<String>,
@@ -858,7 +858,7 @@ pub(super) fn gather(core: &Core, project: &str, card: u64) -> Option<Gathered> 
     Some(Gathered {
         card: goal.id,
         title: goal.title.clone(),
-        title_is_chopped: board::title_is_chopped(&goal.title, &goal.details),
+        wants_name: board::wants_name(&goal.title, &goal.details),
         moments,
         gaps,
         recorded: (goal.decisions.iter())

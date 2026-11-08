@@ -7,7 +7,10 @@
 
 mod answer;
 mod moments;
+mod naming;
 mod pulls;
+
+pub(crate) use naming::{chat_titled, name_new};
 
 use crate::server::changed::What;
 use std::collections::HashMap;
@@ -25,9 +28,10 @@ use super::board;
 use super::changed::Topic;
 use super::connection::blocking;
 use super::Core;
+use crate::agent_catalog::AgentKind;
 
 const FOLDER: &str = "goal-summaries";
-/// The short names summaries gave their goals, read by every view of a board.
+/// The short names goals were given, read by every view of a board.
 const TITLES: &str = "titles.json";
 /// Summaries kept across every project; past this the longest unwritten goes.
 const MAX_FILES: usize = 128;
@@ -41,7 +45,7 @@ pub(crate) struct Summaries {
     /// The goals being looked at now, and whether a model is writing for each.
     busy: Mutex<HashMap<Goal, bool>>,
     turns: Arc<Semaphore>,
-    /// The short name each goal's latest summary gave it, the longest unchanged first.
+    /// The short name each goal was first given, the oldest first.
     titles: Mutex<Vec<(Goal, String)>>,
 }
 
@@ -83,15 +87,11 @@ impl Summaries {
             .map(|(_, title)| title.clone())
     }
 
-    /// Keeps the short name a summary gave `goal`; whether that changed it.
+    /// Keeps `title` as `goal`'s short name, unless it has one; whether it took it.
     fn name(&self, goal: &Goal, title: String) -> bool {
         let mut titles = self.titles.locked();
-        let known = titles.iter().position(|(named, _)| named == goal);
-        if known.is_some_and(|at| titles[at].1 == title) {
+        if titles.iter().any(|(named, _)| named == goal) {
             return false;
-        }
-        if let Some(at) = known {
-            titles.remove(at);
         }
         titles.push((goal.clone(), title));
         if titles.len() > MAX_FILES {
@@ -280,6 +280,17 @@ fn write(core: &Core, gathered: &Gathered) -> Result<(GoalSummary, Option<String
             gathered.lead_label,
         )
     })?;
+    let said = ask(core, *agent, account.as_deref(), &answer::prompt(gathered))?;
+    answer::read(&said, gathered)
+}
+
+/// What `agent`'s CLI on `account` answers `prompt` with, asked once.
+fn ask(
+    core: &Core,
+    agent: AgentKind,
+    account: Option<&str>,
+    prompt: &str,
+) -> Result<String, String> {
     let ask = agent
         .ops()
         .ask_once()
@@ -287,11 +298,5 @@ fn write(core: &Core, gathered: &Gathered) -> Result<(GoalSummary, Option<String
     let model = (agent.entry().commit_models.first()).ok_or("This agent names no model to ask")?;
     let asked_in = (core.goal_summaries.folder.clone()).unwrap_or_else(std::env::temp_dir);
     std::fs::create_dir_all(&asked_in).map_err(|error| error.to_string())?;
-    let said = ask(
-        &asked_in.to_string_lossy(),
-        model,
-        &answer::prompt(gathered),
-        account.as_deref(),
-    )?;
-    answer::read(&said, gathered)
+    ask(&asked_in.to_string_lossy(), model, prompt, account)
 }
