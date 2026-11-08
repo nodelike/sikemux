@@ -46,6 +46,16 @@ pub(crate) enum Purpose {
     },
     /// A name for the chat.
     Title,
+    /// Asking whether the agent has settled, since this many events changed the answer.
+    Settle(u64),
+    /// How much of the context window the session uses now.
+    Usage,
+    /// The session's new entries, the first of which `Some` message began.
+    Entries(Option<String>),
+    /// Compacting by the person's command, which is turn this.
+    Compact(u64),
+    /// The messages still queued in the agent, cleared by a stop.
+    ClearQueue,
 }
 
 /// An error object for a request that got no answer from the agent.

@@ -46,6 +46,7 @@ pub enum ChatDriver {
     Claude,
     Codex,
     Muse,
+    Pi,
     /// The agent's own ACP mode, started with `args`.
     Acp {
         args: &'static [&'static str],
@@ -326,7 +327,7 @@ pub const AGENTS: &[AgentEntry] = &[
         resumes_by_path: true,
         relocatable_sessions: false,
         history_before_start: false,
-        bypass: false,
+        bypass: true,
         commit_models: &[],
         efforts: &["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         install: Some("curl -fsSL https://pi.dev/install.sh | sh"),
@@ -344,12 +345,12 @@ pub const AGENTS: &[AgentEntry] = &[
         }),
         terminal: Terminal {
             normal: &[],
-            bypass: None,
+            bypass: Some(&[]),
             effort: Some(["--thinking", "{}"]),
             resume: Resume::Flag("--session"),
             with_choices: &[],
         },
-        chat: None,
+        chat: Some(ChatDriver::Pi),
         providers: Some(ProviderUse::Reads),
         routed: None,
     },

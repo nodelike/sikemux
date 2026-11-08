@@ -72,12 +72,12 @@
         "deletableChats": false,
         "resumesByPath": true,
         "relocatableSessions": false,
-        "bypass": false,
+        "bypass": true,
         "commitModels": [],
         "efforts": ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
         "install": "curl -fsSL https://pi.dev/install.sh | sh",
         "login": null,
-        "chat": null
+        "chat": "pi"
     },
     {
         "type": "opencode",

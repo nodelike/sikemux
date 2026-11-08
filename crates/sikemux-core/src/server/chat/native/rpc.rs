@@ -72,6 +72,20 @@ pub(crate) struct Sent {
 }
 
 impl Sent {
+    pub(super) fn new(
+        pending: Arc<Pending<i64>>,
+        id: i64,
+        method: &str,
+        answered: oneshot::Receiver<Answered>,
+    ) -> Self {
+        Self {
+            pending,
+            id,
+            method: method.to_owned(),
+            answered,
+        }
+    }
+
     /// The agent's answer, or its error object. With a `wait`, a request left
     /// unanswered that long fails.
     pub async fn answer(self, wait: Option<Duration>) -> Answered {

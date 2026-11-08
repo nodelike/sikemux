@@ -39,6 +39,7 @@ pub(crate) fn view() -> Vec<CatalogAgent> {
                 ChatDriver::Claude => Driver::Claude,
                 ChatDriver::Codex => Driver::Codex,
                 ChatDriver::Muse => Driver::Muse,
+                ChatDriver::Pi => Driver::Pi,
                 ChatDriver::Acp { .. } => Driver::Acp,
             }),
         })

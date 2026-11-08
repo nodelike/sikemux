@@ -110,6 +110,8 @@ pub(crate) struct Process {
     stop_stderr: Option<oneshot::Sender<()>>,
     stderr_task: JoinHandle<Option<pipe::Receiver>>,
     released: bool,
+    /// How long the agent gets to shut down by itself before it is killed.
+    grace: Option<Duration>,
 }
 
 impl Process {
@@ -217,6 +219,7 @@ impl Process {
                 stop_stderr: Some(stop_stderr),
                 stderr_task,
                 released: false,
+                grace: None,
             },
             Writer(input),
             Lines {
@@ -230,6 +233,12 @@ impl Process {
 
     pub fn pid(&self) -> u32 {
         self.pid
+    }
+
+    /// When stopped, the agent is asked to quit and only killed if it has not
+    /// after `grace`, for an agent that writes what it must keep as it quits.
+    pub fn stop_gently(&mut self, grace: Duration) {
+        self.grace = Some(grace);
     }
 
     /// Resolves once the process has exited, with how it ended.
@@ -336,9 +345,24 @@ impl Process {
 impl Drop for Process {
     fn drop(&mut self) {
         self.stderr_task.abort();
-        if !self.released {
-            kill_group(self.pid);
+        if self.released {
+            return;
         }
+        let waits = self.grace.zip(tokio::runtime::Handle::try_current().ok());
+        let Some((grace, runtime)) = waits else {
+            kill_group(self.pid);
+            return;
+        };
+        sikemux_process::terminate_tree(self.pid, false);
+        let (pid, mut exit) = (self.pid, self.exit.clone());
+        runtime.spawn(async move {
+            if tokio::time::timeout(grace, exit.wait_for(Option::is_some))
+                .await
+                .is_err()
+            {
+                kill_group(pid);
+            }
+        });
     }
 }
 

@@ -1,6 +1,6 @@
 //! The chat agents the core starts and speaks to: Claude Code over its
 //! stream-json control protocol, Codex over its app server, Muse Code over its
-//! session protocol, and every other agent over ACP. Each tells the chat the
+//! session protocol, Pi over its RPC mode, and every other agent over ACP. Each tells the chat the
 //! same ACP-shaped session updates, so the app reads them alike.
 
 mod acp;
@@ -13,12 +13,14 @@ mod muse;
 mod parts;
 mod patch;
 mod pending;
+mod pi;
 mod process;
 mod rpc;
 mod rpc_driver;
 mod servers;
 mod session;
 mod turns;
+mod words;
 
 use std::sync::Arc;
 
@@ -96,7 +98,7 @@ pub(crate) async fn read_options(launch: &ChatLaunch) -> Result<Value, String> {
     match driver(&launch.provider) {
         Some(ChatDriver::Claude) => claude::read_options(command).await,
         Some(ChatDriver::Codex) => codex::read_options(command).await,
-        Some(ChatDriver::Muse | ChatDriver::Acp { .. }) | None => Err(format!(
+        Some(ChatDriver::Muse | ChatDriver::Pi | ChatDriver::Acp { .. }) | None => Err(format!(
             "{} offers its options only in a session",
             launch.provider
         )),
@@ -124,7 +126,7 @@ pub(crate) fn show_saved(chat: &Arc<Chat>) {
         let shown = match driver(chat.provider()) {
             Some(ChatDriver::Claude) => claude::replay_saved(&chat.launch, &session, &sink),
             Some(ChatDriver::Acp { .. }) => acp::replay_saved(&chat.launch, &session, &sink),
-            Some(ChatDriver::Codex | ChatDriver::Muse) | None => Err(format!(
+            Some(ChatDriver::Codex | ChatDriver::Muse | ChatDriver::Pi) | None => Err(format!(
                 "Sikemux reads no saved chat of {} without its agent",
                 chat.provider()
             )),
@@ -153,6 +155,7 @@ pub(super) async fn run(
         ChatDriver::Claude => session::run::<claude::Claude>(chat, launch, commands, begin).await,
         ChatDriver::Codex => session::run::<codex::Codex>(chat, launch, commands, begin).await,
         ChatDriver::Muse => session::run::<muse::Muse>(chat, launch, commands, begin).await,
+        ChatDriver::Pi => session::run::<pi::Pi>(chat, launch, commands, begin).await,
         ChatDriver::Acp { .. } => session::run::<acp::Acp>(chat, launch, commands, begin).await,
     }
 }

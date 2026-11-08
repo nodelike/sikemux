@@ -1,6 +1,6 @@
 ---
 title: Pi
-description: "The Pi coding agent in Sikemux: install, sign-in and running it in a terminal."
+description: "The Pi coding agent in Sikemux: install, sign-in, chat and terminal."
 ---
 
 Pi is a minimal terminal coding agent.
@@ -10,8 +10,8 @@ Pi is a minimal terminal coding agent.
 | | |
 |---|---|
 | Command | `pi` |
-| Chat in Sikemux | No, it runs in its own terminal |
-| Permission modes | Normal only |
+| Chat in Sikemux | Yes, over Pi's RPC mode |
+| Permission modes | Normal and YOLO |
 | Effort levels | off, minimal, low, medium, high, xhigh, max |
 | Several accounts | No |
 
@@ -29,9 +29,19 @@ Pi signs in from inside its own terminal. Start `pi`, type `/login` and pick a s
 
 Sikemux checks Pi's sign-in with `pi auth check`: ready, not signed in, or credentials that no longer work.
 
-## How Sikemux runs it
+## Chat
 
-Pi has no chat view in Sikemux. Start one from **+ new Pi** in ⌘⇧N; it runs in its own terminal, where you use it as you would anywhere else. If Pi crashes, Sikemux starts it again on the same session, below its old screen. After it sleeps or Sikemux restarts, it starts again on its session when you next show its tab; one put to sleep while you are looking at it shows **Wake**. A message to a sleeping Pi, from you or from another agent, wakes it in its terminal and types the message in once Pi is ready. Pi's earlier sessions show in the tab rail's **Recent** and in ⌘⇧N, and can be pinned; opening one resumes it in a terminal. The phone app starts only agents with a chat, so it doesn't offer Pi.
+A Pi chat is Pi in its RPC mode, on the same session files as Pi's terminal. It streams text and thinking, shows tool calls and edits, and lets you steer a running turn, queue messages and stop. Edit a message to go back to it: Pi forks a new session there. Pi's earlier sessions, including ones you started in its terminal, open as chats with their history.
+
+The model picker lists what Pi can use with the sign-ins it has, and the effort picker lists the thinking levels that model takes. `/compact`, `/name` and `/status` work in the composer, along with Pi's extension commands, prompt templates and skills. Your message waits while Pi compacts and goes in once it has finished.
+
+**Normal** asks before commands, file edits and other extension tools; reads and searches go through. **YOLO** asks about nothing, as Pi does on its own. Pi has no sandbox of its own, so a Normal chat's protection is the question. Sikemux's tools are available in the chat.
+
+Extension dialogs show up as questions. Sikemux can answer `select`, `confirm` and the prefilled or empty choices of `input` and `editor`; a dialog that needs text typed in has to be answered in Pi's terminal. Status lines, widgets and terminal titles from extensions have no place in the chat. If Pi says it skipped a project's settings because the folder is not trusted, run `pi` there, use `/trust`, then start a new chat.
+
+## Terminal
+
+Start one from **+ new Pi** in ⌘⇧N; it runs in its own terminal, where you use it as you would anywhere else. If Pi crashes, Sikemux starts it again on the same session, below its old screen. After it sleeps or Sikemux restarts, it starts again on its session when you next show its tab; one put to sleep while you are looking at it shows **Wake**. A message to a sleeping Pi, from you or from another agent, wakes it in its terminal and types the message in once Pi is ready.
 
 ## Skills
 

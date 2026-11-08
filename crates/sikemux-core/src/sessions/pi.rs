@@ -287,6 +287,16 @@ impl AgentOps for Pi {
         })))
     }
 
+    fn chat_skills(
+        &self,
+        data_dir: &Path,
+        _library: &Path,
+        args: &mut Vec<String>,
+        _env: &mut BTreeMap<String, String>,
+    ) {
+        args.extend(skills::pi_args(data_dir));
+    }
+
     fn default_model(&self, _config_path: Option<&str>) -> Option<String> {
         let settings = fs::read_to_string(AgentKind::Pi.home_root()?.join("settings.json")).ok()?;
         let value: Value = serde_json::from_str(&settings).ok()?;

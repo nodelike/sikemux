@@ -277,7 +277,7 @@ impl Tools {
 
     /// Pi's extension ships beside the Sikemux program: in the app bundle's
     /// resources, or the source tree's in a development build.
-    fn pi_extension(&self) -> Result<PathBuf, String> {
+    pub(crate) fn pi_extension(&self) -> Result<PathBuf, String> {
         const NAME: &str = "sikemux_pi_tools.ts";
         let beside = self
             .executable

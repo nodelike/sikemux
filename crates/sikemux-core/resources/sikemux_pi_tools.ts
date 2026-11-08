@@ -158,7 +158,57 @@ function contentFrom(
   });
 }
 
+const TOOL_PERMISSION = "sikemux-tool-permission";
+const READ_ONLY_TOOLS = new Set(["read", "grep", "find", "ls", "tool_search"]);
+const SIKEMUX_TOOL_PREFIX = "mcp__sikemux-tools__";
+
+/**
+ * Pi leaves permissions to its extensions. A chat starts Pi with the mode in
+ * its environment, which a terminal does not, where Pi runs as it always has.
+ */
+function askBeforeTools(pi: ExtensionAPI, initial: string): void {
+  let mode = initial;
+  pi.registerCommand("sikemux-permission-mode", {
+    description: "Sikemux's chat changes its permission mode with this",
+    handler: async (args) => {
+      mode = args.trim();
+    },
+  });
+  pi.on("tool_call", async (event, ctx) => {
+    if (
+      mode === "bypass" ||
+      READ_ONLY_TOOLS.has(event.toolName) ||
+      event.toolName.startsWith(SIKEMUX_TOOL_PREFIX)
+    )
+      return;
+    const allowed = await ctx.ui.confirm(
+      TOOL_PERMISSION,
+      JSON.stringify({
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        input: event.input,
+      }),
+      { signal: ctx.signal },
+    );
+    if (!allowed)
+      return { block: true, reason: `${event.toolName} was declined in Sikemux.` };
+  });
+  let trustChecked = false;
+  pi.on("before_agent_start", (_event, ctx) => {
+    if (trustChecked) return;
+    trustChecked = true;
+    if (ctx.isProjectTrusted?.() !== false) return;
+    ctx.ui.notify(
+      `Pi skipped this project's settings, extensions, skills and prompts because ${ctx.cwd} is not trusted. Run pi in that folder, use /trust, then start a new chat.`,
+      "warning",
+    );
+  });
+}
+
 export default async function sikemuxBrowser(pi: ExtensionAPI): Promise<void> {
+  const permissions = process.env.SIKEMUX_PI_PERMISSIONS;
+  delete process.env.SIKEMUX_PI_PERMISSIONS;
+  if (permissions) askBeforeTools(pi, permissions);
   const command = process.env.SIKEMUX_TOOLS_MCP_COMMAND;
   if (!command) return;
   let args: string[];
@@ -194,6 +244,7 @@ export default async function sikemuxBrowser(pi: ExtensionAPI): Promise<void> {
       const tool = rawTool as JsonObject;
       if (typeof tool.name !== "string") continue;
       const name = tool.name;
+      const registered = permissions ? SIKEMUX_TOOL_PREFIX + name : name;
       const description =
         typeof tool.description === "string"
           ? tool.description
@@ -203,7 +254,7 @@ export default async function sikemuxBrowser(pi: ExtensionAPI): Promise<void> {
           ? (tool.inputSchema as JsonObject)
           : { type: "object" };
       pi.registerTool({
-        name,
+        name: registered,
         label: name.replaceAll("_", " "),
         description,
         promptSnippet: firstSentence(description),

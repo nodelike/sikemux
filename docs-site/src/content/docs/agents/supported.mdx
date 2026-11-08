@@ -11,7 +11,7 @@ Sikemux runs the coding agent CLIs you already use. It finds them on your `PATH`
 | [Codex](/each-agent/codex/) | Yes | Yes | minimal to max | Yes | Yes |
 | [OpenCode](/each-agent/opencode/) | Yes | No | Not offered | No | No |
 | [Hermes](/each-agent/hermes/) | Yes | Yes | none to ultra | No | No |
-| [Pi](/each-agent/pi/) | Terminal only | No | off to max | No | No |
+| [Pi](/each-agent/pi/) | Yes | Yes | off to max | No | No |
 | [OMP](/each-agent/omp/) | Yes | Yes | off to max | No | No |
 | [Grok](/each-agent/grok/) | Yes | Yes | none to max | No | No |
 | [Muse](/each-agent/muse/) | Yes | Yes | minimal to ultra | No | No |
@@ -27,7 +27,7 @@ Each agent's page covers how to install it and sign in, how Sikemux runs it, and
 | OpenCode, OMP, Hermes | `opencode acp`, `omp acp`, `hermes acp`: the Agent Client Protocol |
 | Grok | `grok agent --no-leader stdio`, one process per chat |
 | Muse | `muse serve`, Muse's session protocol |
-| Pi | No chat: Pi runs in its own terminal |
+| Pi | `pi --mode rpc`, Pi's own RPC mode |
 
 ## Where Sikemux looks
 

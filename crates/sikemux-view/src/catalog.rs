@@ -9,6 +9,7 @@ pub enum ChatDriver {
     Claude,
     Codex,
     Muse,
+    Pi,
     Acp,
 }
 

@@ -208,6 +208,17 @@ pub(crate) fn own_tools(core: &Core, launch: &mut ChatLaunch) {
     let Some(tools) = tools(core) else {
         return;
     };
+    if AgentKind::from_name(&launch.provider) == Some(AgentKind::Pi) {
+        match tools.pi_extension() {
+            Ok(path) => {
+                launch.env.insert(
+                    vars::PI_EXTENSION.into(),
+                    path.to_string_lossy().into_owned(),
+                );
+            }
+            Err(error) => eprintln!("sikemux core: {error}"),
+        }
+    }
     let offer = launch.env.get(TOOLS_OFFER_ENV).map(String::as_str);
     match tools.chat_server(&launch.agent_id, offer) {
         Ok(server) => launch.mcp_servers = vec![server],

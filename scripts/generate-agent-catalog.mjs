@@ -42,7 +42,7 @@ const FLAGS = [
 ];
 /** Yes-or-no facts only the core reads, which clients are never sent. */
 const CORE_FLAGS = ["historyBeforeStart"];
-const DRIVERS = ["claude", "codex", "muse", "acp"];
+const DRIVERS = ["claude", "codex", "muse", "pi", "acp"];
 const PROVIDERS = ["routed", "reads"];
 const ROUTED_APIS = ["anthropic", "responses", "chat"];
 
@@ -442,6 +442,7 @@ pub enum ChatDriver {
     Claude,
     Codex,
     Muse,
+    Pi,
     /// The agent's own ACP mode, started with \`args\`.
     Acp {
         args: &'static [&'static str],
