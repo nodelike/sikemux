@@ -345,7 +345,7 @@ pub const AGENTS: &[AgentEntry] = &[
         }),
         terminal: Terminal {
             normal: &[],
-            bypass: Some(&[]),
+            bypass: None,
             effort: Some(["--thinking", "{}"]),
             resume: Resume::Flag("--session"),
             with_choices: &[],

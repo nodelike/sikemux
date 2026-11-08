@@ -155,6 +155,7 @@ for (const agent of agents) {
     chat !== null &&
     !(
       DRIVERS.includes(chat?.driver) &&
+      (chat.bypass === undefined || chat.bypass === true) &&
       (chat.driver === "acp"
         ? isArgs(chat.args) &&
           (chat.modes === undefined ||
@@ -226,7 +227,8 @@ const entries = agents.map((agent) => ({
   brand: agent.brand,
   maker: agent.maker,
   ...Object.fromEntries(FLAGS.map((flag) => [flag, agent[flag]])),
-  bypass: agent.terminal.bypass !== null,
+  bypass: agent.terminal.bypass !== null || agent.chat?.bypass === true,
+  terminalBypass: agent.terminal.bypass !== null,
   commitModels: agent.commitMessages?.models ?? [],
   efforts: agent.efforts,
   install: agent.install,
@@ -344,7 +346,7 @@ ${privateField}
         brand: ${rustString(agent.brand)},
         maker: ${rustOption(agent.maker, rustString)},
 ${[...FLAGS, ...CORE_FLAGS].map((flag) => `        ${snake(flag)}: ${agent[flag]},`).join("\n")}
-        bypass: ${terminal.bypass !== null},
+        bypass: ${terminal.bypass !== null || chat?.bypass === true},
 ${rustList(8, "commit_models", agent.commitMessages?.models ?? [])}
 ${rustList(8, "efforts", agent.efforts)}
         install: ${rustOption(agent.install, rustString)},

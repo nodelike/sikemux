@@ -185,14 +185,14 @@
             },
             "terminal": {
                 "normal": [],
-                "bypass": [],
+                "bypass": null,
                 "effort": ["--thinking", "{}"],
                 "resume": {
                     "flag": "--session"
                 },
                 "withChoices": []
             },
-            "chat": { "driver": "pi" },
+            "chat": { "driver": "pi", "bypass": true },
             "providers": "reads",
             "routed": null,
             "resumesByPath": true,

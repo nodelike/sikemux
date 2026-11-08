@@ -43,6 +43,8 @@ pub struct CatalogAgent {
     pub relocatable_sessions: bool,
     /// It can start without asking for permissions.
     pub bypass: bool,
+    /// It can in a terminal too, where its CLI has a flag for it.
+    pub terminal_bypass: bool,
     /// The models the core can ask it for a commit message with, the default first;
     /// none when it cannot write one.
     pub commit_models: Vec<String>,
@@ -54,4 +56,15 @@ pub struct CatalogAgent {
     pub login: Option<Vec<String>>,
     /// The chat driver that runs it; none when it has no chat.
     pub chat: Option<ChatDriver>,
+}
+
+impl CatalogAgent {
+    /// Whether it can run without asking, as a chat or in a `terminal`.
+    pub fn can_skip_asking(&self, terminal: bool) -> bool {
+        if terminal {
+            self.terminal_bypass
+        } else {
+            self.bypass
+        }
+    }
 }

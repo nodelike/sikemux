@@ -93,7 +93,8 @@ impl AgentMenu {
                                 ) && row.tasks + row.subagents == 0
                             }))),
             pinned: workspace.pinned.clone(),
-            can_skip_permissions: catalog.is_some_and(|kind| kind.bypass),
+            can_skip_permissions: catalog
+                .is_some_and(|kind| kind.can_skip_asking(bench.in_terminal(&agent.id))),
             can_share: catalog.is_some_and(|kind| kind.chat.is_some()),
             link,
             in_front: !bench.showing_goals()

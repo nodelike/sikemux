@@ -150,7 +150,9 @@ impl Workbench {
             );
         }
         rows.extend(sign_ins);
-        let unarmed = |provider: &str| kind_of(provider).is_none_or(|kind| !kind.bypass);
+        let unarmed = |provider: &str, terminal: bool| {
+            kind_of(provider).is_none_or(|kind| !kind.can_skip_asking(terminal))
+        };
         let mut taken_up = Vec::new();
         for agent in self.agents_of(project) {
             let handle = agent.name.as_ref().map(|name| format!("@{name}"));
@@ -158,7 +160,7 @@ impl Workbench {
             let row = Row::new(format!("{OPEN}{}", agent.id), agent.title.clone())
                 .handle(handle.clone().map(SharedString::from))
                 .state(agent.status)
-                .unarmed(unarmed(&agent.provider))
+                .unarmed(unarmed(&agent.provider, self.in_terminal(&agent.id)))
                 .mark(Mark::Open(Box::new(agent.clone())))
                 .group(RESUME)
                 .also(handle.as_deref().unwrap_or_default())
@@ -176,7 +178,7 @@ impl Workbench {
                 } else {
                     crate::ui::time::age(chat.active_at)
                 })
-                .unarmed(unarmed(&chat.provider))
+                .unarmed(unarmed(&chat.provider, false))
                 .mark(Mark::Agent(chat.provider.clone()))
                 .group(RESUME)
                 .also(&chat.provider);

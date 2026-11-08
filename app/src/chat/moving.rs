@@ -117,7 +117,7 @@ impl Workbench {
             .reads
             .catalog
             .kind(&saved.provider)
-            .is_some_and(|kind| kind.bypass);
+            .is_some_and(|kind| kind.can_skip_asking(self.in_terminal(agent)));
         if can {
             let on = saved.permission_mode == PermissionMode::Bypass;
             let mode = if on {

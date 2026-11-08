@@ -3495,6 +3495,8 @@ export interface CatalogAgent {
     relocatableSessions: boolean;
     /** It can start without asking for permissions. */
     bypass: boolean;
+    /** It can in a terminal too, where its CLI has a flag for it. */
+    terminalBypass: boolean;
     /**
      * The models the core can ask it for a commit message with, the default first;
      * none when it cannot write one.
