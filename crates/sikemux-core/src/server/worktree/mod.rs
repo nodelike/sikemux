@@ -328,7 +328,12 @@ pub(crate) fn worktrees_folder(repo: &Path) -> PathBuf {
 /// The branch Auto's work lands on in `repo` and its newest commit, on the remote when it has one.
 pub(crate) fn latest_of_base(repo: &Path) -> Result<(String, String), String> {
     let base = base_branch(repo)?;
-    let _ = Git::slow(repo).trimmed(&["fetch", "--quiet", "origin", &base]);
+    let sha = latest_of(repo, &base)?;
+    Ok((base, sha))
+}
+
+fn latest_of(repo: &Path, base: &str) -> Result<String, String> {
+    let _ = Git::slow(repo).trimmed(&["fetch", "--quiet", "origin", base]);
     let remote = format!("origin/{base}");
     let start = if Git::quick(repo)
         .trimmed(&["rev-parse", "--verify", "--quiet", &remote])
@@ -336,10 +341,9 @@ pub(crate) fn latest_of_base(repo: &Path) -> Result<(String, String), String> {
     {
         remote
     } else {
-        base.clone()
+        base.to_owned()
     };
-    let sha = Git::quick(repo).trimmed(&["rev-parse", &start])?;
-    Ok((base, sha))
+    Git::quick(repo).trimmed(&["rev-parse", &start])
 }
 
 /// Cuts a worktree for a card beside the project's checkout, on a branch of
@@ -368,10 +372,130 @@ pub(crate) fn cut_for_card(project: &Path, branch: &str) -> Result<Tree, String>
     })
 }
 
-/// Takes away a card's worktree and its branch, here and, when `remote`, on
-/// the remote too.
+/// Where a card's commits are kept on the remote between ships. Code hosts start checks only
+/// for branches and tags, so a ref outside those never starts one.
+pub(crate) fn backup_ref(branch: &str) -> String {
+    format!("refs/sikemux/auto/{branch}")
+}
+
+/// Where a card's worktree was made again.
+pub(crate) enum MadeAgain {
+    AtCommit(String),
+    FromBase,
+}
+
+fn has_commit(repo: &Path, sha: &str) -> bool {
+    Git::quick(repo)
+        .trimmed(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{sha}^{{commit}}"),
+        ])
+        .is_ok()
+}
+
+fn is_ancestor(repo: &Path, older: &str, newer: &str) -> bool {
+    Git::quick(repo)
+        .trimmed(&["merge-base", "--is-ancestor", older, newer])
+        .is_ok()
+}
+
+/// Has `sha` here, fetching `name` for it when it is not.
+fn fetched(repo: &Path, sha: &str, name: &str) -> Result<String, String> {
+    if !has_commit(repo, sha) {
+        Git::slow(repo).trimmed(&["fetch", "--quiet", "origin", name])?;
+    }
+    match has_commit(repo, sha) {
+        true => Ok(sha.to_owned()),
+        false => Err(format!("{name} on the remote no longer holds {sha}")),
+    }
+}
+
+/// The newest of the commits Auto knows it pushed for the branch: `kept` as a backup and
+/// `shipped` to the branch itself. A rebase that shipped replaces what was kept before it.
+fn last_pushed(
+    repo: &Path,
+    branch: &str,
+    kept: Option<&str>,
+    shipped: Option<&str>,
+) -> Result<Option<String>, String> {
+    let kept = (kept.map(|sha| fetched(repo, sha, &backup_ref(branch)))).transpose()?;
+    let shipped =
+        (shipped.map(|sha| fetched(repo, sha, &format!("refs/heads/{branch}")))).transpose()?;
+    Ok(match (kept, shipped) {
+        (Some(kept), Some(shipped)) if is_ancestor(repo, &shipped, &kept) => Some(kept),
+        (kept, shipped) => shipped.or(kept),
+    })
+}
+
+/// Makes a card's lost worktree again where it was: at the local branch when that has
+/// everything pushed, else at the last commit pushed, else on the latest base.
+pub(crate) fn make_again(
+    lost: Tree,
+    kept: Option<&str>,
+    shipped: Option<&str>,
+) -> Result<(Tree, MadeAgain), String> {
+    let repo = lost.repo.clone();
+    Git::quick(&repo).trimmed(&["worktree", "prune"])?;
+    let local = Git::quick(&repo)
+        .trimmed(&[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("refs/heads/{}", lost.branch),
+        ])
+        .ok()
+        .filter(|sha| *sha != lost.start_sha);
+    let at = match (local, last_pushed(&repo, &lost.branch, kept, shipped)) {
+        (Some(local), Ok(Some(pushed))) if is_ancestor(&repo, &pushed, &local) => Some(local),
+        (_, Ok(Some(pushed))) => Some(pushed),
+        (Some(local), _) => Some(local),
+        (None, Ok(None)) => None,
+        (None, Err(error)) => return Err(error),
+    };
+    let (start, made, start_sha) = match at {
+        Some(sha) => (
+            sha.clone(),
+            MadeAgain::AtCommit(sha),
+            lost.start_sha.clone(),
+        ),
+        None => {
+            let sha = latest_of(&repo, &lost.base)?;
+            (sha.clone(), MadeAgain::FromBase, sha)
+        }
+    };
+    if let Some(folder) = lost.path.parent() {
+        std::fs::create_dir_all(folder)
+            .map_err(|error| format!("could not make {}: {error}", folder.display()))?;
+    }
+    let target = lost.path.to_string_lossy().into_owned();
+    Git::slow(&repo).trimmed(&[
+        "worktree",
+        "add",
+        "--no-track",
+        "-B",
+        &lost.branch,
+        &target,
+        &start,
+    ])?;
+    copy_included(&repo, &lost.path);
+    warm::seed_in_background(&repo, &lost.path);
+    Ok((Tree { start_sha, ..lost }, made))
+}
+
+/// Takes away a card's worktree, its branch and what was kept of it on the remote, and when
+/// `remote` the branch on the remote too.
 pub(crate) fn remove_with_remote(repo: &Path, tree: &Path, branch: &str, remote: bool) {
     remove(repo, tree, branch);
+    let _ = Git::slow(repo).trimmed(&[
+        "push",
+        "--quiet",
+        "--no-verify",
+        "origin",
+        "--delete",
+        &backup_ref(branch),
+    ]);
     if !remote {
         return;
     }

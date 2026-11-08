@@ -67,6 +67,10 @@ pub(super) struct RunRecord {
     pub queue_ms: u64,
     /// How many times the queue sent it back to be fixed or reviewed again.
     pub queue_bounces: u32,
+    /// How many times its commits were kept on the remote.
+    pub branch_backups: u32,
+    /// How many times its worktree was lost and made again.
+    pub worktree_rebuilds: u32,
     /// The card held an item of the project's reservoir.
     pub from_reservoir: bool,
     /// How many runs of the project's reservoir its landing started, and how long they took.

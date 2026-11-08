@@ -71,6 +71,7 @@ pub(crate) struct CommitMade<'a> {
 /// The one event a commit is, however it was made: the board hears of it in order with the rest
 /// of the project's events, and what else follows from it follows from here.
 pub(crate) fn commit_made(core: &Core, made: CommitMade<'_>) {
+    super::board::backup::committed(core, made.agent);
     let (project, on_branch) = core.workspaces.project_checkout(made.top);
     if on_branch {
         let mut agents: Vec<String> = crate::trailers::agents(made.message)

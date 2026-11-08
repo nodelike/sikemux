@@ -53,6 +53,25 @@ pub(super) fn push(tree: &Path, branch: &str, pushed: Option<&str>) -> Result<()
     Git::slow(tree).trimmed(&args).map(drop)
 }
 
+/// Keeps the worktree's commits on the card's own ref, answering the commit it put there, none
+/// when that was there already. `kept` is the last commit Auto put there, so nothing else there
+/// can be overwritten. The repository's pre-push hooks are for real pushes, not this.
+pub(super) fn back_up(
+    tree: &Path,
+    branch: &str,
+    kept: Option<&str>,
+) -> Result<Option<String>, String> {
+    let head = head(tree)?;
+    if kept == Some(head.as_str()) {
+        return Ok(None);
+    }
+    let target = crate::server::worktree::backup_ref(branch);
+    let lease = format!("--force-with-lease={target}:{}", kept.unwrap_or_default());
+    let refspec = format!("HEAD:{target}");
+    Git::slow(tree).trimmed(&["push", "--quiet", "--no-verify", &lease, "origin", &refspec])?;
+    Ok(Some(head))
+}
+
 /// Puts the branch on top of the latest base. False when that conflicts,
 /// which leaves the branch as it was.
 pub(super) fn rebase(tree: &Path, base: &str) -> Result<bool, String> {

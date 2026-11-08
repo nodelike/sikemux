@@ -289,7 +289,9 @@ where
     let core = core.clone();
     tokio::spawn(async move {
         let (project, id) = (step.project.clone(), step.id);
-        work(core.clone(), step).await;
+        if !recover::rescued(&core, &step) {
+            work(core.clone(), step).await;
+        }
         end_step(&core, project, id);
     });
 }
@@ -586,12 +588,15 @@ struct WatchedTurn {
     agent: String,
     recovers: bool,
     timed_since: Option<u64>,
+    /// Where its agent works, when losing it brings the worktree back.
+    worktree: Option<PathBuf>,
 }
 
 /// Looks at the checks of runs waiting on them, at pull requests waiting on
 /// the person, and takes up steps a restart cut short. Answers when a run is
 /// next due a look.
 pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
+    super::backup::start_due(core);
     let now = epoch_ms();
     let running = core.running_agents();
     let mut next = None;
@@ -675,7 +680,9 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                             _ => &run.agent,
                         };
                         if running.contains(watched) {
-                            if (board.settings.recover || board.settings.progress_guard)
+                            if (board.settings.recover
+                                || board.settings.progress_guard
+                                || board.settings.backs_up())
                                 && matches!(
                                     run.stage,
                                     RunStage::Working | RunStage::Fixing | RunStage::Reviewing
@@ -688,6 +695,12 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                                     agent: watched.clone(),
                                     recovers: board.settings.recover,
                                     timed_since: guard::timed_since(board, card, run),
+                                    worktree: (board.settings.backs_up()
+                                        && matches!(
+                                            run.stage,
+                                            RunStage::Working | RunStage::Fixing
+                                        ))
+                                    .then(|| PathBuf::from(&run.worktree)),
                                 });
                             }
                             present.push(key);
@@ -733,7 +746,12 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             agent,
             recovers,
             timed_since,
+            worktree,
         } = turn;
+        if worktree.is_some_and(|tree| !tree.is_dir()) {
+            due.push((project, id, stage));
+            continue;
+        }
         if let Some(looked) = timed_since {
             next = sooner(
                 next,

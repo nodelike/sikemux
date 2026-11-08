@@ -31,6 +31,7 @@ use sikemux_view::slice::{
 mod archive;
 mod arrival;
 pub(crate) mod auto;
+pub(crate) mod backup;
 mod blind;
 pub mod chat_goal;
 mod commands;
@@ -567,6 +568,7 @@ struct State {
     dismissed: Vec<blind::Reviewer>,
     /// What the merge queue of each project's base is doing.
     lanes: queue::Lanes,
+    backups: backup::Backups,
     /// The latest runs of each project's check, for commits heard of after them.
     runs: HashMap<String, slice::HeardRuns>,
     /// Projects whose slices wait on a CI workflow's verdict.

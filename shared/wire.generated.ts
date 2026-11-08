@@ -3194,6 +3194,8 @@ export interface BoardSettings {
     reservoir: boolean;
     /** A small change away from anything sensitive gets a read review and no contract round. */
     scaledReview: boolean;
+    /** Each card's commits are kept on the remote, so a lost worktree can be made again. */
+    branchBackup: boolean;
 }
 
 /**

@@ -4,7 +4,7 @@
 //! in a row, or too many, go to the person once, with the reason. What is tried and what is
 //! due sits on the run, so a core that restarts carries on from the card.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -21,6 +21,7 @@ use crate::server::inbox::Fault;
 use crate::server::launching;
 use crate::server::messages;
 use crate::server::spawn::Ending;
+use crate::server::worktree::{self, agent::set_up, MadeAgain, Tree};
 use crate::server::Core;
 
 const MAX_TRIES: u32 = 3;
@@ -169,6 +170,38 @@ pub(super) fn take_over(run: &mut AutoRun, why: String) {
     run.recovery.fresh = true;
     run.recovery.due = Some(epoch_ms());
     run.recovery.why = Some(why);
+}
+
+fn worktree_lost(run: &AutoRun) -> bool {
+    !run.worktree.is_empty() && !Path::new(&run.worktree).is_dir()
+}
+
+/// A run whose worktree is gone gets a fresh agent in one made again, instead of the step it
+/// was due. True when that is what happens.
+pub(super) fn rescued(core: &Core, step: &Step) -> bool {
+    let takes_up = matches!(
+        step.run.stage,
+        RunStage::Working
+            | RunStage::Fixing
+            | RunStage::Shipping
+            | RunStage::Checking
+            | RunStage::Merging
+    );
+    if !takes_up
+        || !step.settings.backs_up()
+        || step.run.recovery.fresh
+        || !worktree_lost(&step.run)
+    {
+        return false;
+    }
+    finish::change_run(core, &step.project, step.id, step.agent(), |_, run| {
+        if run.stage != RunStage::Working {
+            run.stage = RunStage::Fixing;
+        }
+        run.note = Some("Its worktree was lost, so Auto is making it again".to_owned());
+        take_over(run, "Its worktree was lost".to_owned());
+    });
+    true
 }
 
 /// The turn of one of Auto's agents ended without finishing: what comes next depends on why.
@@ -469,7 +502,8 @@ fn handover(
 async fn fresh(core: &Arc<Core>, step: &Step, why: &str) {
     let agent = step.agent().to_owned();
     let name = step.name(core);
-    if step.run.worktree.is_empty() || !PathBuf::from(&step.run.worktree).is_dir() {
+    let lost = worktree_lost(&step.run);
+    if step.run.worktree.is_empty() || (lost && !step.settings.backs_up()) {
         hold(
             core,
             step,
@@ -482,19 +516,40 @@ async fn fresh(core: &Arc<Core>, step: &Step, why: &str) {
         .get(&agent)
         .and_then(|chat| chat.feed.last_answer());
     stop_agent(core, &agent);
-    let tree = auto::tree_of(&step.run, &step.project);
-    let note = {
-        let (cwd, start_sha, name, why) = (
-            tree.cwd.clone(),
-            step.run.start_sha.clone(),
-            name.clone(),
-            why.to_owned(),
-        );
-        crate::server::connection::blocking(move || {
-            Ok(handover(&cwd, &start_sha, &name, &why, said))
-        })
-        .await
-        .unwrap_or_default()
+    let (tree, remade) = match lost {
+        false => (auto::tree_of(&step.run, &step.project), None),
+        true => match make_again(core, step).await {
+            Ok((tree, remade)) => (tree, Some(remade)),
+            Err(error) => {
+                hold(
+                    core,
+                    step,
+                    format!("{why}. Auto could not make its worktree again: {error}"),
+                );
+                return;
+            }
+        },
+    };
+    let note = match &remade {
+        Some(Remade {
+            from_base: true,
+            told,
+        }) => told.clone(),
+        _ => {
+            let (cwd, start_sha, name, why) = (
+                tree.cwd.clone(),
+                step.run.start_sha.clone(),
+                name.clone(),
+                why.to_owned(),
+            );
+            let handed = crate::server::connection::blocking(move || {
+                Ok(handover(&cwd, &start_sha, &name, &why, said))
+            })
+            .await
+            .unwrap_or_default();
+            let told = remade.as_ref().map_or("", |remade| remade.told.as_str());
+            format!("{handed}{told}")
+        }
     };
     if let Err(error) = auto::replace_agent(core, step, tree, note).await {
         hold(
@@ -503,6 +558,58 @@ async fn fresh(core: &Arc<Core>, step: &Step, why: &str) {
             format!("{why}. A fresh agent could not start: {error}"),
         );
     }
+}
+
+/// What a worktree made again means for the next agent.
+struct Remade {
+    from_base: bool,
+    told: String,
+}
+
+/// Makes the run's lost worktree again and runs the project's setup in it, saying so on the card.
+async fn make_again(core: &Arc<Core>, step: &Step) -> Result<(Tree, Remade), String> {
+    let lost = auto::tree_of(&step.run, &step.project);
+    let (kept, shipped) = (step.run.backed_up.clone(), step.run.head.clone());
+    let (tree, made) = crate::server::connection::blocking(move || {
+        worktree::make_again(lost, kept.as_deref(), shipped.as_deref()).map_err(Into::into)
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    let setup_failed = set_up(
+        core,
+        Path::new(&step.project),
+        Some(step.agent()),
+        &tree.cwd,
+    )
+    .await;
+    let (card_note, mut told, from_base) = match made {
+        MadeAgain::AtCommit(sha) => {
+            let short = crate::git::short(&sha);
+            (
+                format!("Its worktree was lost, so Auto made it again at {short} and put a fresh agent on it. Anything not committed is gone"),
+                format!("\n\nThis worktree was lost and made again at commit {short}. Anything the last agent had not committed is gone."),
+                false,
+            )
+        }
+        MadeAgain::FromBase => (
+            format!("Its worktree was lost with nothing pushed, so a fresh agent starts it again from the latest {}", tree.base),
+            format!("\n\nThis card's worktree was lost with nothing pushed, so it was made again from the latest {}. Earlier work on it is gone: start the card from the beginning.", tree.base),
+            true,
+        ),
+    };
+    if let Some(failed) = setup_failed {
+        told.push_str(&format!(
+            "\n\nThe project's worktree setup did not finish: {failed}"
+        ));
+    }
+    finish::change_run(core, &step.project, step.id, step.agent(), |card, run| {
+        run.note = Some(card_note);
+        run.recovery.fresh = true;
+        if let Some(record) = card.record.as_mut() {
+            record.worktree_rebuilds += 1;
+        }
+    });
+    Ok((tree, Remade { from_base, told }))
 }
 
 /// The handover for an agent taking a stalled slice on, from the branch its owner left.

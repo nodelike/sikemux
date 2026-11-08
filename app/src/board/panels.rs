@@ -802,7 +802,8 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let (landing_key, landing_shown) = landing_choice(settings.landing);
     let entity = || cx.entity();
     let (on_slots, on_landing, on_recover) = (entity(), entity(), entity());
-    let (on_guard, on_ceiling) = (entity(), entity());
+    let (on_guard, on_ceiling, on_backup) = (entity(), entity(), entity());
+    let backup_on = settings.branch_backup;
     let guard_on = settings.progress_guard;
     let ceilings = [0]
         .into_iter()
@@ -918,6 +919,17 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                     .on_click(move |_, _, cx| {
                         on_recover.update(cx, |pane, cx| {
                             pane.change_settings(|params| params.recover = Some(!recover_on), cx)
+                        })
+                    })
+                    .into_any_element(),
+                cx,
+            ))
+            .child(fact(
+                "Backup",
+                Toggle::new("board-branch-backup", "Keep each card's commits on the remote", backup_on)
+                    .on_click(move |_, _, cx| {
+                        on_backup.update(cx, |pane, cx| {
+                            pane.change_settings(|params| params.branch_backup = Some(!backup_on), cx)
                         })
                     })
                     .into_any_element(),

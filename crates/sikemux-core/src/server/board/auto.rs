@@ -105,6 +105,8 @@ pub struct BoardSettings {
     pub reservoir: bool,
     /// A small change away from anything sensitive gets a read review and no contract round.
     pub scaled_review: bool,
+    /// Each card's commits are kept on the remote, so a lost worktree can be made again.
+    pub branch_backup: bool,
 }
 
 impl BoardSettings {
@@ -144,6 +146,7 @@ impl BoardSettings {
             ("mergeQueue", self.merge_queue),
             ("reservoir", self.reservoir),
             ("scaledReview", self.scaled_review),
+            ("branchBackup", self.branch_backup),
         ]
         .map(|(name, on)| (name.to_owned(), on))
         .into()
@@ -157,6 +160,12 @@ impl BoardSettings {
 
     /// Whether Auto's merges of this project wait their turn. A person who
     /// lands the changes merges them as they please.
+    /// Whether Auto keeps a card's commits on the remote. It pushes nothing of its own to a
+    /// project the person lands themselves.
+    pub(super) fn backs_up(&self) -> bool {
+        self.branch_backup && self.landing == Landing::Core
+    }
+
     pub(super) fn queues(&self) -> bool {
         self.merge_queue && self.landing == Landing::Core
     }
@@ -189,6 +198,7 @@ impl Default for BoardSettings {
             merge_queue: true,
             reservoir: true,
             scaled_review: false,
+            branch_backup: true,
         }
     }
 }
@@ -267,6 +277,8 @@ pub struct BoardSettingsParams {
     pub merge_queue: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reservoir: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch_backup: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -370,6 +382,9 @@ impl BoardSettings {
         }
         if let Some(merge_queue) = params.merge_queue {
             settings.merge_queue = merge_queue;
+        }
+        if let Some(branch_backup) = params.branch_backup {
+            settings.branch_backup = branch_backup;
         }
         if let Some(reservoir) = params.reservoir {
             settings.reservoir = reservoir;
@@ -484,6 +499,9 @@ pub(super) struct AutoRun {
     /// unapproved.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approved: Option<String>,
+    /// The commit last kept on the remote for the card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backed_up: Option<String>,
     #[serde(default)]
     pub recovery: Recovery,
     #[serde(default)]
@@ -517,6 +535,7 @@ impl AutoRun {
             reviewer: None,
             verdict: None,
             approved: None,
+            backed_up: None,
             recovery: Recovery::default(),
             burn: Burn::default(),
             queue: None,
