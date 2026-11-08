@@ -36,6 +36,10 @@ pub(super) struct RunRecord {
     pub reviewer_found: Vec<String>,
     pub broke_after_landing: bool,
     pub overruled: bool,
+    /// How many times Auto brought its agent back without the person.
+    pub recoveries: u32,
+    /// What each of those answered.
+    pub recovery_causes: Vec<String>,
 }
 
 impl RunRecord {

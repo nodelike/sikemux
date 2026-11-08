@@ -877,6 +877,7 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
                 super::spawn::Ending::Gone {
                     reason: failed,
                     mid_turn,
+                    asked: session.is_killed(),
                 },
             );
         }

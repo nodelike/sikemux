@@ -320,6 +320,13 @@ impl Turns {
         });
     }
 
+    /// How the agent's driver saw its latest turn fail, if it did.
+    pub(crate) fn fault(&self, agent_id: &str) -> Option<Fault> {
+        (self.turns.locked().get(agent_id))
+            .and_then(|turn| turn.problem.as_ref())
+            .and_then(|problem| problem.fault)
+    }
+
     /// Whether the agent's driver saw its latest turn fail, which the person hears of by itself.
     pub(crate) fn failing(&self, agent_id: &str) -> bool {
         (self.turns.locked().get(agent_id))

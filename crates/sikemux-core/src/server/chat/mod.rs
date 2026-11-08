@@ -599,12 +599,20 @@ impl Chat {
         if !mid_turn && !went_away {
             return;
         }
+        let asked = matches!(result, Ok(SessionEnd::Requested));
         let reason = match result {
             Err(error) => Some(error.clone()),
             Ok(SessionEnd::Requested) => None,
             Ok(_) => self.take_failure(),
         };
-        core.note_ending(self.agent_id(), Ending::Gone { reason, mid_turn });
+        core.note_ending(
+            self.agent_id(),
+            Ending::Gone {
+                reason,
+                mid_turn,
+                asked,
+            },
+        );
     }
 
     pub(crate) fn note_cli_version(&self, version: &str) {
@@ -970,7 +978,7 @@ impl Chat {
         }
     }
 
-    fn pending_permissions(&self) -> Vec<String> {
+    pub(crate) fn pending_permissions(&self) -> Vec<String> {
         let mut ids: Vec<String> = self.permissions.locked().keys().cloned().collect();
         ids.sort();
         ids

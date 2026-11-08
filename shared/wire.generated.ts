@@ -3175,6 +3175,11 @@ export interface BoardSettings {
      * gives slices the usual ladder and holds every deploy for the person.
      */
     environments?: Environment[];
+    /**
+     * A card's agent that fails, dies or hangs is brought back without the person, and a
+     * stalled slice Auto can run is taken on.
+     */
+    recover: boolean;
 }
 
 /**

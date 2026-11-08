@@ -783,10 +783,12 @@ pub(crate) enum Ending {
     Finished,
     Stopped,
     Failed(String),
-    /// The chat ended, `mid_turn` or while the worker was idle.
+    /// The chat ended, `mid_turn` or while the worker was idle. `asked` when someone
+    /// closed or stopped it, rather than it dying by itself.
     Gone {
         reason: Option<String>,
         mid_turn: bool,
+        asked: bool,
     },
 }
 
@@ -875,6 +877,7 @@ fn report(core: &Core, worker: &str, ending: Ending, answer: Option<TerminalAnsw
         Ending::Gone {
             reason,
             mid_turn: true,
+            ..
         } => (
             format!(
                 "Stopped running before it finished its turn{}",
@@ -885,6 +888,7 @@ fn report(core: &Core, worker: &str, ending: Ending, answer: Option<TerminalAnsw
         Ending::Gone {
             reason,
             mid_turn: false,
+            ..
         } => (format!("Stopped running{}", because(reason)), None),
     };
     let mut text = match last {

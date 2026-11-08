@@ -673,6 +673,7 @@ pub(super) fn plain_stalled(core: &Core, card: &Card) -> Option<lease::Stalled> 
         agent: card.owner_id().unwrap_or_default().to_owned(),
         name: card.owner_name(core).unwrap_or_default(),
         why: lease::Why::Closed,
+        stays: true,
     })
 }
 

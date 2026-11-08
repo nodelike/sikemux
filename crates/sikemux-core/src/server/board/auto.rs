@@ -4,7 +4,7 @@
 
 use crate::server::changed::What;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -12,16 +12,18 @@ use sikemux_process::sync::Locked;
 
 use super::contract::{self, Contract};
 use super::environments::{Environment, Passes};
+use super::lease::Stalled;
 use super::record::RunRecord;
+use super::recover::{self, Recovery, TookOn};
 use super::review::Review;
-use super::{blind, finish, Board, Card, CardStatus, Owner, Team};
+use super::{blind, finish, goal, Board, Card, CardStatus, Owner, Team};
 use crate::server::calls::given;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
 use crate::server::spawn::Ending;
 use crate::server::worktree::{self, AgentWorktree};
 use crate::server::{chat, messages, Core};
-use sikemux_wire::protocol::Event;
+use sikemux_wire::protocol::{ChatLaunch, Event};
 
 pub(super) const MAX_SLOTS: u32 = crate::server::names::MAX_SPAWNED_PER_PROJECT as u32;
 /// How many unfinished runs may stand above a card one of Auto's agents added
@@ -84,6 +86,9 @@ pub struct BoardSettings {
     /// gives slices the usual ladder and holds every deploy for the person.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environments: Vec<Environment>,
+    /// A card's agent that fails, dies or hangs is brought back without the person, and a
+    /// stalled slice Auto can run is taken on.
+    pub recover: bool,
 }
 
 impl BoardSettings {
@@ -116,6 +121,7 @@ impl BoardSettings {
             ("agentCards", self.agent_cards),
             ("reviewerRuns", self.reviewer_runs),
             ("contract", self.contract),
+            ("autoRecovery", self.recover),
         ]
         .map(|(name, on)| (name.to_owned(), on))
         .into()
@@ -147,6 +153,7 @@ impl Default for BoardSettings {
             reviewer_runs: true,
             contract: true,
             environments: Vec::new(),
+            recover: true,
         }
     }
 }
@@ -205,6 +212,8 @@ pub struct BoardSettingsParams {
     pub agent_cards: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environments: Option<Vec<Environment>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recover: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -284,6 +293,9 @@ impl BoardSettings {
         }
         if let Some(environments) = params.environments {
             settings.environments = super::environments::checked(environments)?;
+        }
+        if let Some(recover) = params.recover {
+            settings.recover = recover;
         }
         Ok(settings)
     }
@@ -395,6 +407,8 @@ pub(super) struct AutoRun {
     /// unapproved.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub approved: Option<String>,
+    #[serde(default)]
+    pub recovery: Recovery,
 }
 
 impl AutoRun {
@@ -418,6 +432,7 @@ impl AutoRun {
             reviewer: None,
             verdict: None,
             approved: None,
+            recovery: Recovery::default(),
         }
     }
 
@@ -526,6 +541,7 @@ impl Reservoir {
             && card.auto.is_none()
             && (card.created_by.is_none() || settings.agent_cards)
             && card.ticket_done_unlanded().is_none()
+            && stalled_allows(settings, card)
             && !card.depends_on.iter().any(|id| self.blocking.contains(id))
             && !self.parents.contains(&card.id)
             && self.runs_above(card) <= MAX_RUNS_ABOVE
@@ -546,6 +562,14 @@ pub(super) fn run_adding(core: &Core, board: &Board, agent: &str) -> Option<u64>
     (board.cards.iter())
         .find(|card| card.kept_run().is_some_and(|run| run.agent == lead))
         .map(|card| card.id)
+}
+
+/// A slice whose owner lost the lease is Auto's only with recovery on, and not when it stays
+/// with the person.
+fn stalled_allows(settings: &BoardSettings, card: &Card) -> bool {
+    (card.slice.as_ref())
+        .and_then(|slice| slice.stalled.as_ref())
+        .is_none_or(|stalled| settings.recover && !stalled.stays)
 }
 
 /// Whether some board has Auto on with work it could still do, which keeps
@@ -600,7 +624,7 @@ fn picks(
 /// Starts an agent on each card Auto may take, while it has places free.
 pub(super) fn start_free(core: &Arc<Core>) {
     let launchers = core.workspaces.has_launchers();
-    let starts: Vec<(String, u64, String)> = {
+    let starts: Vec<(String, u64, String, Option<Stalled>)> = {
         let mut state = core.boards.state.locked();
         let projects: Vec<String> = state
             .boards
@@ -642,13 +666,14 @@ pub(super) fn start_free(core: &Arc<Core>) {
             for id in picks {
                 let agent = crate::server::names::new_agent_id();
                 if let Ok(card) = board.card_mut(id) {
+                    let stalled = (card.slice.as_ref()).and_then(|slice| slice.stalled.clone());
                     card.hold(Owner::starting(&agent));
                     card.team = None;
                     card.auto = Some(AutoRun::starting(agent.clone()));
                     card.record = Some(RunRecord::begun(&settings));
                     card.contract = settings.wants_contract().then(Contract::awaited);
                     super::slice::auto_slice(card, &settings);
-                    starts.push((project.clone(), id, agent));
+                    starts.push((project.clone(), id, agent, stalled));
                     state_jobs.push((project.clone(), id));
                 }
             }
@@ -659,10 +684,10 @@ pub(super) fn start_free(core: &Arc<Core>) {
         }
         starts
     };
-    for (project, id, agent) in starts {
+    for (project, id, agent, stalled) in starts {
         let core = core.clone();
         tokio::spawn(async move {
-            let started = start(&core, &project, id, &agent).await;
+            let started = start(&core, &project, id, &agent, stalled).await;
             core.boards.end_job(&project, id);
             if let Err(error) = started {
                 let gone = core.chats.get(&agent).is_none();
@@ -726,94 +751,99 @@ fn task(
     text
 }
 
-async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<(), String> {
-    let (card, settings, ticket) = {
-        let state = core.boards.state.locked();
-        let board = state.boards.get(project).ok_or("the board is gone")?;
-        let card = board.card(id)?.clone();
-        let ticket = card.ticket.as_ref().map(|ticket| match &ticket.url {
-            Some(url) => format!("{} {url}", ticket.key),
-            None => ticket.key.clone(),
-        });
-        (card, board.settings.clone(), ticket)
-    };
-    let branch = worktree::branch_for(&match &card.ticket {
-        Some(ticket) => format!("{} {}", ticket.key, card.title),
-        None => format!("card {} {}", card.id, card.title),
-    });
-    let prepared = {
-        let (core, project, agent, settings) = (
-            core.clone(),
-            project.to_owned(),
-            agent.to_owned(),
-            settings.clone(),
-        );
-        blocking(move || {
-            let tree = worktree::cut_for_card(Path::new(&project), &branch)?;
-            let started = core.workspaces.board_launch(
-                settings.launcher.as_deref(),
-                &tree.cwd,
-                settings.provider.as_deref(),
-                settings.model.clone(),
-                PICKED_IN,
-            );
-            let (mut launch, launcher) = match started {
-                Ok(started) => started,
-                Err(error) => {
-                    worktree::remove_with_remote(&tree.repo, &tree.path, &tree.branch, true);
-                    return Err(error.into());
-                }
-            };
-            let (named, _) = core.names.give(
-                Starting {
-                    agent_id: &agent,
-                    project: project.clone(),
-                    provider: Some(&launch.provider),
-                    resume_id: None,
-                },
-                core.open_agents(),
-            );
-            core.names.count_as_started(&agent);
-            launch.agent_id = agent.clone();
-            Ok((tree, launch, launcher, named.name))
-        })
-        .await
-        .map_err(|error| error.to_string())?
-    };
-    let (tree, launch, launcher, name) = prepared;
-    let provider = launch.provider.clone();
-    let text = task(&card, &tree, &settings, ticket);
-    let placed = finish::change_run(core, project, id, agent, |card, run| {
+/// What Auto needs to put an agent on a card's worktree.
+struct Launched {
+    launch: ChatLaunch,
+    launcher: String,
+    name: String,
+}
+
+fn launch_in(
+    core: &Arc<Core>,
+    project: &str,
+    agent: &str,
+    settings: &BoardSettings,
+    tree: &worktree::Tree,
+) -> Result<Launched, String> {
+    let (mut launch, launcher) = core.workspaces.board_launch(
+        settings.launcher.as_deref(),
+        &tree.cwd,
+        settings.provider.as_deref(),
+        settings.model.clone(),
+        PICKED_IN,
+    )?;
+    let (named, _) = core.names.give(
+        Starting {
+            agent_id: agent,
+            project: project.to_owned(),
+            provider: Some(&launch.provider),
+            resume_id: None,
+        },
+        core.open_agents(),
+    );
+    core.names.count_as_started(agent);
+    launch.agent_id = agent.to_owned();
+    Ok(Launched {
+        launch,
+        launcher,
+        name: named.name,
+    })
+}
+
+/// Puts `agent` on the run `current` holds. False when the run has moved on, as nothing is
+/// started then.
+fn seat(
+    core: &Core,
+    project: &str,
+    id: u64,
+    current: &str,
+    agent: &str,
+    launched: &Launched,
+    tree: &worktree::Tree,
+) -> bool {
+    let provider = launched.launch.provider.clone();
+    finish::change_run(core, project, id, current, |card, run| {
         card.run_by(
             Owner {
                 id: agent.to_owned(),
-                name: Some(name.clone()),
-                cli: Some(provider.clone()),
+                name: Some(launched.name.clone()),
+                cli: Some(provider),
             },
             Team {
                 lead: agent.to_owned(),
-                name: name.clone(),
+                name: launched.name.clone(),
             },
         );
+        run.agent = agent.to_owned();
         run.repo = tree.repo.to_string_lossy().into_owned();
         run.worktree = tree.path.to_string_lossy().into_owned();
         run.branch = tree.branch.clone();
         run.base = tree.base.clone();
         run.start_sha = tree.start_sha.clone();
-        run.stage = RunStage::Working;
+        if run.stage == RunStage::Starting {
+            run.stage = RunStage::Working;
+        }
         run.note = None;
-    });
-    if !placed {
-        blocking(move || {
-            worktree::remove_with_remote(&tree.repo, &tree.path, &tree.branch, true);
-            Ok(())
-        })
-        .await
-        .ok();
-        return Ok(());
-    }
-    let chat = chat::begin(core, launch, None, Some(launcher), false, true)
-        .map_err(|error| error.to_string())?;
+    })
+}
+
+/// Starts the seated agent's chat in `tree` and hands it `text`.
+async fn set_going(
+    core: &Arc<Core>,
+    agent: &str,
+    launched: Launched,
+    tree: worktree::Tree,
+    text: String,
+) -> Result<(), String> {
+    let chat = chat::begin(
+        core,
+        launched.launch,
+        None,
+        Some(launched.launcher),
+        false,
+        true,
+    )
+    .map_err(|error| error.to_string())?;
     let _ = core.workspaces.edit_agent(agent, |agent| {
         agent.worktree = Some(AgentWorktree {
             repo: tree.repo,
@@ -831,6 +861,193 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
     messages::hand_task(core, agent, messages::auto_task(core, agent, text)).await
 }
 
+/// The worktree of a run, as Auto started it.
+pub(super) fn tree_of(run: &AutoRun, project: &str) -> worktree::Tree {
+    let (repo, path) = (PathBuf::from(&run.repo), PathBuf::from(&run.worktree));
+    worktree::Tree {
+        cwd: path.join(worktree::inside(Path::new(project), &repo)),
+        repo,
+        path,
+        branch: run.branch.clone(),
+        base: run.base.clone(),
+        start_sha: run.start_sha.clone(),
+    }
+}
+
+/// The worktree a stalled owner left, when nothing runs in it any more.
+fn left_behind(core: &Core, project: &str, stalled: &Stalled) -> Option<worktree::Tree> {
+    if core.running_agents().contains(&stalled.agent) {
+        return None;
+    }
+    let kept = core.workspaces.agent(&stalled.agent)?.worktree?;
+    let base = kept.base?;
+    kept.path.is_dir().then(|| worktree::Tree {
+        cwd: kept
+            .path
+            .join(worktree::inside(Path::new(project), &kept.repo)),
+        base,
+        repo: kept.repo,
+        path: kept.path,
+        branch: kept.branch,
+        start_sha: kept.start_sha,
+    })
+}
+
+fn ticket_line(card: &Card) -> Option<String> {
+    card.ticket.as_ref().map(|ticket| match &ticket.url {
+        Some(url) => format!("{} {url}", ticket.key),
+        None => ticket.key.clone(),
+    })
+}
+
+async fn start(
+    core: &Arc<Core>,
+    project: &str,
+    id: u64,
+    agent: &str,
+    stalled: Option<Stalled>,
+) -> Result<(), String> {
+    let (card, settings) = {
+        let state = core.boards.state.locked();
+        let board = state.boards.get(project).ok_or("the board is gone")?;
+        (board.card(id)?.clone(), board.settings.clone())
+    };
+    let ticket = ticket_line(&card);
+    let branch = worktree::branch_for(&match &card.ticket {
+        Some(ticket) => format!("{} {}", ticket.key, card.title),
+        None => format!("card {} {}", card.id, card.title),
+    });
+    let reused = stalled
+        .as_ref()
+        .and_then(|stalled| left_behind(core, project, stalled));
+    let reuses = reused.is_some();
+    let prepared = {
+        let (core, project, agent, settings) = (
+            core.clone(),
+            project.to_owned(),
+            agent.to_owned(),
+            settings.clone(),
+        );
+        blocking(move || {
+            let tree = match reused {
+                Some(tree) => tree,
+                None => worktree::cut_for_card(Path::new(&project), &branch)?,
+            };
+            match launch_in(&core, &project, &agent, &settings, &tree) {
+                Ok(launched) => Ok((tree, launched)),
+                Err(error) => {
+                    if !reuses {
+                        worktree::remove_with_remote(&tree.repo, &tree.path, &tree.branch, true);
+                    }
+                    Err(error.into())
+                }
+            }
+        })
+        .await
+        .map_err(|error| error.to_string())?
+    };
+    let (tree, launched) = prepared;
+    let mut text = task(&card, &tree, &settings, ticket);
+    if !seat(core, project, id, agent, agent, &launched, &tree) {
+        if !reuses {
+            blocking(move || {
+                worktree::remove_with_remote(&tree.repo, &tree.path, &tree.branch, true);
+                Ok(())
+            })
+            .await
+            .ok();
+        }
+        return Ok(());
+    }
+    if let Some(stalled) = stalled {
+        let (cwd, start_sha, from) = (tree.cwd.clone(), tree.start_sha.clone(), stalled.clone());
+        text.push_str(
+            &blocking(move || Ok(recover::takeover_note(&cwd, &start_sha, &from)))
+                .await
+                .unwrap_or_default(),
+        );
+        note_takeover(core, project, id, agent, &card.label(), stalled, reuses);
+    }
+    set_going(core, agent, launched, tree, text).await
+}
+
+/// Tells the person Auto took a stalled slice on, where they can overrule it.
+fn note_takeover(
+    core: &Core,
+    project: &str,
+    id: u64,
+    agent: &str,
+    label: &str,
+    stalled: Stalled,
+    reused: bool,
+) {
+    let settled = goal::Settled {
+        project: project.to_owned(),
+        by: agent.to_owned(),
+        holder: agent.to_owned(),
+        asked: format!("Who carries on {label}, now @{} has stalled?", stalled.name),
+        text: "Auto took it on, as its owner lost the lease".to_owned(),
+        why: Some(stalled.why.words()),
+    };
+    let Some((goal, decision)) = goal::keep_settled(core, settled) else {
+        return;
+    };
+    finish::change_run(core, project, id, agent, |_, run| {
+        run.recovery.took_on = Some(TookOn {
+            from: stalled,
+            goal,
+            decision,
+            reused,
+        });
+    });
+}
+
+/// A fresh agent takes over the run in its own worktree, told what `note` says.
+pub(super) async fn replace_agent(
+    core: &Arc<Core>,
+    step: &finish::Step,
+    tree: worktree::Tree,
+    note: String,
+) -> Result<(), String> {
+    let agent = crate::server::names::new_agent_id();
+    let launched = {
+        let (core, project, agent, settings, place) = (
+            core.clone(),
+            step.project.clone(),
+            agent.clone(),
+            step.settings.clone(),
+            tree_of(&step.run, &step.project),
+        );
+        blocking(move || launch_in(&core, &project, &agent, &settings, &place).map_err(Into::into))
+            .await
+            .map_err(|error| error.to_string())?
+    };
+    if !seat(
+        core,
+        &step.project,
+        step.id,
+        step.agent(),
+        &agent,
+        &launched,
+        &tree,
+    ) {
+        return Ok(());
+    }
+    let mut text = task(&step.card, &tree, &step.settings, ticket_line(&step.card));
+    text.push_str(&note);
+    if let Err(error) = set_going(core, &agent, launched, tree, text).await {
+        finish::hold(
+            core,
+            &step.project,
+            step.id,
+            &agent,
+            RunHold::Unblock,
+            format!("A fresh agent could not start: {error}"),
+        );
+    }
+    Ok(())
+}
+
 /// The turn of one of Auto's agents ended: its work ships, or its card goes
 /// back to the person when the turn did not finish.
 pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
@@ -842,12 +1059,19 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
                 let run = card.kept_run()?;
-                (run.agent == agent_id && run.stage != RunStage::Starting)
-                    .then(|| (project.clone(), card.id, run.stage, run.held.is_some()))
+                (run.agent == agent_id && run.stage != RunStage::Starting).then(|| {
+                    (
+                        project.clone(),
+                        card.id,
+                        run.stage,
+                        run.held.is_some(),
+                        recover::bringing_back(run),
+                    )
+                })
             })
         })
     };
-    let Some((project, id, stage, held_back)) = found else {
+    let Some((project, id, stage, held_back, bringing_back)) = found else {
         worker_ended(core, agent_id);
         return;
     };
@@ -855,9 +1079,9 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         .names
         .name(agent_id)
         .unwrap_or_else(|| "Its agent".to_owned());
-    let held = |note: String| finish::hold(core, &project, id, agent_id, RunHold::Unblock, note);
     match ending {
         Ending::Finished => {
+            recover::finished_turn(core, &project, id, agent_id);
             let now = core.agent_now(agent_id);
             if now.waits_on_something()
                 || !(held_back || stage.ships_on_turn_end())
@@ -873,15 +1097,8 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
             }
             finish::ship(core, project, id);
         }
-        _ if held_back || !stage.busy() => {}
-        Ending::Stopped => held(format!("{name} was stopped before it finished")),
-        Ending::Failed(reason) => held(format!("{name}'s turn failed: {reason}")),
-        Ending::Gone { reason, .. } => held(match reason {
-            Some(reason) if !reason.trim().is_empty() => {
-                format!("{name} stopped running: {reason}")
-            }
-            _ => format!("{name} stopped running"),
-        }),
+        _ if held_back || !stage.busy() || bringing_back => {}
+        ending => recover::ended(core, &project, id, agent_id, &name, stage, ending),
     }
 }
 

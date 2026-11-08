@@ -1,7 +1,9 @@
 //! Holding a slice is a lease. An owner that closed, stopped or went quiet loses its slice, so
 //! the team doesn't wait on it in silence: the slice keeps its gates and its work, anybody may
-//! take it up, and the person is asked to resume the owner or hand the slice on. An owner keeps
-//! the lease for as long as something it waits on can still bring it back by itself.
+//! take it up, and Auto takes it on where it can run it, telling the person, who can overrule
+//! that. Otherwise, and always for a chat the person works in, they are asked to resume the owner
+//! or hand the slice on. An owner keeps the lease for as long as something it waits on can still
+//! bring it back by itself.
 
 use crate::server::changed::What;
 use std::collections::HashSet;
@@ -54,6 +56,9 @@ pub(super) struct Stalled {
     pub agent: String,
     pub name: String,
     pub why: Why,
+    /// Auto leaves it to the person: their own chat lost it, or they overruled Auto taking it on.
+    #[serde(default)]
+    pub stays: bool,
 }
 
 /// The owner a card lost, for the person to resume or hand it on: the one a slice's lease took,
@@ -155,6 +160,16 @@ pub(super) fn settle(core: &Core) -> Option<u64> {
     next
 }
 
+/// Whether the person works on the slice with this agent, in a chat of their own still open, so
+/// its going quiet means they stepped away rather than that the work is stuck.
+fn persons_own(core: &Core, owner: &str, why: Why) -> bool {
+    !matches!(why, Why::Closed)
+        && core
+            .names
+            .get(owner)
+            .is_none_or(|named| named.parent.is_none())
+}
+
 fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
     let mut state = core.boards.state.locked();
     let mut owners = Vec::new();
@@ -175,6 +190,7 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
         owners.push(slice.owner.clone());
         held.stalled = Some(Stalled {
             name: name.unwrap_or_else(|| slice.owner.clone()),
+            stays: persons_own(core, &slice.owner, why),
             agent: slice.owner,
             why,
         });

@@ -12,7 +12,9 @@ use sikemux_process::sync::Locked;
 
 use super::auto::{AutoPull, AutoRun, BoardSettings, Landing, RunHold, RunStage};
 use super::review::{self, MAX_ROUNDS};
-use super::{blind, change_card, git, send_notices, By, Card, CardStatus, Changes, Checker};
+use super::{
+    blind, change_card, git, recover, send_notices, By, Card, CardStatus, Changes, Checker,
+};
 use crate::server::codehost::ci;
 use crate::server::codehost::repo::{self as codehost, Checks, Feedback, CI_START_WAIT_MS};
 use crate::server::connection::blocking;
@@ -76,6 +78,7 @@ pub(crate) fn hold(core: &Core, project: &str, id: u64, agent: &str, need: RunHo
     change_run(core, project, id, agent, |card, run| {
         reviewer = run.reviewer.take();
         run.verdict = None;
+        run.recovery.due = None;
         if run.worktree.is_empty() {
             super::to_open(card);
         }
@@ -298,6 +301,9 @@ pub(super) fn retry(core: &Arc<Core>, project: &str, id: u64) -> Result<(), Stri
             run.rebased = false;
             run.fixed = false;
             run.review.rounds = 0;
+            run.recovery.tries = 0;
+            run.recovery.failure = None;
+            run.recovery.why = None;
         } else {
             card.auto = None;
         }
@@ -550,11 +556,15 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     let running = core.running_agents();
     let mut next = None;
     let mut checking_any = false;
-    let due: Vec<(String, u64, RunStage)> = {
+    let due: (
+        Vec<(String, u64, RunStage)>,
+        Vec<(String, u64, RunStage, String)>,
+    ) = {
         let mut state = core.boards.state.locked();
         let mut due = Vec::new();
         let mut present = Vec::new();
         let mut missing = Vec::new();
+        let mut watched_turns = Vec::new();
         for (project, board) in &state.boards {
             for card in &board.cards {
                 let Some(run) = card.run() else { continue };
@@ -595,6 +605,15 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                     {
                         0
                     }
+                    RunStage::Working | RunStage::Fixing if run.recovery.due.is_some() => {
+                        match run.recovery.due {
+                            Some(at) if at <= now => {
+                                due.push((project.clone(), card.id, run.stage))
+                            }
+                            at => next = sooner(next, at),
+                        }
+                        continue;
+                    }
                     RunStage::Working
                     | RunStage::Fixing
                     | RunStage::Reviewing
@@ -607,6 +626,16 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                             _ => &run.agent,
                         };
                         if running.contains(watched) {
+                            if board.settings.recover
+                                && matches!(run.stage, RunStage::Working | RunStage::Fixing)
+                            {
+                                watched_turns.push((
+                                    key.0.clone(),
+                                    key.1,
+                                    run.stage,
+                                    run.agent.clone(),
+                                ));
+                            }
                             present.push(key);
                         } else {
                             missing.push((key, run.stage));
@@ -639,8 +668,15 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                 next = sooner(next, Some(since + GONE_AFTER_MS));
             }
         }
-        due
+        (due, watched_turns)
     };
+    let (mut due, watched_turns) = due;
+    for (project, id, stage, agent) in watched_turns {
+        match recover::hangs_at(core, &agent) {
+            Some(at) if at <= now => due.push((project, id, stage)),
+            at => next = sooner(next, at),
+        }
+    }
     if checking_any {
         ci::start(core);
     }
@@ -669,17 +705,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             }),
             RunStage::Working | RunStage::Fixing => {
                 step(core, project, id, None, |core, step| async move {
-                    if core.running_agents().contains(step.agent()) {
-                        return;
-                    }
-                    step.hold(
-                        &core,
-                        RunHold::Unblock,
-                        format!(
-                            "{} is no longer running, so it did not finish; Ship it again sends what it committed",
-                            step.name(&core)
-                        ),
-                    );
+                    recover::settle(&core, step).await;
                 })
             }
         }

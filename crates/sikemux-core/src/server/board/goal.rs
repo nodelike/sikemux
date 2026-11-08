@@ -825,7 +825,7 @@ pub(crate) struct Settled {
 }
 
 /// Keeps what agents settled, on the goal its holder works on, or else on its project's board.
-pub(crate) fn keep_settled(core: &Core, settled: Settled) {
+pub(crate) fn keep_settled(core: &Core, settled: Settled) -> Option<(Option<u64>, u64)> {
     let goal = goal_of(core, &settled.holder);
     let learned = learned(core, Some(&settled.by));
     let project = goal
@@ -835,16 +835,15 @@ pub(crate) fn keep_settled(core: &Core, settled: Settled) {
     let board = (state.boards)
         .entry(project.clone())
         .or_insert_with(|| Board::empty(&project));
-    let kept = match goal.and_then(|goal| board.goal_log(goal.card)) {
+    let goal = goal.and_then(|goal| board.goal_log(goal.card).map(|card| card.id));
+    let kept = match goal.and_then(|goal| board.card_mut(goal).ok()) {
         Some(card) => {
             card.updated_at = epoch_ms();
             &mut card.goal
         }
         None => &mut board.decided,
     };
-    if make_room(&mut kept.decisions, 0, &[]).is_err() {
-        return;
-    }
+    make_room(&mut kept.decisions, 0, &[]).ok()?;
     kept.last += 1;
     kept.decisions.push(Decision {
         id: kept.last,
@@ -856,7 +855,9 @@ pub(crate) fn keep_settled(core: &Core, settled: Settled) {
         asked: Some(clipped(&settled.asked, MAX_TEXT_CHARS)),
         holder: Some(settled.holder),
     });
+    let decision = kept.last;
     core.boards.save(&mut state, &project);
+    Some((goal, decision))
 }
 
 /// What agents decided that nobody overruled, oldest first, in `project` or in every project: on a
@@ -931,6 +932,7 @@ pub(crate) async fn overrule(
             let overruled = decision.clone();
             core.boards.save(&mut state, &project);
             drop(state);
+            super::recover::overruled(&core, &project, params.goal, params.decision);
             let view = project_view(&core, &project);
             Ok((project, (overruled, params.instead), view))
         })

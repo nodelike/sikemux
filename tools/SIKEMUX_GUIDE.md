@@ -1406,7 +1406,7 @@ claim it, so it never stays stuck.
 
 Holding a slice is a lease. If your chat closes, or you run no turn and leave the
 slice untouched for 30 minutes while nothing you wait on can bring you back and
-the person didn't stop everything, the slice goes back to Open and the person is asked to resume you or hand it on.
+the person didn't stop everything, the slice goes back to Open. Where Auto can run it, Auto takes it on in your worktree with a handover and the person can overrule that; otherwise, and always for a chat the person works in, they are asked to resume you or hand it on.
 `board_list` shows the owner it lost as `stalledOwner`; claim it to carry it on.
 
 When a card is done, the cards waiting on it are free to claim, and their
@@ -1528,6 +1528,16 @@ pushed after needs a new one. If it asks for changes, a message from `Auto`
 lists them: fix them and commit, and a fresh reviewer looks at the new change,
 for a few rounds before the card goes back to the person. You cannot message,
 read or wait on the reviewer, and it cannot reach you.
+
+If an Auto agent's turn fails, its process dies or it says nothing for 30
+minutes in the middle of a turn, Auto brings it back on its own session and
+asks it to carry on, or starts a fresh agent in the same worktree with a
+handover. It tries a few times with growing waits, and sends the card back to
+the person once the same failure comes twice in a row. A person or lead stopping
+an agent is never undone; a usage limit waits for its reset, and a sign-in or
+missing program goes to the person at once. A message from `Auto` saying it
+brought you back means your last turn stopped part-way, so check what got done
+first.
 
 ### When Auto started you to review
 

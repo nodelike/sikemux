@@ -796,7 +796,8 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let landings = landing_picks();
     let (landing_key, landing_shown) = landing_choice(settings.landing);
     let entity = || cx.entity();
-    let (on_slots, on_landing) = (entity(), entity());
+    let (on_slots, on_landing, on_recover) = (entity(), entity(), entity());
+    let recover_on = settings.recover;
     let reviewer = settings.reviewer.clone();
     let auto_on = settings.auto;
     let agent_cards = settings.agent_cards;
@@ -882,6 +883,17 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                     },
                     cx,
                 ),
+                cx,
+            ))
+            .child(fact(
+                "Recover",
+                Toggle::new("board-recover", "Bring back agents that stop", recover_on)
+                    .on_click(move |_, _, cx| {
+                        on_recover.update(cx, |pane, cx| {
+                            pane.change_settings(|params| params.recover = Some(!recover_on), cx)
+                        })
+                    })
+                    .into_any_element(),
                 cx,
             ))
             .child({

@@ -131,6 +131,8 @@ pub(crate) struct Feed {
     held: AtomicUsize,
     /// When a client last read the chat, in epoch ms.
     viewed: AtomicU64,
+    /// When the agent last said anything, in epoch ms.
+    heard: AtomicU64,
     earlier: Mutex<Option<Earlier>>,
 }
 
@@ -200,6 +202,7 @@ impl Feed {
             finding: Mutex::default(),
             held: AtomicUsize::new(0),
             viewed: AtomicU64::new(epoch_ms()),
+            heard: AtomicU64::new(epoch_ms()),
             earlier: Mutex::new(None),
             inner: Mutex::new(Inner {
                 subscribers: HashMap::new(),
@@ -281,6 +284,7 @@ impl Feed {
             finding: Mutex::default(),
             held: AtomicUsize::new(0),
             viewed: AtomicU64::new(epoch_ms()),
+            heard: AtomicU64::new(epoch_ms()),
             earlier: Mutex::new(None),
             inner: Mutex::new(Inner {
                 subscribers: HashMap::new(),
@@ -421,6 +425,8 @@ impl Feed {
     /// Streamed updates go out once a frame; anything else goes out at once,
     /// after what streamed before it.
     pub(crate) fn emit(self: &Arc<Self>, kind: ChatEventKind, mut payload: Value) {
+        self.heard
+            .store(epoch_ms(), std::sync::atomic::Ordering::Relaxed);
         let mut inner = self.inner.locked();
         if is_kept(kind) {
             stamp(&mut payload);
@@ -441,6 +447,10 @@ impl Feed {
         }
         self.flush_locked(&mut inner);
         self.let_go(&mut inner);
+    }
+
+    pub(crate) fn heard_at(&self) -> u64 {
+        self.heard.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// What a person sent the agent, as every client and every later reader

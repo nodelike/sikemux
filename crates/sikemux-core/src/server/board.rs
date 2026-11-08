@@ -47,6 +47,7 @@ mod migrate;
 pub(crate) mod offers;
 mod page;
 mod record;
+pub(crate) mod recover;
 mod review;
 mod slice;
 pub(crate) mod tickets;
