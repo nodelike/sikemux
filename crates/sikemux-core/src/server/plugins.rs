@@ -604,8 +604,8 @@ mod tests {
     fn a_folder_of_repositories_has_the_remotes_of_the_repositories_in_it() {
         let folder = tempfile::tempdir().expect("tempdir");
         for (name, url) in [
-            ("api", "git@bitbucket.org:team/api.git"),
-            ("web", "git@bitbucket.org:team/web.git"),
+            ("api", "https://bitbucket.org/team/api.git"),
+            ("web", "https://bitbucket.org/team/web.git"),
         ] {
             let repo = folder.path().join(name);
             std::fs::create_dir(&repo).expect("repository folder");
@@ -617,8 +617,8 @@ mod tests {
         assert_eq!(
             remote_urls(folder.path()),
             [
-                "git@bitbucket.org:team/api.git",
-                "git@bitbucket.org:team/web.git"
+                "https://bitbucket.org/team/api.git",
+                "https://bitbucket.org/team/web.git"
             ]
         );
     }
