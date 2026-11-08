@@ -484,6 +484,7 @@ pub(crate) fn checkout(
             branch,
             base: code.commit.clone(),
             sent: None,
+            auto: false,
         },
         path.join(inside),
     ))
@@ -510,23 +511,29 @@ pub(crate) fn lay_over(tree: &Path, patch: &str) -> Result<(), String> {
 /// the worker's work reads apart from the lead's.
 fn apply(tree: &Path, patch: &str) -> Result<(), String> {
     lay_over(tree, patch)?;
-    Git::quick(tree).trimmed(&["add", "--all"])?;
-    let mut args = Vec::new();
-    if Git::quick(tree).trimmed(&["config", "user.email"]).is_err() {
-        args.extend([
+    commit_everything(
+        tree,
+        "The lead's uncommitted changes, as they were when it started this worker",
+    )
+}
+
+/// What git needs to make a commit in `tree`, on a host with no name of its own for git.
+pub(crate) fn identity(tree: &Path) -> Vec<&'static str> {
+    match Git::quick(tree).trimmed(&["config", "user.email"]) {
+        Ok(_) => Vec::new(),
+        Err(_) => vec![
             "-c",
             "user.name=Sikemux",
             "-c",
             "user.email=sikemux@localhost",
-        ]);
+        ],
     }
-    args.extend([
-        "commit",
-        "--quiet",
-        "--no-verify",
-        "-m",
-        "The lead's uncommitted changes, as they were when it started this worker",
-    ]);
+}
+
+fn commit_everything(tree: &Path, message: &str) -> Result<(), String> {
+    Git::quick(tree).trimmed(&["add", "--all"])?;
+    let mut args = identity(tree);
+    args.extend(["commit", "--quiet", "--no-verify", "-m", message]);
     Git::slow(tree).trimmed(&args).map(drop)
 }
 
@@ -534,6 +541,16 @@ fn apply(tree: &Path, patch: &str) -> Result<(), String> {
 /// the commit it ends at and how many it holds, unless nothing is new since
 /// the last went back.
 pub(crate) fn commits(tree: &Tree, into: &Path) -> Result<Option<(String, usize)>, String> {
+    if tree.auto
+        && !Git::quick(&tree.path)
+            .trimmed(&["status", "--porcelain"])?
+            .is_empty()
+    {
+        commit_everything(
+            &tree.path,
+            "What its agent left uncommitted when its turn ended",
+        )?;
+    }
     let head = Git::quick(&tree.path).trimmed(&["rev-parse", "HEAD"])?;
     if head == tree.base || tree.sent.as_deref() == Some(head.as_str()) {
         return Ok(None);
@@ -563,7 +580,7 @@ pub(super) struct ArrivingCommits {
 
 /// A worker on `host` sent its commits: they go onto a branch named for it
 /// in its lead's checkout here, which its next report names.
-pub(crate) async fn land(
+pub(super) async fn land(
     core: &Arc<Core>,
     host: &str,
     params: ArrivingCommits,

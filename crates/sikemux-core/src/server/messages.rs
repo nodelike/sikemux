@@ -1304,8 +1304,12 @@ pub(crate) fn auto_task(core: &Core, agent_id: &str, text: String) -> String {
 
 /// Auto tells an agent of its own what its card needs next.
 pub(crate) async fn from_auto(core: &Arc<Core>, to: String, text: String) -> Result<Value, String> {
+    let mut letter = auto_letter(text);
+    if let Some(lead) = core.hosts.team.get(&to).and_then(|worker| worker.parent) {
+        letter.from_id = lead;
+    }
     let target = running(core, to).await?;
-    deliver(core, &target, auto_letter(text)).await
+    deliver(core, &target, letter).await
 }
 
 /// Drops the messages holding `mark` that still wait for the agent.

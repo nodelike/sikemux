@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 use sikemux_view::workspace::WorkspaceAgent;
@@ -779,6 +780,8 @@ async fn spawn_terminal(
     }))
 }
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) enum Ending {
     Finished,
     Stopped,
@@ -804,6 +807,9 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending, i
         .chats
         .get(agent_id)
         .map(|chat| chat.feed.last_answer().map(TerminalAnswer::Said));
+    let for_auto = (core.hosts.team.tree(agent_id))
+        .filter(|tree| tree.auto)
+        .zip(super::hosts::route::lead_host(core, agent_id));
     let (core, worker) = (core.clone(), agent_id.to_owned());
     tokio::spawn(async move {
         let answer = match chat_answer {
@@ -830,6 +836,14 @@ pub(super) fn report_to_lead(core: &Arc<Core>, agent_id: &str, ending: Ending, i
                 turn.answer
             }
         };
+        if let Some((tree, host)) = for_auto {
+            let said = match answer {
+                Some(TerminalAnswer::Said(said)) => Some(said),
+                _ => None,
+            };
+            elsewhere::auto_turn_ended(&core, worker, tree, host, ending, said).await;
+            return;
+        }
         let text = report(&core, &worker, ending, answer);
         elsewhere::send_commits(&core, &worker).await;
         messages::report(&core, worker, lead, text).await;

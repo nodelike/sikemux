@@ -165,9 +165,13 @@ fn at_work_stage(run: &AutoRun) -> bool {
 /// when one of its workers has taken it past the limit. Its lead's turn ending is left alone,
 /// since its work ships next and the check on it is what says whether it got anywhere.
 pub(super) fn turn_ended(core: &Core, agent: &str) {
-    let Some(cost) = core.chats.get(agent).and_then(|chat| chat.feed.cost_usd()) else {
-        return;
-    };
+    if let Some(cost) = core.chats.get(agent).and_then(|chat| chat.feed.cost_usd()) {
+        heard_cost(core, agent, cost);
+    }
+}
+
+/// What `agent`'s CLI last said it cost, here or on a linked host.
+pub(super) fn heard_cost(core: &Core, agent: &str, cost: f64) {
     let lead = core.names.team_of(agent);
     let mut state = core.boards.state.locked();
     let found = state.boards.iter().find_map(|(project, board)| {
@@ -360,7 +364,7 @@ pub(super) fn look(
         return looked + LOOK_EVERY_MS;
     }
     let agent_now = core.agent_now(agent);
-    let at_work = (agent_now.mid_turn() || agent_now.workers_busy(agent))
+    let at_work = (agent_now.maybe_mid_turn() || agent_now.workers_busy(agent))
         && !agent_now.waits_on_something()
         && !matches!(core.inbox.fault(agent), Some(Fault::Retrying));
     finish::change_run(core, project, id, agent, |card, run| {

@@ -38,6 +38,7 @@ pub mod chat_goal;
 mod commands;
 mod compare;
 mod contract;
+pub(crate) mod elsewhere;
 pub(crate) mod environments;
 mod eta;
 mod failing;
@@ -3281,6 +3282,11 @@ pub(crate) async fn person_settings(
                 .providers()
                 .is_some_and(|providers| providers.find(id).is_some())
         })?;
+        for host in settings.hosts.iter().filter(|host| !current.hosts.contains(host)) {
+            if core.remote.link(host).is_none() {
+                return Err(format!("{host} is not a host linked with this one").into());
+            }
+        }
         if let (Some(builder), Some(reviewer)) = (&settings.launcher, &settings.reviewer) {
             let cli = |id: &str| core.workspaces.launcher_cli(id);
             if cli(builder).is_some() && cli(builder) == cli(&reviewer.launcher) {

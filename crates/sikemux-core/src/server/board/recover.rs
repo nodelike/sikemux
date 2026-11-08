@@ -12,6 +12,7 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::auto::{self, AutoRun, RunHold, RunStage};
+use super::elsewhere;
 use super::finish::{self, Dropped, Step};
 use super::lease::Stalled;
 use super::Card;
@@ -331,21 +332,18 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
         hung(core, step);
         return;
     }
-    if core.running_agents().contains(&agent) {
+    if core.running_agents().contains(&agent) || elsewhere::works_now(core, &agent) {
         return;
     }
     let name = step.name(core);
-    let cut_short = format!(
-        "{name} is no longer running, so it did not finish; Ship it again sends what it committed"
-    );
+    let why = elsewhere::why_gone(core, &step.run, &name)
+        .unwrap_or_else(|| format!("{name} is no longer running"));
+    let cut_short = format!("{why}, so it did not finish; Ship it again sends what it committed");
     let asleep = core
         .workspaces
         .agent(&agent)
         .is_some_and(|known| known.asleep);
-    if !step.settings.recover
-        || asleep
-        || core.workspaces.closed(&agent)
-        || core.workspaces.held(&agent)
+    if !step.settings.recover || asleep || closed_here(core, &step) || core.workspaces.held(&agent)
     {
         hold(core, &step, cut_short);
         return;
@@ -355,10 +353,15 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
         &step.project,
         step.id,
         &agent,
-        format!("{name} is no longer running"),
+        why,
         "no longer running",
     );
     core.boards.wake.now();
+}
+
+/// The person closed the run's agent. One on a linked host is never in this host's workspace.
+fn closed_here(core: &Core, step: &Step) -> bool {
+    step.run.elsewhere.is_none() && core.workspaces.closed(step.agent())
 }
 
 fn stop_agent(core: &Core, agent: &str) {
@@ -368,6 +371,7 @@ fn stop_agent(core: &Core, agent: &str) {
     if core.chats.stop(agent) {
         core.note_agent_gone(agent);
     }
+    crate::server::hosts::route::stop_worker(core, agent);
 }
 
 /// Stops an agent whose turn hung, which then has a try coming like any other failure.
@@ -408,7 +412,7 @@ async fn attempt(core: &Arc<Core>, step: Step) {
         );
         return;
     }
-    if core.workspaces.closed(&agent) {
+    if closed_here(core, &step) {
         hold(
             core,
             &step,
@@ -424,7 +428,7 @@ async fn attempt(core: &Arc<Core>, step: Step) {
         return;
     }
     cleared(Some(format!("Bringing {name} back")));
-    let running = core.chats.get(&agent).is_some();
+    let running = core.chats.get(&agent).is_some() || elsewhere::works_now(core, &agent);
     let resumable = running
         || core
             .workspaces
@@ -509,6 +513,10 @@ async fn fresh(core: &Arc<Core>, step: &Step, why: &str) {
             step,
             format!("{why}. Its worktree is gone, so Auto cannot carry it on"),
         );
+        return;
+    }
+    if let Err(error) = elsewhere::take_in(core, step).await {
+        hold(core, step, format!("{why}. {error}"));
         return;
     }
     let said = core

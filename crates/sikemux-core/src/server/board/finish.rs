@@ -13,12 +13,13 @@ use sikemux_process::sync::Locked;
 use super::auto::{AutoPull, AutoRun, BoardSettings, Landing, RunHold, RunStage};
 use super::review::{self, MAX_ROUNDS};
 use super::{
-    blind, change_card, git, guard, queue, recover, send_notices, By, Card, CardStatus, Changes,
-    Checker,
+    blind, change_card, elsewhere, git, guard, queue, recover, send_notices, By, Card, CardStatus,
+    Changes, Checker,
 };
 use crate::server::codehost::ci;
 use crate::server::codehost::repo::{self as codehost, Checks, Feedback, CI_START_WAIT_MS};
 use crate::server::connection::blocking;
+use crate::server::hosts::route::stop_worker;
 use crate::server::wake::sooner;
 use crate::server::worktree;
 use crate::server::{messages, Core};
@@ -162,6 +163,7 @@ async fn clear(core: &Arc<Core>, dropped: Dropped) {
     if core.chats.stop(&run.agent) {
         core.note_agent_gone(&run.agent);
     }
+    stop_worker(core, &run.agent);
     if let (true, Some(pull)) = (discard, &run.pull) {
         if let Err(error) = codehost::close(core, pull).await {
             eprintln!(
@@ -423,6 +425,7 @@ fn current_result(core: &Core, step: &Step) -> Option<String> {
 }
 
 async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
+    elsewhere::take_in(core, step).await?;
     let tree = step.tree();
     let repo = PathBuf::from(&step.run.repo);
     let message = commit_message(&step.card);
@@ -598,7 +601,8 @@ struct WatchedTurn {
 pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     super::backup::start_due(core);
     let now = epoch_ms();
-    let running = core.running_agents();
+    let mut running = core.running_agents();
+    running.extend(elsewhere::working(core));
     let mut next = None;
     let mut checking_any = false;
     let due: (Vec<(String, u64, RunStage)>, Vec<WatchedTurn>) = {
@@ -705,7 +709,8 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                             }
                             present.push(key);
                         } else {
-                            missing.push((key, run.stage));
+                            let after = elsewhere::gone_after(core, run, GONE_AFTER_MS);
+                            missing.push((key, run.stage, after));
                         }
                         continue;
                     }
@@ -726,13 +731,13 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
         for (project, id) in present {
             state.change_work(&project, id, |work| work.missing_since = None);
         }
-        for ((project, id), stage) in missing {
+        for ((project, id), stage, after) in missing {
             let since = *state.work(&project, id).missing_since.get_or_insert(now);
-            if now.saturating_sub(since) >= GONE_AFTER_MS {
+            if now.saturating_sub(since) >= after {
                 state.change_work(&project, id, |work| work.missing_since = None);
                 due.push((project, id, stage));
             } else {
-                next = sooner(next, Some(since + GONE_AFTER_MS));
+                next = sooner(next, Some(since + after));
             }
         }
         (due, watched_turns)
@@ -1125,6 +1130,7 @@ pub(super) async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
     if core.chats.stop(step.agent()) {
         core.note_agent_gone(step.agent());
     }
+    stop_worker(core, step.agent());
     let (repo, tree, branch) = (
         PathBuf::from(&step.run.repo),
         step.tree(),

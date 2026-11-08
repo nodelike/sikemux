@@ -908,7 +908,8 @@ fn cli_of(core: &Core, agent_id: &str) -> String {
 
 /// The agent that started `agent_id`, while a message reaches it.
 fn reachable_lead(core: &Core, agent_id: &str) -> Option<String> {
-    (core.names.get(agent_id)?.parent).filter(|lead| reachable(core, lead))
+    let led_by_auto = (core.hosts.team.tree(agent_id)).is_some_and(|tree| tree.auto);
+    (core.names.get(agent_id)?.parent).filter(|lead| !led_by_auto && reachable(core, lead))
 }
 
 /// Whether the agent answers to nobody but has agents of its own, so what it asks the person is

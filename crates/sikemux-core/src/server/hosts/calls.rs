@@ -42,6 +42,8 @@ host_asks! {
     Team "team" route::TeamParams;
     Worked "worked" route::AboutAgent;
     Commits "commits" code::ArrivingCommits;
+    AutoTurn "autoTurn" spawn::AutoTurn;
+    Stop "stop" route::AboutAgent;
     PassOn "passOn" route::PassOnParams;
     QuestionClosed "questionClosed" route::ClosedParams;
 }
@@ -87,6 +89,10 @@ pub(super) async fn answer(
         Team::METHOD => answered(route::team_here(core, host, read::<Team>(params)?)),
         Worked::METHOD => answered(route::worked_here(core, host, read::<Worked>(params)?)),
         Commits::METHOD => code::land(core, host, read::<Commits>(params)?, body).await,
+        AutoTurn::METHOD => {
+            super::super::board::elsewhere::turn_ended(core, host, read::<AutoTurn>(params)?)
+        }
+        Stop::METHOD => answered(route::stop_here(core, host, read::<Stop>(params)?)),
         "question" => super::super::questions::relayed_here(core, host, params),
         "answer" => super::super::questions::answer_relayed(core, host, params).await,
         QuestionClosed::METHOD => {

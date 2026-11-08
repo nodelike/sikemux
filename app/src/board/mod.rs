@@ -23,6 +23,8 @@ use sikemux_core::server::board::CardStatus;
 use sikemux_core::server::board::CardTicket;
 use sikemux_core::server::board::ProjectBoard;
 use sikemux_core::server::call::{self, Call};
+use sikemux_core::server::calls::NoParams;
+use sikemux_core::server::hosts::LinkedHost;
 use sikemux_core::server::messages::log::MessageRow;
 use sikemux_core::server::messages::AgentMessagesParams;
 use sikemux_core::server::triggers::TriggerParams;
@@ -228,6 +230,8 @@ pub struct BoardPane {
     folded: HashSet<String>,
     pub(crate) messages: Option<Vec<MessageRow>>,
     pub(crate) busy: bool,
+    /// The hosts linked with this one, once the Auto panel has asked.
+    pub(crate) links: Vec<LinkedHost>,
     focus: FocusHandle,
     _typing: Option<Subscription>,
     _reading: Task<()>,
@@ -267,6 +271,7 @@ impl BoardPane {
             folded: HashSet::new(),
             messages: None,
             busy: false,
+            links: Vec::new(),
             focus: cx.focus_handle(),
             _typing: None,
             _reading: Task::ready(()),
@@ -450,6 +455,9 @@ impl BoardPane {
             self.messages = None;
             self.changed(cx);
         }
+        if open == Some(Open::Auto) {
+            self.read_links(cx);
+        }
         cx.notify();
     }
 
@@ -562,6 +570,20 @@ impl BoardPane {
 
     /// Changes how the project's board runs on its own: what `change` sets, the rest as it
     /// is.
+    fn read_links(&self, cx: &mut Context<Self>) {
+        let asked =
+            core::Target::here(self.asks()).request_typed::<call::RemotePairing>(NoParams {});
+        cx.spawn(async move |pane, cx| {
+            if let Ok(pairing) = asked.await {
+                let _ = pane.update(cx, |pane, cx| {
+                    pane.links = pairing.links;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
+    }
+
     pub(crate) fn change_settings(
         &mut self,
         change: impl FnOnce(&mut BoardSettingsParams),

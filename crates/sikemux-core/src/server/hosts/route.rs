@@ -179,7 +179,9 @@ pub(super) fn happened_here(core: &Core, host: &str, params: HappenedParams) -> 
         {
             core.note_linked_turn_ended(&foreign.agent_id);
         }
-        if happened == Happened::Gone {
+        if happened == Happened::Gone
+            && !super::super::board::elsewhere::holds(core, &foreign.agent_id)
+        {
             core.hosts.team.remove(&foreign.agent_id);
             pin(core);
         }
@@ -223,6 +225,9 @@ pub(crate) fn resync(core: &Arc<Core>, host: &str) {
             .filter_map(|agent_id| {
                 let status = match listed.iter().find(|local| &local.agent_id == agent_id) {
                     Some(local) => local.standing(&core),
+                    None if super::super::board::elsewhere::leads_a_run(&core, agent_id) => {
+                        AgentStatus::Working
+                    }
                     None => {
                         core.names.get(agent_id)?;
                         AgentStatus::Asleep
@@ -633,6 +638,43 @@ pub(super) fn forget_here(core: &Core, host: &str, params: AboutAgent) -> CoreRe
         core.names.forget(agent_id);
         pin(core);
         super::changed(core);
+    }
+    Ok(Value::Null)
+}
+
+/// Stops a worker this host started on another, whenever that host next hears, and
+/// forgets it here. Whatever it sends after this is not taken.
+pub(crate) fn stop_worker(core: &Core, agent_id: &str) {
+    let Some(worker) = core
+        .hosts
+        .team
+        .get(agent_id)
+        .filter(|foreign| foreign.role == Role::Worker)
+    else {
+        return;
+    };
+    core.hosts.team.remove(agent_id);
+    pin(core);
+    post(
+        core,
+        &worker.host,
+        Sending {
+            method: asks::Stop::METHOD,
+            params: params_of::<asks::Stop>(&AboutAgent {
+                agent_id: agent_id.to_owned(),
+            }),
+            key: None,
+            body: None,
+            keep: true,
+        },
+    );
+    super::changed(core);
+}
+
+pub(super) fn stop_here(core: &Core, host: &str, params: AboutAgent) -> CoreResult<Value> {
+    let agent_id = params.agent_id.as_str();
+    if lead_host(core, agent_id).as_deref() == Some(host) && core.chats.stop(agent_id) {
+        core.note_agent_gone(agent_id);
     }
     Ok(Value::Null)
 }

@@ -780,6 +780,60 @@ fn ceiling_words(ceiling: Option<u32>) -> String {
     ceiling.map_or("Off".to_owned(), |dollars| format!("${dollars}"))
 }
 
+/// Which linked hosts take Auto's agents past this one's places; picking one turns it on or off.
+fn hosts_row(
+    pane: &BoardPane,
+    chosen: &[String],
+    busy: bool,
+    cx: &mut Context<BoardPane>,
+) -> Option<AnyElement> {
+    if pane.links.is_empty() {
+        return None;
+    }
+    let picks = (pane.links.iter())
+        .map(|link| {
+            let pick = Pick::new(link.id.clone(), link.name.clone());
+            match (chosen.contains(&link.id), link.connected) {
+                (true, _) => pick.hint("On"),
+                (false, false) => pick.hint("Out of reach"),
+                (false, true) => pick,
+            }
+        })
+        .collect();
+    let names: Vec<&str> = (pane.links.iter())
+        .filter(|link| chosen.contains(&link.id))
+        .map(|link| link.name.as_str())
+        .collect();
+    let shown = match names.is_empty() {
+        true => "Only this computer".to_owned(),
+        false => names.join(", "),
+    };
+    let on_host = cx.entity();
+    let chosen = chosen.to_vec();
+    let field = select(
+        "board-hosts",
+        shown,
+        picks,
+        None,
+        busy,
+        move |host, _, cx| {
+            let mut hosts = chosen.clone();
+            match hosts
+                .iter()
+                .position(|known| known.as_str() == host.as_ref())
+            {
+                Some(index) => drop(hosts.remove(index)),
+                None => hosts.push(host.to_string()),
+            }
+            on_host.update(cx, |pane, cx| {
+                pane.change_settings(|params| params.hosts = Some(hosts), cx)
+            })
+        },
+        cx,
+    );
+    Some(fact("Hosts", field, cx))
+}
+
 fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let Some(board) = &pane.board else {
         return div().into_any_element();
@@ -824,6 +878,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let (fast_check, culprit_finding) = (settings.fast_check, settings.culprit_finding);
     let merge_queue = settings.merge_queue;
     let reservoir = settings.reservoir;
+    let hosts_row = hosts_row(pane, &settings.hosts, pane.busy, cx);
     let mut view = div()
         .flex()
         .flex_col()
@@ -965,6 +1020,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                 ),
                 cx,
             ))
+            .children(hosts_row)
             .child({
                 let picker = auto_picker(
                     pane,

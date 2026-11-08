@@ -61,6 +61,9 @@ pub(crate) struct Tree {
     pub base: String,
     /// The commit its work last went back to the lead at.
     pub sent: Option<String>,
+    /// Auto on the other host started it for a card, with no agent of its own as the lead.
+    #[serde(default)]
+    pub auto: bool,
 }
 
 #[derive(Default, Serialize, Deserialize)]

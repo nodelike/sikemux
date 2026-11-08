@@ -16,14 +16,15 @@ use sikemux_wire::protocol::AgentStatus;
 
 use super::super::connection::blocking;
 use super::super::names::{Adopted, Worker};
-use super::super::spawn::{self as local, ForHost};
+use super::super::remote::StoredLink;
+use super::super::spawn::{self as local, Ending, ForHost};
 use super::super::worktree;
 use super::super::Core;
 use super::calls::{self as asks, params_of, HostAsk};
-use super::code::{self, Checked, Code};
+use super::code::{self, Checked, Code, Packed};
 use super::link::Received;
 use super::route::pin;
-use super::team::{Foreign, Role};
+use super::team::{Foreign, Role, Tree};
 use super::{ask, find, name_of, post, Failed, Sending};
 
 /// Under the minute an agent's tool call may take.
@@ -100,13 +101,100 @@ pub(crate) async fn spawn(
             return Err(error.to_string());
         }
     };
+    let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
+    let depth = core.names.depth(&lead_id);
+    let Handed { name, answer } = hand_over(
+        core,
+        &link,
+        Handing {
+            agent_id: agent_id.clone(),
+            name: named.name.clone(),
+            provider,
+            project: named.project.clone(),
+            lead: LeadParams {
+                agent_id: lead_id,
+                name: lead_name,
+                cli: lead.provider.clone(),
+                mode: lead.permission_mode.map(|mode| mode.as_str().to_owned()),
+                depth,
+            },
+            model,
+            reports,
+            prompt,
+            branch: text(params, "branch").map(str::to_owned),
+            packed,
+            auto: false,
+            wait: SPAWN_WAIT,
+        },
+    )
+    .await?;
+    let shown = format!("{name} on {}", link.name);
+    let branch = answer["branch"].as_str().unwrap_or_default();
+    Ok(json!({
+        "name": shown,
+        "agentId": agent_id,
+        "host": link.name,
+        "cli": answer["cli"],
+        "model": answer["model"],
+        "reportsBack": reports,
+        "note": format!(
+            "{shown} is starting on {} in a checkout of its own{}, from your commit with your uncommitted changes committed on top, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
+            link.name,
+            if branch.is_empty() { String::new() } else { format!(" on its branch {branch}") },
+            if reports { " and its final answer comes to you as a message" } else { "" },
+        ),
+    }))
+}
+
+/// A worker this host named, to start on a linked host.
+pub(crate) struct Handing {
+    pub agent_id: String,
+    pub name: String,
+    pub provider: String,
+    pub project: String,
+    pub lead: LeadParams,
+    pub model: Option<String>,
+    pub reports: bool,
+    pub prompt: String,
+    pub branch: Option<String>,
+    pub packed: Packed,
+    pub auto: bool,
+    pub wait: Duration,
+}
+
+pub(crate) struct Handed {
+    pub name: String,
+    pub answer: Value,
+}
+
+/// Starts a named worker on `link`, sending the code when it lacks it. When it does not
+/// start, this host forgets the worker.
+pub(crate) async fn hand_over(
+    core: &Arc<Core>,
+    link: &StoredLink,
+    handing: Handing,
+) -> Result<Handed, String> {
+    let Handing {
+        agent_id,
+        name: given,
+        provider,
+        project,
+        lead,
+        model,
+        reports,
+        prompt,
+        branch,
+        packed,
+        auto,
+        wait,
+    } = handing;
     core.hosts.team.add(Foreign {
         agent_id: agent_id.clone(),
         host: link.id.clone(),
-        name: named.name.clone(),
+        name: given.clone(),
         cli: provider.clone(),
-        project: named.project.clone(),
-        parent: Some(lead_id.clone()),
+        project,
+        parent: Some(lead.agent_id.clone()),
         role: Role::Worker,
         status: AgentStatus::Starting,
         active_at: Some(epoch_ms()),
@@ -114,23 +202,17 @@ pub(crate) async fn spawn(
         landed: None,
     });
     pin(core);
-    let lead_name = core.names.name(&lead_id).unwrap_or_else(|| lead_id.clone());
     let task = params_of::<asks::Spawn>(&SpawnParams {
         agent_id: agent_id.clone(),
-        name: named.name.clone(),
-        lead: LeadParams {
-            agent_id: lead_id.clone(),
-            name: lead_name,
-            cli: lead.provider.clone(),
-            mode: lead.permission_mode.map(|mode| mode.as_str().to_owned()),
-            depth: core.names.depth(&lead_id),
-        },
-        cli: provider.clone(),
-        model: model.clone(),
+        name: given.clone(),
+        lead,
+        cli: provider,
+        model,
         reports,
-        prompt: prompt.clone(),
-        branch: text(params, "branch").map(str::to_owned),
+        prompt,
+        branch,
         code: packed.code.clone(),
+        auto,
     });
     let started = match ask(
         core,
@@ -138,7 +220,7 @@ pub(crate) async fn spawn(
         asks::Spawn::METHOD,
         task.clone(),
         None,
-        SPAWN_WAIT,
+        wait,
     )
     .await
     {
@@ -159,7 +241,7 @@ pub(crate) async fn spawn(
                         asks::Spawn::METHOD,
                         task,
                         Some(bundle.path()),
-                        SPAWN_WAIT,
+                        wait,
                     )
                     .await
                     {
@@ -181,48 +263,30 @@ pub(crate) async fn spawn(
             core.names.forget(&agent_id);
             pin(core);
             super::changed(core);
-            return Err(format!(
-                "{} did not start on {}: {error}",
-                named.name, link.name
-            ));
+            return Err(format!("{given} did not start on {}: {error}", link.name));
         }
     };
-    let name = answer["name"].as_str().unwrap_or(&named.name).to_owned();
-    if name != named.name {
+    let name = answer["name"].as_str().unwrap_or(&given).to_owned();
+    if name != given {
         core.names.set_name(&agent_id, &name);
         core.hosts
             .team
             .update(&agent_id, |worker| worker.name = name.clone());
     }
     super::changed(core);
-    let shown = format!("{name} on {}", link.name);
-    let branch = answer["branch"].as_str().unwrap_or_default();
-    Ok(json!({
-        "name": shown,
-        "agentId": agent_id,
-        "host": link.name,
-        "cli": answer["cli"],
-        "model": answer["model"],
-        "reportsBack": reports,
-        "note": format!(
-            "{shown} is starting on {} in a checkout of its own{}, from your commit with your uncommitted changes committed on top, and gets your prompt once it is ready. Each time its turn ends, its new commits come back to a branch in your checkout{}.",
-            link.name,
-            if branch.is_empty() { String::new() } else { format!(" on its branch {branch}") },
-            if reports { " and its final answer comes to you as a message" } else { "" },
-        ),
-    }))
+    Ok(Handed { name, answer })
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct LeadParams {
-    agent_id: String,
-    name: String,
+pub(crate) struct LeadParams {
+    pub agent_id: String,
+    pub name: String,
     #[serde(default)]
-    cli: String,
-    mode: Option<String>,
+    pub cli: String,
+    pub mode: Option<String>,
     #[serde(default)]
-    depth: usize,
+    pub depth: usize,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -238,6 +302,8 @@ pub(super) struct SpawnParams {
     #[serde(default)]
     branch: Option<String>,
     code: Code,
+    #[serde(default)]
+    auto: bool,
 }
 
 /// A linked host asks this one to start a worker for its agent.
@@ -285,10 +351,11 @@ pub(super) async fn start_here(
         .await
         .map_err(|error| error.to_string())?
     };
-    let (tree, cwd) = match checked {
+    let (mut tree, cwd) = match checked {
         Checked::Needs(tips) => return Ok(json!({ "needs": "bundle", "tips": tips })),
         Checked::Ready(tree, cwd) => (tree, cwd),
     };
+    tree.auto = params.auto;
     let project = core.workspaces.project_of(&cwd);
     let lead = &params.lead;
     if core.hosts.team.get(&lead.agent_id).is_none() {
@@ -375,6 +442,10 @@ pub(crate) async fn send_commits(core: &Arc<Core>, worker: &str) {
     else {
         return;
     };
+    send_commits_to(core, worker, tree, &host).await;
+}
+
+async fn send_commits_to(core: &Arc<Core>, worker: &str, tree: Tree, host: &str) {
     let into = core.hosts.outbox.body_path(&format!(
         "{worker}-{}.bundle",
         uuid::Uuid::new_v4().simple()
@@ -387,7 +458,7 @@ pub(crate) async fn send_commits(core: &Arc<Core>, worker: &str) {
         Ok(Some((head, count))) => {
             post(
                 core,
-                &host,
+                host,
                 Sending {
                     method: asks::Commits::METHOD,
                     params: params_of::<asks::Commits>(&code::ArrivingCommits {
@@ -408,6 +479,49 @@ pub(crate) async fn send_commits(core: &Arc<Core>, worker: &str) {
             eprintln!("sikemux core: a worker's commits did not go back to its lead: {error}");
         }
     }
+}
+
+/// How a turn of a worker Auto started from another host ended.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AutoTurn {
+    pub agent_id: String,
+    pub ending: Ending,
+    pub answer: Option<String>,
+    pub cost_usd: Option<f64>,
+}
+
+/// A turn of a worker here that Auto on `host` started ended: its commits go back first,
+/// then how the turn went, which `host` acts on as it does for its own agents.
+pub(crate) async fn auto_turn_ended(
+    core: &Arc<Core>,
+    worker: String,
+    tree: Tree,
+    host: String,
+    ending: Ending,
+    answer: Option<String>,
+) {
+    send_commits_to(core, &worker, tree, &host).await;
+    let cost_usd = core
+        .chats
+        .get(&worker)
+        .and_then(|chat| chat.feed.cost_usd());
+    post(
+        core,
+        &host,
+        Sending {
+            method: asks::AutoTurn::METHOD,
+            params: params_of::<asks::AutoTurn>(&AutoTurn {
+                agent_id: worker,
+                ending,
+                answer,
+                cost_usd,
+            }),
+            key: None,
+            body: None,
+            keep: true,
+        },
+    );
 }
 
 /// A worker the host its team's lead runs on named for an agent here.

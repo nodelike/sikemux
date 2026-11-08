@@ -10,7 +10,7 @@
 
 pub(crate) mod account;
 mod calls;
-mod code;
+pub(crate) mod code;
 pub mod install;
 mod join;
 mod link;
@@ -452,6 +452,7 @@ fn flush(core: &Arc<Core>, host: &str) {
 /// Takes `connection` as the one to `host`: answers what it asks over it,
 /// sends what waits for it, and notices when it closes.
 fn adopt(core: &Arc<Core>, host: &str, connection: Connection) {
+    core.boards.wake.now();
     let was_down = {
         let mut state = core.hosts.state.locked();
         state

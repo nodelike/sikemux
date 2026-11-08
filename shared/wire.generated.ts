@@ -3196,6 +3196,8 @@ export interface BoardSettings {
     scaledReview: boolean;
     /** Each card's commits are kept on the remote, so a lost worktree can be made again. */
     branchBackup: boolean;
+    /** The linked hosts cards go to past this host's places, by key, the first with room first. */
+    hosts?: string[];
 }
 
 /**

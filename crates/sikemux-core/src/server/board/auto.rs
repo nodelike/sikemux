@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::contract::{self, Contract};
+use super::elsewhere::{self, RunElsewhere};
 use super::environments::{Environment, Passes};
 use super::guard::{self, Burn};
 use super::lease::Stalled;
@@ -107,6 +108,9 @@ pub struct BoardSettings {
     pub scaled_review: bool,
     /// Each card's commits are kept on the remote, so a lost worktree can be made again.
     pub branch_backup: bool,
+    /// The linked hosts cards go to past this host's places, by key, the first with room first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub hosts: Vec<String>,
 }
 
 impl BoardSettings {
@@ -199,6 +203,7 @@ impl Default for BoardSettings {
             reservoir: true,
             scaled_review: false,
             branch_backup: true,
+            hosts: Vec::new(),
         }
     }
 }
@@ -279,6 +284,8 @@ pub struct BoardSettingsParams {
     pub reservoir: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch_backup: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosts: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -389,6 +396,9 @@ impl BoardSettings {
         if let Some(reservoir) = params.reservoir {
             settings.reservoir = reservoir;
         }
+        if let Some(hosts) = params.hosts {
+            settings.hosts = elsewhere::checked_hosts(hosts)?;
+        }
         Ok(settings)
     }
 }
@@ -430,7 +440,7 @@ pub enum RunHold {
 
 impl RunStage {
     /// Its agent is at work, so it takes one of Auto's places.
-    fn busy(self) -> bool {
+    pub(super) fn busy(self) -> bool {
         matches!(
             self,
             RunStage::Starting | RunStage::Working | RunStage::Contracting | RunStage::Fixing
@@ -512,10 +522,13 @@ pub(super) struct AutoRun {
     /// The code host's checks passed it, rather than the project's command.
     #[serde(default)]
     pub checked_on_host: bool,
+    /// Its builder works on a linked host; the worktree above stays here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elsewhere: Option<RunElsewhere>,
 }
 
 impl AutoRun {
-    fn starting(agent: String) -> Self {
+    fn starting(agent: String, elsewhere: Option<RunElsewhere>) -> Self {
         Self {
             agent,
             repo: String::new(),
@@ -540,6 +553,7 @@ impl AutoRun {
             burn: Burn::default(),
             queue: None,
             checked_on_host: false,
+            elsewhere,
         }
     }
 
@@ -594,6 +608,10 @@ pub struct CardPull {
 /// How many of the board's cards have an agent of Auto's at work that is
 /// not waiting on the person.
 pub(super) fn running(core: &Core, board: &Board) -> usize {
+    running_where(core, board, |_| true)
+}
+
+fn running_where(core: &Core, board: &Board, counts: impl Fn(&AutoRun) -> bool) -> usize {
     board
         .cards
         .iter()
@@ -601,6 +619,7 @@ pub(super) fn running(core: &Core, board: &Board) -> usize {
             card.run().is_some_and(|run| {
                 run.held.is_none()
                     && run.stage.busy()
+                    && counts(run)
                     && !core.harness.questions.blocks_on_person(&run.agent)
             })
         })
@@ -731,10 +750,19 @@ fn picks(
         .collect()
 }
 
+/// A card Auto just took, and where its agent is to start: here, or the place kept on a host.
+struct Start {
+    project: String,
+    id: u64,
+    agent: String,
+    stalled: Option<Stalled>,
+    place: Option<RunElsewhere>,
+}
+
 /// Starts an agent on each card Auto may take, while it has places free.
 pub(super) fn start_free(core: &Arc<Core>) {
     let launchers = core.workspaces.has_launchers();
-    let starts: Vec<(String, u64, String, Option<Stalled>)> = {
+    let starts: Vec<Start> = {
         let mut state = core.boards.state.locked();
         let projects: Vec<String> = state
             .boards
@@ -770,13 +798,15 @@ pub(super) fn start_free(core: &Arc<Core>) {
             if !launchers || guard::ceiling_reached(board) {
                 continue;
             }
-            let free = (board.settings.slots as usize).saturating_sub(running(core, board));
-            let picks = picks(core, &project, board, &stepping, free);
+            let here = running_where(core, board, |run| run.elsewhere.is_none());
+            let free = (board.settings.slots as usize).saturating_sub(here);
+            let mut places = elsewhere::free_places(core, board).into_iter();
+            let picks = picks(core, &project, board, &stepping, free + places.len());
             if picks.is_empty() {
                 continue;
             }
             let settings = board.settings.clone();
-            for id in picks {
+            for (index, id) in picks.into_iter().enumerate() {
                 let agent = crate::server::names::new_agent_id();
                 let no_contract = (settings.scaled_review && settings.wants_contract())
                     .then(|| {
@@ -787,18 +817,31 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     })
                     .flatten();
                 if let Ok(card) = board.card_mut(id) {
+                    let place = (index >= free)
+                        .then(|| places.next())
+                        .flatten()
+                        .map(RunElsewhere::on);
                     let stalled = (card.slice.as_ref()).and_then(|slice| slice.stalled.clone());
+                    if place.is_some() && stalled.is_some() {
+                        continue;
+                    }
                     card.hold(Owner::starting(&agent));
                     card.team = None;
-                    card.auto = Some(AutoRun::starting(agent.clone()));
+                    card.auto = Some(AutoRun::starting(agent.clone(), place.clone()));
                     card.record = Some(RunRecord::begun(&settings, card.reservoir.is_some()));
-                    card.contract = (settings.wants_contract() && no_contract.is_none())
+                    card.contract = (place.is_none() && settings.wants_contract() && no_contract.is_none())
                         .then(Contract::awaited);
                     if let Some(record) = card.record.as_mut() {
                         record.contract_outcome = no_contract;
                     }
                     super::slice::auto_slice(card, &settings);
-                    starts.push((project.clone(), id, agent, stalled));
+                    starts.push(Start {
+                        project: project.clone(),
+                        id,
+                        agent,
+                        stalled,
+                        place,
+                    });
                     state_jobs.push((project.clone(), id));
                 }
             }
@@ -809,10 +852,17 @@ pub(super) fn start_free(core: &Arc<Core>) {
         }
         starts
     };
-    for (project, id, agent, stalled) in starts {
+    for start_card in starts {
+        let Start {
+            project,
+            id,
+            agent,
+            stalled,
+            place,
+        } = start_card;
         let core = core.clone();
         tokio::spawn(async move {
-            let started = start(&core, &project, id, &agent, stalled).await;
+            let started = start(&core, &project, id, &agent, stalled, place).await;
             core.boards.end_job(&project, id);
             if let Err(error) = started {
                 let gone = core.chats.get(&agent).is_none();
@@ -837,6 +887,7 @@ fn task(
     tree: &worktree::Tree,
     settings: &BoardSettings,
     ticket: Option<String>,
+    on_another_host: bool,
 ) -> String {
     let mut text = format!(
         "Sikemux's Auto started you to do card #{} of this project's board on your own, in a git worktree nobody else works in.\n\nCard #{}: {}",
@@ -867,6 +918,14 @@ fn task(
     } else {
         String::new()
     };
+    if on_another_host {
+        text.push_str(&format!(
+            "\n\nYou are in a checkout of your own on branch {branch}, cut from {base}, on another host than the board that holds this card.\n\n1. Plan first. Read what you need, then ask every question you have at once with ask, before you change anything. If you cannot go on without an answer, ask with blocked true and end your turn: the answer comes back to you. Otherwise say what you assume and go on.\n2. Do the work, and run the tests and checks that cover it.\n3. Commit it on {branch}, and end with a short summary: your final answer becomes the card's result.\n\nDo not push, open a pull request or merge, and leave the board's tools alone, as the card is not on this host's board. When your turn ends, Sikemux brings your commits back, pushes the branch, opens the pull request and {landing}. So do not end your turn before the work is done, unless you are waiting on an answer. Only this checkout's commits come back, so if you start other agents to help, take their work in here before you end your turn.",
+            branch = tree.branch,
+            base = tree.base,
+        ));
+        return text;
+    }
     text.push_str(&format!(
         "\n\nYou are in {} on branch {}, cut from {}.\n\n1. Plan first. Read what you need, then ask every question you have at once with ask, before you change anything. If you cannot go on without an answer, ask with blocked true and end your turn: the answer comes back to you. Otherwise say what you assume and go on.\n{contract_step}2. Do the work, and run the tests and checks that cover it.\n3. Commit it on {}, and put a short summary in the card's result with board_update.\n\nDo not push, open a pull request or merge. When your turn ends, Sikemux commits anything left, pushes the branch, opens the pull request and {landing}. So do not end your turn before the work is done, unless you are waiting on an answer. If you start other agents to help, Sikemux ships only once none of them is still working.",
         tree.cwd.display(),
@@ -882,6 +941,23 @@ struct Launched {
     launch: ChatLaunch,
     launcher: String,
     name: String,
+}
+
+impl Launched {
+    fn seat(&self) -> Seat<'_> {
+        Seat {
+            name: &self.name,
+            provider: self.launch.provider.clone(),
+            elsewhere: None,
+        }
+    }
+}
+
+/// Who takes a run's seat, and where it works when that is not here.
+pub(super) struct Seat<'a> {
+    pub name: &'a str,
+    pub provider: String,
+    pub elsewhere: Option<RunElsewhere>,
 }
 
 fn launch_in(
@@ -918,29 +994,34 @@ fn launch_in(
 
 /// Puts `agent` on the run `current` holds. False when the run has moved on, as nothing is
 /// started then.
-fn seat(
+pub(super) fn seat(
     core: &Core,
     project: &str,
     id: u64,
     current: &str,
     agent: &str,
-    launched: &Launched,
+    seat: Seat<'_>,
     tree: &worktree::Tree,
 ) -> bool {
-    let provider = launched.launch.provider.clone();
+    let Seat {
+        name,
+        provider,
+        elsewhere,
+    } = seat;
     finish::change_run(core, project, id, current, |card, run| {
         card.run_by(
             Owner {
                 id: agent.to_owned(),
-                name: Some(launched.name.clone()),
+                name: Some(name.to_owned()),
                 cli: Some(provider),
             },
             Team {
                 lead: agent.to_owned(),
-                name: launched.name.clone(),
+                name: name.to_owned(),
             },
         );
         run.agent = agent.to_owned();
+        run.elsewhere = elsewhere;
         run.repo = tree.repo.to_string_lossy().into_owned();
         run.worktree = tree.path.to_string_lossy().into_owned();
         run.branch = tree.branch.clone();
@@ -1035,6 +1116,7 @@ async fn start(
     id: u64,
     agent: &str,
     stalled: Option<Stalled>,
+    place: Option<RunElsewhere>,
 ) -> Result<(), String> {
     let (card, settings) = {
         let state = core.boards.state.locked();
@@ -1046,6 +1128,18 @@ async fn start(
         Some(ticket) => format!("{} {}", ticket.key, card.title),
         None => format!("card {} {}", card.id, card.title),
     });
+    if let Some(place) = place {
+        let tree = {
+            let project = project.to_owned();
+            blocking(move || {
+                worktree::cut_for_card(Path::new(&project), &branch).map_err(Into::into)
+            })
+            .await
+            .map_err(|error| error.to_string())?
+        };
+        let text = task(&card, &tree, &settings, ticket, true);
+        return elsewhere::start(core, project, id, agent, place, tree, text).await;
+    }
     let reused = stalled
         .as_ref()
         .and_then(|stalled| left_behind(core, project, stalled));
@@ -1076,8 +1170,8 @@ async fn start(
         .map_err(|error| error.to_string())?
     };
     let (tree, launched) = prepared;
-    let mut text = task(&card, &tree, &settings, ticket);
-    if !seat(core, project, id, agent, agent, &launched, &tree) {
+    let mut text = task(&card, &tree, &settings, ticket, false);
+    if !seat(core, project, id, agent, agent, launched.seat(), &tree) {
         if !reuses {
             blocking(move || {
                 worktree::remove_with_remote(&tree.repo, &tree.path, &tree.branch, true);
@@ -1157,12 +1251,18 @@ pub(super) async fn replace_agent(
         step.id,
         step.agent(),
         &agent,
-        &launched,
+        launched.seat(),
         &tree,
     ) {
         return Ok(());
     }
-    let mut text = task(&step.card, &tree, &step.settings, ticket_line(&step.card));
+    let mut text = task(
+        &step.card,
+        &tree,
+        &step.settings,
+        ticket_line(&step.card),
+        false,
+    );
     text.push_str(&note);
     if let Err(error) = set_going(core, &agent, launched, tree, text).await {
         finish::hold(
