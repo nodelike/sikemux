@@ -47,6 +47,9 @@ use crate::server::repo_events::{RepoEvent, Told};
 use crate::server::Core;
 use crate::tasks::config::ProjectCheck;
 
+/// How the owner of a slice whose work made no commit closes it.
+const CLOSE_WITH_RESULT: &str = "If its work makes no commit, such as a deploy, mark it done with result saying what you did and what showed it worked, and it closes without the person";
+
 /// Evidence kept besides the pieces notes are pinned to; the oldest goes first.
 const MAX_EVIDENCE: usize = 24;
 const MAX_NOTES: usize = 32;
@@ -1039,6 +1042,16 @@ impl Slice {
         self.ladder = ladder;
     }
 
+    /// Its owner closes it by marking it done with a result, without the person: it waits at a
+    /// gate of the owner's, and its work made no commit, which no assertion needs evidence on.
+    pub(super) fn owner_closes(&self, settings: &BoardSettings) -> bool {
+        self.work.is_none()
+            && self.asserts.is_empty()
+            && self.waiting().is_some_and(|gate| {
+                gate.environment().is_none() && passer(gate, settings) == Passer::Owner
+            })
+    }
+
     /// Someone closes the slice: every gate left passes as `by`'s. The gates passed.
     pub(super) fn close(&mut self, by: PassedBy) -> Vec<Step> {
         let mut passed = Vec::new();
@@ -1167,7 +1180,7 @@ impl Slice {
                 )
                 .into()),
                 (false, true) => Err(format!(
-                    "Not {words}: you have committed nothing for {label}. Commit its work with git_commit, then mark it done once the project's check passes on it. If its work makes no commit, such as a deploy, mark it done with result saying what you did and what showed it worked"
+                    "Not {words}: you have committed nothing for {label}. Commit its work with git_commit, then mark it done once the project's check passes on it. {CLOSE_WITH_RESULT}"
                 )
                 .into()),
             };
@@ -1371,6 +1384,7 @@ impl Slice {
         settings: &BoardSettings,
     ) -> SliceView {
         let waiting = self.waiting();
+        let owner_closes = self.owner_closes(settings);
         let gates = self
             .ladder
             .iter()
@@ -1397,7 +1411,7 @@ impl Slice {
                     agent_name: agent.as_deref().map(&name),
                     agent,
                     at: pass.map(|pass| pass.at),
-                    needs: if pass.is_some() {
+                    needs: if pass.is_some() || (waiting == Some(gate) && owner_closes) {
                         Vec::new()
                     } else {
                         self.unmet(gate, settings)
@@ -1434,13 +1448,17 @@ impl Slice {
             if let Some(environment) = gate.environment() {
                 fields.insert("deployTo".into(), settings.passes_words(environment).into());
             }
-            let needs: Vec<&str> = self
-                .unmet(gate, settings)
-                .into_iter()
-                .map(need_words)
-                .collect();
-            if !needs.is_empty() {
-                fields.insert("needs".into(), needs.into());
+            if self.owner_closes(settings) {
+                fields.insert("closeWith".into(), CLOSE_WITH_RESULT.into());
+            } else {
+                let needs: Vec<&str> = self
+                    .unmet(gate, settings)
+                    .into_iter()
+                    .map(need_words)
+                    .collect();
+                if !needs.is_empty() {
+                    fields.insert("needs".into(), needs.into());
+                }
             }
         }
         if !self.asserts.is_empty() {
@@ -2064,6 +2082,22 @@ pub(crate) fn deployed(core: &Arc<Core>, project: &str, agent: &str, ran: Deploy
         };
         slice.deploy_ran(&environment, Some(agent), verdict, proof, open);
     });
+    if open && verdict != Some(Verdict::Failed) {
+        let told = {
+            let state = core.boards.state.locked();
+            (state.boards.get(project)).and_then(|board| {
+                let card = board.card(id).ok()?;
+                (card.slice.as_ref()?.owner_closes(&board.settings)).then(|| Notice {
+                    to: agent.to_owned(),
+                    text: format!(
+                        "Your deploy to {environment} ended, and {} has no commit for Built to check. {CLOSE_WITH_RESULT}.",
+                        card.label()
+                    ),
+                })
+            })
+        };
+        send_notices(core, told.into_iter().collect());
+    }
     if by_person && verdict != Some(Verdict::Failed) {
         let changes = Changes {
             pass: Some(Step::Environment(environment)),

@@ -28,7 +28,7 @@ An agent saying a slice is done passes nothing by itself. When it marks the card
 
 A check command runs on commits on the project's branch, so an agent in a checkout of its own lands its commits before Built can pass; so does CI, once the project's branch is pushed. Work lands before you look at it: Landed passes once Built has and the commits are on the branch, unless the project lands only when you say.
 
-A slice whose work makes no commit, such as a deploy, has nothing for Built to check. Its agent closes it by marking it done with a result saying what it did and what showed it worked, which passes every gate it has left as the agent's, without asking you. A slice bound to assertions still needs their evidence on a commit.
+A slice whose work makes no commit, such as a deploy, has nothing for Built to check. Its agent closes it by marking it done with a result saying what it did and what showed it worked, which passes every gate it has left as the agent's, without asking you. The agent is told so in its board listing and again when a deploy of its ends, and the slice's page names the agent, not a check, as what it waits on. A slice bound to assertions still needs their evidence on a commit.
 
 ## When slices land
 
