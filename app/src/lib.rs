@@ -90,6 +90,8 @@ mod updates;
 mod voice;
 pub mod workbench;
 mod worktrees;
+#[cfg(target_os = "linux")]
+pub mod xwayland_scale;
 
 pub use chat::changes as chat_changes;
 pub use chat::composer;

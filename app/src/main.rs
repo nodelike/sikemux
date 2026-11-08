@@ -7,7 +7,10 @@ use sikemux_gpui::{console, core, icons, memory, theme, workbench, WINDOW_SIZE};
 fn main() {
     sikemux_host::panic_reports::record_panics("app");
     #[cfg(target_os = "linux")]
-    sikemux_browser::choose_page_rendering();
+    {
+        sikemux_browser::choose_page_rendering();
+        sikemux_gpui::xwayland_scale::choose();
+    }
     console::install();
     let (handed, opened) = tokio::sync::mpsc::unbounded_channel();
     #[cfg(target_os = "linux")]

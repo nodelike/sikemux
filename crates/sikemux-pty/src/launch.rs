@@ -104,6 +104,7 @@ fn quote_shell_word(value: &str, kind: Option<ShellKind>) -> String {
 /// Removed from every terminal before its own are set, so none inherits the
 /// identity of the terminal the app was started from.
 pub const OPTIONAL_PTY_ENV: &[&str] = &[
+    "GPUI_X11_SCALE_FACTOR",
     vars::SHELL,
     vars::SESSION_ID,
     vars::SESSION_NAME,

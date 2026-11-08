@@ -9347,6 +9347,9 @@ dependencies = [
  "textmate-highlight",
  "tokio",
  "url",
+ "wayland-client",
+ "wayland-protocols",
+ "x11rb",
  "zbus",
 ]
 
