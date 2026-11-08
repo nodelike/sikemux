@@ -1,4 +1,4 @@
-# Sikemux v0.6.1-nightly.7
+# Sikemux v0.6.1-nightly.8
 
 Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
 
@@ -7,26 +7,22 @@ Nightlies are signed and delivered exactly like stable releases, but they carry 
 - **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android.
 - **This nightly links only with hosts on the 0.6.1 nightlies.** Hosts on stable 0.6.0 can't reach it.
 
-## New since nightly.6
+## New since nightly.7
 
-- **Home shows only your calls.** Each is a card leading with what to decide, then one plain line per goal. The head says how many calls are for you and when everything under way should be through.
-- **A goal's page reads as an account** beside its slices, with its short name, its lead, and why its ETA slipped when it did.
-- **You look once per goal**, and only at work that shows something. Slices go Built then Landed, and the goal's Looks right card shows every picture its slices took.
-- **Agents decide what is a goal.** The offer under the composer is gone: a chat's own agent decides whether its work should be tracked.
-- **Always allow.** A project's own ship command, or a held deploy that reads as no production, can be always allowed instead of allowed once each run.
-- **Arch and Omarchy.** A native pacman package, `sikemux-bin` or `sikemux-nightly-bin`, and on Omarchy the Omarchy theme follows the system's.
-- **`browser_act` plays a whole flow in one call**, with navigating, waiting and reading alongside clicking and typing.
+- **Auto runs without you for longer.** It brings back agents whose turn failed or whose process died, holds a card that spends without progress, checks each change on the latest branch before merging, and takes cards agents add, up to 64 agents at once. When this host is full, it starts agents on linked hosts you name in Auto's settings.
+- **Auto's reviewer uses the change.** It builds and runs the commit instead of only reading a diff, a builder agrees a contract before it builds, and you can turn on scaling review to the risk of the change.
+- **Standing roles and a reservoir.** A project can name roles in `sikemux.json` that come back as work lands, such as docs or duplicate code, and a `reservoir` command that keeps Auto supplied with work.
+- **Pi in chat.** Pi now runs as a chat, on the Mac and the phone, with its dialogs answered in the question card.
+- **Connected keys stay out of agents.** A provider's key no longer enters an agent's environment, for Pi, OpenCode and OMP too. They reach it through the core's own model proxy.
+- **An agent's first write to a website or connector waits for you**, as the docs promised of everything leaving this Mac.
+- **A failed check reaches one agent**, the author of the commit that broke it, with the lines that name the error.
+- **Follow Omarchy's background.** On Omarchy, panes follow its wallpaper unless you choose a picture yourself.
 
 ## Fixes
 
-- Only messages from other agents fold, not an agent's own answers.
-- A choice an agent leaves you in its reply, or an ask that is your call, reaches Needs you.
-- Needs work hands a slice back to its owner, and a slice waiting on another starts once that one is Built.
-- A deploy-only slice can be closed by its owner rather than waiting on a commit.
-- A chat moved to another project goes with its tab, and a chat the network cut short stays awake.
-- The window's shortcuts work while a chat shows a question, and clicking in a message being edited keeps the caret there.
-- A secret answer shows a dot for each character as you type.
-- A parked browser tab no longer takes swipe snapshots, which could abort the app.
-- A failed one-shot Claude answer says why, and an invalid or untrusted `sikemux.json` says so rather than reading as naming no check.
+- A rule an agent wrote no longer reaches later agents as if it were yours.
+- A teammate's own checkout no longer holds up tab switches and messages while a large build folder is copied.
+- Under XWayland the app draws at the scale the compositor gives its displays.
+- The board stays fast with thousands of cards.
 
-For the complete patch history, compare [`v0.6.1-nightly.6...v0.6.1-nightly.7`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.6...v0.6.1-nightly.7).
+For the complete patch history, compare [`v0.6.1-nightly.7...v0.6.1-nightly.8`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.7...v0.6.1-nightly.8).
