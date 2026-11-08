@@ -821,6 +821,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let (reviewer_runs, contract) = (settings.reviewer_runs, settings.contract);
     let (fast_check, culprit_finding) = (settings.fast_check, settings.culprit_finding);
     let merge_queue = settings.merge_queue;
+    let reservoir = settings.reservoir;
     let mut view = div()
         .flex()
         .flex_col()
@@ -843,6 +844,13 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                     Toggle::new("board-agent-cards", "Also take cards agents add", agent_cards).on_click(
                         cx.listener(move |pane, _, _, cx| {
                             pane.change_settings(|params| params.agent_cards = Some(!agent_cards), cx)
+                        }),
+                    ),
+                )
+                .child(
+                    Toggle::new("board-reservoir", "Refill from the project's reservoir", reservoir).on_click(
+                        cx.listener(move |pane, _, _, cx| {
+                            pane.change_settings(|params| params.reservoir = Some(!reservoir), cx)
                         }),
                     ),
                 )

@@ -211,6 +211,16 @@ pub(crate) async fn merge_queue(
     clean_at(core, project, commit, MERGE_QUEUE).await
 }
 
+/// The checkout of `project`'s repository that its reservoir command runs in, moved to `commit`.
+/// It is its own, as that command can run for as long as a check does.
+pub(crate) async fn reservoir(
+    core: &Arc<Core>,
+    project: &Path,
+    commit: &str,
+) -> Result<PathBuf, String> {
+    clean_at(core, project, commit, RESERVOIR).await
+}
+
 async fn clean_at(
     core: &Arc<Core>,
     project: &Path,
@@ -255,6 +265,8 @@ const INTEGRATION: &str = ".integration";
 const GATES: &str = ".gates";
 /// The merge queue's checkout's folder beside them.
 const MERGE_QUEUE: &str = ".merge-queue";
+/// The reservoir checkout's folder beside them.
+const RESERVOIR: &str = ".reservoir";
 
 /// Runs `project`'s `worktree.onCreate` commands in the new checkout at `cwd`
 /// once the person trusts its `sikemux.json`, asked on behalf of `agent_id`

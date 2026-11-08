@@ -1097,6 +1097,7 @@ pub(super) async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
     .await
     .unwrap_or_default();
     send_notices(core, notices);
+    super::reservoir::landed(core, &step.project, step.id);
     if !all_passed {
         // Auto's part ended at the merge; what it deploys next is for whoever takes the card.
         core.boards.edit(&step.project, step.id, Card::auto_lets_go);

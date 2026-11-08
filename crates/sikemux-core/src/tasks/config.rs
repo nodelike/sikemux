@@ -25,6 +25,7 @@ const ROOT_FIELDS: &[&str] = &[
     "generate",
     "check",
     "fastCheck",
+    "reservoir",
     "planFirst",
     "ship",
 ];
@@ -279,6 +280,10 @@ pub struct ProjectConfig {
     /// sample by.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fast_check: Option<String>,
+    /// A command that lists what is left to do, one JSON item per line, which Auto keeps a
+    /// limited number of on the board as cards.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reservoir: Option<String>,
     /// Paths whose change is planned before it starts, beside the ones every
     /// project has, such as migrations.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -487,6 +492,9 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let generate = parse_generate(root.get("generate"), &mut errors);
     let check = parse_check(root.get("check"), &mut errors);
     let fast_check = parse_fast_check(root.get("fastCheck"), check.as_ref(), &mut errors);
+    let reservoir = root
+        .get("reservoir")
+        .and_then(|value| parse_command(Some(value), "$.reservoir", &mut errors));
     let plan_first = parse_plan_first(root.get("planFirst"), &mut errors);
     let ship = parse_ship(root.get("ship"), &mut errors);
     if !errors.is_empty() {
@@ -503,6 +511,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         generate,
         check,
         fast_check,
+        reservoir,
         plan_first,
         ship,
     })
@@ -549,7 +558,11 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
     if checks > 0 {
         reasons.push("a check command".to_owned());
     }
-    let executable_entries = actions + tasks + previews + hooks + generates + checks;
+    let reservoirs = usize::from(config.reservoir.is_some());
+    if reservoirs > 0 {
+        reasons.push("a command that fills the board".to_owned());
+    }
+    let executable_entries = actions + tasks + previews + hooks + generates + checks + reservoirs;
     TrustSummary {
         requires_approval: executable_entries > 0,
         executable_entries,
@@ -614,7 +627,13 @@ pub fn trust_commands(config: &ProjectConfig) -> Vec<TrustCommand> {
             label: format!("New worktree · {}", hook.label),
             command: hook.command.clone(),
         });
-    actions.chain(tasks).chain(preview).chain(hooks).collect()
+    let reservoir = config.reservoir.iter().map(|command| TrustCommand {
+        label: "Reservoir".to_owned(),
+        command: command.clone(),
+    });
+    (actions.chain(tasks).chain(preview).chain(hooks))
+        .chain(reservoir)
+        .collect()
 }
 
 fn preview_command(config: &ProjectConfig) -> Option<&str> {

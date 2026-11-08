@@ -8,7 +8,7 @@ use super::*;
 const FOLDER: &str = "board-archive";
 /// Archiving starts this far below the limit and frees as many again, so it
 /// does not run for every card added and the board keeps room for fix cards.
-const ROOM_KEPT: usize = 100;
+pub(super) const ROOM_KEPT: usize = 100;
 
 fn may_archive(state: &State, project: &str, parents: &HashSet<u64>, card: &Card) -> bool {
     card.status == CardStatus::Done

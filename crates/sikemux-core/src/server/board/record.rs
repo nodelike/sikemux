@@ -59,6 +59,16 @@ pub(super) struct RunRecord {
     pub queue_ms: u64,
     /// How many times the queue sent it back to be fixed or reviewed again.
     pub queue_bounces: u32,
+    /// The card held an item of the project's reservoir.
+    pub from_reservoir: bool,
+    /// How many runs of the project's reservoir its landing started, and how long they took.
+    pub reservoir_runs: u32,
+    pub reservoir_ms: u64,
+    /// Of those runs, how many failed and left the board as it was.
+    pub reservoir_failures: u32,
+    /// The cards those runs added, and those they closed as no longer listed.
+    pub reservoir_added: u32,
+    pub reservoir_closed: u32,
 }
 
 /// One run of a project's check, for the run records of the agents it took in.
@@ -119,10 +129,11 @@ pub(crate) fn record_check(core: &Core, project: &str, ran: &CheckRan<'_>) {
 }
 
 impl RunRecord {
-    pub(super) fn begun(settings: &BoardSettings) -> Self {
+    pub(super) fn begun(settings: &BoardSettings, from_reservoir: bool) -> Self {
         Self {
             switches: settings.switches(),
             started_at: epoch_ms(),
+            from_reservoir,
             ..Self::default()
         }
     }

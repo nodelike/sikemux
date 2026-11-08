@@ -3,6 +3,7 @@
 //! few at once, and ships its work when its turn ends.
 
 use crate::server::changed::What;
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -100,6 +101,8 @@ pub struct BoardSettings {
     pub spend_ceiling: Option<u32>,
     /// A change merges only after its check passed on top of the latest base.
     pub merge_queue: bool,
+    /// The project's `reservoir`, when it names one, keeps cards on the board.
+    pub reservoir: bool,
 }
 
 impl BoardSettings {
@@ -137,6 +140,7 @@ impl BoardSettings {
             ("culpritFinding", self.culprit_finding),
             ("progressGuard", self.progress_guard),
             ("mergeQueue", self.merge_queue),
+            ("reservoir", self.reservoir),
         ]
         .map(|(name, on)| (name.to_owned(), on))
         .into()
@@ -180,6 +184,7 @@ impl Default for BoardSettings {
             progress_guard: true,
             spend_ceiling: None,
             merge_queue: true,
+            reservoir: true,
         }
     }
 }
@@ -254,6 +259,8 @@ pub struct BoardSettingsParams {
     pub spend_ceiling: Option<Option<u32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merge_queue: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reservoir: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -354,6 +361,9 @@ impl BoardSettings {
         }
         if let Some(merge_queue) = params.merge_queue {
             settings.merge_queue = merge_queue;
+        }
+        if let Some(reservoir) = params.reservoir {
+            settings.reservoir = reservoir;
         }
         Ok(settings)
     }
@@ -656,7 +666,8 @@ pub(crate) fn has_work(boards: &super::Boards) -> bool {
     })
 }
 
-/// The cards Auto starts next on the board, at most `free`, the lowest numbers first.
+/// The cards Auto starts next on the board, at most `free`, the highest priority first, then the
+/// lowest numbers.
 fn picks(
     core: &Core,
     project: &str,
@@ -668,9 +679,9 @@ fn picks(
         return Vec::new();
     }
     let reservoir = Reservoir::of(board);
-    let mut takeable: Vec<(u64, Option<&str>)> = (board.cards.iter())
+    let mut takeable: Vec<(Reverse<i32>, u64, Option<&str>)> = (board.cards.iter())
         .filter(|card| reservoir.takes(&board.settings, card) && !stepping.contains(&card.id))
-        .map(|card| (card.id, card.maker_id()))
+        .map(|card| (Reverse(card.priority), card.id, card.maker_id()))
         .collect();
     if takeable.is_empty() {
         return Vec::new();
@@ -680,14 +691,14 @@ fn picks(
     let mut kept_by_team: HashMap<&str, bool> = HashMap::new();
     takeable
         .into_iter()
-        .filter(|(_, maker)| {
+        .filter(|(_, _, maker)| {
             maker.is_none_or(|maker| {
                 !*kept_by_team
                     .entry(maker)
                     .or_insert_with(|| team_keeps(core, maker))
             })
         })
-        .map(|(id, _)| id)
+        .map(|(_, id, _)| id)
         .take(free.min(room))
         .collect()
 }
@@ -744,7 +755,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     card.hold(Owner::starting(&agent));
                     card.team = None;
                     card.auto = Some(AutoRun::starting(agent.clone()));
-                    card.record = Some(RunRecord::begun(&settings));
+                    card.record = Some(RunRecord::begun(&settings, card.reservoir.is_some()));
                     card.contract = settings.wants_contract().then(Contract::awaited);
                     super::slice::auto_slice(card, &settings);
                     starts.push((project.clone(), id, agent, stalled));
@@ -794,6 +805,7 @@ fn task(
     if !card.details.is_empty() {
         text.push_str(&format!("\n\n{}", card.details));
     }
+    text.push_str(card.printed_by_command());
     if !card.acceptance.is_empty() {
         text.push_str(&format!(
             "\n\nAcceptance criteria, which a reviewer checks the change against:\n{}",

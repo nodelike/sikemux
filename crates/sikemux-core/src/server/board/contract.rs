@@ -207,6 +207,7 @@ pub(super) fn task(card: &Card, cwd: &Path) -> String {
     if !card.details.is_empty() {
         text.push_str(&format!("\n\n{}", card.details));
     }
+    text.push_str(card.printed_by_command());
     if !card.acceptance.is_empty() {
         text.push_str(&format!(
             "\n\nAcceptance criteria, written by the person:\n{}",

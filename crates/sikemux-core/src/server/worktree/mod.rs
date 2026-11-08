@@ -325,6 +325,23 @@ pub(crate) fn worktrees_folder(repo: &Path) -> PathBuf {
     main.with_file_name(format!("{name}.worktrees"))
 }
 
+/// The branch Auto's work lands on in `repo` and its newest commit, on the remote when it has one.
+pub(crate) fn latest_of_base(repo: &Path) -> Result<(String, String), String> {
+    let base = base_branch(repo)?;
+    let _ = Git::slow(repo).trimmed(&["fetch", "--quiet", "origin", &base]);
+    let remote = format!("origin/{base}");
+    let start = if Git::quick(repo)
+        .trimmed(&["rev-parse", "--verify", "--quiet", &remote])
+        .is_ok()
+    {
+        remote
+    } else {
+        base.clone()
+    };
+    let sha = Git::quick(repo).trimmed(&["rev-parse", &start])?;
+    Ok((base, sha))
+}
+
 /// Cuts a worktree for a card beside the project's checkout, on a branch of
 /// its own from the latest of the base branch.
 pub(crate) fn cut_for_card(project: &Path, branch: &str) -> Result<Tree, String> {
@@ -337,18 +354,7 @@ pub(crate) fn cut_for_card(project: &Path, branch: &str) -> Result<Tree, String>
         })?,
     );
     let inside = inside(project, &repo);
-    let base = base_branch(&repo)?;
-    let _ = Git::slow(&repo).trimmed(&["fetch", "--quiet", "origin", &base]);
-    let remote = format!("origin/{base}");
-    let start = if Git::quick(&repo)
-        .trimmed(&["rev-parse", "--verify", "--quiet", &remote])
-        .is_ok()
-    {
-        remote
-    } else {
-        base.clone()
-    };
-    let start_sha = Git::quick(&repo).trimmed(&["rev-parse", &start])?;
+    let (base, start_sha) = latest_of_base(&repo)?;
     let (branch, path) = cut(&repo, branch, &start_sha)?;
     copy_included(&repo, &path);
     warm::seed_in_background(&repo, &path);

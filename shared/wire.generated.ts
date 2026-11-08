@@ -3190,6 +3190,8 @@ export interface BoardSettings {
     spendCeiling: number | null;
     /** A change merges only after its check passed on top of the latest base. */
     mergeQueue: boolean;
+    /** The project's `reservoir`, when it names one, keeps cards on the board. */
+    reservoir: boolean;
 }
 
 /**

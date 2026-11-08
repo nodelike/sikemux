@@ -322,6 +322,7 @@ fn task(brief: Brief) -> String {
     if !card.details.is_empty() {
         text.push_str(&format!("\n\n{}", card.details));
     }
+    text.push_str(card.printed_by_command());
     text.push_str("\n\nWhat to grade, each by its id:");
     for criterion in criteria {
         text.push_str(&format!("\n{}: {}", criterion.id, criterion.text));

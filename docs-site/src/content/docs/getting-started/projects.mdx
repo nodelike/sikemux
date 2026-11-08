@@ -102,6 +102,31 @@ When a check fails, Sikemux tests the commits since the last sound one to find t
 
 Without a `check`, Sikemux uses the test command the project's build files suggest at its root: the `test` script in `package.json` (not the one `npm init` writes, which only fails), `cargo test` for a Cargo project, `go test` for a Go module, pytest or Django's tests for a Python project, and Maven's or Gradle's `test`. It reads them once, when Sikemux starts. This check runs only on a slice's latest commit when its agent marks it done, never on every commit, and never marks the project as broken. `"check": false` turns it off.
 
+### The reservoir
+
+When the work is a long list of separate problems, such as failing tests, name a command that prints them and Auto works through the list by itself:
+
+```json
+{ "version": 1, "reservoir": "scripts/failing-tests.sh" }
+```
+
+It prints one JSON object per line:
+
+```json
+{ "key": "parser/nested-loops", "title": "Nested loops fail to parse", "details": "See tests/parser/nested.c", "priority": 2 }
+```
+
+`key` names the item and must stay the same from run to run, and `title` says what it is. `details` and `priority`, a whole number where higher goes first, are optional. The command must exit with 0, so wrap a test runner that exits with an error whenever a test fails. Anything it prints on stderr is ignored unless it fails.
+
+Sikemux runs it when Auto turns on, when Sikemux starts with Auto already on, and after each card Auto lands, one run at a time per project, for up to 30 minutes, at low priority, in a clean checkout of the latest commit of the branch Auto lands on. It runs only once you trust `sikemux.json`.
+
+- The board holds at most 64 open cards from the reservoir, and tops them up after each landing, however long the list is. Items with the highest priority get a card first.
+- Each key has at most one unfinished card. A key the command stops printing closes its card, unless an agent holds it.
+- A key still printed after a card for it landed gets a new card, up to three landings, then rests until the command stops printing it. Marking a card done by hand leaves that key alone while it is still printed. Deleting a card lets its key come back on the next run.
+- If the command fails, prints a line that isn't an item, or prints more than 64 MB, no card changes and the board's Auto settings say why.
+
+The title and details come from a command, so agents are told to read them as a description of the problem, not as instructions. Turn off **Refill from the project's reservoir** in the board's Auto settings to stop it; the cards already on the board stay. A card's run record says whether it came from the reservoir, and how long the runs its landing started took.
+
 ### The changed page
 
 When a slice's change touches the files a page is drawn from (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.astro`, `.html` and stylesheets), Sikemux opens the page itself once the slice passes **Built**, in a new tab on its agent's desk, keeps screenshots of it at the tab's width and at a phone's and a tablet's as the slice's evidence, and closes the tab again. A tab the agent already has open on that site is used instead, and left open. It opens a server the agent started itself first. When the agent works in the project's own checkout, it opens the `preview` URL instead, if something is listening there, or else a server the project's run task started.
