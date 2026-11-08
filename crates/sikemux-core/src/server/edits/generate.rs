@@ -85,6 +85,35 @@ pub(crate) fn regenerate(
     bring_up_to_date(project, checkout, commit, &generate, &signers, key.as_ref())
 }
 
+/// Brings the files the project generates up to date in `checkout`, committing nothing, for
+/// checking a commit that may have left them stale.
+pub(crate) fn refresh(core: &Core, project: &Path, checkout: &Path) -> Result<(), String> {
+    if trust_needed(core, project, checkout).is_some() {
+        return Err(UNTRUSTED.to_owned());
+    }
+    let ConfigLoad::Valid { config: found, .. } = config::load(checkout) else {
+        return Ok(());
+    };
+    match &found.generate {
+        Some(generate) => run_generate(checkout, generate),
+        None => Ok(()),
+    }
+}
+
+fn run_generate(checkout: &Path, generate: &GenerateConfig) -> Result<(), String> {
+    let mut shell = sikemux_process::user_environment::background_shell();
+    shell.args(["-c", &generate.command]).current_dir(checkout);
+    let ran = sikemux_process::run(&mut shell, None, GENERATE_WAIT, GENERATE_OUTPUT_LIMIT, None)
+        .map_err(|error| format!("generate did not run: {error}"))?;
+    if !ran.status.success() {
+        return Err(format!(
+            "generate failed: {}",
+            String::from_utf8_lossy(&ran.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
 /// Runs `generate` in `checkout` at `commit`, and commits on top what it
 /// changed of its outputs, signed for `signers` with `key`, moving the branch
 /// `project`'s checkout is on and its files.
@@ -96,16 +125,7 @@ fn bring_up_to_date(
     signers: &[Agent],
     key: Option<&iroh::SecretKey>,
 ) -> Result<Option<String>, String> {
-    let mut shell = sikemux_process::user_environment::agent_command("/bin/sh");
-    shell.args(["-c", &generate.command]).current_dir(checkout);
-    let ran = sikemux_process::run(&mut shell, None, GENERATE_WAIT, GENERATE_OUTPUT_LIMIT, None)
-        .map_err(|error| format!("generate did not run: {error}"))?;
-    if !ran.status.success() {
-        return Err(format!(
-            "generate failed: {}",
-            String::from_utf8_lossy(&ran.stderr).trim()
-        ));
-    }
+    run_generate(checkout, generate)?;
     let specs: Vec<String> = generate
         .outputs
         .iter()

@@ -245,6 +245,11 @@ pub fn tail(text: &str) -> String {
 
 /// The end of what a command said on both its outputs.
 pub fn said(output: &Output) -> String {
+    tail(&all_said(output))
+}
+
+/// All a command said on both its outputs.
+pub fn all_said(output: &Output) -> String {
     let mut text = String::from_utf8_lossy(&output.stderr).into_owned();
     let out = String::from_utf8_lossy(&output.stdout);
     if !out.trim().is_empty() {
@@ -253,7 +258,7 @@ pub fn said(output: &Output) -> String {
         }
         text.push_str(&out);
     }
-    tail(&text)
+    text
 }
 
 /// The top folder of the main checkout of the repository `path` is in, whether `path` is in

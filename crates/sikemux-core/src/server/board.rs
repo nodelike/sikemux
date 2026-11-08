@@ -70,6 +70,7 @@ pub use goal::AssertParams;
 pub(crate) use hand_off::hand_off;
 pub use hand_off::{BoardHandOffParams, HandOnParams, HandedOff};
 pub(crate) use lease::{person_hand_on, person_resume};
+pub(crate) use record::{record_check, CheckRan};
 pub(crate) use slice::DeployRan;
 pub(crate) use slice::{
     check_stands, follow, gate_key, gate_words, person_note, person_pass, screenshot_taken,
@@ -1898,6 +1899,39 @@ pub(crate) fn add_for_trigger(
 
 pub(crate) fn triggers_changed(core: &Core, project: &str) {
     core.changed(What::ReadIn(Topic::Boards, Some(project), None));
+}
+
+/// What a project's check does of what its board's settings turn off.
+pub(crate) struct CheckSwitches {
+    pub fast: bool,
+    pub culprit: bool,
+}
+
+pub(crate) fn check_switches(core: &Core, project: &str) -> CheckSwitches {
+    let state = core.boards.state.locked();
+    let settings = state.boards.get(project).map(|board| &board.settings);
+    let defaults = auto::BoardSettings::default();
+    let settings = settings.unwrap_or(&defaults);
+    CheckSwitches {
+        fast: settings.fast_check,
+        culprit: settings.culprit_finding,
+    }
+}
+
+/// The open card that holds a project's failing CI, which is that failure's one work item.
+pub(crate) struct CiCard {
+    pub label: String,
+    pub owner: Option<String>,
+}
+
+pub(crate) fn ci_card(core: &Core, project: &str) -> Option<CiCard> {
+    let state = core.boards.state.locked();
+    let card = (state.boards.get(project)?.cards.iter())
+        .find(|card| card.status != CardStatus::Done && !card.ci.is_empty())?;
+    Some(CiCard {
+        label: card.label(),
+        owner: card.owner_id().map(str::to_owned),
+    })
 }
 
 fn take(core: &Core, card: &mut Card, agent: &str) {

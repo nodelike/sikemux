@@ -3180,6 +3180,10 @@ export interface BoardSettings {
      * stalled slice Auto can run is taken on.
      */
     recover: boolean;
+    /** The project's `fastCheck`, when it names one, stands in for its check on most commits. */
+    fastCheck: boolean;
+    /** A failed check is traced to the commit that broke it, and one agent mends it. */
+    culpritFinding: boolean;
 }
 
 /**

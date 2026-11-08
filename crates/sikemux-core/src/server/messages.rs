@@ -1167,6 +1167,11 @@ async fn running(core: &Arc<Core>, to: String) -> Result<Listed, String> {
     .map_err(|error| error.to_string())
 }
 
+/// Whether a message to `to` would reach a running agent.
+pub(crate) async fn reachable(core: &Arc<Core>, to: &str) -> bool {
+    running(core, to.to_owned()).await.is_ok()
+}
+
 /// Hands an agent a note from Sikemux's board about its cards. Fails when the
 /// agent has stopped or is gone.
 pub(crate) async fn from_board(
@@ -1212,6 +1217,23 @@ pub(crate) async fn from_sikemux(
         MessageKind::Notice,
         text,
         Some("Sent by Sikemux itself, not by the person or another agent.".to_owned()),
+    );
+    deliver(core, &target, letter).await
+}
+
+/// Gives an agent work from Sikemux itself, starting a turn when it is at rest, where a notice
+/// would be dropped. Fails when the agent has stopped or is gone.
+pub(crate) async fn work_from_sikemux(
+    core: &Arc<Core>,
+    to: String,
+    text: String,
+) -> Result<Value, String> {
+    let target = running(core, to).await?;
+    let letter = Letter::from_sender(
+        Sender::Sikemux,
+        MessageKind::Message,
+        text,
+        Some("Sent by Sikemux itself over the project's check, not by the person.".to_owned()),
     );
     deliver(core, &target, letter).await
 }

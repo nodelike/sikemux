@@ -89,6 +89,10 @@ pub struct BoardSettings {
     /// A card's agent that fails, dies or hangs is brought back without the person, and a
     /// stalled slice Auto can run is taken on.
     pub recover: bool,
+    /// The project's `fastCheck`, when it names one, stands in for its check on most commits.
+    pub fast_check: bool,
+    /// A failed check is traced to the commit that broke it, and one agent mends it.
+    pub culprit_finding: bool,
 }
 
 impl BoardSettings {
@@ -122,6 +126,8 @@ impl BoardSettings {
             ("reviewerRuns", self.reviewer_runs),
             ("contract", self.contract),
             ("autoRecovery", self.recover),
+            ("fastCheck", self.fast_check),
+            ("culpritFinding", self.culprit_finding),
         ]
         .map(|(name, on)| (name.to_owned(), on))
         .into()
@@ -154,6 +160,8 @@ impl Default for BoardSettings {
             contract: true,
             environments: Vec::new(),
             recover: true,
+            fast_check: true,
+            culprit_finding: true,
         }
     }
 }
@@ -214,6 +222,10 @@ pub struct BoardSettingsParams {
     pub environments: Option<Vec<Environment>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recover: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_check: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub culprit_finding: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -296,6 +308,12 @@ impl BoardSettings {
         }
         if let Some(recover) = params.recover {
             settings.recover = recover;
+        }
+        if let Some(fast_check) = params.fast_check {
+            settings.fast_check = fast_check;
+        }
+        if let Some(culprit_finding) = params.culprit_finding {
+            settings.culprit_finding = culprit_finding;
         }
         Ok(settings)
     }

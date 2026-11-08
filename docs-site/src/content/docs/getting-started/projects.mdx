@@ -90,6 +90,16 @@ Sikemux then reads the code host's runs on the project's branch as pushed, inste
 
 A check command runs only once you trust `sikemux.json`: the first commit it would check asks you. While the file has a mistake, Sikemux reads no check from it, and an agent working a slice is told what is wrong rather than that the project names none.
 
+When the full check is slow, name a quicker one beside it:
+
+```json
+{ "version": 1, "check": "pnpm check", "fastCheck": "pnpm check:quick" }
+```
+
+The fast check runs on each commit. The full check runs on the first commit after Sikemux starts, then again once three times its last length has passed, at least 5 minutes and at most 60, and on every commit while it is failing. Each run has `SIKEMUX_CHECK_SEED` in its environment, a number that stays the same for one agent and differs between agents, so a fast check can run a repeatable sample and agents together still cover everything. A project's board can turn the fast check off in its Auto settings.
+
+When a check fails, Sikemux tests the commits since the last sound one to find the one that broke it, for up to 15 minutes, and tells only that commit's agent. If none can be singled out, one agent owns the failure and the others are told who. The board's Auto settings can turn this off too.
+
 Without a `check`, Sikemux uses the test command the project's build files suggest at its root: the `test` script in `package.json` (not the one `npm init` writes, which only fails), `cargo test` for a Cargo project, `go test` for a Go module, pytest or Django's tests for a Python project, and Maven's or Gradle's `test`. It reads them once, when Sikemux starts. This check runs only on a slice's latest commit when its agent marks it done, never on every commit, and never marks the project as broken. `"check": false` turns it off.
 
 ### The changed page

@@ -85,6 +85,25 @@ pub fn agent_command(program: impl AsRef<OsStr>) -> Command {
     command
 }
 
+/// [`agent_command`] for `/bin/sh` at low priority, so what it starts never competes with the
+/// person's typing or terminals, on machines with a way to lower it.
+pub fn background_shell() -> Command {
+    const SHELL: &str = "/bin/sh";
+    let lowering: Option<(&str, &[&str])> = match std::env::consts::OS {
+        "macos" => Some(("/usr/sbin/taskpolicy", &["-c", "utility"])),
+        "linux" => Some(("/usr/bin/nice", &["-n", "10"])),
+        _ => None,
+    };
+    match lowering.filter(|(program, _)| std::path::Path::new(program).exists()) {
+        Some((program, args)) => {
+            let mut command = agent_command(program);
+            command.args(args).arg(SHELL);
+            command
+        }
+        None => agent_command(SHELL),
+    }
+}
+
 /// The git a bare `git` runs on the user's `PATH`, found once per `PATH`.
 pub fn git_program() -> Option<PathBuf> {
     static FOUND: Mutex<Option<(OsString, PathBuf)>> = Mutex::new(None);

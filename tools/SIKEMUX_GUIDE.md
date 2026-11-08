@@ -1043,9 +1043,12 @@ you about them in messages from Sikemux itself, never from the person:
 - The first agent to edit a lockfile, a migration or a generated file holds it
   for a few minutes. Another agent's edit still goes in, but that agent is told
   who holds it and should agree with them before changing it further.
-- After `git_commit`, the project's check runs when its board has one. If it
-  fails you get its output. The checkout also holds other agents' uncommitted
-  work, so see whether the failure is yours before fixing it.
+- After `git_commit`, the project's check runs when its board has one, on what
+  was committed. If it fails, Sikemux searches for the commit that broke it and
+  tells only that commit's agent, with the lines naming the error and the path
+  of the full log. When no one commit is found, one agent owns the failure and
+  the others get a line saying who. If that line names someone else, leave it to
+  them.
 
 ### Listing agents
 

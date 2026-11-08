@@ -63,6 +63,55 @@ fn is_noise(line: &str) -> bool {
         .map_or(trimmed, |(_, said)| said.trim());
     said.is_empty() || said.starts_with("at ") || trimmed.starts_with(STEP_FAILED)
 }
+/// Lines a passing tool writes that only look like an error.
+fn is_routine(line: &str) -> bool {
+    let trimmed = line.trim();
+    let lower = trimmed.to_lowercase();
+    [
+        "compiling ",
+        "checking ",
+        "downloaded ",
+        "downloading ",
+        "finished ",
+    ]
+    .iter()
+    .any(|word| lower.starts_with(word))
+        || lower.ends_with(" ok")
+        || lower.contains(" 0 failed")
+        || lower.starts_with("0 failed")
+        || lower.contains(" 0 errors")
+        || lower.starts_with("0 errors")
+}
+
+/// The first `most` different lines of `text` that name what failed, each with the place
+/// a compiler gives on the next line, and how many lines name a failure in all.
+pub(crate) fn failure_lines(text: &str, most: usize) -> (Vec<String>, usize) {
+    let lines: Vec<String> = text.lines().map(plain).collect();
+    let mut named: Vec<String> = Vec::new();
+    let mut count = 0;
+    for (at, line) in lines.iter().enumerate() {
+        if !says_failed(line) || is_noise(line) || is_routine(line) {
+            continue;
+        }
+        count += 1;
+        if named.len() >= most {
+            continue;
+        }
+        let place = lines
+            .get(at + 1)
+            .map(|next| next.trim())
+            .filter(|next| next.starts_with("-->"));
+        let line = match place {
+            Some(place) => format!("{}  {place}", line.trim()),
+            None => line.trim().to_owned(),
+        };
+        if !named.contains(&line) {
+            named.push(line);
+        }
+    }
+    (named, count)
+}
+
 /// A short excerpt of the error in a failing job's log `lines`, and the
 /// files it names.
 pub(crate) fn read_error(lines: &[String]) -> (Option<String>, Vec<String>) {

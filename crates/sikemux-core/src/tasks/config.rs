@@ -24,6 +24,7 @@ const ROOT_FIELDS: &[&str] = &[
     "worktree",
     "generate",
     "check",
+    "fastCheck",
     "planFirst",
     "ship",
 ];
@@ -273,6 +274,11 @@ pub struct ProjectConfig {
     /// when its pull request has no CI.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub check: Option<Stated<ProjectCheck>>,
+    /// A quicker command run on each commit in place of a `check` command, which
+    /// then runs less often. Its environment has `SIKEMUX_CHECK_SEED`, to pick a
+    /// sample by.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fast_check: Option<String>,
     /// Paths whose change is planned before it starts, beside the ones every
     /// project has, such as migrations.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -480,6 +486,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let worktree = parse_worktree(root.get("worktree"), &mut errors);
     let generate = parse_generate(root.get("generate"), &mut errors);
     let check = parse_check(root.get("check"), &mut errors);
+    let fast_check = parse_fast_check(root.get("fastCheck"), check.as_ref(), &mut errors);
     let plan_first = parse_plan_first(root.get("planFirst"), &mut errors);
     let ship = parse_ship(root.get("ship"), &mut errors);
     if !errors.is_empty() {
@@ -495,6 +502,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         worktree,
         generate,
         check,
+        fast_check,
         plan_first,
         ship,
     })
@@ -537,7 +545,7 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
     let checks = usize::from(matches!(
         config.check,
         Some(Stated::Given(ProjectCheck::Command(_)))
-    ));
+    )) + usize::from(config.fast_check.is_some());
     if checks > 0 {
         reasons.push("a check command".to_owned());
     }
@@ -1221,6 +1229,23 @@ fn parse_check(
         })
         .collect();
     (ci.len() == listed.len()).then_some(Stated::Given(ProjectCheck::Ci { ci }))
+}
+
+fn parse_fast_check(
+    value: Option<&Value>,
+    check: Option<&Stated<ProjectCheck>>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<String> {
+    value?;
+    if !matches!(check, Some(Stated::Given(ProjectCheck::Command(_)))) {
+        errors.push(issue(
+            "$.fastCheck",
+            ConfigErrorCode::MissingField,
+            "fastCheck needs a check command beside it, which it stands in for on most commits.",
+        ));
+        return None;
+    }
+    parse_command(value, "$.fastCheck", errors)
 }
 
 fn parse_generate(

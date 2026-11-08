@@ -192,6 +192,7 @@ pub(crate) fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[Faile
         1 => String::new(),
         n => format!(" and {} more", n - 1),
     };
+    let owner = core.checks.failure_owner(project);
     let title = format!("CI keeps failing: {}{more}", broke.failures[0].label());
     let adding = Adding {
         title: clipped(&title, MAX_TITLE_CHARS),
@@ -204,7 +205,7 @@ pub(crate) fn ci_ruled(core: &Arc<Core>, project: &str, sha: &str, jobs: &[Faile
         ci: Some(broke),
         ..super::Adding::default()
     };
-    if let Err(error) = add_card(core, project, &By::Auto("CI"), adding, None) {
+    if let Err(error) = add_card(core, project, &By::Auto("CI"), adding, owner.as_deref()) {
         eprintln!("sikemux core: CI failing on {project} made no card: {error}");
     }
 }
