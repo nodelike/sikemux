@@ -70,6 +70,8 @@ A pull request Auto opens lists the slice's evidence on its latest commit in the
 
 When Auto gives a card back, the inbox says what it needs from you: something to fix, such as checks that failed again after a fix or a merge that didn't go through, or something only you can unblock, such as an agent that stopped running. **Ship it again** on the card starts Auto on it again.
 
+Each new worktree Auto makes for a card runs the commands in `worktree.onCreate` in `sikemux.json` before its agent starts. If they don't finish, the agent is told why and carries on.
+
 **Recover** in Auto's settings, on by default, keeps a card moving when its agent fails. If a turn fails, the agent's process dies, or it says nothing for 30 minutes in the middle of a turn, Auto brings it back on its own session in the same worktree, and starts a fresh agent there with a handover when that cannot work. It tries up to three times, 30 seconds, 2 minutes and 8 minutes apart, and gives the card back to you once with the reason when the same failure comes twice in a row or the tries run out. Stopping or closing an agent yourself is never undone, a usage limit waits for its reset, and a sign-in or missing program comes to you at once. The card's run record keeps how many times this happened and why.
 
 With **Scale review to the risk of the change** on, which it is not by default, a small change gets a reviewer who only reads it, and a short card that names the few files it changes skips the contract round. The run record says why. A change that touches or mentions credentials, migrations or how changes merge and ship, or that sits where work broke or reviewers asked for changes before, keeps the full path.

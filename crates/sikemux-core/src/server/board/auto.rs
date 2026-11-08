@@ -1192,6 +1192,15 @@ async fn start(
         );
         note_takeover(core, project, id, agent, &card.label(), stalled, reuses);
     }
+    if !reuses {
+        if let Some(failed) =
+            worktree::agent::set_up(core, Path::new(project), Some(agent), &tree.cwd).await
+        {
+            text.push_str(&format!(
+                "\n\nThe project's worktree setup did not finish: {failed}"
+            ));
+        }
+    }
     set_going(core, agent, launched, tree, text).await
 }
 
