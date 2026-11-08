@@ -5,6 +5,7 @@
 //! a window reload, a restart and an update.
 
 use crate::server::changed::What;
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
@@ -290,6 +291,15 @@ struct Board {
     /// What the person should know of its reservoir's latest run.
     #[serde(skip)]
     reservoir_note: Option<String>,
+    #[serde(skip)]
+    places: RefCell<Option<Places>>,
+}
+
+/// Where each card of a board sits and which cards sit under each, by position in its list.
+#[derive(Default)]
+struct Places {
+    at: HashMap<u64, usize>,
+    under: HashMap<u64, Vec<usize>>,
 }
 
 impl Board {
@@ -337,6 +347,7 @@ impl Board {
             told_moved: _,
             ci_failing: _,
             reservoir_note: _,
+            places: _,
         } = self;
         Self {
             version: *version,
@@ -381,11 +392,7 @@ impl Board {
         }
         let held: Vec<&Card> = std::iter::once(goal)
             .filter(|goal| goal.slice.is_some())
-            .chain(
-                self.cards
-                    .iter()
-                    .filter(|card| card.parent == Some(goal.id)),
-            )
+            .chain(self.under(goal.id))
             .collect();
         match held.iter().any(|card| card.slice.is_some()) {
             true => held,
@@ -400,8 +407,7 @@ impl Board {
             && (card.owner.is_some()
                 || card.slice.is_some()
                 || (card.goal.assertions().iter()).any(|kept| kept.retired.is_none())
-                || (self.cards.iter())
-                    .filter(|under| under.parent == Some(card.id))
+                || (self.under(card.id).into_iter())
                     .any(|under| under.owner.is_some() || under.slice.is_some()))
     }
 
@@ -411,10 +417,41 @@ impl Board {
     }
 
     fn card(&self, id: u64) -> Result<&Card, String> {
-        self.cards
-            .iter()
-            .find(|card| card.id == id)
-            .ok_or_else(|| format!("There is no card #{id} on this project's board"))
+        let placed = (self.places.borrow().as_ref()).map(|places| places.at.get(&id).copied());
+        let found = match placed {
+            Some(at) => at.and_then(|at| self.cards.get(at)),
+            None => self.cards.iter().find(|card| card.id == id),
+        };
+        found.ok_or_else(|| format!("There is no card #{id} on this project's board"))
+    }
+
+    /// The cards right under card `id`.
+    fn under(&self, id: u64) -> Vec<&Card> {
+        match self.places.borrow().as_ref() {
+            Some(places) => (places.under.get(&id).into_iter().flatten())
+                .filter_map(|at| self.cards.get(*at))
+                .collect(),
+            None => (self.cards.iter())
+                .filter(|card| card.parent == Some(id))
+                .collect(),
+        }
+    }
+
+    /// Answers looking up a card from an index until [`Self::forget_places`], so reading the
+    /// whole board costs one pass. No card may be added, removed or moved until then.
+    fn place_cards(&self) {
+        let mut places = Places::default();
+        for (at, card) in self.cards.iter().enumerate() {
+            places.at.insert(card.id, at);
+            if let Some(parent) = card.parent {
+                places.under.entry(parent).or_default().push(at);
+            }
+        }
+        *self.places.borrow_mut() = Some(places);
+    }
+
+    fn forget_places(&self) {
+        *self.places.borrow_mut() = None;
     }
 
     fn blocked(&self) -> Vec<u64> {
@@ -477,9 +514,8 @@ impl Board {
             .iter()
             .copied()
             .filter(|id| {
-                self.cards.iter().any(|other| {
-                    other.id == *id
-                        && other.status != CardStatus::Done
+                self.card(*id).is_ok_and(|other| {
+                    other.status != CardStatus::Done
                         && !other.slice.as_ref().is_some_and(|slice| slice.built_in)
                 })
             })
@@ -487,11 +523,7 @@ impl Board {
     }
 
     fn subcards(&self, id: u64) -> (usize, usize) {
-        let under: Vec<&Card> = self
-            .cards
-            .iter()
-            .filter(|card| card.parent == Some(id))
-            .collect();
+        let under = self.under(id);
         let done = under
             .iter()
             .filter(|card| card.status == CardStatus::Done)
@@ -1241,7 +1273,8 @@ pub(crate) fn asked_for_name(core: &Core, project: &str, card: u64) -> Option<St
 /// The open goals still waiting for a short name, by project, card and the agent holding each.
 pub(crate) fn unnamed_goals(core: &Core) -> Vec<(String, u64, String)> {
     let state = core.boards.state.locked();
-    (state.boards.values())
+    state.boards.values().for_each(Board::place_cards);
+    let unnamed = (state.boards.values())
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
         .filter(|(board, card)| card.status != CardStatus::Done && board.is_goal(card))
         .filter(|(_, card)| wants_name(&card.title, &card.details))
@@ -1249,7 +1282,9 @@ pub(crate) fn unnamed_goals(core: &Core) -> Vec<(String, u64, String)> {
         .filter_map(|(board, card)| {
             Some((board.project.clone(), card.id, card.owner_id()?.to_owned()))
         })
-        .collect()
+        .collect();
+    state.boards.values().for_each(Board::forget_places);
+    unnamed
 }
 
 /// The goals `agent` holds, by project and card, whose titles are too long to go by and which
@@ -1648,7 +1683,8 @@ fn short_name(core: &Core, board: &Board, card: &Card) -> Option<String> {
 }
 
 fn board_view(core: &Core, state: &State, board: &Board) -> ProjectBoard {
-    ProjectBoard {
+    board.place_cards();
+    let view = ProjectBoard {
         project: board.project.clone(),
         cards: board
             .cards
@@ -1669,7 +1705,9 @@ fn board_view(core: &Core, state: &State, board: &Board) -> ProjectBoard {
                 })
             })
             .collect(),
-    }
+    };
+    board.forget_places();
+    view
 }
 
 /// The card as `board_list` tells an agent of it.
@@ -2650,17 +2688,19 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         let mut done: Vec<&Card> = board.cards.iter().filter(|card| card.status == CardStatus::Done).collect();
         done.sort_by_key(|card| std::cmp::Reverse(card.id));
         let hidden_done = if all_done { 0 } else { done.len().saturating_sub(RECENT_DONE) };
-        let shown_done: Vec<u64> = done.iter().take(done.len() - hidden_done).map(|card| card.id).collect();
+        let shown_done: HashSet<u64> = done.iter().take(done.len() - hidden_done).map(|card| card.id).collect();
         let mut cards: Vec<&Card> = board
             .cards
             .iter()
             .filter(|card| card.status != CardStatus::Done || shown_done.contains(&card.id))
             .collect();
         cards.sort_by_key(|card| rank(card));
+        board.place_cards();
         let listed: Vec<Value> = cards
             .iter()
             .map(|card| agent_view(&core, board, card, false))
             .collect();
+        board.forget_places();
         let mut note = "Your cards come first, then your team's. Pass card for one card in full.".to_string();
         if hidden_done > 0 {
             note.push_str(&format!(" {hidden_done} older done cards are left out; pass done to list them."));
@@ -2894,9 +2934,8 @@ pub(crate) async fn verdict(core: &Arc<Core>, request: &HarnessRequest) -> Resul
 /// done since `done_since`.
 pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summary> {
     let state = core.boards.state.locked();
-    state
-        .boards
-        .values()
+    state.boards.values().for_each(Board::place_cards);
+    let cards = (state.boards.values())
         .flat_map(|board| board.cards.iter().map(move |card| (board, card)))
         .filter(|(board, card)| {
             waits(core, board, card).is_some_and(|waits| !matches!(waits, Waits::Answer))
@@ -2905,7 +2944,9 @@ pub(crate) fn cards_for_person(core: &Core, done_since: Option<u64>) -> Vec<Summ
                 })
         })
         .map(|(board, card)| card.summary(core, board))
-        .collect()
+        .collect();
+    state.boards.values().for_each(Board::forget_places);
+    cards
 }
 
 /// Keeps a browser recording on the card the agent works: as evidence on a

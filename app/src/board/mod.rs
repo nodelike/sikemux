@@ -105,6 +105,35 @@ pub(crate) struct Fields {
 }
 
 /// A lane of the board: the cards under one card, or those on their own.
+/// Where each card sits in the board's list, and what sits under each, so drawing a card needs
+/// no search of the board.
+#[derive(Default)]
+struct Places {
+    at: HashMap<u64, usize>,
+    under: HashMap<u64, UnderCard>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct UnderCard {
+    done: usize,
+    total: usize,
+}
+
+impl Places {
+    fn of(cards: &[BoardCard]) -> Self {
+        let mut places = Self::default();
+        for (at, card) in cards.iter().enumerate() {
+            places.at.insert(card.id, at);
+            if let Some(parent) = card.parent {
+                let under = places.under.entry(parent).or_default();
+                under.total += 1;
+                under.done += usize::from(card.status == CardStatus::Done);
+            }
+        }
+        places
+    }
+}
+
 struct Lane {
     key: String,
     parent: Option<u64>,
@@ -192,6 +221,7 @@ pub struct BoardPane {
     pub(crate) open: Option<Open>,
     pub(crate) fields: Option<Fields>,
     /// Cards on their way to another status, shown there until the core answers.
+    places: Places,
     moving: HashMap<u64, CardStatus>,
     folded: HashSet<String>,
     pub(crate) messages: Option<Vec<MessageRow>>,
@@ -230,6 +260,7 @@ impl BoardPane {
             show: Show::All,
             open: None,
             fields: None,
+            places: Places::default(),
             moving: HashMap::new(),
             folded: HashSet::new(),
             messages: None,
@@ -282,6 +313,7 @@ impl BoardPane {
                 self.fields = None;
             }
         }
+        self.places = Places::of(&board.cards);
         self.board = Some(board);
     }
 
@@ -306,7 +338,12 @@ impl BoardPane {
     }
 
     pub(crate) fn card(&self, id: u64) -> Option<&BoardCard> {
-        self.board.as_ref()?.cards.iter().find(|card| card.id == id)
+        self.cards().get(*self.places.at.get(&id)?)
+    }
+
+    /// How many cards sit right under card `id`, and how many of those are done.
+    fn under_card(&self, id: u64) -> UnderCard {
+        self.places.under.get(&id).copied().unwrap_or_default()
     }
 
     pub(crate) fn cards(&self) -> &[BoardCard] {
@@ -349,18 +386,16 @@ impl BoardPane {
             parent: None,
             cards: Vec::new(),
         };
-        let lane_of = |parent: u64, lanes: &mut Vec<Lane>| -> usize {
-            match lanes.iter().position(|lane| lane.parent == Some(parent)) {
-                Some(place) => place,
-                None => {
-                    lanes.push(Lane {
-                        key: format!("card-{parent}"),
-                        parent: Some(parent),
-                        cards: Vec::new(),
-                    });
-                    lanes.len() - 1
-                }
-            }
+        let mut places: HashMap<u64, usize> = HashMap::new();
+        let mut lane_of = |parent: u64, lanes: &mut Vec<Lane>| -> usize {
+            *places.entry(parent).or_insert_with(|| {
+                lanes.push(Lane {
+                    key: format!("card-{parent}"),
+                    parent: Some(parent),
+                    cards: Vec::new(),
+                });
+                lanes.len() - 1
+            })
         };
         for card in shown {
             if parents.contains(&card.id) {
@@ -1009,7 +1044,6 @@ fn columns(pane: &BoardPane, ids: &[u64], cx: &mut Context<BoardPane>) -> impl I
 fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = card.id;
-    let cards = pane.cards();
     let question = (card.question.as_deref()).and_then(|id| {
         let bench = pane.bench.upgrade()?;
         let bench = bench.read(cx);
@@ -1022,14 +1056,7 @@ fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) ->
             .filter(|_| card.status != CardStatus::Done)
             .and_then(|run| run.note.clone())
     });
-    let under: Vec<&BoardCard> = cards
-        .iter()
-        .filter(|other| other.parent == Some(id))
-        .collect();
-    let done = under
-        .iter()
-        .filter(|other| other.status == CardStatus::Done)
-        .count();
+    let under = pane.under_card(id);
     let waits: Vec<&BoardCard> = card
         .waits_on
         .iter()
@@ -1075,13 +1102,13 @@ fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) ->
         .when_some(line, |view, line| {
             view.child(ui::meta(line, cx).whitespace_normal())
         })
-        .when(!under.is_empty() || after.is_some(), |view| {
+        .when(under.total > 0 || after.is_some(), |view| {
             view.child(
                 div()
                     .flex()
                     .gap(SPACE_2)
-                    .when(!under.is_empty(), |row| {
-                        row.child(ui::meta(format!("{done}/{}", under.len()), cx))
+                    .when(under.total > 0, |row| {
+                        row.child(ui::meta(format!("{}/{}", under.done, under.total), cx))
                     })
                     .when_some(after, |row, after| {
                         row.child(

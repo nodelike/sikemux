@@ -90,11 +90,12 @@ pub(super) fn view(core: &Core) -> GoalsView {
         .map(|agent| agent.agent_id.as_str())
         .collect();
 
+    let families: Vec<Family> = boards.iter().map(Family::of).collect();
     let mut rows = Vec::new();
     let mut tasks: HashMap<String, String> = HashMap::new();
-    for board in &boards {
+    for (board, family) in boards.iter().zip(&families) {
         for goal in board.cards.iter().filter(|card| card.is_goal) {
-            let (agents, owned) = agents_of(board, goal, &helpers, &open);
+            let (agents, owned) = agents_of(family, goal, &helpers, &open);
             for (agent, slice) in owned {
                 tasks.entry(agent).or_insert(slice);
             }
@@ -113,7 +114,7 @@ pub(super) fn view(core: &Core) -> GoalsView {
                     state: state_of(goal),
                     next: None,
                     clock: None,
-                    slices: slices_of(board, goal),
+                    slices: slices_of(family, goal),
                     agents,
                     needs: Vec::new(),
                     desk,
@@ -122,7 +123,7 @@ pub(super) fn view(core: &Core) -> GoalsView {
                     }),
                 },
                 goal,
-                board,
+                family,
             });
         }
     }
@@ -225,11 +226,38 @@ fn agent_state(agent: &AgentShown, ended_well: bool) -> SliceState {
     }
 }
 
+/// A board's cards by number and by the card at the top above each, which is the card itself at
+/// the top, so a goal's row is put together without reading the whole board again.
+struct Family<'a> {
+    cards: HashMap<u64, &'a BoardCard>,
+    in_goal: HashMap<u64, Vec<&'a BoardCard>>,
+}
+
+impl<'a> Family<'a> {
+    fn of(board: &'a ProjectBoard) -> Self {
+        let cards: HashMap<u64, &BoardCard> =
+            (board.cards.iter()).map(|card| (card.id, card)).collect();
+        let mut in_goal: HashMap<u64, Vec<&BoardCard>> = HashMap::new();
+        for card in &board.cards {
+            let mut top = card.id;
+            while let Some(parent) = cards.get(&top).and_then(|card| card.parent) {
+                top = parent;
+            }
+            in_goal.entry(top).or_default().push(card);
+        }
+        Self { cards, in_goal }
+    }
+
+    fn in_goal(&self, goal: u64) -> &[&'a BoardCard] {
+        self.in_goal.get(&goal).map_or(&[], Vec::as_slice)
+    }
+}
+
 /// A goal's row while the view is put together, with what it was made from.
 struct Placed<'a> {
     row: GoalRow,
     goal: &'a BoardCard,
-    board: &'a ProjectBoard,
+    family: &'a Family<'a>,
 }
 
 impl Placed<'_> {
@@ -257,7 +285,7 @@ impl Placed<'_> {
             (None, None) if row.state == SliceState::Done => Some(GoalNext::Done),
             (None, None) => gate
                 .and_then(|next| {
-                    let card = self.board.cards.iter().find(|card| card.id == next.card)?;
+                    let card = *self.family.cards.get(&next.card)?;
                     // Whose gate it is: it says so of its owner, naming the slice only when the
                     // goal holds others, and an idle owner is all that holds it up.
                     let owners = next.passer == Passer::Owner;
@@ -340,27 +368,14 @@ fn helpers_of(core: &Core) -> HashMap<String, Vec<String>> {
 /// The open agents working `goal`, its lead first: who holds it or a card under it and whom they
 /// started; and for each one that holds a slice, the slice's title.
 fn agents_of(
-    board: &ProjectBoard,
+    family: &Family,
     goal: &BoardCard,
     helpers: &HashMap<String, Vec<String>>,
     open: &HashSet<&str>,
 ) -> (Vec<String>, Vec<(String, String)>) {
-    let parents: HashMap<u64, Option<u64>> = (board.cards.iter())
-        .map(|card| (card.id, card.parent))
-        .collect();
-    let under_goal = |card: &BoardCard| {
-        let mut at = Some(card.id);
-        while let Some(id) = at {
-            if id == goal.id {
-                return true;
-            }
-            at = parents.get(&id).copied().flatten();
-        }
-        false
-    };
     let mut agents: Vec<String> = goal.owner.iter().cloned().collect();
     let mut owned = Vec::new();
-    for card in board.cards.iter().filter(|card| under_goal(card)) {
+    for card in family.in_goal(goal.id) {
         let Some(owner) = &card.owner else {
             continue;
         };
@@ -388,9 +403,10 @@ fn state_of(goal: &BoardCard) -> SliceState {
     goal.goal_state.unwrap_or(SliceState::Waiting)
 }
 
-fn slices_of(board: &ProjectBoard, goal: &BoardCard) -> Vec<GoalSlice> {
-    (board.cards.iter())
-        .filter(|card| goal.goal_slices.contains(&card.id))
+fn slices_of(family: &Family, goal: &BoardCard) -> Vec<GoalSlice> {
+    let held: HashSet<u64> = goal.goal_slices.iter().copied().collect();
+    (family.in_goal(goal.id).iter())
+        .filter(|card| held.contains(&card.id))
         .filter_map(|card| {
             Some(GoalSlice {
                 card: card.id,

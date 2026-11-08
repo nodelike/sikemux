@@ -184,6 +184,7 @@ pub(super) fn settle(core: &Core, state: &mut State) -> (Option<u64>, Vec<GoalMo
     let mut moved_goals = Vec::new();
     let State { boards, dirty, .. } = state;
     for board in boards.values_mut() {
+        board.place_cards();
         board.took = eta::Took::of(board);
         let waits: HashMap<u64, Wait> = board
             .cards
@@ -208,6 +209,7 @@ pub(super) fn settle(core: &Core, state: &mut State) -> (Option<u64>, Vec<GoalMo
             board.told_waits = waits;
             dirty.insert(board.project.clone());
         }
+        board.forget_places();
     }
     (next, moved_goals)
 }

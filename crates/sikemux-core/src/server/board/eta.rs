@@ -267,7 +267,8 @@ pub(super) fn settle(board: &mut Board, waits: &HashMap<u64, Wait>, now: u64) ->
         .map(|goal| goal.id)
         .collect();
     let before = board.promises.len();
-    board.promises.retain(|goal, _| goals.contains(goal));
+    let known: HashSet<u64> = goals.iter().copied().collect();
+    board.promises.retain(|goal, _| known.contains(goal));
     promised.changed = board.promises.len() != before;
     for id in goals {
         let Ok(outlook) = board.card(id).map(|goal| outlook(board, goal, waits)) else {
