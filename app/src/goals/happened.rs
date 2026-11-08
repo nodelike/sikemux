@@ -279,8 +279,8 @@ fn failure(why: &str, stands: bool, cx: &mut Context<GoalsPane>) -> impl IntoEle
         )
 }
 
-/// What happened on the goal, as one paragraph: each sentence is underlined and opens the moments
-/// behind it under the paragraph. Nothing while nothing has been written or is being written.
+/// What happened on the goal, as one paragraph: a click on a sentence opens the moments behind it
+/// under the paragraph. Nothing while nothing has been written or is being written.
 pub(super) fn what_happened(
     pane: &GoalsPane,
     id: u64,
@@ -328,8 +328,8 @@ pub(super) fn what_happened(
     )
 }
 
-/// The summary's sentences as one paragraph, each with a faint underline that a click on it
-/// darkens while its moments show.
+/// The summary's sentences as one paragraph, each underlined only under the pointer or while its
+/// moments show, when a click on it opened them.
 fn prose(pane: &GoalsPane, summary: &GoalSummary, cx: &mut Context<GoalsPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let mut text = String::new();
@@ -346,44 +346,67 @@ fn prose(pane: &GoalsPane, summary: &GoalSummary, cx: &mut Context<GoalsPane>) -
         }
         let key = format!("happened-{at}");
         let open = pane.unfolded.contains(&key);
-        marks.push((
-            start..text.len(),
-            HighlightStyle {
-                underline: Some(UnderlineStyle {
-                    thickness: px(1.),
-                    color: Some(if open {
-                        t.text_secondary
-                    } else {
-                        t.border_strong
+        if open || pane.pointed.as_ref() == Some(&key) {
+            marks.push((
+                start..text.len(),
+                HighlightStyle {
+                    underline: Some(UnderlineStyle {
+                        thickness: px(1.),
+                        color: Some(if open {
+                            t.text_secondary
+                        } else {
+                            t.border_strong
+                        }),
+                        wavy: false,
                     }),
-                    wavy: false,
-                }),
-                background_color: open.then_some(t.surface_chosen),
-                ..HighlightStyle::default()
-            },
-        ));
+                    background_color: open.then_some(t.surface_chosen),
+                    ..HighlightStyle::default()
+                },
+            ));
+        }
         links.push((start..text.len(), key));
     }
-    let goals = cx.entity().downgrade();
+    let (clicked, pointed) = (cx.entity().downgrade(), cx.entity().downgrade());
     let (ranges, keys): (Vec<_>, Vec<_>) = links.into_iter().unzip();
+    let (click_keys, hover_ranges) = (keys.clone(), ranges.clone());
     div()
+        .id("goal-happened-prose")
         .pt(SPACE_1)
         .pb(SPACE_1H)
         .text_size(theme::ui_text(TEXT_MD))
         .line_height(relative(1.6))
         .text_color(t.text_primary)
+        .on_hover(cx.listener(|pane, hovered: &bool, _, cx| {
+            if !hovered && pane.pointed.take().is_some() {
+                cx.notify();
+            }
+        }))
         .child(
             InteractiveText::new(
                 "goal-happened",
                 StyledText::new(text).with_highlights(marks),
             )
             .on_click(ranges, move |at, _, cx| {
-                let key = keys[at].clone();
-                let _ = goals.update(cx, |pane, cx| {
+                let key = click_keys[at].clone();
+                let _ = clicked.update(cx, |pane, cx| {
                     if !pane.unfolded.remove(&key) {
                         pane.unfolded.insert(key);
                     }
                     cx.notify();
+                });
+            })
+            .on_hover(move |index, _, _, cx| {
+                let key = index.and_then(|index| {
+                    let at = hover_ranges
+                        .iter()
+                        .position(|range| range.contains(&index))?;
+                    Some(keys[at].clone())
+                });
+                let _ = pointed.update(cx, |pane, cx| {
+                    if pane.pointed != key {
+                        pane.pointed = key;
+                        cx.notify();
+                    }
                 });
             }),
         )

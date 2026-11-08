@@ -185,6 +185,8 @@ pub struct GoalsPane {
     summary: Option<(u64, GoalSummaryView)>,
     /// The sentences of a summary the person opened to see their sources.
     unfolded: std::collections::HashSet<String>,
+    /// The sentence of a summary under the pointer, which alone of those closed is underlined.
+    pointed: Option<String>,
     focus: FocusHandle,
     _reading: Task<()>,
     _reading_summary: Task<()>,
@@ -222,6 +224,7 @@ impl GoalsPane {
             environments: None,
             summary: None,
             unfolded: Default::default(),
+            pointed: None,
             focus: cx.focus_handle(),
             _reading: Task::ready(()),
             _reading_summary: Task::ready(()),
