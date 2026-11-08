@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use sikemux_view::chat::PermissionKind;
+use sikemux_view::questions::QuestionChoice;
 
 use super::super::json::text;
 use super::tools;
@@ -18,8 +19,6 @@ const ALLOW: &str = "allow";
 const ALWAYS: &str = "always";
 const REJECT: &str = "reject";
 const CANCEL: &str = "cancel";
-const EMPTY: &str = "empty";
-const PREFILL: &str = "prefill";
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
@@ -27,7 +26,6 @@ pub(crate) enum Answer {
     Tool { remember: String },
     Confirm,
     Select { options: Vec<String> },
-    Text { prefill: Option<String> },
 }
 
 /// One of Pi's dialogs, kept to answer it.
@@ -44,6 +42,50 @@ pub(super) enum Dialog {
     Permission(Value, Asked),
     /// A question only the person can answer.
     Question(Value, Asked),
+    /// A question the person answers in words of their own.
+    Words(Words),
+}
+
+/// An `input` or `editor` dialog, put to the person as a question they type
+/// an answer to. Its first choice answers with the text it opened with.
+pub(super) struct Words {
+    pub id: String,
+    pub title: String,
+    pub text: String,
+    pub prefill: Option<String>,
+}
+
+impl Words {
+    pub fn choices(&self) -> Vec<QuestionChoice> {
+        let choice = |label: &str| QuestionChoice {
+            label: label.to_owned(),
+            detail: None,
+            recommended: false,
+        };
+        let keep = if self.prefill.is_some() {
+            "Keep this text"
+        } else {
+            "Leave it empty"
+        };
+        vec![choice(keep), choice("Cancel")]
+    }
+}
+
+/// Pi's response to a dialog the person answered in words, or by the choice
+/// at `choice`.
+pub(super) fn words_response(
+    id: &str,
+    prefill: Option<String>,
+    answer: String,
+    choice: Option<usize>,
+) -> Value {
+    let mut record = json!({ "type": "extension_ui_response", "id": id });
+    match choice {
+        Some(0) => record["value"] = json!(prefill.unwrap_or_default()),
+        Some(_) => record["cancelled"] = json!(true),
+        None => record["value"] = json!(answer),
+    }
+    record
 }
 
 fn visible<'a>(event: &'a Value, keys: &[&str]) -> Option<&'a str> {
@@ -169,17 +211,16 @@ pub(super) fn read(
         }
         "input" | "editor" => {
             let prefill = text(event, "prefill").map(str::to_owned);
-            let mut shown = Vec::new();
-            if prefill.is_some() {
-                shown.push(option(PREFILL, "Keep this text", PermissionKind::AllowOnce));
-            }
-            shown.push(option(EMPTY, "Leave it empty", PermissionKind::AllowOnce));
-            shown.push(option(CANCEL, "Cancel", PermissionKind::RejectOnce));
-            let detail = prefill.as_deref().or(detail);
-            Some(Dialog::Question(
-                card(session, id, title, detail, &shown),
-                asked(Answer::Text { prefill }),
-            ))
+            let text = match prefill.as_deref().or(detail) {
+                Some(body) => format!("{title}\n\n{body}"),
+                None => title.to_owned(),
+            };
+            Some(Dialog::Words(Words {
+                id: id.to_owned(),
+                title: title.to_owned(),
+                text,
+                prefill,
+            }))
         }
         _ => None,
     }
@@ -202,10 +243,6 @@ pub(super) fn response(asked: Asked, chosen: Option<&str>) -> (Value, Option<Str
                 None => record["cancelled"] = json!(true),
             }
         }
-        (Answer::Text { prefill }, Some(PREFILL)) => {
-            record["value"] = json!(prefill.unwrap_or_default());
-        }
-        (Answer::Text { .. }, Some(EMPTY)) => record["value"] = json!(""),
         _ => record["cancelled"] = json!(true),
     }
     (record, remember)

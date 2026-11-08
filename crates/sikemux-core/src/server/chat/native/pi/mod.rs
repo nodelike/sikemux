@@ -69,12 +69,26 @@ impl Driver {
                 Effect::WorkEnded(reason) => self.sink.work_ended(reason),
                 Effect::Interrupt(turn) => self.interrupt(turn),
                 Effect::Own(Own::Send { command, purpose }) => self.wire.send_for(command, purpose),
+                Effect::Own(Own::CloseDialogs(ids)) => {
+                    for id in ids {
+                        self.tell_cancelled(&id);
+                    }
+                    self.sink.withdraw_dialogs();
+                }
             }
         }
     }
 
     fn session_id(&self) -> String {
         self.session.locked().session_id.clone()
+    }
+
+    fn tell_cancelled(&self, id: &str) {
+        self.wire.tell(&json!({
+            "type": "extension_ui_response",
+            "id": id,
+            "cancelled": true,
+        }));
     }
 
     fn say(&self, said: &str) {
@@ -122,7 +136,12 @@ impl Driver {
                 self.sink.letter_unread(text);
                 self.session.locked().probe_if_settling()
             }
-            (Purpose::Interrupt(turn), Ok(_)) => self.session.locked().interrupted(&turn),
+            (Purpose::Interrupt(turn), Ok(_)) => {
+                let mut session = self.session.locked();
+                let mut effects = session.interrupted(&turn);
+                effects.extend(session.close_dialogs());
+                effects
+            }
             (Purpose::Settle(generation), state) => self.session.locked().probed(generation, state),
             (Purpose::Compact(turn), result) => {
                 let result = result.map_err(|error| error_text(&error));
@@ -214,6 +233,11 @@ impl Driver {
         }
         let (session_id, cwd, allowed) = {
             let session = self.session.locked();
+            if session.stopped {
+                drop(session);
+                self.tell_cancelled(event["id"].as_str().unwrap_or_default());
+                return;
+            }
             (
                 session.session_id.clone(),
                 session.cwd.clone(),
@@ -234,11 +258,24 @@ impl Driver {
                 self.sink
                     .ask_person(request, asked, |asked| self.responder(asked));
             }
-            None => self.wire.tell(&json!({
-                "type": "extension_ui_response",
-                "id": event["id"],
-                "cancelled": true,
-            })),
+            Some(Dialog::Words(words)) => self.ask_for_words(words),
+            None => self.tell_cancelled(event["id"].as_str().unwrap_or_default()),
+        }
+    }
+
+    fn ask_for_words(&self, words: dialogs::Words) {
+        let choices = words.choices();
+        self.session
+            .locked()
+            .word_dialogs
+            .insert(words.id.clone(), words.prefill.clone());
+        let asked = self
+            .sink
+            .ask_dialog(words.id.clone(), &words.title, &words.text, choices);
+        if let Err(error) = asked {
+            eprintln!("sikemux core: Pi's dialog was not put to the person: {error}");
+            self.session.locked().word_dialogs.remove(&words.id);
+            self.tell_cancelled(&words.id);
         }
     }
 
@@ -407,6 +444,7 @@ impl Pi {
             crate::server::chat::feed::title(&prompt.text),
         );
         session.turn_message = prompt.message_id.clone();
+        session.stopped = false;
     }
 
     async fn command(
@@ -597,6 +635,7 @@ impl Backend for Pi {
             extension_env(launch),
         )?;
         process.stop_gently(SHUTDOWN_GRACE);
+        sink.withdraw_dialogs();
         let cwd = launch.cwd.to_string_lossy().into_owned();
         let driver = Driver {
             wire: Wire::new(writer),
@@ -751,6 +790,7 @@ impl Backend for Pi {
         let effects = {
             let mut session = self.driver.session.locked();
             session.drop_held();
+            session.stopped = true;
             session.cancel()
         };
         self.driver.apply(effects);
@@ -871,6 +911,14 @@ impl Backend for Pi {
             reading,
             kept,
         })
+    }
+
+    fn answer_dialog(&mut self, id: &str, answer: String, choice: Option<usize>) {
+        let Some(prefill) = self.driver.session.locked().word_dialogs.remove(id) else {
+            return;
+        };
+        self.wire()
+            .tell(&dialogs::words_response(id, prefill, answer, choice));
     }
 
     fn responder(&self, reply: Asked) -> Respond {

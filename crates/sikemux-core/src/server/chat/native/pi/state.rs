@@ -28,7 +28,12 @@ const PARTIAL_EVERY: Duration = Duration::from_millis(250);
 pub(super) const COMPACTING: &str = "while compaction is in progress";
 
 pub(super) enum Own {
-    Send { command: Value, purpose: Purpose },
+    Send {
+        command: Value,
+        purpose: Purpose,
+    },
+    /// These dialogs no longer wait, so Pi and the person are told.
+    CloseDialogs(Vec<String>),
 }
 
 fn send(command: Value, purpose: Purpose) -> Effect {
@@ -128,6 +133,10 @@ pub(super) struct Session {
     pub message_entries: HashMap<String, String>,
     /// What the person chose to always allow for this session.
     pub allowed: HashSet<String>,
+    /// The dialogs waiting on words from the person, and the text each opened with.
+    pub word_dialogs: HashMap<String, Option<String>>,
+    /// The person stopped, so a dialog an extension goes on to open is declined.
+    pub stopped: bool,
     /// The id of the assistant message streaming now, and which parts of it spoke.
     message: Option<String>,
     spoken_parts: HashSet<u64>,
@@ -232,13 +241,18 @@ impl Session {
         }
     }
 
+    pub fn close_dialogs(&mut self) -> Option<Effect> {
+        let ids: Vec<String> = self.word_dialogs.drain().map(|(id, _)| id).collect();
+        (!ids.is_empty()).then(|| Effect::Own(Own::CloseDialogs(ids)))
+    }
+
     fn finish(&mut self, outcome: Outcome) -> Vec<Effect> {
         self.settling = false;
         self.compaction_shown = false;
         self.released = false;
         self.message = None;
         let said = self.failed.take();
-        let mut effects = Vec::new();
+        let mut effects: Vec<Effect> = self.close_dialogs().into_iter().collect();
         while let Some(id) = self.turns.active() {
             match self.turns.completed(&id) {
                 Ended::Prompted(turn) => {
@@ -540,6 +554,7 @@ impl Session {
     pub fn handle(&mut self, event: &Value) -> Vec<Effect> {
         match event["type"].as_str() {
             Some("agent_start") => {
+                self.stopped = false;
                 self.generation += 1;
                 self.settling = false;
                 if self.turns.active().is_some() {

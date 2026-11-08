@@ -26,6 +26,7 @@ use super::SessionEnd;
 use sikemux_fold::update::turn_answer;
 use sikemux_fold::{ChatEventKind, UpdateKind};
 use sikemux_view::chat::StopReason;
+use sikemux_view::questions::QuestionChoice;
 use sikemux_wire::protocol::{ChatAccount, ChatContext, ChatLaunch, ChatStart};
 
 use super::super::feed::{Earlier, Reach};
@@ -343,6 +344,22 @@ impl Sink {
         self.chat.ask_question(input)
     }
 
+    /// Puts to the person a dialog the agent is blocked on, whose answer comes
+    /// back through [`Backend::answer_dialog`].
+    pub fn ask_dialog(
+        &self,
+        dialog: String,
+        header: &str,
+        text: &str,
+        choices: Vec<QuestionChoice>,
+    ) -> Result<(), String> {
+        self.chat.ask_dialog(dialog, header, text, choices)
+    }
+
+    pub fn withdraw_dialogs(&self) {
+        self.chat.withdraw_dialogs();
+    }
+
     /// The person's message `text` went into the running turn.
     pub fn prompted(&self, text: &str, paths: &[String]) {
         self.chat.feed.prompted(None, text, paths, &[]);
@@ -516,6 +533,9 @@ pub(crate) trait Backend: Sized + Send {
         &mut self,
         task_id: &str,
     ) -> impl std::future::Future<Output = Result<(), String>> + Send;
+
+    /// The person answered a dialog the agent is blocked on.
+    fn answer_dialog(&mut self, _id: &str, _answer: String, _choice: Option<usize>) {}
 
     /// Asks the agent to sign in by itself, by `method_id`, one of the
     /// methods it offered.
@@ -1041,6 +1061,9 @@ impl<B: Backend> Running<'_, B> {
             ChatCommand::DiscardFailed => {
                 self.state.failed_prompt = None;
                 reset::cancel(&self.chat);
+            }
+            ChatCommand::AnswerDialog { id, answer, choice } => {
+                self.backend.answer_dialog(&id, answer, choice)
             }
             ChatCommand::Cancel => self.cancel().await,
             ChatCommand::HandOver { .. } => unreachable!("the loop hands the chat over itself"),

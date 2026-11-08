@@ -27,6 +27,7 @@ use sikemux_wire::protocol::WindowCall;
 use super::activity::Activity;
 use super::approvals::{Approval, Keeper};
 use super::changed::Topic;
+use super::chat::ChatCommand;
 use super::connection::ClientId;
 use super::kept::Kept;
 use super::messages;
@@ -136,6 +137,10 @@ struct Question {
     /// answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     approval: Option<Approval>,
+    /// The dialog in the asker's process that waits on the answer, which then
+    /// goes to it rather than arriving as a message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dialog: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     raise: Option<Raise>,
 }
@@ -382,6 +387,7 @@ struct Asked {
     assumption: Option<String>,
     secret: bool,
     approval: Option<Approval>,
+    dialog: Option<String>,
     raise: Option<Raise>,
 }
 
@@ -945,7 +951,7 @@ fn open(
     let questions: Vec<Question> = asked
         .into_iter()
         .map(|asked| Question {
-            stage: if asked.secret || asked.approval.is_some() {
+            stage: if asked.secret || asked.approval.is_some() || asked.dialog.is_some() {
                 Stage::Person {
                     lead: None,
                     passed: false,
@@ -970,6 +976,7 @@ fn open(
             relayed: None,
             from_host: None,
             approval: asked.approval,
+            dialog: asked.dialog,
             raise: asked.raise,
         })
         .collect();
@@ -1177,6 +1184,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             assumption,
             secret,
             approval: None,
+            dialog: None,
             raise,
         }],
     )?
@@ -1226,10 +1234,58 @@ pub(crate) fn put_to_person(
             assumption: None,
             secret: false,
             approval: Some(approval),
+            dialog: None,
             raise: None,
         }],
     )
     .map(drop)
+}
+
+/// Asks the person something a dialog in `agent_id`'s process is blocked on.
+pub(crate) fn ask_for_dialog(
+    core: &Core,
+    agent_id: &str,
+    dialog: String,
+    header: &str,
+    text: &str,
+    choices: Vec<QuestionChoice>,
+) -> Result<(), String> {
+    let project = core
+        .chats
+        .get(agent_id)
+        .map(|chat| chat.launch.cwd.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    open(
+        core,
+        agent_id,
+        &project,
+        vec![Asked {
+            text: clipped(text, MAX_QUESTION_BYTES),
+            header: Some(clipped(header, MAX_HEADER_CHARS)),
+            choices,
+            multi: false,
+            blocked: true,
+            assumption: None,
+            secret: false,
+            approval: None,
+            dialog: Some(dialog),
+            raise: None,
+        }],
+    )
+    .map(drop)
+}
+
+/// Closes the questions on dialogs of `agent_id`'s that no longer wait.
+pub(crate) fn withdraw_dialogs(core: &Core, agent_id: &str) {
+    let questions = &core.harness.questions;
+    let mut state = questions.state.locked();
+    let before = state.open.len();
+    state
+        .open
+        .retain(|question| question.agent_id != agent_id || question.dialog.is_none());
+    if state.open.len() != before {
+        questions.changed(&mut state);
+    }
 }
 
 /// The worker of `lead` on a linked host that `worker` names, by its id or
@@ -1350,6 +1406,7 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
                 assumption: None,
                 secret: question["isSecret"].as_bool().unwrap_or(false),
                 approval: None,
+                dialog: None,
                 raise: None,
             })
         })
@@ -1684,7 +1741,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             .open
             .retain(|question| !taken.iter().any(|(taken, ..)| taken.id == question.id));
         for (question, _, text) in &taken {
-            if let (None, Some(text)) = (&question.from_host, text) {
+            if let (None, None, Some(text)) = (&question.from_host, &question.dialog, text) {
                 state.answered.push(Answered {
                     question: question.clone(),
                     answer: (!question.secret).then(|| text.clone()),
@@ -1715,6 +1772,16 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             continue;
         }
         let Some(text) = text else { continue };
+        if let Some(dialog) = &question.dialog {
+            if let Some(chat) = core.chats.get(&question.agent_id) {
+                let _ = chat.send(ChatCommand::AnswerDialog {
+                    id: dialog.clone(),
+                    answer: text,
+                    choice: given.choice,
+                });
+            }
+            continue;
+        }
         let told = match (&question.approval, question.secret) {
             (Some(approval), _) => super::approvals::settle(core, approval, given.choice)
                 .await

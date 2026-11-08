@@ -26,6 +26,7 @@ use crate::server::changed::What;
 use sikemux_fold::update::{notice, turn_answer};
 use sikemux_fold::UpdateKind;
 use sikemux_view::chat::StopReason;
+use sikemux_view::questions::QuestionChoice;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -92,6 +93,13 @@ const MAX_RESTARTS: usize = 3;
 const RESTART_WINDOW: Duration = Duration::from_secs(5 * 60);
 
 pub(crate) enum ChatCommand {
+    /// The person answered a dialog the agent's process is blocked on, by typing
+    /// `answer` or by picking `choice`.
+    AnswerDialog {
+        id: String,
+        answer: String,
+        choice: Option<usize>,
+    },
     Prompt {
         /// Names the message for a later edit of it.
         message_id: Option<String>,
@@ -734,6 +742,23 @@ impl Chat {
         }
     }
 
+    pub(crate) fn ask_dialog(
+        &self,
+        dialog: String,
+        header: &str,
+        text: &str,
+        choices: Vec<QuestionChoice>,
+    ) -> Result<(), String> {
+        let core = self.core.upgrade().ok_or("Sikemux is shutting down")?;
+        super::questions::ask_for_dialog(&core, self.agent_id(), dialog, header, text, choices)
+    }
+
+    pub(crate) fn withdraw_dialogs(&self) {
+        if let Some(core) = self.core.upgrade() {
+            super::questions::withdraw_dialogs(&core, self.agent_id());
+        }
+    }
+
     pub(crate) fn letter_unread(&self, text: String) {
         if let Some(core) = self.core.upgrade() {
             core.harness.mailbox.returned(self.agent_id(), text);
@@ -1009,7 +1034,7 @@ impl Chat {
         Ok(())
     }
 
-    fn send(&self, command: ChatCommand) -> CoreResult<()> {
+    pub(crate) fn send(&self, command: ChatCommand) -> CoreResult<()> {
         if self.unstarted.load(Ordering::Acquire) {
             match command {
                 ChatCommand::Cancel | ChatCommand::StopTask { .. } | ChatCommand::DiscardFailed => {
