@@ -638,6 +638,7 @@ async fn run_batch(
                     sound,
                     commits: commits.clone(),
                     failing_took: ran.took_ms,
+                    in_queue: false,
                 },
             )
             .await
@@ -1382,6 +1383,75 @@ fn run_check(cwd: &Path, command: &str, seed: u32, limit: Duration) -> Result<Ra
         text: all_said(&output),
         took_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
     })
+}
+
+/// How the check went on a commit of the merge queue's checkout.
+pub(crate) struct QueueRun {
+    pub passed: bool,
+    pub output: String,
+    pub took_ms: u64,
+}
+
+/// Runs `command` on `commit` in the merge queue's checkout, the way the
+/// project's own check runs.
+pub(crate) async fn run_in_queue(
+    core: &Arc<Core>,
+    dir: &Path,
+    commit: &str,
+    command: &str,
+    agent: &str,
+) -> Result<QueueRun, String> {
+    use crate::server::edits::generate::refresh;
+    let checkout = crate::server::worktree::agent::merge_queue(core, dir, commit).await?;
+    let (owner, dir, command) = (core.clone(), dir.to_owned(), command.to_owned());
+    let seed = sample_seed(agent);
+    let ran = tokio::task::spawn_blocking(move || {
+        refresh(&owner, &dir, &checkout)?;
+        run_check(&checkout, &command, seed, RUN_LIMIT)
+    })
+    .await
+    .map_err(|error| error.to_string())??;
+    Ok(QueueRun {
+        passed: ran.passed,
+        output: ran.text,
+        took_ms: ran.took_ms,
+    })
+}
+
+/// The first of `commits`, oldest first on top of `sound`, that fails
+/// `command` in the merge queue's checkout, or why none could be named.
+pub(crate) async fn first_failing_in_queue(
+    core: &Arc<Core>,
+    dir: &Path,
+    commits: Vec<String>,
+    sound: &str,
+    command: &str,
+    agent: &str,
+    failing_took: u64,
+) -> Result<String, String> {
+    let commits = commits
+        .into_iter()
+        .map(|sha| Commit {
+            sha,
+            subject: String::new(),
+            agents: vec![agent.to_owned()],
+            asked: false,
+        })
+        .collect();
+    let search = Search {
+        dir: dir.to_owned(),
+        command: command.to_owned(),
+        seed: sample_seed(agent),
+        sound: Some(sound.to_owned()),
+        commits,
+        failing_took,
+        in_queue: true,
+    };
+    match culprit::hunt(core, search).await {
+        Hunted::Found { sha, .. } => Ok(sha),
+        Hunted::Unknown { why, .. } => Err(why),
+        Hunted::NotTried => Err("nothing was searched".to_owned()),
+    }
 }
 
 /// Runs a check or gate's command in the worktree. Whether it passed, and the

@@ -201,6 +201,16 @@ pub(crate) async fn gates(
     clean_at(core, project, commit, GATES).await
 }
 
+/// The checkout of `project`'s repository the merge queue stacks changes and
+/// checks them in, so a check of the branch never has it moved from under it.
+pub(crate) async fn merge_queue(
+    core: &Arc<Core>,
+    project: &Path,
+    commit: &str,
+) -> Result<PathBuf, String> {
+    clean_at(core, project, commit, MERGE_QUEUE).await
+}
+
 async fn clean_at(
     core: &Arc<Core>,
     project: &Path,
@@ -243,6 +253,8 @@ async fn clean_at(
 const INTEGRATION: &str = ".integration";
 /// The gates checkout's folder beside it.
 const GATES: &str = ".gates";
+/// The merge queue's checkout's folder beside them.
+const MERGE_QUEUE: &str = ".merge-queue";
 
 /// Runs `project`'s `worktree.onCreate` commands in the new checkout at `cwd`
 /// once the person trusts its `sikemux.json`, asked on behalf of `agent_id`

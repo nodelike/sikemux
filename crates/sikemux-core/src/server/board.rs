@@ -47,6 +47,7 @@ pub(crate) mod lease;
 mod migrate;
 pub(crate) mod offers;
 mod page;
+mod queue;
 mod record;
 pub(crate) mod recover;
 mod review;
@@ -551,6 +552,8 @@ struct State {
     dropped: Vec<finish::Dropped>,
     /// Reviewers whose review ended, whose agents and checkouts are to go.
     dismissed: Vec<blind::Reviewer>,
+    /// What the merge queue of each project's base is doing.
+    lanes: queue::Lanes,
     /// The latest runs of each project's check, for commits heard of after them.
     runs: HashMap<String, slice::HeardRuns>,
     /// Projects whose slices wait on a CI workflow's verdict.
@@ -3516,6 +3519,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     next = sooner(next, lease::settle(core));
     auto::start_free(core);
     next = sooner(next, finish::due(core));
+    next = sooner(next, queue::due(core));
     next = sooner(next, tickets::due(core));
     next = sooner(next, workflows::due(core));
     commands::due(core);

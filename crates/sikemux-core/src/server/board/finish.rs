@@ -13,7 +13,8 @@ use sikemux_process::sync::Locked;
 use super::auto::{AutoPull, AutoRun, BoardSettings, Landing, RunHold, RunStage};
 use super::review::{self, MAX_ROUNDS};
 use super::{
-    blind, change_card, git, guard, recover, send_notices, By, Card, CardStatus, Changes, Checker,
+    blind, change_card, git, guard, queue, recover, send_notices, By, Card, CardStatus, Changes,
+    Checker,
 };
 use crate::server::codehost::ci;
 use crate::server::codehost::repo::{self as codehost, Checks, Feedback, CI_START_WAIT_MS};
@@ -83,6 +84,7 @@ pub(super) fn mark_held(
     need: RunHold,
     why: String,
 ) {
+    queue::leave(run, card.record.as_mut());
     run.verdict = None;
     run.recovery.due = None;
     run.recovery.fresh = false;
@@ -206,7 +208,7 @@ impl Step {
         }
     }
 
-    fn tree(&self) -> PathBuf {
+    pub(super) fn tree(&self) -> PathBuf {
         PathBuf::from(&self.run.worktree)
     }
 
@@ -269,6 +271,7 @@ where
         if let Some(stage) = stage {
             run.stage = stage;
             run.held = None;
+            queue::leave(run, card.record.as_mut());
         }
         let step = Step {
             project: project.clone(),
@@ -287,18 +290,23 @@ where
     tokio::spawn(async move {
         let (project, id) = (step.project.clone(), step.id);
         work(core.clone(), step).await;
-        let mut again = false;
-        core.boards
-            .state
-            .locked()
-            .change_work(&project, id, |work| {
-                again = std::mem::take(&mut work.reship)
-            });
-        core.boards.end_job(&project, id);
-        if again {
-            ship(&core, project, id);
-        }
+        end_step(&core, project, id);
     });
+}
+
+/// A step of the card ended, so whatever waited for it can go on.
+pub(super) fn end_step(core: &Arc<Core>, project: String, id: u64) {
+    let mut again = false;
+    core.boards
+        .state
+        .locked()
+        .change_work(&project, id, |work| {
+            again = std::mem::take(&mut work.reship)
+        });
+    core.boards.end_job(&project, id);
+    if again {
+        ship(core, project, id);
+    }
 }
 
 /// Starts a card Auto gave back to the person again: from the start when it
@@ -601,6 +609,10 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                 if work.is_some_and(|work| work.job) {
                     continue;
                 }
+                if run.stage == RunStage::Merging && run.queue.is_some() && board.settings.queues()
+                {
+                    continue;
+                }
                 let every = match run.stage {
                     RunStage::Checking => {
                         checking_any = true;
@@ -801,7 +813,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
         Checks::Running { .. } => step.note(core, RunStage::Checking, "Its checks are running"),
         Checks::Passed => {
             step.checked(core, PULL_CHECKS, Verdict::Passed, "");
-            passed(core, &step, &pull, &head).await
+            passed(core, &step, &pull, &head, true).await
         }
         Checks::Failed(what) => {
             step.checked(core, PULL_CHECKS, Verdict::Failed, &what);
@@ -841,7 +853,7 @@ async fn checking(core: &Arc<Core>, step: Step) {
                 match checked {
                     Ok((true, output)) => {
                         step.checked(core, &command, Verdict::Passed, &output);
-                        passed(core, &step, &pull, &head).await
+                        passed(core, &step, &pull, &head, false).await
                     }
                     Ok((false, output)) => {
                         step.checked(core, &command, Verdict::Failed, &output);
@@ -867,7 +879,10 @@ async fn checking(core: &Arc<Core>, step: Step) {
 
 /// The checks passed: the change merges once a reviewer approved this very
 /// commit, and goes to one first otherwise.
-async fn passed(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: &str) {
+async fn passed(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: &str, on_host: bool) {
+    change_run(core, &step.project, step.id, step.agent(), |_, run| {
+        run.checked_on_host = on_host;
+    });
     if step.run.approved.as_deref() == Some(head) {
         return merge(core, step, pull, head).await;
     }
@@ -879,7 +894,7 @@ async fn passed(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: &str) {
 }
 
 /// The checks failed: the agent gets one go at fixing them.
-async fn failed(core: &Arc<Core>, step: &Step, what: &str) {
+pub(super) async fn failed(core: &Arc<Core>, step: &Step, what: &str) {
     if guard::check_failed(core, step, what) {
         return;
     }
@@ -921,8 +936,9 @@ pub(super) async fn ask(
     change: impl FnOnce(&mut AutoRun),
 ) {
     let name = step.name(core);
-    change_run(core, &step.project, step.id, step.agent(), |_, run| {
+    change_run(core, &step.project, step.id, step.agent(), |card, run| {
         change(run);
+        queue::leave(run, card.record.as_mut());
         run.stage = RunStage::Fixing;
         run.note = Some(note.to_owned());
     });
@@ -937,7 +953,7 @@ pub(super) async fn ask(
 
 /// Why the card waits rather than merging: its agent, or an agent working under
 /// it, has a question nobody has answered.
-fn unanswered(core: &Core, step: &Step) -> Option<String> {
+pub(super) fn unanswered(core: &Core, step: &Step) -> Option<String> {
     let team = core.names.team(step.agent());
     let asker = team
         .iter()
@@ -957,6 +973,9 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: 
     if let Some(why) = unanswered(core, step) {
         step.note(core, RunStage::Watching, &why);
         return;
+    }
+    if step.settings.queues() {
+        return queue::arrived(core, step, head).await;
     }
     step.note(core, RunStage::Merging, "Merging its pull request");
     let error = match codehost::merge(core, pull, head).await {
@@ -1004,28 +1023,7 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: 
                 ));
             });
         }
-        Ok(None) if !step.run.fixed => {
-            let text = format!(
-                "Your pull request did not merge ({error}), and {} does not rebase cleanly onto origin/{}. Rebase it onto origin/{}, resolve the conflicts, run the checks and commit. When your turn ends, Sikemux pushes and checks again. This is the one fix Auto asks for.",
-                step.run.branch, step.run.base, step.run.base
-            );
-            ask(
-                core,
-                step,
-                text,
-                "It conflicts with the latest base, so it is rebasing",
-                |run| run.fixed = true,
-            )
-            .await;
-        }
-        Ok(None) => step.hold(
-            core,
-            RunHold::Fix,
-            format!(
-                "It did not merge and conflicts with the latest {}: {error}",
-                step.run.base
-            ),
-        ),
+        Ok(None) => conflicted(core, step, &error).await,
         Err(failure) => step.hold(
             core,
             RunHold::Fix,
@@ -1034,15 +1032,44 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: 
     }
 }
 
+/// It does not sit on the latest base, for `why`: its agent gets one go at
+/// rebasing it, and the person after that.
+pub(super) async fn conflicted(core: &Arc<Core>, step: &Step, why: &str) {
+    if step.run.fixed {
+        step.hold(
+            core,
+            RunHold::Fix,
+            format!(
+                "It did not merge and conflicts with the latest {}: {why}",
+                step.run.base
+            ),
+        );
+        return;
+    }
+    let text = format!(
+        "Your pull request did not merge ({why}), and {} does not rebase cleanly onto origin/{}. Rebase it onto origin/{}, resolve the conflicts, run the checks and commit. When your turn ends, Sikemux pushes and checks again. This is the one fix Auto asks for.",
+        step.run.branch, step.run.base, step.run.base
+    );
+    ask(
+        core,
+        step,
+        text,
+        "It conflicts with the latest base, so it is rebasing",
+        |run| run.fixed = true,
+    )
+    .await;
+}
+
 /// Its pull request merged, by the person when `by_person`: its slice lands
 /// and the card is done, its agent stops and its worktree goes.
-async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
+pub(super) async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
     let url = step.pull_url();
     let mut all_passed = true;
     let kept = change_run(core, &step.project, step.id, step.agent(), |card, run| {
         if let Some(slice) = card.slice.as_mut() {
             all_passed = slice.merged(by_person, &step.settings);
         }
+        queue::leave(run, card.record.as_mut());
         if let Some(record) = card.record.as_mut() {
             record.finished(run.review.rounds, run_cost(core, run));
         }

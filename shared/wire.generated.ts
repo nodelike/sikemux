@@ -3188,6 +3188,8 @@ export interface BoardSettings {
     progressGuard: boolean;
     /** Whole dollars of Auto's spending in the project past which it starts no new cards. */
     spendCeiling: number | null;
+    /** A change merges only after its check passed on top of the latest base. */
+    mergeQueue: boolean;
 }
 
 /**

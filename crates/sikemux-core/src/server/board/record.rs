@@ -55,6 +55,10 @@ pub(super) struct RunRecord {
     /// How many times the progress guard held it, and why each time.
     pub progress_trips: u32,
     pub progress_trip_causes: Vec<String>,
+    /// How long it waited in the merge queue, over all its times in it.
+    pub queue_ms: u64,
+    /// How many times the queue sent it back to be fixed or reviewed again.
+    pub queue_bounces: u32,
 }
 
 /// One run of a project's check, for the run records of the agents it took in.

@@ -820,6 +820,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let agent_cards = settings.agent_cards;
     let (reviewer_runs, contract) = (settings.reviewer_runs, settings.contract);
     let (fast_check, culprit_finding) = (settings.fast_check, settings.culprit_finding);
+    let merge_queue = settings.merge_queue;
     let mut view = div()
         .flex()
         .flex_col()
@@ -971,6 +972,12 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                             |params| params.culprit_finding = Some(!culprit_finding),
                             cx,
                         )
+                    })),
+            )
+            .child(
+                Toggle::new("board-merge-queue", "Check on the latest branch before merging", merge_queue)
+                    .on_click(cx.listener(move |pane, _, _, cx| {
+                        pane.change_settings(|params| params.merge_queue = Some(!merge_queue), cx)
                     })),
             )
             .child(

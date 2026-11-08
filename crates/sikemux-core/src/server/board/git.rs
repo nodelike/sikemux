@@ -67,6 +67,110 @@ pub(super) fn rebase(tree: &Path, base: &str) -> Result<bool, String> {
     Ok(false)
 }
 
+/// Fetches `base` and says where it is now.
+pub(super) fn latest(tree: &Path, base: &str) -> Result<String, String> {
+    Git::slow(tree).trimmed(&["fetch", "--quiet", "origin", base])?;
+    latest_known(tree, base)
+}
+
+pub(super) fn latest_known(tree: &Path, base: &str) -> Result<String, String> {
+    Git::quick(tree).trimmed(&["rev-parse", &format!("origin/{base}")])
+}
+
+/// Replays `from..head` on `onto` in a checkout of its own, ending there.
+/// None when that conflicts, which leaves the checkout at `onto`.
+pub(super) fn lay(
+    checkout: &Path,
+    onto: &str,
+    from: &str,
+    head: &str,
+) -> Result<Option<String>, String> {
+    let replayed = Git::slow(checkout)
+        .config("rebase.updateRefs", "false")
+        .trimmed(&["rebase", "--onto", onto, from, head]);
+    if replayed.is_err() {
+        let _ = Git::quick(checkout).trimmed(&["rebase", "--abort"]);
+        go_to(checkout, onto)?;
+        return Ok(None);
+    }
+    self::head(checkout).map(Some)
+}
+
+pub(super) fn go_to(checkout: &Path, commit: &str) -> Result<(), String> {
+    Git::quick(checkout)
+        .trimmed(&["checkout", "--detach", "--force", "--quiet", commit])
+        .map(drop)
+}
+
+/// The change from `from` to `to`, byte for byte, without what a rebase alone
+/// moves: which blobs it runs between and where its hunks sit.
+fn patch(repo: &Path, from: &str, to: &str) -> Result<Vec<u8>, String> {
+    let range = format!("{from}..{to}");
+    let written = Git::slow(repo).stdout(&[
+        "diff",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-renames",
+        "--binary",
+        &range,
+    ])?;
+    let mut kept = Vec::with_capacity(written.len());
+    for line in written.split(|byte| *byte == b'\n') {
+        if line.starts_with(b"index ") {
+            continue;
+        }
+        kept.extend_from_slice(if line.starts_with(b"@@ ") {
+            b"@@"
+        } else {
+            line
+        });
+        kept.push(b'\n');
+    }
+    Ok(kept)
+}
+
+/// Whether two ranges make the same change: same lines, same lines around
+/// them, same files. An approval follows a rebase only when they do.
+pub(super) fn same_patch(
+    repo: &Path,
+    first: (&str, &str),
+    second: (&str, &str),
+) -> Result<bool, String> {
+    Ok(patch(repo, first.0, first.1)? == patch(repo, second.0, second.1)?)
+}
+
+pub(super) fn same_tree(repo: &Path, first: &str, second: &str) -> Result<bool, String> {
+    let tree =
+        |commit: &str| Git::quick(repo).trimmed(&["rev-parse", &format!("{commit}^{{tree}}")]);
+    Ok(tree(first)? == tree(second)?)
+}
+
+pub(super) fn merge_base(repo: &Path, first: &str, second: &str) -> Result<String, String> {
+    Git::quick(repo).trimmed(&["merge-base", first, second])
+}
+
+/// The commits after `from` up to `to`, oldest first.
+pub(super) fn commits_between(repo: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
+    let listed = Git::quick(repo).trimmed(&["rev-list", "--reverse", &format!("{from}..{to}")])?;
+    Ok(listed.lines().map(str::to_owned).collect())
+}
+
+/// Pushes a rebased `head` over `pushed`, unless the branch is there already
+/// because the core stopped right after the push and before noting it.
+pub(super) fn push_rebased(
+    tree: &Path,
+    branch: &str,
+    pushed: &str,
+    head: &str,
+) -> Result<(), String> {
+    let listed =
+        Git::slow(tree).trimmed(&["ls-remote", "origin", &format!("refs/heads/{branch}")])?;
+    if listed.split_whitespace().next() == Some(head) {
+        return Ok(());
+    }
+    push(tree, branch, Some(pushed))
+}
+
 /// What changed from `from` to `to`: a summary of the files, then the
 /// change itself, cut at `max` bytes. Whether it was cut.
 pub(super) fn diff(

@@ -17,7 +17,7 @@ use super::lease::Stalled;
 use super::record::RunRecord;
 use super::recover::{self, Recovery, TookOn};
 use super::review::Review;
-use super::{blind, finish, goal, Board, Card, CardStatus, Owner, Team};
+use super::{blind, finish, goal, queue, Board, Card, CardStatus, Owner, Team};
 use crate::server::calls::given;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
@@ -98,6 +98,8 @@ pub struct BoardSettings {
     pub progress_guard: bool,
     /// Whole dollars of Auto's spending in the project past which it starts no new cards.
     pub spend_ceiling: Option<u32>,
+    /// A change merges only after its check passed on top of the latest base.
+    pub merge_queue: bool,
 }
 
 impl BoardSettings {
@@ -134,6 +136,7 @@ impl BoardSettings {
             ("fastCheck", self.fast_check),
             ("culpritFinding", self.culprit_finding),
             ("progressGuard", self.progress_guard),
+            ("mergeQueue", self.merge_queue),
         ]
         .map(|(name, on)| (name.to_owned(), on))
         .into()
@@ -143,6 +146,12 @@ impl BoardSettings {
     /// lands themselves has no reviewer to grade it against one.
     fn wants_contract(&self) -> bool {
         self.contract && self.landing == Landing::Core
+    }
+
+    /// Whether Auto's merges of this project wait their turn. A person who
+    /// lands the changes merges them as they please.
+    pub(super) fn queues(&self) -> bool {
+        self.merge_queue && self.landing == Landing::Core
     }
 
     /// Where a deploy's health is read after it, for the environment called `name`.
@@ -170,6 +179,7 @@ impl Default for BoardSettings {
             culprit_finding: true,
             progress_guard: true,
             spend_ceiling: None,
+            merge_queue: true,
         }
     }
 }
@@ -242,6 +252,8 @@ pub struct BoardSettingsParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub spend_ceiling: Option<Option<u32>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merge_queue: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -339,6 +351,9 @@ impl BoardSettings {
                 return Err("spendCeiling must be at least 1 dollar".into());
             }
             settings.spend_ceiling = spend_ceiling;
+        }
+        if let Some(merge_queue) = params.merge_queue {
+            settings.merge_queue = merge_queue;
         }
         Ok(settings)
     }
@@ -454,6 +469,12 @@ pub(super) struct AutoRun {
     pub recovery: Recovery,
     #[serde(default)]
     pub burn: Burn,
+    /// Its place in the merge queue, once it has joined.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub queue: Option<queue::Place>,
+    /// The code host's checks passed it, rather than the project's command.
+    #[serde(default)]
+    pub checked_on_host: bool,
 }
 
 impl AutoRun {
@@ -479,6 +500,8 @@ impl AutoRun {
             approved: None,
             recovery: Recovery::default(),
             burn: Burn::default(),
+            queue: None,
+            checked_on_host: false,
         }
     }
 
