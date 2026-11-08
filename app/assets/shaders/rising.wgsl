@@ -1,9 +1,9 @@
 // The sky in the first-run setup's column: the pane grain in one colour, rising from the bottom
-// and thinning out upward and across, so the dots grow sparse rather than only dim.
+// across the column's whole width and thinning out upward, so the dots grow sparse rather than
+// only dim.
 //
 // params: where the clock starts, how fast it runs, device pixels per point and the densest the
-// dots get; the colour; then where the rise starts and is full, and where the fade across starts
-// and ends, as shares of the column.
+// dots get; the colour; then where the rise starts and is full, as shares of the column's height.
 
 const DOT_SIZE: f32 = 2.0;
 const NOISE_STEP: f32 = 3.0;
@@ -23,8 +23,7 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let size = shader.bounds.zw / scale;
     let local = (device - shader.bounds.xy) / scale;
     let reach = shader.params[2];
-    let fade = smoothstep(reach.x, reach.y, local.y / size.y)
-        * (1.0 - smoothstep(reach.z, reach.w, local.x / size.x));
+    let fade = smoothstep(reach.x, reach.y, local.y / size.y);
     if (fade <= 0.0) {
         discard;
     }

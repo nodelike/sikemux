@@ -34,6 +34,11 @@ use crate::ui::path::{this_home, tilde};
 use crate::workbench::Workbench;
 
 const TERMINAL_HEIGHT: f32 = 208.;
+/// A row's contents start where the text of the path field and the composer does.
+const ROW_START: f32 = 18.;
+const ROW_END: f32 = 12.;
+/// Every agent row holds this much for its button, so the statuses line up with or without one.
+const ACTION_WIDTH: f32 = 76.;
 const LIST_MOST: f32 = 420.;
 const LIST_LEAST: f32 = 96.;
 /// What the title, field and buttons around a list need, so they stay on the screen.
@@ -811,37 +816,43 @@ fn side(stage: Stage, cx: &App) -> Div {
         .child(
             div()
                 .relative()
-                .pt(px(58.))
-                .px(px(28.))
+                .size_full()
                 .flex()
                 .flex_col()
-                .child(ui::icon(Icon::Logo, 34.).ml(px(-8.)).text_color(t.accent))
+                .justify_center()
+                .items_center()
                 .child(
                     div()
-                        .mt(px(12.))
-                        .mb(px(20.))
-                        .text_size(theme::ui_text(44.))
-                        .font_weight(FontWeight::BOLD)
-                        .letter_spacing(-0.05)
-                        .line_height(relative(1.05))
-                        .text_color(t.text_primary)
-                        .child("Welcome to")
-                        .child(div().text_color(t.accent).child("Sikemux")),
-                )
-                .children(["Agents", "Projects", "Start"].into_iter().enumerate().map(
-                    |(index, name)| {
-                        div()
-                            .py(px(3.))
-                            .text_size(theme::ui_text(TEXT_SM))
-                            .map(|step| match index == at {
-                                true => step
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(t.text_primary),
-                                false => step.text_color(t.text_tertiary),
-                            })
-                            .child(format!("{}  {name}", index + 1))
-                    },
-                )),
+                        .flex()
+                        .flex_col()
+                        .child(ui::icon(Icon::Logo, 34.).ml(px(-8.)).text_color(t.accent))
+                        .child(
+                            div()
+                                .mt(px(12.))
+                                .mb(px(20.))
+                                .text_size(theme::ui_text(44.))
+                                .font_weight(FontWeight::BOLD)
+                                .letter_spacing(-0.05)
+                                .line_height(relative(1.05))
+                                .text_color(t.text_primary)
+                                .child("Welcome to")
+                                .child(div().text_color(t.accent).child("Sikemux")),
+                        )
+                        .children(["Agents", "Projects", "Start"].into_iter().enumerate().map(
+                            |(index, name)| {
+                                div()
+                                    .py(px(3.))
+                                    .text_size(theme::ui_text(TEXT_SM))
+                                    .map(|step| match index == at {
+                                        true => step
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(t.text_primary),
+                                        false => step.text_color(t.text_tertiary),
+                                    })
+                                    .child(format!("{}  {name}", index + 1))
+                            },
+                        )),
+                ),
         )
 }
 
@@ -873,7 +884,8 @@ fn row(id: String, lit: bool, last: bool, t: &Tokens) -> Stateful<Div> {
         .flex()
         .items_center()
         .gap(px(10.))
-        .px(px(11.))
+        .pl(px(ROW_START))
+        .pr(px(ROW_END))
         .when(!last, |row| row.border_b_1().border_color(t.border))
         .map(|row| match lit {
             true => row.bg(t.surface_chosen),
@@ -888,7 +900,8 @@ fn note_row(note: AnyElement, t: &Tokens) -> AnyElement {
         .h(px(42.))
         .flex()
         .items_center()
-        .px(px(11.))
+        .pl(px(ROW_START))
+        .pr(px(ROW_END))
         .text_size(theme::ui_text(TEXT_2XS))
         .text_color(t.text_tertiary)
         .child(note)
@@ -985,23 +998,30 @@ fn agent_row(
             .text_color(ink)
             .child(status),
     )
-    .children(next.map(|(label, sheet)| {
-        let this = this.clone();
-        ui::Button::new(
-            SharedString::from(format!("welcome-step-{}", agent.kind)),
-            label,
-            ui::Variant::Outline,
-        )
-        .disabled(busy)
-        .on_click(move |_, _, cx| {
-            let sheet = sheet.clone();
-            this.update(cx, |bench, cx| {
-                if !bench.agent_setup.busy() {
-                    setup::run(bench, sheet, cx);
-                }
-            })
-        })
-    }))
+    .child(
+        div()
+            .flex_none()
+            .w(px(ACTION_WIDTH))
+            .flex()
+            .justify_end()
+            .children(next.map(|(label, sheet)| {
+                let this = this.clone();
+                ui::Button::new(
+                    SharedString::from(format!("welcome-step-{}", agent.kind)),
+                    label,
+                    ui::Variant::Outline,
+                )
+                .disabled(busy)
+                .on_click(move |_, _, cx| {
+                    let sheet = sheet.clone();
+                    this.update(cx, |bench, cx| {
+                        if !bench.agent_setup.busy() {
+                            setup::run(bench, sheet, cx);
+                        }
+                    })
+                })
+            })),
+    )
     .into_any_element()
 }
 

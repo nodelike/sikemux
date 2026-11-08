@@ -41,9 +41,8 @@ const FIELD_SPEED: f32 = 0.5;
 const SKY_SPEED: f32 = 0.35;
 const RISING_OPACITY: f32 = 0.55;
 const RISING_DENSITY: f32 = 0.3;
-/// Where the rising sky starts and is full, from the top, then where it starts and ends thinning
-/// across, each as a share of its column.
-const RISING_REACH: [f32; 4] = [0.42, 1., 0.45, 1.];
+/// Where the rising sky starts and is full, from the top, as shares of its column's height.
+const RISING_REACH: [f32; 2] = [0.58, 1.];
 /// Where the clock stands for a person who asked for less motion, so everything holds still.
 const STILL: f32 = 2.5;
 /// High, because the grain's dots are the only paint and nothing is drawn between them.
@@ -405,8 +404,8 @@ pub fn sky(fade_from: f32, opacity: f32, cx: &App) -> impl IntoElement + Styled 
     )
 }
 
-/// The first-run setup's sky: the accent alone, rising from the bottom and thinning out on its
-/// way up and across.
+/// The first-run setup's sky: the accent alone, rising from the bottom across the column's whole
+/// width and thinning out on its way up.
 pub fn rising(cx: &App) -> impl IntoElement + Styled {
     let accent = Tokens::get(cx).accent.to_rgb();
     let (start, speed) = clock(SKY_SPEED, cx);
@@ -421,7 +420,7 @@ pub fn rising(cx: &App) -> impl IntoElement + Styled {
                 accent.b,
                 accent.a * RISING_OPACITY,
             ]);
-            params[8..12].copy_from_slice(&RISING_REACH);
+            params[8..10].copy_from_slice(&RISING_REACH);
             let _ = window.paint_shader(bounds, &RISING, params, None);
         },
     )
