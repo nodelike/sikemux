@@ -213,8 +213,9 @@ const COLUMNS: usize = 4;
 const CARD_ROW: f32 = 104.;
 const THEMES_SHOWN: f32 = 416.;
 /// Where each kind of theme comes in the library, and what its filter says.
-const SOURCES: [(ThemeSource, &str); 3] = [
+const SOURCES: [(ThemeSource, &str); 4] = [
     (ThemeSource::Custom, "Yours"),
+    (ThemeSource::Omarchy, "Omarchy"),
     (ThemeSource::Sikemux, "Sikemux"),
     (ThemeSource::Ghostty, "Ghostty"),
 ];

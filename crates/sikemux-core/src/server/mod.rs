@@ -585,7 +585,9 @@ impl Core {
 
     /// Resolves the person's theme again, for apps, devices and programs' colour queries.
     pub(crate) fn theme_changed(&self) {
-        self.look.set(themes::palette(&self.preferences.get()));
+        let omarchy = self.look.omarchy();
+        self.look
+            .set(themes::palette(&self.preferences.get(), omarchy.as_ref()));
         self.changed(What::View);
     }
 

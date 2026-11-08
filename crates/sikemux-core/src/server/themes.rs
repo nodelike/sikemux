@@ -1,6 +1,9 @@
 //! The colour themes the person picks from, and the one they picked: the
 //! Sikemux themes, Ghostty's catalogue with the app's colours worked out from
-//! each terminal palette, and the person's own, kept in preferences.
+//! each terminal palette, the person's own, kept in preferences, and on an
+//! Omarchy desktop the theme it set for the system.
+
+mod omarchy;
 
 use super::{Core, CoreResult};
 use serde::{Deserialize, Serialize};
@@ -44,12 +47,13 @@ fn catalogue() -> &'static Catalogue {
 }
 
 /// The theme the person picked, or the default when it is gone.
-pub(crate) fn resolve(preferences: &Preferences) -> Theme {
+pub(crate) fn resolve(preferences: &Preferences, omarchy: Option<&Theme>) -> Theme {
     let catalogue = catalogue();
     let find = |id: &str| {
         preferences
             .custom_themes
             .iter()
+            .chain(omarchy)
             .chain(&catalogue.sikemux)
             .chain(&catalogue.ghostty)
             .find(|theme| theme.id == id)
@@ -62,14 +66,17 @@ pub(crate) fn resolve(preferences: &Preferences) -> Theme {
 
 /// The default theme's palette, for an app to draw with before its core answers.
 pub fn default_palette() -> Palette {
-    palette(&Preferences::default())
+    palette(&Preferences::default(), None)
 }
 
-/// The person's theme as the core resolved it, kept until their preferences change.
+/// The person's theme as the core resolved it, kept until their preferences
+/// or the system's theme change.
 pub(crate) struct Look {
     palette: Mutex<Palette>,
     /// The app's terminal theme, which programs asking for colours are told.
     terminal_colors: Mutex<TerminalColors>,
+    /// The theme Omarchy set, on an Omarchy desktop.
+    omarchy: Mutex<Option<Theme>>,
 }
 
 impl Default for Look {
@@ -77,11 +84,24 @@ impl Default for Look {
         Self {
             palette: Mutex::new(default_palette()),
             terminal_colors: Mutex::default(),
+            omarchy: Mutex::new(omarchy::read()),
         }
     }
 }
 
 impl Look {
+    pub(crate) fn omarchy(&self) -> Option<Theme> {
+        self.omarchy.locked().clone()
+    }
+
+    /// Keeps the theme Omarchy switched to; false when it is the one kept already.
+    fn set_omarchy(&self, theme: Theme) -> bool {
+        let mut kept = self.omarchy.locked();
+        let changed = kept.as_ref() != Some(&theme);
+        *kept = Some(theme);
+        changed
+    }
+
     pub(crate) fn set(&self, palette: Palette) {
         *self.terminal_colors.locked() = terminal_colors(&palette.theme);
         *self.palette.locked() = palette;
@@ -100,8 +120,8 @@ impl Look {
     }
 }
 
-pub(crate) fn palette(preferences: &Preferences) -> Palette {
-    let theme = resolve(preferences);
+pub(crate) fn palette(preferences: &Preferences, omarchy: Option<&Theme>) -> Palette {
+    let theme = resolve(preferences, omarchy);
     Palette {
         tokens: tokens(&theme),
         theme,
@@ -343,11 +363,16 @@ pub(crate) fn from_colours(name: &str, colours: &[String], accent: Option<&str>)
     ghostty_theme(name, &colours, accent.and_then(hex))
 }
 
-/// Every theme to pick from: the person's own first, then Sikemux's, then Ghostty's.
-pub(crate) fn summaries(preferences: &Preferences) -> Vec<ThemeSummary> {
+/// Every theme to pick from: the person's own first, then Omarchy's, then
+/// Sikemux's, then Ghostty's.
+pub(crate) fn summaries(preferences: &Preferences, omarchy: Option<&Theme>) -> Vec<ThemeSummary> {
     let catalogue = catalogue();
     let sources = [
         (ThemeSource::Custom, preferences.custom_themes.as_slice()),
+        (
+            ThemeSource::Omarchy,
+            omarchy.map(std::slice::from_ref).unwrap_or_default(),
+        ),
         (ThemeSource::Sikemux, catalogue.sikemux.as_slice()),
         (ThemeSource::Ghostty, catalogue.ghostty.as_slice()),
     ];
@@ -636,11 +661,24 @@ pub(crate) struct ThemeFromColoursParams {
 
 pub(crate) fn palette_for(core: &Core, params: ThemeParams) -> Palette {
     match params.id {
-        Some(theme_id) => palette(&Preferences {
-            theme_id,
-            ..core.preferences.get()
-        }),
+        Some(theme_id) => palette(
+            &Preferences {
+                theme_id,
+                ..core.preferences.get()
+            },
+            core.look.omarchy().as_ref(),
+        ),
         None => core.look.palette(),
+    }
+}
+
+pub(crate) fn listed(core: &Core) -> Vec<ThemeSummary> {
+    summaries(&core.preferences.get(), core.look.omarchy().as_ref())
+}
+
+impl super::part::Part for Look {
+    fn start(&self, core: &std::sync::Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        vec![tokio::spawn(omarchy::follow(core.clone()))]
     }
 }
 

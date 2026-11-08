@@ -19,14 +19,16 @@ fn rows(themes: Vec<ThemeSummary>) -> Vec<Row> {
     let mut themes = themes;
     themes.sort_by_key(|summary| match summary.source {
         ThemeSource::Custom => 0,
-        ThemeSource::Sikemux => 1,
-        ThemeSource::Ghostty => 2,
+        ThemeSource::Omarchy => 1,
+        ThemeSource::Sikemux => 2,
+        ThemeSource::Ghostty => 3,
     });
     themes
         .into_iter()
         .map(|summary| {
             let group = match summary.source {
                 ThemeSource::Custom => "Yours",
+                ThemeSource::Omarchy => "Omarchy",
                 ThemeSource::Sikemux => "Sikemux",
                 ThemeSource::Ghostty => "Ghostty",
             };

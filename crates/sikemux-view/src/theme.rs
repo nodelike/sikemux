@@ -113,6 +113,8 @@ pub struct ThemeSummary {
 pub enum ThemeSource {
     /// One the person made, which they can edit and delete.
     Custom,
+    /// The theme an Omarchy desktop set for the system, which changes with it.
+    Omarchy,
     Sikemux,
     Ghostty,
 }

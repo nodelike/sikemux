@@ -33,7 +33,7 @@ pub(crate) fn on_wake(
 }
 
 impl Core {
-    fn parts(&self) -> [&dyn Part; 26] {
+    fn parts(&self) -> [&dyn Part; 27] {
         [
             &self.harness,
             &self.boards,
@@ -60,6 +60,7 @@ impl Core {
             &self.preferences,
             &self.drafts,
             &self.code_host_lists,
+            &self.look,
             &super::lsp::Lsp,
         ]
     }
