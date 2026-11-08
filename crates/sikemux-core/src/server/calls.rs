@@ -342,6 +342,10 @@ calls! { core, client, method, params;
     "resolvePath" ResolvePath (super::project_roots::ResolveParams) -> super::project_roots::Resolved: Full => {
         blocking(move || Ok(super::project_roots::resolve(params))).await?
     },
+    "foundProjects" FoundProjects (NoParams) -> crate::sessions::found_projects::FoundProjects: Full => {
+        let accounts = core.workspaces.chat_accounts();
+        blocking(move || Ok(crate::sessions::found_projects::found_projects(accounts, sikemux_process::clock::epoch_ms()))).await?
+    },
     "sshConfigFile" SshConfigFile (NoParams) -> String: Full => blocking(|| super::ssh::config_file().map_err(CoreError::from)).await?,
     "faceStyle": Watch => answer(core.faces.style()),
     "setFaceStyle" SetFaceStyle (super::faces::FaceStyleChange) -> sikemux_view::device::FaceStyle: Owner, counted => super::faces::set_style_shown(&core, params)?,

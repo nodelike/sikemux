@@ -28,6 +28,15 @@ pub fn normalized_remote(url: &str) -> String {
     }
 }
 
+/// The URL of the repository's `origin`, or of the only remote it has.
+pub(crate) fn main_remote(path: &str) -> Option<String> {
+    if let Ok(origin) = open_repo(path).ok()?.find_remote("origin") {
+        return origin.url().ok().map(str::to_owned);
+    }
+    let remote = default_remote(path).ok()?;
+    git_ok(path, &["remote", "get-url", &remote]).ok()
+}
+
 /// What a project is known by on every host (ADR 0017): its remote,
 /// normalised, else its repository's first commit, which every copy shares.
 /// A folder outside git has none.

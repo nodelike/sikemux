@@ -1,11 +1,11 @@
 //! Every agent Sikemux can set up here, as the core lists them, and installs and
-//! sign-ins run with the agent's own command in a sheet where the person can watch
-//! it, from Settings or the welcome screen.
+//! sign-ins run with the agent's own command where the person can watch it: in a
+//! sheet over Settings, or under the list of agents in the first-run setup.
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Entity, Hsla,
-    InteractiveElement, IntoElement, ParentElement, Styled, Window,
+    anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Div, Entity,
+    Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful, Styled, Window,
 };
 use sikemux_core::agent_accounts::status::AgentStatus;
 use sikemux_core::server::agent_accounts::{Account, Forget};
@@ -62,6 +62,8 @@ pub struct Setup {
     pub found: Option<Vec<Found>>,
     sheet: Option<Sheet>,
     behind: Vec<Sheet>,
+    /// An install or sign-in has failed since this was last cleared.
+    pub failed: bool,
 }
 
 /// How an install running with no sheet is going.
@@ -78,6 +80,31 @@ impl Setup {
             .iter_mut()
             .chain(self.behind.iter_mut())
             .find(|sheet| sheet.session == Some(session))
+    }
+
+    /// What the sheet is doing to `kind`, while it still is.
+    pub fn underway(&self, kind: &str) -> Option<&'static str> {
+        let sheet = self.sheet.as_ref().filter(|sheet| sheet.kind == kind)?;
+        match (&sheet.phase, sheet.install) {
+            (Phase::Running, true) => Some("Installing…"),
+            (Phase::Running, false) => Some("Signing in…"),
+            (Phase::Checking, _) => Some("Checking…"),
+            _ => None,
+        }
+    }
+
+    /// Whether the sheet's command is still going, which another must wait for.
+    pub fn busy(&self) -> bool {
+        self.sheet
+            .as_ref()
+            .is_some_and(|sheet| matches!(sheet.phase, Phase::Running | Phase::Checking))
+    }
+
+    /// Forgets the sheet once its command is over, leaving one still running to Settings.
+    pub fn drop_finished(&mut self) {
+        if !self.busy() {
+            self.sheet = None;
+        }
     }
 
     /// How the install of `kind` started with no sheet is going.
@@ -147,6 +174,27 @@ pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
         });
     })
     .detach();
+}
+
+/// Whether the agent can be started, as far as its own check can tell.
+pub fn usable(status: &AgentStatus) -> bool {
+    matches!(status, AgentStatus::Ready { .. } | AgentStatus::Unknown)
+}
+
+/// What the agent needs next, as the button that does it says, and the sheet that does it.
+pub fn next_step(bench: &Workbench, agent: &Found) -> Option<(&'static str, Sheet)> {
+    match agent.status {
+        AgentStatus::Missing => installing(agent).map(|sheet| ("Install", sheet)),
+        AgentStatus::Broken { .. } => installing(agent).map(|sheet| ("Reinstall", sheet)),
+        AgentStatus::SignedOut => {
+            let folder = bench
+                .accounts
+                .current(&agent.kind)
+                .and_then(|profile| profile.config_path.clone());
+            signing_in(agent, folder.as_deref()).map(|sheet| ("Sign in", sheet))
+        }
+        _ => None,
+    }
 }
 
 pub fn status_label(status: &AgentStatus) -> &'static str {
@@ -295,6 +343,11 @@ fn start(bench: &mut Workbench, sheet: Sheet, cx: &mut Context<Workbench>) {
                     Ok(Err(error)) => sheet.phase = Phase::Refused(error),
                     Err(_) => sheet.phase = Phase::Refused("the core is not connected".into()),
                 }
+                setup.failed |= setup
+                    .sheet
+                    .iter()
+                    .chain(setup.behind.iter())
+                    .any(|sheet| matches!(sheet.phase, Phase::Refused(_)));
             }
             redraw(bench, cx);
         });
@@ -335,6 +388,7 @@ fn ended(
     };
     if code != Some(0) {
         sheet.phase = Phase::Failed(code);
+        bench.agent_setup.failed = true;
         return redraw(bench, cx);
     }
     sheet.phase = Phase::Checking;
@@ -414,12 +468,12 @@ fn state(sheet: &Sheet) -> String {
     }
 }
 
-pub fn sheet(
+/// The running command's title, terminal, state and buttons.
+fn body(
     bench: &Workbench,
     this: &Entity<Workbench>,
-    window: &Window,
     cx: &mut Context<Workbench>,
-) -> Option<AnyElement> {
+) -> Option<Stateful<Div>> {
     let sheet = bench.agent_setup.sheet.as_ref()?;
     let t = Tokens::get(cx).clone();
     let title = match sheet.install {
@@ -445,19 +499,11 @@ pub fn sheet(
     };
     let failed = matches!(sheet.phase, Phase::Failed(_) | Phase::Refused(_));
     let running = matches!(sheet.phase, Phase::Running);
-    let card = div()
+    let body = div()
         .id("agent-sheet")
-        .w(px(760.))
-        .h(px(520.))
         .flex()
         .flex_col()
         .overflow_hidden()
-        .bg(t.surface_overlay)
-        .border_1()
-        .border_color(t.border)
-        .rounded(theme::RADIUS_4)
-        .shadow(t.shadow_float())
-        .occlude()
         .child(
             div()
                 .flex()
@@ -517,6 +563,35 @@ pub fn sheet(
                     close,
                 )),
         );
+    Some(body)
+}
+
+/// The command as part of the page it was started from, `height` tall.
+pub fn inline(
+    bench: &Workbench,
+    this: &Entity<Workbench>,
+    height: Pixels,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    Some(body(bench, this, cx)?.h(height).into_any_element())
+}
+
+pub fn sheet(
+    bench: &Workbench,
+    this: &Entity<Workbench>,
+    window: &Window,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let t = Tokens::get(cx).clone();
+    let card = body(bench, this, cx)?
+        .w(px(760.))
+        .h(px(520.))
+        .bg(t.surface_overlay)
+        .border_1()
+        .border_color(t.border)
+        .rounded(theme::RADIUS_4)
+        .shadow(t.shadow_float())
+        .occlude();
     let size = window.viewport_size();
     Some(
         deferred(

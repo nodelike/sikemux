@@ -445,6 +445,15 @@ impl Workspaces {
             .collect()
     }
 
+    /// Each chat agent's chosen account, whose saved chats say which folders were worked in.
+    pub(crate) fn chat_accounts(&self) -> Vec<RecentProvider> {
+        let published = self.published.locked();
+        recent_providers(published.launchers.iter(), &published.saved)
+            .into_iter()
+            .map(|(_, provider)| provider)
+            .collect()
+    }
+
     pub(super) fn set_recent(
         &self,
         recent: Vec<Recent>,

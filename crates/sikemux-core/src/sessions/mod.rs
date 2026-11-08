@@ -24,6 +24,7 @@ pub(crate) mod codex;
 pub mod context;
 pub mod delete;
 pub(crate) mod for_agent;
+pub mod found_projects;
 pub(crate) mod grok;
 pub(crate) mod hermes;
 mod history;

@@ -1,4 +1,4 @@
-//! The screens over the whole window: the welcome on a first run, the release notes
+//! The screens over the whole window: the setup on a first run, the release notes
 //! once a new release runs, and runtime diagnostics when asked for. The core says when
 //! the first two are due.
 
@@ -18,7 +18,7 @@ pub enum Experience {
 impl Experience {
     /// Whether the release sky is behind it, which keeps moving while it is up.
     fn has_sky(&self) -> bool {
-        !matches!(self, Experience::Diagnostics(_))
+        matches!(self, Experience::WhatsNew(_))
     }
 }
 
@@ -54,9 +54,9 @@ pub fn whats_new_read(bench: &mut Workbench, unseen: bool, cx: &mut Context<Work
 
 pub fn open_welcome(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     close_shown(bench, cx);
-    bench.overlays.experience = Some(Experience::Welcome(welcome::Welcome::new(cx)));
+    let required = !bench.preferences().onboarding_complete;
+    bench.overlays.experience = Some(Experience::Welcome(welcome::Welcome::new(required, cx)));
     welcome::opened(bench, cx);
-    crate::ui::grain::sky_shown(true, cx);
     redraw(bench, cx);
 }
 
@@ -119,7 +119,10 @@ fn redraw(_: &Workbench, cx: &mut Context<Workbench>) {
 pub fn draw(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) -> AnyElement {
     let this = cx.entity();
     match &bench.overlays.experience {
-        Some(Experience::Welcome(_)) => welcome::render(bench, &this, window, cx),
+        Some(Experience::Welcome(_)) => {
+            welcome::take_keys(bench, window, cx);
+            welcome::render(bench, &this, window, cx)
+        }
         Some(Experience::WhatsNew(_)) => {
             whats_new::take_keys(bench, window, cx);
             whats_new::render(bench, &this, window, cx)

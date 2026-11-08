@@ -1,28 +1,33 @@
 ---
 title: First launch
-description: "The welcome screen, and getting an agent ready."
+description: "The two-step setup: a working agent, then your projects."
 ---
 
-The first time Sikemux opens it shows a welcome screen with four ways in:
+The first time Sikemux opens it walks you through a short setup: **Agents**, **Projects**, then **Start**. Both steps have to be met before the app opens, and quitting midway brings the setup back next launch.
 
-| Move | Shortcut | What it does |
-|---|---|---|
-| Open a project | `⌘O` | Pick a folder or repository to work in |
-| Start an agent | `⌘N` | Start a coding agent in a project you pick |
-| Browse commands | `⌘⇧P` | Search every action and its shortcut |
-| Connect to a host | `⌘⇧S` | Hosts from your SSH config |
+Tab and the arrows move between rows, Space ticks a project or runs an agent's action, and Return continues. If `git` is not installed, the setup says so, since the Git view needs it.
 
-If `git` is not installed, the welcome says so, since the Git view needs it. Press `esc` to skip it. You can see it again from the command deck (`⌘⇧P`, then **Show welcome**) or from **Settings → About**.
+## Agents
 
-## Agents on this machine
-
-Below the moves, Sikemux lists the coding agents it found on your computer and whether each is ready:
+Sikemux lists the coding agents it can set up and whether each is ready:
 
 - **Ready**: installed and signed in.
-- **Signed out**: installed, but its CLI has no sign-in yet. Click **Sign in** to run the agent's own sign-in.
-- **Not installed**: Sikemux can run the agent's own installer for you. Click **Install** to watch it run in a terminal, then Sikemux looks for the agent again.
-- **Not working**: installed, but it fails to start. Click **Reinstall** to run its installer again.
+- **Signed out**: installed, but its CLI has no sign-in yet. **Sign in** runs the agent's own sign-in.
+- **Not installed**: **Install** runs the agent's own installer.
+- **Not working**: installed, but it fails to start. **Reinstall** runs its installer again.
+
+The command runs in a terminal under the list, where you can watch it. **Continue** turns on once at least one agent works. If an install or sign-in fails, for example on a machine with no network, **Continue anyway** appears so you are never locked out.
 
 The same list, with the same buttons, is under **Agents on this host** in **Settings → Installed**. The agent palette (`⌘⇧N`) also offers **Sign in to** a signed-out agent beside starting it.
 
 See [Supported agents](/agents/supported/) for the list.
+
+## Projects
+
+Sikemux offers the folders your agents have worked in, read from their saved chats. Repositories come first, newest activity on top, with clones of one remote side by side and folders outside git last. A repository with at least three chats in the last 30 days starts ticked. Folders that no longer exist, linked worktrees, temporary folders and anything under `Downloads` are left out.
+
+To add a folder that isn't listed, use **Add folder…**, or type or paste its path (`~` works) and press Return.
+
+**Open Sikemux** adds what's ticked and starts a chat in the first project, on an agent that's ready.
+
+You can look at the setup again from the command deck (`⌘⇧P`, then **Show welcome**) or from **Settings → About**. Once you've finished it the first time, `esc` closes it.
