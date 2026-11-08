@@ -5,8 +5,9 @@
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString,
-    StatefulInteractiveElement, Styled,
+    div, px, relative, AnyElement, Context, HighlightStyle, Hsla, InteractiveElement,
+    InteractiveText, IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled,
+    StyledText, UnderlineStyle,
 };
 use sikemux_core::server::board::BoardCard;
 use sikemux_view::slice::{
@@ -18,7 +19,8 @@ use super::goal::heading;
 use super::{At, GoalsPane};
 use crate::icons::Icon;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS, TEXT_SM, TEXT_XS_H,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS, TEXT_MD, TEXT_SM,
+    TEXT_XS_H,
 };
 use crate::ui::{self, Button, Variant};
 
@@ -144,12 +146,14 @@ fn sources_box(
         .into_any_element()
 }
 
-/// A sentence that opens its sources with a click, with a mark at its end when it has one.
+/// A sentence that opens its sources with a click, with a dot before it and who it is from at its
+/// end when it has them.
 fn sentence(
     pane: &GoalsPane,
     id: String,
     text: String,
-    mark: Option<&'static str>,
+    dot: Option<Hsla>,
+    mark: Option<String>,
     cx: &mut Context<GoalsPane>,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
@@ -162,8 +166,10 @@ fn sentence(
         .py(SPACE_1H)
         .flex()
         .items_start()
-        .gap(SPACE_2)
+        .gap(SPACE_2H)
         .rounded(theme::RADIUS_2)
+        .border_b_1()
+        .border_color(t.line_soft)
         .cursor_pointer()
         .text_size(theme::ui_text(TEXT_SM))
         .text_color(t.text_primary)
@@ -174,6 +180,14 @@ fn sentence(
                 pane.unfolded.insert(toggled.clone());
             }
             cx.notify();
+        }))
+        .children(dot.map(|dot| {
+            div()
+                .mt(px(6.))
+                .size(px(7.))
+                .flex_none()
+                .rounded_full()
+                .bg(dot)
         }))
         .child(div().flex_1().min_w_0().child(text))
         .children(mark.map(|mark| ui::meta(mark, cx).mt(SPACE_0)))
@@ -265,7 +279,8 @@ fn failure(why: &str, stands: bool, cx: &mut Context<GoalsPane>) -> impl IntoEle
         )
 }
 
-/// What happened on the goal: nothing while nothing has been written or is being written.
+/// What happened on the goal, as one paragraph: each sentence is underlined and opens the moments
+/// behind it under the paragraph. Nothing while nothing has been written or is being written.
 pub(super) fn what_happened(
     pane: &GoalsPane,
     id: u64,
@@ -277,11 +292,12 @@ pub(super) fn what_happened(
     if empty {
         return None;
     }
-    let lines: Vec<AnyElement> = summary.map_or(Vec::new(), |summary| {
+    let told = summary.filter(|summary| !summary.happened.is_empty());
+    let opened: Vec<AnyElement> = told.map_or(Vec::new(), |summary| {
         (summary.happened.iter().enumerate())
-            .flat_map(|(at, line)| {
-                line_with_sources(pane, format!("happened-{at}"), line, None, None, cx)
-            })
+            .map(|(at, line)| (format!("happened-{at}"), line))
+            .filter(|(key, _)| pane.unfolded.contains(key))
+            .map(|(key, line)| sources_box(&key, &line.sources, None, cx))
             .collect()
     });
     let waiting = summary.is_none() && view.writing;
@@ -293,7 +309,9 @@ pub(super) fn what_happened(
             .when(waiting, |section| {
                 section.child(aside("Writing this from what the goal's agents did…", cx))
             })
-            .children(lines)
+            .children(told.map(|summary| prose(pane, summary, cx)))
+            .children(opened)
+            .children(told.and_then(checked_words).map(|words| aside(words, cx)))
             .when_some(view.failed.clone(), |section, why| {
                 section.child(failure(&why, summary.is_some(), cx))
             })
@@ -310,17 +328,107 @@ pub(super) fn what_happened(
     )
 }
 
+/// The summary's sentences as one paragraph, each with a faint underline that a click on it
+/// darkens while its moments show.
+fn prose(pane: &GoalsPane, summary: &GoalSummary, cx: &mut Context<GoalsPane>) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    let mut text = String::new();
+    let mut marks = Vec::new();
+    let mut links = Vec::new();
+    for (at, line) in summary.happened.iter().enumerate() {
+        if !text.is_empty() {
+            text.push(' ');
+        }
+        let start = text.len();
+        text.push_str(line.text.trim());
+        if line.sources.is_empty() {
+            continue;
+        }
+        let key = format!("happened-{at}");
+        let open = pane.unfolded.contains(&key);
+        marks.push((
+            start..text.len(),
+            HighlightStyle {
+                underline: Some(UnderlineStyle {
+                    thickness: px(1.),
+                    color: Some(if open {
+                        t.text_secondary
+                    } else {
+                        t.border_strong
+                    }),
+                    wavy: false,
+                }),
+                background_color: open.then_some(t.surface_chosen),
+                ..HighlightStyle::default()
+            },
+        ));
+        links.push((start..text.len(), key));
+    }
+    let goals = cx.entity().downgrade();
+    let (ranges, keys): (Vec<_>, Vec<_>) = links.into_iter().unzip();
+    div()
+        .pt(SPACE_1)
+        .pb(SPACE_1H)
+        .text_size(theme::ui_text(TEXT_MD))
+        .line_height(relative(1.6))
+        .text_color(t.text_primary)
+        .child(
+            InteractiveText::new(
+                "goal-happened",
+                StyledText::new(text).with_highlights(marks),
+            )
+            .on_click(ranges, move |at, _, cx| {
+                let key = keys[at].clone();
+                let _ = goals.update(cx, |pane, cx| {
+                    if !pane.unfolded.remove(&key) {
+                        pane.unfolded.insert(key);
+                    }
+                    cx.notify();
+                });
+            }),
+        )
+        .into_any_element()
+}
+
+/// What Sikemux checked the summary's sentences against, from the moments they rest on.
+fn checked_words(summary: &GoalSummary) -> Option<String> {
+    if summary.unchecked {
+        return None;
+    }
+    let rests_on = |kind: SourceKind| {
+        (summary.happened.iter())
+            .flat_map(|line| &line.sources)
+            .any(|source| source.kind == kind)
+    };
+    let checked: Vec<&str> = [
+        (SourceKind::Gate, "gates"),
+        (SourceKind::Evidence, "evidence"),
+        (SourceKind::Assertion, "assertions"),
+    ]
+    .into_iter()
+    .filter(|(kind, _)| rests_on(*kind))
+    .map(|(_, words)| words)
+    .collect();
+    Some(match checked.is_empty() {
+        true => "Read from what the agents did".to_owned(),
+        false => format!(
+            "Read from what the agents did · checked by Sikemux: {}",
+            checked.join(", ")
+        ),
+    })
+}
+
 fn line_with_sources(
     pane: &GoalsPane,
     id: String,
     line: &SummaryLine,
-    mark: Option<&'static str>,
+    (dot, mark): (Option<Hsla>, Option<String>),
     action: Option<AnyElement>,
     cx: &mut Context<GoalsPane>,
 ) -> Vec<AnyElement> {
     let open = pane.unfolded.contains(&id);
     let mut drawn =
-        vec![sentence(pane, id.clone(), line.text.clone(), mark, cx).into_any_element()];
+        vec![sentence(pane, id.clone(), line.text.clone(), dot, mark, cx).into_any_element()];
     if open {
         drawn.push(sources_box(&id, &line.sources, action, cx));
     }
@@ -347,6 +455,19 @@ fn recorded_source(decision: &Decision) -> SummarySource {
         who: learned.name.clone(),
         text,
         open,
+    }
+}
+
+/// Who decided: the agent, the person, or the person correcting the agent that goes by it.
+fn decided_by(pane: &GoalsPane, decision: &Decision) -> String {
+    if let Some(name) = &decision.learned.name {
+        return format!("@{name}");
+    }
+    let holder = (decision.holder.as_deref()).filter(|_| decision.was.is_some());
+    match holder.map(|holder| pane.room.agent(holder).and_then(|agent| agent.name.clone())) {
+        Some(Some(name)) => format!("you, overruling @{name}"),
+        Some(None) => "you, overruling its agent".to_owned(),
+        None => "you".to_owned(),
     }
 }
 
@@ -396,7 +517,7 @@ pub(super) fn decided(
             pane,
             format!("recorded-{}", decision.id),
             &line,
-            None,
+            (Some(Tokens::get(cx).live), Some(decided_by(pane, decision))),
             overrule,
             cx,
         ));
@@ -417,7 +538,7 @@ pub(super) fn decided(
             pane,
             format!("extracted-{at}"),
             line,
-            Some("Extracted"),
+            (None, Some("Extracted".to_owned())),
             Some(div().flex().child(keep).into_any_element()),
             cx,
         ));

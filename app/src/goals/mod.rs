@@ -32,8 +32,8 @@ use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::memory::{MemoryView, Seeding};
 use sikemux_view::slice::{
-    CheckRun, Decision, Gate, GateState, GateView, GoalEta, GoalSummaryParams, GoalSummaryView,
-    Need, Passer, SavedChat, SliceState, SliceView, Wait, WaitOn,
+    CheckRun, Decision, Gate, GateState, GateView, GoalSummaryParams, GoalSummaryView, Need,
+    Passer, SavedChat, SliceState, SliceView, Wait, WaitOn,
 };
 use sikemux_wire::protocol::NoticeGoal;
 use tokio::sync::mpsc::UnboundedSender;
@@ -551,14 +551,6 @@ impl GoalsPane {
         (row.into_iter().flat_map(|row| &row.needs))
             .filter_map(|id| self.inbox_item(id, cx))
             .collect()
-    }
-
-    /// The name of the agent holding goal `goal` while it is at work, for a goal with no slices
-    /// to say what moves.
-    fn working_on(&self, goal: &BoardCard) -> Option<String> {
-        (goal.goal_slices.is_empty() && goal.goal_state == Some(SliceState::Moving))
-            .then(|| goal.owner_name.clone())
-            .flatten()
     }
 
     /// Keeps a decision the summary found as one of the goal's own, as the person.
@@ -1279,17 +1271,6 @@ fn wait_eta(wait: &Wait) -> Option<String> {
     })
 }
 
-/// When a goal should be through, such as "ETA 16:40, then you", or when it was due once
-/// the core has no estimate left.
-fn eta_words(eta: &GoalEta) -> Option<String> {
-    match (eta.at, eta.slip) {
-        (Some(at), _) if eta.then_you => Some(format!("ETA {}, then you", ui::time::clock(at))),
-        (Some(at), _) => Some(format!("ETA {}", ui::time::clock(at))),
-        (None, Some(_)) => Some(format!("was due {}", ui::time::clock(eta.promised))),
-        (None, None) => None,
-    }
-}
-
 /// A slice's mark, the same everywhere: solid green done, a green ring moving, a dashed grey
 /// ring waiting, amber when it needs the person and red when it failed.
 pub(crate) fn state_mark(state: SliceState, cx: &gpui_kit::App) -> AnyElement {
@@ -1351,17 +1332,4 @@ fn emphasised(parts: Vec<(String, bool)>, strong: gpui_kit::HighlightStyle) -> S
         }
     }
     StyledText::new(text).with_highlights(marks)
-}
-
-/// How a goal counts `count` of its slices in `state`.
-fn state_count(count: usize, state: SliceState) -> String {
-    let words = match state {
-        SliceState::Done => "done",
-        SliceState::Moving => "moving",
-        SliceState::Waiting => "waiting",
-        SliceState::NeedsYou if count == 1 => "needs you",
-        SliceState::NeedsYou => "need you",
-        SliceState::Failed => "failed",
-    };
-    format!("{count} {words}")
 }
