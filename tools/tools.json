@@ -1938,6 +1938,10 @@
         },
         "done": {
           "type": "boolean"
+        },
+        "compare": {
+          "type": "boolean",
+          "description": "Instead: how runs compare with each Auto switch on and off"
         }
       },
       "required": []

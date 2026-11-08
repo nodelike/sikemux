@@ -34,6 +34,7 @@ pub(crate) mod auto;
 mod blind;
 pub mod chat_goal;
 mod commands;
+mod compare;
 mod contract;
 pub(crate) mod environments;
 mod eta;
@@ -2608,6 +2609,12 @@ pub(crate) async fn list(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     let (core, request) = (core.clone(), request.clone());
     blocking(move || {
         let project = super::caller::project_of(&core, &request);
+        if request.params.get("compare") == Some(&Value::Bool(true)) {
+            let archived = archive::archived(&core.boards, &project);
+            let state = core.boards.state.locked();
+            let live = state.boards.get(&project).map_or(&[][..], |board| &board.cards);
+            return Ok(compare::view(&project, live.iter().chain(&archived)));
+        }
         let state = core.boards.state.locked();
         let Some(board) = state.boards.get(&project) else {
             if let Some(id) = one {

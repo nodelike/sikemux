@@ -13,6 +13,7 @@ use super::blind::Verdict;
 const MAX_FOUND: usize = 100;
 const MAX_TRIP_CAUSES: usize = 8;
 const MAX_CAUSE_CHARS: usize = 300;
+const MAX_APPROVAL_LINES: usize = 20;
 use crate::server::Core;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -38,6 +39,9 @@ pub(super) struct RunRecord {
     pub exercised: u32,
     /// What its reviewers found, oldest first.
     pub reviewer_found: Vec<String>,
+    /// Its latest reviewer approved it, and what that reviewer said of it.
+    pub approved: bool,
+    pub approval_said: Vec<String>,
     pub broke_after_landing: bool,
     pub overruled: bool,
     /// How many times Auto brought its agent back without the person.
@@ -128,6 +132,20 @@ pub(crate) fn record_check(core: &Core, project: &str, ran: &CheckRan<'_>) {
     }
 }
 
+fn approval_lines(verdict: &Verdict) -> Vec<String> {
+    let graded = (verdict.criteria.iter())
+        .filter(|graded| !graded.note.is_empty())
+        .map(|graded| format!("{}: {}", graded.id, graded.note));
+    let used = (verdict.exercised.iter()).map(|used| format!("Ran {}: {}", used.what, used.saw));
+    let nothing = (verdict.nothing_to_run.iter()).map(|why| format!("Nothing to run: {why}"));
+    graded
+        .chain(used)
+        .chain(nothing)
+        .take(MAX_APPROVAL_LINES)
+        .map(|line| super::recover::clipped(&line, MAX_CAUSE_CHARS))
+        .collect()
+}
+
 impl RunRecord {
     pub(super) fn begun(settings: &BoardSettings, from_reservoir: bool) -> Self {
         Self {
@@ -146,6 +164,12 @@ impl RunRecord {
         self.reviewer_found.extend(found.iter().cloned());
         let over = self.reviewer_found.len().saturating_sub(MAX_FOUND);
         self.reviewer_found.drain(..over);
+        self.approved = verdict.approve;
+        self.approval_said = if verdict.approve {
+            approval_lines(verdict)
+        } else {
+            Vec::new()
+        };
     }
 
     pub(super) fn tripped(&mut self, why: &str) {

@@ -53,18 +53,40 @@ pub(super) fn make_room(boards: &Boards, state: &mut State, project: &str) {
     slice::rebind(board);
     boards.save(state, project);
     if let Some(data) = boards.folder.as_deref().and_then(Path::parent) {
-        append(data.join(FOLDER), kept::file_for(project), gone);
+        append(file(data, project), gone);
     }
 }
 
+fn file(data: &Path, project: &str) -> PathBuf {
+    (data.join(FOLDER))
+        .join(kept::file_for(project))
+        .with_extension("jsonl")
+}
+
+/// The project's finished cards that left its board.
+pub(super) fn archived(boards: &Boards, project: &str) -> Vec<Card> {
+    let Some(data) = boards.folder.as_deref().and_then(Path::parent) else {
+        return Vec::new();
+    };
+    std::fs::read_to_string(file(data, project))
+        .map(|text| {
+            text.lines()
+                .filter_map(|line| serde_json::from_str(line).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Adds the cards to their board's file, off the thread that holds the boards.
-fn append(folder: PathBuf, board_file: String, cards: Vec<Card>) {
+fn append(path: PathBuf, cards: Vec<Card>) {
     let written = move || -> std::io::Result<()> {
-        std::fs::create_dir_all(&folder)?;
+        if let Some(folder) = path.parent() {
+            std::fs::create_dir_all(folder)?;
+        }
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(folder.join(board_file).with_extension("jsonl"))?;
+            .open(&path)?;
         for card in &cards {
             writeln!(file, "{}", serde_json::to_string(card)?)?;
         }
