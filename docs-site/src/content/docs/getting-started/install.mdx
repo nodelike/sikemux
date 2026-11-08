@@ -9,7 +9,7 @@ description: "Install Sikemux on a Mac or on Linux, or just its core on a server
 curl -fsSL https://sikemux.com/install | sh
 ```
 
-On a Mac this puts Sikemux in `/Applications`. On Linux it asks whether you want the desktop app or just the core, and suggests the core on a machine with no desktop. The app comes as the `.deb` or `.rpm`, or the AppImage in `~/Applications`, on x86_64 only.
+On a Mac this puts Sikemux in `/Applications`. On Linux it asks whether you want the desktop app or just the core, and suggests the core on a machine with no desktop. The app comes as the `.deb` or `.rpm`, as a pacman package on Arch and Omarchy, or else as the AppImage in `~/Applications`, on x86_64 only.
 
 For the nightly build, set the channel before `sh`:
 
@@ -33,7 +33,7 @@ The core works on x86_64 and arm64 and needs no WebKit. The installer asks for `
 
 Once the server is signed in, your Mac and phone reach it with no SSH and nothing to approve: every device and host on your account trusts the others. The server has a row under **Hosts** in the side rail, and its projects are its own. You are always on one host, **This host** when the app starts, and in one of its projects; the middle of the top bar shows both, and each is a picker. Choose the server, there or by its row, and **Projects** lists the server's projects, the tab rail lists their chats and terminals, and new chats and terminals start there. A repository you have on both is a project under each host. Each host keeps the project you last had open there. To work on a project on another host, or bring a server's project back here, right-click the project in the side rail and choose **Open on** that host, or **This host**: the host opens its own checkout of the repository, or clones it with its own sign-in, or takes it from this one when it cannot reach the remote. Only committed work goes over; uncommitted changes stay where they are. A host's **⋯** starts a chat or terminal there too, and opening a chat that runs there from the inbox, a notification or search chooses it. A server that already runs Sikemux needs nothing more: open an SSH terminal on it and the app asks it, over your own SSH and without prompting, which host it is, so it shows as one row, named for its SSH host when your account still knew it only by its machine name. If it is not signed in, its row says so and its **⋯** offers **Sign in**, which runs `sikemux login` in a new tab there; if its core is stopped, **Start Sikemux**, which starts it in a new tab there; and if it runs an older release, **Update Sikemux**, which runs the installer there and restarts its core.
 
-The core keeps the host's key and your sign-ins in `/var/lib/sikemux`, which only a `sikemux` group may open. The core runs as a member of that group and you do not, so the agents you run cannot read or change them. Keep your account out of the group, and run the core as yourself, not as root: agents run as whoever runs the core, and an agent running as root, or with `sudo` that needs no password, can read anything on the machine. The `.deb` and `.rpm` set up the same store, though their window cannot sign in to your account yet: sign the computer in with `sikemux login` in a terminal. The AppImage cannot set up the store, so it keeps no sign-ins.
+The core keeps the host's key and your sign-ins in `/var/lib/sikemux`, which only a `sikemux` group may open. The core runs as a member of that group and you do not, so the agents you run cannot read or change them. Keep your account out of the group, and run the core as yourself, not as root: agents run as whoever runs the core, and an agent running as root, or with `sudo` that needs no password, can read anything on the machine. The `.deb`, `.rpm` and Arch package set up the same store, though their window cannot sign in to your account yet: sign the computer in with `sikemux login` in a terminal. The AppImage cannot set up the store, so it keeps no sign-ins.
 
 The host needs no open ports: it connects out to Sikemux's relays over HTTPS and to your devices over UDP, so a firewall or security group can block all inbound traffic.
 
@@ -50,13 +50,16 @@ Later:
 
 The latest `.dmg` is on [sikemux.com](https://sikemux.com) and on [GitHub Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 25 MB and needs macOS 11 or later on Apple Silicon.
 
-On x86_64 Linux the same release has a `.deb`, an `.rpm` and an `.AppImage`:
+On x86_64 Linux the same release has a `.deb`, an `.rpm`, an Arch package and an `.AppImage`:
 
 ```bash
-sudo apt install ./Sikemux_<version>_amd64.deb      # Debian, Ubuntu
-sudo dnf install ./Sikemux-<version>-1.x86_64.rpm   # Fedora
-chmod +x Sikemux_<version>_amd64.AppImage           # any other distribution
+sudo apt install ./Sikemux_<version>_amd64.deb                 # Debian, Ubuntu
+sudo dnf install ./Sikemux-<version>-1.x86_64.rpm              # Fedora
+sudo pacman -U ./sikemux-bin-<version>-1-x86_64.pkg.tar.zst    # Arch, Omarchy
+chmod +x Sikemux_<version>_amd64.AppImage                      # any other distribution
 ```
+
+A nightly's Arch package is `sikemux-nightly-bin`, with the version's hyphen left out, such as `sikemux-nightly-bin-0.6.1nightly.7-1-x86_64.pkg.tar.zst`.
 
 ## Next
 

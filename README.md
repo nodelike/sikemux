@@ -33,8 +33,6 @@ sudo pacman -U ./sikemux-bin-<version>-1-x86_64.pkg.tar.zst    # Arch, Omarchy
 chmod +x Sikemux_<version>_amd64.AppImage                      # any other distribution
 ```
 
-On Arch and Omarchy, `yay -S sikemux-bin` installs the same package from the AUR. Nightlies are `sikemux-nightly-bin`, on the release page only.
-
 The AppImage keeps itself up to date. The `.deb`, `.rpm` and Arch package are updated by the installer: when a new release is out, **Settings → About** shows the line to run.
 
 On a Linux server with no screen, the same line offers to install just the core, for x86_64 or arm64, and sign it in to your account. To skip the question:
