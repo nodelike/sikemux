@@ -3184,6 +3184,10 @@ export interface BoardSettings {
     fastCheck: boolean;
     /** A failed check is traced to the commit that broke it, and one agent mends it. */
     culpritFinding: boolean;
+    /** A card that spends without progress, or keeps failing the same way, is held. */
+    progressGuard: boolean;
+    /** Whole dollars of Auto's spending in the project past which it starts no new cards. */
+    spendCeiling: number | null;
 }
 
 /**

@@ -41,6 +41,7 @@ mod failing;
 mod finish;
 pub(crate) mod git;
 pub mod goal;
+mod guard;
 mod hand_off;
 pub(crate) mod lease;
 mod migrate;
@@ -242,6 +243,9 @@ struct Board {
     cards: Vec<Card>,
     #[serde(default)]
     settings: BoardSettings,
+    /// What Auto's agents have reported spending here, all told.
+    #[serde(default)]
+    auto_spent_usd: f64,
     /// Environments an agent proposed, until the person answers.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     environments_proposal: Option<environments::EnvironmentsProposal>,
@@ -307,6 +311,7 @@ impl Board {
             next,
             cards,
             settings,
+            auto_spent_usd,
             environments_proposal,
             decided,
             auto_note: _,
@@ -324,6 +329,7 @@ impl Board {
             next: *next,
             cards: cards.clone(),
             settings: settings.clone(),
+            auto_spent_usd: *auto_spent_usd,
             environments_proposal: environments_proposal.clone(),
             decided: decided.clone(),
             ..Self::default()

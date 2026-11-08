@@ -13,7 +13,7 @@ use sikemux_process::sync::Locked;
 use super::auto::{AutoPull, AutoRun, BoardSettings, Landing, RunHold, RunStage};
 use super::review::{self, MAX_ROUNDS};
 use super::{
-    blind, change_card, git, recover, send_notices, By, Card, CardStatus, Changes, Checker,
+    blind, change_card, git, guard, recover, send_notices, By, Card, CardStatus, Changes, Checker,
 };
 use crate::server::codehost::ci;
 use crate::server::codehost::repo::{self as codehost, Checks, Feedback, CI_START_WAIT_MS};
@@ -70,6 +70,32 @@ fn agent_cost(core: &Core, agent: &str) -> Option<f64> {
     core.chats.get(agent)?.feed.cost_usd()
 }
 
+/// What the run cost: all its agents when any reported it, else its last agent's own count.
+fn run_cost(core: &Core, run: &AutoRun) -> Option<f64> {
+    run.burn.spent().or_else(|| agent_cost(core, &run.agent))
+}
+
+/// Marks the run as given back to the person.
+pub(super) fn mark_held(
+    core: &Core,
+    card: &mut Card,
+    run: &mut AutoRun,
+    need: RunHold,
+    why: String,
+) {
+    run.verdict = None;
+    run.recovery.due = None;
+    run.recovery.fresh = false;
+    if run.worktree.is_empty() {
+        super::to_open(card);
+    }
+    run.held = Some(need);
+    run.note = Some(why);
+    if let Some(record) = card.record.as_mut() {
+        record.cost_usd = run_cost(core, run).or(record.cost_usd);
+    }
+}
+
 /// Gives the card back to the person, for `need`, saying why. A run that never
 /// got its worktree leaves the card open and nobody's, for the person to start
 /// again.
@@ -77,16 +103,7 @@ pub(crate) fn hold(core: &Core, project: &str, id: u64, agent: &str, need: RunHo
     let mut reviewer = None;
     change_run(core, project, id, agent, |card, run| {
         reviewer = run.reviewer.take();
-        run.verdict = None;
-        run.recovery.due = None;
-        if run.worktree.is_empty() {
-            super::to_open(card);
-        }
-        run.held = Some(need);
-        run.note = Some(why);
-        if let Some(record) = card.record.as_mut() {
-            record.cost_usd = agent_cost(core, agent).or(record.cost_usd);
-        }
+        mark_held(core, card, run, need, why);
     });
     if let Some(reviewer) = reviewer {
         blind::dismiss_later(core, reviewer);
@@ -181,6 +198,9 @@ impl Step {
     /// A check on its pushed head ended, which its slice keeps as evidence.
     fn checked(&self, core: &Arc<Core>, command: &str, verdict: Verdict, output: &str) {
         if let Some(head) = &self.run.head {
+            if verdict == Verdict::Passed {
+                guard::check_passed(core, self, head);
+            }
             let run = super::slice::HeardRun::of(head, command, verdict, output);
             super::slice::auto_checked(core, &self.project, self.id, self.agent(), run);
         }
@@ -304,6 +324,8 @@ pub(super) fn retry(core: &Arc<Core>, project: &str, id: u64) -> Result<(), Stri
             run.recovery.tries = 0;
             run.recovery.failure = None;
             run.recovery.why = None;
+            run.recovery.fresh = false;
+            run.burn.start_over();
         } else {
             card.auto = None;
         }
@@ -548,6 +570,16 @@ pub(crate) fn ci_moved(core: &Core, repo: &ci::Shown) {
     }
 }
 
+/// A run whose agent is in a turn, for what watches turns as they go.
+struct WatchedTurn {
+    project: String,
+    id: u64,
+    stage: RunStage,
+    agent: String,
+    recovers: bool,
+    timed_since: Option<u64>,
+}
+
 /// Looks at the checks of runs waiting on them, at pull requests waiting on
 /// the person, and takes up steps a restart cut short. Answers when a run is
 /// next due a look.
@@ -556,10 +588,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     let running = core.running_agents();
     let mut next = None;
     let mut checking_any = false;
-    let due: (
-        Vec<(String, u64, RunStage)>,
-        Vec<(String, u64, RunStage, String)>,
-    ) = {
+    let due: (Vec<(String, u64, RunStage)>, Vec<WatchedTurn>) = {
         let mut state = core.boards.state.locked();
         let mut due = Vec::new();
         let mut present = Vec::new();
@@ -634,18 +663,20 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                             _ => &run.agent,
                         };
                         if running.contains(watched) {
-                            if board.settings.recover
+                            if (board.settings.recover || board.settings.progress_guard)
                                 && matches!(
                                     run.stage,
                                     RunStage::Working | RunStage::Fixing | RunStage::Reviewing
                                 )
                             {
-                                watched_turns.push((
-                                    key.0.clone(),
-                                    key.1,
-                                    run.stage,
-                                    watched.clone(),
-                                ));
+                                watched_turns.push(WatchedTurn {
+                                    project: key.0.clone(),
+                                    id: key.1,
+                                    stage: run.stage,
+                                    agent: watched.clone(),
+                                    recovers: board.settings.recover,
+                                    timed_since: guard::timed_since(board, card, run),
+                                });
                             }
                             present.push(key);
                         } else {
@@ -682,8 +713,23 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
         (due, watched_turns)
     };
     let (mut due, watched_turns) = due;
-    for (project, id, stage, agent) in watched_turns {
-        match recover::hangs_at(core, &agent) {
+    for turn in watched_turns {
+        let WatchedTurn {
+            project,
+            id,
+            stage,
+            agent,
+            recovers,
+            timed_since,
+        } = turn;
+        if let Some(looked) = timed_since {
+            next = sooner(
+                next,
+                Some(guard::look(core, &project, id, &agent, looked, recovers)),
+            );
+        }
+        let hangs = recovers.then(|| recover::hangs_at(core, &agent)).flatten();
+        match hangs {
             Some(at) if at <= now => due.push((project, id, stage)),
             at => next = sooner(next, at),
         }
@@ -834,6 +880,9 @@ async fn passed(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: &str) {
 
 /// The checks failed: the agent gets one go at fixing them.
 async fn failed(core: &Arc<Core>, step: &Step, what: &str) {
+    if guard::check_failed(core, step, what) {
+        return;
+    }
     if step.run.fixed {
         step.hold(
             core,
@@ -995,7 +1044,7 @@ async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
             all_passed = slice.merged(by_person, &step.settings);
         }
         if let Some(record) = card.record.as_mut() {
-            record.finished(run.review.rounds, agent_cost(core, &run.agent));
+            record.finished(run.review.rounds, run_cost(core, run));
         }
         run.note = Some("Merged".to_owned());
     });

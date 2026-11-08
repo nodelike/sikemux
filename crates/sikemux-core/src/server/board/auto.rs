@@ -12,6 +12,7 @@ use sikemux_process::sync::Locked;
 
 use super::contract::{self, Contract};
 use super::environments::{Environment, Passes};
+use super::guard::{self, Burn};
 use super::lease::Stalled;
 use super::record::RunRecord;
 use super::recover::{self, Recovery, TookOn};
@@ -93,6 +94,10 @@ pub struct BoardSettings {
     pub fast_check: bool,
     /// A failed check is traced to the commit that broke it, and one agent mends it.
     pub culprit_finding: bool,
+    /// A card that spends without progress, or keeps failing the same way, is held.
+    pub progress_guard: bool,
+    /// Whole dollars of Auto's spending in the project past which it starts no new cards.
+    pub spend_ceiling: Option<u32>,
 }
 
 impl BoardSettings {
@@ -128,6 +133,7 @@ impl BoardSettings {
             ("autoRecovery", self.recover),
             ("fastCheck", self.fast_check),
             ("culpritFinding", self.culprit_finding),
+            ("progressGuard", self.progress_guard),
         ]
         .map(|(name, on)| (name.to_owned(), on))
         .into()
@@ -162,6 +168,8 @@ impl Default for BoardSettings {
             recover: true,
             fast_check: true,
             culprit_finding: true,
+            progress_guard: true,
+            spend_ceiling: None,
         }
     }
 }
@@ -226,6 +234,14 @@ pub struct BoardSettingsParams {
     pub fast_check: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub culprit_finding: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress_guard: Option<bool>,
+    #[serde(
+        default,
+        deserialize_with = "given",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub spend_ceiling: Option<Option<u32>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -314,6 +330,15 @@ impl BoardSettings {
         }
         if let Some(culprit_finding) = params.culprit_finding {
             settings.culprit_finding = culprit_finding;
+        }
+        if let Some(progress_guard) = params.progress_guard {
+            settings.progress_guard = progress_guard;
+        }
+        if let Some(spend_ceiling) = params.spend_ceiling {
+            if spend_ceiling == Some(0) {
+                return Err("spendCeiling must be at least 1 dollar".into());
+            }
+            settings.spend_ceiling = spend_ceiling;
         }
         Ok(settings)
     }
@@ -427,6 +452,8 @@ pub(super) struct AutoRun {
     pub approved: Option<String>,
     #[serde(default)]
     pub recovery: Recovery,
+    #[serde(default)]
+    pub burn: Burn,
 }
 
 impl AutoRun {
@@ -451,6 +478,7 @@ impl AutoRun {
             verdict: None,
             approved: None,
             recovery: Recovery::default(),
+            burn: Burn::default(),
         }
     }
 
@@ -597,8 +625,10 @@ pub(crate) fn has_work(boards: &super::Boards) -> bool {
     state.boards.values().any(|board| {
         board.settings.auto && {
             let reservoir = Reservoir::of(board);
-            (board.cards.iter())
-                .any(|card| reservoir.takes(&board.settings, card) || card.run().is_some())
+            let starts_more = !guard::ceiling_reached(board);
+            (board.cards.iter()).any(|card| {
+                (starts_more && reservoir.takes(&board.settings, card)) || card.run().is_some()
+            })
         }
     })
 }
@@ -656,9 +686,12 @@ pub(super) fn start_free(core: &Arc<Core>) {
             let Some(board) = state.boards.get_mut(&project) else {
                 continue;
             };
-            let note = (!launchers).then(|| {
-                "Auto starts once Sikemux has opened and said which agents it can start".to_owned()
-            });
+            let note = (!launchers)
+                .then(|| {
+                    "Auto starts once Sikemux has opened and said which agents it can start"
+                        .to_owned()
+                })
+                .or_else(|| guard::ceiling_note(board));
             if board.auto_note != note {
                 board.auto_note = note;
                 state.dirty.insert(project.clone());
@@ -672,7 +705,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
             let Some(board) = state.boards.get_mut(&project) else {
                 continue;
             };
-            if !launchers {
+            if !launchers || guard::ceiling_reached(board) {
                 continue;
             }
             let free = (board.settings.slots as usize).saturating_sub(running(core, board));
@@ -841,7 +874,10 @@ fn seat(
         if run.stage == RunStage::Starting {
             run.stage = RunStage::Working;
         }
-        run.note = None;
+        run.recovery.due = None;
+        if !std::mem::take(&mut run.recovery.fresh) {
+            run.note = None;
+        }
     })
 }
 
@@ -1069,6 +1105,7 @@ pub(super) async fn replace_agent(
 /// The turn of one of Auto's agents ended: its work ships, or its card goes
 /// back to the person when the turn did not finish.
 pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
+    guard::turn_ended(core, agent_id);
     if blind::turn_ended(core, agent_id, ending) {
         return;
     }
@@ -1084,12 +1121,13 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
                         run.stage,
                         run.held.is_some(),
                         recover::bringing_back(run),
+                        run.recovery.fresh,
                     )
                 })
             })
         })
     };
-    let Some((project, id, stage, held_back, bringing_back)) = found else {
+    let Some((project, id, stage, held_back, bringing_back, replacing)) = found else {
         worker_ended(core, agent_id);
         return;
     };
@@ -1098,6 +1136,7 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
         .name(agent_id)
         .unwrap_or_else(|| "Its agent".to_owned());
     match ending {
+        Ending::Finished if replacing => {}
         Ending::Finished => {
             recover::finished_turn(core, &project, id, agent_id);
             let now = core.agent_now(agent_id);
@@ -1136,8 +1175,10 @@ fn worker_ended(core: &Arc<Core>, agent_id: &str) {
         state.boards.iter().find_map(|(project, board)| {
             board.cards.iter().find_map(|card| {
                 let run = card.run()?;
-                (run.agent == lead && matches!(run.stage, RunStage::Working | RunStage::Fixing))
-                    .then(|| (project.clone(), card.id))
+                (run.agent == lead
+                    && !recover::bringing_back(run)
+                    && matches!(run.stage, RunStage::Working | RunStage::Fixing))
+                .then(|| (project.clone(), card.id))
             })
         })
     };

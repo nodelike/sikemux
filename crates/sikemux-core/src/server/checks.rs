@@ -692,6 +692,7 @@ fn check_ran<'a>(
         found,
         searched: !matches!(hunted, Hunted::NotTried),
         steps,
+        text: &ran.text,
     }
 }
 

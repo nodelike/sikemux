@@ -11,6 +11,8 @@ use super::auto::BoardSettings;
 use super::blind::Verdict;
 
 const MAX_FOUND: usize = 100;
+const MAX_TRIP_CAUSES: usize = 8;
+const MAX_CAUSE_CHARS: usize = 300;
 use crate::server::Core;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -50,6 +52,9 @@ pub(super) struct RunRecord {
     /// Of those searches, how many named one commit.
     pub culprits_found: u32,
     pub culprit_steps: u32,
+    /// How many times the progress guard held it, and why each time.
+    pub progress_trips: u32,
+    pub progress_trip_causes: Vec<String>,
 }
 
 /// One run of a project's check, for the run records of the agents it took in.
@@ -61,12 +66,13 @@ pub(crate) struct CheckRan<'a> {
     pub found: bool,
     pub searched: bool,
     pub steps: u32,
+    pub text: &'a str,
 }
 
 impl CheckRan<'_> {
     /// Whether `agent`'s work is what broke the check: the commit found was
     /// theirs, or nobody could be found and only their commits were in the run.
-    fn broken_by(&self, agent: &str) -> bool {
+    pub(super) fn broken_by(&self, agent: &str) -> bool {
         !self.passed
             && match self.found {
                 true => self.culprit_agents.iter().any(|named| named == agent),
@@ -84,7 +90,7 @@ pub(crate) fn record_check(core: &Core, project: &str, ran: &CheckRan<'_>) {
     let mut agents: Vec<&String> = ran.authors.clone();
     agents.sort_unstable();
     agents.dedup();
-    let mut recorded = false;
+    let mut recorded = super::guard::checked(core, board, ran);
     for agent in agents {
         let latest = board
             .cards
@@ -125,6 +131,14 @@ impl RunRecord {
         self.reviewer_found.extend(found.iter().cloned());
         let over = self.reviewer_found.len().saturating_sub(MAX_FOUND);
         self.reviewer_found.drain(..over);
+    }
+
+    pub(super) fn tripped(&mut self, why: &str) {
+        self.progress_trips += 1;
+        if self.progress_trip_causes.len() < MAX_TRIP_CAUSES {
+            self.progress_trip_causes
+                .push(super::recover::clipped(why, MAX_CAUSE_CHARS));
+        }
     }
 
     pub(super) fn finished(&mut self, rounds: u32, cost_usd: Option<f64>) {

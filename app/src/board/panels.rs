@@ -36,6 +36,7 @@ use crate::ui::{self, select, Button, IconButton, Pick, Toggle, Variant};
 type Save = Rc<dyn Fn(BoardReviewerParams, &mut gpui_kit::App)>;
 
 const SLOT_CHOICES: [u32; 14] = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32, 48, 64];
+const CEILING_CHOICES: [u32; 5] = [50, 100, 250, 500, 1000];
 const NO_CARD: &str = "0";
 
 const STATUSES: [CardStatus; 3] = [CardStatus::Open, CardStatus::Progress, CardStatus::Done];
@@ -775,6 +776,10 @@ fn auto_picker(
     model_picker::around(trigger, key, picked, &bench).into_any_element()
 }
 
+fn ceiling_words(ceiling: Option<u32>) -> String {
+    ceiling.map_or("Off".to_owned(), |dollars| format!("${dollars}"))
+}
+
 fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let Some(board) = &pane.board else {
         return div().into_any_element();
@@ -797,6 +802,18 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let (landing_key, landing_shown) = landing_choice(settings.landing);
     let entity = || cx.entity();
     let (on_slots, on_landing, on_recover) = (entity(), entity(), entity());
+    let (on_guard, on_ceiling) = (entity(), entity());
+    let guard_on = settings.progress_guard;
+    let ceilings = [0]
+        .into_iter()
+        .chain(CEILING_CHOICES)
+        .map(|dollars| {
+            Pick::new(
+                dollars.to_string(),
+                ceiling_words((dollars > 0).then_some(dollars)),
+            )
+        })
+        .collect();
     let recover_on = settings.recover;
     let reviewer = settings.reviewer.clone();
     let auto_on = settings.auto;
@@ -895,6 +912,35 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                         })
                     })
                     .into_any_element(),
+                cx,
+            ))
+            .child(fact(
+                "Progress",
+                Toggle::new("board-progress-guard", "Hold cards that spend without progress", guard_on)
+                    .on_click(move |_, _, cx| {
+                        on_guard.update(cx, |pane, cx| {
+                            pane.change_settings(|params| params.progress_guard = Some(!guard_on), cx)
+                        })
+                    })
+                    .into_any_element(),
+                cx,
+            ))
+            .child(fact(
+                "Spend ceiling",
+                select(
+                    "board-spend-ceiling",
+                    ceiling_words(settings.spend_ceiling),
+                    ceilings,
+                    Some(settings.spend_ceiling.unwrap_or(0).to_string().into()),
+                    busy,
+                    move |dollars, _, cx| {
+                        let ceiling = dollars.parse().ok().filter(|dollars: &u32| *dollars > 0);
+                        on_ceiling.update(cx, |pane, cx| {
+                            pane.change_settings(|params| params.spend_ceiling = Some(ceiling), cx)
+                        })
+                    },
+                    cx,
+                ),
                 cx,
             ))
             .child({

@@ -63,6 +63,9 @@ pub(super) struct Recovery {
     /// The stalled slice this run took on, for the person to overrule.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub took_on: Option<TookOn>,
+    /// The next try is a fresh agent, as the progress guard tripped.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub fresh: bool,
 }
 
 /// Auto took a slice whose owner lost the lease, recorded as a decision the person can overrule.
@@ -98,7 +101,7 @@ fn sort(core: &Core, agent: &str, reason: &str) -> Sorted {
 }
 
 /// What makes two failures the same, whatever ids, times or counts each one carries.
-fn sameness(reason: &str) -> String {
+pub(super) fn sameness(reason: &str) -> String {
     let words: String = reason
         .to_lowercase()
         .chars()
@@ -112,7 +115,7 @@ fn wait_before(tries: u32) -> u64 {
     FIRST_WAIT_MS * WAIT_GROWS.pow(tries)
 }
 
-fn clipped(text: &str, max: usize) -> String {
+pub(super) fn clipped(text: &str, max: usize) -> String {
     match text.char_indices().nth(max) {
         Some((end, _)) => format!("{}…", &text[..end]),
         None => text.to_owned(),
@@ -158,6 +161,14 @@ fn schedule(core: &Core, project: &str, id: u64, agent: &str, why: String, cause
         run.note = Some(format!("{why}. Auto tries again in {}s", wait / 1000));
         run.recovery.why = Some(why);
     });
+}
+
+/// The next try is a fresh agent, due now, told `why`. The old agent keeps running until then,
+/// and `due` being set is what keeps its ending from counting as a failure.
+pub(super) fn take_over(run: &mut AutoRun, why: String) {
+    run.recovery.fresh = true;
+    run.recovery.due = Some(epoch_ms());
+    run.recovery.why = Some(why);
 }
 
 /// The turn of one of Auto's agents ended without finishing: what comes next depends on why.
@@ -317,6 +328,15 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
     core.boards.wake.now();
 }
 
+fn stop_agent(core: &Core, agent: &str) {
+    if let Some(chat) = core.chats.get(agent) {
+        core.workspaces.note_stopping(&chat);
+    }
+    if core.chats.stop(agent) {
+        core.note_agent_gone(agent);
+    }
+}
+
 /// Stops an agent whose turn hung, which then has a try coming like any other failure.
 fn hung(core: &Arc<Core>, step: Step) {
     let agent = step.agent().to_owned();
@@ -326,12 +346,7 @@ fn hung(core: &Arc<Core>, step: Step) {
         HUNG_AFTER_MS / 60_000
     );
     schedule(core, &step.project, step.id, &agent, why, "hung");
-    if let Some(chat) = core.chats.get(&agent) {
-        core.workspaces.note_stopping(&chat);
-    }
-    if core.chats.stop(&agent) {
-        core.note_agent_gone(&agent);
-    }
+    stop_agent(core, &agent);
     core.boards.wake.now();
 }
 
@@ -347,7 +362,8 @@ async fn attempt(core: &Arc<Core>, step: Step) {
             run.note = note;
         });
     };
-    if now.mid_turn() {
+    let replaces = step.run.recovery.fresh;
+    if now.mid_turn() && !replaces {
         cleared(None);
         return;
     }
@@ -365,6 +381,13 @@ async fn attempt(core: &Arc<Core>, step: Step) {
             &step,
             format!("{name} was closed before Auto tried again"),
         );
+        return;
+    }
+    if replaces {
+        for worker in core.names.team(&agent).iter().filter(|id| **id != agent) {
+            stop_agent(core, worker);
+        }
+        fresh(core, &step, &why).await;
         return;
     }
     cleared(Some(format!("Bringing {name} back")));
@@ -458,12 +481,7 @@ async fn fresh(core: &Arc<Core>, step: &Step, why: &str) {
         .chats
         .get(&agent)
         .and_then(|chat| chat.feed.last_answer());
-    if let Some(chat) = core.chats.get(&agent) {
-        core.workspaces.note_stopping(&chat);
-    }
-    if core.chats.stop(&agent) {
-        core.note_agent_gone(&agent);
-    }
+    stop_agent(core, &agent);
     let tree = auto::tree_of(&step.run, &step.project);
     let note = {
         let (cwd, start_sha, name, why) = (

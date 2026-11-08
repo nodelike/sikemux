@@ -18,6 +18,7 @@ use sikemux_process::sync::Locked;
 use super::auto::{RunHold, RunStage};
 use super::contract;
 use super::finish::{self, change_run, Step};
+use super::guard;
 use super::review::MAX_ROUNDS;
 use super::{git, recover, Card, State};
 use crate::cli::protocol::{REVIEWER_OFFER, TOOLS_OFFER_ENV};
@@ -779,6 +780,9 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
     }
     if verdict.approve {
         return finish::merge(core, &step, &pull, &head).await;
+    }
+    if guard::turned_down(core, &step, &verdict, &findings) {
+        return;
     }
     let rounds = step.run.review.rounds;
     if rounds >= MAX_ROUNDS {
