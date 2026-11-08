@@ -35,7 +35,7 @@ fn prune(folder: &Path) {
         .flatten()
         .filter_map(|entry| Some((entry.metadata().ok()?.modified().ok()?, entry.path())))
         .collect();
-    logs.sort_by(|one, other| other.0.cmp(&one.0));
+    logs.sort_by_key(|one| std::cmp::Reverse(one.0));
     for (_, old) in logs.into_iter().skip(LOGS_KEPT) {
         let _ = std::fs::remove_file(old);
     }

@@ -1081,6 +1081,11 @@ impl super::find::Rows for FindRows<'_> {
     }
 }
 
+fn reported_cost(payload: &Value) -> Option<f64> {
+    let cost = payload.get("update")?.get("cost")?;
+    (cost.get("currency")?.as_str()? == "USD").then(|| cost.get("amount")?.as_f64())?
+}
+
 #[cfg(test)]
 mod tests {
     use super::replay::tests::{asks, text, turn, update};
@@ -1465,9 +1470,4 @@ mod tests {
             "a fold built again keeps every row's number"
         );
     }
-}
-
-fn reported_cost(payload: &Value) -> Option<f64> {
-    let cost = payload.get("update")?.get("cost")?;
-    (cost.get("currency")?.as_str()? == "USD").then(|| cost.get("amount")?.as_f64())?
 }
