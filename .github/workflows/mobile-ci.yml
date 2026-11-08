@@ -91,4 +91,7 @@ jobs:
 
       - name: Test the notifications module
         working-directory: mobile/app/android
-        run: ./gradlew :notify:testDebugUnitTest --no-daemon
+        run: |
+          # The generated wrapper gives up on downloading Gradle after 10 seconds, too short from a runner.
+          sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
+          ./gradlew :notify:testDebugUnitTest --no-daemon

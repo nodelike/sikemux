@@ -141,6 +141,8 @@ jobs:
           sed -i '/^org.gradle.jvmargs=/d' gradle.properties
           printf '\norg.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g\n' >>gradle.properties
           grep -x 'org.gradle.jvmargs=-Xmx6g -XX:MaxMetaspaceSize=2g' gradle.properties
+          # The generated wrapper gives up on downloading Gradle after 10 seconds, too short from a runner.
+          sed -i 's/^networkTimeout=.*/networkTimeout=120000/' gradle/wrapper/gradle-wrapper.properties
           # The Rust client is built for arm64-v8a and x86_64 only. The APK people sideload is for
           # phones, so arm64 alone; Play hands each device its own part of the bundle.
           ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a --no-daemon
