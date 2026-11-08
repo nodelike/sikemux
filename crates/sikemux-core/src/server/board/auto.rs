@@ -10,6 +10,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
+use super::contract::{self, Contract};
 use super::environments::{Environment, Passes};
 use super::record::RunRecord;
 use super::review::Review;
@@ -75,6 +76,10 @@ pub struct BoardSettings {
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     pub reviewer: Option<ReviewerChoice>,
+    /// The reviewer builds and uses the change, rather than only reading it.
+    pub reviewer_runs: bool,
+    /// Each builder proposes a contract, reviewed blind, before it builds.
+    pub contract: bool,
     /// Where the project deploys, in the order its slices reach them. None
     /// gives slices the usual ladder and holds every deploy for the person.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -109,9 +114,17 @@ impl BoardSettings {
         [
             ("coreLands", self.landing == Landing::Core),
             ("agentCards", self.agent_cards),
+            ("reviewerRuns", self.reviewer_runs),
+            ("contract", self.contract),
         ]
         .map(|(name, on)| (name.to_owned(), on))
         .into()
+    }
+
+    /// Whether a card's builder agrees a contract first. A change the person
+    /// lands themselves has no reviewer to grade it against one.
+    fn wants_contract(&self) -> bool {
+        self.contract && self.landing == Landing::Core
     }
 
     /// Where a deploy's health is read after it, for the environment called `name`.
@@ -131,6 +144,8 @@ impl Default for BoardSettings {
             landing: Landing::Core,
             agent_cards: true,
             reviewer: None,
+            reviewer_runs: true,
+            contract: true,
             environments: Vec::new(),
         }
     }
@@ -180,6 +195,10 @@ pub struct BoardSettingsParams {
         skip_serializing_if = "Option::is_none"
     )]
     pub reviewer: Option<Option<BoardReviewerParams>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewer_runs: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contract: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landing: Option<Landing>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -251,6 +270,12 @@ impl BoardSettings {
                 .map(|reviewer| reviewer.choice(&knows))
                 .transpose()?;
         }
+        if let Some(reviewer_runs) = params.reviewer_runs {
+            settings.reviewer_runs = reviewer_runs;
+        }
+        if let Some(contract) = params.contract {
+            settings.contract = contract;
+        }
         if let Some(landing) = params.landing {
             settings.landing = landing;
         }
@@ -272,6 +297,8 @@ pub enum RunStage {
     /// Its worktree and agent are being made.
     Starting,
     Working,
+    /// An agent on another CLI reviews what its builder proposes to build.
+    Contracting,
     /// Its work is being committed, pushed and put in a pull request.
     Shipping,
     /// Its pull request's checks are running.
@@ -302,7 +329,7 @@ impl RunStage {
     fn busy(self) -> bool {
         matches!(
             self,
-            RunStage::Starting | RunStage::Working | RunStage::Fixing
+            RunStage::Starting | RunStage::Working | RunStage::Contracting | RunStage::Fixing
         )
     }
 
@@ -619,6 +646,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     card.team = None;
                     card.auto = Some(AutoRun::starting(agent.clone()));
                     card.record = Some(RunRecord::begun(&settings));
+                    card.contract = settings.wants_contract().then(Contract::awaited);
                     super::slice::auto_slice(card, &settings);
                     starts.push((project.clone(), id, agent));
                     state_jobs.push((project.clone(), id));
@@ -683,8 +711,13 @@ fn task(
         ),
         Landing::Person => "leaves it for the person to review and merge".to_owned(),
     };
+    let contract_step = if card.contract.is_some() {
+        format!("{}\n", contract::builder_step())
+    } else {
+        String::new()
+    };
     text.push_str(&format!(
-        "\n\nYou are in {} on branch {}, cut from {}.\n\n1. Plan first. Read what you need, then ask every question you have at once with ask, before you change anything. If you cannot go on without an answer, ask with blocked true and end your turn: the answer comes back to you. Otherwise say what you assume and go on.\n2. Do the work, and run the tests and checks that cover it.\n3. Commit it on {}, and put a short summary in the card's result with board_update.\n\nDo not push, open a pull request or merge. When your turn ends, Sikemux commits anything left, pushes the branch, opens the pull request and {landing}. So do not end your turn before the work is done, unless you are waiting on an answer. If you start other agents to help, Sikemux ships only once none of them is still working.",
+        "\n\nYou are in {} on branch {}, cut from {}.\n\n1. Plan first. Read what you need, then ask every question you have at once with ask, before you change anything. If you cannot go on without an answer, ask with blocked true and end your turn: the answer comes back to you. Otherwise say what you assume and go on.\n{contract_step}2. Do the work, and run the tests and checks that cover it.\n3. Commit it on {}, and put a short summary in the card's result with board_update.\n\nDo not push, open a pull request or merge. When your turn ends, Sikemux commits anything left, pushes the branch, opens the pull request and {landing}. So do not end your turn before the work is done, unless you are waiting on an answer. If you start other agents to help, Sikemux ships only once none of them is still working.",
         tree.cwd.display(),
         tree.branch,
         tree.base,
@@ -829,6 +862,12 @@ pub(crate) fn turn_ended(core: &Arc<Core>, agent_id: &str, ending: &Ending) {
             if now.waits_on_something()
                 || !(held_back || stage.ships_on_turn_end())
                 || now.workers_busy(agent_id)
+            {
+                return;
+            }
+            if !held_back
+                && stage == RunStage::Working
+                && contract::keeps_building(core, &project, id, agent_id)
             {
                 return;
             }

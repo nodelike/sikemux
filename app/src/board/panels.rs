@@ -16,7 +16,7 @@ use sikemux_core::server::board::BoardUpdateParams;
 use sikemux_core::server::board::CardRun;
 use sikemux_core::server::board::CardStatus;
 use sikemux_core::server::board::Landing;
-use sikemux_core::server::board::RunStage;
+use sikemux_core::server::board::{CardContract, ContractState, RunStage};
 use sikemux_core::server::call;
 use sikemux_core::server::messages::log::MessageOutcome;
 use sikemux_core::server::messages::log::MessageRow;
@@ -63,6 +63,7 @@ fn run_label(run: &CardRun, status: CardStatus) -> &'static str {
     match run.stage {
         RunStage::Starting => "Starting",
         RunStage::Working => "Working",
+        RunStage::Contracting => "Agreeing what to build",
         RunStage::Shipping => "Shipping",
         RunStage::Checking => "Checks running",
         RunStage::Reviewing => "Under review",
@@ -372,6 +373,40 @@ fn text_fields(pane: &BoardPane, cx: &mut Context<BoardPane>) -> Vec<AnyElement>
     ]
 }
 
+fn contract_words(contract: &CardContract) -> String {
+    match (contract.state, &contract.why) {
+        (ContractState::Agreed, _) => "Agreed by a reviewer".to_owned(),
+        (ContractState::Stands, Some(why)) => format!("Stands without agreement: {why}"),
+        (ContractState::Stands, None) => "Stands without agreement".to_owned(),
+        (ContractState::Reviewing, _) => "With a reviewer".to_owned(),
+        _ => "Being proposed".to_owned(),
+    }
+}
+
+/// What the card's builder agreed to build and how to verify it, which the
+/// person reads here and never edits.
+fn contract_section(contract: &CardContract, cx: &mut Context<BoardPane>) -> gpui_kit::Div {
+    let terms = contract.terms.iter().enumerate().map(|(index, term)| {
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                ui::text(
+                    format!("{}. {}", index + 1, term.behaviour),
+                    TEXT_XS_H,
+                    FontWeight::NORMAL,
+                )
+                .whitespace_normal(),
+            )
+            .child(ui::meta(format!("Verify: {}", term.verify), cx).whitespace_normal())
+            .into_any_element()
+    });
+    let terms: Vec<AnyElement> = terms.collect();
+    section("Contract", cx)
+        .child(ui::meta(contract_words(contract), cx).whitespace_normal())
+        .children(terms)
+}
+
 fn card_panel(pane: &BoardPane, card: BoardCard, cx: &mut Context<BoardPane>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id = card.id;
@@ -454,6 +489,9 @@ fn card_panel(pane: &BoardPane, card: BoardCard, cx: &mut Context<BoardPane>) ->
         );
     let mut rest = text_fields(pane, cx).into_iter().skip(1);
     view = view.children(rest.next()).children(rest.next());
+    if let Some(contract) = card.contract.as_ref().filter(|c| !c.terms.is_empty()) {
+        view = view.child(contract_section(contract, cx));
+    }
     if let Some(result) = &card.result {
         view = view
             .child(section("Result", cx).child(
@@ -762,6 +800,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let reviewer = settings.reviewer.clone();
     let auto_on = settings.auto;
     let agent_cards = settings.agent_cards;
+    let (reviewer_runs, contract) = (settings.reviewer_runs, settings.contract);
     let mut view = div()
         .flex()
         .flex_col()
@@ -880,6 +919,26 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                     cx,
                 )
                 .whitespace_normal(),
+            )
+            .child(
+                Toggle::new(
+                    "board-reviewer-runs",
+                    "Reviewer builds and uses the change",
+                    reviewer_runs,
+                )
+                .on_click(cx.listener(move |pane, _, _, cx| {
+                    pane.change_settings(|params| params.reviewer_runs = Some(!reviewer_runs), cx)
+                })),
+            )
+            .child(
+                Toggle::new(
+                    "board-contract",
+                    "Agree what to build before building",
+                    contract,
+                )
+                .on_click(cx.listener(move |pane, _, _, cx| {
+                    pane.change_settings(|params| params.contract = Some(!contract), cx)
+                })),
             ),
     )
     .into_any_element()

@@ -1095,11 +1095,17 @@ async fn lead_reads(core: &Arc<Core>, question: &Question, text: String, note: S
     }
 }
 
+const NOBODY_ASKED_ABOUT_CONTRACT: &str =
+    "Nobody is asked about a contract. Decide from the card and give your verdict with review_verdict.";
+
 pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent_id = request
         .agent_id
         .clone()
         .ok_or("ask needs the calling agent's id")?;
+    if super::board::reviews_contract(core, &agent_id) {
+        return Err(NOBODY_ASKED_ABOUT_CONTRACT.into());
+    }
     let params = &request.params;
     let text = text_param(params, "question", MAX_QUESTION_BYTES)?
         .ok_or("question must be what you want to know, as nonempty text")?;
@@ -1313,6 +1319,9 @@ fn pass_on(
 /// AskUserQuestion or Codex's request_user_input, into the same questions,
 /// and says what the agent is told in place of an answer.
 pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> String {
+    if super::board::reviews_contract(core, agent_id) {
+        return NOBODY_ASKED_ABOUT_CONTRACT.to_owned();
+    }
     let asked: Vec<Asked> = input
         .get("questions")
         .and_then(Value::as_array)

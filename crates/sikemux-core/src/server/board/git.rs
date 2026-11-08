@@ -90,6 +90,13 @@ pub(super) fn diff(
     Ok((text, cut))
 }
 
+/// The paths that changed from `from` to `to`.
+pub(super) fn changed_paths(repo: &Path, from: &str, to: &str) -> Result<Vec<String>, String> {
+    let range = format!("{from}..{to}");
+    let listed = Git::slow(repo).trimmed(&["diff", "--name-only", "--no-renames", &range])?;
+    Ok(listed.lines().map(str::to_owned).collect())
+}
+
 /// Where the branch's own work starts on `base` as it is now.
 pub(super) fn fork_point(repo: &Path, base: &str, head: &str) -> Result<String, String> {
     Git::quick(repo).trimmed(&["merge-base", &format!("origin/{base}"), head])

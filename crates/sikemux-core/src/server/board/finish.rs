@@ -590,11 +590,20 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                         REVIEW_EVERY_MS << quiet.min(MAX_QUIET_DOUBLINGS)
                     }
                     RunStage::Shipping | RunStage::Merging | RunStage::Starting => 0,
-                    RunStage::Reviewing if run.verdict.is_some() || run.reviewer.is_none() => 0,
-                    RunStage::Working | RunStage::Fixing | RunStage::Reviewing => {
+                    RunStage::Reviewing | RunStage::Contracting
+                        if run.verdict.is_some() || run.reviewer.is_none() =>
+                    {
+                        0
+                    }
+                    RunStage::Working
+                    | RunStage::Fixing
+                    | RunStage::Reviewing
+                    | RunStage::Contracting => {
                         let key = (project.clone(), card.id);
                         let watched = match (&run.reviewer, run.stage) {
-                            (Some(reviewer), RunStage::Reviewing) => &reviewer.agent,
+                            (Some(reviewer), RunStage::Reviewing | RunStage::Contracting) => {
+                                &reviewer.agent
+                            }
                             _ => &run.agent,
                         };
                         if running.contains(watched) {
@@ -645,9 +654,11 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             RunStage::Watching => step(core, project, id, None, |core, step| async move {
                 reviewing(&core, step).await;
             }),
-            RunStage::Reviewing => step(core, project, id, None, |core, step| async move {
-                blind::settle(&core, step).await;
-            }),
+            RunStage::Reviewing | RunStage::Contracting => {
+                step(core, project, id, None, |core, step| async move {
+                    blind::settle(&core, step).await;
+                })
+            }
             RunStage::Shipping => ship(core, project, id),
             RunStage::Starting => step(core, project, id, None, |core, step| async move {
                 step.hold(

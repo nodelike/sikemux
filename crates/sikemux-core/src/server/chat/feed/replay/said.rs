@@ -79,6 +79,32 @@ pub(crate) fn title(text: &str) -> Option<String> {
     (!title.is_empty()).then_some(title)
 }
 
+const RUNNING_TOOLS: &[&str] = &["process_start", "process_restart", "browser_", "sim_"];
+const READING_COMMANDS: &[&str] = &[
+    "awk", "cat", "cd", "cut", "diff", "echo", "file", "find", "git", "grep", "head", "less", "ls",
+    "more", "nl", "printf", "pwd", "rg", "sed", "sort", "stat", "tail", "test", "tr", "tree",
+    "true", "ugrep", "uniq", "wc", "which",
+];
+
+fn tool_runs(update: &Value) -> bool {
+    let title = update
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    match update.get("kind").and_then(Value::as_str) {
+        Some("execute") => command_runs(title),
+        _ => RUNNING_TOOLS.iter().any(|tool| title.contains(tool)),
+    }
+}
+
+/// Whether any part of a shell command is more than reading.
+fn command_runs(command: &str) -> bool {
+    command
+        .split(['\n', ';', '|', '&'])
+        .filter_map(|part| part.split_whitespace().find(|word| !word.contains('=')))
+        .any(|program| !READING_COMMANDS.contains(&program.trim_matches('`')))
+}
+
 pub(crate) fn session_title(payload: &Value) -> Option<String> {
     let update = payload.get("update")?;
     if UpdateKind::of(update)? != UpdateKind::SessionInfoUpdate {
@@ -121,6 +147,16 @@ impl Replay {
         let answer: String = pieces.into_iter().rev().collect();
         let answer = answer.trim();
         (!answer.is_empty()).then(|| answer.to_owned())
+    }
+
+    /// Whether the chat ran anything beyond reading: a command that does more
+    /// than look at files, or a process, browser or simulator tool.
+    pub(in super::super) fn ran_something(&self) -> bool {
+        self.entries.iter().any(|entry| {
+            matches!(entry.event.kind, ChatEventKind::SessionUpdate)
+                && UpdateKind::within(&entry.event.payload) == Some(UpdateKind::ToolCall)
+                && entry.event.payload.get("update").is_some_and(tool_runs)
+        })
     }
 
     /// What the chat said from index `from` on, or over its last `turns`

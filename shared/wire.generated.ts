@@ -2645,6 +2645,7 @@ export interface BoardCard {
     title: string;
     details: string;
     acceptance: string;
+    contract: CardContract | null;
     status: CardStatus;
     owner: string | null;
     ownerName: string | null;
@@ -2714,6 +2715,21 @@ export interface BoardCard {
     updatedAt: number;
 }
 
+/** A card's contract as the app and devices read it. */
+export interface CardContract {
+    terms: ContractTerm[];
+    state: ContractState;
+    rounds: number;
+    why: string | null;
+}
+
+export interface ContractTerm {
+    behaviour: string;
+    verify: string;
+}
+
+export type ContractState = "awaited" | "reminded" | "reviewing" | "revising" | "agreed" | "stands" | "skipped";
+
 export type CardStatus = "open" | "progress" | "done";
 
 /** The Jira or Linear ticket the person put a card on the board for. */
@@ -2763,7 +2779,7 @@ export interface CardRun {
  * The step of Auto's own work a card's run is at. Its slice and `held` say
  * what waits on the person and whether the work landed.
  */
-export type RunStage = "starting" | "working" | "shipping" | "checking" | "reviewing" | "fixing" | "merging" | "watching";
+export type RunStage = "starting" | "working" | "contracting" | "shipping" | "checking" | "reviewing" | "fixing" | "merging" | "watching";
 
 /** What the person is needed for once Auto gives a card back to them. */
 export type RunHold = "fix" | "unblock";
@@ -3150,6 +3166,10 @@ export interface BoardSettings {
      * agent on another CLI than its builder's.
      */
     reviewer: ReviewerChoice | null;
+    /** The reviewer builds and uses the change, rather than only reading it. */
+    reviewerRuns: boolean;
+    /** Each builder proposes a contract, reviewed blind, before it builds. */
+    contract: boolean;
     /**
      * Where the project deploys, in the order its slices reach them. None
      * gives slices the usual ladder and holds every deploy for the person.

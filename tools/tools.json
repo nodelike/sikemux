@@ -1991,6 +1991,32 @@
             "minimum": 1
           }
         },
+        "contract": {
+          "description": "Only when Auto's task asks, alone with card: what you will build and how to verify it",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "behaviour": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "verify": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              }
+            },
+            "required": [
+              "behaviour",
+              "verify"
+            ]
+          }
+        },
         "status": {
           "type": "string",
           "enum": [
@@ -2353,10 +2379,79 @@
       "row": {"verb": "review", "kind": "think", "icon": "eye", "target": ["the change"]},
       "method": "review.verdict",
       "offered": "reviewer",
-      "description": "Approve the change you are reviewing, or say what must change.",
+      "description": "Approve the change or contract you are reviewing, or say what must change.",
       "properties": {
         "approve": {
           "type": "boolean"
+        },
+        "criteria": {
+          "description": "For a change: every criterion id you were given, graded",
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 16
+              },
+              "pass": {
+                "type": "boolean"
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 4000
+              },
+              "file": {
+                "description": "Needed on a failure",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              },
+              "line": {
+                "description": "Needed on a failure",
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "id",
+              "pass"
+            ]
+          }
+        },
+        "exercised": {
+          "description": "For a change: what you ran or used, and what you saw",
+          "type": "array",
+          "maxItems": 30,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "what": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              },
+              "saw": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              }
+            },
+            "required": [
+              "what",
+              "saw"
+            ]
+          }
+        },
+        "nothingToRun": {
+          "description": "Why there was nothing to run, when your task says so",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
         },
         "findings": {
           "type": "array",

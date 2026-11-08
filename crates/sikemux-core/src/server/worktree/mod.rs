@@ -17,6 +17,7 @@ mod warm;
 pub(crate) use warm::seed_in_background;
 
 const NAME_TRIES: usize = 50;
+const MAX_STRAYED_FILES: usize = 20;
 
 /// Without a `.worktreeinclude`, the files a project usually keeps out of git
 /// but needs to run.
@@ -397,6 +398,38 @@ pub(crate) fn add_checkout(
         cwd: path.join(inside(project, repo)),
         path,
     })
+}
+
+/// A writable copy of `head` beside a reviewer's read-only checkout, where it
+/// builds and runs the change without being able to alter what it reviews.
+pub(crate) fn add_build_checkout(
+    repo: &Path,
+    project: &Path,
+    head: &str,
+    slug: &str,
+) -> Result<Checkout, String> {
+    let path = worktrees_folder(repo).join(format!("review-{slug}-build"));
+    let target = path.to_string_lossy().into_owned();
+    Git::slow(repo).trimmed(&["worktree", "add", "--detach", &target, head])?;
+    copy_included(repo, &path);
+    seed_in_background(repo, &path);
+    Ok(Checkout {
+        cwd: path.join(inside(project, repo)),
+        path,
+    })
+}
+
+/// How the checkout at `path` strays from `head`, none when what it holds is that commit.
+pub(crate) fn strays_from(path: &Path, head: &str) -> Result<Option<String>, String> {
+    let now = Git::quick(path).trimmed(&["rev-parse", "HEAD"])?;
+    if now != head {
+        return Ok(Some(format!("it is at {now} now")));
+    }
+    let changed = Git::quick(path).trimmed(&["status", "--porcelain", "--untracked-files=no"])?;
+    Ok((!changed.is_empty()).then(|| {
+        let files: Vec<&str> = changed.lines().take(MAX_STRAYED_FILES).collect();
+        format!("these tracked files changed:\n{}", files.join("\n"))
+    }))
 }
 
 /// Gives a reviewer's checkout its write permission back and takes it away.

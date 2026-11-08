@@ -34,6 +34,7 @@ pub(crate) mod auto;
 mod blind;
 pub mod chat_goal;
 mod commands;
+mod contract;
 pub(crate) mod environments;
 mod eta;
 mod failing;
@@ -59,6 +60,7 @@ pub use auto::{
     BoardReviewerParams, BoardSettings, BoardSettingsParams, CardPull, CardRun, Landing,
     ReviewerChoice, RunHold, RunStage,
 };
+pub use contract::{CardContract, ContractState, ContractTerm};
 use environments::Step;
 pub use environments::{BoardProposalParams, Environment, EnvironmentsProposal, Passes, Recognise};
 pub(crate) use failing::ci_ruled;
@@ -190,6 +192,10 @@ struct Card {
     /// oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     arrivals: Vec<arrival::Arrival>,
+    /// What its builder proposed to build and how to verify it, which is
+    /// apart from `acceptance` and can only add to it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    contract: Option<contract::Contract>,
     /// The run Auto gave the card, in a worktree of its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     auto: Option<AutoRun>,
@@ -1384,6 +1390,7 @@ pub struct BoardCard {
     pub title: String,
     pub details: String,
     pub acceptance: String,
+    pub contract: Option<CardContract>,
     pub status: CardStatus,
     pub owner: Option<String>,
     pub owner_name: Option<String>,
@@ -1523,6 +1530,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         title: card.title.clone(),
         details: card.details.clone(),
         acceptance: card.acceptance.clone(),
+        contract: card.contract.as_ref().map(contract::Contract::view),
         status: card.status,
         owner: card.owner_id().map(str::to_owned),
         owner_name: card.owner_name(core),
@@ -1648,6 +1656,9 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if !card.acceptance.is_empty() {
         fields.insert("acceptance".into(), text(&card.acceptance).into());
     }
+    if let Some(contract) = &card.contract {
+        fields.insert("contract".into(), contract.agent_view());
+    }
     if let Some(parent) = card.parent {
         fields.insert("parent".into(), parent.into());
     }
@@ -1750,6 +1761,7 @@ fn new_card(
         trigger: adding.trigger,
         ci: adding.ci.map(|broke| broke.failures).unwrap_or_default(),
         arrivals: Vec::new(),
+        contract: None,
         auto: None,
         record: None,
         from_run: None,
@@ -2456,6 +2468,22 @@ pub(crate) async fn claim(core: &Arc<Core>, request: &HarnessRequest) -> Result<
 pub(crate) async fn update(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent = super::caller::agent_of(request, "board_update")?;
     let id = card_id(request.params.get("card").unwrap_or(&Value::Null), "card")?;
+    if let Some(proposed) = request.params.get("contract").cloned() {
+        if request
+            .params
+            .as_object()
+            .is_some_and(|fields| fields.len() > 2)
+        {
+            return Err("contract goes alone, with only card".into());
+        }
+        let (core, request) = (core.clone(), request.clone());
+        return blocking(move || {
+            let project = super::caller::project_of(&core, &request);
+            contract::propose(&core, &agent, &project, id, &proposed).map_err(Into::into)
+        })
+        .await
+        .map_err(|error| error.to_string());
+    }
     let mut changes = Changes::from_params(&request.params)?;
     let (mut view, notices, shipping) = {
         let (core, request) = (core.clone(), request.clone());
@@ -2748,6 +2776,16 @@ pub(crate) fn agent_card(core: &Core, agent_id: &str) -> Option<Summary> {
     };
     let board = state.boards.get(&project)?;
     Some(board.card(id).ok()?.summary(core, board))
+}
+
+/// Whether the agent reviews a card's contract, about which nobody is asked.
+pub(crate) fn reviews_contract(core: &Core, agent_id: &str) -> bool {
+    core.names.is_blind(agent_id) && {
+        let state = core.boards.state.locked();
+        blind::reviewed_card(&state, agent_id)
+            .and_then(|(_, card)| card.auto.as_ref())
+            .is_some_and(|run| run.stage == RunStage::Contracting)
+    }
 }
 
 /// Whether Auto runs the agent, building a card or reviewing one, so the ends of its turns

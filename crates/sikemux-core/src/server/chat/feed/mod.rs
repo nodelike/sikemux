@@ -828,6 +828,13 @@ impl Feed {
         inner.replay.last_answer()
     }
 
+    pub(crate) fn ran_something(&self) -> bool {
+        let mut inner = self.inner.locked();
+        inner.replay.reload();
+        self.account(&inner);
+        inner.replay.ran_something()
+    }
+
     /// Whether the last turn it holds has not ended.
     pub(crate) fn in_turn(&self) -> bool {
         self.inner.locked().replay.in_turn
