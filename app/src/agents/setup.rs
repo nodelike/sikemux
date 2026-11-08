@@ -52,6 +52,8 @@ pub struct Sheet {
     /// What the shell runs; it exits with the command's code.
     command: String,
     session: Option<SessionId>,
+    /// The core has listed its session, so its leaving the list means it ended.
+    seen: bool,
     phase: Phase,
 }
 
@@ -229,6 +231,7 @@ pub fn installer(kind: &str, label: &str, command: String) -> Sheet {
         shown: command.clone(),
         command: format!("{command}\nexit $?"),
         session: None,
+        seen: false,
         phase: Phase::Running,
     }
 }
@@ -263,6 +266,7 @@ pub fn signing_in(agent: &Found, folder: Option<&str>) -> Option<Sheet> {
         shown,
         command,
         session: None,
+        seen: false,
         phase: Phase::Running,
     })
 }
@@ -356,22 +360,31 @@ fn start(bench: &mut Workbench, sheet: Sheet, cx: &mut Context<Workbench>) {
     redraw(bench, cx);
 }
 
-/// Moves on every sheet whose command ended, as the core's view says.
+/// Moves on every sheet whose command ended, as the core's view says. A session the core has
+/// dropped without saying how it ended counts as stopped, so the sheet never waits forever.
 pub fn settle(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let ended: Vec<(SessionId, Option<u32>)> =
-        bench
-            .this_view()
-            .map_or(&[][..], |view| view.sessions.as_slice())
-            .iter()
-            .filter_map(|session| Some((session.id, session.exit.as_ref()?.code)))
-            .filter(|(id, _)| {
-                let setup = &bench.agent_setup;
-                setup.sheet.iter().chain(setup.behind.iter()).any(|sheet| {
-                    sheet.session == Some(*id) && matches!(sheet.phase, Phase::Running)
-                })
-            })
-            .collect();
-    for (session, code) in ended {
+    let Some(view) = bench.this_view() else {
+        return;
+    };
+    let listed: Vec<(SessionId, Option<Option<u32>>)> = view
+        .sessions
+        .iter()
+        .map(|session| (session.id, session.exit.as_ref().map(|exit| exit.code)))
+        .collect();
+    let setup = &mut bench.agent_setup;
+    let mut over = Vec::new();
+    for sheet in setup.sheet.iter_mut().chain(setup.behind.iter_mut()) {
+        let (Some(session), Phase::Running) = (sheet.session, &sheet.phase) else {
+            continue;
+        };
+        match listed.iter().find(|(id, _)| *id == session) {
+            Some((_, Some(code))) => over.push((session, *code)),
+            Some(_) => sheet.seen = true,
+            None if sheet.seen => over.push((session, None)),
+            None => {}
+        }
+    }
+    for (session, code) in over {
         self::ended(bench, session, code, cx);
     }
 }
@@ -389,6 +402,7 @@ fn ended(
     if code != Some(0) {
         sheet.phase = Phase::Failed(code);
         bench.agent_setup.failed = true;
+        read(bench, cx);
         return redraw(bench, cx);
     }
     sheet.phase = Phase::Checking;
@@ -435,6 +449,7 @@ fn again(bench: &mut Workbench, cx: &mut Context<Workbench>) {
         return;
     };
     sheet.session = None;
+    sheet.seen = false;
     sheet.phase = Phase::Running;
     run(bench, sheet, cx);
 }

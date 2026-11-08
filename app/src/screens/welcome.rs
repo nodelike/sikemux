@@ -1,47 +1,65 @@
-//! The first-run setup over the whole window: an agent that works, then the projects to open.
-//! On a real first run nothing leaves it but finishing, and only finishing counts it done.
+//! The first-run setup over the whole window: an agent that works, the projects to open, then
+//! the first thing to get done. On a real first run nothing leaves it but finishing, and only
+//! finishing counts it done.
 
 use std::path::Path;
+use std::rc::Rc;
 
 use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     actions, div, px, relative, AnyElement, App, AppContext, Context, Div, Entity, FocusHandle,
-    FontWeight, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, MouseButton,
-    MouseDownEvent, ParentElement, PathPromptOptions, ScrollHandle, SharedString, Stateful,
+    Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, MouseButton,
+    MouseDownEvent, ParentElement, PathPromptOptions, Pixels, ScrollHandle, SharedString, Stateful,
     StatefulInteractiveElement, Styled, Subscription, Window, WindowControlArea,
 };
+use sikemux_core::agent_accounts::status::AgentStatus;
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_core::server::project_roots::{ResolveParams, Resolved};
 use sikemux_core::sessions::found_projects::FoundProject;
+use sikemux_view::layout::{At, OpenTab, PaneKind};
+use tokio::sync::oneshot;
 
 use crate::agents::setup::{self, Found};
-use crate::core::Target;
+use crate::chat::composer::Act;
+use crate::chat::SETUP;
+use crate::core::{ChatAsk, Target};
+use crate::icons::Icon;
 use crate::screens::experience::{self, Experience};
-use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, SPACE_3H, TEXT_2XS, TEXT_SM};
+use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_SM};
 use crate::ui;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::Workbench;
-use sikemux_core::agent_accounts::status::AgentStatus;
 
 const TERMINAL_HEIGHT: f32 = 208.;
+const LIST_MOST: f32 = 420.;
+const LIST_LEAST: f32 = 96.;
+/// What the title, field and buttons around a list need, so they stay on the screen.
+const AROUND_AGENTS: f32 = 240.;
+const AROUND_PROJECTS: f32 = 290.;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Stage {
     Agents,
     Projects,
+    Start,
 }
 
 /// A place the keyboard can stand on.
 #[derive(Clone, Copy, PartialEq)]
 enum Stop {
     Row(usize),
+    More,
     Anyway,
     Field,
     Browse,
     Back,
+    Composer,
+    ProjectChip,
+    AgentChip,
+    JustOpen,
 }
 
 struct Candidate {
@@ -49,6 +67,7 @@ struct Candidate {
     path: String,
     shown: String,
     meta: Option<String>,
+    chats: u32,
     ticked: bool,
 }
 
@@ -61,6 +80,7 @@ impl Candidate {
         Self {
             shown: tilde(&project.path, home),
             meta: Some(format!("{chats} · {}", ui::time::ago(project.active_ms))),
+            chats: project.chats,
             name: project.name,
             path: project.path,
             ticked: project.suggested,
@@ -74,6 +94,7 @@ impl Candidate {
                 .map_or_else(|| path.clone(), |name| name.to_string_lossy().into_owned()),
             shown: tilde(&path, home),
             meta: None,
+            chats: 0,
             path,
             ticked: true,
         }
@@ -81,19 +102,24 @@ impl Candidate {
 }
 
 pub struct Welcome {
-    /// Holds the keys whenever the path field or a terminal does not.
+    /// Holds the keys whenever the path field, the composer or a terminal does not.
     root: FocusHandle,
     /// A real first run, which has no way out but finishing.
     required: bool,
     stage: Stage,
     at: Option<Stop>,
     git_missing: bool,
+    more_open: bool,
     rows: Vec<Candidate>,
     looking: bool,
     partial: bool,
     path: Option<Entity<InputState>>,
-    path_error: Option<String>,
+    error: Option<String>,
+    project: Option<String>,
+    agent: Option<String>,
     opening: bool,
+    /// The composer takes the keys on its first frame, before which it cannot be focused.
+    composer_due: bool,
     scroll: ScrollHandle,
     _typing: Option<Subscription>,
 }
@@ -106,12 +132,16 @@ impl Welcome {
             stage: Stage::Agents,
             at: Some(Stop::Row(0)),
             git_missing: false,
+            more_open: false,
             rows: Vec::new(),
             looking: true,
             partial: false,
             path: None,
-            path_error: None,
+            error: None,
+            project: None,
+            agent: None,
             opening: false,
+            composer_due: false,
             scroll: ScrollHandle::new(),
             _typing: None,
         }
@@ -119,6 +149,14 @@ impl Welcome {
 
     fn ticked(&self) -> impl Iterator<Item = &Candidate> {
         self.rows.iter().filter(|row| row.ticked)
+    }
+
+    /// The project the first chat starts in: the one picked while it stays ticked, else the first.
+    fn start_project(&self) -> Option<&Candidate> {
+        let picked = self.project.as_deref();
+        self.ticked()
+            .find(|row| Some(row.path.as_str()) == picked)
+            .or_else(|| self.ticked().next())
     }
 
     /// Ticks the folder chosen by hand, adding it to the top when it was not listed.
@@ -156,8 +194,10 @@ fn welcome_in(bench: &Workbench) -> Option<&Welcome> {
     }
 }
 
+/// Draws the screen again, and the composer, which is a view of its own that follows the bench.
 fn redraw(bench: &Workbench, cx: &mut Context<Workbench>) {
     bench.parts.redraw(&bench.parts.over, cx);
+    cx.notify();
 }
 
 /// Looks for the agents here, the folders their history names, and whether git is.
@@ -203,8 +243,19 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     .detach();
 }
 
-/// Makes the path field once a window can hold it, and keeps the keys in the setup.
+/// Makes the path field and the composer once a window can hold them, and keeps the keys here.
 pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    if welcome_in(bench).is_none() {
+        return;
+    }
+    if bench.chats.setup.is_none() {
+        let composing = bench.new_composing(SETUP, window, cx);
+        composing.draft.update(cx, |draft, cx| {
+            draft.set_placeholder("Fix the flaky checkout test…", window, cx)
+        });
+        bench.chats.setup = Some(composing);
+    }
+    let composer = composer_focus(bench, cx);
     let Some(welcome) = welcome_of(bench) else {
         return;
     };
@@ -218,7 +269,7 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
                 |bench, _, event: &InputEvent, window, cx| match event {
                     InputEvent::Change => {
                         if let Some(welcome) = welcome_of(bench) {
-                            welcome.path_error = None;
+                            welcome.error = None;
                         }
                         redraw(bench, cx);
                     }
@@ -235,8 +286,10 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
         welcome.path = Some(path);
         welcome._typing = Some(typing);
     }
-    if !welcome.root.contains_focused(window, cx) {
-        welcome.root.focus(window, cx);
+    match (std::mem::take(&mut welcome.composer_due), composer) {
+        (true, Some(composer)) => composer.focus(window, cx),
+        _ if !welcome.root.contains_focused(window, cx) => welcome.root.focus(window, cx),
+        _ => {}
     }
 }
 
@@ -252,27 +305,91 @@ pub fn install(cx: &mut App) {
             KeyBinding::new("up", Previous, context),
         ]);
     }
+    let composer = Some("Onboarding > ChatComposer > Input");
+    cx.bind_keys([
+        KeyBinding::new("tab", Next, composer),
+        KeyBinding::new("shift-tab", Previous, composer),
+    ]);
+}
+
+fn found_agents(bench: &Workbench) -> &[Found] {
+    bench.agent_setup.found.as_deref().unwrap_or_default()
+}
+
+fn is_ready(agent: &Found) -> bool {
+    matches!(agent.status, AgentStatus::Ready { .. })
+}
+
+fn usable_agents(bench: &Workbench) -> usize {
+    found_agents(bench)
+        .iter()
+        .filter(|agent| setup::usable(&agent.status))
+        .count()
 }
 
 fn anyway_offered(bench: &Workbench) -> bool {
-    bench.agent_setup.failed && ready_agents(bench) == 0
+    bench.agent_setup.failed && usable_agents(bench) == 0
 }
 
-fn ready_agents(bench: &Workbench) -> usize {
-    bench.agent_setup.found.as_ref().map_or(0, |found| {
-        found
+/// The agents listed, ready ones first and then those with a next step, and how many others
+/// there are. Those stay folded until asked for, unless nothing is ready and they are all there is.
+fn listed_agents<'a>(bench: &'a Workbench, welcome: &Welcome) -> (Vec<&'a Found>, usize) {
+    let found = found_agents(bench);
+    let ready = found.iter().filter(|agent| is_ready(agent));
+    let with_step = found
+        .iter()
+        .filter(|agent| !is_ready(agent) && setup::next_step(bench, agent).is_some());
+    let mut listed: Vec<&Found> = ready.chain(with_step).collect();
+    let rest: Vec<&Found> = found
+        .iter()
+        .filter(|agent| !listed.iter().any(|shown| shown.kind == agent.kind))
+        .collect();
+    let folds = found.iter().any(is_ready);
+    let folded = if folds { rest.len() } else { 0 };
+    if !folds || welcome.more_open {
+        listed.extend(rest);
+    }
+    (listed, folded)
+}
+
+/// The agents the first chat can start on: those ready, or those found when none is.
+fn startable_agents(bench: &Workbench) -> Vec<&Found> {
+    let found = found_agents(bench);
+    let any_ready = found.iter().any(is_ready);
+    found
+        .iter()
+        .filter(|agent| match any_ready {
+            true => is_ready(agent),
+            false => setup::usable(&agent.status),
+        })
+        .filter(|agent| bench.launcher_of_kind(&agent.kind).is_some())
+        .collect()
+}
+
+/// The agent the first chat starts on: the one picked, the one a new chat would use anyway, or
+/// the first that can.
+fn start_agent<'a>(bench: &'a Workbench, welcome: &Welcome) -> Option<&'a Found> {
+    let agents = startable_agents(bench);
+    let picked = welcome.agent.as_deref();
+    let usual = bench.launcher().map(|launcher| launcher.provider.as_str());
+    let of = |kind: Option<&str>| {
+        agents
             .iter()
-            .filter(|agent| setup::usable(&agent.status))
-            .count()
-    })
+            .find(|agent| Some(agent.kind.as_str()) == kind)
+    };
+    of(picked)
+        .or_else(|| of(usual))
+        .or_else(|| agents.first())
+        .copied()
 }
 
 fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
     match welcome.stage {
         Stage::Agents => {
-            let agents = bench.agent_setup.found.as_ref().map_or(0, Vec::len);
-            (0..agents)
+            let (listed, folded) = listed_agents(bench, welcome);
+            (0..listed.len())
                 .map(Stop::Row)
+                .chain((folded > 0).then_some(Stop::More))
                 .chain(anyway_offered(bench).then_some(Stop::Anyway))
                 .collect()
         }
@@ -280,7 +397,19 @@ fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
             .map(Stop::Row)
             .chain([Stop::Field, Stop::Browse, Stop::Back])
             .collect(),
+        Stage::Start if startable_agents(bench).is_empty() => vec![Stop::JustOpen, Stop::Back],
+        Stage::Start => vec![
+            Stop::Composer,
+            Stop::ProjectChip,
+            Stop::AgentChip,
+            Stop::Back,
+            Stop::JustOpen,
+        ],
     }
+}
+
+fn composer_focus(bench: &Workbench, cx: &App) -> Option<FocusHandle> {
+    Some(bench.composing(SETUP)?.draft.read(cx).focus_handle(cx))
 }
 
 fn go(bench: &mut Workbench, stop: Stop, window: &mut Window, cx: &mut Context<Workbench>) {
@@ -290,6 +419,7 @@ fn go(bench: &mut Workbench, stop: Stop, window: &mut Window, cx: &mut Context<W
     welcome.at = Some(stop);
     match (stop, &welcome.path) {
         (Stop::Field, Some(path)) => path.update(cx, |path, cx| path.focus(window, cx)),
+        (Stop::Composer, _) => welcome.composer_due = true,
         _ => welcome.root.focus(window, cx),
     }
     if let Stop::Row(row) = stop {
@@ -302,13 +432,17 @@ fn step(bench: &mut Workbench, forward: bool, window: &mut Window, cx: &mut Cont
     let Some(welcome) = welcome_in(bench) else {
         return;
     };
+    let in_composer = composer_focus(bench, cx).is_some_and(|focus| focus.is_focused(window));
+    let here = if in_composer {
+        Some(Stop::Composer)
+    } else {
+        welcome.at
+    };
     let stops = stops(bench, welcome);
     let Some(last) = stops.len().checked_sub(1) else {
         return;
     };
-    let from = welcome
-        .at
-        .and_then(|at| stops.iter().position(|stop| *stop == at));
+    let from = here.and_then(|at| stops.iter().position(|stop| *stop == at));
     let to = match (from, forward) {
         (None, true) => 0,
         (None, false) => last,
@@ -324,25 +458,39 @@ fn show_stage(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
+    let startable = !startable_agents(bench).is_empty();
     let Some(welcome) = welcome_of(bench) else {
         return;
     };
     welcome.stage = stage;
+    welcome.error = None;
     welcome.scroll = ScrollHandle::new();
-    let first = match (stage, welcome.rows.is_empty()) {
-        (Stage::Projects, true) => Stop::Field,
-        _ => Stop::Row(0),
+    let first = match stage {
+        Stage::Agents => Stop::Row(0),
+        Stage::Projects if welcome.rows.is_empty() => Stop::Field,
+        Stage::Projects => Stop::Row(0),
+        Stage::Start if startable => Stop::Composer,
+        Stage::Start => Stop::JustOpen,
     };
     go(bench, first, window, cx);
+}
+
+fn back(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    match welcome_in(bench).map(|welcome| welcome.stage) {
+        Some(Stage::Projects) => show_stage(bench, Stage::Agents, window, cx),
+        Some(Stage::Start) => show_stage(bench, Stage::Projects, window, cx),
+        _ => {}
+    }
 }
 
 fn run_step(bench: &mut Workbench, row: usize, cx: &mut Context<Workbench>) {
     if bench.agent_setup.busy() {
         return;
     }
-    let next = (bench.agent_setup.found.as_ref())
-        .and_then(|found| found.get(row))
-        .and_then(|agent| setup::next_step(bench, agent));
+    let next = welcome_in(bench).and_then(|welcome| {
+        let (listed, _) = listed_agents(bench, welcome);
+        setup::next_step(bench, listed.get(row)?)
+    });
     if let Some((_, sheet)) = next {
         setup::run(bench, sheet, cx);
     }
@@ -355,25 +503,71 @@ fn toggle(bench: &mut Workbench, row: usize, cx: &mut Context<Workbench>) {
     redraw(bench, cx);
 }
 
-fn primary(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    match welcome_in(bench).map(|welcome| welcome.stage) {
-        Some(Stage::Agents) if ready_agents(bench) > 0 => {
-            show_stage(bench, Stage::Projects, window, cx)
+fn toggle_more(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    if let Some(welcome) = welcome_of(bench) {
+        welcome.more_open = !welcome.more_open;
+    }
+    redraw(bench, cx);
+}
+
+/// Moves a chip on to its next choice, round its end.
+fn cycle(bench: &mut Workbench, stop: Stop, cx: &mut Context<Workbench>) {
+    let Some(welcome) = welcome_in(bench) else {
+        return;
+    };
+    let next = |all: Vec<String>, current: Option<String>| {
+        let at = all.iter().position(|each| Some(each) == current.as_ref());
+        all.get(at.map_or(0, |at| (at + 1) % all.len())).cloned()
+    };
+    if stop == Stop::ProjectChip {
+        let all = welcome.ticked().map(|row| row.path.clone()).collect();
+        let chosen = next(all, welcome.start_project().map(|row| row.path.clone()));
+        if let Some(welcome) = welcome_of(bench) {
+            welcome.project = chosen;
         }
-        Some(Stage::Projects) => finish(bench, window, cx),
+    } else {
+        let all = startable_agents(bench)
+            .iter()
+            .map(|agent| agent.kind.clone())
+            .collect();
+        let chosen = next(
+            all,
+            start_agent(bench, welcome).map(|agent| agent.kind.clone()),
+        );
+        if let Some(welcome) = welcome_of(bench) {
+            welcome.agent = chosen;
+        }
+    }
+    redraw(bench, cx);
+}
+
+fn primary(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    let Some(welcome) = welcome_in(bench) else {
+        return;
+    };
+    match welcome.stage {
+        Stage::Agents if usable_agents(bench) > 0 => show_stage(bench, Stage::Projects, window, cx),
+        Stage::Projects if welcome.ticked().next().is_some() => {
+            show_stage(bench, Stage::Start, window, cx)
+        }
+        Stage::Start if startable_agents(bench).is_empty() => finish(bench, false, window, cx),
+        Stage::Start => finish(bench, true, window, cx),
         _ => {}
     }
 }
 
-/// Space does what a row or button offers; Return presses a button or moves the setup on.
+/// Space does what a row or chip offers; Return presses a button or moves the setup on.
 fn activate(bench: &mut Workbench, space: bool, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(welcome) = welcome_in(bench) else {
         return;
     };
     match (welcome.stage, welcome.at) {
         (_, Some(Stop::Anyway)) => show_stage(bench, Stage::Projects, window, cx),
+        (_, Some(Stop::More)) => toggle_more(bench, cx),
         (_, Some(Stop::Browse)) => browse(window, cx),
-        (_, Some(Stop::Back)) => show_stage(bench, Stage::Agents, window, cx),
+        (_, Some(Stop::Back)) => back(bench, window, cx),
+        (_, Some(Stop::JustOpen)) => finish(bench, false, window, cx),
+        (_, Some(stop @ (Stop::ProjectChip | Stop::AgentChip))) if space => cycle(bench, stop, cx),
         (Stage::Agents, Some(Stop::Row(row))) if space => run_step(bench, row, cx),
         (Stage::Projects, Some(Stop::Row(row))) if space => toggle(bench, row, cx),
         _ if !space => primary(bench, window, cx),
@@ -414,6 +608,7 @@ fn key_down(
 
 fn leave(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     bench.agent_setup.drop_finished();
+    bench.chats.setup = None;
     experience::close(bench, cx);
 }
 
@@ -451,7 +646,7 @@ fn add_typed(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbe
                 Err(error) => Some(format!("Could not check that path: {error}")),
             };
             match (problem, resolved) {
-                (Some(problem), _) => welcome.path_error = Some(problem),
+                (Some(problem), _) => welcome.error = Some(problem),
                 (None, Ok(resolved)) => {
                     welcome.take_folder(resolved.path);
                     if let Some(path) = welcome.path.clone() {
@@ -491,63 +686,99 @@ fn browse(window: &mut Window, cx: &mut Context<Workbench>) {
     .detach();
 }
 
-/// The launcher a new chat should start on: the one it would use anyway when that agent works,
-/// else the first agent that does.
-fn ready_launcher(bench: &Workbench) -> Option<String> {
-    let found = bench.agent_setup.found.as_ref()?;
-    let works = |kind: &str| {
-        found
-            .iter()
-            .any(|agent| agent.kind == kind && setup::usable(&agent.status))
-    };
-    bench
-        .launcher()
-        .filter(|launcher| works(&launcher.provider))
-        .or_else(|| {
-            found
-                .iter()
-                .filter(|agent| setup::usable(&agent.status))
-                .find_map(|agent| bench.launcher_of_kind(&agent.kind))
-        })
-        .map(|launcher| launcher.id.clone())
+/// The composer's Return, or its Start.
+pub fn send(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
+    finish(bench, true, window, cx);
 }
 
-/// Adds what is ticked, counts the setup done and opens a chat in the first project added.
-fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    let Some(welcome) = welcome_of(bench) else {
+fn failed(bench: &mut Workbench, why: &str, cx: &mut Context<Workbench>) {
+    if let Some(welcome) = welcome_of(bench) {
+        welcome.opening = false;
+        welcome.error = Some(why.to_owned());
+    }
+    redraw(bench, cx);
+}
+
+/// Adds what is ticked and counts the setup done, then with `start` sends what was written to a
+/// new chat on the agent and in the project the chips name.
+fn finish(bench: &mut Workbench, start: bool, window: &mut Window, cx: &mut Context<Workbench>) {
+    let Some(welcome) = welcome_in(bench) else {
         return;
     };
+    let launcher = start_agent(bench, welcome)
+        .and_then(|agent| bench.launcher_of_kind(&agent.kind))
+        .map(|launcher| launcher.id.clone());
+    let written = bench.composing(SETUP).map(|setup| {
+        (
+            setup.draft.read(cx).value().trim().to_owned(),
+            setup.outgoing(cx),
+        )
+    });
+    let chosen = welcome.start_project().map(|row| row.path.clone());
     let paths: Vec<String> = welcome.ticked().map(|row| row.path.clone()).collect();
     if welcome.opening || paths.is_empty() {
         return;
     }
-    welcome.opening = true;
+    let prompt = match (start, launcher, written) {
+        (false, ..) => None,
+        (true, Some(launcher), Some((text, outgoing))) if !text.is_empty() => {
+            Some((launcher, text, outgoing))
+        }
+        (true, ..) => return,
+    };
     let adding: Vec<_> = paths
         .iter()
-        .map(|path| bench.add_project(path, cx))
+        .map(|path| (path.clone(), bench.add_project(path, cx)))
         .collect();
+    if let Some(welcome) = welcome_of(bench) {
+        welcome.opening = true;
+        welcome.error = None;
+    }
     redraw(bench, cx);
+    let here = Target::here(&bench.asks);
     cx.spawn_in(window, async move |bench, cx| {
         let mut first = None;
-        for added in adding {
+        let mut picked = None;
+        for (path, added) in adding {
             let added = added.await;
+            if Some(&path) == chosen.as_ref() {
+                picked = added.clone();
+            }
             first = first.or(added);
         }
-        let _ = bench.update_in(cx, |bench, window, cx| {
-            let Some(project) = first else {
-                if let Some(welcome) = welcome_of(bench) {
-                    welcome.opening = false;
-                }
-                return redraw(bench, cx);
+        let Some(project) = picked.or(first) else {
+            let _ = bench.update(cx, |bench, cx| {
+                failed(bench, "None of those folders would open as a project", cx)
+            });
+            return;
+        };
+        let mut chat = None;
+        if let Some((launcher, text, outgoing)) = prompt {
+            let (started, agent) = oneshot::channel();
+            here.start_chat(launcher, project.clone(), None, Some(started));
+            let Ok(agent) = agent.await else {
+                let _ = bench.update(cx, |bench, cx| failed(bench, "The agent did not start", cx));
+                return;
             };
-            let launcher = ready_launcher(bench);
-            let any_ready = ready_agents(bench) > 0;
+            chat = Some((agent, text, outgoing));
+        }
+        let _ = bench.update(cx, |bench, cx| {
             leave(bench, cx);
+            bench.show_workbench(cx);
             bench.activate_project(&project);
-            match launcher {
-                Some(launcher) => bench.target().start_chat(launcher, project, None, None),
-                None if any_ready => bench.start_chat_in(&project, window, cx),
-                None => {}
+            if let Some((agent, text, (paths, context))) = chat {
+                bench.open_here(OpenTab::new(
+                    At::project(&project),
+                    PaneKind::Agent,
+                    agent.clone(),
+                ));
+                bench.ask_chat(ChatAsk::Prompt {
+                    agent,
+                    text,
+                    paths,
+                    context,
+                    attach: false,
+                });
             }
         });
     })
@@ -558,58 +789,76 @@ fn keep_press(_: &MouseDownEvent, _: &mut Window, cx: &mut App) {
     cx.stop_propagation();
 }
 
-fn stages_bar(stage: Stage, t: &Tokens) -> Div {
+/// The column the setup's name, its steps and the sky stand in.
+fn side(stage: Stage, cx: &App) -> Div {
+    let t = Tokens::get(cx).clone();
     let at = match stage {
         Stage::Agents => 0,
         Stage::Projects => 1,
+        Stage::Start => 2,
     };
     div()
+        .relative()
         .flex_none()
-        .h(px(38.))
-        .flex()
-        .items_center()
-        .justify_center()
-        .gap(SPACE_2)
-        .text_size(theme::ui_text(TEXT_2XS))
-        .children(
-            ["Agents", "Projects", "Start"]
-                .into_iter()
-                .enumerate()
-                .map(|(index, name)| {
+        .w(relative(0.38))
+        .min_w(px(340.))
+        .max_w(px(460.))
+        .h_full()
+        .overflow_hidden()
+        .border_r_1()
+        .border_color(t.border)
+        .child(ui::grain::rising(cx).absolute().inset_0().size_full())
+        .child(
+            div()
+                .relative()
+                .pt(px(58.))
+                .px(px(28.))
+                .flex()
+                .flex_col()
+                .child(ui::icon(Icon::Logo, 34.).ml(px(-8.)).text_color(t.accent))
+                .child(
                     div()
-                        .flex()
-                        .items_center()
-                        .gap(SPACE_2)
-                        .when(index > 0, |step| {
-                            step.child(div().w(px(22.)).h(px(1.)).bg(t.border))
-                        })
-                        .child(
-                            div()
-                                .text_color(match index {
-                                    index if index == at => t.text_primary,
-                                    index if index < at => t.text_secondary,
-                                    _ => t.text_tertiary,
-                                })
-                                .when(index == at, |name| name.font_weight(FontWeight::MEDIUM))
-                                .child(name),
-                        )
-                }),
+                        .mt(px(12.))
+                        .mb(px(20.))
+                        .text_size(theme::ui_text(44.))
+                        .font_weight(FontWeight::BOLD)
+                        .letter_spacing(-0.05)
+                        .line_height(relative(1.05))
+                        .text_color(t.text_primary)
+                        .child("Welcome to")
+                        .child(div().text_color(t.accent).child("Sikemux")),
+                )
+                .children(["Agents", "Projects", "Start"].into_iter().enumerate().map(
+                    |(index, name)| {
+                        div()
+                            .py(px(3.))
+                            .text_size(theme::ui_text(TEXT_SM))
+                            .map(|step| match index == at {
+                                true => step
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(t.text_primary),
+                                false => step.text_color(t.text_tertiary),
+                            })
+                            .child(format!("{}  {name}", index + 1))
+                    },
+                )),
         )
 }
 
-fn heading(title: &'static str, sub: &'static str, t: &Tokens) -> [Div; 2] {
+fn heading(title: &'static str, sub: String, t: &Tokens) -> [Div; 2] {
     [
         div()
             .flex_none()
             .text_size(theme::ui_text(24.))
             .font_weight(FontWeight::BOLD)
-            .letter_spacing(-0.02)
+            .letter_spacing(-0.025)
+            .line_height(relative(1.12))
             .text_color(t.text_primary)
             .child(title),
         div()
             .flex_none()
-            .mt(px(5.))
-            .mb(px(16.))
+            .mt(px(6.))
+            .mb(px(18.))
             .text_size(theme::ui_text(TEXT_SM))
             .text_color(t.text_secondary)
             .child(sub),
@@ -620,12 +869,11 @@ fn row(id: String, lit: bool, last: bool, t: &Tokens) -> Stateful<Div> {
     div()
         .id(SharedString::from(id))
         .flex_none()
-        .min_h(px(44.))
+        .h(px(42.))
         .flex()
         .items_center()
         .gap(px(10.))
         .px(px(11.))
-        .py(px(8.))
         .when(!last, |row| row.border_b_1().border_color(t.border))
         .map(|row| match lit {
             true => row.bg(t.surface_chosen),
@@ -637,7 +885,7 @@ fn row(id: String, lit: bool, last: bool, t: &Tokens) -> Stateful<Div> {
 fn note_row(note: AnyElement, t: &Tokens) -> AnyElement {
     div()
         .flex_none()
-        .min_h(px(44.))
+        .h(px(42.))
         .flex()
         .items_center()
         .px(px(11.))
@@ -647,15 +895,21 @@ fn note_row(note: AnyElement, t: &Tokens) -> AnyElement {
         .into_any_element()
 }
 
+fn list_height(window: &Window, around: f32) -> Pixels {
+    (window.viewport_size().height - px(around))
+        .min(px(LIST_MOST))
+        .max(px(LIST_LEAST))
+}
+
 fn listing(
     scroll: &ScrollHandle,
     rows: Vec<AnyElement>,
+    height: Pixels,
     under: Option<AnyElement>,
     t: &Tokens,
 ) -> Div {
     div()
-        .min_h_0()
-        .flex_shrink(1.)
+        .flex_none()
         .flex()
         .flex_col()
         .overflow_hidden()
@@ -667,8 +921,7 @@ fn listing(
             div()
                 .id("welcome-rows")
                 .track_scroll(scroll)
-                .min_h_0()
-                .flex_shrink(1.)
+                .max_h(height)
                 .flex()
                 .flex_col()
                 .overflow_y_scroll()
@@ -719,21 +972,18 @@ fn agent_row(
     })
     .child(ui::mark(&agent.kind, 18.))
     .child(
-        div()
+        ui::text(agent.label.clone(), TEXT_SM, FontWeight::MEDIUM)
             .flex_1()
             .min_w_0()
-            .flex()
-            .flex_col()
-            .child(
-                ui::text(agent.label.clone(), TEXT_SM, FontWeight::MEDIUM)
-                    .text_color(t.text_primary),
-            )
-            .child(
-                div()
-                    .text_size(theme::ui_text(TEXT_2XS))
-                    .text_color(ink)
-                    .child(status),
-            ),
+            .truncate()
+            .text_color(t.text_primary),
+    )
+    .child(
+        div()
+            .flex_none()
+            .text_size(theme::ui_text(TEXT_2XS))
+            .text_color(ink)
+            .child(status),
     )
     .children(next.map(|(label, sheet)| {
         let this = this.clone();
@@ -791,14 +1041,61 @@ fn stop_button(
         })
 }
 
+/// A way forward that is only words, until it is under the keys or the pointer.
+fn quiet(
+    id: &'static str,
+    label: String,
+    stop: Stop,
+    lit: Option<Stop>,
+    this: &Entity<Workbench>,
+    t: &Tokens,
+) -> Stateful<Div> {
+    let this = this.clone();
+    let ink = t.text_primary;
+    div()
+        .id(id)
+        .flex_none()
+        .cursor_pointer()
+        .text_size(theme::ui_text(TEXT_2XS))
+        .text_color(if lit == Some(stop) {
+            t.text_primary
+        } else {
+            t.text_tertiary
+        })
+        .hover(move |words| words.text_color(ink))
+        .on_mouse_down(MouseButton::Left, keep_press)
+        .on_click(move |_, window, cx| {
+            this.update(cx, |bench, cx| {
+                go(bench, stop, window, cx);
+                activate(bench, false, window, cx);
+            })
+        })
+        .child(label)
+}
+
 fn foot() -> Div {
     div()
         .flex_none()
         .flex()
         .items_center()
         .gap(px(10.))
-        .pt(SPACE_3H)
-        .pb(px(16.))
+        .mt(px(16.))
+}
+
+/// One line that keeps its place, so an error coming and going moves nothing else.
+fn message_line(error: Option<String>, note: Option<&str>, t: &Tokens) -> AnyElement {
+    let line = div()
+        .flex_none()
+        .mt(SPACE_1H)
+        .h(px(14.))
+        .truncate()
+        .text_size(theme::ui_text(TEXT_2XS));
+    match (error, note) {
+        (Some(error), _) => line.text_color(t.danger).child(error),
+        (None, Some(note)) => line.text_color(t.text_tertiary).child(note.to_owned()),
+        _ => line,
+    }
+    .into_any_element()
 }
 
 fn agents_screen(
@@ -806,9 +1103,11 @@ fn agents_screen(
     welcome: &Welcome,
     lit: Option<Stop>,
     this: &Entity<Workbench>,
+    window: &Window,
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
     let t = Tokens::get(cx).clone();
+    let (listed, folded) = listed_agents(bench, welcome);
     let rows: Vec<AnyElement> = match &bench.agent_setup.found {
         None => vec![note_row(
             ui::shimmer::shimmer("welcome-agents-looking", "Looking on your PATH…"),
@@ -818,10 +1117,10 @@ fn agents_screen(
             "None found. Install Claude Code, Codex or another supported CLI.".into_any_element(),
             &t,
         )],
-        Some(found) => found
+        Some(_) => listed
             .iter()
             .enumerate()
-            .map(|(at, agent)| agent_row(bench, agent, at, at + 1 == found.len(), lit, this, cx))
+            .map(|(at, agent)| agent_row(bench, agent, at, at + 1 == listed.len(), lit, this, cx))
             .collect(),
     };
     let terminal = setup::inline(bench, this, px(TERMINAL_HEIGHT), cx).map(|terminal| {
@@ -834,54 +1133,98 @@ fn agents_screen(
             .child(terminal)
             .into_any_element()
     });
-    let ready = ready_agents(bench);
-    let signed_in = bench.agent_setup.found.as_ref().map_or(0, |found| {
-        found
-            .iter()
-            .filter(|agent| matches!(agent.status, AgentStatus::Ready { .. }))
-            .count()
-    });
+    let around = AROUND_AGENTS + terminal.as_ref().map_or(0., |_| TERMINAL_HEIGHT);
+    let ready = found_agents(bench)
+        .iter()
+        .filter(|agent| is_ready(agent))
+        .count();
+    let usable = usable_agents(bench);
     let [title, sub] = heading(
-        "Connect an agent",
-        "You need at least one working agent. Sikemux runs each one's own installer and sign-in.",
+        "Choose who does the work",
+        "One working agent gets you in. Sikemux runs each one's own installer and sign-in."
+            .to_owned(),
         &t,
     );
-    vec![
+    let more = (folded > 0).then(|| {
+        let toggled = this.clone();
+        let words = match welcome.more_open {
+            true => format!("Hide {folded} found on this machine"),
+            false => format!("{folded} more found on this machine"),
+        };
+        quiet("welcome-more", words, Stop::More, lit, this, &t)
+            .mt(SPACE_2)
+            .self_start()
+            .on_click(move |_, window, cx| {
+                toggled.update(cx, |bench, cx| {
+                    go(bench, Stop::More, window, cx);
+                })
+            })
+            .into_any_element()
+    });
+    [
         title.into_any_element(),
         sub.into_any_element(),
-        listing(&welcome.scroll, rows, terminal, &t).into_any_element(),
-        foot()
-            .child(hint(
-                match (signed_in, ready) {
-                    (0, 0) => "Get one agent ready to continue".to_owned(),
-                    (0, found) => format!("{found} found"),
-                    (signed_in, _) => format!("{signed_in} ready"),
-                },
-                &t,
-            ))
-            .child(div().flex_1())
-            .when(anyway_offered(bench), |foot| {
-                foot.child(stop_button(
-                    "welcome-anyway",
-                    "Continue anyway",
-                    Stop::Anyway,
-                    lit,
-                    this,
-                ))
-            })
-            .child(primary_button("Continue", ready > 0, this))
-            .into_any_element(),
+        listing(
+            &welcome.scroll,
+            rows,
+            list_height(window, around),
+            terminal,
+            &t,
+        )
+        .into_any_element(),
     ]
+    .into_iter()
+    .chain(more)
+    .chain([foot()
+        .child(hint(
+            match (ready, usable) {
+                (0, 0) => "Get one agent ready to continue".to_owned(),
+                (ready, _) => format!("{ready} ready"),
+            },
+            &t,
+        ))
+        .child(div().flex_1())
+        .when(anyway_offered(bench), |foot| {
+            foot.child(stop_button(
+                "welcome-anyway",
+                "Continue anyway",
+                Stop::Anyway,
+                lit,
+                this,
+            ))
+        })
+        .child(primary_button("Continue", usable > 0, this))
+        .into_any_element()])
+    .collect()
+}
+
+/// What comes along with what is ticked, as the Projects screen says it.
+fn comes_with_you(welcome: &Welcome) -> String {
+    let projects = welcome.ticked().count();
+    let chats: u32 = welcome.ticked().map(|row| row.chats).sum();
+    let places = match projects {
+        1 => "1 project".to_owned(),
+        projects => format!("{projects} projects"),
+    };
+    match (projects, chats) {
+        (0, _) => "Tick what should come with you.".to_owned(),
+        (1, 0) => "1 project comes with you.".to_owned(),
+        (_, 0) => format!("{places} come with you."),
+        (_, 1) => format!("1 chat across {places} comes with you."),
+        (_, chats) => format!("{chats} chats across {places} come with you."),
+    }
 }
 
 fn projects_screen(
     welcome: &Welcome,
     lit: Option<Stop>,
     this: &Entity<Workbench>,
+    window: &Window,
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
     let t = Tokens::get(cx).clone();
     let count = welcome.rows.len();
+    let name_shared = |name: &str| welcome.rows.iter().filter(|row| row.name == name).count() > 1;
     let mut rows: Vec<AnyElement> = welcome
         .rows
         .iter()
@@ -911,20 +1254,24 @@ fn projects_screen(
                     .flex_1()
                     .min_w_0()
                     .flex()
-                    .flex_col()
+                    .items_baseline()
+                    .gap(SPACE_2)
                     .child(
                         ui::text(candidate.name.clone(), TEXT_SM, FontWeight::MEDIUM)
-                            .truncate()
+                            .flex_none()
                             .text_color(t.text_primary),
                     )
-                    .child(
-                        div()
-                            .truncate()
-                            .font_family(theme::MONO)
-                            .text_size(theme::ui_text(TEXT_2XS))
-                            .text_color(t.text_tertiary)
-                            .child(candidate.shown.clone()),
-                    ),
+                    .when(name_shared(&candidate.name), |line| {
+                        line.child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .font_family(theme::MONO)
+                                .text_size(theme::ui_text(TEXT_2XS))
+                                .text_color(t.text_tertiary)
+                                .child(candidate.shown.clone()),
+                        )
+                    }),
             )
             .children(candidate.meta.clone().map(|meta| {
                 div()
@@ -948,11 +1295,7 @@ fn projects_screen(
         ));
     }
     let ticked = welcome.ticked().count();
-    let [title, sub] = heading(
-        "Add your projects",
-        "Found in your agents' history. Newest first; active ones are ticked.",
-        &t,
-    );
+    let [title, sub] = heading("Bring your projects", comes_with_you(welcome), &t);
     let field = welcome.path.as_ref().map(|path| {
         div()
             .flex_1()
@@ -963,7 +1306,14 @@ fn projects_screen(
     vec![
         title.into_any_element(),
         sub.into_any_element(),
-        listing(&welcome.scroll, rows, None, &t).into_any_element(),
+        listing(
+            &welcome.scroll,
+            rows,
+            list_height(window, AROUND_PROJECTS),
+            None,
+            &t,
+        )
+        .into_any_element(),
         div()
             .flex_none()
             .mt(SPACE_2)
@@ -979,47 +1329,196 @@ fn projects_screen(
                 this,
             ))
             .into_any_element(),
+        message_line(
+            welcome.error.clone(),
+            welcome.partial.then_some(
+                "Only your newest history was read, so some older folders may be missing.",
+            ),
+            &t,
+        ),
+        foot()
+            .child(stop_button("welcome-back", "Back", Stop::Back, lit, this))
+            .child(hint(
+                match ticked {
+                    0 => "Tick or add a project to continue".to_owned(),
+                    ticked => format!("{ticked} selected"),
+                },
+                &t,
+            ))
+            .child(div().flex_1())
+            .child(primary_button("Continue", ticked > 0, this))
+            .into_any_element(),
     ]
-    .into_iter()
-    .chain(welcome.path_error.clone().map(|error| {
-        div()
-            .flex_none()
-            .mt(SPACE_1H)
-            .text_size(theme::ui_text(TEXT_2XS))
-            .text_color(t.danger)
-            .child(error)
-            .into_any_element()
-    }))
-    .chain(welcome.partial.then(|| {
-        hint(
-            "Only your newest history was read, so some older folders may be missing.".to_owned(),
-            &t,
-        )
-        .flex_none()
-        .mt(SPACE_1H)
-        .into_any_element()
-    }))
-    .chain([foot()
-        .child(stop_button("welcome-back", "Back", Stop::Back, lit, this))
-        .child(hint(
-            match ticked {
-                0 => "Tick or add a project to continue".to_owned(),
-                ticked => format!("{ticked} selected"),
-            },
-            &t,
-        ))
-        .child(div().flex_1())
-        .child(primary_button(
-            if welcome.opening {
-                "Opening…"
-            } else {
-                "Open Sikemux"
-            },
-            ticked > 0 && !welcome.opening,
+}
+
+fn start_screen(
+    bench: &Workbench,
+    welcome: &Welcome,
+    lit: Option<Stop>,
+    this: &Entity<Workbench>,
+    cx: &mut Context<Workbench>,
+) -> Vec<AnyElement> {
+    let t = Tokens::get(cx).clone();
+    let composer = (!startable_agents(bench).is_empty())
+        .then(|| bench.composing(SETUP).map(|setup| setup.view.clone()))
+        .flatten();
+    let sub = match composer {
+        Some(_) => "Your agent starts on it the moment you press Return.",
+        None => "No agent is ready yet. You can set one up later in Settings.",
+    };
+    let [title, sub] = heading("What should get done first?", sub.to_owned(), &t);
+    let opening = if welcome.opening {
+        "Opening…"
+    } else {
+        "Just open Sikemux"
+    };
+    let foot = foot().child(stop_button("welcome-back", "Back", Stop::Back, lit, this));
+    let foot = match composer.is_some() {
+        true => foot.child(div().flex_1()).child(quiet(
+            "welcome-just-open",
+            opening.to_owned(),
+            Stop::JustOpen,
+            lit,
             this,
+            &t,
+        )),
+        false => foot.child(div().flex_1()).child(primary_button(
+            "Just open Sikemux",
+            !welcome.opening,
+            this,
+        )),
+    };
+    [title.into_any_element(), sub.into_any_element()]
+        .into_iter()
+        .chain(composer.map(|view| {
+            div()
+                .flex_none()
+                .mx(px(-16.))
+                .mb(px(-16.))
+                .on_mouse_down(MouseButton::Left, keep_press)
+                .child(view)
+                .into_any_element()
+        }))
+        .chain([
+            message_line(welcome.error.clone(), None, &t),
+            foot.into_any_element(),
+        ])
+        .collect()
+}
+
+/// A chip under the first task's text, grey-lifted while the keys stand on it.
+#[allow(clippy::too_many_arguments)]
+fn chip(
+    id: &'static str,
+    lit: bool,
+    lead: Option<AnyElement>,
+    shown: String,
+    picks: Vec<ui::Pick>,
+    chosen: Option<SharedString>,
+    on_pick: impl Fn(&mut Welcome, &str) + 'static,
+    this: &Entity<Workbench>,
+    t: &Tokens,
+    cx: &App,
+) -> Div {
+    let this = this.clone();
+    div()
+        .min_w_0()
+        .rounded(theme::RADIUS_2)
+        .when(lit, |chip| chip.bg(t.surface_chosen))
+        .child(ui::select_led(
+            id,
+            lead,
+            shown,
+            picks,
+            chosen,
+            false,
+            move |key, _, cx| {
+                this.update(cx, |bench, cx| {
+                    if let Some(welcome) = welcome_of(bench) {
+                        on_pick(welcome, key);
+                    }
+                    redraw(bench, cx);
+                })
+            },
+            cx,
         ))
-        .into_any_element()])
-    .collect()
+}
+
+/// The chat's own composer, starting on the agent and in the project its chips name.
+pub fn composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> AnyElement {
+    let this = cx.entity();
+    let t = Tokens::get(cx).clone();
+    let Some(welcome) = welcome_in(bench) else {
+        return div().into_any_element();
+    };
+    let agent = start_agent(bench, welcome);
+    let (provider, label) = agent.map_or((String::new(), String::new()), |agent| {
+        (agent.kind.clone(), agent.label.clone())
+    });
+    let projects: Vec<ui::Pick> = welcome
+        .ticked()
+        .map(|row| ui::Pick::new(row.path.clone(), row.name.clone()))
+        .collect();
+    let agents: Vec<ui::Pick> = startable_agents(bench)
+        .iter()
+        .map(|agent| ui::Pick::new(agent.kind.clone(), agent.label.clone()))
+        .collect();
+    let project = welcome.start_project();
+    let project_chip = chip(
+        "welcome-project-chip",
+        welcome.at == Some(Stop::ProjectChip),
+        None,
+        project.map_or_else(String::new, |row| row.name.clone()),
+        projects,
+        project.map(|row| row.path.clone().into()),
+        |welcome, key| welcome.project = Some(key.to_owned()),
+        &this,
+        &t,
+        cx,
+    );
+    let agent_chip = chip(
+        "welcome-agent-chip",
+        welcome.at == Some(Stop::AgentChip),
+        Some(ui::mark(&provider, 13.).into_any_element()),
+        label.clone(),
+        agents,
+        Some(provider.clone().into()),
+        |welcome, key| welcome.agent = Some(key.to_owned()),
+        &this,
+        &t,
+        cx,
+    );
+    let opening = welcome.opening;
+    let on_send: Act = {
+        let this = this.downgrade();
+        Rc::new(move |window, cx| {
+            this.update(cx, |bench, cx| bench.send(SETUP, false, window, cx))
+                .ok();
+        })
+    };
+    let Some((composer, offering)) = crate::chat::drafting(
+        bench,
+        SETUP,
+        &provider,
+        label,
+        (on_send, Rc::new(|_, _| {})),
+        cx,
+    ) else {
+        return div().into_any_element();
+    };
+    let composer = composer
+        .leading(
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap(SPACE_1H)
+                .child(project_chip)
+                .child(agent_chip)
+                .into_any_element(),
+        )
+        .send_label(if opening { "Starting…" } else { "Start" });
+    crate::chat::mounted(SETUP, composer, offering, cx).into_any_element()
 }
 
 pub fn render(
@@ -1038,8 +1537,9 @@ pub fn render(
         .then_some(welcome.at)
         .flatten();
     let screen = match welcome.stage {
-        Stage::Agents => agents_screen(bench, welcome, lit, this, cx),
-        Stage::Projects => projects_screen(welcome, lit, this, cx),
+        Stage::Agents => agents_screen(bench, welcome, lit, this, window, cx),
+        Stage::Projects => projects_screen(welcome, lit, this, window, cx),
+        Stage::Start => start_screen(bench, welcome, lit, this, cx),
     };
     let close = (!welcome.required).then(|| {
         let this = this.clone();
@@ -1054,7 +1554,10 @@ pub fn render(
     });
     let foot_line = (welcome.git_missing || close.is_some()).then(|| {
         div()
-            .flex_none()
+            .absolute()
+            .left_0()
+            .right_0()
+            .bottom_0()
             .flex()
             .items_center()
             .px(px(22.))
@@ -1087,7 +1590,6 @@ pub fn render(
         .absolute()
         .inset_0()
         .flex()
-        .flex_col()
         .overflow_hidden()
         .bg(t.surface_sunken)
         .occlude()
@@ -1096,20 +1598,26 @@ pub fn render(
         .on_key_down(move |event, window, cx| {
             keys.update(cx, |bench, cx| key_down(bench, event, window, cx))
         })
-        .child(stages_bar(welcome.stage, &t))
+        .child(side(welcome.stage, cx))
         .child(
-            div().flex_1().min_h_0().child(
-                div()
-                    .w(px(520.))
-                    .max_w(relative(0.92))
-                    .h_full()
-                    .mx_auto()
-                    .pt(px(22.))
-                    .flex()
-                    .flex_col()
-                    .children(screen),
-            ),
+            div()
+                .relative()
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .items_center()
+                .child(
+                    div()
+                        .w(px(520.))
+                        .max_w(relative(0.9))
+                        .flex()
+                        .flex_col()
+                        .children(screen),
+                )
+                .children(foot_line),
         )
-        .children(foot_line)
         .into_any_element()
 }

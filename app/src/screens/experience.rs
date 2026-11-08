@@ -18,7 +18,7 @@ pub enum Experience {
 impl Experience {
     /// Whether the release sky is behind it, which keeps moving while it is up.
     fn has_sky(&self) -> bool {
-        matches!(self, Experience::WhatsNew(_))
+        !matches!(self, Experience::Diagnostics(_))
     }
 }
 
@@ -57,6 +57,7 @@ pub fn open_welcome(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let required = !bench.preferences().onboarding_complete;
     bench.overlays.experience = Some(Experience::Welcome(welcome::Welcome::new(required, cx)));
     welcome::opened(bench, cx);
+    crate::ui::grain::sky_shown(true, cx);
     redraw(bench, cx);
 }
 

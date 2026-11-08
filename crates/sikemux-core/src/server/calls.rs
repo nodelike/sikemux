@@ -343,6 +343,7 @@ calls! { core, client, method, params;
         blocking(move || Ok(super::project_roots::resolve(params))).await?
     },
     "foundProjects" FoundProjects (NoParams) -> crate::sessions::found_projects::FoundProjects: Full => {
+        workspace::launchers_known(&core).await;
         let accounts = core.workspaces.chat_accounts();
         blocking(move || Ok(crate::sessions::found_projects::found_projects(accounts, sikemux_process::clock::epoch_ms()))).await?
     },

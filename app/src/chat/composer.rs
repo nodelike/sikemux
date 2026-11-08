@@ -96,6 +96,10 @@ pub struct Composer {
     heard: Option<SharedString>,
     /// A control of the composer's owner at the end of the bar, before the mic and send.
     aside: Option<Box<dyn FnOnce(bool) -> AnyElement>>,
+    /// Controls of the composer's owner at the start of the bar, after the attach button.
+    leading: Option<AnyElement>,
+    /// Words on the send button in place of its arrow.
+    send_label: Option<SharedString>,
     /// The chat's text size, as a share of its designed size.
     text_scale: f32,
     /// Stands one line tall until more is written, where it sits under a long list.
@@ -134,11 +138,23 @@ impl Composer {
             dictation: None,
             heard: None,
             aside: None,
+            leading: None,
+            send_label: None,
             text_scale: 1.,
             short: false,
             on_send,
             on_stop,
         }
+    }
+
+    pub fn leading(mut self, leading: AnyElement) -> Self {
+        self.leading = Some(leading);
+        self
+    }
+
+    pub fn send_label(mut self, label: impl Into<SharedString>) -> Self {
+        self.send_label = Some(label.into());
+        self
     }
 
     pub fn short(mut self) -> Self {
@@ -379,18 +395,37 @@ impl RenderOnce for Composer {
                 self.usage
                     .map(|usage| context_meter(usage, self.compactions, &self.provider, cx)),
             )
+            .children(self.leading)
             .child(div().flex_1())
             .children(self.aside.map(|aside| aside(room == Room::Full)))
             .children(self.dictation)
-            .child(send(
-                stopping,
-                drafted,
-                self.running.then_some(self.steers),
-                self.on_send,
-                self.on_stop,
-                job,
-                cx,
-            ));
+            .child(match self.send_label {
+                Some(label) => {
+                    let on_send = self.on_send;
+                    ui::Button::new(
+                        "composer-labelled-send",
+                        label,
+                        if drafted {
+                            ui::Variant::Primary
+                        } else {
+                            ui::Variant::Outline
+                        },
+                    )
+                    .disabled(!drafted)
+                    .on_click(move |_, window, cx| on_send(window, cx))
+                    .into_any_element()
+                }
+                None => send(
+                    stopping,
+                    drafted,
+                    self.running.then_some(self.steers),
+                    self.on_send,
+                    self.on_stop,
+                    job,
+                    cx,
+                )
+                .into_any_element(),
+            });
         let has_strip = self.strip.is_some();
         div()
             .w_full()

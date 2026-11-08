@@ -48,6 +48,21 @@ pub fn select(
     on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
+    select_led(id, None, shown, picks, chosen, disabled, on_pick, cx)
+}
+
+/// [`select`] with `lead` before its words, such as an agent's mark.
+#[allow(clippy::too_many_arguments)]
+pub fn select_led(
+    id: impl Into<SharedString>,
+    lead: Option<AnyElement>,
+    shown: impl Into<SharedString>,
+    picks: Vec<Pick>,
+    chosen: Option<SharedString>,
+    disabled: bool,
+    on_pick: impl Fn(&SharedString, &mut Window, &mut App) + 'static,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let id: SharedString = id.into();
     let shown: SharedString = shown.into();
@@ -70,6 +85,7 @@ pub fn select(
         .when(!disabled, |field| {
             field.hover(move |style| style.border_color(t.border_strong))
         })
+        .children(lead)
         .child(div().truncate().child(shown))
         .child(
             icon(Icon::Chevron, 9.)

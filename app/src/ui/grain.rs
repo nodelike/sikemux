@@ -1,6 +1,6 @@
 //! What the window's renderer paints behind panes and overlays with the shaders in
 //! `assets/shaders`: the moving grain, the person's own picture dithered in its place,
-//! and the sky over the welcome screen and the release notes. The grain and the picture
+//! and the skies over the first-run setup and the release notes. The grain and the picture
 //! are on the window's ground, which macOS keeps in a layer of its own at one pixel per
 //! point, so the grain moves without anything over it drawn again. The sky is over the
 //! shell, so it moves by showing the whole last frame again with the clock moved on.
@@ -32,12 +32,18 @@ macro_rules! program {
 static FIELD: ShaderProgram = program!("field");
 static PICTURE: ShaderProgram = program!("picture");
 static SKY: ShaderProgram = program!("sky");
+static RISING: ShaderProgram = program!("rising");
 
 const FRAMES_PER_SECOND: u64 = 30;
 /// Slower on battery, where every frame is paid for out of the charge.
 const BATTERY_FRAMES_PER_SECOND: u64 = 20;
 const FIELD_SPEED: f32 = 0.5;
 const SKY_SPEED: f32 = 0.35;
+const RISING_OPACITY: f32 = 0.55;
+const RISING_DENSITY: f32 = 0.3;
+/// Where the rising sky starts and is full, from the top, then where it starts and ends thinning
+/// across, each as a share of its column.
+const RISING_REACH: [f32; 4] = [0.42, 1., 0.45, 1.];
 /// Where the clock stands for a person who asked for less motion, so everything holds still.
 const STILL: f32 = 2.5;
 /// High, because the grain's dots are the only paint and nothing is drawn between them.
@@ -395,6 +401,28 @@ pub fn sky(fade_from: f32, opacity: f32, cx: &App) -> impl IntoElement + Styled 
                 slot.copy_from_slice(&[hue.r, hue.g, hue.b, hue.a * opacity]);
             }
             let _ = window.paint_shader(bounds, &SKY, params, None);
+        },
+    )
+}
+
+/// The first-run setup's sky: the accent alone, rising from the bottom and thinning out on its
+/// way up and across.
+pub fn rising(cx: &App) -> impl IntoElement + Styled {
+    let accent = Tokens::get(cx).accent.to_rgb();
+    let (start, speed) = clock(SKY_SPEED, cx);
+    canvas(
+        |_, _, _| {},
+        move |bounds, (), window, _| {
+            let mut params = [0.; gpui::SHADER_PARAMS];
+            params[..4].copy_from_slice(&[start, speed, window.scale_factor(), RISING_DENSITY]);
+            params[4..8].copy_from_slice(&[
+                accent.r,
+                accent.g,
+                accent.b,
+                accent.a * RISING_OPACITY,
+            ]);
+            params[8..12].copy_from_slice(&RISING_REACH);
+            let _ = window.paint_shader(bounds, &RISING, params, None);
         },
     )
 }

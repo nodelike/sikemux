@@ -28,6 +28,8 @@ use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
 /// The composer at the bottom of the goals' Home, which starts work rather than writing to a
 /// chat; every other composer goes by the agent whose chat it writes to.
 pub const START: &str = "goals-start";
+/// The composer on the first-run setup's last screen, whose first message starts the first chat.
+pub const SETUP: &str = "first-run-setup";
 
 /// Puts `text` at the end of the draft after a blank line, keeping what it holds, chips
 /// and all, with the caret after it.
@@ -50,6 +52,7 @@ impl Workbench {
     pub fn composing(&self, owner: &str) -> Option<&Composing> {
         match owner {
             START => self.chats.start.as_ref(),
+            SETUP => self.chats.setup.as_ref(),
             agent => self.chats.open.get(agent)?.composer.as_ref(),
         }
     }
@@ -57,6 +60,7 @@ impl Workbench {
     pub fn composing_mut(&mut self, owner: &str) -> Option<&mut Composing> {
         match owner {
             START => self.chats.start.as_mut(),
+            SETUP => self.chats.setup.as_mut(),
             agent => self.chats.open.get_mut(agent)?.composer.as_mut(),
         }
     }
@@ -287,6 +291,11 @@ impl gpui::Render for ComposerView {
         if self.owner == START {
             return (self.bench)
                 .update(cx, crate::goals::start_composer)
+                .unwrap_or_else(|_| div().into_any_element());
+        }
+        if self.owner == SETUP {
+            return (self.bench)
+                .update(cx, crate::screens::welcome::composer)
                 .unwrap_or_else(|_| div().into_any_element());
         }
         let Some(agent) = self.agent.clone() else {
@@ -958,7 +967,14 @@ impl Workbench {
     ) -> Composing {
         let draft = cx.new(|cx| {
             TextareaState::new(window, cx)
-                .auto_grow(if owner == crate::chat::START { 1 } else { 2 }, 12)
+                .auto_grow(
+                    match owner {
+                        START => 1,
+                        SETUP => 3,
+                        _ => 2,
+                    },
+                    12,
+                )
                 .submit_on_enter(true)
         });
         let secret = cx.new(|cx| {
@@ -981,7 +997,7 @@ impl Workbench {
                     InputEvent::Change => {
                         let empty = draft.read(cx).value().is_empty();
                         if was_empty.replace(empty) != empty {
-                            if !empty && owner != START {
+                            if !empty && owner != START && owner != SETUP {
                                 bench.began_writing(&owner);
                             }
                             cx.notify();
@@ -1029,12 +1045,17 @@ impl Workbench {
         };
         let bench = cx.weak_entity();
         let goals = self.goals.pane.clone().filter(|_| owner == START);
+        let setup = (owner == SETUP).then(|| cx.entity());
         let view = cx.new(|cx| crate::chat::ComposerView {
             bench,
             owner: owner.to_owned(),
             agent: None,
             covered: false,
-            _follows: goals.map(|goals| cx.observe(&goals, |_, _, cx| cx.notify())),
+            _follows: match (goals, setup) {
+                (Some(goals), _) => Some(cx.observe(&goals, |_, _, cx| cx.notify())),
+                (None, Some(setup)) => Some(cx.observe(&setup, |_, _, cx| cx.notify())),
+                (None, None) => None,
+            },
         });
         Composing {
             draft,
@@ -1227,6 +1248,9 @@ impl Workbench {
         }
         if agent == START {
             return self.start_from_home(window, cx);
+        }
+        if agent == SETUP {
+            return crate::screens::welcome::send(self, window, cx);
         }
         let preparing = self
             .chats

@@ -1,15 +1,15 @@
 ---
 title: First launch
-description: "The two-step setup: a working agent, then your projects."
+description: "The three-step setup: a working agent, your projects, and the first thing to get done."
 ---
 
-The first time Sikemux opens it walks you through a short setup: **Agents**, **Projects**, then **Start**. Both steps have to be met before the app opens, and quitting midway brings the setup back next launch.
+The first time Sikemux opens it walks you through a short setup: **Agents**, **Projects**, then **Start**. The steps are required, and quitting midway brings the setup back next launch.
 
 Tab and the arrows move between rows, Space ticks a project or runs an agent's action, and Return continues. If `git` is not installed, the setup says so, since the Git view needs it.
 
 ## Agents
 
-Sikemux lists the coding agents it can set up and whether each is ready:
+Sikemux lists the agents that are ready first, then those with something to do. Any others it found fold under **N more found on this machine**.
 
 - **Ready**: installed and signed in.
 - **Signed out**: installed, but its CLI has no sign-in yet. **Sign in** runs the agent's own sign-in.
@@ -26,8 +26,12 @@ See [Supported agents](/agents/supported/) for the list.
 
 Sikemux offers the folders your agents have worked in, read from their saved chats. Repositories come first, newest activity on top, with clones of one remote side by side and folders outside git last. A repository with at least three chats in the last 30 days starts ticked. Folders that no longer exist, linked worktrees, temporary folders and anything under `Downloads` are left out.
 
-To add a folder that isn't listed, use **Add folder…**, or type or paste its path (`~` works) and press Return.
+To add a folder that isn't listed, use **Add folder…**, or type or paste its path (`~` works) and press Return. At least one project has to be ticked to continue.
 
-**Open Sikemux** adds what's ticked and starts a chat in the first project, on an agent that's ready.
+## Start
+
+Say what should get done first, pick the project and the agent from the chips, and press Return or **Start**. Sikemux adds your projects and opens a chat in that project with your message sent.
+
+**Just open Sikemux** adds your projects without starting a chat. If no agent is ready because setup failed, it is the only way forward.
 
 You can look at the setup again from the command deck (`⌘⇧P`, then **Show welcome**) or from **Settings → About**. Once you've finished it the first time, `esc` closes it.
