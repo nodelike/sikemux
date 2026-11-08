@@ -605,6 +605,14 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                     {
                         0
                     }
+                    RunStage::Reviewing
+                        if run
+                            .reviewer
+                            .as_ref()
+                            .is_some_and(|reviewer| reviewer.waiting_since.is_some()) =>
+                    {
+                        continue;
+                    }
                     RunStage::Working | RunStage::Fixing if run.recovery.due.is_some() => {
                         match run.recovery.due {
                             Some(at) if at <= now => {
@@ -627,13 +635,16 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                         };
                         if running.contains(watched) {
                             if board.settings.recover
-                                && matches!(run.stage, RunStage::Working | RunStage::Fixing)
+                                && matches!(
+                                    run.stage,
+                                    RunStage::Working | RunStage::Fixing | RunStage::Reviewing
+                                )
                             {
                                 watched_turns.push((
                                     key.0.clone(),
                                     key.1,
                                     run.stage,
-                                    run.agent.clone(),
+                                    watched.clone(),
                                 ));
                             }
                             present.push(key);
@@ -679,6 +690,11 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
     }
     if checking_any {
         ci::start(core);
+    }
+    for (project, id) in blind::admit(core) {
+        step(core, project, id, None, |core, step| async move {
+            blind::take_place(&core, step).await;
+        });
     }
     for (project, id, stage) in due {
         match stage {

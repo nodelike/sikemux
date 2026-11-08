@@ -12,13 +12,14 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 
 use super::auto::{RunHold, RunStage};
 use super::contract;
 use super::finish::{self, change_run, Step};
 use super::review::MAX_ROUNDS;
-use super::{git, Card, State};
+use super::{git, recover, Card, State};
 use crate::cli::protocol::{REVIEWER_OFFER, TOOLS_OFFER_ENV};
 use crate::server::connection::blocking;
 use crate::server::harness::RunSelector;
@@ -36,6 +37,11 @@ const MAX_EXERCISED: usize = 30;
 const MAX_ACCEPTANCE_LINES: usize = 40;
 const REVIEW_PORTS: usize = 3;
 const CARD_CRITERION: &str = "CARD";
+const CORES_PER_BUILDING_REVIEWER: usize = 4;
+const MIN_BUILDING: usize = 2;
+const MAX_BUILDING: usize = 8;
+const STARTING: &str = "Starting an agent on another CLI to review it";
+const WAITING_FOR_PLACE: &str = "Waiting for a reviewer's place; it starts when one frees up";
 /// File endings nothing runs. The rest are taken to run, so a reviewer of one must use it.
 const NOTHING_RUNS: &[&str] = &[
     "md", "mdx", "markdown", "rst", "adoc", "txt", "png", "jpg", "jpeg", "gif", "webp", "ico",
@@ -80,6 +86,10 @@ pub(crate) struct Reviewer {
     pub running: Running,
     #[serde(default)]
     pub criteria: Vec<Criterion>,
+    /// Since when it has waited for a place among the reviewers that build. It has no agent or
+    /// folders until it gets one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_since: Option<u64>,
 }
 
 impl Reviewer {
@@ -92,6 +102,7 @@ impl Reviewer {
             build: String::new(),
             running: Running::Off,
             criteria: Vec::new(),
+            waiting_since: None,
         }
     }
 }
@@ -192,7 +203,7 @@ impl Verdict {
 /// How a reviewer is seated: on the finished change, or on its builder's contract.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Mode {
-    Change,
+    Change(Running),
     Contract,
 }
 
@@ -370,29 +381,116 @@ fn task(brief: Brief) -> String {
 /// Has a reviewer look at `head` before it merges. With no agent on another
 /// CLI to start, the pull request waits for the person.
 pub(super) async fn begin(core: &Arc<Core>, step: &Step, head: &str) {
+    let running = {
+        let (step, head) = (step.clone(), head.to_owned());
+        blocking(move || what_runs(&step, &head).map_err(Into::into)).await
+    };
+    let running = match running {
+        Ok(running) => running,
+        Err(error) => {
+            return step.hold(
+                core,
+                RunHold::Unblock,
+                format!("Its reviewer did not start: {error}"),
+            );
+        }
+    };
     let agent = crate::server::names::new_agent_id();
+    let waits = running == Running::Required;
     let placed = change_run(core, &step.project, step.id, step.agent(), |_, run| {
         run.stage = RunStage::Reviewing;
         run.verdict = None;
-        run.note = Some("Starting an agent on another CLI to review it".to_owned());
-        run.reviewer = Some(Reviewer::seated(&agent, head, &run.repo));
+        run.note = Some(if waits { WAITING_FOR_PLACE } else { STARTING }.to_owned());
+        let mut reviewer = Reviewer::seated(&agent, head, &run.repo);
+        reviewer.running = running;
+        reviewer.waiting_since = waits.then(epoch_ms);
+        run.reviewer = Some(reviewer);
     });
-    if !placed {
-        return;
+    if placed && !waits {
+        seat(core, step, &agent, head, running).await;
     }
-    match start(core, step, &agent, head, Mode::Change).await {
+}
+
+/// How many reviewers may build at once on this machine, across projects.
+fn most_building() -> usize {
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    (cores / CORES_PER_BUILDING_REVIEWER).clamp(MIN_BUILDING, MAX_BUILDING)
+}
+
+/// The waiting reviews a place has come up for, longest-waiting first, taken off the wait. A
+/// reviewer blocked on the person holds no place, as it builds nothing until they answer.
+pub(super) fn admit(core: &Core) -> Vec<(String, u64)> {
+    let mut state = core.boards.state.locked();
+    let mut waiting = Vec::new();
+    let mut building = 0;
+    for (project, board) in &state.boards {
+        for card in &board.cards {
+            let Some(run) = card.run().filter(|run| run.verdict.is_none()) else {
+                continue;
+            };
+            let Some(reviewer) = &run.reviewer else {
+                continue;
+            };
+            match reviewer.waiting_since {
+                Some(since) if !state.busy(project, card.id) => {
+                    waiting.push((since, project.clone(), card.id));
+                }
+                None if reviewer.running == Running::Required
+                    && !core.harness.questions.blocks_on_person(&reviewer.agent) =>
+                {
+                    building += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    waiting.sort_unstable();
+    waiting.truncate(most_building().saturating_sub(building));
+    let mut admitted = Vec::with_capacity(waiting.len());
+    for (_, project, id) in waiting {
+        let run = (state.boards.get_mut(&project))
+            .and_then(|board| board.card_mut(id).ok())
+            .and_then(|card| card.auto.as_mut());
+        if let Some(run) = run {
+            if let Some(reviewer) = run.reviewer.as_mut() {
+                reviewer.waiting_since = None;
+            }
+            run.note = Some(STARTING.to_owned());
+        }
+        core.boards.save(&mut state, &project);
+        admitted.push((project, id));
+    }
+    admitted
+}
+
+/// Starts a review whose place came up.
+pub(super) async fn take_place(core: &Arc<Core>, step: Step) {
+    if let Some(reviewer) = step.run.reviewer.clone() {
+        seat(
+            core,
+            &step,
+            &reviewer.agent,
+            &reviewer.head,
+            reviewer.running,
+        )
+        .await;
+    }
+}
+
+async fn seat(core: &Arc<Core>, step: &Step, agent: &str, head: &str, running: Running) {
+    match start(core, step, agent, head, Mode::Change(running)).await {
         Ok(true) => {}
         Ok(false) => unseat(
             core,
             step,
-            &agent,
+            agent,
             None,
             "No signed-in agent on another CLI than its own can review it, so its pull request waits for you".to_owned(),
         ),
         Err(why) => unseat(
             core,
             step,
-            &agent,
+            agent,
             Some(RunHold::Unblock),
             format!("Its reviewer did not start: {why}"),
         ),
@@ -438,32 +536,42 @@ impl Prepared {
     }
 }
 
-fn prepare(step: &Step, head: &str, slug: &str, mode: Mode) -> Result<Prepared, String> {
-    let (repo, project) = (Path::new(&step.run.repo), Path::new(&step.project));
-    if mode == Mode::Contract {
-        let checkout = worktree::add_checkout(repo, project, head, slug)?;
-        let task = contract::task(&step.card, &checkout.cwd);
-        return Ok(Prepared {
-            checkout,
-            build: None,
-            running: Running::Off,
-            criteria: Vec::new(),
-            task,
-        });
+fn compared_from(step: &Step, head: &str) -> String {
+    git::fork_point(Path::new(&step.run.repo), &step.run.base, head)
+        .unwrap_or_else(|_| step.run.start_sha.clone())
+}
+
+fn what_runs(step: &Step, head: &str) -> Result<Running, String> {
+    if !step.settings.reviewer_runs {
+        return Ok(Running::Off);
     }
-    let from =
-        git::fork_point(repo, &step.run.base, head).unwrap_or_else(|_| step.run.start_sha.clone());
-    let (diff, cut) = git::diff(repo, &from, head, MAX_DIFF_BYTES)?;
-    let running = if !step.settings.reviewer_runs {
-        Running::Off
-    } else if git::changed_paths(repo, &from, head)?
-        .iter()
-        .all(|path| runs_nothing(path))
-    {
+    let from = compared_from(step, head);
+    let changed = git::changed_paths(Path::new(&step.run.repo), &from, head)?;
+    Ok(if changed.iter().all(|path| runs_nothing(path)) {
         Running::NothingToRun
     } else {
         Running::Required
+    })
+}
+
+fn prepare(step: &Step, head: &str, slug: &str, mode: Mode) -> Result<Prepared, String> {
+    let (repo, project) = (Path::new(&step.run.repo), Path::new(&step.project));
+    let running = match mode {
+        Mode::Change(running) => running,
+        Mode::Contract => {
+            let checkout = worktree::add_checkout(repo, project, head, slug)?;
+            let task = contract::task(&step.card, &checkout.cwd);
+            return Ok(Prepared {
+                checkout,
+                build: None,
+                running: Running::Off,
+                criteria: Vec::new(),
+                task,
+            });
+        }
     };
+    let from = compared_from(step, head);
+    let (diff, cut) = git::diff(repo, &from, head, MAX_DIFF_BYTES)?;
     let checkout = worktree::add_checkout(repo, project, head, slug)?;
     let build = if running == Running::Required {
         match worktree::add_build_checkout(repo, project, head, slug) {
@@ -593,7 +701,7 @@ pub(super) async fn start(
     let cli = launch.provider.clone();
     change_run(core, &step.project, step.id, step.agent(), |_, run| {
         run.note = Some(match mode {
-            Mode::Change => format!("{name}, on {cli}, reviews it blind"),
+            Mode::Change(_) => format!("{name}, on {cli}, reviews it blind"),
             Mode::Contract => format!("{name}, on {cli}, reviews its contract blind"),
         });
     });
@@ -621,6 +729,17 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
     };
     let Some(verdict) = step.run.verdict.clone() else {
         if let Some(reviewer) = &step.run.reviewer {
+            if recover::hangs_at(core, &reviewer.agent).is_some_and(|at| at <= epoch_ms()) {
+                let name = core
+                    .names
+                    .name(&reviewer.agent)
+                    .unwrap_or_else(|| "Its reviewer".to_owned());
+                let why = format!(
+                    "{name} said nothing for {} minutes in the middle of its review",
+                    recover::HUNG_AFTER_MS / 60_000
+                );
+                return step.hold(core, RunHold::Unblock, why);
+            }
             if core.running_agents().contains(&reviewer.agent) {
                 return;
             }
@@ -747,7 +866,7 @@ pub(super) fn record(core: &Core, agent_id: &str, params: &Value) -> Result<Valu
         )
     });
     run.verdict = Some(verdict);
-    card.updated_at = sikemux_process::clock::epoch_ms();
+    card.updated_at = epoch_ms();
     let project = project.clone();
     core.boards.save(&mut state, &project);
     drop(state);
