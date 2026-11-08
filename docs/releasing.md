@@ -46,6 +46,13 @@ To turn on the AUR's update, sign in to an account on aur.archlinux.org, add the
 
 Run `scripts/release.sh` locally without `--publish` to preview a release: it runs the same steps in order, building, signing and verifying everything without touching GitHub. The build steps never see the signing material in their environment, but they run on a Mac whose keychain holds the Developer ID, so only the workflow keeps the two apart.
 
+## Omarchy
+
+Omarchy installs Sikemux from its own package repository, pkgs.omarchy.org, not from the AUR. `packaging/omarchy/` holds the two upstream changes that put it there, made once and submitted in this order:
+
+1. `omarchy-pkgs/pkgbuilds/sikemux-bin/`, a pull request to omacom/omarchy-pkgs. It is `packaging/arch/PKGBUILD` made to that repository's rules: the tarball's checksum is pinned, the tarball is unpacked with `bsdtar --no-same-owner` so every file is root-owned, and `.omarchy/package.json` watches this repository's GitHub releases for stable `vX.Y.Z` tags. Set `pkgver` to a stable release that carries the tarball and run `updpkgsums` before submitting; the all-zero checksum stands in until then. Once it merges, their bot opens a pull request for each stable release and merges it when it builds, so a release needs nothing from us. Its `sikemux.sysusers` and `sikemux.tmpfiles` are copies of `packaging/arch/`'s: a change to either goes to omarchy-pkgs as a pull request with `pkgrel` bumped.
+2. `omarchy/0001-Add-Sikemux-to-Install-AI.patch`, a pull request to omacom/omarchy once `sikemux-bin` is listed on pkgs.omarchy.org. It adds Sikemux to _Install > AI_ and _Remove > AI_, its mark to the Omarchy icon font, and `omarchy-remove-ai-sikemux`, which stops the core and its user service before dropping the package. That script names the service, `~/.local/share/com.nodelike.sikemux`, `~/.config/sikemux` and `/var/lib/sikemux/<uid>`, so moving any of them means a pull request there too. The install row is hidden off x86 until there is an aarch64 desktop build.
+
 ## Community releases without an Apple Developer membership
 
 The updater and Apple Gatekeeper trust different signatures. By default, `scripts/release.sh` makes a community release. It signs the updater archive with the Tauri updater key and applies an ad hoc code signature to the app and DMG.
