@@ -120,7 +120,7 @@ fn fact(name: &'static str, value: AnyElement, cx: &mut Context<BoardPane>) -> A
         .flex()
         .items_center()
         .gap(SPACE_2H)
-        .child(ui::caps(name, cx).w(px(64.)).flex_none())
+        .child(ui::caps(name, cx).w(px(76.)).flex_none())
         .child(div().flex_1().min_w_0().child(value))
         .into_any_element()
 }
@@ -935,7 +935,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                 cx,
             ))
             .child(fact(
-                "Spend ceiling",
+                "Ceiling",
                 select(
                     "board-spend-ceiling",
                     ceiling_words(settings.spend_ceiling),
