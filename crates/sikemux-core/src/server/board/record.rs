@@ -33,8 +33,9 @@ impl RunRecord {
         }
     }
 
-    pub(super) fn finished(&mut self, rounds: u32) {
+    pub(super) fn finished(&mut self, rounds: u32, cost_usd: Option<f64>) {
         self.finished_at = Some(epoch_ms());
         self.rounds = rounds;
+        self.cost_usd = cost_usd.or(self.cost_usd);
     }
 }

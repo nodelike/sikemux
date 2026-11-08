@@ -1,9 +1,9 @@
-//! Auto: for each card the person added that nobody holds and nothing holds
-//! up, the board starts an agent of its own in a git worktree of its own, a
+//! Auto: for each card nobody holds and nothing holds up, whoever added it,
+//! the board starts an agent of its own in a git worktree of its own, a
 //! few at once, and ships its work when its turn ends.
 
 use crate::server::changed::What;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -22,7 +22,12 @@ use crate::server::worktree::{self, AgentWorktree};
 use crate::server::{chat, messages, Core};
 use sikemux_wire::protocol::Event;
 
-pub(super) const MAX_SLOTS: u32 = 8;
+pub(super) const MAX_SLOTS: u32 = crate::server::names::MAX_SPAWNED_PER_PROJECT as u32;
+/// How many unfinished runs may stand above a card one of Auto's agents added
+/// before that card rests until one of them finishes.
+const MAX_RUNS_ABOVE: usize = 3;
+/// How many unfinished cards one run may add for Auto to take.
+pub(super) const MAX_CARDS_PER_RUN: usize = 16;
 const DEFAULT_SLOTS: u32 = 2;
 pub(super) const PICKED_IN: &str = "in the board's Auto settings";
 const MAX_LAUNCHER_CHARS: usize = 256;
@@ -65,6 +70,8 @@ pub struct BoardSettings {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub landing: Landing,
+    /// Auto also takes cards agents added, once their team is through with them.
+    pub agent_cards: bool,
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     pub reviewer: Option<ReviewerChoice>,
@@ -99,9 +106,12 @@ impl BoardSettings {
 
     /// Each behaviour a project can turn off, by name, for a card's run record.
     pub(super) fn switches(&self) -> BTreeMap<String, bool> {
-        [("coreLands", self.landing == Landing::Core)]
-            .map(|(name, on)| (name.to_owned(), on))
-            .into()
+        [
+            ("coreLands", self.landing == Landing::Core),
+            ("agentCards", self.agent_cards),
+        ]
+        .map(|(name, on)| (name.to_owned(), on))
+        .into()
     }
 
     /// Where a deploy's health is read after it, for the environment called `name`.
@@ -119,6 +129,7 @@ impl Default for BoardSettings {
             provider: None,
             model: None,
             landing: Landing::Core,
+            agent_cards: true,
             reviewer: None,
             environments: Vec::new(),
         }
@@ -171,6 +182,8 @@ pub struct BoardSettingsParams {
     pub reviewer: Option<Option<BoardReviewerParams>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landing: Option<Landing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_cards: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environments: Option<Vec<Environment>>,
 }
@@ -240,6 +253,9 @@ impl BoardSettings {
         }
         if let Some(landing) = params.landing {
             settings.landing = landing;
+        }
+        if let Some(agent_cards) = params.agent_cards {
+            settings.agent_cards = agent_cards;
         }
         if let Some(environments) = params.environments {
             settings.environments = super::environments::checked(environments)?;
@@ -442,18 +458,67 @@ pub(super) fn running(core: &Core, board: &Board) -> usize {
         .count()
 }
 
-/// Whether Auto may start an agent on the card.
-fn takes(board: &Board, card: &Card) -> bool {
-    card.status == CardStatus::Open
-        && card.owner.is_none()
-        && card.auto.is_none()
-        && card.created_by.is_none()
-        && card.ticket_done_unlanded().is_none()
-        && board.waits_on(card).is_empty()
-        && !board
-            .cards
-            .iter()
-            .any(|other| other.parent == Some(card.id) && other.status != CardStatus::Done)
+/// What choosing Auto's next cards needs of the whole board, gathered once so
+/// a long reservoir costs one pass instead of one per card.
+struct Reservoir {
+    /// Cards others wait on until they are done or built.
+    blocking: HashSet<u64>,
+    /// Cards with something unfinished under them.
+    parents: HashSet<u64>,
+    /// Each unfinished card an Auto run added, and that run's card.
+    added_by_run: HashMap<u64, u64>,
+}
+
+impl Reservoir {
+    fn of(board: &Board) -> Self {
+        let undone = || (board.cards.iter()).filter(|card| card.status != CardStatus::Done);
+        Self {
+            blocking: undone()
+                .filter(|card| !card.slice.as_ref().is_some_and(|slice| slice.built_in))
+                .map(|card| card.id)
+                .collect(),
+            parents: undone().filter_map(|card| card.parent).collect(),
+            added_by_run: undone()
+                .filter_map(|card| Some((card.id, card.from_run?)))
+                .collect(),
+        }
+    }
+
+    /// How many unfinished runs stand above the card, up to the first finished one.
+    fn runs_above(&self, card: &Card) -> usize {
+        std::iter::successors(card.from_run, |run| self.added_by_run.get(run).copied())
+            .take_while(|run| self.blocking.contains(run))
+            .take(MAX_RUNS_ABOVE + 1)
+            .count()
+    }
+
+    /// Whether Auto may start an agent on the card, as far as the board can say.
+    fn takes(&self, settings: &BoardSettings, card: &Card) -> bool {
+        card.status == CardStatus::Open
+            && card.owner.is_none()
+            && card.auto.is_none()
+            && (card.created_by.is_none() || settings.agent_cards)
+            && card.ticket_done_unlanded().is_none()
+            && !card.depends_on.iter().any(|id| self.blocking.contains(id))
+            && !self.parents.contains(&card.id)
+            && self.runs_above(card) <= MAX_RUNS_ABOVE
+    }
+}
+
+/// Whether the team of the agent that added a card may still give it to one
+/// of its own: one of them is in a turn, or something will bring one back.
+fn team_keeps(core: &Core, maker: &str) -> bool {
+    let lead = core.names.team_of(maker);
+    let now = core.agent_now(&lead);
+    now.open() && (now.maybe_mid_turn() || now.at_work() || now.waits_on_something())
+}
+
+/// The card of the Auto run an agent adding a card works for: its own, or its lead's.
+pub(super) fn run_adding(core: &Core, board: &Board, agent: &str) -> Option<u64> {
+    let lead = core.names.team_of(agent);
+    (board.cards.iter())
+        .find(|card| card.kept_run().is_some_and(|run| run.agent == lead))
+        .map(|card| card.id)
 }
 
 /// Whether some board has Auto on with work it could still do, which keeps
@@ -461,12 +526,48 @@ fn takes(board: &Board, card: &Card) -> bool {
 pub(crate) fn has_work(boards: &super::Boards) -> bool {
     let state = boards.state.locked();
     state.boards.values().any(|board| {
-        board.settings.auto
-            && board
-                .cards
-                .iter()
-                .any(|card| takes(board, card) || card.run().is_some())
+        board.settings.auto && {
+            let reservoir = Reservoir::of(board);
+            (board.cards.iter())
+                .any(|card| reservoir.takes(&board.settings, card) || card.run().is_some())
+        }
     })
+}
+
+/// The cards Auto starts next on the board, at most `free`, the lowest numbers first.
+fn picks(
+    core: &Core,
+    project: &str,
+    board: &Board,
+    stepping: &HashSet<u64>,
+    free: usize,
+) -> Vec<u64> {
+    if free == 0 {
+        return Vec::new();
+    }
+    let reservoir = Reservoir::of(board);
+    let mut takeable: Vec<(u64, Option<&str>)> = (board.cards.iter())
+        .filter(|card| reservoir.takes(&board.settings, card) && !stepping.contains(&card.id))
+        .map(|card| (card.id, card.maker_id()))
+        .collect();
+    if takeable.is_empty() {
+        return Vec::new();
+    }
+    takeable.sort_unstable();
+    let room = core.names.room_for_started(project, core.open_agents());
+    let mut kept_by_team: HashMap<&str, bool> = HashMap::new();
+    takeable
+        .into_iter()
+        .filter(|(_, maker)| {
+            maker.is_none_or(|maker| {
+                !*kept_by_team
+                    .entry(maker)
+                    .or_insert_with(|| team_keeps(core, maker))
+            })
+        })
+        .map(|(id, _)| id)
+        .take(free.min(room))
+        .collect()
 }
 
 /// Starts an agent on each card Auto may take, while it has places free.
@@ -506,14 +607,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                 continue;
             }
             let free = (board.settings.slots as usize).saturating_sub(running(core, board));
-            let mut picks: Vec<u64> = board
-                .cards
-                .iter()
-                .filter(|card| takes(board, card) && !stepping.contains(&card.id))
-                .map(|card| card.id)
-                .collect();
-            picks.sort_unstable();
-            picks.truncate(free);
+            let picks = picks(core, &project, board, &stepping, free);
             if picks.is_empty() {
                 continue;
             }
@@ -646,6 +740,7 @@ async fn start(core: &Arc<Core>, project: &str, id: u64, agent: &str) -> Result<
                 },
                 core.open_agents(),
             );
+            core.names.count_as_started(&agent);
             launch.agent_id = agent.clone();
             Ok((tree, launch, launcher, named.name))
         })

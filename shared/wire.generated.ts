@@ -3143,6 +3143,8 @@ export interface BoardSettings {
     provider: string | null;
     model: string | null;
     landing: Landing;
+    /** Auto also takes cards agents added, once their team is through with them. */
+    agentCards: boolean;
     /**
      * Who reviews each change before it merges; none for any signed-in
      * agent on another CLI than its builder's.

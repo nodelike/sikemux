@@ -35,7 +35,7 @@ use crate::ui::{self, select, Button, IconButton, Pick, Toggle, Variant};
 /// Keeps a choice made in a picker as the board's settings.
 type Save = Rc<dyn Fn(BoardReviewerParams, &mut gpui_kit::App)>;
 
-const MAX_SLOTS: u32 = 8;
+const SLOT_CHOICES: [u32; 14] = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 24, 32, 48, 64];
 const NO_CARD: &str = "0";
 
 const STATUSES: [CardStatus; 3] = [CardStatus::Open, CardStatus::Progress, CardStatus::Done];
@@ -742,7 +742,8 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
         return div().into_any_element();
     };
     let settings = board.settings.clone();
-    let slots = (1..=MAX_SLOTS)
+    let slots = SLOT_CHOICES
+        .into_iter()
         .map(|slots| {
             Pick::new(
                 slots.to_string(),
@@ -760,6 +761,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let (on_slots, on_landing) = (entity(), entity());
     let reviewer = settings.reviewer.clone();
     let auto_on = settings.auto;
+    let agent_cards = settings.agent_cards;
     let mut view = div()
         .flex()
         .flex_col()
@@ -775,6 +777,13 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                     Toggle::new("board-auto-on", "Start agents on cards by itself", auto_on).on_click(
                         cx.listener(move |pane, _, _, cx| {
                             pane.change_settings(|params| params.auto = Some(!auto_on), cx)
+                        }),
+                    ),
+                )
+                .child(
+                    Toggle::new("board-agent-cards", "Also take cards agents add", agent_cards).on_click(
+                        cx.listener(move |pane, _, _, cx| {
+                            pane.change_settings(|params| params.agent_cards = Some(!agent_cards), cx)
                         }),
                     ),
                 )

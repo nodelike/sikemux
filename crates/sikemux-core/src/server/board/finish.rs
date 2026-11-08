@@ -64,6 +64,10 @@ pub(super) fn note(core: &Core, project: &str, id: u64, agent: &str, stage: RunS
     });
 }
 
+fn agent_cost(core: &Core, agent: &str) -> Option<f64> {
+    core.chats.get(agent)?.feed.cost_usd()
+}
+
 /// Gives the card back to the person, for `need`, saying why. A run that never
 /// got its worktree leaves the card open and nobody's, for the person to start
 /// again.
@@ -77,6 +81,9 @@ pub(crate) fn hold(core: &Core, project: &str, id: u64, agent: &str, need: RunHo
         }
         run.held = Some(need);
         run.note = Some(why);
+        if let Some(record) = card.record.as_mut() {
+            record.cost_usd = agent_cost(core, agent).or(record.cost_usd);
+        }
     });
     if let Some(reviewer) = reviewer {
         blind::dismiss_later(core, reviewer);
@@ -935,7 +942,7 @@ async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
             all_passed = slice.merged(by_person, &step.settings);
         }
         if let Some(record) = card.record.as_mut() {
-            record.finished(run.review.rounds);
+            record.finished(run.review.rounds, agent_cost(core, &run.agent));
         }
         run.note = Some("Merged".to_owned());
     });

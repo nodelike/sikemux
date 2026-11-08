@@ -73,6 +73,7 @@ struct Inner {
     replay: Replay,
     /// The chat folded into rows, while a client watches it or a turn runs.
     fold: Option<Fold>,
+    cost_usd: Option<f64>,
     offers_effort: bool,
     flush_scheduled: bool,
     settle_scheduled: bool,
@@ -211,6 +212,7 @@ impl Feed {
                 start: None,
                 permission_mode,
                 title: None,
+                cost_usd: None,
                 closed: false,
                 holding: false,
                 queued: Vec::new(),
@@ -291,6 +293,7 @@ impl Feed {
                 start: state.start,
                 permission_mode: state.permission_mode,
                 title: state.title,
+                cost_usd: None,
                 closed: false,
                 holding: false,
                 queued: Vec::new(),
@@ -427,6 +430,9 @@ impl Feed {
         self.settle_later(&mut inner);
         if let Some(title) = session_title(&payload) {
             inner.title = Some(title);
+        }
+        if let Some(cost) = reported_cost(&payload) {
+            inner.cost_usd = Some(cost);
         }
         self.fold_in(&mut inner, index, kind, &payload);
         if kind == ChatEventKind::SessionUpdate {
@@ -777,6 +783,11 @@ impl Feed {
     /// What the agent last called this session, as the host's rail shows it.
     pub(crate) fn title(&self) -> Option<String> {
         self.inner.locked().title.clone()
+    }
+
+    /// What the agent's CLI last said this session has cost, in dollars.
+    pub(crate) fn cost_usd(&self) -> Option<f64> {
+        self.inner.locked().cost_usd
     }
 
     /// What the chat said from index `from` on, or over its last `turns`.
@@ -1437,4 +1448,9 @@ mod tests {
             "a fold built again keeps every row's number"
         );
     }
+}
+
+fn reported_cost(payload: &Value) -> Option<f64> {
+    let cost = payload.get("update")?.get("cost")?;
+    (cost.get("currency")?.as_str()? == "USD").then(|| cost.get("amount")?.as_f64())?
 }

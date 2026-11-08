@@ -1134,9 +1134,9 @@ Start one for work that is its own and runs alongside yours, or that takes
 longer than a few minutes, not for a quick lookup your own subagents can do.
 
 Limits: an agent you started may start agents of its own, but one of theirs
-may not; one agent has at most six of its own open, and a project at most
-eight that agents started, counting those on other hosts. A refusal says which
-limit it hit. When the person closes a lead, Sikemux asks them whether to stop
+may not; one agent has at most sixteen of its own open, and a project at most
+sixty-four that agents or Auto started, counting those on other hosts. A refusal
+says which limit it hit. When the person closes a lead, Sikemux asks them whether to stop
 its agents or keep them.
 
 ### Starting an agent on another host
@@ -1485,8 +1485,20 @@ with `retire: true` when it no longer has to hold.
 ### Cards Auto runs
 
 When the person turns on Auto for a project, the board starts an agent of its
-own for each card the person added that nobody has and nothing holds up, each
-in a git worktree and branch of its own. Its task comes as a message from
+own for each card nobody has and nothing holds up, each in a git worktree and
+branch of its own. That includes cards agents added, once the team of the agent
+that added one is through: while its lead or any of its workers is in a turn, or
+something will bring one back, the card stays for them to take. Claim a card
+with `claim: true` if you mean to do it yourself. If a card you add builds on
+your own unfinished work, say so with `dependsOn`, or Auto may start it from the
+base branch.
+
+Auto keeps itself from running away. One run may have at most 16 unfinished
+cards it added, and a card added by a run that itself came from such a card
+rests once more than three unfinished runs stand above it, until one of them
+finishes. A full board moves its oldest finished cards to an archive by itself;
+the limit that remains is 1000 unfinished cards, and a refusal there means
+finish some first. Its task comes as a message from
 `Auto`. Plan first and ask everything at once with `ask`; then do the work,
 run the checks and commit on that branch. Do not push, open a pull request or
 merge: when your turn ends, Auto commits what is left, pushes, opens the pull

@@ -28,6 +28,7 @@ use sikemux_view::slice::{
     Assertion, Collect, Decision, GoalEta, GoalRule, NextGate, SliceState, SliceView, Wait,
 };
 
+mod archive;
 mod arrival;
 pub(crate) mod auto;
 mod blind;
@@ -195,6 +196,9 @@ struct Card {
     /// Which switches its latest Auto run had on and what came of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     record: Option<record::RunRecord>,
+    /// The card whose Auto run added it, when an agent of that run left it for others.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    from_run: Option<u64>,
     /// Browser recordings its owner made while on it, oldest first, for a
     /// card that is not a slice; a slice keeps them as its evidence.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1748,6 +1752,7 @@ fn new_card(
         arrivals: Vec::new(),
         auto: None,
         record: None,
+        from_run: None,
         recordings: Vec::new(),
         slice,
         looked: None,
@@ -1767,13 +1772,14 @@ fn add_card(
 ) -> Result<(u64, Value), String> {
     let boards = &core.boards;
     let mut state = boards.state.locked();
+    archive::make_room(boards, &mut state, project);
     let board = state
         .boards
         .entry(project.to_owned())
         .or_insert_with(|| Board::empty(project));
     if board.cards.len() >= MAX_CARDS {
         return Err(format!(
-            "This project's board already holds {MAX_CARDS} cards, the most it may; ask the person to clear the done ones"
+            "This project's board already holds {MAX_CARDS} unfinished cards, the most it may; finish some before adding more"
         ));
     }
     if let Some(id) = arrival::Key::of(&adding).and_then(|key| arrival::holder(board, &key)) {
@@ -1792,6 +1798,20 @@ fn add_card(
     if matches!(by, By::Agent(_)) && !adding.acceptance.is_empty() {
         return Err(ONLY_PERSON_ACCEPTS.into());
     }
+    let from_run = match by {
+        By::Agent(agent) if holder.is_none() => auto::run_adding(core, board, agent),
+        _ => None,
+    };
+    if let Some(run) = from_run {
+        let added = (board.cards.iter())
+            .filter(|card| card.from_run == Some(run) && card.status != CardStatus::Done)
+            .count();
+        if added >= auto::MAX_CARDS_PER_RUN {
+            return Err(format!(
+                "Auto's run of #{run} already has {added} cards it added still to do, the most one run may; do this work yourself, or end your turn and add more once one of them is done"
+            ));
+        }
+    }
     let goal = adding.parent.is_none();
     board.check_parent(None, adding.parent)?;
     board.check_depends(None, &adding.depends_on)?;
@@ -1806,6 +1826,7 @@ fn add_card(
         By::Agent(agent) => Some(agent.clone()),
     };
     let mut card = new_card(core, id, adding, maker, &board.settings);
+    card.from_run = from_run;
     if let Some(slice) = &mut card.slice {
         slice.name(named);
     }

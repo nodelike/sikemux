@@ -35,7 +35,7 @@ const MAX_NAME_CHARS: usize = 24;
 /// How many agents below one the person started may start agents of their own.
 const MAX_DEPTH: usize = 2;
 const MAX_CHILDREN: usize = 16;
-const MAX_SPAWNED_PER_PROJECT: usize = 64;
+pub(crate) const MAX_SPAWNED_PER_PROJECT: usize = 64;
 /// How many closed agents' sessions are kept, newest first.
 const MAX_CLOSED_SESSIONS: usize = 4096;
 const MAX_TITLE_CHARS: usize = 200;
@@ -57,6 +57,9 @@ struct Entry {
     /// none.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     blind: bool,
+    /// Auto started it for a card, so it counts as an agent that agents started.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    by_auto: bool,
     provider: Option<String>,
     /// The provider's own session.
     session_id: Option<String>,
@@ -281,6 +284,7 @@ impl Names {
             parent: adopted.parent.map(str::to_owned),
             quiet: !adopted.reports,
             blind: false,
+            by_auto: false,
             provider: Some(adopted.provider.to_owned()),
             session_id: None,
             above,
@@ -397,15 +401,9 @@ impl Names {
                 lead.name
             ));
         }
-        let spawned = book
-            .agents
-            .iter()
-            .filter(live)
-            .filter(|entry| entry.project == project && entry.parent.is_some())
-            .count();
-        if spawned >= MAX_SPAWNED_PER_PROJECT {
+        if book.started_open(&project, &open) >= MAX_SPAWNED_PER_PROJECT {
             return Err(format!(
-                "this project already has {MAX_SPAWNED_PER_PROJECT} agents that agents started open, the most it may have; give one of them the work, or ask the person to close one that is done"
+                "this project already has {MAX_SPAWNED_PER_PROJECT} agents open that agents or Auto started, the most it may have; give one of them the work, or close one of yours that is done"
             ));
         }
         let entry = Entry {
@@ -415,6 +413,7 @@ impl Names {
             parent: Some(worker.lead.to_owned()),
             quiet: !worker.reports,
             blind: false,
+            by_auto: false,
             provider: Some(worker.provider.to_owned()),
             session_id: worker.session.map(str::to_owned),
             above: 0,
@@ -435,6 +434,21 @@ impl Names {
     pub(crate) fn forget(&self, agent_id: &str) {
         let mut book = self.book.locked();
         if book.remove(|entry| entry.agent_id == agent_id) {
+            self.save(&book);
+        }
+    }
+
+    /// How many more agents the project may have open that agents or Auto started.
+    pub(crate) fn room_for_started(&self, project: &str, open: HashSet<String>) -> usize {
+        let book = self.book.locked();
+        let open = self.open_with(open);
+        MAX_SPAWNED_PER_PROJECT.saturating_sub(book.started_open(project, &open))
+    }
+
+    pub(crate) fn count_as_started(&self, agent_id: &str) {
+        let mut book = self.book.locked();
+        if let Some(entry) = book.entry_mut(agent_id).filter(|entry| !entry.by_auto) {
+            entry.by_auto = true;
             self.save(&book);
         }
     }
@@ -857,6 +871,13 @@ impl Book {
             .find(|entry| entry.agent_id == agent_id)
     }
 
+    fn started_open(&self, project: &str, open: &HashSet<String>) -> usize {
+        (self.agents.iter())
+            .filter(|entry| open.contains(&entry.agent_id) && entry.project == project)
+            .filter(|entry| entry.parent.is_some() || entry.by_auto || entry.blind)
+            .count()
+    }
+
     /// The agent's name, and whether the book changed to give it.
     fn give(&mut self, starting: Starting<'_>, open: &HashSet<String>) -> (AgentName, bool) {
         let Starting {
@@ -903,6 +924,7 @@ impl Book {
             parent: None,
             quiet: false,
             blind: false,
+            by_auto: false,
             provider: provider.map(str::to_owned),
             session_id: resume_id.map(str::to_owned),
             above: 0,
