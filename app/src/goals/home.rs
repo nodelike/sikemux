@@ -300,8 +300,10 @@ pub(super) fn call_card(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let goal = pane.call_goal(item);
-    let from = home.then(|| pane.call_from(item, cx)).flatten();
     let looked = (item.look.as_ref()).filter(|_| item.gate == Some(Gate::LooksRight));
+    let from = (home && looked.is_none())
+        .then(|| pane.call_from(item, cx))
+        .flatten();
     let context = looked.map(|look| match look.slices.len() {
         1 => "1 change built and checked".to_owned(),
         many => format!("{many} changes built and checked"),
