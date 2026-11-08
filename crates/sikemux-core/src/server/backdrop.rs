@@ -10,7 +10,7 @@ pub(crate) fn follow(core: &Core) {
     let Some(core) = core.arc() else {
         return;
     };
-    let preferences = core.preferences.get();
+    let preferences = core.shown_preferences();
     let texture = preferences.pane_shader;
     let Some(path) = preferences.pane_image.filter(|_| texture) else {
         publish(&core, texture, None);
@@ -22,7 +22,7 @@ pub(crate) fn follow(core: &Core) {
             return;
         }
         let image = id.and_then(|id| shrunk(&path, id));
-        let now = core.preferences.get();
+        let now = core.shown_preferences();
         if now.pane_shader && now.pane_image.as_deref() == Some(path.as_str()) {
             publish(&core, true, image);
         }
@@ -37,7 +37,7 @@ fn publish(core: &Core, texture: bool, image: Option<BackdropImage>) {
 }
 
 /// Names the picture as it is on disk now, so a device fetches it again only once it changes.
-fn picture_id(path: &str) -> Option<String> {
+pub(crate) fn picture_id(path: &str) -> Option<String> {
     use sha2::{Digest, Sha256};
     let metadata = std::fs::metadata(path).ok()?;
     let modified = metadata

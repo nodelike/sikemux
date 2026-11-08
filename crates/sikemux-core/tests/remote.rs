@@ -746,6 +746,12 @@ async fn a_device_lists_the_app_s_chats_and_wakes_a_sleeping_one() {
         Ok(ChatAttachment::Live { .. })
     ));
 
+    app.call(
+        "setPreference",
+        json!({ "key": "themeId", "value": "aura-noir" }),
+    )
+    .await
+    .expect("choose the theme");
     let workspace = workspace_of(&client).await;
     assert_eq!(
         workspace.palette.get("ground").map(String::as_str),

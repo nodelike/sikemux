@@ -345,7 +345,7 @@ calls! { core, client, method, params;
     "sshConfigFile" SshConfigFile (NoParams) -> String: Full => blocking(|| super::ssh::config_file().map_err(CoreError::from)).await?,
     "faceStyle": Watch => answer(core.faces.style()),
     "setFaceStyle" SetFaceStyle (super::faces::FaceStyleChange) -> sikemux_view::device::FaceStyle: Owner, counted => super::faces::set_style_shown(&core, params)?,
-    "preferences" Preferences (NoParams) -> Preferences: Watch => core.preferences.get(),
+    "preferences" Preferences (NoParams) -> Preferences: Watch => core.shown_preferences(),
     "mods" Mods (NoParams) -> super::mods::ModList: Watch => super::mods::list(&core).await?,
     "modPage" ModPage (super::mods::ModParams) -> super::mods::ModPage: Watch => super::mods::page(&core, params).await?,
     "modRead" ModRead (super::mods::BridgeParams) -> Value: Owner => super::mods::read(&core, client, params).await?,

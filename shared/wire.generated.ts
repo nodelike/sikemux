@@ -2358,6 +2358,8 @@ export interface Preferences {
     paneShader: boolean;
     /** A picture every pane dithers in place of the texture. */
     paneImage: string | null;
+    /** On an Omarchy desktop, panes dither the background it shows instead of `pane_image`. */
+    paneImageFollowsOmarchy: boolean;
     /** How strongly the texture or picture shows, from 0 to 2. */
     paneStrength: number;
     /** The colours the pane picture is dithered in. */

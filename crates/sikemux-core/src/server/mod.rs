@@ -586,6 +586,18 @@ impl Core {
         self.started.elapsed().as_millis() as u64
     }
 
+    /// The preferences as devices draw them, with Omarchy's background as the pane image
+    /// while it is followed. The picture the person chose stays saved underneath.
+    pub(crate) fn shown_preferences(&self) -> sikemux_view::prefs::Preferences {
+        let mut preferences = self.preferences.get();
+        if preferences.pane_image_follows_omarchy {
+            if let Some(background) = self.look.omarchy_background() {
+                preferences.pane_image = Some(background);
+            }
+        }
+        preferences
+    }
+
     /// Resolves the person's theme again, for apps, devices and programs' colour queries.
     pub(crate) fn theme_changed(&self) {
         let omarchy = self.look.omarchy();

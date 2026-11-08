@@ -2,6 +2,7 @@
 //! writes the current theme's colours to a folder it replaces on every switch,
 //! so Sikemux offers one theme, Omarchy, that follows it.
 
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,6 +11,9 @@ use notify::{RecursiveMode, Watcher};
 use serde::Deserialize;
 use sikemux_view::theme::Theme;
 
+use sikemux_process::sync::Locked;
+
+use crate::server::backdrop;
 use crate::server::changed::{Topic, What};
 use crate::server::connection::blocking;
 use crate::server::Core;
@@ -17,6 +21,10 @@ use crate::server::Core;
 pub(crate) const THEME_ID: &str = "omarchy";
 /// A switch replaces the folder and then stamps it, several writes in a row.
 const SETTLE: Duration = Duration::from_millis(300);
+/// The folder under the core's data that holds its copy of Omarchy's background.
+const BACKGROUND_COPIES: &str = "omarchy-background";
+/// Omarchy can also show a video, which panes cannot dither.
+const STILL_PICTURES: [&str; 6] = ["jpg", "jpeg", "png", "webp", "bmp", "gif"];
 
 /// Where Omarchy keeps the theme it set; only Linux runs Omarchy.
 fn current() -> Option<PathBuf> {
@@ -24,6 +32,11 @@ fn current() -> Option<PathBuf> {
         .then(sikemux_process::paths::home)
         .flatten()
         .map(|home| home.join(".local/state/omarchy/current"))
+}
+
+/// Whether this is an Omarchy desktop with a theme set.
+pub(crate) fn here() -> bool {
+    current().is_some_and(|current| current.join("theme/colors.toml").is_file())
 }
 
 /// The theme Omarchy set, when this is an Omarchy desktop.
@@ -120,20 +133,87 @@ pub(super) async fn follow(core: Arc<Core>) {
     let Some(current) = current().filter(|current| current.is_dir()) else {
         return;
     };
-    switches(current, |theme| {
+    wear_background_off_thread(&core).await;
+    switches(current.clone(), || switched(core.clone(), current.clone())).await;
+}
+
+async fn switched(core: Arc<Core>, current: PathBuf) {
+    // Mid-switch the folder can be gone; the last theme stays until the new one is in place.
+    if let Ok(Some(theme)) = blocking(move || Ok(read_from(&current))).await {
         if core.look.set_omarchy(theme) {
             if core.preferences.get().theme_id == THEME_ID {
                 core.theme_changed();
             }
             core.changed(What::Read(Topic::Preferences));
         }
+    }
+    wear_background_off_thread(&core).await;
+}
+
+/// Takes up Omarchy's background now that the person has asked panes to follow it.
+pub(crate) fn follow_background(core: &Core) {
+    let Some(core) = core.arc() else {
+        return;
+    };
+    tokio::task::spawn_blocking(move || wear_background(&core));
+}
+
+async fn wear_background_off_thread(core: &Arc<Core>) {
+    let core = core.clone();
+    let _ = blocking(move || {
+        wear_background(&core);
+        Ok(())
     })
     .await;
 }
 
-/// Hands `switched` the theme in `current` after each change to the folder.
+/// Shows Omarchy's current background in panes. One that cannot be read yet, or is a video,
+/// leaves the last picture up.
+fn wear_background(core: &Arc<Core>) {
+    if !core.preferences.get().pane_image_follows_omarchy {
+        return;
+    }
+    let (Some(current), Some(data_dir)) = (current(), core.config.data_dir.as_deref()) else {
+        return;
+    };
+    let _copying = core.look.copying_omarchy_background.locked();
+    let Some(background) = copy_background(&current, &data_dir.join(BACKGROUND_COPIES)) else {
+        return;
+    };
+    if core.look.set_omarchy_background(background) {
+        backdrop::follow(core);
+        core.changed(What::Read(Topic::Preferences));
+    }
+}
+
+/// Copies the background into `copies`, returning the copy's path. Omarchy deletes the original
+/// on its next switch and reuses file names between themes, so apps are given a path that only
+/// ever means this one picture.
+fn copy_background(current: &Path, copies: &Path) -> Option<String> {
+    let picture = std::fs::canonicalize(current.join("background")).ok()?;
+    let extension = picture.extension()?.to_str()?.to_ascii_lowercase();
+    if !STILL_PICTURES.contains(&extension.as_str()) {
+        return None;
+    }
+    let id = backdrop::picture_id(picture.to_str()?)?;
+    let copy = copies.join(format!("{id}.{extension}"));
+    if !copy.exists() {
+        std::fs::create_dir_all(copies).ok()?;
+        let unfinished = copies.join(format!("{id}.part"));
+        std::fs::copy(&picture, &unfinished).ok()?;
+        std::fs::rename(&unfinished, &copy).ok()?;
+        for entry in std::fs::read_dir(copies).ok()?.flatten() {
+            if entry.path() != copy {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    copy.to_str().map(str::to_owned)
+}
+
+/// Calls `switched` after each change to the folder settles.
 /// Omarchy replaces its `theme` folder on a switch, so this watches the folder around it.
-async fn switches(current: PathBuf, mut switched: impl FnMut(Theme)) {
+async fn switches<Done: Future<Output = ()>>(current: PathBuf, mut switched: impl FnMut() -> Done) {
     let (changed, mut changes) = tokio::sync::mpsc::unbounded_channel();
     let Ok(mut watcher) =
         notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
@@ -153,11 +233,7 @@ async fn switches(current: PathBuf, mut switched: impl FnMut(Theme)) {
     while changes.recv().await.is_some() {
         tokio::time::sleep(SETTLE).await;
         while changes.try_recv().is_ok() {}
-        let folder = current.clone();
-        // Mid-switch the folder can be gone; the last theme stays until the new one is in place.
-        if let Ok(Some(theme)) = blocking(move || Ok(read_from(&folder))).await {
-            switched(theme);
-        }
+        switched().await;
     }
 }
 

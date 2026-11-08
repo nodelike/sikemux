@@ -70,8 +70,15 @@ impl super::part::Part for Prefs {
     }
 }
 
+/// What a preference is until the person sets it. An Omarchy desktop starts out wearing its
+/// theme and background.
 fn defaults() -> Map<String, Value> {
-    match serde_json::to_value(Preferences::default()) {
+    let mut preferences = Preferences::default();
+    if super::themes::on_omarchy() {
+        preferences.theme_id = super::themes::OMARCHY_THEME_ID.to_owned();
+        preferences.pane_image_follows_omarchy = true;
+    }
+    match serde_json::to_value(preferences) {
         Ok(Value::Object(fields)) => fields,
         _ => Map::new(),
     }
@@ -211,12 +218,16 @@ pub(crate) fn set(core: &Core, change: PreferenceChange) -> CoreResult<Preferenc
         PreferenceChange::PaneShader(_) | PreferenceChange::PaneImage(_) => {
             super::backdrop::follow(core)
         }
+        PreferenceChange::PaneImageFollowsOmarchy(_) => {
+            super::themes::follow_omarchy_background(core);
+            super::backdrop::follow(core);
+        }
         PreferenceChange::OnboardingComplete(_) => super::about::introduced(core)?,
         _ => {}
     }
     core.theme_changed();
     core.changed(What::Read(Topic::Preferences));
-    Ok(core.preferences.get())
+    Ok(core.shown_preferences())
 }
 
 pub(crate) fn set_worktree_default(core: &Core, params: WorktreeDefaultParams) -> CoreResult<()> {

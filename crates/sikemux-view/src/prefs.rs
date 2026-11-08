@@ -114,6 +114,8 @@ pub struct Preferences {
     pub pane_shader: bool,
     /// A picture every pane dithers in place of the texture.
     pub pane_image: Option<String>,
+    /// On an Omarchy desktop, panes dither the background it shows instead of `pane_image`.
+    pub pane_image_follows_omarchy: bool,
     /// How strongly the texture or picture shows, from 0 to 2.
     pub pane_strength: f64,
     /// The colours the pane picture is dithered in.
@@ -222,6 +224,7 @@ preference_changes! {
     KeptRunningNoticeShown kept_running_notice_shown: bool,
     PaneShader pane_shader: bool,
     PaneImage pane_image: Option<String>,
+    PaneImageFollowsOmarchy pane_image_follows_omarchy: bool,
     PaneStrength pane_strength: f64,
     PaneColours pane_colours: PaneColours,
     PaneInks pane_inks: Vec<String>,
@@ -356,6 +359,7 @@ impl Default for Preferences {
             kept_running_notice_shown: false,
             pane_shader: true,
             pane_image: None,
+            pane_image_follows_omarchy: false,
             pane_strength: 1.0,
             pane_colours: PaneColours::default(),
             pane_inks: vec![

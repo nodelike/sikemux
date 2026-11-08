@@ -5,6 +5,11 @@
 
 mod omarchy;
 
+pub(crate) use omarchy::{
+    follow_background as follow_omarchy_background, here as on_omarchy,
+    THEME_ID as OMARCHY_THEME_ID,
+};
+
 use super::{Core, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
@@ -77,6 +82,9 @@ pub(crate) struct Look {
     terminal_colors: Mutex<TerminalColors>,
     /// The theme Omarchy set, on an Omarchy desktop.
     omarchy: Mutex<Option<Theme>>,
+    /// Sikemux's copy of the background Omarchy shows, while panes follow it.
+    omarchy_background: Mutex<Option<String>>,
+    copying_omarchy_background: Mutex<()>,
 }
 
 impl Default for Look {
@@ -85,6 +93,8 @@ impl Default for Look {
             palette: Mutex::new(default_palette()),
             terminal_colors: Mutex::default(),
             omarchy: Mutex::new(omarchy::read()),
+            omarchy_background: Mutex::default(),
+            copying_omarchy_background: Mutex::default(),
         }
     }
 }
@@ -100,6 +110,15 @@ impl Look {
         let changed = kept.as_ref() != Some(&theme);
         *kept = Some(theme);
         changed
+    }
+
+    pub(crate) fn omarchy_background(&self) -> Option<String> {
+        self.omarchy_background.locked().clone()
+    }
+
+    /// Keeps the copy of Omarchy's background; false when it is the one kept already.
+    fn set_omarchy_background(&self, background: String) -> bool {
+        self.omarchy_background.locked().replace(background.clone()) != Some(background)
     }
 
     pub(crate) fn set(&self, palette: Palette) {

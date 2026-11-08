@@ -32,7 +32,7 @@ counts = ["gpui-transcript/counts"]
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
-image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "bmp"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "bmp", "webp", "gif"] }
 jpeg-decoder = { version = "0.3", default-features = false }
 tempfile = "3"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }

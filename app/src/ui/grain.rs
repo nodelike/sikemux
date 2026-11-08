@@ -167,13 +167,9 @@ pub fn set(preferences: &Preferences, cx: &mut App) {
         glow_size: preferences.pane_glow_size as f32,
     });
     let mut picture = old.picture.clone();
-    if let Some((baked, image)) = &picture {
-        if wanted
-            .as_ref()
-            .is_none_or(|wanted| wanted.path != baked.path)
-        {
-            cx.drop_image(image.clone(), None);
-            picture = None;
+    if wanted.is_none() {
+        if let Some((_, image)) = picture.take() {
+            cx.drop_image(image, None);
         }
     }
     let mut reading = old.reading.clone();

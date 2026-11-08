@@ -67,7 +67,7 @@ pub(in crate::settings) const INTERFACE: &[Entry] = &[
         Interface,
         "Panes",
         "Pane image",
-        "picture photo wallpaper background dither dithered custom",
+        "picture photo wallpaper background dither dithered custom omarchy follow",
     ),
     row(
         Interface,
@@ -865,6 +865,10 @@ pub fn render(
         .iter()
         .find(|summary| summary.id == preferences.theme_id);
     let has_pane_image = preferences.pane_image.is_some();
+    let on_omarchy = themes
+        .iter()
+        .any(|summary| summary.source == ThemeSource::Omarchy);
+    let following_omarchy = on_omarchy && preferences.pane_image_follows_omarchy;
     let current = worn.map(|worn| {
         use super::theme_editor::Picture;
         let custom = worn.source == ThemeSource::Custom;
@@ -1036,7 +1040,7 @@ pub fn render(
         div()
             .flex()
             .gap(SPACE_2)
-            .when(preferences.pane_image.is_some(), |buttons| {
+            .when(!following_omarchy && has_pane_image, |buttons| {
                 buttons.child(
                     ui::Button::new("pane-image-remove", "Remove", ui::Variant::Outline).on_click(
                         move |_, _, cx| {
@@ -1047,41 +1051,43 @@ pub fn render(
                     ),
                 )
             })
-            .child(
-                ui::Button::new(
-                    "pane-image-choose",
-                    if preferences.pane_image.is_some() {
-                        "Change…"
-                    } else {
-                        "Choose…"
-                    },
-                    ui::Variant::Outline,
-                )
-                .on_click(move |_, window, cx| {
-                    choose.update(cx, |_, cx| {
-                        let picked = cx.prompt_for_paths(PathPromptOptions {
-                            files: true,
-                            directories: false,
-                            multiple: false,
-                            prompt: None,
-                        });
-                        cx.spawn_in(window, async move |bench, cx| {
-                            if let Ok(Ok(Some(paths))) = picked.await {
-                                if let Some(path) = paths.first() {
-                                    let path = path.to_string_lossy().into_owned();
-                                    let _ = bench.update(cx, |bench, _| {
-                                        crate::settings::set(
-                                            bench,
-                                            PreferenceChange::PaneImage(Some(path)),
-                                        )
-                                    });
+            .when(!following_omarchy, |buttons| {
+                buttons.child(
+                    ui::Button::new(
+                        "pane-image-choose",
+                        if has_pane_image {
+                            "Change…"
+                        } else {
+                            "Choose…"
+                        },
+                        ui::Variant::Outline,
+                    )
+                    .on_click(move |_, window, cx| {
+                        choose.update(cx, |_, cx| {
+                            let picked = cx.prompt_for_paths(PathPromptOptions {
+                                files: true,
+                                directories: false,
+                                multiple: false,
+                                prompt: None,
+                            });
+                            cx.spawn_in(window, async move |bench, cx| {
+                                if let Ok(Ok(Some(paths))) = picked.await {
+                                    if let Some(path) = paths.first() {
+                                        let path = path.to_string_lossy().into_owned();
+                                        let _ = bench.update(cx, |bench, _| {
+                                            crate::settings::set(
+                                                bench,
+                                                PreferenceChange::PaneImage(Some(path)),
+                                            )
+                                        });
+                                    }
                                 }
-                            }
+                            })
+                            .detach();
                         })
-                        .detach();
-                    })
-                }),
-            )
+                    }),
+                )
+            })
     };
     let knob = |state: &Entity<SliderState>, shown: String| {
         div()
@@ -1119,10 +1125,27 @@ pub fn render(
         ))
         .child(rows::row(
             "Pane image",
-            Some("A picture shared by every pane, dithered in place of the grain."),
+            Some(if following_omarchy {
+                "Omarchy's background, dithered in place of the grain."
+            } else {
+                "A picture shared by every pane, dithered in place of the grain."
+            }),
             image,
             cx,
         ))
+        .when(on_omarchy, |rows_of| {
+            rows_of.child(rows::row(
+                "Follow Omarchy background",
+                Some("Panes show the background Omarchy is showing, and change when it does."),
+                rows::switch(
+                    "pane-image-follows-omarchy",
+                    PreferenceChange::PaneImageFollowsOmarchy,
+                    preferences.pane_image_follows_omarchy,
+                    this,
+                ),
+                cx,
+            ))
+        })
         .child(rows::row(
             "Pane strength",
             Some("How strongly the texture or picture shows. 1.00 is the default."),
