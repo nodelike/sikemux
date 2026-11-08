@@ -13,7 +13,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     actions, div, px, AnyElement, AppContext, Context, Entity, FocusHandle, Focusable, FontWeight,
     InteractiveElement, IntoElement, KeyBinding, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Subscription, Task, WeakEntity, Window,
+    StatefulInteractiveElement, Styled, StyledText, Subscription, Task, WeakEntity, Window,
 };
 use serde::Serialize;
 use sikemux_core::server::board::goal::DecideParams as BoardDecideParams;
@@ -1336,6 +1336,21 @@ pub(crate) fn state_strip(
             }
         }))
         .into_any_element()
+}
+
+/// A line of words with some of them in `strong`, such as the numbers in "41 agents working on
+/// 9 goals".
+fn emphasised(parts: Vec<(String, bool)>, strong: gpui_kit::HighlightStyle) -> StyledText {
+    let mut text = String::new();
+    let mut marks = Vec::new();
+    for (words, bold) in parts {
+        let start = text.len();
+        text.push_str(&words);
+        if bold {
+            marks.push((start..text.len(), strong));
+        }
+    }
+    StyledText::new(text).with_highlights(marks)
 }
 
 /// How a goal counts `count` of its slices in `state`.

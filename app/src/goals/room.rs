@@ -9,8 +9,8 @@ use std::time::Duration;
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, list, px, relative, AnyElement, App, AppContext, ClickEvent, Context, Div, Entity,
-    FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, ListAlignment,
+    div, list, px, AnyElement, App, AppContext, ClickEvent, Context, Div, Entity, FocusHandle,
+    Focusable, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, ListAlignment,
     ListOffset, ListState, ParentElement, SharedString, Stateful, StatefulInteractiveElement,
     Styled, Subscription, Task, Window,
 };
@@ -26,14 +26,16 @@ use super::home::{call_card, project_name};
 use super::{state_dot, At, FindGoal, GoalsPane, NextGoal, OpenChosen, PreviousGoal};
 use crate::core;
 use crate::icons::Icon;
-use crate::theme::{Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3};
-use crate::theme::{SPACE_3H, SPACE_5, TEXT_2XS_H, TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H};
+use crate::theme::{self, Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3};
+use crate::theme::{SPACE_0, SPACE_5, TEXT_2XS_H, TEXT_SM, TEXT_XL, TEXT_XS, TEXT_XS_H};
 use crate::ui::{self, Row};
 use crate::workbench::Workbench;
 
-/// A goal's line.
-const ROW_HEIGHT: f32 = 32.;
-const TITLE_SIZE: f32 = 13.5;
+/// A goal's line, its title over what it says.
+const ROW_HEIGHT: f32 = 42.;
+/// How many of a goal's slices its line shows a dot for, and the room each takes.
+const MAX_DOTS: usize = 8;
+const DOT_STEP: f32 = 17.;
 /// The column at a line's end, all lines lining up.
 const END_W: f32 = 96.;
 const FIND_W: f32 = 190.;
@@ -323,10 +325,7 @@ impl GoalsPane {
             .filter(call_found)
             .map(|item| Entry::Call(item.id.clone()))
             .collect();
-        if !found_calls.is_empty() {
-            entries.push(Entry::Section("Your calls"));
-            entries.extend(found_calls);
-        }
+        entries.extend(found_calls);
         let lines: Vec<Entry> = (open.iter())
             .filter(|row| found(row))
             .map(goal_entry)
@@ -602,25 +601,34 @@ fn head(
     let t = Tokens::get(cx).clone();
     let counts = pane.room.counts;
     let says = match counts.calls {
-        0 => "Nothing needs you".to_owned(),
-        calls => plural(calls, "call for you", "calls for you"),
+        0 => div().child("Nothing needs you"),
+        calls => div()
+            .flex()
+            .gap(px(5.))
+            .child(div().text_color(t.accent).child(calls.to_string()))
+            .child(if calls == 1 {
+                "call for you"
+            } else {
+                "calls for you"
+            }),
     };
-    let through = pane.room.view.through.map(|through| {
-        let at = ui::time::clock(through.at);
-        match through.then_you {
-            true => format!("all through by {at}, then you"),
-            false => format!("all through by {at}"),
+    let mut quiet = vec![
+        (plural(counts.working, "agent", "agents"), true),
+        (" working on ".to_owned(), false),
+        (plural(counts.goals, "goal", "goals"), true),
+    ];
+    if let Some(through) = pane.room.view.through {
+        quiet.push((" · everything through by ".to_owned(), false));
+        quiet.push((ui::time::clock(through.at), true));
+        if through.then_you {
+            quiet.push((", then you".to_owned(), false));
         }
-    });
-    let quiet = [
-        Some(plural(counts.working, "agent working", "agents working")),
-        Some(plural(counts.goals, "goal", "goals")),
-        through,
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" · ");
+    }
+    let strong = HighlightStyle {
+        color: Some(t.text_secondary),
+        font_weight: Some(FontWeight::MEDIUM),
+        ..HighlightStyle::default()
+    };
     let scope = pane.room.scope.clone().map(|folder| {
         let name = (pane.bench.upgrade())
             .map(|bench| project_name(bench.read(cx), &folder))
@@ -651,23 +659,30 @@ fn head(
         .flex()
         .flex_wrap()
         .flex_none()
-        .items_center()
+        .items_end()
         .gap_x(SPACE_3)
         .gap_y(SPACE_2)
         .pt(SPACE_5)
-        .pb(SPACE_2)
+        .pb(SPACE_3)
         .px(px(28.))
         .child(
             div()
                 .flex()
-                .flex_wrap()
+                .flex_col()
                 .flex_1()
                 .min_w(px(220.))
-                .items_baseline()
-                .gap_x(SPACE_3)
-                .gap_y(SPACE_1)
-                .child(ui::text(says, TEXT_XL, FontWeight::SEMIBOLD).text_color(t.text_primary))
-                .child(ui::text(quiet, TEXT_SM, FontWeight::NORMAL).text_color(t.text_secondary)),
+                .gap(SPACE_0)
+                .child(
+                    says.text_size(theme::ui_text(TEXT_XL))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(t.text_primary),
+                )
+                .child(
+                    div()
+                        .text_size(theme::ui_text(TEXT_SM))
+                        .text_color(t.text_tertiary)
+                        .child(super::emphasised(quiet, strong)),
+                ),
         )
         .child(
             div()
@@ -704,7 +719,7 @@ fn head(
                         .capture_key_down(
                             cx.listener(|pane, event, window, cx| pane.find_key(event, window, cx)),
                         )
-                        .child(ui::Field::new(&find).small()),
+                        .child(ui::Field::new(&find).small().hint(Some("/".into()))),
                 ),
         )
 }
@@ -750,13 +765,17 @@ fn empty_words(pane: &GoalsPane) -> &'static str {
     }
 }
 
-/// The name over a part of the list, in spaced capitals.
+/// The name over a part of the list, in spaced capitals on a hairline.
 fn section_line(name: &'static str, cx: &App) -> Div {
     div()
-        .pt(SPACE_3H)
+        .pt(SPACE_5)
         .pb(SPACE_1H)
         .px(SPACE_2)
+        .flex()
+        .items_center()
+        .gap(SPACE_2H)
         .child(ui::caps(name, cx))
+        .child(div().flex_1().h(px(1.)).bg(Tokens::get(cx).line))
 }
 
 fn entry_row(pane: &GoalsPane, at: usize, cx: &mut Context<GoalsPane>) -> AnyElement {
@@ -835,54 +854,37 @@ pub(super) fn next_ink(state: SliceState, cx: &App) -> Hsla {
     }
 }
 
-/// A line of the list: its mark, its title, what it says in a plain phrase, and at its end when
-/// it should be through or where it is.
+/// What a line shows at its end: when it should be through, in the body ink, or where it is.
+enum End {
+    Through(String),
+    Where(String),
+}
+
+/// A line of the list: its mark, its title with what it says in a plain phrase under it, a dot
+/// for each of its slices, and at its end when it should be through or where it is.
 fn line(
     id: SharedString,
     title: String,
     state: SliceState,
     says: Option<String>,
-    end: Option<String>,
+    slices: Vec<SliceState>,
+    end: Option<End>,
     chosen: bool,
     cx: &App,
 ) -> Row {
     let t = Tokens::get(cx);
     let done = state == SliceState::Done;
-    let words = div()
-        .flex()
-        .flex_1()
-        .min_w_0()
-        .items_center()
-        .gap(SPACE_3)
-        .child(
-            ui::text(title.clone(), TITLE_SIZE, FontWeight::NORMAL)
-                .flex_shrink_0()
-                .max_w(relative(0.62))
-                .truncate()
-                .text_color(if done {
-                    t.text_tertiary
-                } else {
-                    t.text_primary
-                }),
-        )
-        .children(says.map(|says| {
-            ui::text(says, TEXT_XS, FontWeight::NORMAL)
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_color(if done {
-                    t.text_tertiary
-                } else {
-                    next_ink(state, cx)
-                })
-        }));
-    Row::new(id, title)
-        .title_view(Some(words))
+    let dots = (!slices.is_empty()).then(|| {
+        let width = px((slices.len().min(MAX_DOTS) as f32) * DOT_STEP);
+        super::state_strip(slices.into_iter().take(MAX_DOTS), width, cx)
+    });
+    let row = Row::new(id, title)
         .mark(14., mark(state, cx))
         .centered()
         .height(ROW_HEIGHT)
         .chosen(chosen)
         .padding_right(SPACE_2H.into())
+        .children(dots)
         .child(
             div()
                 .w(px(END_W))
@@ -890,11 +892,33 @@ fn line(
                 .flex()
                 .justify_end()
                 .children(end.map(|end| {
-                    ui::text(end, TEXT_XS, FontWeight::NORMAL)
+                    let (words, ink) = match end {
+                        End::Through(at) => (at, t.text_secondary),
+                        End::Where(name) => (name, t.text_tertiary),
+                    };
+                    ui::text(words, TEXT_XS, FontWeight::NORMAL)
+                        .font_features(theme::tabular())
                         .truncate()
-                        .text_color(t.text_tertiary)
+                        .text_color(ink)
                 })),
-        )
+        );
+    let row = match done {
+        true => row.quiet(),
+        false => row,
+    };
+    match says {
+        Some(says) => row.subtitle(
+            ui::text(says, TEXT_XS, FontWeight::NORMAL)
+                .min_w_0()
+                .truncate()
+                .text_color(if done {
+                    t.text_tertiary
+                } else {
+                    next_ink(state, cx)
+                }),
+        ),
+        None => row,
+    }
 }
 
 fn mark(state: SliceState, cx: &App) -> AnyElement {
@@ -913,10 +937,11 @@ fn spaced(id: SharedString, row: impl IntoElement) -> Stateful<Div> {
 fn goal_row(pane: &GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> AnyElement {
     let chosen = pane.room.chosen == Some(Chosen::Goal(row.project.clone(), row.card));
     let end = match row.clock {
-        Some(GoalClock::Until { at }) => Some(format!("ETA {}", ui::time::clock(at))),
-        Some(GoalClock::Late { .. }) => Some("late".to_owned()),
-        Some(GoalClock::Finished { at }) => Some(ui::time::ago(at)),
-        _ => (pane.bench.upgrade()).map(|bench| project_name(bench.read(cx), &row.project)),
+        Some(GoalClock::Until { at }) => Some(End::Through(ui::time::clock(at))),
+        Some(GoalClock::Late { .. }) => Some(End::Through("late".to_owned())),
+        Some(GoalClock::Finished { at }) => Some(End::Where(ui::time::ago(at))),
+        _ => (pane.bench.upgrade())
+            .map(|bench| End::Where(project_name(bench.read(cx), &row.project))),
     };
     let picks = Chosen::Goal(row.project.clone(), row.card);
     let (folder, card) = (row.project.clone(), row.card);
@@ -926,6 +951,7 @@ fn goal_row(pane: &GoalsPane, row: &GoalRow, cx: &mut Context<GoalsPane>) -> Any
         row.title.clone(),
         row.state,
         goal_says(row),
+        row.slices.iter().map(|slice| slice.state).collect(),
         end,
         chosen,
         cx,
@@ -964,7 +990,8 @@ fn agent_row(pane: &GoalsPane, agent: &GoalAgent, cx: &mut Context<GoalsPane>) -
         agent.task.clone(),
         agent.state,
         says,
-        project,
+        Vec::new(),
+        project.map(End::Where),
         chosen,
         cx,
     )
