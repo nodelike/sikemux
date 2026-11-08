@@ -1,12 +1,13 @@
 //! When the core puts a chat to sleep and wakes it, and starts a terminal
 //! agent again. A chat no client has on screen sleeps once it has been idle for
 //! a while, the oldest first when more than a few sit idle, and one a client
-//! brings on screen wakes again. A chat at work, or one the person keeps
-//! alive, is never put to sleep. A terminal agent that crashes comes back on
+//! brings on screen wakes again. A chat at work, one waiting to send again a
+//! turn the network cut short, or one the person keeps alive, is never put to sleep. A terminal agent that crashes comes back on
 //! its saved session below its last screen, unless it crashes again at once.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -342,7 +343,11 @@ fn kept(core: &Core, agent_id: &str) -> bool {
 }
 
 fn idle(core: &Core, agent_id: &str) -> bool {
-    core.agent_now(agent_id).chat_state() == Some(AgentState::Idle)
+    let offline = core
+        .chats
+        .get(agent_id)
+        .is_some_and(|chat| chat.offline_failed.load(Ordering::Acquire));
+    !offline && core.agent_now(agent_id).chat_state() == Some(AgentState::Idle)
 }
 
 impl super::part::Part for Lifecycle {
