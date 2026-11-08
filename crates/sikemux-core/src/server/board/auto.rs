@@ -829,8 +829,9 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     card.team = None;
                     card.auto = Some(AutoRun::starting(agent.clone(), place.clone()));
                     card.record = Some(RunRecord::begun(&settings, card.reservoir.is_some()));
-                    card.contract = (place.is_none() && settings.wants_contract() && no_contract.is_none())
-                        .then(Contract::awaited);
+                    card.contract =
+                        (place.is_none() && settings.wants_contract() && no_contract.is_none())
+                            .then(Contract::awaited);
                     if let Some(record) = card.record.as_mut() {
                         record.contract_outcome = no_contract;
                     }
