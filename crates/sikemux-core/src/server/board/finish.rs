@@ -934,6 +934,9 @@ async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
         if let Some(slice) = card.slice.as_mut() {
             all_passed = slice.merged(by_person, &step.settings);
         }
+        if let Some(record) = card.record.as_mut() {
+            record.finished(run.review.rounds);
+        }
         run.note = Some("Merged".to_owned());
     });
     if !kept {

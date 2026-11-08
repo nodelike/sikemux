@@ -362,6 +362,12 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
         findings.len(),
         if findings.len() == 1 { "" } else { "s" }
     );
+    let found = findings.len() as u32;
+    core.boards.edit(&step.project, step.id, |card| {
+        if let Some(record) = card.record.as_mut() {
+            record.findings += found;
+        }
+    });
     finish::ask(core, &step, text, &note, |run| run.review.rounds += 1).await;
 }
 

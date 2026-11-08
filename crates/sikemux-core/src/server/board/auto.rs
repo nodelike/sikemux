@@ -3,7 +3,7 @@
 //! few at once, and ships its work when its turn ends.
 
 use crate::server::changed::What;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::environments::{Environment, Passes};
+use super::record::RunRecord;
 use super::review::Review;
 use super::{blind, finish, Board, Card, CardStatus, Owner, Team};
 use crate::server::calls::given;
@@ -94,6 +95,13 @@ impl BoardSettings {
     pub(super) fn step_words(&self, name: &str) -> &'static str {
         self.environment(name)
             .map_or("A person", Environment::step_words)
+    }
+
+    /// Each behaviour a project can turn off, by name, for a card's run record.
+    pub(super) fn switches(&self) -> BTreeMap<String, bool> {
+        [("coreLands", self.landing == Landing::Core)]
+            .map(|(name, on)| (name.to_owned(), on))
+            .into()
     }
 
     /// Where a deploy's health is read after it, for the environment called `name`.
@@ -516,6 +524,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     card.hold(Owner::starting(&agent));
                     card.team = None;
                     card.auto = Some(AutoRun::starting(agent.clone()));
+                    card.record = Some(RunRecord::begun(&settings));
                     super::slice::auto_slice(card, &settings);
                     starts.push((project.clone(), id, agent));
                     state_jobs.push((project.clone(), id));

@@ -44,6 +44,7 @@ pub(crate) mod lease;
 mod migrate;
 pub(crate) mod offers;
 mod page;
+mod record;
 mod review;
 mod slice;
 pub(crate) mod tickets;
@@ -191,6 +192,9 @@ struct Card {
     /// The run Auto gave the card, in a worktree of its own.
     #[serde(skip_serializing_if = "Option::is_none")]
     auto: Option<AutoRun>,
+    /// Which switches its latest Auto run had on and what came of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    record: Option<record::RunRecord>,
     /// Browser recordings its owner made while on it, oldest first, for a
     /// card that is not a slice; a slice keeps them as its evidence.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1687,6 +1691,9 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
         fields.insert("stalledOwner".into(), stalled.name.clone().into());
     }
     if full {
+        if let Some(record) = &card.record {
+            fields.insert("record".into(), json!(record));
+        }
         let under: Vec<Value> = board
             .cards
             .iter()
@@ -1740,6 +1747,7 @@ fn new_card(
         ci: adding.ci.map(|broke| broke.failures).unwrap_or_default(),
         arrivals: Vec::new(),
         auto: None,
+        record: None,
         recordings: Vec::new(),
         slice,
         looked: None,
