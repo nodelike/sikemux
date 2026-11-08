@@ -36,8 +36,7 @@ use sikemux_view::slice::{CheckRun, Verdict};
 /// How long a check may run, and how much of what it says is kept.
 const RUN_LIMIT: Duration = Duration::from_secs(30 * 60);
 const OUTPUT_LIMIT: usize = 4 * 1024 * 1024;
-/// Checks running at once across projects, one per this many cores. They run at low
-/// priority, where six at once left a person's typing as quick as none.
+/// Checks running at once across projects, one per this many cores.
 const CORES_PER_CHECK: usize = 2;
 const MIN_RUNNING: usize = 2;
 const MAX_RUNNING: usize = 8;
