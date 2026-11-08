@@ -12,6 +12,7 @@
 //! What agents settle among themselves goes in its goal's log, or the project's
 //! when they work on no goal, where the person can overrule it.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -707,14 +708,22 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         let goal = goal_of(&core, &agent).ok_or(
             "You work on no card that is not done, so there is no goal to decide for; claim your card first",
         )?;
+        let answers = (core.chats.get(&agent))
+            .and_then(|chat| chat.feed.turn_prompt())
+            .map(|prompt| answers_in(&prompt))
+            .unwrap_or_default();
+        if given.person && answers.is_empty() {
+            return Err("person: true is for what the person chose in their answer to your question, and no answer of theirs started this turn; record it without person".into());
+        }
+        let decided = [given.text.as_deref(), given.why.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" ");
         let mut by = learned(&core, Some(&agent));
-        if given.person {
-            let answered = (core.chats.get(&agent))
-                .and_then(|chat| chat.feed.turn_prompt())
-                .is_some_and(|prompt| prompt.trim_start().starts_with("<question-answer "));
-            if !answered {
-                return Err("person: true is for what the person chose in their answer to your question, and no answer of theirs started this turn; record it without person".into());
-            }
+        if given.person
+            || (answers.iter()).any(|(question, answer)| records_answer(&decided, question, answer))
+        {
             by.agent = None;
             by.name = None;
         }
@@ -723,6 +732,49 @@ pub(crate) async fn tool(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
     })
     .await
     .map_err(|error| error.to_string())
+}
+
+/// The answers in `prompt`, the message that started an agent's turn, that the person gave to
+/// that agent's questions, each with the question it answers.
+fn answers_in(prompt: &str) -> Vec<(String, String)> {
+    (prompt.split("<question-answer ").skip(1))
+        .filter_map(|block| {
+            let (tag, rest) = block.split_once('>')?;
+            let question = (tag.split_once("question=\""))
+                .and_then(|(_, rest)| rest.split_once('"'))
+                .map_or("", |(question, _)| question);
+            let answer = rest.split("</question-answer>").next()?.trim();
+            Some((unescaped(question), answer.to_owned()))
+        })
+        .collect()
+}
+
+fn unescaped(attribute: &str) -> String {
+    attribute
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+/// Whether a decision saying `decided` records what the person answered to `question`: it holds
+/// most of the longer words of their answer, or of the question for a bare "Yes" or "No".
+fn records_answer(decided: &str, question: &str, answer: &str) -> bool {
+    let decided = longer_words(decided);
+    let mut said = longer_words(answer);
+    said.remove("recommended");
+    if said.is_empty() {
+        said = longer_words(question);
+    }
+    let held = said.iter().filter(|word| decided.contains(*word)).count();
+    !said.is_empty() && held * 2 >= said.len()
+}
+
+fn longer_words(text: &str) -> HashSet<String> {
+    (text.split(|c: char| !c.is_alphanumeric()))
+        .filter(|word| word.chars().count() >= 4)
+        .map(str::to_lowercase)
+        .collect()
 }
 
 #[derive(Serialize, Deserialize)]
