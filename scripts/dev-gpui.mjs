@@ -7,6 +7,8 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
+  readlinkSync,
   renameSync,
   rmSync,
   statSync,
@@ -25,14 +27,18 @@ import {
   coreSocket,
 } from "./dev-process.mjs";
 
+const onMac = process.platform === "darwin";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const debug = join(root, "target", "debug");
 const appBinary = join(debug, "sikemux");
 const bundle = join(debug, "Sikemux Dev.app");
 const contents = join(bundle, "Contents");
 const macos = join(contents, "MacOS");
+const launchedApp = onMac ? join(macos, "sikemux") : appBinary;
 const coreApp = join(contents, "Helpers", "Sikemux Core.app");
-const ownCore = join(coreApp, "Contents", "MacOS", "sikemux-host");
+const ownCore = onMac
+  ? join(coreApp, "Contents", "MacOS", "sikemux-host")
+  : join(debug, "sikemux-host");
 // Where a release links its core beside the app.
 const coreLink = join(macos, "sikemux-host");
 const notchApp = join(contents, "Helpers", "Sikemux Notch.app");
@@ -156,19 +162,51 @@ function assemble() {
 }
 
 function executable(pid) {
+  if (!onMac) {
+    try {
+      return readlinkSync(`/proc/${pid}/exe`).replace(/ \(deleted\)$/, "");
+    } catch {
+      return "";
+    }
+  }
   const result = spawnSync("ps", ["-p", String(pid), "-o", "comm="], {
     encoding: "utf8",
   });
   return result.stdout.trim();
 }
 
+function holdsAny(pid, links) {
+  try {
+    return readdirSync(`/proc/${pid}/fd`).some((fd) =>
+      links.has(readlinkSync(`/proc/${pid}/fd/${fd}`)),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function socketHolders() {
+  if (onMac) {
+    const holders = spawnSync("/usr/sbin/lsof", ["-t", socket], {
+      encoding: "utf8",
+    });
+    return (holders.stdout ?? "").split("\n").filter(Boolean);
+  }
+  const links = new Set(
+    readFileSync("/proc/net/unix", "utf8")
+      .split("\n")
+      .filter((line) => line.endsWith(` ${socket}`))
+      .map((line) => `socket:[${line.trim().split(/\s+/)[6]}]`),
+  );
+  return readdirSync("/proc").filter(
+    (name) => /^\d+$/.test(name) && holdsAny(name, links),
+  );
+}
+
 // Another build's core on the dev socket would be asked to replace itself with this one.
 function otherCore() {
   if (!existsSync(socket)) return null;
-  const holders = spawnSync("/usr/sbin/lsof", ["-t", socket], {
-    encoding: "utf8",
-  });
-  for (const pid of (holders.stdout ?? "").split("\n").filter(Boolean)) {
+  for (const pid of socketHolders()) {
     const path = executable(pid);
     if (path.endsWith("/sikemux-host") && path !== ownCore && path !== coreLink)
       return { pid, path };
@@ -213,7 +251,7 @@ function appEnvironment() {
 }
 
 function runningApp() {
-  const listing = spawnSync("pgrep", ["-f", `^${join(macos, "sikemux")}$`], {
+  const listing = spawnSync("pgrep", ["-f", `^${launchedApp}$`], {
     encoding: "utf8",
   });
   return listing.stdout.trim().split("\n").filter(Boolean)[0] ?? null;
@@ -243,9 +281,9 @@ async function runDevGpui() {
     console.error(refused);
     return 1;
   }
-  assemble();
+  if (onMac) assemble();
 
-  const child = spawn(join(macos, "sikemux"), [], {
+  const child = spawn(launchedApp, [], {
     cwd: root,
     detached: true,
     env: appEnvironment(),
