@@ -15,12 +15,12 @@ use sikemux_process::clock::epoch_ms;
 use sikemux_process::sync::Locked;
 use sikemux_view::slice::Verdict;
 
-use super::auto::{AutoRun, RunHold, RunStage};
+use super::auto::{AutoPull, AutoRun, RunHold, RunStage};
 use super::finish::{self, change_run, Step};
 use super::record::RunRecord;
 use super::{git, Card, Checker, State};
 use crate::server::checks::{self, QueueRun};
-use crate::server::codehost::repo as codehost;
+use crate::server::codehost::repo::{self as codehost, Checks};
 use crate::server::connection::blocking;
 use crate::server::worktree;
 use crate::server::Core;
@@ -42,6 +42,10 @@ pub(super) struct Place {
     /// The base commit the code host is checking it on top of.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub over: Option<String>,
+    /// The base commit it was tried alone on, while that base failed its own
+    /// check, and did not mend it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_over: Option<String>,
 }
 
 /// What the queue keeps about one base of one project while the core runs.
@@ -55,7 +59,6 @@ pub(super) struct Lane {
 
 struct RedBase {
     tip: String,
-    waiting: usize,
     look_at: u64,
 }
 
@@ -66,6 +69,7 @@ struct Waiting {
     joined: u64,
     stage: RunStage,
     on_code_host: bool,
+    failed_over: Option<String>,
 }
 
 /// It left the queue, for whatever reason, and its run record counts the wait.
@@ -89,14 +93,16 @@ pub(super) async fn arrived(core: &Arc<Core>, step: &Step, head: &str) {
         let joined = epoch_ms();
         change_run(core, &step.project, step.id, step.agent(), |_, run| {
             run.stage = RunStage::Merging;
-            run.queue = Some(Place { joined, over: None });
+            run.queue = Some(Place {
+                joined,
+                over: None,
+                failed_over: None,
+            });
             run.note = Some(format!("Waiting in the merge queue for {}", run.base));
         });
         return;
     };
-    let (tree, base) = (step.tree(), step.run.base.clone());
-    let tip = blocking(move || git::latest(&tree, &base).map_err(Into::into)).await;
-    if place.over.is_some() && tip.ok() == place.over {
+    if place.over.is_some() && latest(step).await.ok() == place.over {
         land(core, step, head, 1).await;
     } else {
         go_again(core, step);
@@ -129,26 +135,33 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             .lanes
             .retain(|key, lane| lane.running || lanes.contains_key(key));
         for (key, waiting) in lanes {
-            let Some(front) = waiting.first().filter(|w| w.stage == RunStage::Merging) else {
+            if waiting.iter().any(|w| w.stage != RunStage::Merging) {
                 continue;
-            };
+            }
             let lane = state.lanes.entry(key.clone()).or_default();
             if lane.running {
                 continue;
             }
-            if let Some(red) = lane.red.as_ref().filter(|red| red.waiting == waiting.len()) {
-                if now < red.look_at {
-                    next = super::sooner(next, Some(red.look_at));
-                    continue;
+            let taken: &[Waiting] = match &lane.red {
+                Some(red) => match waiting.iter().position(|w| !w.failed_on(&red.tip)) {
+                    Some(at) => &waiting[at..=at],
+                    None if now < red.look_at => {
+                        next = super::sooner(next, Some(red.look_at));
+                        continue;
+                    }
+                    None => &waiting[..1],
+                },
+                None => {
+                    let front = &waiting[0];
+                    let together = match front.on_code_host || lane.one_at_a_time {
+                        true => 1,
+                        false => (waiting.iter().take(MAX_TOGETHER))
+                            .take_while(|w| !w.on_code_host)
+                            .count(),
+                    };
+                    &waiting[..together]
                 }
-            }
-            let together = match front.on_code_host || lane.one_at_a_time {
-                true => 1,
-                false => (waiting.iter().take(MAX_TOGETHER))
-                    .take_while(|w| !w.on_code_host && w.stage == RunStage::Merging)
-                    .count(),
             };
-            let taken = &waiting[..together];
             if taken.iter().any(|w| state.busy(&key.0, w.id)) {
                 continue;
             }
@@ -160,13 +173,13 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                 state.work(&step.project, step.id).job = true;
             }
             state.lanes.entry(key.clone()).or_default().running = true;
-            started.push((key, steps, waiting.len()));
+            started.push((key, steps));
         }
     }
-    for (key, steps, waiting) in started {
+    for (key, steps) in started {
         let core = core.clone();
         tokio::spawn(async move {
-            run_lane(&core, &key, &steps, waiting).await;
+            run_lane(&core, &key, &steps).await;
             if let Some(lane) = core.boards.state.locked().lanes.get_mut(&key) {
                 lane.running = false;
             }
@@ -202,6 +215,7 @@ fn waiting_lanes(state: &State) -> BTreeMap<LaneKey, Vec<Waiting>> {
                     joined: place.joined,
                     stage: run.stage,
                     on_code_host: run.checked_on_host,
+                    failed_over: place.failed_over.clone(),
                 });
         }
     }
@@ -223,15 +237,112 @@ fn step_of(state: &State, project: &str, id: u64) -> Option<Step> {
     })
 }
 
-async fn run_lane(core: &Arc<Core>, key: &LaneKey, steps: &[Step], waiting: usize) {
+impl Waiting {
+    fn failed_on(&self, tip: &str) -> bool {
+        self.failed_over.as_deref() == Some(tip)
+    }
+}
+
+async fn run_lane(core: &Arc<Core>, key: &LaneKey, steps: &[Step]) {
     let open = still_open(core, steps).await;
     let Some(front) = open.first() else {
         return;
     };
-    if front.run.checked_on_host {
-        return put_on_latest(core, front).await;
+    let red = red_tip(core, key);
+    if let Some(red) = &red {
+        match latest(front).await {
+            Ok(tip) if tip != *red => return clear_red(core, key),
+            Ok(_) if failed_on(front, red) => return mark_red(core, key, red),
+            Ok(_) => {}
+            Err(why) => return could_not_rebase(core, front, &why),
+        }
     }
-    check_together(core, key, open, waiting).await;
+    if front.run.checked_on_host {
+        return put_on_latest(core, key, front).await;
+    }
+    check_together(core, key, open, red.is_some()).await;
+}
+
+fn failed_on(step: &Step, tip: &str) -> bool {
+    (step.run.queue.as_ref()).is_some_and(|place| place.failed_over.as_deref() == Some(tip))
+}
+
+fn red_tip(core: &Core, key: &LaneKey) -> Option<String> {
+    let state = core.boards.state.locked();
+    Some(state.lanes.get(key)?.red.as_ref()?.tip.clone())
+}
+
+fn clear_red(core: &Core, key: &LaneKey) {
+    if let Some(lane) = core.boards.state.locked().lanes.get_mut(key) {
+        lane.red = None;
+    }
+}
+
+/// The base at `tip` fails its own check, so nothing can be shown good on top
+/// of it: each change is tried alone, for one that mends it.
+fn mark_red(core: &Core, key: &LaneKey, tip: &str) {
+    if let Some(lane) = core.boards.state.locked().lanes.get_mut(key) {
+        lane.red = Some(RedBase {
+            tip: tip.to_owned(),
+            look_at: epoch_ms() + RED_BASE_LOOK_MS,
+        });
+    }
+}
+
+async fn latest(step: &Step) -> Result<String, String> {
+    let (tree, base) = (step.tree(), step.run.base.clone());
+    blocking(move || git::latest(&tree, &base).map_err(Into::into))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// It was tried alone on a base that fails its own check and did not mend
+/// it. That is not its fault, so it keeps its place, and goes again once the
+/// base moves.
+fn did_not_mend(core: &Core, step: &Step, tip: &str) {
+    change_run(core, &step.project, step.id, step.agent(), |_, run| {
+        run.stage = RunStage::Merging;
+        if let Some(place) = run.queue.as_mut() {
+            place.over = None;
+            place.failed_over = Some(tip.to_owned());
+        }
+        run.note = Some(format!(
+            "{} fails its own check and this change does not mend it, so it waits",
+            run.base
+        ));
+    });
+}
+
+/// A queued change failed its checks on the code host. True when that is not
+/// down to the change, because the base fails them too or may yet.
+pub(super) async fn base_answers_for(core: &Arc<Core>, step: &Step, pull: &AutoPull) -> bool {
+    let Some(over) = step.run.queue.as_ref().and_then(|place| place.over.clone()) else {
+        return false;
+    };
+    match codehost::checks(core, pull, &step.run.base, &over).await {
+        Ok(Checks::Failed(_)) => {
+            mark_red(core, &(step.project.clone(), step.run.base.clone()), &over);
+            did_not_mend(core, step, &over);
+            true
+        }
+        Ok(Checks::Running { .. }) => {
+            core.boards
+                .state
+                .locked()
+                .work(&step.project, step.id)
+                .checks_unread = Some(epoch_ms());
+            step.note(
+                core,
+                RunStage::Checking,
+                &format!(
+                    "Its checks failed, and {}'s own are still running to say whether that is its doing",
+                    step.run.base
+                ),
+            );
+            true
+        }
+        _ => false,
+    }
 }
 
 /// The runs that can still merge. One whose pull request merged while it
@@ -247,7 +358,7 @@ async fn still_open(core: &Arc<Core>, steps: &[Step]) -> Vec<Step> {
             continue;
         }
         match codehost::look(core, pull).await.map(|look| look.state) {
-            Ok(state) if state == "merged" => finish::merged(core, step, false).await,
+            Ok(state) if state == "merged" => landed(core, step).await,
             Ok(state) if matches!(state.as_str(), "closed" | "declined" | "superseded") => step
                 .hold(
                     core,
@@ -328,7 +439,7 @@ fn is_pushed(step: &Step, moved: &Moved) -> bool {
 
 /// The next change of a base checked by the code host: on the latest base,
 /// pushed, and left to its checks. Already there and green, it merges.
-async fn put_on_latest(core: &Arc<Core>, step: &Step) {
+async fn put_on_latest(core: &Arc<Core>, key: &LaneKey, step: &Step) {
     let base = step.run.base.clone();
     step.note(
         core,
@@ -345,6 +456,9 @@ async fn put_on_latest(core: &Arc<Core>, step: &Step) {
         return review_again(core, step, moved).await;
     }
     if is_pushed(step, &moved) {
+        if failed_on(step, &moved.tip) {
+            return mark_red(core, key, &moved.tip);
+        }
         land(core, step, &moved.head, 1).await;
         return;
     }
@@ -409,6 +523,13 @@ async fn review_again(core: &Arc<Core>, step: &Step, moved: Moved) {
     }
 }
 
+/// It is on the base, so the base has moved and any verdict on the old one is
+/// over.
+async fn landed(core: &Arc<Core>, step: &Step) {
+    finish::merged(core, step, false).await;
+    clear_red(core, &(step.project.clone(), step.run.base.clone()));
+}
+
 /// Merges it, in up to `tries` goes. False when it did not, whether it goes
 /// round again or was held.
 async fn land(core: &Arc<Core>, step: &Step, head: &str, tries: u32) -> bool {
@@ -421,7 +542,7 @@ async fn land(core: &Arc<Core>, step: &Step, head: &str, tries: u32) -> bool {
         left -= 1;
         match codehost::merge(core, pull, head).await {
             Ok(()) => {
-                finish::merged(core, step, false).await;
+                landed(core, step).await;
                 return true;
             }
             Err(error) if left == 0 => break error,
@@ -432,7 +553,7 @@ async fn land(core: &Arc<Core>, step: &Step, head: &str, tries: u32) -> bool {
         .await
         .is_ok_and(|looked| looked.state == "merged")
     {
-        finish::merged(core, step, false).await;
+        landed(core, step).await;
         return true;
     }
     let (tree, base) = (step.tree(), step.run.base.clone());
@@ -546,18 +667,13 @@ async fn command_of(core: &Arc<Core>, step: &Step) -> Option<(String, String)> {
     Some((label, command))
 }
 
-async fn check_together(core: &Arc<Core>, key: &LaneKey, steps: Vec<Step>, waiting: usize) {
+async fn check_together(core: &Arc<Core>, key: &LaneKey, steps: Vec<Step>, repairing: bool) {
     let front = steps[0].clone();
     let base = front.run.base.clone();
-    let tree = front.tree();
-    let reading = base.clone();
-    let tip = match blocking(move || git::latest(&tree, &reading).map_err(Into::into)).await {
+    let tip = match latest(&front).await {
         Ok(tip) => tip,
-        Err(error) => return could_not_rebase(core, &front, &error.to_string()),
+        Err(why) => return could_not_rebase(core, &front, &why),
     };
-    if base_still_red(core, key, &tip, waiting) {
-        return;
-    }
     let Some((label, command)) = command_of(core, &front).await else {
         return;
     };
@@ -599,6 +715,7 @@ async fn check_together(core: &Arc<Core>, key: &LaneKey, steps: Vec<Step>, waiti
         return;
     };
     let words = match laid.len() {
+        1 if repairing => format!("{base} fails its own check, so this is tried alone on it"),
         1 => format!("Running {label} on the latest {base}"),
         n => format!(
             "Running {label} on the latest {base}, with {} others",
@@ -615,35 +732,16 @@ async fn check_together(core: &Arc<Core>, key: &LaneKey, steps: Vec<Step>, waiti
         tip: &tip,
         label: &label,
         command: &command,
-        waiting,
     };
     match checks::run_in_queue(core, &dir, &newest, &command, front.agent()).await {
         Ok(ran) if ran.passed => land_together(core, &batch, &ran.output).await,
+        Ok(_) if repairing => did_not_mend(core, &front, &tip),
         Ok(ran) => failed_together(core, &batch, ran).await,
         Err(why) => front.hold(
             core,
             RunHold::Fix,
             format!("The merge queue's check did not run: {why}"),
         ),
-    }
-}
-
-/// Whether the base was found failing its own check, has not moved, and
-/// nothing new has joined that might mend it.
-fn base_still_red(core: &Core, key: &LaneKey, tip: &str, waiting: usize) -> bool {
-    let mut state = core.boards.state.locked();
-    let Some(lane) = state.lanes.get_mut(key) else {
-        return false;
-    };
-    match lane.red.as_mut() {
-        Some(red) if red.tip == tip && red.waiting == waiting => {
-            red.look_at = epoch_ms() + RED_BASE_LOOK_MS;
-            true
-        }
-        _ => {
-            lane.red = None;
-            false
-        }
     }
 }
 
@@ -655,7 +753,6 @@ struct Batch<'a> {
     tip: &'a str,
     label: &'a str,
     command: &'a str,
-    waiting: usize,
 }
 
 impl Batch<'_> {
@@ -790,14 +887,12 @@ async fn send_back(core: &Arc<Core>, batch: &Batch<'_>, culprit: &Laid, failed: 
     finish::failed(core, step, &what).await;
 }
 
-/// The base fails its own check, so nothing can be shown good on top of it.
+/// The base fails its own check, not these changes. A change already tried
+/// alone has had its try.
 fn base_red(core: &Core, batch: &Batch<'_>) {
-    if let Some(lane) = core.boards.state.locked().lanes.get_mut(batch.key) {
-        lane.red = Some(RedBase {
-            tip: batch.tip.to_owned(),
-            waiting: batch.waiting,
-            look_at: epoch_ms() + RED_BASE_LOOK_MS,
-        });
+    mark_red(core, batch.key, batch.tip);
+    if let [only] = batch.laid {
+        return did_not_mend(core, batch.step(only), batch.tip);
     }
     for laid in batch.laid {
         let step = batch.step(laid);
@@ -805,7 +900,7 @@ fn base_red(core: &Core, batch: &Batch<'_>) {
             core,
             RunStage::Merging,
             &format!(
-                "{} fails its own check, so the merge queue waits until it changes",
+                "{} fails its own check, so each change is tried alone for one that mends it",
                 step.run.base
             ),
         );

@@ -835,7 +835,9 @@ async fn checking(core: &Arc<Core>, step: Step) {
         }
         Checks::Failed(what) => {
             step.checked(core, PULL_CHECKS, Verdict::Failed, &what);
-            failed(core, &step, &what).await
+            if !queue::base_answers_for(core, &step, &pull).await {
+                failed(core, &step, &what).await
+            }
         }
         Checks::Stopped(why) => step.hold(
             core,
