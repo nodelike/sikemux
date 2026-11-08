@@ -412,6 +412,7 @@ calls! { core, client, method, params;
     "allowShip" AllowShip (ship::HoldParams) -> (): Full => ship::allow(&core, params).await?,
     "refuseShip" RefuseShip (ship::HoldParams) -> (): Full => ship::refuse(&core, params).await?,
     "letShipGo" LetShipGo (ship::HoldParams) -> (): Full => ship::let_go(&core, params).await?,
+    "checkWebWrite" CheckWebWrite (ship::WebWriteParams) -> Option<String>: Owner => ship::check_web_write(&core, params).await?,
     "agentMessages": Watch, any_program => answer(messages::agent_messages(&core, parse(params)?).await?),
     "agentMessageRows" AgentMessageRows (messages::AgentMessagesParams) -> messages::AgentMessageRows: Watch, any_program => {
         messages::agent_message_rows(&core, params).await?

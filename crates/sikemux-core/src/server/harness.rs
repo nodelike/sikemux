@@ -618,6 +618,20 @@ async fn dispatch(
             }
             Ok(answer)
         }
+        "browser.evaluate" => {
+            let project = request.project.clone();
+            let knowing = core.clone();
+            let sites = tokio::task::spawn_blocking(move || {
+                let project = knowing.workspaces.project_of(Path::new(&project));
+                board::allowed_sites(&knowing, &project)
+            })
+            .await
+            .map_err(|error| error.to_string())?;
+            if let Value::Object(params) = &mut request.params {
+                params.insert("allowedSites".to_owned(), json!(sites));
+            }
+            forward(core, request).await
+        }
         "browser.record" => {
             let agent_id = request.agent_id.clone();
             let answer = forward(core, request).await?;

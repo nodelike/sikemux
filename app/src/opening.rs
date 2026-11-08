@@ -24,8 +24,10 @@ use sikemux_core::cli::protocol::{
     CliOpenTarget, CliTargetKind, HarnessRequest, MAX_CLI_TARGETS,
 };
 use sikemux_core::server::call;
+use sikemux_core::server::ship::WebWriteParams;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use sikemux_wire::protocol::{CallId, WindowAnswer, WindowCall};
+use std::pin::Pin;
 
 use crate::core::Ask;
 use crate::editor::OpenAt;
@@ -399,7 +401,22 @@ impl Workbench {
                 .clone()
                 .filter(|_| is_browser_method(&request.method))
             {
-                Box::new(move || sikemux_browser::tools::execute(&engine, &request))
+                let core = Target::here(&self.asks);
+                Box::new(move || {
+                    let agent = request.agent_id.clone().unwrap_or_default();
+                    let project = request.project.clone();
+                    let check = move |what: String, origin: String| {
+                        let asked = core.request_typed::<call::CheckWebWrite>(WebWriteParams {
+                            agent: agent.clone(),
+                            project: project.clone(),
+                            what,
+                            origin,
+                        });
+                        Box::pin(async move { asked.await?.map_or(Ok(()), Err) })
+                            as Pin<Box<dyn Future<Output = Result<(), String>>>>
+                    };
+                    sikemux_browser::tools::execute(&engine, &request, &check)
+                })
             } else {
                 return answer(Err(format!(
                     "this window cannot answer {} yet",

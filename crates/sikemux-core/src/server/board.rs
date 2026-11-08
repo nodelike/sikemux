@@ -3240,6 +3240,19 @@ pub(crate) fn judge_ship(
     environments::judged_within(&levels(&state, project), ship)
 }
 
+/// The sites the person always allows agents in `project` to write to.
+pub(crate) fn allowed_sites(core: &Core, project: &str) -> Vec<String> {
+    let state = core.boards.state.locked();
+    let environments = levels(&state, project).into_iter().flatten();
+    (environments.filter(|environment| environment.passes == environments::Passes::Nobody))
+        .flat_map(|environment| environment.recognise.iter())
+        .filter_map(|fact| match fact {
+            Recognise::Command { words } => words.strip_prefix("site ").map(str::to_owned),
+            _ => None,
+        })
+        .collect()
+}
+
 /// The folder that holds `project` and others of the person's projects that `share` it,
 /// such as one product's repositories, which an allowance can cover. Never the home folder
 /// or the root.
@@ -3263,7 +3276,8 @@ pub(crate) fn always_offer(
     project: &str,
     ship: &crate::ship::Ship,
 ) -> Option<environments::Always> {
-    if ship.kind != sikemux_view::inbox::ShipKind::Deploy {
+    let writes = ship.written_place().is_some();
+    if ship.kind != sikemux_view::inbox::ShipKind::Deploy && !writes {
         return None;
     }
     let words: Vec<String> = ship.what.split_whitespace().map(str::to_owned).collect();
@@ -3272,7 +3286,9 @@ pub(crate) fn always_offer(
             || (crate::git_guard::shim::project_ships(path).iter())
                 .any(|listed| crate::ship::leads(listed, &words))
     };
-    let folder = shared_folder(core, project, &lists_it);
+    let folder = (!writes)
+        .then(|| shared_folder(core, project, &lists_it))
+        .flatten();
     let ships = crate::git_guard::shim::project_ships(Path::new(project));
     let state = core.boards.state.locked();
     let levels = levels(&state, project);

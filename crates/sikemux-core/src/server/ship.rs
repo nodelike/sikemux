@@ -1,5 +1,6 @@
 //! Actions agents take that leave this machine, held for the person. An agent
-//! pushing, merging, deploying, publishing or writing to production is stopped
+//! pushing, merging, deploying, publishing, writing to production, or writing to
+//! a website or a connector is stopped
 //! there, and the person is asked in the inbox. Allowing one lets exactly that
 //! action run once, until the end of the turn in which the agent hears of it.
 //! Where the person lets agents land work, pushes and merges go through. A
@@ -115,6 +116,8 @@ enum Permit {
 /// What waits on the person, as the inbox lists it.
 pub(crate) struct Waiting {
     pub hold: ShipHold,
+    /// The site or connector it writes to, when that is what it does.
+    pub writes_to: Option<String>,
     pub agent_id: String,
     pub project: String,
     pub at: u64,
@@ -142,6 +145,7 @@ impl Ships {
                         .and_then(|folder| Path::new(folder).file_name())
                         .map(|name| name.to_string_lossy().into_owned()),
                 },
+                writes_to: hold.ship.writes_to().map(str::to_owned),
                 agent_id: hold.agent_id.clone(),
                 project: hold.project.clone(),
                 at: hold.at,
@@ -204,7 +208,10 @@ pub(crate) fn check(
     let environment = judged.environment.clone();
     let why = judged.why.clone();
     let deploy = |by_person: bool| {
-        environment.as_ref().map(|name| Deploy {
+        let deploying = environment
+            .as_ref()
+            .filter(|_| ship.kind == ShipKind::Deploy);
+        deploying.map(|name| Deploy {
             agent_id: agent_id.to_owned(),
             project: project.clone(),
             environment: name.clone(),
@@ -234,7 +241,7 @@ pub(crate) fn check(
     let mut said = format!(
         "Held for the person: `{}` {}, so Sikemux asked them first. Go on with other work; you will hear when they allow it, and then run exactly this again.",
         ship.what,
-        leaves(ship.kind)
+        leaves(&ship)
     );
     if let Some(why) = &judged.why {
         said = format!("{said} {why}");
@@ -302,14 +309,18 @@ pub(crate) fn check(
     Err(said)
 }
 
-fn leaves(kind: ShipKind) -> &'static str {
-    match kind {
+fn leaves(ship: &Ship) -> String {
+    if let Some(place) = ship.writes_to() {
+        return format!("writes to {place} as the person");
+    }
+    let words = match ship.kind {
         ShipKind::Push => "pushes commits off this machine",
         ShipKind::Merge => "merges a pull request",
         ShipKind::Deploy => "deploys",
         ShipKind::Publish => "publishes a release",
         ShipKind::ProductionWrite => "can change a production database",
-    }
+    };
+    words.to_owned()
 }
 
 /// What the shim and the hook ask before an action leaving this machine runs:
@@ -444,6 +455,14 @@ async fn tool_target(core: &Arc<Core>, name: &str, arguments: &Value) -> Option<
                 production: place["production"].as_bool()?,
             })
         }
+        name if name.starts_with("jira_") => Some(Target::Connector {
+            name: "Jira".to_owned(),
+        }),
+        name if name.starts_with("bitbucket_") && name != "bitbucket_merge" => {
+            Some(Target::Connector {
+                name: "Bitbucket".to_owned(),
+            })
+        }
         "vercel_promote" => Some(Target::Vercel { production: true }),
         "vercel_redeploy" => {
             let target = match arguments["target"].as_str() {
@@ -501,6 +520,36 @@ pub(crate) async fn check_tool(
     })
     .await
     .map_err(|error| error.to_string())?
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct WebWriteParams {
+    pub agent: String,
+    pub project: String,
+    pub what: String,
+    pub origin: String,
+}
+
+/// Whether an agent's browser may send the write it is about to make to `origin`,
+/// as [`check`] says: none when it may, otherwise what the agent is told.
+pub(crate) async fn check_web_write(
+    core: &Arc<Core>,
+    params: WebWriteParams,
+) -> CoreResult<Option<String>> {
+    let ship = Ship {
+        kind: ShipKind::Publish,
+        what: params.what,
+        target: Some(Target::Site {
+            origin: params.origin,
+        }),
+    };
+    let checking = core.clone();
+    let checked = tokio::task::spawn_blocking(move || {
+        check(&checking, &params.agent, ship, Path::new(&params.project))
+    })
+    .await
+    .map_err(|error| error.to_string())?;
+    Ok(checked.err())
 }
 
 /// How far a deploy tool's answer says it got.

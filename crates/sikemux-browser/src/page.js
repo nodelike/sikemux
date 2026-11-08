@@ -20,6 +20,26 @@
     const INPUT_ROLES = { checkbox: "checkbox", radio: "radio", button: "button", submit: "button", reset: "button", image: "button", range: "slider", search: "searchbox" };
 
     const compact = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+    const submitControl = (element) => {
+        const control = element.closest("button, input");
+        if (!control || control.disabled) return null;
+        const type = (control.getAttribute("type") || (control.tagName === "BUTTON" ? "submit" : "text")).toLowerCase();
+        return type === "submit" || type === "image" ? control : null;
+    };
+    const localHost = (host) => host === "localhost" || host === "[::1]" || host.endsWith(".local") || host.startsWith("127.");
+    // A form read by its attributes, since a field named "action" or "method" hides the properties.
+    const writeOfForm = (form, control) => {
+        const method = ((control && control.getAttribute("formmethod")) || form.getAttribute("method") || "get").toUpperCase();
+        if (method === "GET" || method === "DIALOG") return null;
+        let url;
+        try {
+            url = new URL((control && control.getAttribute("formaction")) || form.getAttribute("action") || location.href, document.baseURI);
+        } catch {
+            return null;
+        }
+        if (!/^https?:$/.test(url.protocol) || localHost(url.hostname)) return null;
+        return { method, origin: url.origin, path: url.pathname };
+    };
     const shown = (element) => {
         const rect = element.getBoundingClientRect();
         if (rect.width < 1 || rect.height < 1) return false;
@@ -740,6 +760,21 @@
             target.dispatchEvent(new PointerEvent("pointermove", init));
             target.dispatchEvent(new MouseEvent("mousemove", init));
             return { hovered: describe(target), note: "Sikemux is in the background, so the page got hover events but CSS :hover styles do not apply" };
+        },
+        // The write sending the form under this point would make, if any.
+        writeAt(x, y) {
+            const element = elementAt(x, y);
+            const control = element && submitControl(element);
+            return control && control.form ? writeOfForm(control.form, control) : null;
+        },
+        // The write pressing Enter in this field would make, if any.
+        writeOfField(target) {
+            const element = target == null ? focused() : pick(typeof target === "number" ? target : this.resolve(target));
+            if (!element || isFrame(element)) return null;
+            const control = submitControl(element);
+            if (control) return control.form ? writeOfForm(control.form, control) : null;
+            const entersForm = element.tagName === "INPUT" && !["button", "reset", "file", "hidden"].includes(element.type);
+            return entersForm && element.form ? writeOfForm(element.form, null) : null;
         },
         // A long value shows its end, where typing lands, with its length.
         valueOf(target) {

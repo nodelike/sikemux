@@ -1,6 +1,8 @@
 //! The agent's browser tools, answered over the harness socket. Every method
 //! acts on the agent's own tabs, the same ones the person sees in the pane.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -47,8 +49,16 @@ const NARROW_VIEWPORT: u64 = 700;
 const PAGE_VIEWPORT_HEIGHT: u64 = 600;
 const PAGE_SCRIPT_LIMIT: Duration = Duration::from_secs(20);
 
+/// A write a page is about to make to a site, put to the core before it goes:
+/// what it does and the site's origin. Its error is what the agent is told.
+pub type CheckWrite = dyn Fn(String, String) -> Pin<Box<dyn Future<Output = Result<(), String>>>>;
+
 /// Runs on a CLI broker thread, so blocking on the async runtime is safe.
-pub fn execute(manager: &BrowserManager, request: &HarnessRequest) -> Result<Value, String> {
+pub fn execute(
+    manager: &BrowserManager,
+    request: &HarnessRequest,
+    check: &CheckWrite,
+) -> Result<Value, String> {
     let agent_id = request
         .agent_id
         .as_deref()
@@ -68,9 +78,14 @@ pub fn execute(manager: &BrowserManager, request: &HarnessRequest) -> Result<Val
     }
     let before = tab_ids(manager, agent_id);
     let download_mark = manager.download_mark(agent_id);
-    let mut result =
-        sikemux_base::runtime::block_on(run(manager, agent_id, &request.method, &request.params))
-            .map_err(|error| error.to_string());
+    let mut result = sikemux_base::runtime::block_on(run(
+        manager,
+        agent_id,
+        check,
+        &request.method,
+        &request.params,
+    ))
+    .map_err(|error| error.to_string());
     if acts_on_a_tab {
         marks.extend(manager.mark_acting(agent_id));
         manager.release_acting(agent_id, marks);
@@ -133,6 +148,7 @@ fn opened_tabs(manager: &BrowserManager, agent_id: &str, before: &[String]) -> V
 async fn run(
     manager: &BrowserManager,
     agent_id: &str,
+    check: &CheckWrite,
     method: &str,
     params: &Value,
 ) -> Result<Value, String> {
@@ -269,6 +285,10 @@ async fn run(
             } else {
                 1
             };
+            if !hover {
+                let write = call(&view, "writeAt", &[json!(x), json!(y)]).await?;
+                put_to_person(write, check).await?;
+            }
             show_pointer(&view, x, y, !hover).await;
             native::mouse(&view, Mouse::Move, x, y, 0).await?;
             if hover {
@@ -425,6 +445,10 @@ async fn run(
             if prepared.get("selected").is_some() {
                 return Ok(prepared);
             }
+            if submit {
+                let write = call(&view, "writeOfField", std::slice::from_ref(&at)).await?;
+                put_to_person(write, check).await?;
+            }
             let replacing = prepared.get("replacing").and_then(Value::as_bool) == Some(true);
             if let Some(point) = prepared.get("clickFirst") {
                 let coordinate = |key: &str| point.get(key).and_then(Value::as_f64).unwrap_or(0.0);
@@ -459,6 +483,10 @@ async fn run(
         "browser.press" => {
             let key = text("key").ok_or("key is required")?;
             let (tab_id, view) = active(manager, agent_id)?;
+            if plain_enter(&key) {
+                let write = call(&view, "writeOfField", &[Value::Null]).await?;
+                put_to_person(write, check).await?;
+            }
             native::key(&view, &key).await?;
             settle(manager, agent_id, &tab_id).await;
             merge(
@@ -466,7 +494,7 @@ async fn run(
                 report(manager, agent_id, params).await?,
             )
         }
-        "browser.act" => act(manager, agent_id, params).await,
+        "browser.act" => act(manager, agent_id, check, params).await,
         "browser.dialog" => {
             let accept = params
                 .get("accept")
@@ -551,7 +579,22 @@ async fn run(
                     .min(MAX_BLOCKING_MS),
             )
             .min(Duration::from_millis(MAX_BLOCKING_MS).saturating_sub(started.elapsed()));
-            run_agent_script(&view, &script, limit).await
+            let mut allowed: Vec<String> =
+                serde_json::from_value(params["allowedSites"].clone()).unwrap_or_default();
+            loop {
+                let left = limit.saturating_sub(started.elapsed());
+                let answer = run_agent_script(&view, &script, left, Some(&allowed)).await?;
+                let write = &answer["result"]["sikemuxHeldWrite"];
+                if !write.is_object() {
+                    return Ok(answer);
+                }
+                let origin = write["origin"].as_str().unwrap_or_default().to_owned();
+                if allowed.contains(&origin) {
+                    return Err(format!("the script kept writing to {origin} while held"));
+                }
+                put_to_person(write.clone(), check).await?;
+                allowed.push(origin);
+            }
         }
         "browser.console" => {
             let (_, view) = active(manager, agent_id)?;
@@ -769,7 +812,7 @@ async fn run(
             let view = preview.view();
             let ran = match text("script") {
                 Some(script) => {
-                    let ran = run_agent_script(view, &script, PAGE_SCRIPT_LIMIT).await?;
+                    let ran = run_agent_script(view, &script, PAGE_SCRIPT_LIMIT, None).await?;
                     tokio::time::sleep(SETTLE).await;
                     Some(ran)
                 }
@@ -806,13 +849,18 @@ async fn run(
 
 /// Runs an agent's script in `view`, an expression or statements ending in
 /// return, and answers with what it returned as JSON.
-async fn run_agent_script(view: &Tab, script: &str, limit: Duration) -> Result<Value, String> {
+async fn run_agent_script(
+    view: &Tab,
+    script: &str,
+    limit: Duration,
+    allowed_sites: Option<&[String]>,
+) -> Result<Value, String> {
     let body = match native::run_helper(view, &shape_check(script))
         .await?
         .as_str()
     {
-        "expression" => script_body(&format!("return ({script}\n);")),
-        "statements" => script_body(script),
+        "expression" => script_body(&format!("return ({script}\n);"), allowed_sites),
+        "statements" => script_body(script, allowed_sites),
         error => return Err(error.to_owned()),
     };
     let answer = native::run_script(view, &body, limit)
@@ -865,7 +913,12 @@ async fn step(
 /// Plays the steps in order and stops at the first that fails, or once the
 /// page moves on when a later step names an element by number or point,
 /// since those belong to the old page.
-async fn act(manager: &BrowserManager, agent_id: &str, params: &Value) -> Result<Value, String> {
+async fn act(
+    manager: &BrowserManager,
+    agent_id: &str,
+    check: &CheckWrite,
+    params: &Value,
+) -> Result<Value, String> {
     let steps = params
         .get("steps")
         .and_then(Value::as_array)
@@ -897,7 +950,7 @@ async fn act(manager: &BrowserManager, agent_id: &str, params: &Value) -> Result
             step_params[key] = json!(asked.min(left.as_millis() as u64));
         }
         let before = outcome(manager, agent_id).ok();
-        let failed = match Box::pin(run(manager, agent_id, method, &step_params)).await {
+        let failed = match Box::pin(run(manager, agent_id, check, method, &step_params)).await {
             Ok(result) => {
                 let failed = step_failure(&result);
                 done.push(step_summary(step, result));
@@ -1076,11 +1129,31 @@ fn typing_missed(typed: &str, result: &Value) -> Option<&'static str> {
 
 /// Wraps an agent's script so whatever it returns, awaited, comes back as JSON.
 /// Elements become their markup, since JSON has no way to spell a node.
-fn script_body(script: &str) -> String {
+fn script_body(script: &str, allowed_sites: Option<&[String]>) -> String {
+    let allowed = allowed_sites.map(|sites| serde_json::to_string(sites).unwrap_or_default());
+    let watches = allowed.is_some();
+    let (watch, release) = match watches {
+        true => (
+            format!(
+                "window.__sikemuxNet?.watch({});",
+                allowed.unwrap_or_default()
+            ),
+            r#"const held = window.__sikemuxNet?.release();
+if (held) return JSON.stringify({ sikemuxHeldWrite: held });"#
+                .to_owned(),
+        ),
+        false => (String::new(), String::new()),
+    };
     format!(
-        r#"const value = await (async () => {{
+        r#"let value, thrown, failed = false;
+{watch}
+try {{
+value = await (async () => {{
 {script}
 }})();
+}} catch (error) {{ thrown = error; failed = true; }}
+{release}
+if (failed) throw thrown;
 const seen = new WeakSet();
 try {{
     return JSON.stringify(value === undefined ? null : value, (key, item) => {{
@@ -1096,6 +1169,26 @@ try {{
     return JSON.stringify(String(value));
 }}"#
     )
+}
+
+/// Puts `write`, what the page script found, to the core, and fails with what the agent is
+/// told when it is held. A null `write` is one the page does not make.
+async fn put_to_person(write: Value, check: &CheckWrite) -> Result<(), String> {
+    if write.is_null() {
+        return Ok(());
+    }
+    let method = write["method"].as_str().unwrap_or_default();
+    let origin = write["origin"].as_str().unwrap_or_default().to_owned();
+    let path = write["path"].as_str().unwrap_or_default();
+    check(format!("{method} {origin}{path}"), origin).await
+}
+
+/// Whether `key` is Enter with nothing else held, which sends the form a field is in.
+fn plain_enter(key: &str) -> bool {
+    use crate::keys::{parse, Key, Modifiers, Named};
+    parse(key).is_ok_and(|chord| {
+        chord.key == Key::Named(Named::Enter) && chord.modifiers == Modifiers::default()
+    })
 }
 
 /// The tab the agent is on, unless a dialog has frozen its page: a page

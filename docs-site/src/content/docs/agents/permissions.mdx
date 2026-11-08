@@ -18,13 +18,15 @@ A running chat can switch between Normal and YOLO for agents that have both, fro
 
 ## What leaves this machine
 
-Even in YOLO, an agent asks you before its work leaves your Mac. Editing, building and committing go on freely; pushing, merging, deploying, publishing and changing a production database stop and wait for you. The agent is told the action is held for you and goes on with other work, and Goals Home shows it as a card under **Your calls**, marked **leaves this Mac**, saying what it wants to do with the exact command.
+Even in YOLO, an agent asks you before its work leaves your Mac. Editing, building and committing go on freely; pushing, merging, deploying, publishing, changing a production database and writing to a website or a connector stop and wait for you. The agent is told the action is held for you and goes on with other work, and Goals Home shows it as a card under **Your calls**, marked **leaves this Mac**, saying what it wants to do with the exact command.
 
 The same buttons show on the agent's own chat, above its composer, and on its card on [Goals](/agents/goals/) Home. Answer in either place and it leaves both.
 
 - **Allow once** lets exactly that command or call run one time. The agent hears it may and runs it again; the approval ends with the agent's turn, used or not.
 - **Refuse** tells the agent not to run it.
 - **Always allow** shows on a deploy that reads as no production when no environment covers it yet, naming the narrowest thing that covers it: a Rundeck folder such as `dev/*` for `dev/backend/deploy-api`, Vercel previews, an AWS profile, kube context or Terraform workspace with a word such as `dev` or `staging` in its name, or the exact words of one of the project's own `ship` commands with no production word, such as `./deploy.sh` or `make deploy`. That goes without asking from now on, and any deploy held for there goes. When the project's folder holds other projects of yours, as `~/proj/swishx` holds each of a product's repositories, it reads **Always allow `dev/*` in swishx** and covers every project in that folder; a project's own command goes on the folder only when another project there lists it too. A known deploy program, such as `vercel --prod`, `kubectl apply` to a context Sikemux can't read or `terraform apply` on an unknown workspace, is never offered it.
+
+On a write to a website or a connector, **Always allow** names the site, such as `https://github.com`, or the connector, such as `Jira`, for this project only. It is kept with the project's [environments](/agents/goals/#environments), where you can remove it.
 
 A deploy to an environment you marked safe in a project's [environments](/agents/goals/#environments), or always allowed for its folder, goes without asking. Production, what Sikemux can't recognise, publishes and production databases always wait, and so does anything with a production word such as `prod` or `live` in its path or command.
 
@@ -35,6 +37,11 @@ What counts:
 - **Deploying**: `vercel --prod`, `vercel promote`, `redeploy` and `alias`, `netlify deploy --prod`, `fly deploy`, `firebase deploy`, `wrangler deploy`, `railway up`, `kubectl apply`, `rollout`, `set`, `delete`, `scale` and `patch`, `helm install`, `upgrade`, `uninstall` and `rollback`, `terraform apply` and `destroy`, `pulumi up` and `destroy`, `serverless deploy`, `aws cloudformation deploy`, `aws ecs update-service`, `aws lambda update-function-code`, `aws s3 cp`, `sync` and `mv` into a bucket, `eas update`, `gh workflow run`, and Vercel's promote and redeploy tools and Rundeck's run tool. Your project can add its own commands, such as `make deploy`, with `ship` in its [`sikemux.json`](/getting-started/projects/#project-config).
 - **Publishing**: `npm`, `pnpm` and `yarn publish`, `cargo publish`, `docker push` and `docker buildx build --push`, `gh release create` and `eas submit`.
 - **Changing production data**: any statement an agent runs on a database you marked **Production**, while agents may change its data there ([Databases](/agents/databases/)).
+- **Writing to a website** in the agent's browser tabs: clicking the submit button of a form that doesn't use GET, `browser_type` with `submit` or `browser_press` Enter in a field of such a form, the same steps in `browser_act`, and a `browser_evaluate` script that calls `fetch` or `XMLHttpRequest` with a method other than GET, HEAD or OPTIONS, `sendBeacon`, `form.submit` or `requestSubmit`, or clicks a submit button. A search box and any other GET form are not writes.
+- **Writing through a connector**: Jira's create, edit, comment, transition, worklog and link tools, and Bitbucket's comment, create issue, create pull request, edit pull request, review, decline and issue state tools. Reading through them is free.
+- **Sending data with `curl` or `wget`**: a method other than GET, HEAD or OPTIONS, or a data, form or upload flag, to a host that isn't this computer.
+
+Nothing sent to `localhost`, `127.*`, `::1`, a `.local` name or a `file:` address is held, and neither is anything from the pages Sikemux shows you itself.
 
 A project that lands slices **Once on the branch** ([when slices land](/agents/board/#when-slices-land)) lets agents land their own work, so their pushes and merges there go through without asking. Sikemux reads a push as part of landing, since a push is how commits reach the project's branch. Deploying, publishing and changing production data always wait for you.
 
@@ -42,4 +49,8 @@ Sikemux catches these where agents run commands: it stands in for each of those 
 
 - a program run by its full path, such as `/opt/homebrew/bin/vercel --prod`, by Codex, OpenCode, Pi or OMP in a chat, or by any agent in a terminal tab;
 - a script that sets its own `PATH` before deploying, unless your project lists it under `ship`;
-- code that calls a deploy service's API itself, such as `curl` to Vercel, or a cloud SDK with its own credentials.
+- code that calls a deploy service's API itself, or a cloud SDK with its own credentials;
+- `curl` or `wget` written so their flags or address can't be read, such as through a variable or a config file, or any other program that sends data. Reading a command line can always be got around;
+- a button that isn't a form's submit button, even when the page's own code saves something when it's clicked, a form inside a frame from another site, and Space on a focused submit button;
+- in `browser_evaluate`, a write the page's own code makes after it has waited on something, since by then the agent's script is no longer what's running, and a script that sets out to avoid the check, such as by taking `fetch` from a new frame;
+- connector tools outside the list above, such as Bitbucket's rerun and stop pipeline.

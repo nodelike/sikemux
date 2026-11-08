@@ -1,5 +1,6 @@
 //! Actions an agent takes that leave this machine: pushing commits, merging a
-//! pull request, deploying, publishing, and writing to a production database.
+//! pull request, deploying, publishing, writing to a production database, and
+//! writing to a website or a connector.
 //! The one table of which commands and Sikemux tools they are, read by the
 //! shim that stands in for those programs, by the hook that checks a shell
 //! command before it runs, and by the core for its own tools.
@@ -47,6 +48,14 @@ pub enum Target {
     TerraformWorkspace {
         name: String,
     },
+    /// A website, by its origin, such as `https://github.com`.
+    Site {
+        origin: String,
+    },
+    /// A connector's service, such as Jira.
+    Connector {
+        name: String,
+    },
 }
 
 impl Target {
@@ -56,10 +65,105 @@ impl Target {
             Self::RundeckJob { production, .. } | Self::Vercel { production } => *production,
             Self::AwsProfile { .. }
             | Self::KubeContext { .. }
-            | Self::TerraformWorkspace { .. } => false,
+            | Self::TerraformWorkspace { .. }
+            | Self::Site { .. }
+            | Self::Connector { .. } => false,
         }
     }
 }
+
+impl Ship {
+    /// The site or connector it writes to, as the person reads it.
+    pub(crate) fn writes_to(&self) -> Option<&str> {
+        match &self.target {
+            Some(Target::Site { origin }) => Some(origin),
+            Some(Target::Connector { name }) => Some(name),
+            _ => None,
+        }
+    }
+
+    /// The words an always-allow of what it writes to is kept under.
+    pub(crate) fn written_place(&self) -> Option<Vec<String>> {
+        let (word, place) = match &self.target {
+            Some(Target::Site { origin }) => ("site", origin),
+            Some(Target::Connector { name }) => ("connector", name),
+            _ => return None,
+        };
+        Some(vec![word.to_owned(), place.clone()])
+    }
+}
+
+/// Whether a host is this computer's own, which a write to never leaves it.
+fn local_host(host: &str) -> bool {
+    host == "localhost" || host == "[::1]" || host.ends_with(".local") || host.starts_with("127.")
+}
+
+/// What `curl` or `wget` is pointed at: each address it was given, or its last word when
+/// none has a scheme, which it reads as a host.
+fn web_addresses(args: &[String]) -> Vec<url::Url> {
+    let schemed = |arg: &&String| ["http://", "https://"].iter().any(|at| arg.starts_with(at));
+    let given: Vec<&String> = args.iter().filter(schemed).collect();
+    let words = match given.is_empty() {
+        false => given,
+        true => (args.iter().rfind(|arg| !arg.starts_with('-')))
+            .into_iter()
+            .collect(),
+    };
+    words
+        .into_iter()
+        .filter_map(|word| match word.contains("://") {
+            true => url::Url::parse(word).ok(),
+            false => url::Url::parse(&format!("https://{word}")).ok(),
+        })
+        .collect()
+}
+
+/// Whether `program`, curl or wget run with `args`, sends something to a host that
+/// isn't this computer. Best effort: shell words can always be arranged to get past this.
+fn web_write(program: &str, args: &[String]) -> bool {
+    let (data_flags, method_flags): (&[&str], &[&str]) = match program {
+        "wget" => (WGET_DATA, &["--method"]),
+        _ => (CURL_DATA, &["-X", "--request"]),
+    };
+    let attached =
+        (args.iter()).find_map(|arg| arg.strip_prefix("-X").filter(|_| program == "curl"));
+    let method = flag_value(args, method_flags).or(attached.map(str::to_owned));
+    let names_write = method.is_some_and(|verb| {
+        !matches!(
+            verb.to_ascii_uppercase().as_str(),
+            "GET" | "HEAD" | "OPTIONS"
+        )
+    });
+    let packed = program == "curl"
+        && args.iter().any(|arg| {
+            !arg.starts_with("--") && arg.starts_with('-') && arg.contains(['d', 'F', 'T'])
+        });
+    let as_query = program == "curl" && has_flag(args, &["-G", "--get"]);
+    if !names_write && (as_query || !(has_flag(args, data_flags) || packed)) {
+        return false;
+    }
+    let addresses = web_addresses(args);
+    addresses.is_empty()
+        || addresses
+            .iter()
+            .any(|address| !address.host_str().is_some_and(local_host))
+}
+
+const CURL_DATA: &[&str] = &[
+    "-d",
+    "--data",
+    "--data-raw",
+    "--data-binary",
+    "--data-urlencode",
+    "--data-ascii",
+    "--json",
+    "-F",
+    "--form",
+    "--form-string",
+    "-T",
+    "--upload-file",
+];
+const WGET_DATA: &[&str] = &["--post-data", "--post-file", "--body-data", "--body-file"];
 
 /// The value of a flag among `args`, as `--flag value` or `--flag=value`. None
 /// when it is not given or given twice with different values.
@@ -149,6 +253,11 @@ pub(crate) fn target_of(
                 .or_else(|| current_kube_context(env))?;
             Some(Target::KubeContext { name })
         }
+        "curl" | "wget" => (web_addresses(args).into_iter())
+            .find(|address| !address.host_str().is_some_and(local_host))
+            .map(|address| Target::Site {
+                origin: address.origin().ascii_serialization(),
+            }),
         "terraform" => {
             let dir =
                 flag_value(args, &["-chdir"]).map_or_else(|| cwd.to_owned(), |dir| cwd.join(dir));
@@ -188,6 +297,8 @@ pub(crate) const PROGRAMS: &[&str] = &[
     "pnpm",
     "yarn",
     "cargo",
+    "curl",
+    "wget",
 ];
 
 /// What a rule's words need besides themselves to take the action.
@@ -357,6 +468,9 @@ pub(crate) fn of_program(
             _ => None,
         };
     }
+    if matches!(program, "curl" | "wget") {
+        return web_write(program, args).then_some(ShipKind::Publish);
+    }
     RULES
         .iter()
         .find(|rule| rule.programs.contains(&program) && matches(rule, args))
@@ -434,7 +548,7 @@ pub(crate) fn of_command(
                     .next_back();
                 said.map(str::to_owned).or_else(|| env(name))
             };
-            let target = (!moved)
+            let target = (!moved || matches!(base_name(program), "curl" | "wget"))
                 .then(|| target_of(program, args, &set, cwd))
                 .flatten();
             vec![Ship {
@@ -474,6 +588,19 @@ pub(crate) enum ToolShip {
 pub(crate) fn of_tool(name: &str) -> Option<ToolShip> {
     Some(match name {
         "vercel_promote" | "vercel_redeploy" | "rundeck_run" => ToolShip::Always(ShipKind::Deploy),
+        "jira_create"
+        | "jira_edit"
+        | "jira_comment"
+        | "jira_transition"
+        | "jira_worklog"
+        | "jira_link"
+        | "bitbucket_comment"
+        | "bitbucket_create_issue"
+        | "bitbucket_create_pull"
+        | "bitbucket_edit_pull"
+        | "bitbucket_review"
+        | "bitbucket_decline"
+        | "bitbucket_issue_state" => ToolShip::Always(ShipKind::Publish),
         "bitbucket_merge" => ToolShip::Always(ShipKind::Merge),
         "db_query" => ToolShip::ProductionDatabase,
         _ => return None,

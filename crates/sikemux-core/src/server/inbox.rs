@@ -970,15 +970,16 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
     }
     for waiting in core.ship.waiting() {
         let what = match waiting.hold.kind {
+            _ if waiting.writes_to.is_some() => "Wants to write",
             ShipKind::Push => "Wants to push",
             ShipKind::Merge => "Wants to merge",
             ShipKind::Deploy => "Wants to deploy",
             ShipKind::Publish => "Wants to publish",
             ShipKind::ProductionWrite => "Wants to write to a production database",
         };
-        let what = match &waiting.hold.environment {
-            Some(environment) => format!("{what} to {environment}"),
-            None => what.to_owned(),
+        let what = match (&waiting.writes_to, &waiting.hold.environment) {
+            (Some(place), _) | (None, Some(place)) => format!("{what} to {place}"),
+            (None, None) => what.to_owned(),
         };
         let detail = match &waiting.hold.why {
             Some(why) => clipped_line(&format!("{why} `{}`", waiting.hold.what), MAX_LINE_CHARS),

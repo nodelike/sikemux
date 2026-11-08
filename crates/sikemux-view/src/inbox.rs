@@ -44,7 +44,8 @@ pub enum ShipKind {
     Merge,
     /// Puts work live, such as a deploy or a release of infrastructure.
     Deploy,
-    /// Releases a package or an image for others to install.
+    /// Releases a package or an image for others to install, or writes to a website or a
+    /// connector's service as the person, which released clients read the same way.
     Publish,
     /// Changes data in a database marked as production.
     ProductionWrite,

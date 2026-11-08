@@ -17,6 +17,8 @@ use crate::ship::{leads, of_program, Ship, Target};
 
 const MAX_ENVIRONMENTS: usize = 8;
 const MAX_RECOGNISED: usize = 8;
+/// An environment that takes no step only lists what goes unasked, one site or connector each.
+const MAX_ALLOWED: usize = 128;
 const MAX_NAME_CHARS: usize = 32;
 const MAX_VALUE_CHARS: usize = 200;
 const MAX_WHY_CHARS: usize = 500;
@@ -161,6 +163,9 @@ impl Environment {
                     let said: Vec<String> =
                         ship.what.split_whitespace().map(str::to_owned).collect();
                     leads(words, &said)
+                        || ship
+                            .written_place()
+                            .is_some_and(|place| leads(words, &place))
                 }
                 _ => false,
             })
@@ -239,6 +244,20 @@ fn titled(word: &str) -> String {
 /// that no known deploy program's rule covers.
 fn freeing(ship: &Ship, ships: &[String]) -> Option<(String, Recognise, String)> {
     match &ship.target {
+        Some(Target::Site { origin }) => Some((
+            origin.clone(),
+            Recognise::Command {
+                words: format!("site {origin}"),
+            },
+            OWN_COMMANDS.to_owned(),
+        )),
+        Some(Target::Connector { name }) => Some((
+            name.clone(),
+            Recognise::Command {
+                words: format!("connector {name}"),
+            },
+            OWN_COMMANDS.to_owned(),
+        )),
         Some(Target::RundeckJob {
             path,
             production: false,
@@ -302,7 +321,8 @@ pub(crate) fn always_offer(
 ) -> Option<Always> {
     let unclaimed =
         (levels.iter()).all(|level| !level.iter().any(|environment| environment.recognises(ship)));
-    if ship.kind != ShipKind::Deploy || !unclaimed {
+    let can_be_allowed = ship.kind == ShipKind::Deploy || ship.written_place().is_some();
+    if !can_be_allowed || !unclaimed {
         return None;
     }
     let (covers, fact, name) = freeing(ship, ships)?;
@@ -372,9 +392,13 @@ pub(super) fn checked(given: Vec<Environment>) -> Result<Vec<Environment>, Strin
         if (kept.iter()).any(|other| other.name.eq_ignore_ascii_case(name)) {
             return Err(format!("two environments are called {name}"));
         }
-        if environment.recognise.is_empty() || environment.recognise.len() > MAX_RECOGNISED {
+        let most = match environment.no_step {
+            true => MAX_ALLOWED,
+            false => MAX_RECOGNISED,
+        };
+        if environment.recognise.is_empty() || environment.recognise.len() > most {
             return Err(format!(
-                "{name} needs from 1 to {MAX_RECOGNISED} facts to recognise it by"
+                "{name} needs from 1 to {most} facts to recognise it by"
             ));
         }
         for fact in &mut environment.recognise {
@@ -444,7 +468,8 @@ pub(crate) fn judged(environments: &[Environment], ship: &Ship) -> Judged {
         goes: Goes::Holds,
         why,
     };
-    if ship.kind != ShipKind::Deploy || environments.is_empty() {
+    let writes = ship.written_place().is_some();
+    if (ship.kind != ShipKind::Deploy && !writes) || environments.is_empty() {
         return holds(None, None);
     }
     let strictest = (environments.iter())
@@ -456,6 +481,9 @@ pub(crate) fn judged(environments: &[Environment], ship: &Ship) -> Judged {
             Passes::Production => 3,
         });
     let Some(environment) = strictest else {
+        if writes {
+            return holds(None, None);
+        }
         return holds(
             None,
             Some("Sikemux doesn't recognise where this lands, so it counts as production.".into()),
