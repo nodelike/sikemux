@@ -134,6 +134,8 @@ impl Places {
     }
 }
 
+const MAX_DRAWN_DONE: usize = 200;
+
 struct Lane {
     key: String,
     parent: Option<u64>,
@@ -371,6 +373,21 @@ impl BoardPane {
                     .ticket
                     .as_ref()
                     .is_some_and(|ticket| matches(&ticket.key)))
+    }
+
+    /// The finished cards too old to draw, so a long list of them does not slow every frame.
+    /// A search draws all it finds.
+    fn undrawn_done(&self) -> HashSet<u64> {
+        if !self.words.trim().is_empty() {
+            return HashSet::new();
+        }
+        let mut done: Vec<&BoardCard> = (self.cards().iter())
+            .filter(|card| self.column_of(card) == BoardColumn::Done && self.shown(card))
+            .collect();
+        done.sort_by_key(|card| std::cmp::Reverse(card.updated_at));
+        (done.into_iter().skip(MAX_DRAWN_DONE))
+            .map(|card| card.id)
+            .collect()
     }
 
     /// One lane per card that has cards under it, holding them, then one for the cards
@@ -866,6 +883,7 @@ fn body(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
         );
     }
     let lanes = pane.lanes();
+    let undrawn = pane.undrawn_done();
     if lanes.is_empty() {
         return note(None, "No card matches.");
     }
@@ -880,11 +898,20 @@ fn body(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
         .flex()
         .flex_col()
         .gap(SPACE_3H)
-        .children(lanes.into_iter().map(|lane| lane_view(pane, lane, cx)))
+        .children(
+            lanes
+                .into_iter()
+                .map(|lane| lane_view(pane, lane, &undrawn, cx)),
+        )
         .into_any_element()
 }
 
-fn lane_view(pane: &BoardPane, lane: Lane, cx: &mut Context<BoardPane>) -> AnyElement {
+fn lane_view(
+    pane: &BoardPane,
+    lane: Lane,
+    undrawn: &HashSet<u64>,
+    cx: &mut Context<BoardPane>,
+) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let folded = pane.folded.contains(&lane.key);
     let key = lane.key.clone();
@@ -989,12 +1016,17 @@ fn lane_view(pane: &BoardPane, lane: Lane, cx: &mut Context<BoardPane>) -> AnyEl
                 .children(lead_owner),
         )
         .when(!folded, |lane_view| {
-            lane_view.child(columns(pane, &lane.cards, cx))
+            lane_view.child(columns(pane, &lane.cards, undrawn, cx))
         })
         .into_any_element()
 }
 
-fn columns(pane: &BoardPane, ids: &[u64], cx: &mut Context<BoardPane>) -> impl IntoElement {
+fn columns(
+    pane: &BoardPane,
+    ids: &[u64],
+    undrawn: &HashSet<u64>,
+    cx: &mut Context<BoardPane>,
+) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     div()
         .flex()
@@ -1037,7 +1069,11 @@ fn columns(pane: &BoardPane, ids: &[u64], cx: &mut Context<BoardPane>) -> impl I
                         .child(ui::caps(name, cx))
                         .child(ui::meta(cards.len().to_string(), cx)),
                 )
-                .children(cards.into_iter().map(|card| card_view(pane, card, cx)))
+                .children(
+                    (cards.into_iter())
+                        .filter(|card| !undrawn.contains(&card.id))
+                        .map(|card| card_view(pane, card, cx)),
+                )
         }))
 }
 
