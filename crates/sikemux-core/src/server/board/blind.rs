@@ -19,8 +19,9 @@ use super::auto::{RunHold, RunStage};
 use super::contract;
 use super::finish::{self, change_run, Step};
 use super::guard;
+use super::record::RunRecord;
 use super::review::MAX_ROUNDS;
-use super::{git, recover, Card, State};
+use super::{git, recover, risk, Card, State};
 use crate::cli::protocol::{REVIEWER_OFFER, TOOLS_OFFER_ENV};
 use crate::server::connection::blocking;
 use crate::server::harness::RunSelector;
@@ -54,7 +55,7 @@ const NOTHING_RUNS_NAMED: &[&str] = &["license", "licence", "notice", "authors",
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Running {
-    /// The project turned it off, so the reviewer reads.
+    /// The project turned it off, or the change was rated low risk, so the reviewer reads.
     #[default]
     Off,
     /// Every file the change touches is one nothing runs.
@@ -383,12 +384,16 @@ fn task(brief: Brief) -> String {
 /// Has a reviewer look at `head` before it merges. With no agent on another
 /// CLI to start, the pull request waits for the person.
 pub(super) async fn begin(core: &Arc<Core>, step: &Step, head: &str) {
-    let running = {
-        let (step, head) = (step.clone(), head.to_owned());
-        blocking(move || what_runs(&step, &head).map_err(Into::into)).await
+    let judged = {
+        let (core, step, head) = (core.clone(), step.clone(), head.to_owned());
+        blocking(move || judge(&core, &step, &head).map_err(Into::into)).await
     };
-    let running = match running {
-        Ok(running) => running,
+    let Judged {
+        running,
+        areas,
+        why,
+    } = match judged {
+        Ok(judged) => judged,
         Err(error) => {
             return step.hold(
                 core,
@@ -399,7 +404,11 @@ pub(super) async fn begin(core: &Arc<Core>, step: &Step, head: &str) {
     };
     let agent = crate::server::names::new_agent_id();
     let waits = running == Running::Required;
-    let placed = change_run(core, &step.project, step.id, step.agent(), |_, run| {
+    let placed = change_run(core, &step.project, step.id, step.agent(), |card, run| {
+        if let Some(record) = card.record.as_mut() {
+            record.areas = areas;
+            record.review_why = why;
+        }
         run.stage = RunStage::Reviewing;
         run.verdict = None;
         run.note = Some(if waits { WAITING_FOR_PLACE } else { STARTING }.to_owned());
@@ -543,17 +552,54 @@ fn compared_from(step: &Step, head: &str) -> String {
         .unwrap_or_else(|_| step.run.start_sha.clone())
 }
 
-fn what_runs(step: &Step, head: &str) -> Result<Running, String> {
-    if !step.settings.reviewer_runs {
-        return Ok(Running::Off);
-    }
+/// How a change is to be reviewed.
+struct Judged {
+    running: Running,
+    areas: Vec<String>,
+    why: Option<String>,
+}
+
+fn judge(core: &Core, step: &Step, head: &str) -> Result<Judged, String> {
+    let repo = Path::new(&step.run.repo);
     let from = compared_from(step, head);
-    let changed = git::changed_paths(Path::new(&step.run.repo), &from, head)?;
-    Ok(if changed.iter().all(|path| runs_nothing(path)) {
-        Running::NothingToRun
+    let paths = git::changed_paths(repo, &from, head)?;
+    let areas = risk::areas(&paths);
+    let judged = |running, why| Judged {
+        running,
+        areas: areas.clone(),
+        why,
+    };
+    if !step.settings.reviewer_runs {
+        return Ok(judged(Running::Off, None));
+    }
+    if paths.iter().all(|path| runs_nothing(path)) {
+        return Ok(judged(Running::NothingToRun, None));
+    }
+    if !step.settings.scaled_review {
+        return Ok(judged(Running::Required, None));
+    }
+    let (diff, cut) = git::diff(repo, &from, head, MAX_DIFF_BYTES)?;
+    let past: Vec<RunRecord> = {
+        let state = core.boards.state.locked();
+        (state.boards.get(&step.project).into_iter())
+            .flat_map(|board| &board.cards)
+            .filter(|card| card.id != step.id)
+            .filter_map(|card| card.record.clone())
+            .collect()
+    };
+    let change = risk::Change {
+        paths: &paths,
+        diff: &diff,
+        cut,
+        rounds: step.run.review.rounds,
+    };
+    let rating = risk::of_change(&change, past.iter());
+    let running = if rating.low {
+        Running::Off
     } else {
         Running::Required
-    })
+    };
+    Ok(judged(running, Some(rating.why)))
 }
 
 fn prepare(step: &Step, head: &str, slug: &str, mode: Mode) -> Result<Prepared, String> {

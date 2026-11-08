@@ -3192,6 +3192,8 @@ export interface BoardSettings {
     mergeQueue: boolean;
     /** The project's `reservoir`, when it names one, keeps cards on the board. */
     reservoir: boolean;
+    /** A small change away from anything sensitive gets a read review and no contract round. */
+    scaledReview: boolean;
 }
 
 /**

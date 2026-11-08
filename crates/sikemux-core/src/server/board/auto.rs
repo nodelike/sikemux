@@ -18,7 +18,7 @@ use super::lease::Stalled;
 use super::record::RunRecord;
 use super::recover::{self, Recovery, TookOn};
 use super::review::Review;
-use super::{blind, finish, goal, queue, Board, Card, CardStatus, Owner, Team};
+use super::{blind, finish, goal, queue, risk, Board, Card, CardStatus, Owner, Team};
 use crate::server::calls::given;
 use crate::server::connection::blocking;
 use crate::server::names::Starting;
@@ -103,6 +103,8 @@ pub struct BoardSettings {
     pub merge_queue: bool,
     /// The project's `reservoir`, when it names one, keeps cards on the board.
     pub reservoir: bool,
+    /// A small change away from anything sensitive gets a read review and no contract round.
+    pub scaled_review: bool,
 }
 
 impl BoardSettings {
@@ -141,6 +143,7 @@ impl BoardSettings {
             ("progressGuard", self.progress_guard),
             ("mergeQueue", self.merge_queue),
             ("reservoir", self.reservoir),
+            ("scaledReview", self.scaled_review),
         ]
         .map(|(name, on)| (name.to_owned(), on))
         .into()
@@ -185,6 +188,7 @@ impl Default for BoardSettings {
             spend_ceiling: None,
             merge_queue: true,
             reservoir: true,
+            scaled_review: false,
         }
     }
 }
@@ -251,6 +255,8 @@ pub struct BoardSettingsParams {
     pub culprit_finding: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub progress_guard: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scaled_review: Option<bool>,
     #[serde(
         default,
         deserialize_with = "given",
@@ -352,6 +358,9 @@ impl BoardSettings {
         }
         if let Some(progress_guard) = params.progress_guard {
             settings.progress_guard = progress_guard;
+        }
+        if let Some(scaled_review) = params.scaled_review {
+            settings.scaled_review = scaled_review;
         }
         if let Some(spend_ceiling) = params.spend_ceiling {
             if spend_ceiling == Some(0) {
@@ -750,13 +759,25 @@ pub(super) fn start_free(core: &Arc<Core>) {
             let settings = board.settings.clone();
             for id in picks {
                 let agent = crate::server::names::new_agent_id();
+                let no_contract = (settings.scaled_review && settings.wants_contract())
+                    .then(|| {
+                        board
+                            .card(id)
+                            .ok()
+                            .and_then(|card| risk::no_contract(board, card))
+                    })
+                    .flatten();
                 if let Ok(card) = board.card_mut(id) {
                     let stalled = (card.slice.as_ref()).and_then(|slice| slice.stalled.clone());
                     card.hold(Owner::starting(&agent));
                     card.team = None;
                     card.auto = Some(AutoRun::starting(agent.clone()));
                     card.record = Some(RunRecord::begun(&settings, card.reservoir.is_some()));
-                    card.contract = settings.wants_contract().then(Contract::awaited);
+                    card.contract = (settings.wants_contract() && no_contract.is_none())
+                        .then(Contract::awaited);
+                    if let Some(record) = card.record.as_mut() {
+                        record.contract_outcome = no_contract;
+                    }
                     super::slice::auto_slice(card, &settings);
                     starts.push((project.clone(), id, agent, stalled));
                     state_jobs.push((project.clone(), id));

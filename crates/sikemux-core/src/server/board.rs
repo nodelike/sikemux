@@ -53,6 +53,7 @@ mod record;
 pub(crate) mod recover;
 mod reservoir;
 mod review;
+mod risk;
 mod slice;
 pub(crate) mod tickets;
 mod wait;

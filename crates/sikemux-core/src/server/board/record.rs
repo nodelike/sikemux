@@ -43,6 +43,10 @@ pub(super) struct RunRecord {
     pub approved: bool,
     pub approval_said: Vec<String>,
     pub broke_after_landing: bool,
+    /// The folders the change it had reviewed touched.
+    pub areas: Vec<String>,
+    /// How much review its latest change was rated to need, and why.
+    pub review_why: Option<String>,
     pub overruled: bool,
     /// How many times Auto brought its agent back without the person.
     pub recoveries: u32,
