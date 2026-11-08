@@ -829,7 +829,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                 )
                 .child(
                     ui::meta(
-                        "Starts agents on your open cards, each on its own branch; another agent reviews the work before it lands.",
+                        "Starts agents on open cards, each on its own branch; another agent reviews the work before it lands.",
                         cx,
                     )
                     .whitespace_normal(),
