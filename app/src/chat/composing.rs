@@ -98,6 +98,7 @@ pub struct Composing {
     /// Where the composer is drawn, apart from the chat around it.
     pub view: Entity<ComposerView>,
     pub secret: Entity<TextareaState>,
+    pub secret_focused: bool,
     pub hint: SharedString,
     /// The files going out with the next message, its pictures named in the draft by number.
     pub attachments: Vec<PathBuf>,
@@ -1008,6 +1009,12 @@ impl Workbench {
                         bench.keep_secret(&owner, window, cx);
                     }
                     InputEvent::Change => cx.notify(),
+                    InputEvent::Focus | InputEvent::Blur => {
+                        if let Some(composing) = bench.composing_mut(&owner) {
+                            composing.secret_focused = matches!(event, InputEvent::Focus);
+                        }
+                        cx.notify();
+                    }
                     _ => {}
                 },
             )
@@ -1033,6 +1040,7 @@ impl Workbench {
             draft,
             view,
             secret,
+            secret_focused: false,
             mic,
             hint: SharedString::default(),
             attachments: Vec::new(),
