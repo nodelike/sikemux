@@ -377,10 +377,14 @@ impl Mailbox {
         let mut state = self.state.locked();
         let changed = change(&mut state);
         state.waiting.retain(|_, waiting| !waiting.is_empty());
-        self.kept.save(&state.record());
+        self.kept.save_soon(&state.record());
         drop(state);
         self.wake.now();
         changed
+    }
+
+    pub(super) fn flush(&self) {
+        self.kept.flush();
     }
 
     fn admit(&self, letter: &Letter, to: &str, to_name: &str) -> Result<Admitted, String> {
@@ -1750,7 +1754,7 @@ pub(crate) fn prompt_taken(core: &Core, agent_id: &str) {
         }
         state.delivering.remove(agent_id);
         let taken = state.pasted.remove(agent_id);
-        mailbox.kept.save(&state.record());
+        mailbox.kept.save_soon(&state.record());
         taken
     };
     mailbox.wake.now();

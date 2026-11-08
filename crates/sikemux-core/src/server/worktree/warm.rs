@@ -149,6 +149,11 @@ mod clone {
 
     use super::{subfolders, CARGO_OUTPUT};
 
+    /// Deep enough that no single clone of a build folder reaches for long.
+    const CLONE_LEVELS: usize = 4;
+    /// From `sys/clonefile.h`: a symbolic link is cloned as a link. `libc` does not name it.
+    const CLONE_NOFOLLOW: u32 = 0x0001;
+
     /// Clones the folder `from` to `to` under a name of its own first, so a build
     /// that starts in the new checkout before the clone is done keeps its folder.
     pub(super) fn bring(from: &Path, to: &Path) -> io::Result<()> {
@@ -169,7 +174,7 @@ mod clone {
             let Some(_held) = hold_builds(from) else {
                 return Ok(());
             };
-            clone_folder(from, &staged)
+            clone_folder(from, &staged, CLONE_LEVELS)
         };
         let placed = cloned.and_then(|()| rename_new(&staged, to));
         if placed.is_err() {
@@ -202,10 +207,30 @@ mod clone {
         Some(held)
     }
 
-    fn clone_folder(from: &Path, to: &Path) -> io::Result<()> {
+    /// Clones a piece at a time, down to `levels` folders deep. One clone of a whole build
+    /// folder stops every write on the disk until it ends, seconds for a large one.
+    fn clone_folder(from: &Path, to: &Path, levels: usize) -> io::Result<()> {
+        std::fs::create_dir(to)?;
+        for entry in std::fs::read_dir(from)? {
+            let entry = entry?;
+            let inside = to.join(entry.file_name());
+            let cloned = if levels > 1 && entry.file_type()?.is_dir() {
+                clone_folder(&entry.path(), &inside, levels - 1)
+            } else {
+                clone_entry(&entry.path(), &inside)
+            };
+            match cloned {
+                Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+                _ => {}
+            }
+        }
+        std::fs::set_permissions(to, from.metadata()?.permissions())
+    }
+
+    fn clone_entry(from: &Path, to: &Path) -> io::Result<()> {
         let (from, to) = (c_path(from)?, c_path(to)?);
         // SAFETY: both are NUL-terminated paths that live through the call.
-        if unsafe { libc::clonefile(from.as_ptr(), to.as_ptr(), 0) } == 0 {
+        if unsafe { libc::clonefile(from.as_ptr(), to.as_ptr(), CLONE_NOFOLLOW) } == 0 {
             Ok(())
         } else {
             Err(io::Error::last_os_error())

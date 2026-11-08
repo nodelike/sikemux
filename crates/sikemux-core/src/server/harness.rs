@@ -691,6 +691,10 @@ async fn process_read(core: &Core, request: &HarnessRequest) -> Result<Value, St
 }
 
 impl super::part::Part for Harness {
+    fn flush(&self) {
+        self.mailbox.flush();
+    }
+
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
         use super::part::on_wake;
         vec![

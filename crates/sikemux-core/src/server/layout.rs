@@ -112,6 +112,12 @@ impl Layouts {
     }
 }
 
+impl super::part::Part for Layouts {
+    fn flush(&self) {
+        self.kept.flush();
+    }
+}
+
 /// The layout as `device` is sent it, or this host's own clients when there is none, fitted
 /// to the workspace and sessions.
 pub(crate) fn view(
@@ -518,7 +524,7 @@ fn edit<T>(core: &Core, change: impl FnOnce(&mut Layout) -> CoreResult<T>) -> Co
             .collect();
         fronts.retain(|device, _| paired.contains(device));
         *kept = layout;
-        core.layouts.kept.save(&*kept);
+        core.layouts.kept.save_soon(&*kept);
         answer
     };
     core.changed(What::ViewNow);
