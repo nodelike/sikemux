@@ -25,6 +25,8 @@ When another agent or Auto starts an agent in a project, its task ends with what
 
 A chat you start yourself is handed what Sikemux keeps once, as it starts: every rule of the project and of the folders above it, and the knowledge that names nothing in particular. Claude Code and Codex take it among their instructions, after any developer instructions of your own in Codex's config; other agents get it with your first message that isn't a slash command, shown there as context rather than as your words. It holds what Sikemux kept when the chat began; what changes later, and a goal's rules and decisions once the agent holds a card, it reads with `memory_list`.
 
+Rules and knowledge an agent wrote come under their own heading, naming the agent and saying they are notes, not your orders, so a rule an agent picked up from a web page can't pass as yours. A goal's decisions name the agent that made them.
+
 A reviewer Auto starts to judge a change blind is handed only what you said yourself, never what an agent added.
 
 What Sikemux keeps stays out of the agent CLIs' own memory, so it is the same for every agent, account and CLI.
