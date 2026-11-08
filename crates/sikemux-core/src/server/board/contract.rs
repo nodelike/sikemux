@@ -393,6 +393,9 @@ async fn tell(core: &Arc<Core>, project: String, id: u64, builder: String, text:
 /// The builder's turn ended. True when that does not ship its work yet, because
 /// its contract is still to come and it has been told what to do next.
 pub(super) fn keeps_building(core: &Arc<Core>, project: &str, id: u64, builder: &str) -> bool {
+    if super::roles::found_nothing(core, project, id) {
+        return false;
+    }
     let mut text = None;
     let mut settled = None;
     core.boards.edit_if(project, id, |card| {

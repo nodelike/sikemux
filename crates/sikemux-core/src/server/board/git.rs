@@ -36,6 +36,14 @@ pub(super) fn ahead(tree: &Path, start_sha: &str) -> Result<usize, String> {
         .map(|count| count.parse().unwrap_or(0))
 }
 
+/// Whether the worktree holds nothing beyond `start_sha`, committed or not.
+pub(super) fn untouched(tree: &Path, start_sha: &str) -> bool {
+    ahead(tree, start_sha).is_ok_and(|ahead| ahead == 0)
+        && Git::quick(tree)
+            .trimmed(&["status", "--porcelain"])
+            .is_ok_and(|changed| changed.is_empty())
+}
+
 pub(super) fn head(tree: &Path) -> Result<String, String> {
     Git::quick(tree).trimmed(&["rev-parse", "HEAD"])
 }

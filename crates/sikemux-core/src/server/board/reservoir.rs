@@ -226,7 +226,9 @@ async fn refill(core: &Arc<Core>, project: &str) -> Result<Outcome, String> {
     Ok(Outcome::Ran(apply(core, project, &listed, started_at)))
 }
 
-fn ask_trust(core: &Arc<Core>, project: &str, ask: crate::server::tasks::TrustAsk) {
+/// Asks the person to trust the project's `sikemux.json`, once however many things wait on it;
+/// each looks again if they do.
+pub(super) fn ask_trust(core: &Arc<Core>, project: &str, ask: crate::server::tasks::TrustAsk) {
     let first = (core.boards.state.locked().reservoirs.awaiting_trust).insert(project.to_owned());
     if !first {
         return;
@@ -237,6 +239,7 @@ fn ask_trust(core: &Arc<Core>, project: &str, ask: crate::server::tasks::TrustAs
         let mut state = core.boards.state.locked();
         state.reservoirs.awaiting_trust.remove(&project);
         if trusted {
+            state.roles.want(project.clone());
             state.reservoirs.wanted.insert(project, None);
         }
         drop(state);

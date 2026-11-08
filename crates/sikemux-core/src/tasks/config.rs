@@ -26,6 +26,7 @@ const ROOT_FIELDS: &[&str] = &[
     "check",
     "fastCheck",
     "reservoir",
+    "roles",
     "planFirst",
     "ship",
 ];
@@ -38,6 +39,11 @@ const ACTION_FIELDS: &[&str] = &[
     "contexts",
     "keybinding",
 ];
+const ROLE_FIELDS: &[&str] = &["name", "charter", "every"];
+const MAX_ROLES: usize = 16;
+const MAX_ROLE_NAME_CHARS: usize = 64;
+const MAX_ROLE_CHARTER_CHARS: usize = 4000;
+const MAX_ROLE_EVERY: u64 = 100_000;
 const TASK_FIELDS: &[&str] = &["id", "label", "command", "cwd", "env"];
 const PREVIEW_FIELDS: &[&str] = &["url", "command"];
 const WORKTREE_FIELDS: &[&str] = &["onCreate"];
@@ -284,6 +290,9 @@ pub struct ProjectConfig {
     /// limited number of on the board as cards.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reservoir: Option<String>,
+    /// Agents Auto starts again and again as commits land, each for a standing job.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<ProjectRole>,
     /// Paths whose change is planned before it starts, beside the ones every
     /// project has, such as migrations.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -292,6 +301,14 @@ pub struct ProjectConfig {
     /// `make deploy`, which an agent runs only once the person allows it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ship: Vec<String>,
+}
+
+/// A standing job in a project: what its agent keeps up, and how many commits land between runs.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ProjectRole {
+    pub name: String,
+    pub charter: String,
+    pub every: u32,
 }
 
 /// Project-relative path patterns, such as `server/**`, kept as written and
@@ -495,6 +512,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
     let reservoir = root
         .get("reservoir")
         .and_then(|value| parse_command(Some(value), "$.reservoir", &mut errors));
+    let roles = parse_roles(root.get("roles"), &mut errors);
     let plan_first = parse_plan_first(root.get("planFirst"), &mut errors);
     let ship = parse_ship(root.get("ship"), &mut errors);
     if !errors.is_empty() {
@@ -512,6 +530,7 @@ pub fn validate(value: &Value) -> Result<ProjectConfig, Vec<ConfigError>> {
         check,
         fast_check,
         reservoir,
+        roles,
         plan_first,
         ship,
     })
@@ -562,7 +581,15 @@ pub fn trust_summary(config: &ProjectConfig) -> TrustSummary {
     if reservoirs > 0 {
         reasons.push("a command that fills the board".to_owned());
     }
-    let executable_entries = actions + tasks + previews + hooks + generates + checks + reservoirs;
+    let roles = config.roles.len();
+    if roles > 0 {
+        reasons.push(format!(
+            "{roles} standing {}",
+            if roles == 1 { "role" } else { "roles" }
+        ));
+    }
+    let executable_entries =
+        actions + tasks + previews + hooks + generates + checks + reservoirs + roles;
     TrustSummary {
         requires_approval: executable_entries > 0,
         executable_entries,
@@ -631,8 +658,13 @@ pub fn trust_commands(config: &ProjectConfig) -> Vec<TrustCommand> {
         label: "Reservoir".to_owned(),
         command: command.clone(),
     });
+    let roles = config.roles.iter().map(|role| TrustCommand {
+        label: format!("Standing role · {}", role.name),
+        command: role.charter.clone(),
+    });
     (actions.chain(tasks).chain(preview).chain(hooks))
         .chain(reservoir)
+        .chain(roles)
         .collect()
 }
 
@@ -1323,6 +1355,84 @@ fn parse_generate(
         command: command?,
         outputs,
     }))
+}
+
+fn parse_roles(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<ProjectRole> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    let listed = match value {
+        Value::Array(listed) if listed.len() <= MAX_ROLES => listed,
+        _ => {
+            errors.push(issue(
+                "$.roles",
+                ConfigErrorCode::InvalidValue,
+                format!("roles must list at most {MAX_ROLES} roles."),
+            ));
+            return Vec::new();
+        }
+    };
+    let mut names = HashSet::new();
+    (listed.iter().enumerate())
+        .filter_map(|(index, role)| {
+            let path = format!("$.roles[{index}]");
+            parse_role(role, &path, &mut names, errors)
+        })
+        .collect()
+}
+
+fn parse_role(
+    value: &Value,
+    path: &str,
+    names: &mut HashSet<String>,
+    errors: &mut Vec<ConfigError>,
+) -> Option<ProjectRole> {
+    let Some(record) = value.as_object() else {
+        errors.push(issue(
+            path,
+            ConfigErrorCode::InvalidType,
+            "A role must be an object with a name, a charter and every.",
+        ));
+        return None;
+    };
+    reject_unknown_fields(record, ROLE_FIELDS, path, errors);
+    let name = bounded_required(
+        record.get("name"),
+        &format!("{path}.name"),
+        "Role name",
+        MAX_ROLE_NAME_CHARS,
+        errors,
+    );
+    let charter = bounded_required(
+        record.get("charter"),
+        &format!("{path}.charter"),
+        "Role charter",
+        MAX_ROLE_CHARTER_CHARS,
+        errors,
+    );
+    let every = record.get("every").and_then(Value::as_u64);
+    let every = every.filter(|every| (1..=MAX_ROLE_EVERY).contains(every));
+    if every.is_none() {
+        errors.push(issue(
+            format!("{path}.every"),
+            ConfigErrorCode::InvalidValue,
+            format!("every must be a whole number of commits from 1 to {MAX_ROLE_EVERY}."),
+        ));
+    }
+    let name = name?;
+    if !names.insert(name.clone()) {
+        errors.push(issue(
+            format!("{path}.name"),
+            ConfigErrorCode::InvalidValue,
+            "Each role needs a name of its own.",
+        ));
+        return None;
+    }
+    Some(ProjectRole {
+        name,
+        charter: charter?,
+        every: u32::try_from(every?).ok()?,
+    })
 }
 
 fn parse_ship(value: Option<&Value>, errors: &mut Vec<ConfigError>) -> Vec<String> {

@@ -89,6 +89,7 @@ pub(crate) fn commit_made(core: &Core, made: CommitMade<'_>) {
         };
         core.checks
             .wait_for(project.clone(), std::path::PathBuf::from(&project), commit);
+        super::board::roles::landed(core, &project);
     }
     core.repo_events.tell(RepoEvent::Committed {
         project,

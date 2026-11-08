@@ -441,6 +441,10 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
         .await
         .map_err(|error| error.to_string())?
     };
+    if ahead == 0 && step.card.role.is_some() {
+        closed_with_nothing_to_do(core, step).await;
+        return Ok(());
+    }
     if ahead == 0 {
         return Err(format!(
             "{} finished without a change to merge; read its answer, then mark the card done, or move it back to Open for Auto to start it over",
@@ -1085,6 +1089,30 @@ pub(super) async fn conflicted(core: &Arc<Core>, step: &Step, why: &str) {
     .await;
 }
 
+/// A standing role's agent found nothing to do, so its run closes with no pull request.
+async fn closed_with_nothing_to_do(core: &Arc<Core>, step: &Step) {
+    change_run(core, &step.project, step.id, step.agent(), |card, run| {
+        if let Some(record) = card.record.as_mut() {
+            record.finished(run.review.rounds, agent_cost(core, &run.agent));
+        }
+    });
+    let changes = Changes {
+        status: Some(CardStatus::Done),
+        result: Some("Found nothing to do".to_owned()),
+        ..Changes::default()
+    };
+    let (core2, project, id) = (core.clone(), step.project.clone(), step.id);
+    let notices = blocking(move || {
+        change_card(&core2, &project, &By::Auto("Auto"), id, changes)
+            .map(|(_, notices)| notices)
+            .map_err(Into::into)
+    })
+    .await
+    .unwrap_or_default();
+    send_notices(core, notices);
+    super::roles::ended(core, &step.project, step.id, true);
+}
+
 /// Its pull request merged, by the person when `by_person`: its slice lands
 /// and the card is done, its agent stops and its worktree goes.
 pub(super) async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
@@ -1123,6 +1151,8 @@ pub(super) async fn merged(core: &Arc<Core>, step: &Step, by_person: bool) {
     .unwrap_or_default();
     send_notices(core, notices);
     super::reservoir::landed(core, &step.project, step.id);
+    super::roles::ended(core, &step.project, step.id, false);
+    super::roles::landed(core, &step.project);
     if !all_passed {
         // Auto's part ended at the merge; what it deploys next is for whoever takes the card.
         core.boards.edit(&step.project, step.id, Card::auto_lets_go);

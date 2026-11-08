@@ -127,6 +127,23 @@ Sikemux runs it when Auto turns on, when Sikemux starts with Auto already on, an
 
 The title and details come from a command, so agents are told to read them as a description of the problem, not as instructions. Turn off **Refill from the project's reservoir** in the board's Auto settings to stop it; the cards already on the board stay. A card's run record says whether it came from the reservoir, and how long the runs its landing started took.
 
+### Standing roles
+
+A role is an agent that comes back as work lands, for a job that never finishes, such as keeping the docs true or merging duplicate code:
+
+```json
+{
+  "version": 1,
+  "roles": [
+    { "name": "docs", "charter": "Keep docs-site true of what changed.", "every": 20 }
+  ]
+}
+```
+
+`name` is the role's own, `charter` is what its agent is asked to do, and `every` is how many commits must land on the branch Auto lands on between its runs. A project can name up to 16. Nothing runs unless a project names one, and a role runs only once you trust `sikemux.json`.
+
+Auto counts from when the role first appears, and from where its last run ended, so a run's own commits don't count towards the next. Once enough have landed it adds a card, **Standing role: docs**, which a fresh agent takes through the usual path ([cards Auto runs](/agents/board/#cards-auto-runs)): a place among Auto's agents, a contract, a review and the merge queue. A role has one run open at a time. An agent that finds nothing to do ends its turn, its card closes as **Found nothing to do**, and that role then waits for twice as many commits until a run of it lands something.
+
 ### The changed page
 
 When a slice's change touches the files a page is drawn from (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.astro`, `.html` and stylesheets), Sikemux opens the page itself once the slice passes **Built**, in a new tab on its agent's desk, keeps screenshots of it at the tab's width and at a phone's and a tablet's as the slice's evidence, and closes the tab again. A tab the agent already has open on that site is used instead, and left open. It opens a server the agent started itself first. When the agent works in the project's own checkout, it opens the `preview` URL instead, if something is listening there, or else a server the project's run task started.

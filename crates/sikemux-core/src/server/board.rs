@@ -57,6 +57,7 @@ pub(crate) mod recover;
 mod reservoir;
 mod review;
 mod risk;
+pub(crate) mod roles;
 mod slice;
 pub(crate) mod tickets;
 mod wait;
@@ -218,6 +219,9 @@ struct Card {
     /// The key of the item in the project's reservoir it holds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     reservoir: Option<String>,
+    /// The standing role whose run it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    role: Option<String>,
     /// Auto takes higher numbers first.
     #[serde(default, skip_serializing_if = "is_zero")]
     priority: i32,
@@ -265,6 +269,9 @@ struct Board {
     /// What its agents decided while working on no goal.
     #[serde(default, skip_serializing_if = "goal::Goal::is_none")]
     decided: goal::Goal,
+    /// Where each standing role the project names stands, by name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    roles: BTreeMap<String, roles::Role>,
     /// Why Auto cannot start anything here now.
     #[serde(skip)]
     auto_note: Option<String>,
@@ -339,6 +346,7 @@ impl Board {
             auto_spent_usd,
             environments_proposal,
             decided,
+            roles,
             auto_note: _,
             writing: _,
             checking: _,
@@ -359,6 +367,7 @@ impl Board {
             auto_spent_usd: *auto_spent_usd,
             environments_proposal: environments_proposal.clone(),
             decided: decided.clone(),
+            roles: roles.clone(),
             ..Self::default()
         }
     }
@@ -608,6 +617,7 @@ struct State {
     workflows: workflows::Watches,
     commands: commands::Runs,
     reservoirs: reservoir::Runs,
+    roles: roles::Runs,
     /// Boards from before version 3, whose stalls `lease::clear_old_stalls` is yet to clear.
     old_stalls: Vec<String>,
     /// Environments the person set for a folder, which every project under it inherits, by
@@ -1844,6 +1854,7 @@ fn new_card(
         record: None,
         from_run: None,
         reservoir: None,
+        role: None,
         priority: 0,
         recordings: Vec::new(),
         slice,
@@ -3607,6 +3618,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     next = sooner(next, workflows::due(core));
     commands::due(core);
     reservoir::due(core);
+    roles::due(core);
     let (due, moved) = wait::settle(core, &mut core.boards.state.locked());
     next = sooner(next, due);
     if let Some(next) = next {
