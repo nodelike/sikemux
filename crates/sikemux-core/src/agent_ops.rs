@@ -15,7 +15,7 @@ use crate::agent_accounts::status::{AccountStatus, AgentStatus};
 use crate::agent_accounts::usage::Usage;
 use crate::agent_catalog::AgentKind;
 use crate::git_guard::homes::GitHook;
-use crate::launch::providers::ChatRoute;
+use crate::launch::providers::{ChatRoute, ListedProvider};
 use crate::launch::tools::{TerminalSetup, Tools};
 use crate::sessions::context::SessionContext;
 use crate::sessions::recent::{Found, Hit, PageScan};
@@ -244,6 +244,16 @@ pub(crate) trait AgentOps: Sync {
     fn route_chat(
         &self,
         _route: &ChatRoute<'_>,
+        _env: &mut BTreeMap<String, String>,
+        _args: &mut Vec<String>,
+    ) {
+    }
+
+    /// Lists `listed` beside its own providers, through its environment and arguments.
+    fn list_connected(
+        &self,
+        _listed: &[ListedProvider<'_>],
+        _omp_extension: &Path,
         _env: &mut BTreeMap<String, String>,
         _args: &mut Vec<String>,
     ) {

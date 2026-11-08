@@ -205,7 +205,20 @@ function askBeforeTools(pi: ExtensionAPI, initial: string): void {
   });
 }
 
+function registerConnectedProviders(pi: ExtensionAPI): void {
+  const providers = process.env.SIKEMUX_MODEL_PROVIDERS;
+  if (!providers) return;
+  for (const { id, apiKey, ...config } of JSON.parse(providers) as Array<
+    { id: string; apiKey: string } & Parameters<
+      ExtensionAPI["registerProvider"]
+    >[1]
+  >) {
+    pi.registerProvider(id, { ...config, apiKey: process.env[apiKey] });
+  }
+}
+
 export default async function sikemuxBrowser(pi: ExtensionAPI): Promise<void> {
+  registerConnectedProviders(pi);
   const permissions = process.env.SIKEMUX_PI_PERMISSIONS;
   delete process.env.SIKEMUX_PI_PERMISSIONS;
   if (permissions) askBeforeTools(pi, permissions);

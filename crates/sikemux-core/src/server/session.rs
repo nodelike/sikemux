@@ -32,6 +32,7 @@ use sikemux_wire::protocol::{
 use super::access::Peer;
 use super::agent::{self, AgentActivity};
 use super::connection::{blocking, ClientConn};
+use super::model_proxy::Grant as ModelGrant;
 use super::prepare::{Owner, PreparedLaunch};
 use super::{CapacityPermit, Core, CoreError, CoreResult};
 
@@ -117,6 +118,8 @@ pub(crate) struct Session {
     /// Setting a host up over SSH: its output carries the sign-in code the core
     /// approves for the account, so only the person's own app types into it.
     setup: AtomicBool,
+    /// Keeps good the token an agent in this terminal reaches model providers with.
+    pub(crate) model_grant: Mutex<Option<ModelGrant>>,
     _capacity_permit: CapacityPermit,
 }
 
@@ -155,6 +158,7 @@ pub(crate) struct SessionParts {
     pub agent: Option<AgentActivity>,
     pub shell_integration: Option<ShellLaunchIntegration>,
     pub setup: bool,
+    pub model_grant: Option<ModelGrant>,
 }
 
 impl Session {
@@ -200,6 +204,7 @@ impl Session {
             line_waiters: Mutex::new(Vec::new()),
             typed_at_prompt: Mutex::new(None),
             setup: AtomicBool::new(parts.setup),
+            model_grant: Mutex::new(parts.model_grant),
             _capacity_permit: capacity_permit,
         });
         (session, input_jobs)
@@ -442,6 +447,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
         initial_prompt_submitted,
         continues,
         setup,
+        model_grant,
     } = launch;
     let carried = continues
         .as_ref()
@@ -525,6 +531,7 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
             agent,
             shell_integration,
             setup,
+            model_grant,
         },
         io,
         child.into_inner(),
@@ -814,6 +821,7 @@ pub(crate) fn report_exit(core: &Core, session: &Session, status: Option<&ExitSt
         None => (None, None),
     };
     let screen = session.screen.locked();
+    *session.model_grant.locked() = None;
     if session.exit_reported.swap(true, Ordering::AcqRel) {
         session.exited.store(true, Ordering::Release);
         return;

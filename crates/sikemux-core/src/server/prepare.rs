@@ -97,6 +97,7 @@ pub(crate) struct PreparedLaunch {
     pub continues: Option<Continuation>,
     /// It sets a host up, so only the person's own app types into it.
     pub setup: bool,
+    pub model_grant: Option<super::model_proxy::Grant>,
 }
 
 /// The command a terminal starts with, minus the parts only the app can do: it applies the
@@ -223,6 +224,7 @@ pub(crate) fn prepare_terminal(
         setup: context
             .as_ref()
             .is_some_and(|context| context.session_kind == LaunchKind::Setup),
+        model_grant: None,
     })
 }
 
@@ -307,5 +309,6 @@ pub(crate) fn prepare_task(
         initial_prompt_submitted: false,
         continues: None,
         setup: false,
+        model_grant: None,
     })
 }

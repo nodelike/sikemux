@@ -13,7 +13,7 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
-use super::model_feed::{Feed, Snapshot};
+use super::model_feed::{Feed, Model, Snapshot};
 use crate::agent_catalog::{self, ProviderUse, RoutedApi, AGENTS};
 
 /// A development build keeps entries of its own, so it never spends or replaces the
@@ -39,19 +39,27 @@ pub const CUSTOM_KEY_ENV: &str = "SIKEMUX_MODEL_PROVIDER_KEY";
 pub(crate) const MODEL_PROXY_SLOT: &str = "http://sikemux-model-proxy.invalid";
 pub(crate) const MODEL_TOKEN_SLOT: &str = "sikemux-model-token";
 
-/// Names the provider and model an OMP chat registers, as JSON, for the extension Sikemux hands it.
-pub(crate) const OMP_PROVIDER_ENV: &str = "SIKEMUX_OMP_PROVIDER";
+/// Carries the token of an agent that lists several connected providers, so none of its
+/// built-in providers mistakes the token for a key of its own.
+pub(crate) const MODEL_TOKEN_ENV: &str = "SIKEMUX_MODEL_TOKEN";
 
-/// Registers the provider [`OMP_PROVIDER_ENV`] names for this run only, so the
+/// Names the providers a Pi or OMP run registers, as a JSON list, for the extension it is handed.
+pub(crate) const MODEL_PROVIDERS_ENV: &str = "SIKEMUX_MODEL_PROVIDERS";
+
+/// Registers the providers [`MODEL_PROVIDERS_ENV`] names for this run only, so the
 /// person's own OMP settings, sign-ins and models stay as they are.
 pub(crate) const OMP_EXTENSION: &str = "export default function (pi) {
-  const provider = process.env.SIKEMUX_OMP_PROVIDER;
-  if (provider) {
-    const { id, ...config } = JSON.parse(provider);
-    pi.registerProvider(id, config);
+  const providers = process.env.SIKEMUX_MODEL_PROVIDERS;
+  if (providers) {
+    for (const { id, ...config } of JSON.parse(providers)) {
+      pi.registerProvider(id, config);
+    }
   }
 }
 ";
+
+/// Keeps the list an agent is told of within what one environment variable can hold on Linux.
+const MAX_LISTED_MODELS: usize = 100;
 
 /// The agents Sikemux can point at a provider in place of their makers'
 /// accounts, the one a provider runs with first.
@@ -74,7 +82,7 @@ pub(crate) struct ChatRoute<'a> {
     pub(crate) id: String,
     pub(crate) label: &'a str,
     pub(crate) base_url: &'a str,
-    /// The variable the key reaches the agent in.
+    /// The variable the agent reads its token, or a local runner's stand-in, from.
     pub(crate) key_name: &'a str,
     /// The model as the provider's API names it.
     pub(crate) model: &'a str,
@@ -84,6 +92,74 @@ pub(crate) struct ChatRoute<'a> {
     pub(crate) images: bool,
     /// Where the extension that tells OMP of the provider is kept.
     pub(crate) omp_extension: &'a Path,
+}
+
+/// A connected provider an agent lists beside its own, reached through the model proxy.
+pub(crate) struct ListedProvider<'a> {
+    pub(crate) id: String,
+    pub(crate) label: &'a str,
+    pub(crate) base_url: String,
+    pub(crate) models: Vec<(&'a str, &'a Model)>,
+}
+
+impl ListedProvider<'_> {
+    pub(crate) fn input(model: &Model) -> &'static [&'static str] {
+        if model.images.unwrap_or(true) {
+            &["text", "image"]
+        } else {
+            &["text"]
+        }
+    }
+
+    /// As the extensions Pi and OMP are handed register it.
+    pub(crate) fn registered(&self) -> serde_json::Value {
+        let models: Vec<_> = self
+            .models
+            .iter()
+            .map(|(id, model)| {
+                let cost = model.cost.unwrap_or_default();
+                let mut entry = serde_json::json!({
+                    "id": id,
+                    "name": id,
+                    "reasoning": model.reasoning,
+                    "input": Self::input(model),
+                    "cost": {
+                        "input": cost.input.unwrap_or_default(),
+                        "output": cost.output.unwrap_or_default(),
+                        "cacheRead": cost.cache_read.unwrap_or_default(),
+                        "cacheWrite": cost.cache_write.unwrap_or_default(),
+                    },
+                    "contextWindow": model.limit.context,
+                    "maxTokens": LISTED_MAX_OUTPUT_TOKENS,
+                });
+                if let Some(compat) = chat_compat(id) {
+                    entry["compat"] = compat;
+                }
+                entry
+            })
+            .collect();
+        serde_json::json!({
+            "id": self.id,
+            "name": self.label,
+            "baseUrl": self.base_url,
+            "apiKey": MODEL_TOKEN_ENV,
+            "api": "openai-completions",
+            "models": models,
+        })
+    }
+}
+
+/// models.dev does not say how long a reply can be, and agents only use this as a ceiling.
+const LISTED_MAX_OUTPUT_TOKENS: u64 = 16_384;
+
+/// What DeepSeek's models need from an agent that speaks chat completions.
+pub(crate) fn chat_compat(model: &str) -> Option<serde_json::Value> {
+    model.to_ascii_lowercase().contains("deepseek").then(|| {
+        serde_json::json!({
+            "requiresReasoningContentForToolCalls": true,
+            "reasoningContentField": "reasoning_content",
+        })
+    })
 }
 
 impl ChatRoute<'_> {
@@ -240,6 +316,11 @@ pub fn key_names() -> BTreeSet<&'static str> {
         .collect()
 }
 
+fn reads_connected(agent: &str) -> bool {
+    agent_catalog::agent(agent)
+        .is_some_and(|agent| matches!(agent.providers, Some(ProviderUse::Reads)))
+}
+
 fn is_keyed(id: &str) -> bool {
     catalogued(id).is_some_and(|provider| provider.key.is_some())
 }
@@ -342,6 +423,27 @@ impl Provider {
         })
     }
 
+    /// It as an agent lists it beside its own, with the models models.dev says it can code
+    /// with, newest first.
+    fn listed<'a>(&'a self, feed: &'a Snapshot) -> Option<ListedProvider<'a>> {
+        self.key.as_ref()?;
+        let mut models: Vec<_> = feed
+            .models(self.models_dev.as_deref()?)?
+            .iter()
+            .filter(|(_, model)| model.tool_call && model.status.is_none())
+            .map(|(id, model)| (id.as_str(), model))
+            .collect();
+        models
+            .sort_by(|(a_id, a), (b_id, b)| (&b.release_date, b_id).cmp(&(&a.release_date, a_id)));
+        models.truncate(MAX_LISTED_MODELS);
+        (!models.is_empty()).then(|| ListedProvider {
+            id: self.agent_id(),
+            label: &self.label,
+            base_url: self.reached_at("openai", &self.openai),
+            models,
+        })
+    }
+
     /// Every provider serves OpenAI's chat completions.
     pub fn routes(&self, agent: &str) -> bool {
         match routed_api(agent) {
@@ -429,11 +531,12 @@ impl Provider {
         model: Option<&str>,
         omp_extension: &Path,
         images: bool,
+        listed: Wiring,
     ) -> Option<Wiring> {
         if !self.routes(agent) {
             return None;
         }
-        let mut env = BTreeMap::new();
+        let Wiring { mut env, mut args } = listed;
         let token = if self.key.is_some() {
             MODEL_TOKEN_SLOT.to_owned()
         } else {
@@ -443,11 +546,11 @@ impl Provider {
         let api = routed_api(agent)?;
         if api == RoutedApi::Chat {
             let model = self.api_model(agent, model?);
-            let key_name = self
-                .key
-                .as_ref()
-                .and_then(|spec| spec.env.first())
-                .map_or(CUSTOM_KEY_ENV, String::as_str);
+            let key_name = if self.key.is_some() {
+                MODEL_TOKEN_ENV
+            } else {
+                CUSTOM_KEY_ENV
+            };
             env.insert(key_name.to_owned(), token);
             let route = ChatRoute {
                 id: self.agent_id(),
@@ -459,7 +562,6 @@ impl Provider {
                 images,
                 omp_extension,
             };
-            let mut args = Vec::new();
             agent_catalog::AgentKind::from_name(agent)?
                 .ops()
                 .route_chat(&route, &mut env, &mut args);
@@ -482,12 +584,8 @@ impl Provider {
                     env.insert(format!("ANTHROPIC_DEFAULT_{tier}_MODEL"), model.to_owned());
                 }
             }
-            return Some(Wiring {
-                env,
-                args: Vec::new(),
-            });
+            return Some(Wiring { env, args });
         }
-        let mut args = Vec::new();
         let mut config = |key: &str, value: &str| {
             args.push("-c".to_owned());
             args.push(format!("{key}={}", serde_json::Value::from(value)));
@@ -744,12 +842,10 @@ impl Providers {
         Some(key)
     }
 
-    /// The keys `agent` starts with, under the names it looks for. Reads the
-    /// Keychain, so it blocks.
+    /// The keys connected for `agent`, under the names it looks for, for telling whether
+    /// it can sign in. Never handed to the agent. Reads the Keychain, so it blocks.
     pub fn environment(&self, agent: &str) -> BTreeMap<String, String> {
-        let reads = agent_catalog::agent(agent)
-            .is_some_and(|agent| matches!(agent.providers, Some(ProviderUse::Reads)));
-        if !reads {
+        if !reads_connected(agent) {
             return BTreeMap::new();
         }
         self.connected()
@@ -759,8 +855,42 @@ impl Providers {
             .collect()
     }
 
-    /// What `agent` starts with: the keys it reads or, when `provider` is
-    /// named, only what points it there in place of its maker's account. Fails
+    /// Tells an agent that reads connected providers of each one, through the model proxy,
+    /// adding to `env` and `args`. Reads the disk, so it blocks.
+    pub fn list_connected(
+        &self,
+        agent: &str,
+        env: &mut BTreeMap<String, String>,
+        args: &mut Vec<String>,
+    ) -> Result<(), String> {
+        if !reads_connected(agent) {
+            return Ok(());
+        }
+        let Some(kind) = agent_catalog::AgentKind::from_name(agent) else {
+            return Ok(());
+        };
+        let feed = self.feed();
+        let listed: Vec<_> = self
+            .connected()
+            .iter()
+            .filter_map(|id| catalogued(id)?.listed(&feed))
+            .collect();
+        if listed.is_empty() {
+            return Ok(());
+        }
+        kind.ops()
+            .prepare_route(&self.omp_extension)
+            .map_err(|error| {
+                format!("Sikemux could not prepare {}: {error}", kind.entry().label)
+            })?;
+        kind.ops()
+            .list_connected(&listed, &self.omp_extension, env, args);
+        env.insert(MODEL_TOKEN_ENV.to_owned(), MODEL_TOKEN_SLOT.to_owned());
+        Ok(())
+    }
+
+    /// What `agent` starts with: the connected providers it reads or, when `provider` is
+    /// named, also what points it there in place of its maker's account. Fails
     /// rather than let that account pay for a turn meant for the provider.
     /// `model` is the one picked, or the provider's [`Providers::coding_model`].
     /// Reads the Keychain, so it blocks.
@@ -775,13 +905,11 @@ impl Providers {
             .as_ref()
             .and_then(|helper| helper.subagent_model(agent, provider))
             .map(|model| ("CLAUDE_CODE_SUBAGENT_MODEL".to_owned(), model.to_owned()));
+        let mut listed = Wiring::default();
+        self.list_connected(agent, &mut listed.env, &mut listed.args)?;
         let Some(id) = provider else {
-            let mut env = self.environment(agent);
-            env.extend(subagent);
-            return Ok(Wiring {
-                env,
-                args: Vec::new(),
-            });
+            listed.env.extend(subagent);
+            return Ok(listed);
         };
         let provider = self
             .find(id)
@@ -809,7 +937,7 @@ impl Providers {
         let images = routed_api(agent) == Some(RoutedApi::Chat)
             && model.is_none_or(|model| provider.reads_images(&self.feed(), agent, model));
         let mut wiring = provider
-            .wiring(agent, model, &self.omp_extension, images)
+            .wiring(agent, model, &self.omp_extension, images, listed)
             .ok_or_else(|| format!("Pick a model of {} for {agent} to run", provider.label))?;
         wiring.env.extend(subagent);
         Ok(wiring)

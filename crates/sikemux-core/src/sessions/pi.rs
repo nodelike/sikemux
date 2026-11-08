@@ -26,6 +26,7 @@ use crate::agent_accounts::defaults::{json_effort, qualify_model};
 use crate::agent_accounts::status::{self, AgentStatus};
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
+use crate::launch::providers::{ListedProvider, MODEL_PROVIDERS_ENV};
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
@@ -285,6 +286,20 @@ impl AgentOps for Pi {
         Box::pin(ready(setup.extension_args(|data_dir| {
             skills::skill_args(data_dir, |dir| Ok(skills::pi_args(dir)))
         })))
+    }
+
+    fn list_connected(
+        &self,
+        listed: &[ListedProvider<'_>],
+        _omp_extension: &Path,
+        env: &mut BTreeMap<String, String>,
+        _args: &mut Vec<String>,
+    ) {
+        let registered: Vec<_> = listed.iter().map(ListedProvider::registered).collect();
+        env.insert(
+            MODEL_PROVIDERS_ENV.to_owned(),
+            Value::from(registered).to_string(),
+        );
     }
 
     fn chat_skills(

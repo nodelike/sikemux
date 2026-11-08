@@ -2,7 +2,7 @@
 //! token that works only while its process runs; the core puts the provider's key on each
 //! request here, so the key never enters an agent's environment.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
@@ -24,6 +24,7 @@ use tokio::net::{TcpListener, TcpStream};
 use sikemux_wire::protocol::ChatLaunch;
 
 use super::Core;
+use crate::agent_catalog::{self, ProviderUse};
 use crate::launch::providers::{
     AnthropicAuth, Provider, Providers, MODEL_PROXY_SLOT, MODEL_TOKEN_SLOT,
 };
@@ -47,7 +48,8 @@ const NOT_FORWARDED: [&str; 10] = [
     "x-api-key",
 ];
 
-type Grants = Mutex<HashMap<Vec<u8>, String>>;
+/// By a token's digest, the one provider it is good for, or `None` for any that is connected.
+type Grants = Mutex<HashMap<Vec<u8>, Option<String>>>;
 
 #[derive(Default)]
 pub(crate) struct ModelProxy {
@@ -62,10 +64,10 @@ struct Serving {
     fd: RawFd,
 }
 
-/// An agent's token, good for one provider until this is dropped.
+/// An agent's token, good until this is dropped.
 pub(crate) struct Grant {
     token: String,
-    provider: String,
+    provider: Option<String>,
     grants: Arc<Grants>,
 }
 
@@ -74,15 +76,23 @@ pub(crate) struct Grant {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct KeptGrant {
     token: String,
-    provider: String,
+    provider: Option<String>,
 }
 
 impl Grant {
-    /// Lets go of the token without revoking it, for the core that takes the agent up.
+    /// Lets go of the token without revoking it, for this core to take the agent up again.
     pub(crate) fn hand_over(mut self) -> KeptGrant {
         KeptGrant {
             token: std::mem::take(&mut self.token),
-            provider: std::mem::take(&mut self.provider),
+            provider: self.provider.take(),
+        }
+    }
+
+    /// What a core that replaces this one needs to keep the token good.
+    pub(crate) fn kept(&self) -> KeptGrant {
+        KeptGrant {
+            token: self.token.clone(),
+            provider: self.provider.clone(),
         }
     }
 }
@@ -102,34 +112,48 @@ fn digest(token: &str) -> Vec<u8> {
 impl ModelProxy {
     /// `launch` with the proxy's address and a new token in place of its slots, and the grant
     /// that keeps the token good. `None` for a launch that reaches its provider directly.
-    pub(crate) fn grant(
+    pub(crate) fn grant_chat(
         &self,
         core: &Arc<Core>,
         launch: &ChatLaunch,
     ) -> Result<Option<(Grant, ChatLaunch)>, String> {
-        let carries_token = launch.env.values().any(|value| value == MODEL_TOKEN_SLOT);
-        let (true, Some(provider)) = (carries_token, launch.model_provider.clone()) else {
+        let reads_any = agent_catalog::agent(&launch.provider)
+            .is_some_and(|agent| matches!(agent.providers, Some(ProviderUse::Reads)));
+        let scope = launch.model_provider.clone().filter(|_| !reads_any);
+        let mut resolved = launch.clone();
+        let grant = self.grant(core, &mut resolved.env, &mut resolved.args, scope)?;
+        Ok(grant.map(|grant| (grant, resolved)))
+    }
+
+    /// Puts the proxy's address and a new token in place of the slots in `env` and `args`,
+    /// answering with the grant that keeps the token good, for `scope` or any connected
+    /// provider. `None` for a launch that holds no slots.
+    pub(crate) fn grant(
+        &self,
+        core: &Arc<Core>,
+        env: &mut BTreeMap<String, String>,
+        args: &mut [String],
+        scope: Option<String>,
+    ) -> Result<Option<Grant>, String> {
+        if !env.values().any(|value| value == MODEL_TOKEN_SLOT) {
             return Ok(None);
-        };
+        }
         let port = self
             .serving(core)
             .map_err(|error| format!("Sikemux could not reach the model provider: {error}"))?
             .port;
         let token = super::tools::new_token();
-        self.grants
-            .locked()
-            .insert(digest(&token), provider.clone());
+        self.grants.locked().insert(digest(&token), scope.clone());
         let origin = format!("http://{}:{port}", Ipv4Addr::LOCALHOST);
         let filled = |value: &str| {
             value
                 .replace(MODEL_PROXY_SLOT, &origin)
                 .replace(MODEL_TOKEN_SLOT, &token)
         };
-        let mut resolved = launch.clone();
-        for value in resolved.env.values_mut() {
+        for value in env.values_mut() {
             *value = filled(value);
         }
-        for arg in &mut resolved.args {
+        for arg in args {
             *arg = filled(arg);
         }
         if outbound_proxy().is_some() {
@@ -137,15 +161,14 @@ impl ModelProxy {
                 Some(listed) => format!("{listed},{}", Ipv4Addr::LOCALHOST),
                 None => Ipv4Addr::LOCALHOST.to_string(),
             };
-            resolved.env.insert("NO_PROXY".into(), bypass.clone());
-            resolved.env.insert("no_proxy".into(), bypass);
+            env.insert("NO_PROXY".into(), bypass.clone());
+            env.insert("no_proxy".into(), bypass);
         }
-        let grant = Grant {
+        Ok(Some(Grant {
             token,
-            provider,
+            provider: scope,
             grants: self.grants.clone(),
-        };
-        Ok(Some((grant, resolved)))
+        }))
     }
 
     /// Makes the token of an agent an earlier core ran good here.
@@ -254,7 +277,7 @@ async fn forward(
     grants: &Grants,
     request: Request<Incoming>,
 ) -> Result<Response<reqwest::Body>, Refused> {
-    let provider_id = presented_token(request.headers())
+    let scope = presented_token(request.headers())
         .and_then(|token| grants.locked().get(&digest(token)).cloned())
         .ok_or_else(|| {
             refused(
@@ -263,8 +286,9 @@ async fn forward(
             )
         })?;
     let route = Route::of(request.uri().path())
-        .filter(|route| route.provider == provider_id)
+        .filter(|route| scope.as_deref().is_none_or(|only| only == route.provider))
         .ok_or_else(|| refused(StatusCode::FORBIDDEN, "This token is for another provider"))?;
+    let provider_id = route.provider.to_owned();
     let core = core
         .upgrade()
         .ok_or_else(|| refused(StatusCode::SERVICE_UNAVAILABLE, "Sikemux is stopping"))?;

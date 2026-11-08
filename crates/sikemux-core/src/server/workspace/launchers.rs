@@ -504,7 +504,21 @@ impl Workspaces {
         }
     }
 
-    /// The hosted model providers' keys `provider` reads. Reads the Keychain, so it blocks.
+    /// Tells `agent` of the connected providers it reads, adding to `env` and `args`. Blocks.
+    pub(crate) fn list_connected(
+        &self,
+        agent: &str,
+        env: &mut BTreeMap<String, String>,
+        args: &mut Vec<String>,
+    ) -> Result<(), String> {
+        match &self.providers {
+            Some(providers) => providers.list_connected(agent, env, args),
+            None => Ok(()),
+        }
+    }
+
+    /// The hosted model providers' keys `provider` reads, for telling whether it can sign in.
+    /// Reads the Keychain, so it blocks.
     pub(crate) fn provider_keys(&self, provider: &str) -> BTreeMap<String, String> {
         self.providers
             .as_ref()

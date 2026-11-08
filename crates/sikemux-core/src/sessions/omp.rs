@@ -26,7 +26,9 @@ use crate::agent_accounts::defaults::{clean_effort, clean_model, yaml_top_level_
 use crate::agent_catalog::AgentKind;
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
-use crate::launch::providers::{ChatRoute, OMP_EXTENSION, OMP_PROVIDER_ENV};
+use crate::launch::providers::{
+    chat_compat, ChatRoute, ListedProvider, MODEL_PROVIDERS_ENV, OMP_EXTENSION,
+};
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
 use notify::RecursiveMode;
@@ -402,26 +404,54 @@ impl AgentOps for Omp {
         args: &mut Vec<String>,
     ) {
         let mut entry = serde_json::json!({ "id": route.model, "input": route.input() });
-        if route.model.to_ascii_lowercase().contains("deepseek") {
-            entry["compat"] = serde_json::json!({
-                "requiresReasoningContentForToolCalls": true,
-                "reasoningContentField": "reasoning_content",
-            });
+        if let Some(compat) = chat_compat(route.model) {
+            entry["compat"] = compat;
         }
-        let registered = serde_json::json!({
-            "id": route.id,
-            "baseUrl": route.base_url,
-            "apiKey": route.key_name,
-            "api": "openai-completions",
-            "models": [entry],
-        });
-        env.insert(OMP_PROVIDER_ENV.into(), registered.to_string());
-        args.extend([
-            "-e".to_owned(),
-            route.omp_extension.to_string_lossy().into_owned(),
-            "--model".to_owned(),
-            route.agent_model.clone(),
-        ]);
+        let mut registered: Vec<serde_json::Value> = env
+            .get(MODEL_PROVIDERS_ENV)
+            .and_then(|text| serde_json::from_str(text).ok())
+            .unwrap_or_default();
+        match registered
+            .iter_mut()
+            .find(|provider| provider["id"] == route.id)
+        {
+            Some(provider) => {
+                let listed = provider["models"].as_array_mut();
+                if let Some(models) =
+                    listed.filter(|models| !models.iter().any(|known| known["id"] == route.model))
+                {
+                    models.push(entry);
+                }
+            }
+            None => registered.push(serde_json::json!({
+                "id": route.id,
+                "baseUrl": route.base_url,
+                "apiKey": route.key_name,
+                "api": "openai-completions",
+                "models": [entry],
+            })),
+        }
+        env.insert(
+            MODEL_PROVIDERS_ENV.into(),
+            serde_json::Value::from(registered).to_string(),
+        );
+        add_extension(route.omp_extension, args);
+        args.extend(["--model".to_owned(), route.agent_model.clone()]);
+    }
+
+    fn list_connected(
+        &self,
+        listed: &[ListedProvider<'_>],
+        omp_extension: &Path,
+        env: &mut BTreeMap<String, String>,
+        args: &mut Vec<String>,
+    ) {
+        let registered: Vec<_> = listed.iter().map(ListedProvider::registered).collect();
+        env.insert(
+            MODEL_PROVIDERS_ENV.into(),
+            serde_json::Value::from(registered).to_string(),
+        );
+        add_extension(omp_extension, args);
     }
 
     fn prepare_route(&self, omp_extension: &Path) -> std::io::Result<()> {
@@ -430,6 +460,13 @@ impl AgentOps for Omp {
 
     fn skills_folder(&self) -> Option<PathBuf> {
         Some(AgentKind::Omp.home_root()?.join("skills"))
+    }
+}
+
+fn add_extension(extension: &Path, args: &mut Vec<String>) {
+    let extension = extension.to_string_lossy().into_owned();
+    if !args.contains(&extension) {
+        args.extend(["-e".to_owned(), extension]);
     }
 }
 

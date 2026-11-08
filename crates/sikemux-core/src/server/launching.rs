@@ -6,6 +6,7 @@
 use crate::server::changed::What;
 use serde::{Deserialize, Serialize};
 use sikemux_view::prefs::PreferenceChange;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -26,12 +27,14 @@ use sikemux_wire::protocol::{
 
 use super::chat;
 use super::connection::{blocking, ClientConn};
+use super::model_proxy::Grant as ModelGrant;
 use super::prepare::{prepare_task, prepare_terminal};
 use super::session::PendingStart;
 use super::workspace::{
     launcher_of, new_agent, ChatChoice, LauncherId, ResumeChoice, SessionChoice,
 };
 use super::{lifecycle, Core, CoreError, CoreResult};
+use crate::launch::providers::MODEL_TOKEN_SLOT;
 
 /// Where this core's agents reach their tools; none for a core without a
 /// tool endpoint.
@@ -44,16 +47,18 @@ pub(crate) fn tools(core: &Core) -> Option<Tools> {
     })
 }
 
-/// Gives a terminal agent its tools, its account and the hosted model
-/// providers' keys. A launch that cannot be told about the tools still runs.
-pub(crate) async fn terminal_agent(core: &Arc<Core>, spawn: &mut TerminalSpawn) {
+/// Gives a terminal agent its tools, its account and the connected model providers, and
+/// answers with what keeps its token for them good. A launch that cannot be told about the
+/// tools still runs.
+pub(crate) async fn terminal_agent(
+    core: &Arc<Core>,
+    spawn: &mut TerminalSpawn,
+) -> Option<ModelGrant> {
     let (Some(command), Some(context)) = (spawn.direct_command.as_mut(), spawn.context.as_ref())
     else {
-        return;
+        return None;
     };
-    let Some(agent_type) = context.agent_type.clone() else {
-        return;
-    };
+    let agent_type = context.agent_type.clone()?;
     if let (Some(agent_id), Some(tools)) = (context.agent_id.as_deref(), tools(core)) {
         match tools
             .terminal(agent_id, &agent_type, &command.program)
@@ -76,14 +81,33 @@ pub(crate) async fn terminal_agent(core: &Arc<Core>, spawn: &mut TerminalSpawn) 
     };
     let program = command.program.clone();
     let owner = core.clone();
+    let mut listed: BTreeMap<String, String> = spawn.env.clone().into_iter().collect();
     let launch = blocking(move || {
-        let providers = owner.workspaces.provider_keys(&spec.provider);
-        Ok(spec.launch(program.into(), providers))
+        let mut unused_args = Vec::new();
+        let told = owner
+            .workspaces
+            .list_connected(&spec.provider, &mut listed, &mut unused_args);
+        if let Err(error) = told {
+            eprintln!("sikemux core: {error}");
+        }
+        Ok((spec.launch(program.into(), BTreeMap::new()), listed))
     })
     .await;
-    if let Ok(launch) = launch {
-        spawn.env.extend(launch.env);
+    let Ok((launch, mut listed)) = launch else {
+        return None;
+    };
+    spawn.env.extend(launch.env);
+    let grant = core
+        .model_proxy
+        .grant(core, &mut listed, &mut [], None)
+        .inspect_err(|error| eprintln!("sikemux core: {error}"))
+        .ok()
+        .flatten();
+    if grant.is_none() {
+        listed.retain(|_, value| !value.contains(MODEL_TOKEN_SLOT));
     }
+    spawn.env.extend(listed);
+    grant
 }
 
 /// Starts a terminal agent as its record says, on its saved session and the
@@ -583,9 +607,10 @@ pub(crate) async fn spawn(
     mut target: Box<SpawnTarget>,
     started_by: Option<String>,
 ) -> CoreResult<PendingStart> {
+    let mut model_grant = None;
     if let SpawnTarget::Terminal(spawn) = target.as_mut() {
         core.spares.note_size(spawn.cols, spawn.rows);
-        terminal_agent(&core, spawn).await;
+        model_grant = terminal_agent(&core, spawn).await;
     }
     blocking(move || {
         let mut prepared = match *target {
@@ -622,6 +647,7 @@ pub(crate) async fn spawn(
             }
         };
         prepared.owner.started_by = started_by;
+        prepared.model_grant = model_grant;
         super::session::spawn_session(&core, prepared)
     })
     .await

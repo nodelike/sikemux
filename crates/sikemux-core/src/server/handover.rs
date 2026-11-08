@@ -38,6 +38,7 @@ use super::agent::{self, AgentActivity, AgentRecord};
 use super::chat::{self, ChatRecord, HandOver, LiveChat};
 use super::data_format;
 use super::harness::HarnessRecord;
+use super::model_proxy::{Grant, KeptGrant};
 use super::prepare::Owner;
 use super::session::{self, Session, SessionParts};
 use super::{
@@ -117,6 +118,7 @@ struct SessionRecord {
     shell_files: Option<PathBuf>,
     /// The terminal was setting a host up, which the next core keeps locked.
     setup: bool,
+    model_grant: Option<KeptGrant>,
 }
 
 fn blob_path(directory: &Path, id: SessionId, kind: &str) -> PathBuf {
@@ -183,6 +185,7 @@ fn capture(session: &Session, directory: &Path) -> CoreResult<SessionRecord> {
         task_output_end,
         agent: session.agent.as_ref().map(AgentActivity::record),
         shell_files: session.shell_files().map(Path::to_path_buf),
+        model_grant: session.model_grant.locked().as_ref().map(Grant::kept),
         setup: session.in_setup(),
     })
 }
@@ -750,6 +753,9 @@ fn adopt_session(
                 .shell_files
                 .map(|files| ShellLaunchIntegration::adopt(Some(files))),
             setup: record.setup,
+            model_grant: record
+                .model_grant
+                .map(|kept| core.model_proxy.restore(kept)),
         },
         io,
         Box::new(child),
@@ -793,6 +799,7 @@ fn adopt_bare(
             shell_integration: None,
             // Nothing says whether it was setting a host up, so it stays locked to the app.
             setup: true,
+            model_grant: None,
         },
         io,
         Box::new(AdoptedChild::new(pid, None)),

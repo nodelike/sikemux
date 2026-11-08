@@ -15,7 +15,7 @@ use crate::agent_accounts::defaults::json_model;
 use crate::agent_accounts::status::{self, AgentStatus};
 use crate::agent_ops::Pending;
 use crate::agent_ops::{AgentOps, SessionPlaces};
-use crate::launch::providers::ChatRoute;
+use crate::launch::providers::{ChatRoute, ListedProvider, MODEL_TOKEN_ENV};
 use crate::launch::skills;
 use crate::launch::tools::TerminalSetup;
 use serde_json::Value;
@@ -361,28 +361,41 @@ impl AgentOps for Opencode {
         env: &mut BTreeMap<String, String>,
         _args: &mut Vec<String>,
     ) {
-        let mut config = skills::inherited_opencode_config()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            .filter(Value::is_object)
-            .unwrap_or_else(|| serde_json::json!({}));
-        if !config["provider"].is_object() {
-            config["provider"] = serde_json::json!({});
-        }
-        config["provider"][route.id.as_str()] = serde_json::json!({
-            "npm": "@ai-sdk/openai-compatible",
-            "name": route.label,
-            "options": {
-                "baseURL": route.base_url,
-                "apiKey": format!("{{env:{}}}", route.key_name),
-            },
-            "models": { route.model: {
-                "name": route.model,
-                "attachment": route.images,
-                "modalities": { "input": route.input(), "output": ["text"] },
-            } },
-        });
+        let mut config = provider_config(env);
+        let models = provider_entry(
+            &mut config,
+            &route.id,
+            route.label,
+            route.base_url,
+            route.key_name,
+        );
+        models[route.model] = model_entry(route.model, route.images, route.input());
         config["model"] = route.agent_model.clone().into();
-        env.insert("OPENCODE_CONFIG_CONTENT".into(), config.to_string());
+        env.insert(CONFIG_ENV.into(), config.to_string());
+    }
+
+    fn list_connected(
+        &self,
+        listed: &[ListedProvider<'_>],
+        _omp_extension: &Path,
+        env: &mut BTreeMap<String, String>,
+        _args: &mut Vec<String>,
+    ) {
+        let mut config = provider_config(env);
+        for provider in listed {
+            let models = provider_entry(
+                &mut config,
+                &provider.id,
+                provider.label,
+                &provider.base_url,
+                MODEL_TOKEN_ENV,
+            );
+            for (id, model) in &provider.models {
+                let images = model.images.unwrap_or(true);
+                models[*id] = model_entry(id, images, ListedProvider::input(model));
+            }
+        }
+        env.insert(CONFIG_ENV.into(), config.to_string());
     }
 
     fn skills_folder(&self) -> Option<PathBuf> {
@@ -393,6 +406,53 @@ impl AgentOps for Opencode {
         });
         Some(config_home.join("opencode/skills"))
     }
+}
+
+const CONFIG_ENV: &str = "OPENCODE_CONFIG_CONTENT";
+
+/// The inline config this launch has so far, else the person's own.
+fn provider_config(env: &BTreeMap<String, String>) -> Value {
+    let mut config = env
+        .get(CONFIG_ENV)
+        .cloned()
+        .or_else(skills::inherited_opencode_config)
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .filter(Value::is_object)
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !config["provider"].is_object() {
+        config["provider"] = serde_json::json!({});
+    }
+    config
+}
+
+/// The provider `id` in `config`, reached at `base_url`, answering with its models to fill in.
+fn provider_entry<'a>(
+    config: &'a mut Value,
+    id: &str,
+    label: &str,
+    base_url: &str,
+    key_name: &str,
+) -> &'a mut Value {
+    let entry = &mut config["provider"][id];
+    let models = entry["models"].take();
+    *entry = serde_json::json!({
+        "npm": "@ai-sdk/openai-compatible",
+        "name": label,
+        "options": {
+            "baseURL": base_url,
+            "apiKey": format!("{{env:{key_name}}}"),
+        },
+        "models": if models.is_object() { models } else { serde_json::json!({}) },
+    });
+    &mut entry["models"]
+}
+
+fn model_entry(id: &str, images: bool, input: &[&str]) -> Value {
+    serde_json::json!({
+        "name": id,
+        "attachment": images,
+        "modalities": { "input": input, "output": ["text"] },
+    })
 }
 
 #[cfg(test)]
