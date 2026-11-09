@@ -132,7 +132,7 @@ pub fn wake_label(until: u64, cx: &App) -> AnyElement {
     let left = until.saturating_sub(epoch_ms());
     let words = match left {
         left if left < HOUR_MS => format!("{}m", left.div_ceil(60_000).max(1)),
-        left if left < 24 * HOUR_MS => format!("{}h", left.div_ceil(HOUR_MS)),
+        left if left < 24 * HOUR_MS => format!("{}h", ((left + HOUR_MS / 2) / HOUR_MS).max(1)),
         _ => Local
             .timestamp_millis_opt(until as i64)
             .single()
@@ -182,7 +182,8 @@ pub fn menu_items(
         )
     } else {
         let (bench, id) = (bench.clone(), id.clone());
-        popup.submenu(
+        popup.submenu_with_icon(
+            Some(Icon::Clock.into()),
             "Snooze",
             window,
             cx,
