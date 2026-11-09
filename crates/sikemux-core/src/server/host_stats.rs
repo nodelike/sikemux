@@ -29,6 +29,8 @@ use super::Core;
 
 const HISTORY_EVERY: Duration = Duration::from_secs(15);
 const WATCHED_EVERY: Duration = Duration::from_secs(3);
+/// How often the rows' load may send the device view again, as phones and the notch get it too.
+const LOAD_SHOWN_EVERY: Duration = Duration::from_secs(30);
 /// After the first look at every process, the next comes sooner, as CPU is told between two.
 const FIRST_LOOKS_APART: Duration = Duration::from_secs(1);
 const WATCH_LASTS_MS: u64 = 15_000;
@@ -319,6 +321,7 @@ async fn run(core: Arc<Core>) {
     looker.host_cpu.look();
     let mut next_host = Instant::now() + WATCHED_EVERY;
     let mut next_watched = Instant::now();
+    let mut next_shown = Instant::now() + LOAD_SHOWN_EVERY;
     loop {
         let now = Instant::now();
         let watched = core.host_watch.watched();
@@ -351,8 +354,11 @@ async fn run(core: Arc<Core>) {
             looker = back;
             if host_due {
                 next_host = now + HISTORY_EVERY;
-                if core.shows_load() && core.load_moved(&load(&core)) {
-                    core.changed(What::View);
+                if now >= next_shown {
+                    next_shown = now + LOAD_SHOWN_EVERY;
+                    if core.shows_load() && core.load_moved(&load(&core)) {
+                        core.changed(What::View);
+                    }
                 }
             }
             if watched_due {
