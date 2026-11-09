@@ -39,8 +39,8 @@ fn elapsed(took: u64) -> String {
     }
 }
 
-/// What a run's line says after its count, and whether it wants the person.
-fn said(line: &TeamLine) -> (String, bool) {
+/// What a run's line says after its count, and what an agent in it needs of the person.
+fn said(line: &TeamLine) -> (String, Option<TeamNeedKind>) {
     if let Some(need) = &line.need {
         let name = &need.name;
         let text = need.text.as_deref();
@@ -53,11 +53,11 @@ fn said(line: &TeamLine) -> (String, bool) {
             (TeamNeedKind::Failed, None) => format!("@{name} failed"),
             (TeamNeedKind::Stopped, _) => format!("@{name} stopped"),
         };
-        return (words, true);
+        return (words, Some(need.kind));
     }
     let latest = line.latest.as_ref();
     let words = latest.map_or_else(String::new, |said| format!("@{}: {}", said.name, said.text));
-    (words, false)
+    (words, None)
 }
 
 /// The one line a run folds to, and while it is open and has more than it opens on, the way to
@@ -70,7 +70,12 @@ pub(super) fn head(
     cx: &mut App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let (words, wanting) = said(line);
+    let (words, need) = said(line);
+    let tone = match need {
+        Some(TeamNeedKind::Failed) => t.danger,
+        Some(_) => t.accent,
+        None => looks.quiet,
+    };
     let marks = line
         .agents
         .iter()
@@ -159,7 +164,7 @@ pub(super) fn head(
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_color(if wanting { t.danger } else { looks.quiet })
+                    .text_color(tone)
                     .child(words),
             )
             .children(line.took.map(|took| {
