@@ -75,9 +75,18 @@ pub fn sessions_shared(provider: &str, one: Option<&str>, other: Option<&str>) -
     sessions_root(provider, one).is_some_and(|root| sessions_root(provider, other) == Some(root))
 }
 
+/// Whether a chat on the account in `one` can carry on in the one in `other`, linking each to
+/// the default folder's chats first when Sikemux made it.
+pub fn shares_chats(provider: &str, one: Option<&str>, other: Option<&str>) -> bool {
+    link_shared(provider, one);
+    link_shared(provider, other);
+    sessions_shared(provider, one, other)
+}
+
 /// Links the default folder's shared entries into an account Sikemux made.
 /// Entries already there are left alone, so a file the account wrote itself
-/// is never replaced.
+/// is never replaced; a chats folder its CLI made first is emptied into the
+/// default one and then linked.
 pub fn link_shared(provider: &str, config_path: Option<&str>) {
     let (Some(account), Some(shared)) = (
         config_path.and_then(|path| root(provider, Some(path))),
@@ -92,7 +101,8 @@ fn link_into(provider: &str, account: &Path, shared: &Path) {
     if !account.join(MARKER).is_file() || account == shared {
         return;
     }
-    if let Some(sessions) = accounts_home(provider).and_then(|(_, home)| home.sessions) {
+    let sessions = accounts_home(provider).and_then(|(_, home)| home.sessions);
+    if let Some(sessions) = sessions {
         let _ = std::fs::create_dir_all(shared.join(sessions));
     }
     let Ok(entries) = std::fs::read_dir(shared) else {
@@ -104,13 +114,43 @@ fn link_into(provider: &str, account: &Path, shared: &Path) {
             continue;
         };
         let target = account.join(name);
-        if !shares(provider, name) || target.symlink_metadata().is_ok() {
+        if !shares(provider, name) {
+            continue;
+        }
+        let own_folder = target.symlink_metadata().is_ok_and(|meta| meta.is_dir());
+        if Some(name) == sessions && own_folder && !move_into(&target, &entry.path()) {
+            eprintln!("Some chats in {target:?} have the names of chats in {shared:?}, so they stay apart");
+            continue;
+        }
+        if target.symlink_metadata().is_ok() {
             continue;
         }
         if let Err(error) = std::os::unix::fs::symlink(entry.path(), &target) {
             eprintln!("Could not share {name} with the account in {account:?}: {error}");
         }
     }
+}
+
+/// Moves what `from` holds into `into`, leaving anything whose name `into` already has, and
+/// answers whether that emptied `from`, which then goes.
+fn move_into(from: &Path, into: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(from) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let (path, there) = (entry.path(), into.join(entry.file_name()));
+        let folder = entry.file_type().is_ok_and(|kind| kind.is_dir());
+        match there.symlink_metadata() {
+            Err(_) => {
+                let _ = std::fs::rename(&path, &there);
+            }
+            Ok(meta) if folder && meta.is_dir() => {
+                move_into(&path, &there);
+            }
+            Ok(_) => {}
+        }
+    }
+    std::fs::remove_dir(from).is_ok()
 }
 
 fn slug(name: &str) -> String {
@@ -283,5 +323,37 @@ mod tests {
         assert!(shares("claude", "projects"));
         assert!(!shares("claude", ".credentials.json"));
         assert!(!shares("claude", "daemon"));
+    }
+
+    #[test]
+    fn chats_the_account_kept_itself_join_the_shared_ones_before_linking() {
+        let home = tempfile::tempdir().unwrap();
+        let shared = home.path().join(".codex");
+        std::fs::create_dir_all(shared.join("sessions/2026/11")).unwrap();
+        std::fs::write(shared.join("sessions/2026/11/a.jsonl"), "a").unwrap();
+        let account = home.path().join(".codex-work");
+        std::fs::create_dir_all(account.join("sessions/2026/11")).unwrap();
+        std::fs::write(account.join(MARKER), "").unwrap();
+        std::fs::write(account.join("sessions/2026/11/b.jsonl"), "b").unwrap();
+
+        link_into("codex", &account, &shared);
+        assert_eq!(
+            std::fs::read_link(account.join("sessions")).unwrap(),
+            shared.join("sessions")
+        );
+        let kept = |name: &str| std::fs::read_to_string(shared.join("sessions/2026/11").join(name));
+        assert_eq!(kept("a.jsonl").unwrap(), "a");
+        assert_eq!(kept("b.jsonl").unwrap(), "b");
+
+        let clashing = home.path().join(".codex-home");
+        std::fs::create_dir_all(clashing.join("sessions/2026/11")).unwrap();
+        std::fs::write(clashing.join(MARKER), "").unwrap();
+        std::fs::write(clashing.join("sessions/2026/11/a.jsonl"), "own").unwrap();
+        link_into("codex", &clashing, &shared);
+        assert_eq!(
+            std::fs::read_to_string(clashing.join("sessions/2026/11/a.jsonl")).unwrap(),
+            "own"
+        );
+        assert_eq!(kept("a.jsonl").unwrap(), "a");
     }
 }
