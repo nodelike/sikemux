@@ -4,7 +4,9 @@
 //! agents' `sim_*` tools and the desk drive both alike.
 
 mod grpc;
+pub mod install;
 mod logcat;
+pub mod pair;
 pub(crate) mod sdk;
 
 use std::collections::HashMap;
@@ -30,6 +32,11 @@ const SWIPE_STEP: f64 = 1.0 / 60.0;
 /// Whether `udid` names an Android device rather than an iOS simulator.
 pub fn is_android(udid: &str) -> bool {
     udid.starts_with(VIRTUAL) || udid.starts_with(PLUGGED)
+}
+
+/// Whether `udid` names a phone plugged in over adb, whose screen streams as H.264, rather than an emulator.
+pub fn is_phone(udid: &str) -> bool {
+    udid.starts_with(PLUGGED)
 }
 
 /// A device's screen as it sits upright, and how many pixels make a point.
@@ -747,6 +754,9 @@ impl Android {
     ) -> SimResult<()> {
         let serial = self.serial(udid).await?;
         let display = self.display(&serial).await?;
+        if is_phone(udid) {
+            return self.record(udid, &serial, display, on_frame).await;
+        }
         let side = (display.width.max(display.height) / display.scale * 2.)
             .min(display.width.max(display.height)) as u32;
         let target = self.target(udid);
@@ -761,6 +771,61 @@ impl Android {
             on_frame(frame)
         })
         .await
+    }
+
+    /// Streams a phone's screen as its own hardware encoder makes it, H.264 frames as the iOS
+    /// helper sends them, at twice its size in points. `screenrecord` stops after three minutes,
+    /// so it is started again until the phone goes away.
+    async fn record(
+        &self,
+        udid: &str,
+        serial: &str,
+        display: Display,
+        mut on_frame: impl FnMut(Vec<u8>) -> bool,
+    ) -> SimResult<()> {
+        use tokio::io::AsyncReadExt;
+        let shrink = (2. / display.scale).min(1.);
+        let even = |side: f64| ((side * shrink) as u32) & !1;
+        let size = format!("{}x{}", even(display.width), even(display.height));
+        loop {
+            let mut child = tokio::process::Command::from(
+                sikemux_process::user_environment::command(self.adb_path()?),
+            )
+            .args([
+                "-s",
+                serial,
+                "exec-out",
+                "screenrecord",
+                "--output-format=h264",
+            ])
+            .args(["--size", &size, "--bit-rate", "8000000", "-"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|error| format!("could not record the phone's screen: {error}"))?;
+            let mut output = child.stdout.take().ok_or("the recording has no output")?;
+            let mut frames = Frames::default();
+            let mut chunk = vec![0; 1 << 16];
+            loop {
+                let read = output
+                    .read(&mut chunk)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                if read == 0 {
+                    break;
+                }
+                for frame in frames.push(&chunk[..read]) {
+                    if !on_frame(frame) {
+                        return Ok(());
+                    }
+                }
+            }
+            if self.serial(udid).await.is_err() {
+                return Err("the phone went away".into());
+            }
+        }
     }
 
     /// Lets go of every device as Sikemux quits.
@@ -850,7 +915,7 @@ fn button_code(button: &str) -> Option<i64> {
 }
 
 /// The Android release an API level shipped as.
-fn android_version(api: &str) -> String {
+pub(crate) fn android_version(api: &str) -> String {
     let level: u32 = api
         .split('.')
         .next()
@@ -1027,3 +1092,48 @@ fn element(node: &Value, frame: Value) -> Option<Value> {
 }
 
 pub(crate) const NO_DEVICE: &str = "this computer has no Android device yet: no virtual device, and no phone plugged in with USB debugging on. Ask the person to set up the Android Emulator from the desk's device menu, or to plug in a phone.";
+
+/// Cuts an H.264 byte stream into frames, each the units up to and including one picture.
+#[derive(Default)]
+struct Frames {
+    buffer: Vec<u8>,
+    scanned: usize,
+    /// Where the unit being read starts, at its start code.
+    unit: Option<usize>,
+}
+
+impl Frames {
+    fn push(&mut self, data: &[u8]) -> Vec<Vec<u8>> {
+        self.buffer.extend_from_slice(data);
+        let mut frames = Vec::new();
+        let mut at = self.scanned;
+        while at + 3 <= self.buffer.len() {
+            if self.buffer[at..at + 3] != [0, 0, 1] {
+                at += 1;
+                continue;
+            }
+            let start = if at > 0 && self.buffer[at - 1] == 0 {
+                at - 1
+            } else {
+                at
+            };
+            if let Some(unit) = self.unit {
+                let header = self.buffer[unit..]
+                    .iter()
+                    .position(|&byte| byte == 1)
+                    .map(|one| self.buffer[unit + one + 1] & 0x1f);
+                if matches!(header, Some(1 | 5)) {
+                    frames.push(self.buffer.drain(..start).collect());
+                    at -= start;
+                    self.unit = Some(0);
+                    at += 3;
+                    continue;
+                }
+            }
+            self.unit = Some(start);
+            at += 3;
+        }
+        self.scanned = at;
+        frames
+    }
+}

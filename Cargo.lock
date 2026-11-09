@@ -7839,6 +7839,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "qrcodegen"
+version = "1.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4339fc7a1021c9c1621d87f5e3505f2805c8c105420ba2f2a4df86814590c142"
+
+[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9338,6 +9344,7 @@ dependencies = [
  "objc2-metal 0.3.2",
  "objc2-web-kit",
  "percent-encoding",
+ "qrcodegen",
  "raw-window-handle",
  "resvg 0.46.0",
  "rustls",
@@ -9741,13 +9748,16 @@ dependencies = [
  "hex",
  "http",
  "libc",
+ "reqwest",
  "serde",
  "serde_json",
+ "sha1",
  "sha2 0.11.0",
  "sikemux-base",
  "sikemux-process",
  "tempfile",
  "tokio",
+ "uuid",
  "workspace-hack",
 ]
 

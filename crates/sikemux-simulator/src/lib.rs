@@ -31,6 +31,9 @@ pub use helper::{
 
 pub type SimResult<T> = Result<T, String>;
 
+/// How far setting up the Android Emulator has come, or that it finished, and how.
+pub const ANDROID_SETUP_EVENT: &str = "android-setup";
+
 /// What the app hosting the simulator gives it.
 pub trait Host: Send + Sync + 'static {
     /// Where the helper is kept once downloaded.
@@ -865,6 +868,94 @@ impl SimulatorManager {
             json!({ "agentId": agent_id, "udid": device.udid, "name": device.name }),
         );
         Ok(())
+    }
+
+    /// Streams an Android emulator's screen to `on_frame` as [`android::Android::stream`] sends
+    /// it, answering the id [`SimManager::unwatch`] stops it by.
+    pub fn watch_android(
+        &self,
+        udid: String,
+        on_frame: impl FnMut(Vec<u8>) -> bool + Send + 'static,
+    ) -> SimResult<u64> {
+        let manager = self.me.upgrade().ok_or("Sikemux is quitting")?;
+        let streamed = udid.clone();
+        Ok(self
+            .sim
+            .follow(Arc::clone(&self.host), udid, "rgb".into(), async move {
+                manager.android.stream(&streamed, on_frame).await
+            }))
+    }
+
+    /// What setting up the Android Emulator would download here, or nothing when it is set up.
+    pub async fn android_plan(&self) -> SimResult<Option<android::install::Plan>> {
+        let data_dir = self.host.data_dir();
+        let root = android::sdk::root(data_dir.as_deref())
+            .or_else(|| {
+                data_dir
+                    .as_deref()
+                    .map(sikemux_process::android_sdk::own_root)
+            })
+            .ok_or("Sikemux has no folder to set up the Android SDK in")?;
+        let avd_home = android::sdk::avd_home().ok_or("no folder for virtual devices")?;
+        let plan = android::install::plan(root, avd_home).await?;
+        Ok((!plan.packages.is_empty() || plan.device).then_some(plan))
+    }
+
+    /// What Settings shows about Android: the SDK in use, its emulator's version and the
+    /// virtual devices, or what setting it up would download.
+    pub async fn android_info(&self) -> Value {
+        let root = self.android.sdk();
+        let (emulator, devices) = tokio::task::spawn_blocking({
+            let root = root.clone();
+            move || {
+                let emulator = root
+                    .as_ref()
+                    .and_then(|root| {
+                        std::fs::read_to_string(root.join("emulator/source.properties")).ok()
+                    })
+                    .and_then(|text| android::sdk::ini(&text).get("Pkg.Revision").cloned());
+                let devices: Vec<String> = android::sdk::avds()
+                    .into_iter()
+                    .map(|avd| avd.name)
+                    .collect();
+                (emulator, devices)
+            }
+        })
+        .await
+        .unwrap_or_default();
+        let offer = match root.is_none() || emulator.is_none() || devices.is_empty() {
+            true => self
+                .android_plan()
+                .await
+                .ok()
+                .flatten()
+                .map(|plan| plan.size()),
+            false => None,
+        };
+        json!({ "sdk": root, "emulator": emulator, "devices": devices, "offer": offer })
+    }
+
+    /// Sets up the Android Emulator, telling the window how far it has come as [`ANDROID_SETUP_EVENT`]s.
+    pub async fn set_up_android(&self) -> SimResult<()> {
+        let Some(plan) = self.android_plan().await? else {
+            return Ok(());
+        };
+        let mut reported = -1.0;
+        let result = android::install::install(&plan, |progress| {
+            if progress.fraction - reported >= 0.005 || progress.fraction >= 1.0 {
+                reported = progress.fraction;
+                self.emit(
+                    ANDROID_SETUP_EVENT,
+                    json!({ "step": progress.step, "fraction": progress.fraction }),
+                );
+            }
+        })
+        .await;
+        self.emit(
+            ANDROID_SETUP_EVENT,
+            json!({ "done": true, "error": result.as_ref().err() }),
+        );
+        result
     }
 
     /// Turns a device, or with no `orientation` says which way it is turned.
