@@ -409,9 +409,10 @@ async fn a_flood_never_waits_for_a_client_that_stopped_drawing() {
     for frame in &frames {
         screen.apply(decode_frame(frame).expect("a frame"));
     }
-    stream.screens.insert(attached.stream, (id, screen.clone()));
-    client.ack(attached.stream, screen.header.frame);
-    stream.until_output(&client, id, "flood-done").await;
+    assert!(
+        screen.text().contains("flood-done"),
+        "the last frame did not reach a client that drew none"
+    );
 }
 
 #[tokio::test]
