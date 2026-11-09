@@ -146,7 +146,6 @@ fn run(connection: &Connection, sql: &str, limit: usize) -> rusqlite::Result<Vec
     while let Some(mut statement) = batch.next()? {
         let mut columns: Vec<Column> = statement
             .columns()
-            .iter()
             .map(|column| {
                 let type_name = column.decl_type().unwrap_or_default().to_string();
                 Column {

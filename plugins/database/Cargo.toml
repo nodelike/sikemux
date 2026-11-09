@@ -9,7 +9,7 @@ sikemux-plugin-api = { path = "../../crates/sikemux-plugin-api" }
 sikemux-process = { path = "../../crates/sikemux-process" }
 futures-util = { version = "0.3", default-features = false }
 mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust", "rustls-tls", "ring"] }
-rusqlite = { version = "0.40", features = ["bundled", "column_decltype"] }
+rusqlite = { version = "0.41", features = ["bundled", "column_decltype"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-platform-verifier = "0.7"
 serde = { version = "1", features = ["derive"] }
