@@ -3,7 +3,8 @@
 //! take it up, and Auto takes it on where it can run it, telling the person, who can overrule
 //! that. Otherwise, and always for a chat the person works in, they are asked to resume the owner
 //! or hand the slice on. An owner keeps the lease for as long as something it waits on can still
-//! bring it back by itself.
+//! bring it back by itself. A plain card under another loses such an owner too, and goes back to
+//! Open with a line naming who left it, as nobody is asked to bring a plain card's owner back.
 
 use crate::server::changed::What;
 use std::collections::HashSet;
@@ -16,7 +17,7 @@ use sikemux_process::sync::Locked;
 
 use super::{
     hand_off, hand_off::HandOnParams, holder, name_of, project_at, project_view, take_on, wait,
-    BoardCardParams, Card, CardStatus, ProjectBoard,
+    Board, BoardCardParams, Card, CardStatus, ProjectBoard,
 };
 use crate::server::connection::blocking;
 use crate::server::wake::sooner;
@@ -70,12 +71,24 @@ pub(super) fn stalled_of(core: &Core, card: &Card) -> Option<Stalled> {
         .or_else(|| super::chat_goal::plain_stalled(core, card))
 }
 
-/// A started slice an owner holds, which waits on no check, card, gate or turn.
+/// A started slice an owner holds, which waits on no check, card, gate or turn, or a plain card
+/// under another that waits on no card.
 struct Unattended {
     project: String,
     id: u64,
     owner: String,
     touched: u64,
+    plain: bool,
+}
+
+/// Whether the card's owner holds it under a lease that may lapse now: a started slice that
+/// waits on nothing, or a plain card under another that waits on no card. A plain card at the
+/// top is a goal its chat answers for, which the person resumes when it closes.
+fn lapses(core: &Core, board: &Board, card: &Card, now: u64) -> bool {
+    match &card.slice {
+        Some(slice) => slice.started && wait::of(core, board, card, now).is_none(),
+        None => card.parent.is_some() && board.waits_on(card).is_empty(),
+    }
 }
 
 fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
@@ -84,17 +97,17 @@ fn unattended(core: &Core, now: u64) -> Vec<Unattended> {
     let mut found = Vec::new();
     for board in state.boards.values() {
         for card in &board.cards {
-            let started = card.slice.as_ref().is_some_and(|slice| slice.started);
-            let held = card.status == CardStatus::Progress && card.auto.is_none() && started;
+            let held = card.status == CardStatus::Progress && card.auto.is_none();
             let Some(owner) = card.owner_id().filter(|_| held) else {
                 continue;
             };
-            if wait::of(core, board, card, now).is_none() {
+            if lapses(core, board, card, now) {
                 found.push(Unattended {
                     project: board.project.clone(),
                     id: card.id,
                     owner: owner.to_owned(),
                     touched: card.updated_at.max(card.acted_at).max(born),
+                    plain: card.slice.is_none(),
                 });
             }
         }
@@ -143,6 +156,9 @@ pub(super) fn settle(core: &Core) -> Option<u64> {
             lost.push((slice, Why::Closed));
             continue;
         }
+        if slice.plain && persons_own(core, owner, Why::Quiet) {
+            continue;
+        }
         let touched = slice.touched.max(core.seen.quiet_since(owner).unwrap_or(0));
         let due = touched + QUIET_MS;
         if waits_elsewhere(core, owner, &running) {
@@ -183,17 +199,25 @@ fn lose(core: &Core, lost: Vec<(Unattended, Why)>, now: u64) {
         if card.owner_id() != Some(slice.owner.as_str()) || card.status != CardStatus::Progress {
             continue;
         }
-        let name = card.owner_name(core);
-        let Some(held) = &mut card.slice else {
-            continue;
-        };
-        owners.push(slice.owner.clone());
-        held.stalled = Some(Stalled {
-            name: name.unwrap_or_else(|| slice.owner.clone()),
-            stays: persons_own(core, &slice.owner, why),
-            agent: slice.owner,
-            why,
-        });
+        let name = (card.owner_name(core)).unwrap_or_else(|| slice.owner.clone());
+        match &mut card.slice {
+            Some(held) => {
+                held.stalled = Some(Stalled {
+                    name,
+                    stays: persons_own(core, &slice.owner, why),
+                    agent: slice.owner.clone(),
+                    why,
+                });
+            }
+            None => {
+                let left = format!("@{name} left it unfinished.");
+                card.result = Some(match card.result.take() {
+                    Some(result) => format!("{result}\n\n{left}"),
+                    None => left,
+                });
+            }
+        }
+        owners.push(slice.owner);
         card.lose_owner(now);
         state
             .offered
