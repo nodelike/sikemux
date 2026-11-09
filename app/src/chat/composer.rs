@@ -1047,12 +1047,12 @@ fn counted_ring(percent: f64, signal: Hsla, count: u32, t: &Tokens) -> AnyElemen
     div()
         .relative()
         .size(px(DIAMETER))
-        .child(
-            div()
-                .absolute()
-                .inset_0()
-                .child(ui::ring(Some((percent, signal)), DIAMETER, 2., t.line)),
-        )
+        .child(div().absolute().inset_0().child(ui::ring(
+            Some((percent, signal)),
+            DIAMETER,
+            2.,
+            t.line,
+        )))
         .child(
             ui::text(count.to_string(), size, FontWeight::SEMIBOLD)
                 .w_full()
