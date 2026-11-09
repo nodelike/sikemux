@@ -220,20 +220,384 @@ fn maven_tasks(root: &Path, files: &HashSet<String>) -> Vec<Task> {
     with_java(tasks, java)
 }
 
-fn gradle_tasks(root: &Path, files: &HashSet<String>) -> Vec<Task> {
+/// What a folder's tasks may take from the project root above it: Gradle's
+/// wrapper, settings and version catalog.
+struct Above<'a> {
+    dir: &'a Path,
+    files: &'a HashSet<String>,
+}
+
+const GRADLE_WRAPPER: &str = if cfg!(windows) {
+    "gradlew.bat"
+} else {
+    "gradlew"
+};
+const GRADLE_SETTINGS: [&str; 2] = ["settings.gradle.kts", "settings.gradle"];
+const VERSION_CATALOG: &str = "gradle/libs.versions.toml";
+
+/// A module of a bigger build runs the root's wrapper; a folder with its own
+/// settings is a build of its own.
+fn gradle_program(files: &HashSet<String>, above: Option<&Above>) -> String {
+    let wrapper = |folder: &str| format!("{folder}{}{GRADLE_WRAPPER}", std::path::MAIN_SEPARATOR);
+    if files.contains(GRADLE_WRAPPER) {
+        return wrapper(".");
+    }
+    let own_build = GRADLE_SETTINGS.iter().any(|name| files.contains(*name));
+    match above {
+        Some(above) if !own_build && above.files.contains(GRADLE_WRAPPER) => wrapper(".."),
+        _ => "gradle".to_owned(),
+    }
+}
+
+/// The text of a Gradle file in this folder, else in the project root above it.
+fn shared_gradle_file(dir: &Path, above: Option<&Above>, names: &[&str]) -> String {
+    let folders = std::iter::once(dir).chain(above.map(|above| above.dir));
+    folders
+        .flat_map(|folder| names.iter().map(move |name| folder.join(name)))
+        .find_map(|path| read_text(&path))
+        .unwrap_or_default()
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum AndroidModule {
+    App,
+    Library,
+}
+
+fn android_kind(plugin: &str) -> Option<AndroidModule> {
+    let plugin = plugin.replace(['-', '_'], ".");
+    if plugin.contains("android.application") {
+        Some(AndroidModule::App)
+    } else if plugin.contains("android.library") {
+        Some(AndroidModule::Library)
+    } else {
+        None
+    }
+}
+
+/// The version catalog's `[plugins]` table, from each alias as the build
+/// files spell it to the plugin id it stands for.
+fn catalog_plugins(catalog: &str) -> Vec<(String, String)> {
+    let mut in_plugins = false;
+    let entry =
+        regex!(r#"^\s*([A-Za-z0-9._-]+)\s*=\s*(?:\{[^}\n]*?(?-u:\b)id\s*=\s*"([^"]+)"|"([^":]+))"#);
+    let mut plugins = Vec::new();
+    for line in catalog.lines() {
+        let line = line.trim();
+        if line.starts_with('[') {
+            in_plugins = line == "[plugins]";
+            continue;
+        }
+        if !in_plugins {
+            continue;
+        }
+        if let Some(found) = entry.captures(line) {
+            let id = found.get(2).or(found.get(3)).map_or("", |id| id.as_str());
+            plugins.push((found[1].replace(['-', '_'], "."), id.to_owned()));
+        }
+    }
+    plugins
+}
+
+/// An Android app or library module: its build applies `com.android.application`
+/// or `com.android.library`, by id or through a version catalog alias. A plugin
+/// declared with `apply false`, as a root build does for its modules, does not count.
+fn android_module(build: &str, catalog: &str) -> Option<AndroidModule> {
+    let applied = regex!(
+        r#"(?m)^\s*(?:id|alias|apply\s+plugin\s*:)\s*\(?\s*["']?([A-Za-z0-9._-]+)["']?\s*\)?([^\n]*)$"#
+    );
+    let plugins = catalog_plugins(catalog);
+    applied
+        .captures_iter(build)
+        .filter(|found| !regex!(r"apply\s*\(?\s*false").is_match(&found[2]))
+        .find_map(|found| {
+            let name = &found[1];
+            let Some((_, alias)) = name.split_once(".plugins.") else {
+                return android_kind(name);
+            };
+            let id = plugins
+                .iter()
+                .find(|(known, _)| known == alias)
+                .map(|(_, id)| id.as_str());
+            id.and_then(android_kind).or_else(|| android_kind(alias))
+        })
+}
+
+/// The Java the Android Gradle plugin runs on: 17 from version 8, 11 for 7.
+fn android_plugin_java(gradle_files: &str) -> Option<u32> {
+    let plugin_line =
+        regex!(r"(?m)^[^\n]*com\.android\.(?:application|library|tools\.build)[^\n]*$");
+    let inline = regex!(r#"(?:version\s*\(?\s*=?\s*["']|:)([0-9]+)\.[0-9]"#);
+    let reference = regex!(r#"version\.ref\s*=\s*"([A-Za-z0-9._-]+)""#);
+    let major = plugin_line.find_iter(gradle_files).find_map(|line| {
+        let line = line.as_str();
+        if let Some(found) = inline.captures(line) {
+            return found[1].parse::<u32>().ok();
+        }
+        let name = reference.captures(line)?;
+        let version = Regex::new(&format!(
+            r#"(?m)^\s*{}\s*=\s*"([0-9]+)\."#,
+            regex::escape(&name[1])
+        ))
+        .ok()?;
+        version.captures(gradle_files)?[1].parse::<u32>().ok()
+    })?;
+    match major {
+        0..=6 => None,
+        7 => Some(11),
+        _ => Some(17),
+    }
+}
+
+/// The named entries directly inside the first `name { … }` block, with their
+/// bodies: `create("staging") { … }`, `getByName("release")` or Groovy's `free { … }`.
+fn gradle_block_entries(build: &str, name: &str) -> Vec<(String, String)> {
+    let Some(opening) = Regex::new(&format!(r"(?-u:\b){name}\s*\{{"))
+        .expect("valid pattern")
+        .find(build)
+    else {
+        return Vec::new();
+    };
+    let call = regex!(
+        r#"(?:create|register|getByName|maybeCreate|named)\s*\(\s*["']([A-Za-z][A-Za-z0-9_]*)["']\s*\)\s*$"#
+    );
+    let groovy = regex!(r"(?:^|[\s;])([A-Za-z][A-Za-z0-9_]*)\s*$");
+    let named_call = regex!(
+        r#"(?:create|register|getByName|maybeCreate|named)\s*\(\s*["']([A-Za-z][A-Za-z0-9_]*)["']"#
+    );
+    let mut entries: Vec<(String, String)> = Vec::new();
+    let mut add = |entry: String, body: String| {
+        if !entries.iter().any(|(known, _)| *known == entry) {
+            entries.push((entry, body));
+        }
+    };
+    let mut depth = 0usize;
+    let mut head = String::new();
+    let mut body_start = None;
+    let mut entry: Option<String> = None;
+    let text = &build[opening.end()..];
+    for (index, character) in text.char_indices() {
+        match character {
+            '{' => {
+                if depth == 0 {
+                    let named = call
+                        .captures(&head)
+                        .or_else(|| groovy.captures(&head))
+                        .map(|found| found[1].to_owned());
+                    for found in named_call.captures_iter(&head) {
+                        add(found[1].to_owned(), String::new());
+                    }
+                    entry = named;
+                    body_start = Some(index + 1);
+                    head.clear();
+                }
+                depth += 1;
+            }
+            '}' if depth == 0 => {
+                for found in named_call.captures_iter(&head) {
+                    add(found[1].to_owned(), String::new());
+                }
+                break;
+            }
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    if let (Some(name), Some(start)) = (entry.take(), body_start.take()) {
+                        add(name, text[start..index].to_owned());
+                    }
+                }
+            }
+            _ if depth == 0 => head.push(character),
+            _ => {}
+        }
+    }
+    let ignored = [
+        "all",
+        "configureEach",
+        "each",
+        "forEach",
+        "matching",
+        "whenObjectAdded",
+    ];
+    entries.retain(|(name, _)| !ignored.contains(&name.as_str()));
+    entries
+}
+
+fn capitalized(word: &str) -> String {
+    let mut characters = word.chars();
+    match characters.next() {
+        Some(first) => first.to_uppercase().chain(characters).collect(),
+        None => String::new(),
+    }
+}
+
+/// The flavor combinations a build declares, one name each such as
+/// `freeStaging`, in the order Gradle names them; one empty name when it
+/// declares none.
+fn flavor_combinations(build: &str) -> Vec<String> {
+    let flavors = gradle_block_entries(build, "productFlavors");
+    if flavors.is_empty() {
+        return vec![String::new()];
+    }
+    let dimension_of = regex!(r#"dimension\s*(?:=\s*)?\(?\s*["']([A-Za-z0-9_]+)["']"#);
+    let quoted = regex!(r#"["']([A-Za-z0-9_]+)["']"#);
+    let mut dimensions: Vec<String> = regex!(r"(?m)flavorDimensions[^\n]*")
+        .find_iter(build)
+        .flat_map(|line| {
+            quoted
+                .captures_iter(line.as_str())
+                .map(|found| found[1].to_owned())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let flavor_dimension = |body: &str| {
+        dimension_of
+            .captures(body)
+            .map(|found| found[1].to_owned())
+            .unwrap_or_default()
+    };
+    for (_, body) in &flavors {
+        let dimension = flavor_dimension(body);
+        if !dimensions.contains(&dimension) {
+            dimensions.push(dimension);
+        }
+    }
+    let mut combinations = vec![String::new()];
+    for dimension in dimensions {
+        let in_dimension: Vec<&str> = flavors
+            .iter()
+            .filter(|(_, body)| flavor_dimension(body) == dimension)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        if in_dimension.is_empty() {
+            continue;
+        }
+        combinations = combinations
+            .iter()
+            .flat_map(|prefix| {
+                in_dimension.iter().map(move |flavor| {
+                    if prefix.is_empty() {
+                        (*flavor).to_owned()
+                    } else {
+                        format!("{prefix}{}", capitalized(flavor))
+                    }
+                })
+            })
+            .collect();
+    }
+    combinations
+}
+
+/// Variants past this many are left to the person's own tasks.
+const MAX_ANDROID_VARIANTS: usize = 6;
+
+fn variant_name(flavors: &str, build_type: &str) -> String {
+    if flavors.is_empty() {
+        build_type.to_owned()
+    } else {
+        format!("{flavors}{}", capitalized(build_type))
+    }
+}
+
+fn android_tasks(gradle: &str, module: AndroidModule, build: &str) -> Vec<Task> {
+    let mut build_types: Vec<String> = vec!["debug".into(), "release".into()];
+    for (name, _) in gradle_block_entries(build, "buildTypes") {
+        if !build_types.contains(&name) {
+            build_types.push(name);
+        }
+    }
+    let combinations = flavor_combinations(build);
+    let declares_variants = build_types.len() > 2
+        || combinations.len() > 1
+        || !combinations[0].is_empty()
+        || regex!(r"(?-u:\b)buildTypes\s*\{").is_match(build);
+    let task = |gradle_task: String, id: String| {
+        Task::new(
+            format!("detected.android.{id}"),
+            format!("Android: {gradle_task}"),
+            format!("{gradle} {gradle_task}"),
+        )
+    };
+    let debug = variant_name(&combinations[0], "debug");
+    let debug_task = capitalized(&debug);
+    let mut tasks = Vec::new();
+    if module == AndroidModule::App {
+        tasks.push(task(
+            format!("install{debug_task}"),
+            format!("install{debug_task}"),
+        ));
+    }
+    tasks.push(task(
+        format!("assemble{debug_task}"),
+        format!("assemble{debug_task}"),
+    ));
+    tasks.push(task(format!("test{debug_task}UnitTest"), "test".into()));
+    tasks.push(task("connectedAndroidTest".into(), "test.connected".into()));
+    tasks.push(task("lint".into(), "lint".into()));
+    if !declares_variants {
+        return tasks;
+    }
+    let variants = combinations
+        .iter()
+        .flat_map(|flavors| {
+            build_types
+                .iter()
+                .map(move |build_type| (variant_name(flavors, build_type), build_type == "debug"))
+        })
+        .filter(|(variant, _)| *variant != debug)
+        .take(MAX_ANDROID_VARIANTS);
+    for (variant, is_debug) in variants {
+        let name = capitalized(&variant);
+        if is_debug && module == AndroidModule::App {
+            tasks.push(task(format!("install{name}"), format!("install{name}")));
+        }
+        tasks.push(task(format!("assemble{name}"), format!("assemble{name}")));
+        if is_debug {
+            tasks.push(task(
+                format!("test{name}UnitTest"),
+                format!("test.{variant}"),
+            ));
+            tasks.push(task(
+                format!("connected{name}AndroidTest"),
+                format!("test.connected.{variant}"),
+            ));
+        }
+    }
+    tasks
+}
+
+/// Gradle's `application` plugin; not `com.android.application`.
+fn applies_application(build: &str) -> bool {
+    regex!(r"(?-u:\b)application(?-u:\b)")
+        .find_iter(build)
+        .any(|found| {
+            let before = &build[..found.start()];
+            !before.ends_with("android.") && !before.ends_with("android-")
+        })
+}
+
+fn gradle_tasks(root: &Path, files: &HashSet<String>, above: Option<&Above>) -> Vec<Task> {
     let Some(build_file) = ["build.gradle.kts", "build.gradle"]
         .into_iter()
         .find(|name| files.contains(*name))
     else {
         return Vec::new();
     };
-    let gradle = if files.contains("gradlew") {
-        "./gradlew"
-    } else {
-        "gradle"
-    };
+    let gradle = gradle_program(files, above);
     let build = read_or_empty(&root.join(build_file));
-    let java = java_from_version_files(root, files).or_else(|| java_from_gradle(&build));
+    let catalog = shared_gradle_file(root, above, &[VERSION_CATALOG]);
+    let settings = shared_gradle_file(root, above, &GRADLE_SETTINGS);
+    let root_build = match above {
+        Some(above) => shared_gradle_file(above.dir, None, &["build.gradle.kts", "build.gradle"]),
+        None => String::new(),
+    };
+    let android_java =
+        android_plugin_java(&[build.as_str(), &root_build, &settings, &catalog].join("\n"));
+    let pinned = java_from_version_files(root, files).or(android_java);
+    if let Some(module) = android_module(&build, &catalog) {
+        return with_java(android_tasks(&gradle, module, &build), pinned);
+    }
+    let java = pinned.or_else(|| java_from_gradle(&build));
     let mut tasks = Vec::new();
     if build.contains("org.springframework.boot") {
         tasks.push(Task::new(
@@ -242,7 +606,7 @@ fn gradle_tasks(root: &Path, files: &HashSet<String>) -> Vec<Task> {
             format!("{gradle} bootRun"),
         ));
     }
-    if regex!(r"(?-u:\b)application(?-u:\b)").is_match(&build) {
+    if applies_application(&build) {
         tasks.push(Task::new(
             "detected.gradle.run",
             "Gradle: run",
@@ -558,8 +922,8 @@ fn python_tasks(root: &Path, files: &HashSet<String>) -> Vec<Task> {
 
 const SKIPPED_FOLDERS: [&str; 6] = ["node_modules", "target", "build", "dist", "out", "vendor"];
 
-fn tasks_in(dir: &Path) -> Vec<Task> {
-    let files: HashSet<String> = list(dir)
+fn files_in(dir: &Path) -> HashSet<String> {
+    list(dir)
         .into_iter()
         .map(|entry| {
             if entry.is_dir {
@@ -568,19 +932,27 @@ fn tasks_in(dir: &Path) -> Vec<Task> {
                 entry.name
             }
         })
-        .collect();
-    let mut tasks = maven_tasks(dir, &files);
-    tasks.extend(gradle_tasks(dir, &files));
-    tasks.extend(go_tasks(dir, &files));
-    tasks.extend(node_tasks(dir, &files));
-    tasks.extend(python_tasks(dir, &files));
-    tasks.extend(rust_tasks(dir, &files));
+        .collect()
+}
+
+fn tasks_in(dir: &Path, files: &HashSet<String>, above: Option<&Above>) -> Vec<Task> {
+    let mut tasks = maven_tasks(dir, files);
+    tasks.extend(gradle_tasks(dir, files, above));
+    tasks.extend(go_tasks(dir, files));
+    tasks.extend(node_tasks(dir, files));
+    tasks.extend(python_tasks(dir, files));
+    tasks.extend(rust_tasks(dir, files));
     tasks
 }
 
 /// Run, test and build tasks suggested by the build files at the project root and in the folders just inside it.
 pub fn detected(project: &Path) -> Vec<Found> {
-    let mut found: Vec<Found> = tasks_in(project)
+    let root_files = files_in(project);
+    let above = Above {
+        dir: project,
+        files: &root_files,
+    };
+    let mut found: Vec<Found> = tasks_in(project, &root_files, None)
         .into_iter()
         .map(|task| Found {
             id: task.id,
@@ -597,13 +969,17 @@ pub fn detected(project: &Path) -> Vec<Found> {
     });
     for folder in folders {
         let cwd = project.join(&folder.name);
-        found.extend(tasks_in(&cwd).into_iter().map(|task| Found {
-            id: format!("{}:{}", task.id, folder.name),
-            label: format!("{} ({})", task.label, folder.name),
-            command: task.command,
-            cwd: cwd.clone(),
-            java: task.java,
-        }));
+        found.extend(
+            tasks_in(&cwd, &files_in(&cwd), Some(&above))
+                .into_iter()
+                .map(|task| Found {
+                    id: format!("{}:{}", task.id, folder.name),
+                    label: format!("{} ({})", task.label, folder.name),
+                    command: task.command,
+                    cwd: cwd.clone(),
+                    java: task.java,
+                }),
+        );
     }
     found
 }
@@ -611,10 +987,17 @@ pub fn detected(project: &Path) -> Vec<Found> {
 /// The command that tests the project as its root's build files suggest, the
 /// same one its test task runs, for a project that names no check.
 pub fn test_check(project: &Path) -> Option<String> {
-    tasks_in(project)
+    tasks_in(project, &files_in(project), None)
         .into_iter()
         .find(|task| task.id.ends_with(".test"))
         .map(|task| task.command)
+}
+
+/// A command that starts Gradle, installed or the project's own wrapper.
+pub fn runs_gradle(command: &str) -> bool {
+    let program = command.split(' ').next().unwrap_or("");
+    let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    matches!(name, "gradle" | "gradlew" | "gradlew.bat")
 }
 
 pub fn is_run_task(task_id: &str) -> bool {
