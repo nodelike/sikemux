@@ -166,6 +166,8 @@ commands! {
     /// Brings the project's terminal forward, opening one when it has none.
     FocusTerminal = "window.terminal" opens |bench, _, cx| bench.focus_terminal(cx);
     ToggleDesk = "desk.toggle" acts |bench, _, cx| bench.toggle_front_desk(cx);
+    /// Hides the agent beside its desk, or brings it back.
+    DeskAlone = "desk.alone" acts |bench, _, cx| bench.toggle_desk_alone(cx);
     NewPage = "browser.tabNew" opens |bench, _, cx| bench.new_front_page(cx);
     ReopenPage = "browser.tabReopen" opens |bench, _, cx| bench.reopen_front_page(cx);
     FocusAddress = "browser.address" acts |bench, _, cx| bench.focus_front_address(cx);

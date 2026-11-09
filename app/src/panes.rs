@@ -937,16 +937,30 @@ impl Workbench {
         agent: &str,
         keep_front: bool,
     ) {
-        to.call_typed::<call::SplitPane>(layout::SplitPane {
-            at: strip.at(),
-            tab: tab.to_owned(),
-            pane: pane.to_owned(),
-            side: layout::Side::Right,
-            kind: Some(PaneKind::Desk),
-            target: Some(agent.to_owned()),
-            from_tab: None,
-            keep_front,
-        });
+        to.call_typed::<call::SplitPane>(desk_split(strip, tab, pane, agent, keep_front));
+    }
+
+    /// Opens `agent`'s desk beside the view `pane` of `tab`, letting it fill the tab.
+    pub fn split_desk_alone(
+        &self,
+        strip: &Strip,
+        tab: &str,
+        pane: &str,
+        agent: &str,
+        cx: &mut Context<Self>,
+    ) {
+        let core = self.target();
+        let split = desk_split(strip, tab, pane, agent, false);
+        cx.spawn(async move |bench, cx| {
+            let Ok(desk) = core.request_typed::<call::SplitPane>(split).await else {
+                return;
+            };
+            let _ = bench.update(cx, |bench, cx| {
+                bench.panes.zoomed = Some(desk);
+                bench.parts.redraw_stage(cx);
+            });
+        })
+        .detach();
     }
 
     /// Notes the side of the view `pane` of `tab` that a tab dragged over it would take: the
@@ -1069,5 +1083,24 @@ impl Workbench {
                 tab: tab.to_owned(),
                 pane: pane.to_owned(),
             });
+    }
+}
+
+fn desk_split(
+    strip: &Strip,
+    tab: &str,
+    pane: &str,
+    agent: &str,
+    keep_front: bool,
+) -> layout::SplitPane {
+    layout::SplitPane {
+        at: strip.at(),
+        tab: tab.to_owned(),
+        pane: pane.to_owned(),
+        side: layout::Side::Right,
+        kind: Some(PaneKind::Desk),
+        target: Some(agent.to_owned()),
+        from_tab: None,
+        keep_front,
     }
 }
