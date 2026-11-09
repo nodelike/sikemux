@@ -1579,50 +1579,54 @@ fn viewport_select(
     cx: &Context<Workbench>,
 ) -> AnyElement {
     use sikemux_browser::viewport::Viewport;
+    const SIZES: [(Option<&str>, &str, Icon); 4] = [
+        (None, "Fit", Icon::Resize),
+        (Some("desktop"), "Desktop", Icon::Laptop),
+        (Some("tablet"), "Tablet", Icon::Tablet),
+        (Some("mobile"), "Phone", Icon::Phone),
+    ];
     let held =
         (bench.desks.read(cx).engine.as_ref()).and_then(|engine| engine.viewport(agent, tab_id));
-    let label = |preset: &str| match preset {
-        "desktop" => "Desktop",
-        "tablet" => "Tablet",
-        _ => "Phone",
+    let chosen = move |preset: Option<&str>| match held {
+        None => preset.is_none(),
+        Some(fixed) => preset.is_some() && fixed.preset == preset,
     };
-    let shown: SharedString = match held {
-        None => "Fit".into(),
-        Some(Viewport {
-            preset: Some(preset),
-            ..
-        }) => label(preset).into(),
-        Some(fixed) => format!("{} × {}", fixed.width, fixed.height).into(),
-    };
-    let mut picks = vec![ui::Pick::new("fit", "Fit").hint("The pane's size")];
-    for preset in ["desktop", "tablet", "mobile"] {
-        let size = Viewport::preset(preset).expect("a known preset");
-        picks.push(
-            ui::Pick::new(preset, label(preset)).hint(format!("{} × {}", size.width, size.height)),
-        );
-    }
-    let chosen = match held {
-        None => Some("fit".into()),
-        Some(fixed) => fixed.preset.map(SharedString::from),
-    };
+    let shown = (SIZES.iter())
+        .find(|(preset, ..)| chosen(*preset))
+        .map_or(Icon::Resize, |(.., icon)| *icon);
     let (bench, agent, tab_id) = (cx.entity().downgrade(), agent.to_owned(), tab_id.to_owned());
-    ui::select(
+    ui::menu_button(
         "desk-viewport",
-        shown,
-        picks,
-        chosen,
-        false,
-        move |key, _, cx| {
-            let fixed = Viewport::preset(key);
-            bench
-                .update(cx, |bench, cx| {
-                    bench.with_engine(cx, |engine| engine.set_viewport(&agent, &tab_id, fixed));
-                    cx.notify();
-                })
-                .ok();
+        gpui_kit::Anchor::TopRight,
+        IconButton::new("desk-viewport-face", shown, "Viewport").glyph(13.),
+        move |mut popup, _, cx| {
+            for (preset, label, icon) in SIZES {
+                let size = preset.and_then(Viewport::preset);
+                let (bench, agent, tab_id) = (bench.clone(), agent.clone(), tab_id.clone());
+                popup = popup.item(
+                    ui::MenuRow::new(label)
+                        .icon(icon)
+                        .when_some(size, |row, size| {
+                            row.hint(format!("{}×{}", size.width, size.height))
+                        })
+                        .item(cx)
+                        .checked(chosen(preset))
+                        .on_click(move |_, _, cx| {
+                            bench
+                                .update(cx, |bench, cx| {
+                                    bench.with_engine(cx, |engine| {
+                                        engine.set_viewport(&agent, &tab_id, size)
+                                    });
+                                    cx.notify();
+                                })
+                                .ok();
+                        }),
+                );
+            }
+            popup
         },
-        cx,
     )
+    .into_any_element()
 }
 
 /// What the address bar shows for a page: a local file as its path, a blank page as nothing.

@@ -162,6 +162,7 @@ icons!(
     Stop => "stop",
     Swipe => "swipe",
     Table => "table",
+    Tablet => "tablet",
     Tabs => "tabs",
     Tap => "tap",
     Terminal => "terminal",
