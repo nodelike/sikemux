@@ -110,7 +110,7 @@ final class NotchStore {
     }
 
     func apply(_ view: DeviceView) {
-        let before = Dictionary(entries.compactMap { entry in entry.item.map { (entry.id, $0.kind) } }, uniquingKeysWith: { first, _ in first })
+        let before = Dictionary(self.view.inbox.items.map { ($0.id, $0.kind) }, uniquingKeysWith: { first, _ in first })
         self.view = view
         withAnimation(Motion.open) { entries = view.entries(questions) }
         if !Set(view.inbox.items.compactMap(\.questionId)).isSubset(of: questions.map(\.id)) { readQuestions() }
