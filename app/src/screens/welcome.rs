@@ -177,6 +177,7 @@ pub struct Welcome {
     error: Option<String>,
     /// Why Sikemux couldn't be opened on what was ticked.
     open_error: Option<String>,
+    /// The agent whose install or sign-in was run last, whose failure the poster explains.
     agent: Option<String>,
     opening: bool,
     /// The terminal of a command just started takes the keys once it has been drawn.
@@ -201,7 +202,7 @@ impl Welcome {
             root: cx.focus_handle(),
             required,
             stage: Stage::Agents,
-            at: Some(Stop::Row(0)),
+            at: None,
             git_missing: false,
             rows: Vec::new(),
             looking: true,
@@ -350,7 +351,7 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
     }
     let terminal = setup::terminal_focus(bench);
     let busy = bench.agent_setup.busy();
-    let tile = welcome_in(bench).map_or(0, |welcome| chosen_index(bench, welcome));
+    let tile = welcome_in(bench).and_then(|welcome| pill_row(bench, welcome));
     let Some(welcome) = welcome_of(bench) else {
         return;
     };
@@ -398,7 +399,7 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
     }
     let finished = std::mem::replace(&mut welcome.was_busy, busy) && !busy;
     if finished && welcome.stage == Stage::Agents {
-        welcome.at = Some(Stop::Row(tile));
+        welcome.at = tile.map(Stop::Row);
         welcome.terminal_due = false;
         welcome.root.focus(window, cx);
     } else if welcome.terminal_due {
@@ -464,10 +465,9 @@ fn usable_agents(bench: &Workbench) -> usize {
         .count()
 }
 
-/// Reading the agents again helps only while the chosen one doesn't work and nothing is running.
-fn recheck_offered(bench: &Workbench, welcome: &Welcome) -> bool {
-    !bench.agent_setup.busy()
-        && chosen_agent(bench, welcome).is_some_and(|agent| !setup::usable(&agent.status))
+/// Reading the agents again helps only while none works and nothing is running.
+fn recheck_offered(bench: &Workbench) -> bool {
+    !bench.agent_setup.busy() && bench.agent_setup.found.is_some() && usable_agents(bench) == 0
 }
 
 fn anyway_offered(bench: &Workbench) -> bool {
@@ -502,60 +502,34 @@ fn listed_agents(bench: &Workbench) -> Vec<&Found> {
     listed
 }
 
-/// The agents the first chat can open on: those ready, the one chosen on the first step, or
-/// all that were found when none is ready.
+/// The agents the first chat can open on, ready ones before those only installed.
 fn startable_agents(bench: &Workbench) -> Vec<&Found> {
-    let found = found_agents(bench);
-    let any_ready = found.iter().any(is_ready);
-    let chosen = welcome_in(bench).and_then(|welcome| welcome.agent.as_deref());
-    found
-        .iter()
-        .filter(|agent| {
-            is_ready(agent)
-                || (setup::usable(&agent.status)
-                    && (!any_ready || Some(agent.kind.as_str()) == chosen))
-        })
+    listed_agents(bench)
+        .into_iter()
+        .filter(|agent| setup::usable(&agent.status))
         .filter(|agent| bench.launcher_of_kind(&agent.kind).is_some())
         .collect()
 }
 
-/// The tile the first step has chosen: the one picked, else the first ready, else the first
-/// installed, else the first.
-fn chosen_agent<'a>(bench: &'a Workbench, welcome: &Welcome) -> Option<&'a Found> {
-    let listed = listed_agents(bench);
-    let picked = welcome.agent.as_deref();
-    listed
-        .iter()
-        .find(|agent| Some(agent.kind.as_str()) == picked)
-        .or_else(|| listed.iter().find(|agent| is_ready(agent)))
-        .or_else(|| listed.iter().find(|agent| setup::usable(&agent.status)))
-        .or_else(|| listed.first())
-        .copied()
-}
-
-fn chosen_index(bench: &Workbench, welcome: &Welcome) -> usize {
-    let chosen = chosen_agent(bench, welcome).map(|agent| agent.kind.as_str());
+/// The tile whose install or sign-in was run last, while it is listed.
+fn pill_row(bench: &Workbench, welcome: &Welcome) -> Option<usize> {
+    let kind = welcome.agent.as_deref()?;
     listed_agents(bench)
         .iter()
-        .position(|agent| Some(agent.kind.as_str()) == chosen)
-        .unwrap_or(0)
+        .position(|agent| agent.kind == kind)
 }
 
-/// The agent the first chat starts on: the one picked, the one a new chat would use anyway, or
-/// the first that can.
-fn start_agent<'a>(bench: &'a Workbench, welcome: &Welcome) -> Option<&'a Found> {
-    let agents = startable_agents(bench);
-    let picked = welcome.agent.as_deref();
-    let usual = bench.launcher().map(|launcher| launcher.provider.as_str());
-    let of = |kind: Option<&str>| {
-        agents
-            .iter()
-            .find(|agent| Some(agent.kind.as_str()) == kind)
-    };
-    of(picked)
-        .or_else(|| of(usual))
-        .or_else(|| agents.first())
-        .copied()
+/// The tile the keys are on, on the first step.
+fn keyed_tile<'a>(bench: &'a Workbench, welcome: &Welcome) -> Option<(usize, &'a Found)> {
+    match (welcome.stage, welcome.at) {
+        (Stage::Agents, Some(Stop::Row(row))) => Some((row, *listed_agents(bench).get(row)?)),
+        _ => None,
+    }
+}
+
+/// The agent the first chat starts on: the first that is ready, else the first installed.
+fn start_agent(bench: &Workbench) -> Option<&Found> {
+    startable_agents(bench).into_iter().next()
 }
 
 fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
@@ -567,7 +541,7 @@ fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
             (0..listed_agents(bench).len())
                 .map(Stop::Row)
                 .chain(sheet)
-                .chain(recheck_offered(bench, welcome).then_some(Stop::Recheck))
+                .chain(recheck_offered(bench).then_some(Stop::Recheck))
                 .chain(anyway_offered(bench).then_some(Stop::Anyway))
                 .collect()
         }
@@ -580,19 +554,10 @@ fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
 }
 
 fn go(bench: &mut Workbench, stop: Stop, window: &mut Window, cx: &mut Context<Workbench>) {
-    let tile = match (stop, welcome_in(bench).map(|welcome| welcome.stage)) {
-        (Stop::Row(row), Some(Stage::Agents)) => listed_agents(bench)
-            .get(row)
-            .map(|agent| agent.kind.clone()),
-        _ => None,
-    };
     let Some(welcome) = welcome_of(bench) else {
         return;
     };
     welcome.at = Some(stop);
-    if tile.is_some() {
-        welcome.agent = tile;
-    }
     match (stop, &welcome.path) {
         (Stop::Field, Some(path)) => path.update(cx, |path, cx| path.focus(window, cx)),
         (Stop::Terminal, _) => welcome.terminal_due = true,
@@ -621,7 +586,6 @@ fn step(bench: &mut Workbench, forward: bool, window: &mut Window, cx: &mut Cont
     let in_terminal = focused(setup::terminal_focus(bench));
     let here = match (welcome.stage, welcome.at) {
         _ if in_terminal => Some(Stop::Terminal),
-        (Stage::Agents, Some(Stop::Row(_))) => Some(Stop::Row(chosen_index(bench, welcome))),
         (_, at) => at,
     };
     let stops = stops(bench, welcome);
@@ -644,7 +608,7 @@ fn step_row(bench: &mut Workbench, down: bool, window: &mut Window, cx: &mut Con
         return skip_opening(bench, cx);
     }
     let tile = welcome_in(bench).and_then(|welcome| match (welcome.stage, welcome.at) {
-        (Stage::Agents, Some(Stop::Row(_))) => Some(chosen_index(bench, welcome)),
+        (Stage::Agents, Some(Stop::Row(row))) => Some(row),
         _ => None,
     });
     let Some(at) = tile else {
@@ -664,7 +628,6 @@ fn show_stage(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let tile = welcome_in(bench).map_or(0, |welcome| chosen_index(bench, welcome));
     let Some(welcome) = welcome_of(bench) else {
         return;
     };
@@ -674,12 +637,21 @@ fn show_stage(
     welcome.open_error = None;
     welcome.scroll = ScrollHandle::new();
     let first = match stage {
-        Stage::Agents => Stop::Row(tile),
-        Stage::Projects => visible_rows(welcome)
-            .first()
-            .map_or(Stop::Field, |&at| Stop::Row(at)),
+        Stage::Agents => None,
+        Stage::Projects => Some(
+            visible_rows(welcome)
+                .first()
+                .map_or(Stop::Field, |&at| Stop::Row(at)),
+        ),
     };
-    go(bench, first, window, cx);
+    match first {
+        Some(first) => go(bench, first, window, cx),
+        None => {
+            welcome.at = None;
+            welcome.root.focus(window, cx);
+            redraw(bench, cx);
+        }
+    }
 }
 
 fn back(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
@@ -694,8 +666,11 @@ fn run_step(bench: &mut Workbench, row: usize, cx: &mut Context<Workbench>) {
     }
     let next = listed_agents(bench)
         .get(row)
-        .and_then(|agent| setup::next_step(bench, agent));
-    if let Some((_, sheet)) = next {
+        .and_then(|agent| Some((agent.kind.clone(), setup::next_step(bench, agent)?)));
+    if let Some((kind, (_, sheet))) = next {
+        if let Some(welcome) = welcome_of(bench) {
+            welcome.agent = Some(kind);
+        }
         setup::run(bench, sheet, cx);
         hand_terminal_the_keys(bench);
     }
@@ -721,17 +696,8 @@ fn primary(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbenc
         return;
     };
     match welcome.stage {
-        Stage::Agents => {
-            let tile = chosen_index(bench, welcome);
-            let chosen = chosen_agent(bench, welcome).filter(|agent| setup::usable(&agent.status));
-            let Some(kind) = chosen.map(|agent| agent.kind.clone()) else {
-                return run_step(bench, tile, cx);
-            };
-            if let Some(welcome) = welcome_of(bench) {
-                welcome.agent = Some(kind);
-            }
-            show_stage(bench, Stage::Projects, window, cx)
-        }
+        Stage::Agents if usable_agents(bench) > 0 => show_stage(bench, Stage::Projects, window, cx),
+        Stage::Agents => {}
         Stage::Projects if can_continue_projects(welcome) => finish(bench, window, cx),
         Stage::Projects => {}
     }
@@ -746,18 +712,23 @@ fn activate(bench: &mut Workbench, space: bool, window: &mut Window, cx: &mut Co
         (_, Some(Stop::Anyway)) => show_stage(bench, Stage::Projects, window, cx),
         (_, Some(Stop::Recheck)) => setup::recheck(bench, cx),
         (_, Some(Stop::SheetClose)) => {
-            let tile = chosen_index(bench, welcome);
+            let tile = pill_row(bench, welcome);
             setup::close(bench, cx);
-            go(bench, Stop::Row(tile), window, cx);
+            match tile {
+                Some(tile) => go(bench, Stop::Row(tile), window, cx),
+                None => redraw(bench, cx),
+            }
         }
         (_, Some(Stop::Browse)) => browse(window, cx),
         (_, Some(Stop::Back)) => back(bench, window, cx),
-        (Stage::Agents, Some(Stop::Row(_))) => {
-            let chosen = chosen_agent(bench, welcome).filter(|agent| setup::usable(&agent.status));
-            match (space, chosen) {
-                (false, Some(_)) => primary(bench, window, cx),
-                (_, None) => run_step(bench, chosen_index(bench, welcome), cx),
-                (true, Some(_)) => {}
+        (Stage::Agents, Some(Stop::Row(row))) => {
+            let pill = listed_agents(bench)
+                .get(row)
+                .is_some_and(|agent| setup::next_step(bench, agent).is_some());
+            match (pill, space) {
+                (true, _) => run_step(bench, row, cx),
+                (false, false) => primary(bench, window, cx),
+                (false, true) => {}
             }
         }
         (Stage::Projects, Some(Stop::Row(row))) if space => toggle(bench, row, cx),
@@ -907,7 +878,7 @@ fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench
     let Some(welcome) = welcome_in(bench) else {
         return;
     };
-    let agent = start_agent(bench, welcome);
+    let agent = start_agent(bench);
     let kind = agent.map(|agent| agent.kind.clone());
     let launcher = agent
         .and_then(|agent| bench.launcher_of_kind(&agent.kind))
@@ -1092,11 +1063,6 @@ impl Room {
 
     fn said_line(self) -> f32 {
         self.fit(1.4, 1.25)
-    }
-
-    /// Whether a sentence stays on one line of the poster.
-    fn fits_a_line(self, sentence: &str) -> bool {
-        sentence.chars().count() as f32 * self.said_size() * SAID_CHAR <= self.text_width()
     }
 
     fn said_size(self) -> f32 {
@@ -1424,7 +1390,7 @@ fn agent_tile(
     bench: &Workbench,
     agent: &Found,
     at: usize,
-    chosen: bool,
+    keyed: bool,
     room: Room,
     size: (f32, f32),
     spans: bool,
@@ -1478,12 +1444,6 @@ fn agent_tile(
         Some(label) => format!("{}, {}, {label}", agent.label, state.word),
         None => format!("{}, {}", agent.label, state.word),
     };
-    let ground = if chosen {
-        t.surface_sunken.blend(t.surface_chosen)
-    } else {
-        t.surface_sunken
-    };
-    let hovered = t.surface_sunken.blend(t.surface_hover);
     let pill = state.action.map(|(label, _)| {
         let this = this.clone();
         div()
@@ -1524,8 +1484,7 @@ fn agent_tile(
         .pb(px(edge))
         .pl(px(left))
         .pr(px(edge))
-        .bg(ground)
-        .when(!chosen, |tile| tile.hover(move |tile| tile.bg(hovered)))
+        .bg(t.surface_sunken)
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, keep_press)
         .on_click(move |_, window, cx| {
@@ -1564,19 +1523,31 @@ fn agent_tile(
                 ),
         )
         .children(pill)
+        .when(keyed, |tile| {
+            tile.child(
+                div()
+                    .absolute()
+                    .inset_0()
+                    .border_2()
+                    .border_color(t.border_selected),
+            )
+        })
         .into_any_element()
 }
 
 fn agents_grid(
     bench: &Workbench,
     welcome: &Welcome,
+    keyboard: bool,
     room: Room,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Div {
     let t = Tokens::get(cx).clone();
     let listed = listed_agents(bench);
-    let chosen = chosen_agent(bench, welcome).map(|agent| agent.kind.clone());
+    let keyed = keyed_tile(bench, welcome)
+        .map(|(row, _)| row)
+        .filter(|_| keyboard);
     let row_count = listed.len().div_ceil(TILES_ACROSS).max(1);
     let below = match bench.agent_setup.shown() {
         true => room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT),
@@ -1616,9 +1587,18 @@ fn agents_grid(
             .iter()
             .enumerate()
             .map(|(column, agent)| {
-                let is_chosen = chosen.as_deref() == Some(agent.kind.as_str());
                 let at = row * TILES_ACROSS + column;
-                agent_tile(bench, agent, at, is_chosen, room, size, spans, this, cx)
+                agent_tile(
+                    bench,
+                    agent,
+                    at,
+                    keyed == Some(at),
+                    room,
+                    size,
+                    spans,
+                    this,
+                    cx,
+                )
             })
             .collect();
         grid = grid.child(div().flex_1().min_h_0().flex().gap(px(1.)).children(tiles));
@@ -1629,12 +1609,13 @@ fn agents_grid(
 fn agents_pane(
     bench: &Workbench,
     welcome: &Welcome,
+    keyboard: bool,
     room: Room,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Div {
     let t = Tokens::get(cx).clone();
-    let grid = agents_grid(bench, welcome, room, this, cx);
+    let grid = agents_grid(bench, welcome, keyboard, room, this, cx);
     let terminal = setup::terminal_pane(bench, this, cx);
     let shown = bench.agent_setup.shown();
     div()
@@ -1944,16 +1925,8 @@ fn projects_pane(
         .child(list)
 }
 
-/// The way back to the agents, naming the one chosen.
-fn back_link(
-    bench: &Workbench,
-    welcome: &Welcome,
-    lit: Option<Stop>,
-    room: Room,
-    this: &Entity<Workbench>,
-    t: &Tokens,
-) -> AnyElement {
-    let agent = start_agent(bench, welcome);
+/// The way back to the agents.
+fn back_link(lit: Option<Stop>, room: Room, this: &Entity<Workbench>, t: &Tokens) -> AnyElement {
     let this = this.clone();
     let ink = t.text_primary;
     div()
@@ -1980,13 +1953,11 @@ fn back_link(
             })
         })
         .child("‹")
-        .children(agent.map(|agent| ui::mark(&agent.kind, room.fit(20., 15.))))
-        .child(agent.map_or_else(|| "Agents".to_owned(), |agent| agent.label.clone()))
+        .child("Agents")
         .into_any_element()
 }
 
 fn projects_poster(
-    bench: &Workbench,
     welcome: &Welcome,
     lit: Option<Stop>,
     room: Room,
@@ -2026,7 +1997,7 @@ fn projects_poster(
     };
     let enabled = can_continue_projects(welcome) && !welcome.opening;
     Poster {
-        back: Some(back_link(bench, welcome, lit, room, this, t)),
+        back: Some(back_link(lit, room, this, t)),
         lines,
         extras: Vec::new(),
         extras_inline: true,
@@ -2101,42 +2072,32 @@ fn primary_button(
     button.into_any_element()
 }
 
-/// Someone choosing an agent they don't have yet may not know what it is.
-fn needs_explaining(agent: &Found) -> bool {
-    !agent.about.is_empty() && matches!(agent.status, AgentStatus::Missing | AgentStatus::SignedOut)
-}
-
-/// What is said about the chosen agent, and the command Return would run.
+/// What the poster says about the agents, and the command Return would run on the tile the
+/// keys are on.
 fn agents_say(
     bench: &Workbench,
     welcome: &Welcome,
-    room: Room,
+    keyboard: bool,
     t: &Tokens,
 ) -> (String, Option<String>) {
     let progress = &bench.agent_setup;
-    let chosen = chosen_agent(bench, welcome);
-    let state = chosen.map(|agent| (agent, tile_state(bench, agent, t)));
-    let failure = chosen
-        .and_then(|agent| progress.failure(&agent.kind))
-        .is_some();
-    let sentence = match (progress.busy() || (progress.shown() && !failure), &state) {
+    let last = pill_row(bench, welcome).and_then(|row| listed_agents(bench).get(row).copied());
+    let failed = last.is_some_and(|agent| progress.failure(&agent.kind).is_some());
+    let keyed = keyed_tile(bench, welcome)
+        .filter(|_| keyboard && !progress.busy())
+        .map(|(_, agent)| tile_state(bench, agent, t))
+        .filter(|state| state.action.is_some());
+    let sentence = match (progress.busy() || (progress.shown() && !failed), last) {
         (true, _) => progress.sheet_state().unwrap_or_default(),
-        (false, Some((_, state))) if state.works => {
-            format!("Choose who does the work. {}", state.sentence)
-        }
-        (false, Some((agent, state))) if needs_explaining(agent) && !failure => {
-            let explained = format!("{}. {}", agent.about, state.sentence);
-            match room.fits_a_line(&explained) {
-                true => explained,
-                false => state.sentence.clone(),
-            }
-        }
-        (false, Some((_, state))) => state.sentence.clone(),
-        (false, None) => "Choose who does the work.".to_owned(),
+        (false, Some(agent)) if failed => tile_state(bench, agent, t).sentence,
+        _ if usable_agents(bench) > 0 => "Choose who does the work.".to_owned(),
+        _ => match &keyed {
+            Some(state) => state.sentence.clone(),
+            None => "Install or sign in to one agent to continue.".to_owned(),
+        },
     };
-    let command = state
-        .filter(|_| !progress.busy())
-        .and_then(|(_, state)| Some(format!("Return runs: {}", state.action?.1.shown_command())));
+    let command =
+        keyed.and_then(|state| Some(format!("Return runs: {}", state.action?.1.shown_command())));
     (sentence, command)
 }
 
@@ -2144,25 +2105,19 @@ fn agents_poster(
     bench: &Workbench,
     welcome: &Welcome,
     lit: Option<Stop>,
+    keyboard: bool,
     room: Room,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> Poster {
     let t = Tokens::get(cx).clone();
     let progress = &bench.agent_setup;
-    let chosen = chosen_agent(bench, welcome);
-    let chosen_state = chosen.map(|agent| (agent, tile_state(bench, agent, &t)));
     let busy = progress.busy();
-    let (sentence, command) = agents_say(bench, welcome, room, &t);
-    let (action, enabled) = match &chosen_state {
-        Some((agent, state)) if state.works => (format!("Continue with {}", agent.label), true),
-        Some((agent, state)) => match &state.action {
-            Some((label, _)) => (action_words(label, &agent.label), !busy),
-            None => ("Continue".to_owned(), false),
-        },
-        None => ("Continue".to_owned(), false),
-    };
-    let reason = chosen
+    let (sentence, command) = agents_say(bench, welcome, keyboard, &t);
+    let action = "Continue".to_owned();
+    let enabled = usable_agents(bench) > 0;
+    let reason = pill_row(bench, welcome)
+        .and_then(|row| listed_agents(bench).get(row).copied())
         .filter(|_| !progress.shown())
         .and_then(|agent| match &agent.status {
             AgentStatus::Broken { reason } => Some(short_reason(reason, agent)),
@@ -2176,7 +2131,7 @@ fn agents_poster(
     let close_words = if busy { "Cancel" } else { "Close" };
     let mut quiet_lengths = Vec::new();
     let mut extras = Vec::new();
-    if recheck_offered(bench, welcome) {
+    if recheck_offered(bench) {
         quiet_lengths.push(check_words.chars().count());
         extras.push(quiet(
             "welcome-check",
@@ -2296,13 +2251,14 @@ pub fn render(
     };
     let step_fade = progress(welcome.stage_at, STEP_MILLIS, window, cx).min(ease_out(appeared));
     welcome.fade.set(step_fade);
+    let keyboard = welcome.root.is_focused(window) && window.last_input_was_keyboard();
     let (left, pane) = match welcome.stage {
         Stage::Agents => (
-            agents_poster(bench, welcome, lit, room, this, cx),
-            agents_pane(bench, welcome, room, this, cx),
+            agents_poster(bench, welcome, lit, keyboard, room, this, cx),
+            agents_pane(bench, welcome, keyboard, room, this, cx),
         ),
         Stage::Projects => (
-            projects_poster(bench, welcome, lit, room, this, &t),
+            projects_poster(welcome, lit, room, this, &t),
             projects_pane(welcome, lit, room, this, cx),
         ),
     };
@@ -2357,7 +2313,6 @@ struct TileState {
     action: Option<(&'static str, Sheet)>,
     density: Density,
     running: bool,
-    works: bool,
     sentence: String,
 }
 
@@ -2369,7 +2324,6 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
         action: None,
         density: DENSITY_RUNNING,
         running: true,
-        works: false,
         sentence,
     };
     match bench.agent_setup.underway(&agent.kind) {
@@ -2410,22 +2364,19 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
             action: next.map(|(_, sheet)| ("Try again", sheet)),
             density: DENSITY_FAILED,
             running: false,
-            works: false,
             sentence,
         };
     }
-    let (word, density, works, state) = match &agent.status {
-        AgentStatus::Ready { .. } => ("Ready", DENSITY_READY, true, format!("{label} is ready.")),
+    let (word, density, state) = match &agent.status {
+        AgentStatus::Ready { .. } => ("Ready", DENSITY_READY, format!("{label} is ready.")),
         AgentStatus::Unknown => (
             "Installed",
             DENSITY_INSTALLED,
-            true,
             format!("{label} is installed."),
         ),
         AgentStatus::Broken { .. } => (
             "Won't start",
             DENSITY_FAILED,
-            false,
             match next {
                 Some(_) => format!("{label} won't start. Return reinstalls it."),
                 None => format!("{label} won't start. Reinstall it yourself, then Check again."),
@@ -2434,7 +2385,6 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
         AgentStatus::SignedOut => (
             "Signed out",
             DENSITY_SIGNED_OUT,
-            false,
             match next {
                 Some(_) => {
                     format!("Signed out. Return opens {label}'s sign-in.")
@@ -2445,7 +2395,6 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
         AgentStatus::Missing => (
             "Not installed",
             DENSITY_MISSING,
-            false,
             match next {
                 Some(_) => "Not installed. Return runs its installer.".to_owned(),
                 None => format!("Not installed. Install {label} yourself, then Check again."),
@@ -2462,17 +2411,7 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
         action: next,
         density,
         running: false,
-        works,
         sentence: state,
-    }
-}
-
-/// What the main button says when it runs the chosen agent's next step.
-fn action_words(label: &str, agent: &str) -> String {
-    match label {
-        "Install" | "Reinstall" => format!("{label} {agent}"),
-        "Sign in" => format!("Sign in to {agent}"),
-        other => other.to_owned(),
     }
 }
 
