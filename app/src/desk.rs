@@ -1591,14 +1591,11 @@ fn viewport_select(
         None => preset.is_none(),
         Some(fixed) => preset.is_some() && fixed.preset == preset,
     };
-    let shown = (SIZES.iter())
-        .find(|(preset, ..)| chosen(*preset))
-        .map_or(Icon::Resize, |(.., icon)| *icon);
     let (bench, agent, tab_id) = (cx.entity().downgrade(), agent.to_owned(), tab_id.to_owned());
     ui::menu_button(
         "desk-viewport",
         gpui_kit::Anchor::TopRight,
-        IconButton::new("desk-viewport-face", shown, "Viewport").glyph(13.),
+        IconButton::new("desk-viewport-face", Icon::Viewport, "Viewport").glyph(13.),
         move |mut popup, _, cx| {
             for (preset, label, icon) in SIZES {
                 let size = preset.and_then(Viewport::preset);

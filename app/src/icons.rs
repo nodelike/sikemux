@@ -175,6 +175,7 @@ icons!(
     User => "user",
     Vercel => "vercel",
     PhoneQr => "phone-qr",
+    Viewport => "viewport",
     Warning => "warning",
     InfoCircle => "info-circle",
     Waterfall => "waterfall",
