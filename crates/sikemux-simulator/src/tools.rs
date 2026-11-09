@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
+use super::android::is_android;
 use super::claims::Claim;
 use super::{checkpoint, pause, remaining, SimulatorManager};
 use sikemux_base::cli::protocol::{HarnessRequest, SIM_CANCEL_METHOD, SIM_OFFERED_METHOD};
@@ -76,7 +77,7 @@ pub fn execute(manager: &SimulatorManager, request: &HarnessRequest) -> Result<V
         manager.cancel(agent_id);
         return Ok(json!({}));
     }
-    if let Some(reason) = refusal(manager.enabled(), super::unsupported_reason()) {
+    if let Some(reason) = refusal(manager.enabled(), manager.unavailable()) {
         return Err(reason);
     }
     let acting = drives(&request.method);
@@ -139,6 +140,7 @@ pub(super) async fn run(
                             "name": device.name,
                             "os": device.os,
                             "booted": device.booted,
+                            "platform": if is_android(&device.udid) { "android" } else { "ios" },
                             "attached": mine,
                             "inUseBy": holder.filter(|_| !mine).map(holder_text),
                         })
@@ -146,7 +148,7 @@ pub(super) async fn run(
                     .collect::<Vec<_>>(),
             }))
         }
-        "sim.attach" => attach(manager, agent_id, project, text("device")).await,
+        "sim.attach" => attach(manager, agent_id, project, text("device"), text("platform")).await,
         "sim.state" => settled_state(manager, agent_id, None, Report::Full).await,
         "sim.tap" => {
             let device = attached(manager, agent_id)?;
@@ -355,7 +357,7 @@ pub fn inspect(manager: &SimulatorManager, agent_id: Option<&str>) -> Value {
         .and_then(|agent_id| manager.offered_to(agent_id))
         .unwrap_or_else(|| manager.offered());
     let reason = (!available).then(|| {
-        super::unsupported_reason().unwrap_or_else(|| {
+        manager.unavailable().unwrap_or_else(|| {
             if manager.enabled() {
                 "This agent started before the iOS Simulator tools were turned on; start a new one to use them.".into()
             } else {
@@ -582,7 +584,7 @@ pub(super) fn choose_device<'a>(devices: &'a [Device], wanted: &str) -> Result<&
         })
         .ok_or_else(|| {
             format!(
-                "no simulator is named {wanted}; sim_devices lists them, and Xcode's Devices and Simulators window adds more"
+                "no device is named {wanted}; sim_devices lists them. Xcode's Devices and Simulators window adds iOS simulators, Android Studio's Device Manager adds Android ones"
             )
         })
 }
@@ -601,6 +603,7 @@ async fn attach(
     agent_id: &str,
     project: &str,
     wanted: Option<&str>,
+    platform: Option<&str>,
 ) -> Result<Value, String> {
     let devices = list_devices(manager).await?;
     let held = manager.held_by_others(agent_id);
@@ -616,16 +619,33 @@ async fn attach(
             device.clone()
         }
         (None, Some(current)) => current.clone(),
-        (None, None) => match pick_device(
-            &devices,
-            &held,
-            manager.desk_device(agent_id).as_deref(),
-            manager.project_device(project).as_deref(),
-            &project_device_name(project),
-        ) {
-            Pick::Use(device) => device.clone(),
-            Pick::Create => create_device(manager, project, &devices).await?,
-        },
+        (None, None) => {
+            let android = match platform {
+                Some("android") => true,
+                Some("ios") => false,
+                Some(other) => return Err(format!("platform must be ios or android, not {other}")),
+                None => !super::capable(),
+            };
+            if android && manager.android().sdk().is_none() {
+                return Err(super::android::NO_SDK.into());
+            }
+            let candidates: Vec<Device> = devices
+                .iter()
+                .filter(|device| is_android(&device.udid) == android)
+                .cloned()
+                .collect();
+            match pick_device(
+                &candidates,
+                &held,
+                manager.desk_device(agent_id).as_deref(),
+                manager.project_device(project).as_deref(),
+                &project_device_name(project),
+            ) {
+                Pick::Use(device) => device.clone(),
+                Pick::Create if android => any_android(&candidates, &held)?,
+                Pick::Create => create_device(manager, project, &devices).await?,
+            }
+        }
     };
     if !device.booted && manager.booted_by_sikemux(&devices) >= super::MAX_BOOTED {
         return Err(format!(
@@ -677,6 +697,27 @@ async fn attach(
     let mut state = settled_state(manager, agent_id, None, Report::Full).await?;
     state["shown"] = SHOWN_ON_DESK.into();
     Ok(state)
+}
+
+/// A free Android device for an agent that named none: one already running, else the virtual
+/// device on the newest Android.
+fn any_android(devices: &[Device], held: &HashMap<String, Claim>) -> Result<Device, String> {
+    devices
+        .iter()
+        .filter(|device| !held.contains_key(&device.udid))
+        .max_by(|a, b| {
+            (a.booted, os_version(&a.os))
+                .partial_cmp(&(b.booted, os_version(&b.os)))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .cloned()
+        .ok_or_else(|| {
+            if devices.is_empty() {
+                super::android::NO_DEVICE.to_owned()
+            } else {
+                "every Android device is in use by another agent; ask the person".to_owned()
+            }
+        })
 }
 
 /// Makes the project its own iPhone, of the newest kind on the newest iOS installed.
@@ -1427,6 +1468,6 @@ pub(super) fn edge_warning(screen: Option<(f64, f64)>, from: (f64, f64)) -> Opti
         return None;
     };
     Some(format!(
-        "the swipe started at the {edge} edge, which iOS treats as a system gesture (home, Notification Center, Control Center or back) rather than scrolling"
+        "the swipe started at the {edge} edge, which the system treats as a gesture (home, back, notifications or Control Center) rather than scrolling"
     ))
 }

@@ -86,6 +86,22 @@ impl Progress {
     }
 }
 
+/// A helper to run: its program, and the arguments it takes.
+#[derive(Clone, Debug)]
+pub struct Program {
+    pub path: PathBuf,
+    pub args: Vec<std::ffi::OsString>,
+}
+
+impl From<PathBuf> for Program {
+    fn from(path: PathBuf) -> Self {
+        Self {
+            path,
+            args: Vec::new(),
+        }
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct SimManager {
     helper: Arc<Mutex<Option<Helper>>>,
@@ -127,7 +143,11 @@ impl SimManager {
     }
 
     /// Sends one request, such as `{"type": "tap", "x": 10, "y": 20}`, and waits for its answer.
-    pub async fn call(&self, executable: PathBuf, request: Map<String, Value>) -> SimResult<Value> {
+    pub async fn call(
+        &self,
+        executable: impl Into<Program>,
+        request: Map<String, Value>,
+    ) -> SimResult<Value> {
         let timeout = if request.get("type").and_then(Value::as_str) == Some("boot") {
             BOOT_TIMEOUT
         } else {
@@ -138,7 +158,7 @@ impl SimManager {
 
     pub async fn call_within(
         &self,
-        executable: PathBuf,
+        executable: impl Into<Program>,
         mut request: Map<String, Value>,
         timeout: Duration,
     ) -> SimResult<Value> {
@@ -150,7 +170,8 @@ impl SimManager {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
         request.insert("id".into(), Value::from(id));
         let (sender, receiver) = oneshot::channel();
-        let (waiting, generation) = self.send(executable, id, sender, &Value::Object(request))?;
+        let (waiting, generation) =
+            self.send(executable.into(), id, sender, &Value::Object(request))?;
         match tokio::time::timeout(timeout, receiver).await {
             Ok(Ok(reply)) => {
                 self.note_answer(generation);
@@ -169,7 +190,7 @@ impl SimManager {
 
     fn send(
         &self,
-        executable: PathBuf,
+        executable: Program,
         id: u64,
         sender: oneshot::Sender<Reply>,
         request: &Value,
@@ -243,8 +264,9 @@ impl SimManager {
         }
     }
 
-    fn spawn(&self, executable: PathBuf) -> SimResult<Helper> {
-        let mut child = sikemux_process::user_environment::command(executable)
+    fn spawn(&self, executable: Program) -> SimResult<Helper> {
+        let mut child = sikemux_process::user_environment::command(&executable.path)
+            .args(&executable.args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

@@ -41,8 +41,10 @@ rustls-webpki = { version = "0.103", default-features = false, features = ["ring
 serde = { version = "1", features = ["alloc", "derive", "rc"] }
 serde_core = { version = "1", default-features = false, features = ["alloc", "rc", "result", "std"] }
 serde_json = { version = "1", features = ["alloc", "preserve_order", "raw_value"] }
+slab = { version = "0.4" }
 time = { version = "0.3", features = ["formatting", "macros", "parsing"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+tracing = { version = "0.1" }
 uuid = { version = "1", features = ["v4", "v7"] }
 
 [build-dependencies]
@@ -75,13 +77,12 @@ rusqlite = { version = "0.41", features = ["bundled", "column_decltype"] }
 rustix = { version = "1", features = ["event", "fs", "net", "pipe", "process", "termios", "time"] }
 security-framework = { version = "3", features = ["OSX_10_15"] }
 security-framework-sys = { version = "2", features = ["OSX_10_15"] }
-slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new"] }
 subtle = { version = "2", default-features = false, features = ["const-generics"] }
 tokio-util = { version = "0.7", features = ["codec", "io-util", "rt"] }
 toml_datetime = { version = "1", default-features = false, features = ["serde", "std"] }
 toml_parser = { version = "1", default-features = false, features = ["std"] }
-tracing = { version = "0.1", features = ["log"] }
+tracing = { version = "0.1", default-features = false, features = ["log"] }
 url = { version = "2", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }
 

@@ -3,16 +3,20 @@ name = "sikemux-simulator"
 version.workspace = true
 edition = "2021"
 publish = false
-description = "The iOS Simulator for agents and the desk: the device helper, who holds which device, and the agents' tools, with no UI toolkit"
+description = "The iOS Simulator and Android emulators for agents and the desk: the device helpers, who holds which device, and the agents' tools, with no UI toolkit"
 
 [dependencies]
+base64 = "0.22"
+bytes = "1"
+h2 = "0.4"
+http = "1"
 libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 sikemux-base = { path = "../sikemux-base" }
 sikemux-process = { path = "../sikemux-process" }
 tempfile = "3"
-tokio = { version = "1", features = ["rt", "sync", "time", "io-util", "net", "macros"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "io-util", "net", "macros", "process"] }
 
 [build-dependencies]
 hex = "0.4"

@@ -9718,7 +9718,11 @@ dependencies = [
 name = "sikemux-simulator"
 version = "0.6.1-nightly.11"
 dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "h2",
  "hex",
+ "http",
  "libc",
  "serde",
  "serde_json",
