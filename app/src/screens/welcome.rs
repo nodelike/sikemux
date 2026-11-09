@@ -10,9 +10,10 @@ use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     actions, div, px, relative, AnyElement, App, AppContext, Context, Div, Entity, FocusHandle,
-    Focusable, FontWeight, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent, MouseButton,
-    MouseDownEvent, ParentElement, PathPromptOptions, Pixels, ScrollHandle, SharedString, Stateful,
-    StatefulInteractiveElement, Styled, Subscription, Window, WindowControlArea,
+    Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent,
+    MouseButton, MouseDownEvent, ParentElement, PathPromptOptions, Pixels, Rgba, ScrollHandle,
+    SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Window,
+    WindowControlArea,
 };
 use sikemux_core::agent_accounts::status::AgentStatus;
 use sikemux_core::server::call;
@@ -22,13 +23,13 @@ use sikemux_core::sessions::found_projects::FoundProject;
 use sikemux_view::layout::{At, OpenTab, PaneKind};
 use tokio::sync::oneshot;
 
-use crate::agents::setup::{self, Found};
+use crate::agents::setup::{self, Doing, Found, Sheet};
 use crate::chat::composer::Act;
 use crate::chat::SETUP;
 use crate::core::{ChatAsk, Target};
 use crate::icons::Icon;
 use crate::screens::experience::{self, Experience};
-use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_SM};
+use crate::theme::{self, Tokens, SPACE_1H, SPACE_2, SPACE_3, TEXT_2XS, TEXT_SM, TEXT_XS};
 use crate::ui;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::Workbench;
@@ -37,8 +38,18 @@ const TERMINAL_HEIGHT: f32 = 208.;
 /// A row's contents start where the text of the path field and the composer does.
 const ROW_START: f32 = 18.;
 const ROW_END: f32 = 12.;
-/// Every agent row holds this much for its button, so the statuses line up with or without one.
-const ACTION_WIDTH: f32 = 76.;
+const TILES_ACROSS: usize = 4;
+const TILE_GAP: f32 = 8.;
+const TILE_LEAST: f32 = 132.;
+const PILL_HEIGHT: f32 = 26.;
+const RING_WIDTH: f32 = 1.5;
+/// How far down a tile's dither starts, and a running tile's before it lifts.
+const TILE_DITHER_FROM: f32 = 0.8;
+const RUNNING_FROM: f32 = 0.94;
+const DENSITY_READY: f32 = 0.5;
+const DENSITY_RUNNING: f32 = 0.46;
+const DENSITY_INSTALLED: f32 = 0.36;
+const DENSITY_FAINT: f32 = 0.18;
 const LIST_MOST: f32 = 420.;
 const LIST_LEAST: f32 = 96.;
 /// What the title, field and buttons around a list need, so they stay on the screen.
@@ -303,18 +314,25 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
     }
 }
 
-actions!(welcome, [Next, Previous]);
+actions!(welcome, [Next, Previous, RowDown, RowUp]);
 
 pub fn install(cx: &mut App) {
-    for context in ["Onboarding && !Terminal", "Onboarding > Input"] {
-        let context = Some(context);
-        cx.bind_keys([
-            KeyBinding::new("tab", Next, context),
-            KeyBinding::new("down", Next, context),
-            KeyBinding::new("shift-tab", Previous, context),
-            KeyBinding::new("up", Previous, context),
-        ]);
-    }
+    let keys = Some("Onboarding && !Terminal");
+    cx.bind_keys([
+        KeyBinding::new("tab", Next, keys),
+        KeyBinding::new("right", Next, keys),
+        KeyBinding::new("shift-tab", Previous, keys),
+        KeyBinding::new("left", Previous, keys),
+        KeyBinding::new("down", RowDown, keys),
+        KeyBinding::new("up", RowUp, keys),
+    ]);
+    let field = Some("Onboarding > Input");
+    cx.bind_keys([
+        KeyBinding::new("tab", Next, field),
+        KeyBinding::new("down", Next, field),
+        KeyBinding::new("shift-tab", Previous, field),
+        KeyBinding::new("up", Previous, field),
+    ]);
     let composer = Some("Onboarding > ChatComposer > Input");
     cx.bind_keys([
         KeyBinding::new("tab", Next, composer),
@@ -357,18 +375,43 @@ fn listed_agents(bench: &Workbench) -> Vec<&Found> {
     listed
 }
 
-/// The agents the first chat can start on: those ready, or those found when none is.
+/// The agents the first chat can start on: those ready, the one chosen on the first step, or
+/// all that were found when none is ready.
 fn startable_agents(bench: &Workbench) -> Vec<&Found> {
     let found = found_agents(bench);
     let any_ready = found.iter().any(is_ready);
+    let chosen = welcome_in(bench).and_then(|welcome| welcome.agent.as_deref());
     found
         .iter()
-        .filter(|agent| match any_ready {
-            true => is_ready(agent),
-            false => setup::usable(&agent.status),
+        .filter(|agent| {
+            is_ready(agent)
+                || (setup::usable(&agent.status)
+                    && (!any_ready || Some(agent.kind.as_str()) == chosen))
         })
         .filter(|agent| bench.launcher_of_kind(&agent.kind).is_some())
         .collect()
+}
+
+/// The tile the first step has chosen: the one picked, else the first ready, else the first
+/// installed, else the first.
+fn chosen_agent<'a>(bench: &'a Workbench, welcome: &Welcome) -> Option<&'a Found> {
+    let listed = listed_agents(bench);
+    let picked = welcome.agent.as_deref();
+    listed
+        .iter()
+        .find(|agent| Some(agent.kind.as_str()) == picked)
+        .or_else(|| listed.iter().find(|agent| is_ready(agent)))
+        .or_else(|| listed.iter().find(|agent| setup::usable(&agent.status)))
+        .or_else(|| listed.first())
+        .copied()
+}
+
+fn chosen_index(bench: &Workbench, welcome: &Welcome) -> usize {
+    let chosen = chosen_agent(bench, welcome).map(|agent| agent.kind.as_str());
+    listed_agents(bench)
+        .iter()
+        .position(|agent| Some(agent.kind.as_str()) == chosen)
+        .unwrap_or(0)
 }
 
 /// The agent the first chat starts on: the one picked, the one a new chat would use anyway, or
@@ -414,10 +457,19 @@ fn composer_focus(bench: &Workbench, cx: &App) -> Option<FocusHandle> {
 }
 
 fn go(bench: &mut Workbench, stop: Stop, window: &mut Window, cx: &mut Context<Workbench>) {
+    let tile = match (stop, welcome_in(bench).map(|welcome| welcome.stage)) {
+        (Stop::Row(row), Some(Stage::Agents)) => listed_agents(bench)
+            .get(row)
+            .map(|agent| agent.kind.clone()),
+        _ => None,
+    };
     let Some(welcome) = welcome_of(bench) else {
         return;
     };
     welcome.at = Some(stop);
+    if tile.is_some() {
+        welcome.agent = tile;
+    }
     match (stop, &welcome.path) {
         (Stop::Field, Some(path)) => path.update(cx, |path, cx| path.focus(window, cx)),
         (Stop::Composer, _) => welcome.composer_due = true,
@@ -434,10 +486,10 @@ fn step(bench: &mut Workbench, forward: bool, window: &mut Window, cx: &mut Cont
         return;
     };
     let in_composer = composer_focus(bench, cx).is_some_and(|focus| focus.is_focused(window));
-    let here = if in_composer {
-        Some(Stop::Composer)
-    } else {
-        welcome.at
+    let here = match (in_composer, welcome.stage, welcome.at) {
+        (true, ..) => Some(Stop::Composer),
+        (_, Stage::Agents, Some(Stop::Row(_))) => Some(Stop::Row(chosen_index(bench, welcome))),
+        (_, _, at) => at,
     };
     let stops = stops(bench, welcome);
     let Some(last) = stops.len().checked_sub(1) else {
@@ -453,6 +505,23 @@ fn step(bench: &mut Workbench, forward: bool, window: &mut Window, cx: &mut Cont
     go(bench, stops[to], window, cx);
 }
 
+/// Up and down a row of tiles on the first step; elsewhere the arrows step like Tab.
+fn step_row(bench: &mut Workbench, down: bool, window: &mut Window, cx: &mut Context<Workbench>) {
+    let tile = welcome_in(bench).and_then(|welcome| match (welcome.stage, welcome.at) {
+        (Stage::Agents, Some(Stop::Row(_))) => Some(chosen_index(bench, welcome)),
+        _ => None,
+    });
+    let Some(at) = tile else {
+        return step(bench, down, window, cx);
+    };
+    let last = listed_agents(bench).len().saturating_sub(1);
+    let to = match down {
+        true => (at + TILES_ACROSS).min(last),
+        false => at.saturating_sub(TILES_ACROSS),
+    };
+    go(bench, Stop::Row(to), window, cx);
+}
+
 fn show_stage(
     bench: &mut Workbench,
     stage: Stage,
@@ -460,6 +529,7 @@ fn show_stage(
     cx: &mut Context<Workbench>,
 ) {
     let startable = !startable_agents(bench).is_empty();
+    let tile = welcome_in(bench).map_or(0, |welcome| chosen_index(bench, welcome));
     let Some(welcome) = welcome_of(bench) else {
         return;
     };
@@ -467,7 +537,7 @@ fn show_stage(
     welcome.error = None;
     welcome.scroll = ScrollHandle::new();
     let first = match stage {
-        Stage::Agents => Stop::Row(0),
+        Stage::Agents => Stop::Row(tile),
         Stage::Projects if welcome.rows.is_empty() => Stop::Field,
         Stage::Projects => Stop::Row(0),
         Stage::Start if startable => Stop::Composer,
@@ -539,7 +609,16 @@ fn primary(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbenc
         return;
     };
     match welcome.stage {
-        Stage::Agents if usable_agents(bench) > 0 => show_stage(bench, Stage::Projects, window, cx),
+        Stage::Agents => {
+            let chosen = chosen_agent(bench, welcome).filter(|agent| setup::usable(&agent.status));
+            let Some(kind) = chosen.map(|agent| agent.kind.clone()) else {
+                return;
+            };
+            if let Some(welcome) = welcome_of(bench) {
+                welcome.agent = Some(kind);
+            }
+            show_stage(bench, Stage::Projects, window, cx)
+        }
         Stage::Projects if welcome.ticked().next().is_some() => {
             show_stage(bench, Stage::Start, window, cx)
         }
@@ -560,7 +639,14 @@ fn activate(bench: &mut Workbench, space: bool, window: &mut Window, cx: &mut Co
         (_, Some(Stop::Back)) => back(bench, window, cx),
         (_, Some(Stop::JustOpen)) => finish(bench, false, window, cx),
         (_, Some(stop @ (Stop::ProjectChip | Stop::AgentChip))) if space => cycle(bench, stop, cx),
-        (Stage::Agents, Some(Stop::Row(row))) if space => run_step(bench, row, cx),
+        (Stage::Agents, Some(Stop::Row(_))) => {
+            let chosen = chosen_agent(bench, welcome).filter(|agent| setup::usable(&agent.status));
+            match (space, chosen) {
+                (false, Some(_)) => primary(bench, window, cx),
+                (_, None) => run_step(bench, chosen_index(bench, welcome), cx),
+                (true, Some(_)) => {}
+            }
+        }
         (Stage::Projects, Some(Stop::Row(row))) if space => toggle(bench, row, cx),
         _ if !space => primary(bench, window, cx),
         _ => {}
@@ -946,83 +1032,247 @@ fn hint(text: String, t: &Tokens) -> Div {
         .child(text)
 }
 
-fn agent_row(
+/// How a tile reads for what its agent is doing, in this screen's own words.
+struct TileState {
+    word: &'static str,
+    ink: Hsla,
+    action: Option<(&'static str, Sheet)>,
+    density: f32,
+    running: bool,
+    works: bool,
+    sentence: String,
+}
+
+fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
+    let label = &agent.label;
+    let running = |word, sentence| TileState {
+        word,
+        ink: t.text_primary,
+        action: None,
+        density: DENSITY_RUNNING,
+        running: true,
+        works: false,
+        sentence,
+    };
+    match bench.agent_setup.underway(&agent.kind) {
+        Some(Doing::Installing) => {
+            return running("Installing…", format!("Downloading {label}…"));
+        }
+        Some(Doing::SigningIn) => {
+            return running(
+                "Waiting for sign-in…",
+                "Finish signing in, in your browser.".to_owned(),
+            );
+        }
+        None => {}
+    }
+    let next = setup::next_step(bench, agent);
+    let failure = bench.agent_setup.failure(&agent.kind);
+    if let Some(doing) = failure {
+        let (word, sentence) = match doing {
+            Doing::Installing => ("install failed", "The installer stopped with an error."),
+            Doing::SigningIn => ("signed out", "The sign-in stopped with an error."),
+        };
+        return TileState {
+            word,
+            ink: t.danger,
+            action: next.map(|(_, sheet)| ("Try again", sheet)),
+            density: DENSITY_FAINT,
+            running: false,
+            works: false,
+            sentence: sentence.to_owned(),
+        };
+    }
+    let (word, density, works, sentence) = match &agent.status {
+        AgentStatus::Ready { account } => (
+            "ready",
+            DENSITY_READY,
+            true,
+            match account.as_deref() {
+                Some("subscription") => "Signed in with your subscription.".to_owned(),
+                Some("apiKey") => "Signed in with an API key.".to_owned(),
+                _ => "Signed in and ready.".to_owned(),
+            },
+        ),
+        AgentStatus::Unknown => (
+            "installed",
+            DENSITY_INSTALLED,
+            true,
+            "Sikemux can't check its sign-in from here.".to_owned(),
+        ),
+        AgentStatus::Broken { .. } => (
+            "won't start",
+            DENSITY_FAINT,
+            false,
+            "It's installed, but it fails when it runs.".to_owned(),
+        ),
+        AgentStatus::SignedOut => (
+            "signed out",
+            DENSITY_FAINT,
+            false,
+            match next {
+                Some(_) => format!("Opens {label}'s own sign-in in a terminal."),
+                None => format!("Sign in from inside {label}, then come back."),
+            },
+        ),
+        AgentStatus::Missing => (
+            "not installed",
+            DENSITY_FAINT,
+            false,
+            match next {
+                Some(_) => "Sikemux runs its own installer.".to_owned(),
+                None => format!("Install {label} yourself, then come back."),
+            },
+        ),
+    };
+    TileState {
+        word,
+        ink: t.text_secondary,
+        action: next,
+        density,
+        running: false,
+        works,
+        sentence,
+    }
+}
+
+/// The brand colour halfway to white, for words on the brand's own tint.
+fn lighter(colour: Hsla) -> Hsla {
+    let colour = colour.to_rgb();
+    let half = |channel: f32| channel + (1. - channel) * 0.5;
+    Rgba {
+        r: half(colour.r),
+        g: half(colour.g),
+        b: half(colour.b),
+        a: 1.,
+    }
+    .into()
+}
+
+/// The chosen tile's edge, drawn over it so choosing moves nothing.
+fn ring(ink: Hsla) -> Div {
+    let mut ring = div()
+        .absolute()
+        .inset_0()
+        .rounded(theme::RADIUS_3)
+        .border_color(ink);
+    let widths = &mut ring.style().border_widths;
+    let width = || Some(px(RING_WIDTH).into());
+    widths.top = width();
+    widths.right = width();
+    widths.bottom = width();
+    widths.left = width();
+    ring
+}
+
+fn tile_size(window: &Window) -> (f32, f32) {
+    let across = TILES_ACROSS as f32;
+    let width = (f32::from(step_width(window)) - TILE_GAP * (across - 1.)) / across;
+    (width, width.max(TILE_LEAST))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn agent_tile(
     bench: &Workbench,
     agent: &Found,
     at: usize,
-    last: bool,
-    lit: Option<Stop>,
+    chosen: bool,
+    (width, height): (f32, f32),
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
-    let underway = bench.agent_setup.underway(&agent.kind);
-    let (status, ink) = match (underway, &agent.status) {
-        (Some(underway), _) => (underway, t.text_secondary),
-        (None, AgentStatus::Ready { .. }) => (setup::status_label(&agent.status), t.live),
-        (None, AgentStatus::SignedOut) => (setup::status_label(&agent.status), t.warn),
-        (None, AgentStatus::Broken { .. }) => (setup::status_label(&agent.status), t.danger),
-        (None, status) => (setup::status_label(status), t.text_secondary),
-    };
-    let next = underway
-        .is_none()
-        .then(|| setup::next_step(bench, agent))
-        .flatten();
+    let brand = theme::brand(&agent.kind);
+    let state = tile_state(bench, agent, &t);
     let busy = bench.agent_setup.busy();
-    let chosen = this.clone();
-    row(
-        format!("welcome-agent-{}", agent.kind),
-        lit == Some(Stop::Row(at)),
-        last,
-        &t,
-    )
-    .on_click(move |_, window, cx| {
-        chosen.update(cx, |bench, cx| go(bench, Stop::Row(at), window, cx))
-    })
-    .child(ui::mark(&agent.kind, 18.))
-    .child(
-        ui::text(agent.label.clone(), TEXT_SM, FontWeight::MEDIUM)
-            .flex_1()
-            .min_w_0()
-            .truncate()
-            .text_color(t.text_primary),
-    )
-    .child(
+    let top = (height * 0.125).max(14.);
+    let mark = (height * 0.21).clamp(26., 40.);
+    let gap = (height * 0.055).clamp(7., 10.);
+    let words = 30.;
+    let pill = PILL_HEIGHT + gap;
+    let clear = (top + mark + gap + words + pill + 4.) / height;
+    let from = match state.running {
+        true => RUNNING_FROM,
+        false => clear.max(TILE_DITHER_FROM),
+    };
+    let action = state.action.map(|(label, sheet)| {
+        let this = this.clone();
         div()
-            .flex_none()
-            .text_size(theme::ui_text(TEXT_2XS))
-            .text_color(ink)
-            .child(status),
-    )
-    .child(
-        div()
-            .flex_none()
-            .w(px(ACTION_WIDTH))
+            .id(SharedString::from(format!("welcome-step-{}", agent.kind)))
+            .relative()
+            .mt(px(gap))
+            .h(px(PILL_HEIGHT))
+            .px(px(12.))
             .flex()
-            .justify_end()
-            .children(next.map(|(label, sheet)| {
-                let this = this.clone();
-                ui::Button::new(
-                    SharedString::from(format!("welcome-step-{}", agent.kind)),
-                    label,
-                    ui::Variant::Outline,
-                )
-                .disabled(busy)
-                .on_click(move |_, _, cx| {
-                    let sheet = sheet.clone();
-                    this.update(cx, |bench, cx| {
-                        if !bench.agent_setup.busy() {
-                            setup::run(bench, sheet, cx);
-                        }
-                    })
+            .items_center()
+            .rounded(theme::RADIUS_2)
+            .bg(brand.opacity(0.2))
+            .text_size(theme::ui_text(TEXT_2XS))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(lighter(brand))
+            .when(busy, |pill| pill.opacity(0.5))
+            .when(!busy, |pill| pill.cursor_pointer())
+            .on_click(move |_, window, cx| {
+                let sheet = sheet.clone();
+                this.update(cx, |bench, cx| {
+                    go(bench, Stop::Row(at), window, cx);
+                    if !bench.agent_setup.busy() {
+                        setup::run(bench, sheet, cx);
+                    }
                 })
-            })),
-    )
-    .into_any_element()
+            })
+            .child(label)
+    });
+    let picked = this.clone();
+    div()
+        .id(SharedString::from(format!("welcome-agent-{}", agent.kind)))
+        .relative()
+        .flex_none()
+        .w(px(width))
+        .h(px(height))
+        .overflow_hidden()
+        .rounded(theme::RADIUS_3)
+        .bg(t.surface_raised)
+        .cursor_pointer()
+        .on_mouse_down(MouseButton::Left, keep_press)
+        .on_click(move |_, window, cx| {
+            picked.update(cx, |bench, cx| go(bench, Stop::Row(at), window, cx))
+        })
+        .child(
+            ui::grain::tile(brand, state.density, from, state.running, cx)
+                .absolute()
+                .inset_0()
+                .size_full(),
+        )
+        .child(
+            div()
+                .relative()
+                .size_full()
+                .pt(px(top))
+                .flex()
+                .flex_col()
+                .items_center()
+                .child(ui::mark(&agent.kind, mark))
+                .child(
+                    ui::text(agent.label.clone(), TEXT_SM, FontWeight::SEMIBOLD)
+                        .mt(px(gap))
+                        .text_color(t.text_primary),
+                )
+                .child(
+                    div()
+                        .mt(px(1.))
+                        .text_size(theme::ui_text(TEXT_2XS))
+                        .text_color(state.ink)
+                        .child(state.word),
+                )
+                .children(action),
+        )
+        .when(chosen, |tile| tile.child(ring(t.text_primary)))
+        .into_any_element()
 }
 
 fn primary_button(
-    label: &'static str,
+    label: impl Into<SharedString>,
     enabled: bool,
     this: &Entity<Workbench>,
 ) -> impl IntoElement {
@@ -1124,65 +1374,78 @@ fn agents_screen(
 ) -> Vec<AnyElement> {
     let t = Tokens::get(cx).clone();
     let listed = listed_agents(bench);
-    let rows: Vec<AnyElement> = match &bench.agent_setup.found {
-        None => vec![note_row(
-            ui::shimmer::shimmer("welcome-agents-looking", "Looking on your PATH…"),
-            &t,
+    let chosen = chosen_agent(bench, welcome);
+    let size = tile_size(window);
+    let tiles: Vec<AnyElement> = match &bench.agent_setup.found {
+        None => vec![ui::shimmer::shimmer(
+            "welcome-agents-looking",
+            "Looking on your PATH…",
         )],
-        Some(found) if found.is_empty() => vec![note_row(
+        Some(found) if found.is_empty() => vec![
             "None found. Install Claude Code, Codex or another supported CLI.".into_any_element(),
-            &t,
-        )],
+        ],
         Some(_) => listed
             .iter()
             .enumerate()
-            .map(|(at, agent)| agent_row(bench, agent, at, at + 1 == listed.len(), lit, this, cx))
+            .map(|(at, agent)| {
+                let is_chosen = chosen.is_some_and(|chosen| chosen.kind == agent.kind);
+                agent_tile(bench, agent, at, is_chosen, size, this, cx)
+            })
             .collect(),
     };
     let terminal = setup::inline(bench, this, px(TERMINAL_HEIGHT), cx).map(|terminal| {
         div()
             .flex_none()
-            .border_t_1()
-            .border_color(t.border)
-            .bg(t.surface_sunken)
+            .mt(px(TILE_GAP))
+            .overflow_hidden()
+            .rounded(theme::RADIUS_3)
+            .bg(t.surface_raised)
             .on_mouse_down(MouseButton::Left, keep_press)
             .child(terminal)
             .into_any_element()
     });
-    let around = AROUND_AGENTS + terminal.as_ref().map_or(0., |_| TERMINAL_HEIGHT);
-    let ready = found_agents(bench)
-        .iter()
-        .filter(|agent| is_ready(agent))
-        .count();
-    let usable = usable_agents(bench);
+    let around = AROUND_AGENTS + terminal.as_ref().map_or(0., |_| TERMINAL_HEIGHT + TILE_GAP);
     let [title, sub] = heading(
         "Choose who does the work",
-        "One working agent gets you in. Sikemux runs each one's own installer and sign-in."
-            .to_owned(),
+        "Pick one that works. It starts your first chat.".to_owned(),
         &t,
     );
+    let chosen_state = chosen.map(|agent| (agent, tile_state(bench, agent, &t)));
+    let sentence = chosen_state
+        .as_ref()
+        .map(|(_, state)| state.sentence.clone())
+        .unwrap_or_default();
+    let works = chosen_state
+        .as_ref()
+        .filter(|(_, state)| state.works)
+        .map(|(agent, _)| format!("Continue with {}", agent.label));
+    let grid = div()
+        .id("welcome-rows")
+        .track_scroll(&welcome.scroll)
+        .flex_none()
+        .max_h(list_height(window, around))
+        .flex()
+        .flex_wrap()
+        .gap(px(TILE_GAP))
+        .overflow_y_scroll()
+        .children(tiles);
     [
         title.into_any_element(),
         sub.into_any_element(),
-        listing(
-            &welcome.scroll,
-            rows,
-            list_height(window, around),
-            terminal,
-            &t,
-        )
-        .into_any_element(),
+        grid.into_any_element(),
     ]
     .into_iter()
+    .chain(terminal)
     .chain([foot()
-        .child(hint(
-            match (ready, usable) {
-                (0, 0) => "Get one agent ready to continue".to_owned(),
-                (ready, _) => format!("{ready} ready"),
-            },
-            &t,
-        ))
-        .child(div().flex_1())
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(theme::ui_text(TEXT_XS))
+                .text_color(t.text_secondary)
+                .child(sentence),
+        )
         .when(anyway_offered(bench), |foot| {
             foot.child(stop_button(
                 "welcome-anyway",
@@ -1192,7 +1455,10 @@ fn agents_screen(
                 this,
             ))
         })
-        .child(primary_button("Continue", usable > 0, this))
+        .child(match works {
+            Some(label) => primary_button(label, true, this).into_any_element(),
+            None => primary_button("Continue", false, this).into_any_element(),
+        })
         .into_any_element()])
     .collect()
 }
@@ -1576,6 +1842,8 @@ pub fn render(
     let keys = this.clone();
     let next = this.clone();
     let previous = this.clone();
+    let row_down = this.clone();
+    let row_up = this.clone();
     div()
         .id("welcome")
         .key_context("Modal Onboarding")
@@ -1585,6 +1853,12 @@ pub fn render(
         })
         .on_action(move |_: &Previous, window, cx| {
             previous.update(cx, |bench, cx| step(bench, false, window, cx))
+        })
+        .on_action(move |_: &RowDown, window, cx| {
+            row_down.update(cx, |bench, cx| step_row(bench, true, window, cx))
+        })
+        .on_action(move |_: &RowUp, window, cx| {
+            row_up.update(cx, |bench, cx| step_row(bench, false, window, cx))
         })
         .absolute()
         .inset_0()

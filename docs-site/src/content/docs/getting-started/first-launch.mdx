@@ -9,14 +9,11 @@ Tab and the arrows move between rows, Space ticks a project or runs an agent's a
 
 ## Agents
 
-Sikemux lists every agent it can set up: those ready first, then those with something to do, then the rest.
+Each agent Sikemux can set up gets a tile saying where it stands: **ready**, **installed**, **signed out**, **not installed** or **won't start**. Pick the one that should start your first chat, with a click, Tab or the arrows.
 
-- **Ready**: installed and signed in.
-- **Signed out**: installed, but its CLI has no sign-in yet. **Sign in** runs the agent's own sign-in.
-- **Not installed**: **Install** runs the agent's own installer.
-- **Not working**: installed, but it fails to start. **Reinstall** runs its installer again.
+A tile that needs something offers it: **Install** and **Reinstall** run the agent's own installer, and **Sign in** runs its own sign-in, in a terminal under the tiles where you can watch it. If one fails, **Try again** appears on the tile. Return on a tile with an action runs it; Return on one that works continues with that agent.
 
-The command runs in a terminal under the list, where you can watch it. **Continue** turns on once at least one agent works. If an install or sign-in fails, for example on a machine with no network, **Continue anyway** appears so you are never locked out.
+If an install or sign-in fails and no agent works, for example on a machine with no network, **Continue anyway** appears so you are never locked out.
 
 The same list, with the same buttons, is under **Agents on this host** in **Settings → Installed**. The agent palette (`⌘⇧N`) also offers **Sign in to** a signed-out agent beside starting it.
 

@@ -205,9 +205,10 @@ impl Workbench {
     pub(crate) fn keep_terminals(&mut self) {
         let feeds = &self.feeds;
         let sessions = (feeds.this.view.as_ref()).map_or(&[][..], |view| view.sessions.as_slice());
+        let setup = &self.agent_setup;
         self.terminals.keep(
             |place, id| match place {
-                Place::This => sessions.iter().any(|session| session.id == id),
+                Place::This => sessions.iter().any(|session| session.id == id) || setup.shows(id),
                 Place::Account(host) => feeds
                     .host(host)
                     .and_then(|feed| feed.view.as_ref())

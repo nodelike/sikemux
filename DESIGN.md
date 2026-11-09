@@ -11,6 +11,8 @@ its own look from those tokens.
 - **The chosen item is a grey lift.** A chosen row, tab, menu item or chip gets
   `--surface-chosen` across the whole item, with no colour and no edge. Hover is
   `--surface-hover`, one step lighter.
+  The exception is the first-run setup's agent tiles, already raised, which take a 1.5px
+  ink ring.
 - **Purple is rare.** The accent is for keyboard focus, an on switch, a ticked
   checkbox or radio, a link, the HEAD badge, resize handles under the pointer
   and the one primary action on a surface. A choice from a set (a segmented

@@ -57,6 +57,22 @@ pub struct Sheet {
     phase: Phase,
 }
 
+/// Which of its two jobs a sheet is at.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Doing {
+    Installing,
+    SigningIn,
+}
+
+impl Sheet {
+    fn doing(&self) -> Doing {
+        match self.install {
+            true => Doing::Installing,
+            false => Doing::SigningIn,
+        }
+    }
+}
+
 /// The agents found, once the core has said, the sheet while one shows, and the installs
 /// started from a chat's model menu or the add-provider dialog, which run with no sheet.
 #[derive(Default)]
@@ -85,14 +101,22 @@ impl Setup {
     }
 
     /// What the sheet is doing to `kind`, while it still is.
-    pub fn underway(&self, kind: &str) -> Option<&'static str> {
+    pub fn underway(&self, kind: &str) -> Option<Doing> {
         let sheet = self.sheet.as_ref().filter(|sheet| sheet.kind == kind)?;
-        match (&sheet.phase, sheet.install) {
-            (Phase::Running, true) => Some("Installing…"),
-            (Phase::Running, false) => Some("Signing in…"),
-            (Phase::Checking, _) => Some("Checking…"),
-            _ => None,
-        }
+        matches!(sheet.phase, Phase::Running | Phase::Checking).then(|| sheet.doing())
+    }
+
+    /// What the sheet tried to do to `kind`, when it failed and is still up.
+    pub fn failure(&self, kind: &str) -> Option<Doing> {
+        let sheet = self.sheet.as_ref().filter(|sheet| sheet.kind == kind)?;
+        matches!(sheet.phase, Phase::Failed(_) | Phase::Refused(_)).then(|| sheet.doing())
+    }
+
+    /// Whether the sheet shows `session`, whose last output stays readable after it ends.
+    pub fn shows(&self, session: SessionId) -> bool {
+        self.sheet
+            .as_ref()
+            .is_some_and(|sheet| sheet.session == Some(session))
     }
 
     /// Whether the sheet's command is still going, which another must wait for.
