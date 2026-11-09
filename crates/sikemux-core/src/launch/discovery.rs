@@ -33,6 +33,7 @@ const RETRY_AFTER: [Duration; 2] = [Duration::from_secs(15), Duration::from_secs
 const PROBE_CONCURRENCY: usize = 4;
 const MAX_PROBED: usize = 128;
 const TIMED_OUT: &str = "version check timed out";
+const NOT_INSTALLED: &str = "a mise shim for a tool mise has not installed";
 
 fn push_agent_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
     if candidate.is_file() && !candidates.contains(&candidate) {
@@ -71,6 +72,33 @@ fn explicit_candidates(value: &str) -> Vec<PathBuf> {
     user_environment::find_executables(value)
 }
 
+/// The mise program that `executable` is a shim of, if it is one.
+fn mise_behind(executable: &Path) -> Option<PathBuf> {
+    let target = fs::canonicalize(executable).ok()?;
+    (target.file_name()? == "mise" && executable.file_name()? != "mise").then_some(target)
+}
+
+/// Running a shim of a tool mise has not installed downloads the tool, so mise is asked instead.
+async fn is_uninstalled_mise_shim(executable: &Path, timeout: Duration) -> Result<bool, String> {
+    let (Some(mise), Some(tool)) = (mise_behind(executable), executable.file_name()) else {
+        return Ok(false);
+    };
+    let mut command = Command::from(user_environment::command(mise));
+    command
+        .arg("which")
+        .arg(tool)
+        .envs(login_shell_environment())
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let status = tokio::time::timeout(timeout, command.status())
+        .await
+        .map_err(|_| TIMED_OUT.to_string())?
+        .map_err(|error| format!("could not start: {error}"))?;
+    Ok(!status.success())
+}
+
 /// Hermes's `--version` waits on a networked update check, so the catalog
 /// probes it with `--help`.
 async fn probe_agent_executable_with_timeout(
@@ -78,6 +106,9 @@ async fn probe_agent_executable_with_timeout(
     executable: &Path,
     timeout: Duration,
 ) -> Result<String, String> {
+    if is_uninstalled_mise_shim(executable, timeout).await? {
+        return Err(NOT_INSTALLED.to_string());
+    }
     let mut command = Command::from(user_environment::agent_command(executable));
     command
         .args(def.probe)
@@ -253,6 +284,7 @@ pub async fn first_healthy(
     for candidate in &candidates {
         match probe_agent_executable(def, candidate).await {
             Ok(_) => return (Some(candidate.clone()), failures),
+            Err(error) if error == NOT_INSTALLED => {}
             Err(error) => failures.push(format!("{}: {error}", candidate.display())),
         }
     }
@@ -354,6 +386,34 @@ mod tests {
         .await;
         assert_eq!(selected, Some(healthy.to_path_buf()));
         assert_eq!(failures.len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_mise_shim_of_an_uninstalled_tool_is_missing_and_never_run() {
+        use std::fs;
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let dir = tempfile::tempdir().unwrap();
+        let mise = dir.path().join("mise");
+        let downloaded = dir.path().join("downloaded");
+        fs::write(
+            &mise,
+            format!(
+                "#!/bin/sh\n[ \"$1\" = which ] && exit 1\ntouch '{}'\nsleep 30\n",
+                downloaded.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&mise, fs::Permissions::from_mode(0o755)).unwrap();
+        let shim = dir.path().join("codex");
+        symlink(&mise, &shim).unwrap();
+
+        let (selected, failures) = first_healthy(agent("codex"), vec![shim]).await;
+
+        assert_eq!(selected, None);
+        assert_eq!(failures, Vec::<String>::new());
+        assert!(!downloaded.exists());
     }
 
     #[cfg(unix)]
