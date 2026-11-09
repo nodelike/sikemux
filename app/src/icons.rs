@@ -1,11 +1,16 @@
 use std::borrow::Cow;
+use std::future::Future;
+use std::sync::Arc;
 
-use gpui_kit::{AssetSource, Result, SharedString};
+use gpui_kit::{
+    size, App, Asset, AssetSource, DevicePixels, ImageCacheError, ImageSource, ImgResourceLoader,
+    RenderImage, Resource, Result, SharedString, SvgSize,
+};
 
 macro_rules! icons {
     ($($icon:ident => $file:literal),* $(,)?) => {
         /// Every icon the app draws, from icons.mjs's SVGs.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub enum Icon { $($icon),* }
 
         impl Icon {
@@ -248,6 +253,43 @@ impl AssetSource for Icons {
             .map(|(name, _)| SharedString::from(*name))
             .collect())
     }
+}
+
+enum SharpPicture {}
+
+impl Asset for SharpPicture {
+    type Source = (Icon, i32);
+    type Output = Result<Arc<RenderImage>, ImageCacheError>;
+
+    fn load(
+        (icon, side): Self::Source,
+        cx: &mut App,
+    ) -> impl Future<Output = Self::Output> + Send + 'static {
+        let renderer = cx.svg_renderer();
+        async move {
+            let bytes = FILES
+                .iter()
+                .find(|(name, _)| *name == icon.path())
+                .map_or(&[][..], |(_, bytes)| *bytes);
+            let svg = renderer.parse_svg(bytes)?;
+            let side = DevicePixels(side);
+            Ok(renderer.render_parsed(&svg, SvgSize::ExactSize(size(side, side)))?)
+        }
+    }
+}
+
+/// A coloured icon rendered at the pixels it covers, since GPUI's `svg()` can only tint a shape
+/// and its `img()` stretches one small bitmap to every size.
+pub fn sharp_picture(icon: Icon, points: f32) -> ImageSource {
+    ImageSource::Custom(Arc::new(move |window, cx| {
+        let side = (points * window.scale_factor()).ceil() as i32;
+        window
+            .use_asset::<SharpPicture>(&(icon, side), cx)
+            .or_else(|| {
+                let while_it_renders = Resource::Embedded(icon.path().into());
+                window.use_asset::<ImgResourceLoader>(&while_it_renders, cx)
+            })
+    }))
 }
 
 pub fn agent(provider: &str) -> Icon {

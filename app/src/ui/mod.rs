@@ -70,7 +70,7 @@ pub fn icon(icon: Icon, size: f32) -> Svg {
 /// A mark at `size`: a picture as it is drawn, or a glyph in `tint`.
 pub fn picture(glyph: Icon, size: f32, tint: Hsla) -> AnyElement {
     if glyph.is_picture() {
-        img(glyph.path())
+        img(icons::sharp_picture(glyph, size))
             .size(px(size))
             .flex_none()
             .into_any_element()
