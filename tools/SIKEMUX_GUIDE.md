@@ -1587,9 +1587,14 @@ Write the prompt for yourself later: say what to look at and what to do with
 it, since a long conversation may have moved on by then. A chat holds up to 20
 triggers. `trigger_list` lists them with their numbers and next times, and
 `trigger_remove` stops one; the person can remove them too. Remove a trigger
-once it has done its job. Triggers end when your chat closes. A time that
-passes while the host is off fires once the host is back: a one-time trigger
-always, a repeating one only within 15 minutes of its time.
+once it has done its job. When your chat closes, its triggers pause, and they
+go on when the chat is taken up again, from Recent or with `agent_spawn` and
+`resume`: a repeating one skips the times it missed, and a one-time trigger
+that came due fires once. Paused triggers still count toward the limit. A
+webhook keeps its url while paused, but requests to it are dropped until the
+chat comes back. A time that passes while the host is off fires once the host
+is back: a one-time trigger always, a repeating one only within 15 minutes of
+its time.
 
 For recurring work that should not depend on this chat, such as triaging new
 issues every morning, pass `board: true`. Each time it fires, the trigger adds a

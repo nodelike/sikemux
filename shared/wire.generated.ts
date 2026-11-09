@@ -611,7 +611,46 @@ export interface RecentInfo {
     agentId?: string;
     /** The person pinned it, so it shows above the rest however long ago it ran. */
     pinned?: boolean;
+    /** Its triggers, paused since it closed, which go on when it is taken up again. */
+    triggers?: ChatTrigger[];
 }
+
+/** A trigger that sends a chat a message when its time comes. */
+export interface ChatTrigger {
+    id: number;
+    title: string;
+    when: TriggerWhen;
+    /**
+     * The next time it fires, in Unix milliseconds; none for a webhook, which fires on each
+     * request.
+     */
+    nextAt?: number;
+}
+
+export type TriggerWhen =
+    /** Once, at `at` in Unix milliseconds. */
+    | {
+          kind: "once";
+          at: number;
+      }
+    | {
+          kind: "every";
+          seconds: number;
+      }
+    /**
+     * Each day at `minute` past midnight on the host's clock, on `weekdays`
+     * counted from Sunday as 0, or on every day when there are none.
+     */
+    | {
+          kind: "daily";
+          minute: number;
+          weekdays: number[];
+      }
+    /** On each request to `url`, the address senders post to. */
+    | {
+          kind: "webhook";
+          url: string;
+      };
 
 export interface Inbox {
     items: InboxItem[];
@@ -1015,6 +1054,8 @@ export interface AgentShown {
     activeAt: number | null;
     /** When the soonest trigger set on it sends it a prompt, in Unix milliseconds. */
     nextTrigger?: number;
+    /** How many triggers it set on its own chat, which pause when it closes. */
+    triggers?: number;
     /** When the agent was last named with `@` or messaged by another agent. */
     calledAt?: number;
     /**
@@ -1538,43 +1579,6 @@ export interface Tracked {
 }
 
 export type TrackedKind = "issue" | "pull";
-
-/** A trigger that sends a chat a message when its time comes. */
-export interface ChatTrigger {
-    id: number;
-    title: string;
-    when: TriggerWhen;
-    /**
-     * The next time it fires, in Unix milliseconds; none for a webhook, which fires on each
-     * request.
-     */
-    nextAt?: number;
-}
-
-export type TriggerWhen =
-    /** Once, at `at` in Unix milliseconds. */
-    | {
-          kind: "once";
-          at: number;
-      }
-    | {
-          kind: "every";
-          seconds: number;
-      }
-    /**
-     * Each day at `minute` past midnight on the host's clock, on `weekdays`
-     * counted from Sunday as 0, or on every day when there are none.
-     */
-    | {
-          kind: "daily";
-          minute: number;
-          weekdays: number[];
-      }
-    /** On each request to `url`, the address senders post to. */
-    | {
-          kind: "webhook";
-          url: string;
-      };
 
 export interface SessionEnded {
     /** `requested`, `exited` after it was up, or `failed` before it got there. */

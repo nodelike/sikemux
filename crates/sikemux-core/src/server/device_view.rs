@@ -196,7 +196,7 @@ impl Core {
             .any(|session| session.group == Some(AgentGroup::Working));
         let mut attentions = self.chats.attentions();
         attentions.sort_by(|a, b| (a.at, &a.id).cmp(&(b.at, &b.id)));
-        let recent = self.workspaces.recent(&chats);
+        let recent = self.workspaces.recent(&chats, &self.triggers.held());
         let inbox = inbox::view(self, &chats, &sessions);
         goals::view_moved(self, &inbox);
         let workspace = self.workspace_view();

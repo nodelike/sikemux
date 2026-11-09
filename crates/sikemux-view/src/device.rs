@@ -97,6 +97,9 @@ pub struct RecentInfo {
     /// The person pinned it, so it shows above the rest however long ago it ran.
     #[serde(default)]
     pub pinned: bool,
+    /// Its triggers, paused since it closed, which go on when it is taken up again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub triggers: Vec<crate::chat::ChatTrigger>,
 }
 
 /// The computer a core runs on, as a person would recognise it.

@@ -527,7 +527,7 @@ pub enum TaskState {
 }
 
 /// A trigger that sends a chat a message when its time comes.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatTrigger {
     pub id: u64,

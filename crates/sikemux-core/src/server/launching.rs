@@ -442,9 +442,9 @@ pub(crate) async fn resume_session(
     core: &Arc<Core>,
     session: SessionChoice,
 ) -> CoreResult<SessionTaken> {
-    let choice = core
-        .workspaces
-        .session_choice(session, &core.chats.list())?;
+    let choice =
+        core.workspaces
+            .session_choice(session, &core.chats.list(), &core.triggers.held())?;
     let project = choice.project.clone();
     let (agent_id, _) = start_new(core, None, choice).await?;
     Ok(SessionTaken { agent_id, project })
@@ -577,7 +577,10 @@ pub(crate) fn resume_chat(
     request_id: RequestId,
     choice: ResumeChoice,
 ) {
-    match core.workspaces.resume_choice(choice, &core.chats.list()) {
+    match core
+        .workspaces
+        .resume_choice(choice, &core.chats.list(), &core.triggers.held())
+    {
         Ok(choice) => start_chat(core, client, request_id, choice),
         Err(error) => client.respond(request_id, Err(error)),
     }

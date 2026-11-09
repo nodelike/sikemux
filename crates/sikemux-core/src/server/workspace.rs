@@ -1477,7 +1477,7 @@ pub(crate) fn close_agents(core: &Core, params: CloseAgentsParams) -> CoreResult
 }
 
 /// Closes every agent left from before a fresh start, unless the person keeps their tabs
-/// open across one. Their chats stay in Recent.
+/// open across one. Their chats stay in Recent, with their triggers paused.
 pub(crate) fn restore(core: &Core) {
     if core.preferences.get().restore_agent_tabs {
         return;
@@ -1497,6 +1497,7 @@ pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
     for agent in agent_ids.iter().filter_map(|id| core.workspaces.agent(id)) {
         core.names
             .note_look(&agent.id, agent.buddy.clone(), named(&agent));
+        super::triggers::pause(core, &agent.id, core.workspaces.held_chat(&agent));
     }
     let before = core.workspaces.agent_ids();
     core.workspaces.close_agents(agent_ids)?;
@@ -1577,6 +1578,7 @@ fn settle_names(core: &Core) {
 /// nothing of them runs.
 pub(crate) fn settle(core: &Arc<Core>) {
     settle_names(core);
+    super::triggers::resume(core);
     super::session_watch::follow(core);
     core.changed(What::Agents);
 }
@@ -1745,7 +1747,7 @@ mod tests {
             HashMap::new(),
         );
         let running = workspaces.listed(Vec::new());
-        let shown = workspaces.recent(&running);
+        let shown = workspaces.recent(&running, &Vec::new());
         assert_eq!(
             shown
                 .iter()
@@ -1785,12 +1787,12 @@ mod tests {
             called_at: None,
             attention_rank: 0,
         };
-        let held = workspaces.recent(std::slice::from_ref(&live));
+        let held = workspaces.recent(std::slice::from_ref(&live), &Vec::new());
         assert_eq!(held.len(), 2);
         assert_eq!(held[0].agent_id.as_deref(), Some("agent-1"));
         assert_eq!(held[1].agent_id, None);
         live.provider = "codex".into();
-        assert_eq!(workspaces.recent(&[live])[0].agent_id, None);
+        assert_eq!(workspaces.recent(&[live], &Vec::new())[0].agent_id, None);
     }
 
     #[test]
@@ -1799,7 +1801,7 @@ mod tests {
         offer(&workspaces, vec![launcher()]);
         workspaces.set_recent(vec![recent("s1", "/Users/me/sikemux")], HashMap::new());
         let choice = workspaces
-            .resume_choice(resuming("claude:s1"), &[])
+            .resume_choice(resuming("claude:s1"), &[], &Vec::new())
             .unwrap();
         let launch = launch(&workspaces, choice).unwrap();
         assert_eq!(launch.resume_id.as_deref(), Some("s1"));
@@ -1814,18 +1816,20 @@ mod tests {
         offer(&workspaces, vec![launcher()]);
         workspaces.set_recent(vec![recent("s1", "/Users/me/sikemux")], HashMap::new());
         assert!(workspaces
-            .resume_choice(resuming("claude:other"), &[])
+            .resume_choice(resuming("claude:other"), &[], &Vec::new())
             .is_err());
-        assert!(workspaces.resume_choice(resuming("s1"), &[]).is_err());
+        assert!(workspaces
+            .resume_choice(resuming("s1"), &[], &Vec::new())
+            .is_err());
         workspaces.set_recent(Vec::new(), HashMap::new());
         assert!(workspaces
-            .resume_choice(resuming("claude:s1"), &[])
+            .resume_choice(resuming("claude:s1"), &[], &Vec::new())
             .is_err());
         let mut elsewhere = recent("s2", "/Users/me/sikemux");
         elsewhere.launcher = "codex".into();
         workspaces.set_recent(vec![elsewhere], HashMap::new());
         assert!(workspaces
-            .resume_choice(resuming("claude:s2"), &[])
+            .resume_choice(resuming("claude:s2"), &[], &Vec::new())
             .is_err());
     }
 
