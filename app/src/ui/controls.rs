@@ -884,6 +884,8 @@ pub struct Toggle {
     label: SharedString,
     pressed: bool,
     on_click: Option<OnClick>,
+    /// How many its choice holds, in its tint, after the label.
+    count: Option<(usize, Hsla)>,
 }
 
 impl Toggle {
@@ -893,7 +895,13 @@ impl Toggle {
             label: label.into(),
             pressed,
             on_click: None,
+            count: None,
         }
+    }
+
+    pub fn count(mut self, count: usize, tint: Hsla) -> Self {
+        self.count = Some((count, tint));
+        self
     }
 
     pub fn on_click(
@@ -935,5 +943,11 @@ impl RenderOnce for Toggle {
                 toggle.on_click(move |event, window, cx| handler(event, window, cx))
             })
             .child(self.label)
+            .children(self.count.map(|(count, tint)| {
+                text(count.to_string(), TEXT_3XS, FontWeight::NORMAL)
+                    .ml(SPACE_1H)
+                    .font_family(crate::theme::MONO)
+                    .text_color(tint)
+            }))
     }
 }

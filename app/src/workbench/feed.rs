@@ -63,12 +63,19 @@ impl Workbench {
             Update::View(place, view) => return self.view_arrived(place, *view, cx),
             Update::HostReach(host, reached) => {
                 if reached {
-                    self.feeds.host_mut(&host).reached = true;
+                    let feed = self.feeds.host_mut(&host);
+                    feed.reached = true;
+                    feed.away_since = None;
                     crate::editor::host_reached(self, &Place::Account(host.clone()), cx);
                     self.read_approval(Some(host.clone()), cx);
                 } else {
-                    self.feeds.host_mut(&host).reached = false;
+                    let feed = self.feeds.host_mut(&host);
+                    if feed.reached {
+                        feed.away_since = Some(crate::ui::time::now_ms());
+                    }
+                    feed.reached = false;
                 }
+                self.watch_hosts_page();
                 self.parts.redraw_stage(cx);
             }
             Update::HostsUnavailable(reason) => self.feeds.unavailable = Some(reason),
@@ -202,6 +209,7 @@ impl Workbench {
             self.files.reveal(self.front_file(), &self.target());
             crate::settings::front_moved(self, cx);
         }
+        self.watch_hosts_page();
         self.publish_on_screen();
         cx.notify();
     }

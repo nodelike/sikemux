@@ -1,0 +1,61 @@
+---
+title: Hosts
+description: "Every host on your account at a glance: how busy each one is, what its agents use, and what needs you."
+---
+
+The **Hosts** page shows every host on your account that runs Sikemux: this one and the [hosts you've linked](/agents/linked-hosts/). For each one it shows whether your agents can still run there, and what is using up the machine.
+
+Open it with the gauge beside **+** on the side rail's **Hosts** header, with **Hosts** in the command palette or under **New…**, or with ⌘⇧H (Ctrl+Shift+H on Linux). To open it on one host, pick **Host details** at the top of the **⋯** beside that host, or beside **This host**. Clicking a host's row in the rail still switches the window to that host.
+
+## The hosts
+
+The top of the page counts how many hosts are online and how many agents are running across them. Search by a host's name or model, or by an agent's name. **Add host** finds another host to set up, the same as **+** in the rail's Hosts group.
+
+**All** shows every host and **Needs you** shows only those with an alert or out of reach. The hosts that need you come first.
+
+**Cards** shows each host as a card:
+
+- its maker's logo, its name and its model
+- how it stands: an alert such as **Memory 98%** with how long it has lasted, **Out of reach** with how long since this Mac lost it, **Updating** while its core updates itself, or **Healthy**
+- CPU (cores in use out of all of them), memory and disk (used out of the total), each with a meter that turns amber or red near full
+- how many of its agents are running, idle or stopped
+
+**Table** puts the same on one row per host.
+
+A host set up only for SSH, without Sikemux, isn't listed here. It stays in the rail.
+
+## A host's detail
+
+Click a host to see its detail beside the hosts. Its header has **Terminal** for a new terminal there, **+** for a new chat in the project in front there, and **⋯** for the same menu its row has in the rail. Below come its cores, memory, disk and system.
+
+### Needs you
+
+A host raises an alert when:
+
+- its memory runs short, as its system says
+- its disk is at 90% or more
+- its CPU stays at 90% or more for 10 minutes
+- a linked host stays out of reach for 2 minutes
+
+Its alerts show here first, and also under **Your calls** in Goals, at the top of the notch's list, and in a coloured line under the host's name in the side rail, such as **Memory 98%** or **Out of reach 14 min**. Clicking any of them opens this page on that host. When an alert comes from an agent's work, it names the agent using the most and may offer a fix:
+
+- **Move @Name to** another host sends that agent's project, with its chats, tabs and uncommitted changes, to the host with the most memory free. You confirm it first. When other agents work in the same project, the button names the project instead, since they all go with it.
+- **Close @Name** stops that agent, once you confirm.
+
+### Resources
+
+CPU, memory and disk over the last **15m**, **1h** or **24h**, with a dashed line at 90%. Marks on the CPU chart show when an agent started a command. History builds up while the host's core runs, so a host that just started shows only what it has now. Below the disk chart is what takes the disk, such as build output and worktrees, once it has been measured.
+
+### Agents
+
+Each agent on the host, busiest first, with its project, the command it runs now and for how long, and its share of the CPU and the memory it holds. **Everything else** adds up the rest of the host's processes. Hover over an agent for **⋯**, which moves its project to another host or closes it.
+
+**Top processes** lists the busiest processes when you open it. On a Mac it covers only your own processes, since macOS hides other users'.
+
+### Activity and about
+
+**Activity** lists what happened on the host lately: alerts starting and ending, and commands agents started. **About** shows its model, system, graphics card and Sikemux version.
+
+## What it costs
+
+A host measures its agents' processes only while this page is in front, every 3 seconds. Leaving the tab stops it. With the page closed, a host keeps only a light reading every 15 seconds, which also gives the rail its CPU and memory figures, on Macs too.

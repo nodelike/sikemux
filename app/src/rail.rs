@@ -16,6 +16,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::hosts::HostFound;
 use sikemux_core::server::hosts::HostReach;
+use sikemux_core::server::hosts::HostRow;
 use sikemux_view::device::AccountInfo;
 use sikemux_view::host_stats::{AlertLevel, HostAlert};
 use sikemux_view::layout::PaneKind;
@@ -385,30 +386,42 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
         )),
         None => row,
     };
-    let (bench_entity, approval) = (cx.weak_entity(), bench.feeds.this.approval);
     with_menu(
         "this-host-menu".into(),
-        move |popup, _, _| {
-            let bench = bench_entity.clone();
-            popup
-                .item(details_item(bench.clone(), HostChoice::This.key().into()))
-                .separator()
-                .item(
-                    PopupMenuItem::new("New terminal here")
-                        .icon(Icon::Terminal)
-                        .on_click(move |_, _, cx| {
-                            let _ = bench.update(cx, |bench, cx| {
-                                bench.choose_host(HostChoice::This, cx);
-                                bench.new_loose_terminal(cx);
-                            });
-                        }),
-                )
-                .separator()
-                .item(approval_item(bench_entity.clone(), None, approval))
-        },
+        this_host_menu(cx.weak_entity(), bench.feeds.this.approval, true),
         row,
         cx,
     )
+}
+
+/// What this host's menu offers, on its row and on its page.
+pub(crate) fn this_host_menu(
+    bench: WeakEntity<Workbench>,
+    approval: Option<bool>,
+    details: bool,
+) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
+    move |popup, _, _| {
+        let terminal = bench.clone();
+        let popup = match details {
+            true => popup
+                .item(details_item(bench.clone(), HostChoice::This.key().into()))
+                .separator(),
+            false => popup,
+        };
+        popup
+            .item(
+                PopupMenuItem::new("New terminal here")
+                    .icon(Icon::Terminal)
+                    .on_click(move |_, _, cx| {
+                        let _ = terminal.update(cx, |bench, cx| {
+                            bench.choose_host(HostChoice::This, cx);
+                            bench.new_loose_terminal(cx);
+                        });
+                    }),
+            )
+            .separator()
+            .item(approval_item(bench.clone(), None, approval))
+    }
 }
 
 /// A host's row with its menu on a right-click and on a ⋯ that shows while the pointer is
@@ -516,7 +529,6 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 Some((SetUp::SignIn, None)) => Some("signing in".to_owned()),
                 None => found.or(detail),
             };
-            let setting_up = setup.is_some_and(|setup| setup.problem.is_none());
             let alias = host.ssh.clone().filter(|_| !linked);
             let front = alias.is_some() && bench.strip() == alias.clone().map(Strip::Host);
             let key = host.id.clone();
@@ -575,148 +587,169 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 _ => row,
             };
             let bench_entity = cx.weak_entity();
-            let set_up_alias = host.ssh.clone();
-            let set_up = set_up_alias
-                .as_deref()
-                .and_then(|alias| bench.set_up_of(alias))
-                .zip(set_up_alias);
-            let set_up_item = move |bench: WeakEntity<Workbench>, here: bool| {
-                set_up.clone().map(|(set_up, alias)| {
-                    let label = match set_up {
-                        SetUp::Install if here => "Install Sikemux here",
-                        _ => set_up.menu_label(),
-                    };
-                    PopupMenuItem::new(label)
-                        .icon(set_up.icon())
-                        .disabled(setting_up)
-                        .on_click(move |_, _, cx| {
-                            let _ =
-                                bench.update(cx, |bench, cx| bench.set_up_host(&alias, set_up, cx));
-                        })
-                })
-            };
             let menu_id = SharedString::from(format!("host-menu-{name}"));
-            let Some(key) = host.id.clone() else {
-                let Some(alias) = alias else {
-                    return row.into_any_element();
-                };
-                return with_menu(
-                    menu_id,
-                    move |popup, _, _| {
-                        let (bench, alias) = (bench_entity.clone(), alias.clone());
-                        let edited = (bench.clone(), alias.clone());
-                        let popup = popup.item(
-                            PopupMenuItem::new("New SSH terminal")
-                                .icon(Icon::Terminal)
-                                .on_click(move |_, _, cx| {
-                                    let _ = bench.update(cx, |bench, cx| {
-                                        bench.show_workbench(cx);
-                                        bench.open_ssh_terminal(&alias, cx)
-                                    });
-                                }),
-                        );
-                        let popup = match set_up_item(bench_entity.clone(), true) {
-                            Some(item) => popup.item(item),
-                            None => popup,
-                        };
-                        popup.separator().item(
-                            PopupMenuItem::new("Edit in ~/.ssh/config")
-                                .icon(Icon::Pencil)
-                                .on_click(move |_, _, cx| {
-                                    let (bench, alias) = &edited;
-                                    let _ = bench.update(cx, |bench, cx| {
-                                        bench.edit_ssh_config(Some(alias.clone()), cx)
-                                    });
-                                }),
-                        )
-                    },
-                    row,
-                    cx,
-                );
+            if let Some(menu) = account_host_menu(bench, host, true, cx) {
+                return with_menu(menu_id, menu, row, cx);
+            }
+            let Some(alias) = alias else {
+                return row.into_any_element();
             };
-            let has_project = (bench.feeds.host(&key))
-                .and_then(|feed| feed.view.as_ref())
-                .is_some_and(|view| !view.workspace.projects.is_empty());
-            let approval = bench.feeds.host(&key).and_then(|feed| feed.approval);
+            let set_up_item = set_up_offer(bench, host);
             with_menu(
                 menu_id,
-                move |popup, _, cx| {
-                    let bench = bench_entity.clone();
-                    let mut popup = popup
-                        .item(details_item(bench.clone(), key.clone()))
-                        .separator();
-                    if let Some(item) = set_up_item(bench.clone(), false) {
-                        popup = popup.item(item).separator();
-                    }
-                    let on = |run: fn(&mut Workbench, &str, &mut Context<Workbench>)| {
-                        let (bench, key) = (bench.clone(), key.clone());
-                        move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
-                            let _ = bench.update(cx, |bench, cx| run(bench, &key, cx));
-                        }
-                    };
-                    let named = name.clone();
-                    let popup = popup
-                        .item(
-                            PopupMenuItem::new("New chat here")
-                                .icon(Icon::Plus)
-                                .disabled(!has_project)
-                                .on_click(on(|bench, key, cx| bench.new_chat_on(key, cx))),
-                        )
-                        .item(
-                            PopupMenuItem::new("New terminal here")
-                                .icon(Icon::Terminal)
-                                .on_click(on(|bench, key, cx| bench.new_terminal_on(key, cx))),
-                        )
-                        .item(
-                            PopupMenuItem::new("Files")
-                                .icon(Icon::Folder)
-                                .disabled(!has_project)
-                                .on_click(on(|bench, key, cx| {
-                                    bench.choose_host(HostChoice::Account(key.to_owned()), cx);
-                                    bench.show_rail_page(TabRailPage::Files, cx);
-                                })),
-                        )
-                        .separator()
-                        .item(approval_item(bench.clone(), Some(key.clone()), approval));
-                    let popup = match &updates {
-                        Some(updates) => {
-                            let (bench, key) = (bench.clone(), key.clone());
-                            crate::hosts::updates_items(popup, updates, move |on, cx| {
-                                let host = key.clone();
-                                let _ = bench
-                                    .update(cx, |bench, cx| bench.set_host_updates(host, on, cx));
-                            })
-                        }
+                move |popup, _, _| {
+                    let (bench, alias) = (bench_entity.clone(), alias.clone());
+                    let edited = (bench.clone(), alias.clone());
+                    let popup = popup.item(
+                        PopupMenuItem::new("New SSH terminal")
+                            .icon(Icon::Terminal)
+                            .on_click(move |_, _, cx| {
+                                let _ = bench.update(cx, |bench, cx| {
+                                    bench.show_workbench(cx);
+                                    bench.open_ssh_terminal(&alias, cx)
+                                });
+                            }),
+                    );
+                    let popup = match set_up_item(bench_entity.clone(), true) {
+                        Some(item) => popup.item(item),
                         None => popup,
                     };
-                    popup
-                        .item(PopupMenuItem::new("Rename").icon(Icon::Pencil).on_click({
-                            let (bench, key, named) = (bench.clone(), key.clone(), named.clone());
-                            move |_, _, cx| {
-                                let _ = bench
-                                    .update(cx, |bench, cx| bench.rename_host(&key, &named, cx));
-                            }
-                        }))
-                        .item(
-                            ui::MenuRow::new("Remove from account")
-                                .icon(Icon::Trash)
-                                .danger(true)
-                                .item(cx)
-                                .on_click({
-                                    let (bench, key) = (bench.clone(), key.clone());
-                                    move |_, _, cx| {
-                                        let _ = bench.update(cx, |bench, cx| {
-                                            bench.remove_host(&key, &named, cx)
-                                        });
-                                    }
-                                }),
-                        )
+                    popup.separator().item(
+                        PopupMenuItem::new("Edit in ~/.ssh/config")
+                            .icon(Icon::Pencil)
+                            .on_click(move |_, _, cx| {
+                                let (bench, alias) = &edited;
+                                let _ = bench.update(cx, |bench, cx| {
+                                    bench.edit_ssh_config(Some(alias.clone()), cx)
+                                });
+                            }),
+                    )
                 },
                 row,
                 cx,
             )
         })
         .collect()
+}
+
+/// The item that sets Sikemux up on an SSH host, installing, updating, starting or signing it
+/// in as it needs, while it needs that.
+fn set_up_offer(
+    bench: &Workbench,
+    host: &HostRow,
+) -> impl Fn(WeakEntity<Workbench>, bool) -> Option<PopupMenuItem> + Clone + 'static {
+    let setting_up = (host.setup.as_ref()).is_some_and(|setup| setup.problem.is_none());
+    let set_up = (host.ssh.as_deref())
+        .and_then(|alias| bench.set_up_of(alias))
+        .zip(host.ssh.clone());
+    move |bench: WeakEntity<Workbench>, here: bool| {
+        set_up.clone().map(|(set_up, alias)| {
+            let label = match set_up {
+                SetUp::Install if here => "Install Sikemux here",
+                _ => set_up.menu_label(),
+            };
+            PopupMenuItem::new(label)
+                .icon(set_up.icon())
+                .disabled(setting_up)
+                .on_click(move |_, _, cx| {
+                    let _ = bench.update(cx, |bench, cx| bench.set_up_host(&alias, set_up, cx));
+                })
+        })
+    }
+}
+
+/// What an account host's menu offers, on its row and on its page; none for an SSH host
+/// without Sikemux.
+pub(crate) fn account_host_menu(
+    bench: &Workbench,
+    host: &HostRow,
+    details: bool,
+    cx: &mut Context<Workbench>,
+) -> Option<impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static> {
+    let key = host.id.clone()?;
+    let name = host.name.clone();
+    let view = bench.feeds.host(&key).and_then(|feed| feed.view.as_ref());
+    let has_project = view.is_some_and(|view| !view.workspace.projects.is_empty());
+    let updates = view
+        .and_then(crate::hosts::host_updates)
+        .filter(|_| host.reach == HostReach::Connected);
+    let approval = bench.feeds.host(&key).and_then(|feed| feed.approval);
+    let set_up_item = set_up_offer(bench, host);
+    let bench_entity = cx.weak_entity();
+    Some(
+        move |popup: PopupMenu, _: &mut Window, cx: &mut Context<PopupMenu>| {
+            let bench = bench_entity.clone();
+            let mut popup = popup;
+            if details {
+                popup = popup
+                    .item(details_item(bench.clone(), key.clone()))
+                    .separator();
+            }
+            if let Some(item) = set_up_item(bench.clone(), false) {
+                popup = popup.item(item).separator();
+            }
+            let on = |run: fn(&mut Workbench, &str, &mut Context<Workbench>)| {
+                let (bench, key) = (bench.clone(), key.clone());
+                move |_: &gpui_kit::ClickEvent, _: &mut gpui_kit::Window, cx: &mut App| {
+                    let _ = bench.update(cx, |bench, cx| run(bench, &key, cx));
+                }
+            };
+            let named = name.clone();
+            let popup = popup
+                .item(
+                    PopupMenuItem::new("New chat here")
+                        .icon(Icon::Plus)
+                        .disabled(!has_project)
+                        .on_click(on(|bench, key, cx| bench.new_chat_on(key, cx))),
+                )
+                .item(
+                    PopupMenuItem::new("New terminal here")
+                        .icon(Icon::Terminal)
+                        .on_click(on(|bench, key, cx| bench.new_terminal_on(key, cx))),
+                )
+                .item(
+                    PopupMenuItem::new("Files")
+                        .icon(Icon::Folder)
+                        .disabled(!has_project)
+                        .on_click(on(|bench, key, cx| {
+                            bench.choose_host(HostChoice::Account(key.to_owned()), cx);
+                            bench.show_rail_page(TabRailPage::Files, cx);
+                        })),
+                )
+                .separator()
+                .item(approval_item(bench.clone(), Some(key.clone()), approval));
+            let popup = match &updates {
+                Some(updates) => {
+                    let (bench, key) = (bench.clone(), key.clone());
+                    crate::hosts::updates_items(popup, updates, move |on, cx| {
+                        let host = key.clone();
+                        let _ = bench.update(cx, |bench, cx| bench.set_host_updates(host, on, cx));
+                    })
+                }
+                None => popup,
+            };
+            popup
+                .item(PopupMenuItem::new("Rename").icon(Icon::Pencil).on_click({
+                    let (bench, key, named) = (bench.clone(), key.clone(), named.clone());
+                    move |_, _, cx| {
+                        let _ = bench.update(cx, |bench, cx| bench.rename_host(&key, &named, cx));
+                    }
+                }))
+                .item(
+                    ui::MenuRow::new("Remove from account")
+                        .icon(Icon::Trash)
+                        .danger(true)
+                        .item(cx)
+                        .on_click({
+                            let (bench, key) = (bench.clone(), key.clone());
+                            move |_, _, cx| {
+                                let _ = bench
+                                    .update(cx, |bench, cx| bench.remove_host(&key, &named, cx));
+                            }
+                        }),
+                )
+        },
+    )
 }
 
 /// The mods of the host in front that show in the project in front, each opening in a tab of its

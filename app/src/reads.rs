@@ -78,6 +78,8 @@ pub enum Read {
     FilesList,
     PickerFolders,
     SshHosts,
+    /// How busy a host is, for the Hosts page while it is in front.
+    HostStats,
 }
 
 impl Read {
@@ -157,6 +159,7 @@ impl Read {
             Read::FilesList => (call::FilesList::METHOD, &[]),
             Read::PickerFolders => (call::ProjectRoots::METHOD, &[]),
             Read::SshHosts => (call::SshHosts::METHOD, &[]),
+            Read::HostStats => (call::HostStats::METHOD, &[Topic::HostStats]),
         }
     }
 
@@ -290,6 +293,7 @@ impl Workbench {
                     return;
                 }
                 self.feeds.keep_linked(&self.reads.hosts);
+                self.watch_hosts_page();
             }
             Read::SkillsAdded => {
                 if let Some(added) = decoded(value, "skills added") {
@@ -568,6 +572,12 @@ impl Workbench {
             }
             Read::WorktreeMerged => {
                 self.feeds.at_mut(&place).worktree_merged = decoded(value, "worktree merged");
+            }
+            Read::HostStats => {
+                if let Some(stats) = decoded(value, "host stats") {
+                    self.host_stats_read(place, stats, cx);
+                }
+                return;
             }
         }
         cx.notify();

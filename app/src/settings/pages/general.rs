@@ -527,33 +527,20 @@ fn transfer(
                 .on_click({
                     let uncommitted = transfer.uncommitted;
                     move |_, _, cx| {
+                        let from = send.read(cx).place();
                         let sending = crate::hosts::Sending {
+                            from,
                             project: project.id.clone(),
                             name: project.name.clone(),
                             host: host.clone(),
                             label: label.clone(),
-                            after: after.clone(),
+                            after: Some(after.clone()),
                             moving,
                             uncommitted,
                         };
-                        send.update(cx, |bench, cx| {
-                            if !sending.moving {
-                                return bench.send_session(sending, cx);
-                            }
-                            let title = format!("Move {} to {}?", sending.name, sending.label);
-                            let held = std::cell::RefCell::new(Some(sending));
-                            bench.confirm(
-                                title,
-                                "Its chats are closed here and their saved conversations removed, once the other host has every chat and tab. If anything does not arrive whole, nothing here changes.",
-                                "Move",
-                                true,
-                                move |bench, yes, _, cx| {
-                                    if let Some(sending) = held.borrow_mut().take().filter(|_| yes) {
-                                        bench.send_session(sending, cx);
-                                    }
-                                },
-                                cx,
-                            );
+                        send.update(cx, |bench, cx| match sending.moving {
+                            true => bench.move_session_asking(sending, cx),
+                            false => bench.send_session(sending, cx),
                         })
                     }
                 }),

@@ -99,6 +99,10 @@ pub struct Feed {
     pub reached: bool,
     /// Its home folder, once an account host has said.
     pub home: Option<String>,
+    /// How busy it is, while the Hosts page watches it, and what was last read once it is not.
+    pub stats: Option<sikemux_view::host_stats::HostStats>,
+    /// When this window saw an account host go out of reach, while it stays out of reach.
+    pub away_since: Option<u64>,
 }
 
 impl Feed {
@@ -326,9 +330,28 @@ impl Workbench {
         .detach();
     }
 
-    /// Sends the project `project` of the host in front to `host`, with its chats and tabs and,
-    /// when asked, its uncommitted changes. A move then removes the chats here, once that host
-    /// has every one. The person is then on that host, in that project.
+    /// Moves the project `sending` names after the person agrees, as a move removes its chats
+    /// where it was.
+    pub fn move_session_asking(&mut self, sending: Sending, cx: &mut Context<Self>) {
+        let title = format!("Move {} to {}?", sending.name, sending.label);
+        let held = std::cell::RefCell::new(Some(sending));
+        self.confirm(
+            title,
+            "Its chats are closed here and their saved conversations removed, once the other host has every chat and tab. If anything does not arrive whole, nothing here changes.",
+            "Move",
+            true,
+            move |bench, yes, _, cx| {
+                if let Some(sending) = held.borrow_mut().take().filter(|_| yes) {
+                    bench.send_session(sending, cx);
+                }
+            },
+            cx,
+        );
+    }
+
+    /// Sends the project `project` of the host at `from` to `host`, with its chats and tabs and,
+    /// when asked, its uncommitted changes. A move then removes the chats there, once that host
+    /// has every one. The person is then on that host, in that project, when `after` says so.
     pub fn send_session(&mut self, sending: Sending, cx: &mut Context<Self>) {
         let params = SendParams {
             project: sending.project.clone(),
@@ -336,8 +359,9 @@ impl Workbench {
             moving: sending.moving,
             uncommitted: sending.uncommitted,
         };
-        // The project's own host sends it, so the call goes to the host in front.
-        let asked = self.target().request_typed::<call::SendSession>(params);
+        // The project's own host sends it.
+        let asked = core::Target::new(&self.asks, sending.from.clone())
+            .request_typed::<call::SendSession>(params);
         let verb = if sending.moving { "Moving" } else { "Copying" };
         crate::settings::session_sent(self, None, cx);
         self.notify(
@@ -356,14 +380,14 @@ impl Workbench {
                     Err(_) => bench.notify(toast::error(said.clone()), cx),
                 }
                 crate::settings::session_sent(bench, Some(said.into()), cx);
-                let Ok(sent) = answer else {
+                let (Ok(sent), Some(after)) = (answer, sending.after.clone()) else {
                     return;
                 };
-                let place = match &sending.after {
+                let place = match &after {
                     HostChoice::Account(key) => Place::Account(key.clone()),
                     _ => Place::This,
                 };
-                bench.choose_host(sending.after.clone(), cx);
+                bench.choose_host(after, cx);
                 core::Target::new(&bench.asks, place).call_typed::<call::ActivateProject>(
                     ActivateProjectParams {
                         project: sent.project,
@@ -732,11 +756,14 @@ impl Workbench {
 
 /// A project's session on its way to another host, as the person asked for it.
 pub struct Sending {
+    /// Whose core holds the project now.
+    pub from: Place,
     pub project: String,
     pub name: String,
     pub host: String,
     pub label: SharedString,
-    pub after: HostChoice,
+    /// Where the person goes once it arrives, when they go with it.
+    pub after: Option<HostChoice>,
     pub moving: bool,
     pub uncommitted: bool,
 }
