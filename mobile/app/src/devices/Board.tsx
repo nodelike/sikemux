@@ -20,6 +20,11 @@ const COLUMNS: readonly BoardColumn[] = ['needs', 'progress', 'open', 'done'];
 
 const NO_QUESTIONS: AgentQuestion[] = [];
 
+/** The cards a board shows: those put aside in Later stay off it, as on the Mac. */
+function onBoard(cards: readonly BoardCard[]): BoardCard[] {
+  return cards.filter((card) => card.asideAt == null);
+}
+
 /** Something on the host changed that may have moved cards: an agent started, finished or asked. */
 function seenOf(snapshot: Snapshot): string {
   const chats = snapshot.chats.map((chat) => `${chat.agentId}:${chat.group}:${chat.running}:${chat.activeAt}`);
@@ -78,7 +83,7 @@ function OneBoard({
   const read = useHostCall(connection, 'board', { project: scope.path }, seen);
   if (read.problem) return <Problem what="the board" text={read.problem} />;
   if (!read.data) return null;
-  const cards = [...read.data.cards].sort((a, b) => b.updatedAt - a.updatedAt);
+  const cards = onBoard(read.data.cards).sort((a, b) => b.updatedAt - a.updatedAt);
   const byId = new Map(cards.map((card) => [card.id, card]));
   const { triggers } = read.data;
   return (
@@ -298,7 +303,7 @@ function AllBoards({
   const read = useHostCall(connection, 'boards', {}, seen);
   if (read.problem) return <Problem what="the boards" text={read.problem} />;
   if (!read.data) return null;
-  const boards = read.data.filter((board) => board.cards.length > 0);
+  const boards = read.data.map((board) => ({ ...board, cards: onBoard(board.cards) })).filter((board) => board.cards.length > 0);
   if (!boards.length) return <EmptyState icon="IconBoard" text="No board has cards yet." />;
   return (
     <>
