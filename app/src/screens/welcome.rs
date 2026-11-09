@@ -51,7 +51,7 @@ const STEPS: usize = 2;
 const ANSWER_SEED: f32 = 4.;
 /// The question cell's width and height at the smallest window and at a roomy one.
 const SMALLEST_CELL: (f32, f32) = (286., 180.);
-const ROOMIEST_CELL: (f32, f32) = (589., 366.);
+const ROOMIEST_CELL: (f32, f32) = (588., 366.);
 const TIGHT_COLUMN: f32 = 540.;
 /// A line of quiet actions in a narrow question cell.
 const ACTION_LINE: f32 = 18.;
@@ -1385,13 +1385,13 @@ fn agent_tile(
     let state = tile_state(bench, agent, &t);
     let brand = theme::brand(&agent.kind);
     let busy = bench.agent_setup.busy();
-    let (edge, left) = (room.pick(34., 14.), room.pad());
-    let (slot, slot_width, slot_height) = sized_mark(&agent.kind, room.pick(46., 28.));
-    let (name_size, word_size) = (room.pick(32., 16.), room.pick(18., 13.));
+    let (edge, left) = (room.fit(34., 14.), room.pad());
+    let (slot, slot_width, slot_height) = sized_mark(&agent.kind, room.fit(46., 28.));
+    let (name_size, word_size) = (room.fit(32., 16.), room.fit(18., 13.));
     let widest = (agent.label.chars().count() as f32 * name_size)
         .max(state.word.chars().count() as f32 * word_size)
         * 0.56;
-    let pill_size = room.pick(14.5, 12.);
+    let pill_size = room.fit(14.5, 12.);
     let pill_label = state.action.as_ref().map(|(label, _)| *label);
     let fit = luminance_fit(brand);
     let density = room.pick(state.density.roomy, state.density.compact);
@@ -1405,16 +1405,16 @@ fn agent_tile(
         } * fit.min(1.)
             * welcome_fade,
         seed: at as f32 * 13. + 5.,
-        feather: room.pick(240., 80.),
+        feather: room.fit(240., 80.),
         anchor: dots_anchor(&agent.kind),
         mark_right: left + slot_width,
         mark_bottom: edge + slot_height,
         label_right: left + widest,
         label_height: edge + (name_size + word_size) * LABEL_LINE,
         pill_width: pill_label.map_or(0., |label| {
-            edge + label.len() as f32 * pill_size * 0.6 + room.pick(26., 20.)
+            edge + label.len() as f32 * pill_size * 0.6 + room.fit(26., 20.)
         }),
-        pill_bottom: pill_label.map_or(0., |_| room.pick(30., 12.) + room.pick(32., 26.)),
+        pill_bottom: pill_label.map_or(0., |_| room.fit(30., 12.) + room.fit(32., 26.)),
         bright,
         running: state.running,
     };
@@ -1432,7 +1432,7 @@ fn agent_tile(
         let this = this.clone();
         div()
             .absolute()
-            .top(px(room.pick(30., 12.)))
+            .top(px(room.fit(30., 12.)))
             .right(px(edge))
             .child(
                 ui::Button::new(
@@ -1441,7 +1441,7 @@ fn agent_tile(
                     ui::Variant::Outline,
                 )
                 .solid(t.text_primary.opacity(0.09), t.text_primary.opacity(0.14))
-                .sized(room.pick(32., 26.), room.pick(13., 10.), pill_size)
+                .sized(room.fit(32., 26.), room.fit(13., 10.), pill_size)
                 .disabled(busy)
                 .on_click(move |_, window, cx| {
                     this.update(cx, |bench, cx| {
@@ -1500,7 +1500,7 @@ fn agent_tile(
                 )
                 .child(
                     div()
-                        .mt(px(room.pick(3., 1.)))
+                        .mt(px(room.fit(3., 1.)))
                         .text_size(theme::ui_text(word_size))
                         .line_height(relative(LABEL_LINE))
                         .whitespace_nowrap()
@@ -1767,9 +1767,9 @@ fn agent_answer_cell(
 ) -> Stateful<Div> {
     let t = Tokens::get(cx).clone();
     let agent = start_agent(bench, welcome);
-    let (edge, left) = (room.pick(44., 14.), room.pad());
-    let (name_size, note_size) = (room.pick(30., 16.), room.pick(17., 13.));
-    let slot = agent.map(|agent| sized_mark(&agent.kind, room.pick(44., 28.)));
+    let (edge, left) = (room.fit(44., 14.), room.pad());
+    let (name_size, note_size) = (room.fit(30., 16.), room.fit(17., 13.));
+    let slot = agent.map(|agent| sized_mark(&agent.kind, room.fit(44., 28.)));
     let (name, note) = match agent {
         Some(agent) => (agent.label.clone(), "Does the work"),
         None => ("No agent".to_owned(), "Set one up later in Settings"),
@@ -1788,7 +1788,7 @@ fn agent_answer_cell(
                     * fit.clamp(LEAST_DENSITY_FIT, 1.25),
                 opacity: 0.56 * fit.min(1.) * welcome.fade.get(),
                 seed: ANSWER_SEED,
-                feather: room.pick(240., 80.),
+                feather: room.fit(240., 80.),
                 anchor: dots_anchor(&agent.kind),
                 mark_right: left + slot_width,
                 mark_bottom: edge + slot_height,
@@ -1836,7 +1836,7 @@ fn agent_answer_cell(
         .children(slot.map(|(slot, ..)| div().absolute().top(px(edge)).left(px(left)).child(slot)))
         .child(
             div().absolute().top(px(edge)).right(px(edge)).child(
-                ui::icon(Icon::Chevron, room.pick(12., 10.))
+                ui::icon(Icon::Chevron, room.fit(12., 10.))
                     .with_transformation(Transformation::rotate(radians(PI)))
                     .text_color(t.text_tertiary),
             ),
@@ -1874,7 +1874,7 @@ fn add_folder_cell(
     let browse = ui::Button::new("welcome-browse", "Choose folder…", ui::Variant::Outline)
         .solid(t.text_primary.opacity(0.09), t.text_primary.opacity(0.14))
         .wide()
-        .sized(room.pick(42., 30.), 14., room.pick(15., 12.5))
+        .sized(room.fit(42., 30.), 14., room.fit(15., 12.5))
         .pressed(lit == Some(Stop::Browse))
         .on_click(move |_, window, cx| {
             this.update(cx, |bench, cx| {
@@ -1882,7 +1882,7 @@ fn add_folder_cell(
                 activate(bench, false, window, cx);
             })
         });
-    let edge = room.pick(44., 14.);
+    let edge = room.fit(44., 14.);
     div()
         .overflow_hidden()
         .bg(t.surface_sunken)
@@ -1892,7 +1892,7 @@ fn add_folder_cell(
         .flex_col()
         .child(
             div()
-                .text_size(theme::ui_text(room.pick(30., 16.)))
+                .text_size(theme::ui_text(room.fit(30., 16.)))
                 .font_weight(FontWeight::SEMIBOLD)
                 .letter_spacing(-0.02)
                 .line_height(relative(1.15))
@@ -1907,8 +1907,8 @@ fn add_folder_cell(
                 .on_mouse_down(MouseButton::Left, keep_press)
                 .children(welcome.error.as_ref().map(|error| {
                     div()
-                        .mb(px(room.pick(10., 4.)))
-                        .text_size(theme::ui_text(room.pick(14., 12.)))
+                        .mb(px(room.fit(10., 4.)))
+                        .text_size(theme::ui_text(room.fit(14., 12.)))
                         .line_height(relative(1.3))
                         .text_color(t.warn)
                         .child(error.clone())
@@ -1916,14 +1916,14 @@ fn add_folder_cell(
                 .child(
                     div()
                         .flex_none()
-                        .h(px(room.pick(46., 32.)))
-                        .px(px(room.pick(14., 10.)))
+                        .h(px(room.fit(46., 32.)))
+                        .px(px(room.fit(14., 10.)))
                         .flex()
                         .items_center()
-                        .rounded(px(room.pick(9., 6.)))
+                        .rounded(px(room.fit(9., 6.)))
                         .bg(t.surface_raised)
                         .font_family(theme::MONO)
-                        .text_size(theme::ui_text(room.pick(14., 12.5)))
+                        .text_size(theme::ui_text(room.fit(14., 12.5)))
                         .children(welcome.path.as_ref().map(|path| {
                             div()
                                 .flex_1()
@@ -1931,7 +1931,7 @@ fn add_folder_cell(
                                 .child(Input::new(path).appearance(false).bordered(false).px_0())
                         })),
                 )
-                .child(div().mt(px(room.pick(10., 6.))).child(browse)),
+                .child(div().mt(px(room.fit(10., 6.))).child(browse)),
         )
 }
 
