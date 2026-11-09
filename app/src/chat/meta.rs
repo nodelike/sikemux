@@ -76,8 +76,9 @@ fn rate(rate: f64) -> String {
     }
 }
 
-/// The line under row `ix`, shown while the pointer is on `group`; none for an agent's
-/// row that does not close an answer.
+/// The line under row `ix`, shown while the pointer is on `group`. An agent's row has one only
+/// where it closes an answer and no messages between agents follow, since the line's height is
+/// held even while hidden and would open a hole in that run.
 pub fn line(
     rows: &[ChatRow],
     ix: usize,
@@ -88,7 +89,10 @@ pub fn line(
     let message = &rows.get(ix)?.message;
     let user = message.role == ChatRole::User;
     let meta = message.meta.as_ref();
-    if !user && meta.is_none() {
+    let run_follows = rows
+        .get(ix + 1)
+        .is_some_and(|next| next.message.team.is_some());
+    if !user && (meta.is_none() || run_follows) {
         return None;
     }
     let t = Tokens::get(cx);

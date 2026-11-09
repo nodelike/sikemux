@@ -5,8 +5,6 @@ use super::*;
 
 use crate::theme::{SPACE_0, SPACE_1, SPACE_1H, TEXT_2XS, TEXT_XS_H};
 
-/// How far a run's rows sit in from its line, past the width of its chevron.
-pub(super) const INSIDE: f32 = 40.;
 const MARK: f32 = 16.;
 
 fn same_run<'a>(rows: &'a [ChatRow], id: &'a str) -> impl Iterator<Item = &'a ChatRow> {
@@ -176,7 +174,7 @@ pub(super) fn head(
         div()
             .id(SharedString::from(format!("team-earlier:{id}")))
             .mt(SPACE_1)
-            .ml(px(INSIDE - 28.))
+            .ml(px(-6.))
             .px(SPACE_1H)
             .h(px(22.))
             .flex()
@@ -199,7 +197,7 @@ pub(super) fn head(
         .w_full()
         .max_w(px(800.))
         .px(px(22.))
-        .py(SPACE_1)
+        .py(px(5.))
         .flex()
         .flex_col()
         .child(row)

@@ -257,7 +257,6 @@ pub(super) fn row(
             .children(meta::line(rows, ix, &group, looks, cx))
     };
     let user = user && (!lettered || triggered);
-    let inside_run = team_open && team.is_some_and(|team| team.shown.is_empty());
     let drawn = div()
         .w_full()
         .flex()
@@ -271,7 +270,6 @@ pub(super) fn row(
                 .w_full()
                 .max_w(px(800.))
                 .px(px(22.))
-                .when(inside_run, |row| row.pl(px(team::INSIDE)))
                 .map(|row| {
                     if user {
                         row.pt(px(17.)).pb(SPACE_2H).flex().justify_end()

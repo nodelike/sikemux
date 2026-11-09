@@ -475,7 +475,6 @@ pub fn run(
         )
     });
     let run = div()
-        .my(px(7.))
         .font_family(theme::MONO)
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .child(div().flex().child(sum))
