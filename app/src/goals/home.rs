@@ -35,6 +35,7 @@ use crate::theme::{
 };
 use crate::theme::{SPACE_3H, SPACE_4, SPACE_5, TEXT_2XS, TEXT_3XS_H, TEXT_LG, TEXT_SM, TEXT_XL};
 use crate::ui::{self, Button, Variant};
+use crate::workbench::actions::ToggleYolo;
 use crate::workbench::Workbench;
 
 /// The least a row's words keep before its end drops under them.
@@ -169,6 +170,7 @@ pub(super) fn home(pane: &mut GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElem
                 .flex_none()
                 .px(px(16.))
                 .pb(px(8.))
+                .on_action(cx.listener(|pane, _: &ToggleYolo, _, cx| pane.flip_yolo(cx)))
                 .on_action(
                     cx.listener(|pane, _: &OlderPrompt, window, cx| pane.recall(true, window, cx)),
                 )

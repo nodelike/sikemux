@@ -318,7 +318,7 @@ impl Workbench {
                 let tracked = self.tracked_of(agent);
                 tracked_choices(tracked, typed.trigger, &typed.needle).into()
             }
-            '&' if agent != super::START => {
+            '&' => {
                 let stash = crate::stash::Stash::of(self);
                 let fresh = stash.new_items();
                 let (mut new, old): (Vec<&ShownStashItem>, Vec<&ShownStashItem>) = stash
@@ -898,7 +898,6 @@ pub fn dock(
         }
         let scopes = SCOPES
             .iter()
-            .filter(|&&(key, _)| key != '&' || agent != super::START)
             .map(|&(key, label)| {
                 let (this, agent) = (cx.weak_entity(), agent.to_owned());
                 DockScope {

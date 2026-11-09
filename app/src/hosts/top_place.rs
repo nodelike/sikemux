@@ -104,10 +104,7 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let here = (bench.project()).map(|project| project.path.to_string_lossy().into_owned());
     let project = project.or_else(|| {
         front.map(|front| {
-            let on_pick: crate::pickers::project_switcher::OnPick = Rc::new(move |project, cx| {
-                this.update(cx, |bench, _| bench.activate_project(&project))
-                    .ok();
-            });
+            let on_pick = crate::pickers::project_switcher::activates(this);
             crate::pickers::project_switcher::picker(
                 "place-project".into(),
                 pill("place-project", front, cx),

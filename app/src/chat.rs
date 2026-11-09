@@ -75,6 +75,7 @@ mod mention;
 mod moving;
 pub(crate) use attach::{named, named_agents, pill, site_icon, Mention};
 pub use mention::Tray;
+pub use moving::yolo_mode;
 mod meta;
 pub mod model_picker;
 mod page;
@@ -90,8 +91,8 @@ mod worktree;
 
 pub use attach::{drop_hint, lasting, takes_drops};
 pub use composing::{
-    dictate, drafting, mounted, step_prompts, ComposeStage, ComposerView, Composing, Sent, SETUP,
-    START,
+    dictate, drafting, mounted, step_prompts, with_stash, ComposeStage, ComposerView, Composing,
+    Sent, SETUP, START,
 };
 pub(crate) use mention::{AGENT, FILE, TRACKED};
 pub use questions::{question_keys, Answering, Question};
@@ -1750,6 +1751,9 @@ impl Workbench {
 
     /// Where `agent`'s chat asks: the core of the host the agent runs on.
     pub fn chat_target(&self, agent: &str) -> Target {
+        if agent == START {
+            return Target::here(&self.asks);
+        }
         self.chats.open.get(agent).map_or_else(
             || Target::new(&self.asks, self.place()),
             |chat| chat.target.clone(),

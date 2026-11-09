@@ -227,11 +227,7 @@ impl Workbench {
             rev: Some(composing.read_rev),
         };
         let saving = composing.saving.clone();
-        let target = match agent {
-            super::START => crate::core::Target::here(&self.asks),
-            chat => self.chat_target(chat),
-        };
-        saving.save(&target, params, cx);
+        saving.save(&self.chat_target(agent), params, cx);
     }
 }
 

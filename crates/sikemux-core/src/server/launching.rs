@@ -377,6 +377,15 @@ pub(crate) async fn start_saved(
     chat::until_started(core, started).await.map(drop)
 }
 
+/// Answers [`StartParams`]: starts the agent as its record says, anew when it asks to be.
+pub(crate) async fn start_asked(core: &Arc<Core>, params: StartParams) -> CoreResult<()> {
+    let waiting = (core.chats.running(&params.agent_id)).is_ok_and(|chat| chat.unstarted());
+    if params.again && waiting {
+        core.chats.stop(&params.agent_id);
+    }
+    start_saved(core, &params.agent_id, params.waits_for_person).await
+}
+
 /// Wakes an agent on its saved session: in its terminal for one that runs there, otherwise
 /// its chat, answering once it is ready.
 pub(crate) async fn wake(core: &Arc<Core>, agent_id: String) -> CoreResult<()> {
@@ -581,6 +590,10 @@ pub struct StartParams {
     pub agent_id: String,
     #[serde(default)]
     pub waits_for_person: bool,
+    /// Drops a chat still waiting for the person first, as it would otherwise keep the launch
+    /// it was made with and not what its record says now.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub again: bool,
 }
 
 #[derive(Deserialize)]

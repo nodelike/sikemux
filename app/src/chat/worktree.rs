@@ -9,6 +9,7 @@ use sikemux_core::server::call;
 use sikemux_core::server::preferences::WorktreeDefaultParams;
 use sikemux_core::server::worktree::agent::AgentWorktreeParams;
 use sikemux_core::server::worktree::agent::MadeAgentWorktree;
+use sikemux_view::workspace::ProjectInfo;
 
 use super::{Chat, ComposeStage};
 use crate::core::ChatAsk;
@@ -42,17 +43,21 @@ impl Workbench {
             on,
             self.home_at(self.chat_target(agent).place()).as_deref(),
         )?;
+        Some((switch, self.flip_worktree_default(project, on)))
+    }
+
+    /// Turns the worktree switch of new chats in `project` the other way, from `on`.
+    pub fn flip_worktree_default(&self, project: &ProjectInfo, on: bool) -> Flip {
         let folder = project.path.to_string_lossy().into_owned();
         let asks = self.asks.clone();
-        let flip: Flip = Rc::new(move |_, _| {
+        Rc::new(move |_, _| {
             let _ = asks.send(crate::core::typed_call::<call::SetWorktreeDefault>(
                 WorktreeDefaultParams {
                     project: folder.clone(),
                     on: !on,
                 },
             ));
-        });
-        Some((switch, flip))
+        })
     }
 
     /// Whether `agent`'s next message first has the core make it a worktree.

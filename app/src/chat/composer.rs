@@ -4,7 +4,7 @@ use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 
 use gpui_kit::base::input::InlineTokenContext;
-use gpui_kit::base::Button as BaseButton;
+use gpui_kit::base::{Button as BaseButton, Popover};
 use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::input::{Textarea, TextareaState};
 use gpui_kit::component::menu::DropdownMenu;
@@ -41,6 +41,18 @@ type Pick = Rc<dyn Fn(&str, &str, &mut Window, &mut App)>;
 type Paste = Rc<dyn Fn(&ClipboardItem, &mut Window, &mut App) -> bool>;
 type Chip = Rc<dyn Fn(&InlineTokenContext, &mut Window, &mut App) -> AnyElement>;
 
+/// Wraps the project's name in the switcher it opens.
+pub type ProjectMenu = Box<dyn FnOnce(BaseButton) -> Popover>;
+
+/// How much room a control at the end of the bar needs.
+#[derive(Clone, Copy)]
+pub struct AsideRoom {
+    /// The composer's width from which it keeps its words.
+    pub labelled_from: f32,
+    /// What it takes from the bar once it has dropped them.
+    pub bare: f32,
+}
+
 /// Where the chat runs, docked on its composer: the host, the project and its branch or
 /// worktree on the left, the account on the right.
 pub struct Strip {
@@ -50,9 +62,8 @@ pub struct Strip {
     /// The project's folder, which its name's tooltip gives.
     pub path: SharedString,
     pub branch: Option<SharedString>,
-    /// Until the first message the project's name opens a switcher that moves the chat: the
-    /// chat, the folder it is in now, and the workbench that moves it.
-    pub moves: Option<(String, String, Entity<Workbench>)>,
+    /// The switcher the project's name opens, until the first message says where the work is.
+    pub moves: Option<ProjectMenu>,
     pub worktree: Option<AnyElement>,
     /// A worktree agent's pull request and its Remove worktree, beside the worktree.
     pub pull: Option<AnyElement>,
@@ -94,8 +105,9 @@ pub struct Composer {
     /// The mic, and what it has heard so far.
     dictation: Option<AnyView>,
     heard: Option<SharedString>,
-    /// A control of the composer's owner at the end of the bar, before the mic and send.
-    aside: Option<Box<dyn FnOnce(bool) -> AnyElement>>,
+    /// A control of the composer's owner at the end of the bar, before the mic and send, told
+    /// whether it keeps its words.
+    aside: Option<(AsideRoom, Box<dyn FnOnce(bool) -> AnyElement>)>,
     /// Controls of the composer's owner at the start of the bar, after the attach button.
     leading: Option<AnyElement>,
     /// Words on the send button in place of its arrow.
@@ -222,8 +234,12 @@ impl Composer {
         self
     }
 
-    pub fn aside<E: IntoElement>(mut self, aside: impl FnOnce(bool) -> E + 'static) -> Self {
-        self.aside = Some(Box::new(move |roomy| aside(roomy).into_any_element()));
+    pub fn aside<E: IntoElement>(
+        mut self,
+        room: AsideRoom,
+        aside: impl FnOnce(bool) -> E + 'static,
+    ) -> Self {
+        self.aside = Some((room, Box::new(move |roomy| aside(roomy).into_any_element())));
         self
     }
 
@@ -302,7 +318,8 @@ impl RenderOnce for Composer {
             )
             .read(cx)
             .clone();
-        let room = Room::of(width.get());
+        let aside_room = self.aside.as_ref().map(|(room, _)| *room);
+        let (room, labelled) = shape(width.get(), aside_room);
         let attach = IconButton::new("composer-attach", Icon::Plus, "Add files")
             .glyph(17.)
             .width(31.)
@@ -390,7 +407,7 @@ impl RenderOnce for Composer {
             )
             .children(self.leading)
             .child(div().flex_1())
-            .children(self.aside.map(|aside| aside(room == Room::Full)))
+            .children(self.aside.map(|(_, aside)| aside(labelled)))
             .children(self.dictation)
             .child(match self.send_label {
                 Some(label) => {
@@ -431,7 +448,7 @@ impl RenderOnce for Composer {
                 let composer = bounds
                     .get(usize::from(has_strip))
                     .map_or(0., |box_| box_.size.width.into());
-                if Room::of(composer) != Room::of(width.replace(composer)) {
+                if shape(composer, aside_room) != shape(width.replace(composer), aside_room) {
                     window.refresh();
                 }
                 Drawn::keep(cx, |drawn| Drawn {
@@ -556,7 +573,7 @@ fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl Into
             })
     };
     let project = match strip.moves {
-        Some((chat, cwd, bench)) => crate::pickers::project_switcher::around(
+        Some(menu) => menu(
             BaseButton::new("composer-project")
                 .accessibility_label("Project")
                 .min_w_0()
@@ -564,9 +581,6 @@ fn project_strip(strip: Strip, covered: bool, fill: Hsla, cx: &App) -> impl Into
                 .hover(move |style| style.bg(t.surface_hover))
                 .tooltip(ui::tooltip(strip.path.clone()))
                 .child(name(true)),
-            &chat,
-            &cwd,
-            &bench,
         )
         .into_any_element(),
         None => div()
@@ -759,6 +773,14 @@ impl Room {
             _ => Room::Bare,
         }
     }
+}
+
+/// The room left for the bar's own controls at a composer `width` wide, and whether a control
+/// at its end keeps its words; a control that has dropped them still takes its share of the bar.
+fn shape(width: f32, aside: Option<AsideRoom>) -> (Room, bool) {
+    let labelled = width == 0. || aside.is_none_or(|aside| width >= aside.labelled_from);
+    let taken = aside.filter(|_| !labelled).map_or(0., |aside| aside.bare);
+    (Room::of(width - taken), labelled)
 }
 
 /// The widest the composer draws, which the goals' column takes too.

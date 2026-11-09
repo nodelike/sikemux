@@ -20,7 +20,7 @@ use crate::server::worktree::agent::{self, Unclaimed};
 use crate::server::worktree::{self, AgentWorktree};
 use crate::server::{chat, workspace, Core};
 use crate::text::{clipped, clipped_line};
-use sikemux_wire::protocol::{ChatContext, Event, FOR_AGENT_URI};
+use sikemux_wire::protocol::{ChatContext, Event, PermissionMode, FOR_AGENT_URI};
 
 /// The longest card title made from what was typed; the whole text goes into its details.
 const TITLE_CHARS: usize = 80;
@@ -41,6 +41,11 @@ pub struct BoardHandOffParams {
     /// The connected provider it runs on in place of its own account.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    /// Whether it asks before it acts; none for what its launcher does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<PermissionMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// Where the person hands a slice whose owner stalled.
@@ -106,6 +111,8 @@ pub(crate) async fn hand_off(
         launcher: params.launcher,
         provider: params.provider,
         model: params.model,
+        permission_mode: params.permission_mode,
+        effort: params.effort,
     };
     let (agent, started) = start_worker(core, worker, text.clone(), move |core, project, agent| {
         add_card(core, project, &By::Person, adding, Some(agent)).map(|(card, _)| card)
@@ -144,6 +151,8 @@ pub(super) async fn hand_on(
         launcher,
         provider: None,
         model: None,
+        permission_mode: None,
+        effort: None,
     };
     let (agent, started) = start_worker(core, worker, text.clone(), move |core, project, agent| {
         lease::give(core, project, id, agent).map(|()| id)
@@ -160,6 +169,8 @@ struct Worker {
     launcher: Option<String>,
     provider: Option<String>,
     model: Option<String>,
+    permission_mode: Option<PermissionMode>,
+    effort: Option<String>,
 }
 
 /// Starts an agent in a checkout of its own, cut from where the project is now, with the branch
@@ -186,6 +197,10 @@ async fn start_worker(
                 worker.model,
                 "in the start box's agent menu",
             )?;
+            if let Some(mode) = worker.permission_mode {
+                launch.permission_mode = mode;
+            }
+            launch.effort = worker.effort;
             core.names.give(
                 Starting {
                     agent_id: &agent,

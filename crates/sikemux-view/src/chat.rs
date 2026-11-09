@@ -380,6 +380,10 @@ pub struct DraftToken {
 /// Starts the key the core keeps a chat's draft under, before its agent's id.
 pub const CHAT_DRAFT: &str = "chat:";
 
+/// The composer at the bottom of the goals' Home, which keeps its draft as a chat's does but
+/// belongs to no agent.
+pub const START_COMPOSER: &str = "goals-start";
+
 pub fn chat_draft_key(agent: &str) -> String {
     format!("{CHAT_DRAFT}{agent}")
 }

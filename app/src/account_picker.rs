@@ -6,11 +6,11 @@ use gpui_kit::component::button::{Button as KitButton, ButtonVariants};
 use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::component::Disableable;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, Context, Entity, IntoElement, ParentElement, SharedString, Styled,
+    div, px, Anchor, AnyElement, App, Context, IntoElement, ParentElement, SharedString, Styled,
 };
 use sikemux_core::agent_accounts::status::AccountStatus;
 use sikemux_core::agent_accounts::{chat_account, Profile};
-use sikemux_core::server::workspace::AgentPatch;
+use std::rc::Rc;
 
 use crate::accounts;
 use crate::core::Ask;
@@ -33,13 +33,17 @@ pub(crate) fn move_chat(bench: &Workbench, agent: &str, profile: &Profile) {
     });
 }
 
-/// A chat: its agent's id, which agent it is, the account it runs on, and whether it has
-/// started.
+/// What picking an account does.
+pub type Pick = Rc<dyn Fn(&Profile, &mut App)>;
+
+/// What picks an account: what keeps its picker apart from others, which agent it is, the
+/// account it runs on, whether it has started, and what picking one does.
 pub struct Chat<'a> {
-    pub agent: &'a str,
+    pub key: &'a str,
     pub provider: &'a str,
     pub on: &'a str,
     pub started: bool,
+    pub pick: Pick,
 }
 
 /// The picker for the chat, or none while no other account can take it over.
@@ -48,14 +52,14 @@ pub fn picker(
     chat: Chat,
     running: bool,
     disabled: bool,
-    this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
     let Chat {
-        agent,
+        key,
         provider,
         on,
         started,
+        pick,
     } = chat;
     let t = Tokens::get(cx).clone();
     let current = bench.accounts.profile(on)?.clone();
@@ -83,7 +87,7 @@ pub fn picker(
         true => "Moving stops this turn and carries it on in the other account".to_owned(),
         false => label.clone(),
     };
-    let trigger = KitButton::new(SharedString::from(format!("account-picker-{agent}")))
+    let trigger = KitButton::new(SharedString::from(format!("account-picker-{key}")))
         .ghost()
         .compact()
         .disabled(disabled)
@@ -120,7 +124,6 @@ pub fn picker(
             )
         })
         .collect();
-    let (this, agent) = (this.clone(), agent.to_owned());
     let on = current.id.clone();
     Some(
         trigger
@@ -135,20 +138,8 @@ pub fn picker(
                             popup = popup.item(item);
                             continue;
                         }
-                        let (this, agent, chosen) = (this.clone(), agent.clone(), profile.clone());
-                        popup = popup.item(item.on_click(move |_, _, cx| {
-                            this.update(cx, |bench, _| match started {
-                                true => move_chat(bench, &agent, &chosen),
-                                false => bench.start_as(
-                                    &agent,
-                                    AgentPatch {
-                                        profile_id: Some(Some(chosen.id.clone())),
-                                        ..AgentPatch::default()
-                                    },
-                                    &chosen.name,
-                                ),
-                            });
-                        }));
+                        let (pick, chosen) = (pick.clone(), profile.clone());
+                        popup = popup.item(item.on_click(move |_, _, cx| pick(&chosen, cx)));
                     }
                     popup
                 }),

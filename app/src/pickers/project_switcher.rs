@@ -297,6 +297,14 @@ impl Render for ProjectSwitcher {
     }
 }
 
+/// What picking a project does when it only brings that project to the front.
+pub fn activates(this: WeakEntity<Workbench>) -> OnPick {
+    std::rc::Rc::new(move |project, cx| {
+        this.update(cx, |bench, _| bench.activate_project(&project))
+            .ok();
+    })
+}
+
 /// Wraps `trigger`, the project's name over a new chat, in the switcher it opens, which moves
 /// the chat `agent`, now in `cwd`, elsewhere.
 pub fn around(

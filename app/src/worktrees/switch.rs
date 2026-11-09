@@ -20,6 +20,8 @@ use crate::ui;
 pub enum Switch {
     /// It has not started, in a repository: the first message starts it in a worktree when `on`.
     Choosing { on: bool },
+    /// The work always takes a checkout of its own, so there is nothing to choose.
+    Always,
     /// The worktree is being made, at `step`.
     Preparing { step: String },
     /// It works in the worktree on `branch` at `path`, which reads as `shown`.
@@ -60,6 +62,7 @@ fn about(switch: &Switch) -> String {
     match switch {
         Switch::Choosing { on: true } => "The first message starts this chat in a new git worktree on its own branch. Click to stay in the project folder.".into(),
         Switch::Choosing { on: false } => "Click to start this chat in a new git worktree on its own branch.".into(),
+        Switch::Always => "Hand off always works in a git worktree of its own.".into(),
         Switch::Preparing { step } => format!("{step}…"),
         Switch::In { branch, path, .. } => format!("Working in worktree {branch} at {path}"),
     }
@@ -89,7 +92,17 @@ pub fn toggle(id: impl Into<SharedString>, switch: &Switch, flip: Flip, cx: &App
         .gap(px(5.))
         .rounded_full()
         .text_size(crate::theme::ui_text(TEXT_2XS))
-        .text_color(if on { t.text_primary } else { t.text_tertiary })
+        .text_color(match switch {
+            Switch::Always => t.accent,
+            _ if on => t.text_primary,
+            _ => t.text_tertiary,
+        })
+        .when(matches!(switch, Switch::Always), |toggle| {
+            toggle.bg(Hsla {
+                a: 0.16,
+                ..t.accent
+            })
+        })
         .when(settable, |toggle| {
             toggle.hover(move |style| {
                 style.bg(Hsla {
@@ -124,7 +137,7 @@ pub fn note(switch: &Switch, cx: &App) -> Option<AnyElement> {
         .text_size(crate::theme::ui_text(TEXT_2XS))
         .text_color(t.text_tertiary);
     match switch {
-        Switch::Choosing { .. } => None,
+        Switch::Choosing { .. } | Switch::Always => None,
         Switch::Preparing { step } => Some(note.child(format!("{step}…")).into_any_element()),
         Switch::In { branch, shown, .. } => {
             let tile = div()

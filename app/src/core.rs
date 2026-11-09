@@ -312,6 +312,8 @@ pub struct NewChat {
     project: String,
     /// The permission mode it starts in, for this launch only; none starts in the launcher's.
     mode: Option<PermissionMode>,
+    model: Option<String>,
+    effort: Option<String>,
     started: Option<oneshot::Sender<String>>,
 }
 
@@ -568,14 +570,16 @@ async fn open_chat_on(
         launcher,
         project,
         mode,
+        model,
+        effort,
         started,
     } = chat;
     let asked = client.ask(ask::StartChat {
         launcher,
         project: project.clone(),
         permission_mode: mode,
-        model: None,
-        effort: None,
+        model,
+        effort,
     });
     let (begun, shown) = {
         let early = async {
@@ -1042,10 +1046,25 @@ impl Target {
         mode: Option<PermissionMode>,
         started: Option<oneshot::Sender<String>>,
     ) {
+        self.start_chat_as(launcher, project, mode, (None, None), started);
+    }
+
+    /// Starts a chat as `start_chat` does, on the model and effort of `(model, effort)` where
+    /// they are named.
+    pub fn start_chat_as(
+        &self,
+        launcher: String,
+        project: String,
+        mode: Option<PermissionMode>,
+        (model, effort): (Option<String>, Option<String>),
+        started: Option<oneshot::Sender<String>>,
+    ) {
         self.ask(Ask::StartChat(NewChat {
             launcher,
             project,
             mode,
+            model,
+            effort,
             started,
         }));
     }
@@ -1959,6 +1978,7 @@ async fn restarted(client: &CoreClient, agent: String, held: bool) -> Option<(St
         StartParams {
             agent_id: agent.clone(),
             waits_for_person: held,
+            again: false,
         },
     )
     .await;

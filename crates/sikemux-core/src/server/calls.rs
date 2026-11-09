@@ -143,7 +143,7 @@ calls! { core, client, method, params;
     "commandUsed" CommandUsed (super::activity_log::CommandUsed) -> (): NoDevice => core.activity_log.command_used(&params.id),
     "composing" Composing (AgentParams) -> (): Owner => super::chat::composing(&core, &params.agent_id),
     "startChat" StartChat (super::launching::StartParams) -> (): NoDevice, counted => {
-        super::launching::start_saved(&core, &params.agent_id, params.waits_for_person).await?
+        super::launching::start_asked(&core, params).await?
     },
     "resumeSession" ResumeSession (super::workspace::SessionChoice) -> super::launching::SessionTaken: Full, counted => super::launching::resume_session(&core, params).await?,
     "activitySummary" ActivitySummary (super::activity_log::ActivitySummaryParams) -> super::activity_log::ActivitySummary: Watch, any_program => super::activity_log::summary_for(&core, params).await?,

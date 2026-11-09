@@ -16,20 +16,25 @@ use gpui_kit::{div, AnyElement, App, Context, Focusable, IntoElement, SharedStri
 use sikemux_core::server::board::BoardAddParams;
 use sikemux_core::server::board::BoardHandOffParams;
 use sikemux_core::server::call;
+use sikemux_core::server::launching::StartParams;
 use sikemux_core::server::triage::TriageParams;
+use sikemux_core::server::worktree::agent::AgentWorktreeParams;
 use sikemux_view::start::{Because, HardFact, StartMode};
-use sikemux_view::workspace::{LauncherInfo, ProjectInfo};
-use sikemux_wire::protocol::{ChatContext, FOR_AGENT_URI};
+use sikemux_view::workspace::{ConfigPicker, LauncherInfo, ProjectInfo};
+use sikemux_wire::protocol::{ChatContext, PermissionMode, FOR_AGENT_URI};
 use tokio::sync::oneshot;
 
 use super::GoalsPane;
-use crate::chat::composer::{Act, Notice, Strip};
+use crate::account_picker;
+use crate::chat::composer::{Act, AsideRoom, Notice, ProjectMenu, Strip};
 use crate::chat::model_picker::{self, Moving, Picked};
-use crate::chat::START;
+use crate::chat::{yolo_mode, START};
 use crate::core::{ChatAsk, Target};
 use crate::icons::Icon;
+use crate::pickers::project_switcher;
 use crate::ui::Segmented;
 use crate::workbench::Workbench;
+use crate::worktrees::switch::{self, Switch};
 use sikemux_core::server::workspace::{AgentPatch, CloseAgentsParams, UpdateAgentParams};
 
 /// How long typing pauses before the core is asked to suggest a way.
@@ -61,12 +66,28 @@ const MODES: [(StartMode, Icon, &str, &str); 3] = [
     ),
 ];
 
-/// The agent the person picked to take the work, as the composer's agent menu picks it.
+/// The switch's room: labelled only while the rest of the bar keeps its words beside it.
+const MODE_ROOM: AsideRoom = AsideRoom {
+    labelled_from: 760.,
+    bare: 100.,
+};
+
+/// How the agent that takes the work starts, as the composer's bar picks it. There is no chat yet
+/// for these to change, so they wait here until one starts.
 #[derive(Clone, Default)]
 struct Chosen {
     launcher: Option<String>,
     model: Option<String>,
     payer: Option<String>,
+    effort: Option<String>,
+    /// Whether it acts without asking; none for what its launcher does.
+    yolo: Option<bool>,
+}
+
+impl Chosen {
+    fn yolo_on(&self, launcher: &LauncherInfo) -> bool {
+        (self.yolo).unwrap_or(launcher.permission_mode == PermissionMode::Bypass)
+    }
 }
 
 /// How Home's composer starts work; what it holds is the composer's own.
@@ -150,6 +171,16 @@ impl GoalsPane {
     }
 
     /// The agent work starts with: the one picked, else the one the rail starts with.
+    /// The launcher of `provider` on `profile`, or its first when no account is named.
+    fn launcher_on(&self, provider: &str, profile: Option<&str>, cx: &App) -> Option<String> {
+        let bench = self.bench.upgrade()?;
+        let launcher = (bench.read(cx).launchers().iter()).find(|known| {
+            known.provider == provider
+                && profile.is_none_or(|profile| profile_of(&known.id) == Some(profile))
+        });
+        launcher.map(|known| known.id.clone())
+    }
+
     pub(super) fn start_launcher(&self, bench: &Workbench) -> Option<LauncherInfo> {
         let picked = (self.start.chosen.launcher.as_deref())
             .and_then(|id| bench.launchers().iter().find(|known| known.id == id));
@@ -208,6 +239,21 @@ impl GoalsPane {
         cx.notify();
     }
 
+    /// Flips whether the agent that takes the work acts without asking, when it can.
+    pub(super) fn flip_yolo(&mut self, cx: &mut Context<Self>) {
+        let Some(bench) = self.bench.upgrade() else {
+            return;
+        };
+        let bench = bench.read(cx);
+        let Some(launcher) = self.start_launcher(bench) else {
+            return;
+        };
+        if skips_asking(bench, &launcher.provider) {
+            self.start.chosen.yolo = Some(!self.start.chosen.yolo_on(&launcher));
+            cx.notify();
+        }
+    }
+
     /// Brings an older or newer start back into the draft, as a chat's arrows do.
     pub(super) fn recall(&mut self, older: bool, window: &mut Window, cx: &mut Context<Self>) {
         let Some(bench) = self.bench.upgrade() else {
@@ -233,24 +279,46 @@ impl GoalsPane {
         if text.is_empty() || self.busy {
             return;
         }
-        let launcher = (self.bench.upgrade()).and_then(|bench| self.start_launcher(bench.read(cx)));
-        let (Some(launcher), Some(project)) = (launcher, self.start_project(cx)) else {
+        let bench = self.bench.upgrade();
+        let launcher = bench.and_then(|bench| {
+            let bench = bench.read(cx);
+            let launcher = self.start_launcher(bench)?;
+            let skips = skips_asking(bench, &launcher.provider);
+            Some((launcher, skips))
+        });
+        let (Some((launcher, skips)), Some(project)) = (launcher, self.start_project(cx)) else {
             self.said(
                 "No agent is set up to start; set one up from the agents rail",
                 cx,
             );
             return;
         };
+        let asking = self.start.chosen.yolo.filter(|_| skips).map(yolo_mode);
         if self.start.mode == StartMode::HandOff {
-            return self.hand_off(text, paths, project, launcher, window, cx);
+            return self.hand_off(text, paths, project, launcher, asking, window, cx);
         }
         let (started, agent) = oneshot::channel();
         let folder = project.path.to_string_lossy().into_owned();
         let here = Target::here(&self.asks);
-        here.start_chat(launcher.id, project.id.clone(), None, Some(started));
+        let Chosen {
+            model,
+            payer,
+            effort,
+            ..
+        } = self.start.chosen.clone();
+        let first_model = model.clone().filter(|_| payer.is_none());
+        let worktree = project.git.is_some() && project.worktree_default;
+        here.start_chat_as(
+            launcher.id,
+            project.id.clone(),
+            asking,
+            (first_model, effort),
+            Some(started),
+        );
         let (title, details) = titled(&text);
         let mode = self.start.mode;
-        let Chosen { model, payer, .. } = self.start.chosen.clone();
+        let paying = payer.map(|payer| (model, payer));
+        let starts_over = worktree || paying.is_some();
         // An agent whose card could not be added would sit in an empty tab.
         let close = {
             let here = here.clone();
@@ -270,19 +338,10 @@ impl GoalsPane {
                 });
                 return;
             };
-            if model.is_some() || payer.is_some() {
-                let patch = AgentPatch {
-                    model: Some(model),
-                    model_provider: Some(payer),
-                    ..AgentPatch::default()
-                };
-                let changed = here
-                    .request_typed::<call::UpdateAgent>(UpdateAgentParams::new(
-                        agent.clone(),
-                        patch,
-                    ))
-                    .await;
-                if let Err(error) = changed {
+            let message = worktree.then(|| text.clone());
+            let setup_error = match set_up(&here, &agent, paying, message).await {
+                Ok(setup_error) => setup_error,
+                Err(error) => {
                     close(&agent);
                     let _ = pane.update(cx, |pane, cx| {
                         pane.busy = false;
@@ -290,7 +349,7 @@ impl GoalsPane {
                     });
                     return;
                 }
-            }
+            };
             let added = match mode {
                 StartMode::PlanFirst => Some(
                     here.request_typed::<call::BoardAdd>(BoardAddParams {
@@ -342,10 +401,16 @@ impl GoalsPane {
                         text,
                         paths,
                         context,
-                        attach: false,
+                        attach: starts_over,
                     });
                 });
                 pane.expect_chat(agent, cx);
+                if let Some(error) = setup_error {
+                    pane.said(
+                        &format!("Its worktree's setup did not all finish: {error}"),
+                        cx,
+                    );
+                }
             });
         })
         .detach();
@@ -359,10 +424,16 @@ impl GoalsPane {
         files: Vec<String>,
         project: ProjectInfo,
         launcher: LauncherInfo,
+        asking: Option<PermissionMode>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Chosen { model, payer, .. } = self.start.chosen.clone();
+        let Chosen {
+            model,
+            payer,
+            effort,
+            ..
+        } = self.start.chosen.clone();
         let asked =
             Target::here(&self.asks).request_typed::<call::BoardHandOff>(BoardHandOffParams {
                 project: project.path.to_string_lossy().into_owned(),
@@ -371,6 +442,8 @@ impl GoalsPane {
                 launcher: Some(launcher.id),
                 model,
                 provider: payer,
+                permission_mode: asking,
+                effort,
             });
         self.busy = true;
         cx.notify();
@@ -399,6 +472,47 @@ impl GoalsPane {
         })
         .detach();
     }
+}
+
+/// Readies a chat that has not started for its first message: onto the provider paying for it
+/// and into a worktree of its own named after `worktree_named`. Answers why the worktree's setup
+/// fell short, when it did.
+async fn set_up(
+    here: &Target,
+    agent: &str,
+    paying: Option<(Option<String>, String)>,
+    worktree_named: Option<String>,
+) -> Result<Option<String>, String> {
+    let is_paid = paying.is_some();
+    if let Some((model, payer)) = paying {
+        let patch = AgentPatch {
+            model: Some(model),
+            model_provider: Some(Some(payer)),
+            ..AgentPatch::default()
+        };
+        here.request_typed::<call::UpdateAgent>(UpdateAgentParams::new(agent, patch))
+            .await?;
+    }
+    if let Some(message) = worktree_named {
+        let made = here
+            .request_typed::<call::CreateAgentWorktree>(AgentWorktreeParams {
+                agent_id: agent.to_owned(),
+                message,
+                repo: None,
+            })
+            .await?;
+        return Ok(made.setup_error);
+    }
+    if is_paid {
+        // A provider is wired into the agent's process, so its waiting chat has to start again.
+        here.request_typed::<call::StartChat>(StartParams {
+            agent_id: agent.to_owned(),
+            waits_for_person: true,
+            again: true,
+        })
+        .await?;
+    }
+    Ok(None)
 }
 
 /// A card title from what was typed: its first line, cut short, with the whole text as the
@@ -455,63 +569,153 @@ fn notice(pane: &GoalsPane, goals: &gpui_kit::WeakEntity<GoalsPane>) -> Option<N
     ))
 }
 
-/// The agent menu of the composer, picking which agent, account, provider and model start.
+/// Whether agents of `provider` can start without asking before they act.
+fn skips_asking(bench: &Workbench, provider: &str) -> bool {
+    bench
+        .reads
+        .catalog
+        .kind(provider)
+        .is_some_and(|kind| kind.bypass)
+}
+
+/// The account a launcher's id names.
+fn profile_of(launcher: &str) -> Option<&str> {
+    launcher.split_once(':').map(|(_, profile)| profile)
+}
+
+/// The composer's menus over the agent that takes the work: its model, moving to another agent,
+/// and the effort it runs at, which keep what is picked until it starts.
 fn agent_menu(
     chosen: &Chosen,
     shown: &LauncherInfo,
     bench: &Workbench,
     goals: &gpui_kit::WeakEntity<GoalsPane>,
-) -> Picked {
-    let launchers = bench.launchers().to_vec();
+) -> (Picked, Option<ConfigPicker>, model_picker::Set) {
     let mut model = shown.model.clone();
-    if let Some(model) = model.as_mut() {
-        model.current = chosen.model.clone().unwrap_or_default();
+    if let (Some(model), Some(picked)) = (model.as_mut(), &chosen.model) {
+        model.current = picked.clone();
     }
-    let goals = goals.clone();
-    let choose = move |cx: &mut App, change: &dyn Fn(&mut Chosen)| {
-        let _ = goals.update(cx, |pane, cx| {
-            change(&mut pane.start.chosen);
-            cx.notify();
-        });
-    };
-    let choose = Rc::new(choose);
+    let mut effort = shown.effort.clone();
+    if let Some(effort) = effort.as_mut() {
+        if let Some(picked) = &chosen.effort {
+            effort.current = picked.clone();
+        }
+        if effort.current.is_empty() {
+            effort.current = "Effort".into();
+        }
+    }
     let set: model_picker::Set = {
-        let choose = choose.clone();
+        let goals = goals.clone();
         Rc::new(move |id, value, _, cx| {
-            if id == "model" {
-                choose(cx, &|chosen| chosen.model = Some(value.to_owned()));
-            }
+            let _ = goals.update(cx, |pane, cx| {
+                match id {
+                    "model" => pane.start.chosen.model = Some(value.to_owned()),
+                    _ => pane.start.chosen.effort = Some(value.to_owned()),
+                }
+                cx.notify();
+            });
         })
     };
-    let moving: model_picker::Move = Rc::new(move |to: Moving, _, cx| {
-        let profile_of = |id: &str| id.split_once(':').map(|(_, profile)| profile.to_owned());
-        let launcher = launchers.iter().find(|known| {
-            known.provider == to.provider
-                && (to.profile.as_deref())
-                    .is_none_or(|profile| profile_of(&known.id).as_deref() == Some(profile))
-        });
-        let launcher = launcher.map(|known| known.id.clone());
-        choose(cx, &|chosen| {
-            *chosen = Chosen {
-                launcher: launcher.clone(),
-                model: to.model.clone(),
-                payer: to.model_provider.clone(),
-            }
-        });
-    });
-    Picked {
+    let moving: model_picker::Move = {
+        let goals = goals.clone();
+        Rc::new(move |to: Moving, _, cx| {
+            let _ = goals.update(cx, |pane, cx| {
+                let launcher = pane.launcher_on(&to.provider, to.profile.as_deref(), cx);
+                let chosen = &mut pane.start.chosen;
+                chosen.launcher = launcher;
+                chosen.model = to.model.clone();
+                chosen.payer = to.model_provider.clone();
+                chosen.effort = None;
+                cx.notify();
+            });
+        })
+    };
+    let picked = Picked {
         provider: shown.provider.clone(),
-        profile: shown
-            .id
-            .split_once(':')
-            .map(|(_, profile)| profile.to_owned()),
+        profile: profile_of(&shown.id).map(str::to_owned),
         model,
         model_provider: chosen.payer.clone(),
         locked: false,
-        pending: None,
-        set,
+        pending: Some("Models show once the agent starts"),
+        set: set.clone(),
         moving,
         target: bench.target(),
+    };
+    (picked, effort, set)
+}
+
+/// The strip on Home's composer: this host, the project in front and a switcher to another, its
+/// branch, whether the work takes a worktree, and the account at the right end.
+fn strip(
+    bench: &Workbench,
+    project: &ProjectInfo,
+    launcher: Option<&LauncherInfo>,
+    mode: StartMode,
+    goals: &gpui_kit::WeakEntity<GoalsPane>,
+    cx: &mut Context<Workbench>,
+) -> Strip {
+    let folder = project.path.to_string_lossy().into_owned();
+    let worktree = project.git.is_some().then(|| {
+        let on = project.worktree_default;
+        let shows = match mode {
+            StartMode::HandOff => Switch::Always,
+            _ => Switch::Choosing { on },
+        };
+        switch::toggle(
+            "worktree-start",
+            &shows,
+            bench.flip_worktree_default(project, on),
+            cx,
+        )
+    });
+    let account = launcher.and_then(|launcher| {
+        let on = (profile_of(&launcher.id).map(str::to_owned)).or_else(|| {
+            let current = bench.accounts.current(&launcher.provider)?;
+            Some(current.id.clone())
+        })?;
+        let pick: account_picker::Pick = {
+            let provider = launcher.provider.clone();
+            let goals = goals.clone();
+            Rc::new(move |chosen, cx| {
+                let _ = goals.update(cx, |pane, cx| {
+                    pane.start.chosen.launcher = pane.launcher_on(&provider, Some(&chosen.id), cx);
+                    cx.notify();
+                });
+            })
+        };
+        let chat = account_picker::Chat {
+            key: START,
+            provider: &launcher.provider,
+            on: &on,
+            started: false,
+            pick,
+        };
+        account_picker::picker(bench, chat, false, false, cx)
+    });
+    let moves: ProjectMenu = {
+        let (cwd, this) = (folder.clone(), cx.entity());
+        let on_pick = project_switcher::activates(cx.weak_entity());
+        Box::new(move |trigger| {
+            project_switcher::picker(
+                "start-project".into(),
+                trigger,
+                &cwd,
+                gpui_kit::Anchor::BottomLeft,
+                on_pick,
+                &this,
+            )
+        })
+    };
+    Strip {
+        host: None,
+        project: project.name.clone().into(),
+        path: crate::ui::path::tilde(&folder, crate::ui::path::this_home().as_deref()).into(),
+        branch: (project.git.as_ref()).map(|git| git.branch.clone().into()),
+        moves: Some(moves),
+        worktree,
+        pull: None,
+        goal: None,
+        account,
     }
 }
 
@@ -544,7 +748,7 @@ pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> Any
                 .ok();
         })
     };
-    let Some((mut composer, offering)) = crate::chat::drafting(
+    let Some((composer, offering)) = crate::chat::drafting(
         bench,
         START,
         provider,
@@ -554,20 +758,9 @@ pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> Any
     ) else {
         return div().into_any_element();
     };
-    let strip = bench.project().map(|project| {
-        let folder = project.path.to_string_lossy().into_owned();
-        Strip {
-            host: None,
-            project: project.name.clone().into(),
-            path: crate::ui::path::tilde(&folder, crate::ui::path::this_home().as_deref()).into(),
-            branch: (project.git.as_ref()).map(|git| git.branch.clone().into()),
-            moves: None,
-            worktree: None,
-            pull: None,
-            goal: None,
-            account: None,
-        }
-    });
+    let (mut composer, tray_open) = crate::chat::with_stash(bench, START, composer, cx);
+    let strip =
+        (bench.project()).map(|project| strip(bench, project, launcher.as_ref(), mode, &weak, cx));
     let at = MODES
         .iter()
         .position(|(each, ..)| *each == mode)
@@ -597,14 +790,28 @@ pub fn start_composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> Any
         }
     }
     composer = composer
+        .ready(true)
         .strip(strip)
-        .aside(move |roomy| modes.icons_only(!roomy));
+        .aside(MODE_ROOM, move |roomy| modes.icons_only(!roomy));
     if notice.is_some() {
         composer = composer.notice(notice);
     }
     if let Some(launcher) = &launcher {
-        let picked = agent_menu(&chosen, launcher, bench, &weak);
+        let (picked, effort, set) = agent_menu(&chosen, launcher, bench, &weak);
         composer = composer.model_menu(picked, cx.entity());
+        if effort.is_some() {
+            composer = composer.pickers(None, effort, set);
+        }
+        if skips_asking(bench, &launcher.provider) {
+            let flip = weak.clone();
+            composer = composer.yolo(
+                chosen.yolo_on(launcher),
+                false,
+                Rc::new(move |_, cx| {
+                    let _ = flip.update(cx, |pane, cx| pane.flip_yolo(cx));
+                }),
+            );
+        }
     }
-    crate::chat::mounted(START, composer, offering, cx).into_any_element()
+    crate::chat::mounted(START, composer, offering || tray_open, cx).into_any_element()
 }

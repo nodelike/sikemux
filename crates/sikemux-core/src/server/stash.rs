@@ -323,7 +323,8 @@ impl AttachedStash {
 /// Puts a stash item in the draft of one of this host's chats, unsent, and marks it used; or
 /// with `draft` false only keeps its file where the chat's agent can read it.
 pub(crate) async fn attach(core: &Core, params: AttachStashParams) -> CoreResult<AttachedStash> {
-    if core.workspaces.agent(&params.agent_id).is_none() {
+    let home = params.agent_id == sikemux_view::chat::START_COMPOSER;
+    if !home && core.workspaces.agent(&params.agent_id).is_none() {
         return Err(CoreError::from("that chat is no longer on this host"));
     }
     let item = item(core, &params.id).await?;

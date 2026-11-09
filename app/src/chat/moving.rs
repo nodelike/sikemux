@@ -3,6 +3,14 @@
 use super::*;
 use sikemux_core::server::workspace::AgentPatch;
 
+/// The permission mode YOLO being on or off is.
+pub fn yolo_mode(on: bool) -> PermissionMode {
+    match on {
+        true => PermissionMode::Bypass,
+        false => PermissionMode::WorkspaceWrite,
+    }
+}
+
 impl Workbench {
     /// Moves a chat that has not started to another agent, account or provider. The model and
     /// effort it offered belong to the agent it leaves, so they go until the core says the new ones.
@@ -120,12 +128,7 @@ impl Workbench {
             .is_some_and(|kind| kind.can_skip_asking(self.in_terminal(agent)));
         if can {
             let on = saved.permission_mode == PermissionMode::Bypass;
-            let mode = if on {
-                PermissionMode::WorkspaceWrite
-            } else {
-                PermissionMode::Bypass
-            };
-            self.switch_mode(agent, mode);
+            self.switch_mode(agent, yolo_mode(!on));
         }
     }
 }

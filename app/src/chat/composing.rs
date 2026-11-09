@@ -27,7 +27,7 @@ use sikemux_core::server::workspace::{AgentPatch, UpdateAgentParams};
 
 /// The composer at the bottom of the goals' Home, which starts work rather than writing to a
 /// chat; every other composer goes by the agent whose chat it writes to.
-pub const START: &str = "goals-start";
+pub const START: &str = sikemux_view::chat::START_COMPOSER;
 /// The composer on the first-run setup's last screen, whose first message starts the first chat.
 pub const SETUP: &str = "first-run-setup";
 
@@ -282,8 +282,9 @@ pub struct ComposerView {
     pub agent: Option<AgentRow>,
     /// Whether the stage docked questions, subagents, tasks or queued messages on the composer.
     pub covered: bool,
-    /// Draws it again as what it starts with changes, for Home's, which the goals hold.
-    pub _follows: Option<Subscription>,
+    /// Draws it again as what it starts with changes, for Home's, which the goals and the
+    /// workbench hold.
+    pub _follows: Vec<Subscription>,
 }
 
 impl gpui::Render for ComposerView {
@@ -465,6 +466,30 @@ pub fn drafting(
     Some((composer, offering))
 }
 
+/// The Stash on `owner`'s bar and its tray over the draft while it is open, and whether it is.
+pub fn with_stash(
+    bench: &Workbench,
+    owner: &str,
+    composer: Composer,
+    cx: &mut Context<Workbench>,
+) -> (Composer, bool) {
+    let tray = bench.composing(owner).and_then(|composing| {
+        let menu = (composing.menu.as_ref()).filter(|menu| menu.answers(composing.draft.read(cx)));
+        menu.and_then(|menu| menu.tray())
+    });
+    let tray = tray.map(|tray| crate::stash::tray(bench, owner, &tray, cx));
+    let open = tray.is_some();
+    let toggle: Act = {
+        let (this, owner) = (cx.weak_entity(), owner.to_owned());
+        Rc::new(move |window: &mut Window, cx: &mut App| {
+            this.update(cx, |bench, cx| bench.toggle_stash_tray(&owner, window, cx))
+                .ok();
+        })
+    };
+    let fresh = crate::stash::Stash::of(bench).fresh_count();
+    (composer.stash(fresh, open, toggle).tray(tray), open)
+}
+
 pub(super) fn composer(
     bench: &Workbench,
     agent: &AgentRow,
@@ -472,13 +497,6 @@ pub(super) fn composer(
     cx: &mut Context<Workbench>,
 ) -> Option<(Composer, bool)> {
     let composing = chat.composer.as_ref()?;
-    let tray = composing
-        .menu
-        .as_ref()
-        .filter(|menu| menu.answers(composing.draft.read(cx)))
-        .and_then(|menu| menu.tray())
-        .map(|tray| crate::stash::tray(bench, &agent.id, &tray, cx));
-    let tray_open = tray.is_some();
     let head = chat.state.as_ref();
     let kind = bench.reads.catalog.kind(&agent.provider);
     let label = bench.agent_name(&agent.provider).to_owned();
@@ -501,7 +519,7 @@ pub(super) fn composer(
                 .ok();
         })
     };
-    let (mut composer, offering) = drafting(
+    let (composer, offering) = drafting(
         bench,
         &agent.id,
         &agent.provider,
@@ -509,6 +527,7 @@ pub(super) fn composer(
         (on_send, on_stop),
         cx,
     )?;
+    let (mut composer, tray_open) = with_stash(bench, &agent.id, composer, cx);
     let saved = bench.shown().and_then(|view| {
         view.workspace
             .agents
@@ -524,14 +543,6 @@ pub(super) fn composer(
     composer = composer
         .notice_unless_any(goal_line::notice(head, &agent.id, &this))
         .text_scale(chat.scale)
-        .stash(crate::stash::Stash::of(bench).fresh_count(), tray_open, {
-            let (this, agent) = (this.clone(), agent.id.clone());
-            Rc::new(move |window: &mut Window, cx: &mut App| {
-                this.update(cx, |bench, cx| bench.toggle_stash_tray(&agent, window, cx))
-                    .ok();
-            })
-        })
-        .tray(tray)
         .strip(strip)
         .ready(head.is_some_and(|head| head.connection == ChatConnection::Ready))
         .running(chat.running())
@@ -644,11 +655,29 @@ pub(super) fn strip(
     // The accounts listed are this host's, and moving a chat to one is this host's to do.
     let here = host.is_none();
     let account = on.filter(|_| here).and_then(|on| {
+        let started = !fresh;
+        let pick: crate::account_picker::Pick = {
+            let (this, agent) = (cx.entity(), agent.id.clone());
+            Rc::new(move |chosen, cx| {
+                this.update(cx, |bench, _| match started {
+                    true => crate::account_picker::move_chat(bench, &agent, chosen),
+                    false => bench.start_as(
+                        &agent,
+                        AgentPatch {
+                            profile_id: Some(Some(chosen.id.clone())),
+                            ..AgentPatch::default()
+                        },
+                        &chosen.name,
+                    ),
+                })
+            })
+        };
         let chat = crate::account_picker::Chat {
-            agent: &agent.id,
+            key: &agent.id,
             provider: &agent.provider,
             on: &on,
-            started: !fresh,
+            started,
+            pick,
         };
         let running = head.is_some_and(|head| head.running);
         // A chat whose agent has not started yet, such as one waiting for the person, starts
@@ -656,8 +685,7 @@ pub(super) fn strip(
         let unstarted = agent.status == AgentStatus::Starting
             && head.is_none_or(|head| head.connection == ChatConnection::Connecting);
         let ready = unstarted || head.is_some_and(|head| head.connection == ChatConnection::Ready);
-        let this = cx.entity();
-        crate::account_picker::picker(bench, chat, running, !ready, &this, cx)
+        crate::account_picker::picker(bench, chat, running, !ready, cx)
     });
     Strip {
         host,
@@ -671,11 +699,14 @@ pub(super) fn strip(
             .filter(|_| !elsewhere)
             .and_then(|project| Some(project.git.as_ref()?.branch.clone().into())),
         moves: fresh.then(|| {
-            (
+            let (agent, cwd, this) = (
                 agent.id.clone(),
                 saved.cwd.to_string_lossy().into_owned(),
                 cx.entity(),
-            )
+            );
+            Box::new(move |trigger: gpui_kit::base::Button| {
+                crate::pickers::project_switcher::around(trigger, &agent, &cwd, &this)
+            }) as super::composer::ProjectMenu
         }),
         worktree,
         pull: crate::worktrees::head::badges(bench, &agent.id, cx),
@@ -1044,6 +1075,7 @@ impl Workbench {
             cx.new(|cx| crate::voice::MicButton::new(voice, owner, toggle, cx))
         };
         let bench = cx.weak_entity();
+        let bench_entity = cx.entity();
         let goals = self.goals.pane.clone().filter(|_| owner == START);
         let setup = (owner == SETUP).then(|| cx.entity());
         let view = cx.new(|cx| crate::chat::ComposerView {
@@ -1052,9 +1084,12 @@ impl Workbench {
             agent: None,
             covered: false,
             _follows: match (goals, setup) {
-                (Some(goals), _) => Some(cx.observe(&goals, |_, _, cx| cx.notify())),
-                (None, Some(setup)) => Some(cx.observe(&setup, |_, _, cx| cx.notify())),
-                (None, None) => None,
+                (Some(goals), _) => vec![
+                    cx.observe(&goals, |_, _, cx| cx.notify()),
+                    cx.observe(&bench_entity, |_, _, cx| cx.notify()),
+                ],
+                (None, Some(setup)) => vec![cx.observe(&setup, |_, _, cx| cx.notify())],
+                (None, None) => Vec::new(),
             },
         });
         Composing {
