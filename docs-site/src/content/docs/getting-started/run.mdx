@@ -13,12 +13,13 @@ Sikemux reads the build files at the project's root and in the folders just insi
 | --- | --- |
 | `pom.xml` | Spring Boot: run, Maven: test, Maven: package |
 | `build.gradle` or `build.gradle.kts` | Spring Boot: bootRun, Gradle: run, Gradle: test, Gradle: build |
+| An Android module's `build.gradle` or `build.gradle.kts` | Android: installDebug, assembleDebug, testDebugUnitTest, connectedAndroidTest and lint, and the same for each build type and flavor it declares |
 | `package.json` | Its scripts, `dev` and `start` first, run with the package manager its lockfile names: npm, pnpm, Yarn or Bun |
 | `Cargo.toml` | Cargo: run (and one per file in `src/bin`), Cargo: test, Cargo: build |
 | `pyproject.toml`, `requirements.txt` or `manage.py` | The FastAPI or Flask app it finds, or Django's runserver, and pytest; run with the project's `.venv`, uv or Poetry |
 | `go.mod` | Go: run (and one per folder in `cmd/`), Go: test, Go: build |
 
-Spring Boot processes appear only when the build uses Spring Boot. A project's own `./mvnw` or `./gradlew` is used when it has one. Processes from a [`sikemux.json`](/getting-started/projects/#project-config) come first in the list.
+Spring Boot processes appear only when the build uses Spring Boot. Android processes appear for a module that applies `com.android.application` or `com.android.library`, by id or through the version catalog, and run on Java 17 for Android Gradle plugin 8 or later. A project's own `./mvnw` or `./gradlew` is used when it has one (`gradlew.bat` on Windows), and a module of a bigger Gradle build uses the root's. Processes from a [`sikemux.json`](/getting-started/projects/#project-config) come first in the list.
 
 ## Your own processes
 
@@ -48,7 +49,9 @@ The run button shows how the process is doing:
 
 ## Test results
 
-When a Maven, Gradle, Vitest, Jest, pytest, Go or Cargo test run finishes, the run button shows how many tests failed or passed, read from the reports the test runner writes; Go and Cargo write none, so their test processes keep a copy of the output, in a `.sikemux` folder that Git ignores or in Cargo's `target`. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again, and **Fix with an agent** hands just those failures to an agent you pick. When a process stops with an error, **Why?** shows the same choice. Agents read the same results from `workspace_inspect`.
+When a Maven, Gradle, Android, Vitest, Jest, pytest, Go or Cargo test run finishes, the run button shows how many tests failed or passed, read from the reports the test runner writes; Go and Cargo write none, so their test processes keep a copy of the output, in a `.sikemux` folder that Git ignores or in Cargo's `target`. If any failed, a card lists them with the message and a link to the line that failed; **Rerun failed** runs only those tests again, and **Fix with an agent** hands just those failures to an agent you pick. When a process stops with an error, **Why?** shows the same choice. Agents read the same results from `workspace_inspect`.
+
+When a Gradle process finishes, the errors and warnings it printed from the Kotlin and Java compilers, Android's resource compiler and Android lint show in the editor on the lines they name, beside your language servers' own. Each run replaces the last one's, so a clean build clears them. Agents read the errors from `workspace_inspect` as `buildErrors`.
 
 ## Agents in their own worktrees
 

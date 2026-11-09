@@ -29,7 +29,7 @@ pub(super) fn test_results(project: &Path, tasks: &[Definition]) -> Vec<Value> {
     test_modules(tasks)
         .into_iter()
         .filter_map(|cwd| {
-            let found = results::read(cwd)?;
+            let found = results::read(cwd, None)?;
             Some(json!({
                 "cwd": relative(project, cwd),
                 "passed": found.passed,

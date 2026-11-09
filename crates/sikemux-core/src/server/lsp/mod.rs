@@ -122,6 +122,59 @@ fn publisher(core: Weak<Core>) -> Publish {
     })
 }
 
+/// Replaces every file's diagnostics `tool` gave for `project` with `found`,
+/// as a build that just ran reports them; a tool such as Gradle publishes
+/// beside the language servers, under its own name.
+pub(crate) fn publish_build(
+    core: &Core,
+    project: &str,
+    tool: &str,
+    found: Vec<(String, Vec<LspDiagnostic>)>,
+) {
+    let mut paths: Vec<String> = Vec::new();
+    {
+        let mut kept = diagnostics().locked();
+        kept.retain(|path, sets| {
+            let before = sets.len();
+            sets.retain(|set| set.project != project || set.language != tool);
+            if sets.len() != before {
+                paths.push(path.clone());
+            }
+            !sets.is_empty()
+        });
+        for (path, diagnostics) in found {
+            if !paths.contains(&path) {
+                paths.push(path.clone());
+            }
+            kept.entry(path.clone())
+                .or_default()
+                .push(LspDiagnosticsPayload {
+                    project: project.to_owned(),
+                    language: tool.to_owned(),
+                    path,
+                    version: None,
+                    diagnostics,
+                });
+        }
+    }
+    if !paths.is_empty() {
+        core.changed(What::ReadIn(Topic::Lsp, Some(project), Some(paths)));
+    }
+}
+
+/// What `tool` last gave for `project`, by file.
+pub(crate) fn published_by(project: &str, tool: &str) -> Vec<LspDiagnosticsPayload> {
+    let kept = diagnostics().locked();
+    let mut found: Vec<LspDiagnosticsPayload> = kept
+        .values()
+        .flatten()
+        .filter(|set| set.project == project && set.language == tool)
+        .cloned()
+        .collect();
+    found.sort_by(|a, b| a.path.cmp(&b.path));
+    found
+}
+
 fn close_all(keys: Vec<held::DocKey>) {
     if keys.is_empty() {
         return;

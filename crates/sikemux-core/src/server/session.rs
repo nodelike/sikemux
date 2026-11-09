@@ -1369,6 +1369,11 @@ pub(crate) fn task_output(
     task.log.locked().query(query).map_err(CoreError::from)
 }
 
+/// A task's output as plain lines, or none for a terminal that is not a task.
+pub(crate) fn task_lines(session: &Session) -> Option<Vec<String>> {
+    Some(session.task.as_ref()?.log.locked().plain_lines())
+}
+
 pub(crate) fn kill(core: &Core, session: &Session) {
     // A terminal kept after its process ended has nothing left to signal, and
     // its pid may belong to someone else by now.
