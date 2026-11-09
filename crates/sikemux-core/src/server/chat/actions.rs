@@ -301,10 +301,34 @@ pub(crate) async fn letter(core: &Core, agent_id: &str, text: String) -> CoreRes
 /// Moves the agent's chat to `account`, a turn at work carrying on there. An
 /// agent with no chat running starts on it next time.
 pub(crate) fn switch_account(core: &Core, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
+    send_switch(core, agent_id, account, None)
+}
+
+/// Moves the agent's chat to `account`, answering whether it is really going there: a chat that
+/// cannot change accounts stays put, and only the chat's own loop knows that.
+pub(crate) async fn moved_to_account(
+    core: &Core,
+    agent_id: &str,
+    account: ChatAccount,
+) -> CoreResult<bool> {
+    let (moved, answered) = tokio::sync::oneshot::channel();
+    send_switch(core, agent_id, account, Some(moved))?;
+    let answer = tokio::time::timeout(MOVE_ANSWERED_WITHIN, answered).await;
+    Ok(matches!(answer, Ok(Ok(true))))
+}
+
+const MOVE_ANSWERED_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn send_switch(
+    core: &Core,
+    agent_id: &str,
+    account: ChatAccount,
+    moved: Option<tokio::sync::oneshot::Sender<bool>>,
+) -> CoreResult<()> {
     validate_account(&account)?;
     if let Some(chat) = core.chats.get(agent_id) {
         if !chat.unstarted() {
-            return chat.send(ChatCommand::SwitchAccount { account });
+            return chat.send(ChatCommand::SwitchAccount { account, moved });
         }
         // A chat waiting for the person starts on the account chosen, as on a model chosen.
         chat.set_current(rebind::on_account(
@@ -315,6 +339,9 @@ pub(crate) fn switch_account(core: &Core, agent_id: &str, account: ChatAccount) 
     }
     core.workspaces
         .edit_agent(agent_id, |agent| agent.profile_id = Some(account.id))?;
+    if let Some(moved) = moved {
+        let _ = moved.send(true);
+    }
     Ok(())
 }
 
