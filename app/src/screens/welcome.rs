@@ -72,12 +72,12 @@ const DENSITY_READY: Density = Density {
     compact: 0.182,
 };
 const DENSITY_INSTALLED: Density = Density {
-    roomy: 0.15,
-    compact: 0.105,
+    roomy: 0.18,
+    compact: 0.32,
 };
 const DENSITY_SIGNED_OUT: Density = Density {
-    roomy: 0.1,
-    compact: 0.07,
+    roomy: 0.15,
+    compact: 0.,
 };
 const DENSITY_MISSING: Density = Density {
     roomy: 0.12,
