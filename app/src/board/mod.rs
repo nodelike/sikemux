@@ -113,7 +113,8 @@ pub(crate) struct Fields {
 #[derive(Default)]
 struct Places {
     at: HashMap<u64, usize>,
-    under: HashMap<u64, UnderCard>,
+    /// Keyed by the card above and whether the cards counted are in Later.
+    under: HashMap<(u64, bool), UnderCard>,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -128,7 +129,9 @@ impl Places {
         for (at, card) in cards.iter().enumerate() {
             places.at.insert(card.id, at);
             if let Some(parent) = card.parent {
-                let under = places.under.entry(parent).or_default();
+                let under = (places.under)
+                    .entry((parent, card.aside_at.is_some()))
+                    .or_default();
                 under.total += 1;
                 under.done += usize::from(card.status == CardStatus::Done);
             }
@@ -349,9 +352,11 @@ impl BoardPane {
         self.cards().get(*self.places.at.get(&id)?)
     }
 
-    /// How many cards sit right under card `id`, and how many of those are done.
+    /// How many of the cards the board shows now sit right under card `id`, and how many of
+    /// those are done.
     fn under_card(&self, id: u64) -> UnderCard {
-        self.places.under.get(&id).copied().unwrap_or_default()
+        let later = self.show == Show::Later;
+        (self.places.under.get(&(id, later)).copied()).unwrap_or_default()
     }
 
     pub(crate) fn cards(&self) -> &[BoardCard] {
@@ -958,21 +963,13 @@ fn lane_view(
         .map(|parent| owner(parent, cx));
     let (title, meta, select): (String, String, Option<u64>) = match lead {
         Some(parent) => {
-            let under: Vec<&BoardCard> = pane
-                .cards()
-                .iter()
-                .filter(|other| other.parent == Some(parent.id))
-                .collect();
-            let done = under
-                .iter()
-                .filter(|other| other.status == CardStatus::Done)
-                .count();
+            let under = pane.under_card(parent.id);
             let above = parent
                 .parent
                 .and_then(|above| pane.card(above))
                 .map(|above| format!("under {}", short_title(&above.title)));
             let meta = [
-                Some(format!("{done} of {} done", under.len())),
+                Some(format!("{} of {} done", under.done, under.total)),
                 parent.ticket.as_ref().map(|ticket| ticket.key.clone()),
                 above,
             ]
