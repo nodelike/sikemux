@@ -23,7 +23,7 @@ use crate::core::Target;
 use crate::icons::Icon;
 use crate::rail::Edge;
 use crate::theme::{
-    Tokens, RADIUS_2, RADIUS_4, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS, TEXT_3XS,
+    Tokens, RADIUS_2, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS, TEXT_3XS,
     TEXT_3XS_H,
 };
 use crate::ui::IconButton;
@@ -36,16 +36,13 @@ const UNDO_FOR: Duration = Duration::from_secs(6);
 /// A read that never answers, as when the core restarts, stops spinning after this.
 const READING_AT_MOST: Duration = Duration::from_secs(60);
 
-const ROW: f32 = 33.;
-const ROW_COMPACT: f32 = 31.;
+const ROW: f32 = 30.;
+const ROW_COMPACT: f32 = 28.;
 const ROW_GAP: f32 = 2.;
 const HEADER: f32 = 24.;
 const AGENT_HEAD: f32 = 22.;
 const AGENT_GAP: f32 = 4.;
-const BLOCK_PAD: f32 = 7.;
-const BLOCK_NAME: f32 = 17.;
-const WINDOW_ROW: f32 = 18.;
-const ACCOUNT_LINE: f32 = 22.;
+const ACCOUNT_LINE: f32 = 24.;
 const FLOAT_GAP: f32 = 6.;
 const FLOAT_PAD: f32 = 6.;
 /// The smallest float worth scrolling, and what it leaves of the rail above it.
@@ -86,11 +83,6 @@ struct Shown<'a> {
 }
 
 impl Shown<'_> {
-    fn windows(&self) -> &[UsageWindow] {
-        (self.usage.and_then(|usage| usage.usage.as_ref()))
-            .map_or(&[][..], |usage| usage.windows.as_slice())
-    }
-
     fn id(&self) -> Option<&str> {
         self.profile.map(|profile| profile.id.as_str())
     }
@@ -103,9 +95,8 @@ impl Shown<'_> {
         self.usage.is_some_and(|usage| usage.is_stale(now))
     }
 
-    fn at_rest(&self, now: u64, rows: usize) -> Vec<&UsageWindow> {
-        (self.usage.and_then(|usage| usage.usage.as_ref()))
-            .map_or_else(Vec::new, |usage| usage.at_rest(now, rows))
+    fn week(&self) -> Option<&UsageWindow> {
+        self.usage?.usage.as_ref()?.week()
     }
 
     /// How long ago its numbers were read, once that is worth saying.
@@ -183,10 +174,6 @@ impl<'a> Agent<'a> {
 
     fn current(&self) -> &Shown<'a> {
         &self.accounts[self.in_use]
-    }
-
-    fn others(&self) -> usize {
-        self.accounts.len() - 1
     }
 
     /// Whether the account goes unnamed, because it is only the agent's own.
@@ -268,8 +255,7 @@ pub(crate) fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<i
     let tall = HEADER + rows as f32 * row + (rows as f32 - 1.) * ROW_GAP;
     let room = (bench.rails.frame.get()[3] - RAIL_HEAD - tall - FLOAT_MARGIN).max(FLOAT_LEAST);
     let view = view(bench, !every, compact, room, cx.weak_entity());
-    let adds = float_adds(&agents, !every);
-    let open = bench.accounts.limits.open && adds;
+    let open = bench.accounts.limits.open;
     let hovered = |this: WeakEntity<Workbench>, over: fn(&mut Reveal) -> &mut bool| {
         move |inside: &bool, _: &mut Window, cx: &mut App| {
             let inside = *inside;
@@ -295,9 +281,7 @@ pub(crate) fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<i
                     .flex()
                     .flex_col()
                     .gap(px(ROW_GAP))
-                    .when(adds, |rows| {
-                        rows.on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_rows))
-                    })
+                    .on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_rows))
                     .children(rest_rows(&view, &agents, cx)),
             )
             .when(open, |panel| {
@@ -350,22 +334,12 @@ fn view(
     }
 }
 
-/// Whether the float would show anything the rows do not: another account, windows the rows
-/// have no room for, or, with every agent listed, each agent's add button.
-fn float_adds(agents: &[Agent], solo: bool) -> bool {
-    !solo
-        || (agents.iter()).any(|agent| {
-            let shown = agent.current();
-            agent.others() > 0 || (!shown.signed_out && shown.windows().len() > 2)
-        })
-}
-
-/// How many rows the panel holds: a fixed number, so that no reading can resize it.
+/// How many rows the panel holds: one per agent shown.
 fn rest_slots(agents: &[Agent], solo: bool) -> usize {
-    match (solo, agents.first()) {
-        (true, Some(agent)) if agent.current().signed_out => 1,
-        (true, _) => 2,
-        (false, _) => agents.len(),
+    if solo {
+        1
+    } else {
+        agents.len()
     }
 }
 
@@ -486,33 +460,38 @@ fn reading_is_old(bench: &Workbench, now: u64) -> bool {
         })
 }
 
-fn rest_rows(view: &View, agents: &[Agent], cx: &App) -> Vec<AnyElement> {
-    if view.solo {
-        let agent = &agents[0];
-        let shown = agent.current();
-        if shown.signed_out {
-            return vec![sign_in_row(view, agent, shown, cx).into_any_element()];
-        }
-        let windows = shown.at_rest(view.now, 2);
-        return (0..2)
-            .map(|slot| match (windows.get(slot), slot) {
-                (Some(window), 0) => rest_row(view, agent, shown, window, true, cx),
-                (Some(window), _) => rest_row(view, agent, shown, window, false, cx),
-                (None, 0) => nothing_row(view, agent, shown, cx),
-                (None, _) => div().h(px(row_height(view))).into_any_element(),
-            })
+/// An agent's week, added up over the accounts that have read one.
+struct Week {
+    /// Points left, out of 100 for each account counted.
+    left: f64,
+    accounts: usize,
+}
+
+impl Week {
+    fn of(agent: &Agent, now: u64) -> Option<Self> {
+        let left: Vec<f64> = (agent.accounts.iter())
+            .filter(|shown| !shown.signed_out)
+            .filter_map(|shown| Some(100. - shown.week()?.used_at(now)))
             .collect();
+        (!left.is_empty()).then(|| Self {
+            left: left.iter().sum(),
+            accounts: left.len(),
+        })
     }
-    (agents.iter())
-        .map(|agent| {
-            let shown = agent.current();
-            if shown.signed_out {
-                return sign_in_row(view, agent, shown, cx).into_any_element();
-            }
-            match shown.at_rest(view.now, 1).first() {
-                Some(window) => rest_row(view, agent, shown, window, true, cx),
-                None => nothing_row(view, agent, shown, cx),
-            }
+
+    /// How much of the whole is used, as one window would say it.
+    fn used(&self) -> f64 {
+        100. - self.left / self.accounts as f64
+    }
+}
+
+fn rest_rows(view: &View, agents: &[Agent], cx: &App) -> Vec<AnyElement> {
+    let shown = if view.solo { &agents[..1] } else { agents };
+    (shown.iter())
+        .map(|agent| match Week::of(agent, view.now) {
+            Some(week) => rest_row(view, agent, &week, cx),
+            None if agent.current().signed_out => sign_in_row(view, agent, cx),
+            None => nothing_row(view, agent, cx),
         })
         .collect()
 }
@@ -525,135 +504,68 @@ fn row_height(view: &View) -> f32 {
     }
 }
 
-/// A row's frame: the name's line and the ruler under it, starting after the mark.
-fn row_frame(view: &View, first_line: Div, ruler: impl IntoElement) -> Div {
+/// A resting row: the agent's mark, a ruler and what ends the line.
+fn rest_frame(view: &View, agent: &Agent, used: Option<f64>, end: Div, cx: &App) -> Div {
     div()
         .h(px(row_height(view)))
         .px(SPACE_1H)
-        .pt(px(if view.compact { 2. } else { 3. }))
         .flex()
-        .flex_col()
+        .items_center()
+        .gap(SPACE_2)
         .rounded(RADIUS_2)
-        .child(first_line)
-        .child(ruler_slot(ruler))
+        .child(ui::mark(agent.provider, 18.))
+        .child(ruler(used, Tokens::get(cx)).flex_1().min_w_0().h(px(14.)))
+        .child(end)
 }
 
-fn ruler_slot(ruler: impl IntoElement) -> Div {
-    div()
-        .h(px(10.))
-        .mt(SPACE_0)
-        .ml(px(MARK_INDENT))
-        .flex()
-        .child(ruler)
-}
-
-const MARK_INDENT: f32 = 20.;
-
-fn name_line() -> Div {
-    div().h(px(16.)).flex().items_center().gap(SPACE_1H)
-}
-
-/// The agent's name, its one account or how old its numbers are, and how many more it has.
-fn names(view: &View, agent: &Agent, shown: &Shown, cx: &App) -> Div {
-    let t = Tokens::get(cx);
-    let detail = (shown.age(view.now).map(|age| format!("read {age}")))
-        .or_else(|| (agent.others() == 0 && !agent.unnamed(shown)).then(|| shown.name.clone()));
-    div()
-        .flex_1()
-        .min_w_0()
-        .flex()
-        .items_baseline()
-        .gap(px(5.))
-        .overflow_hidden()
-        .child(
-            ui::text(agent.name.to_owned(), TEXT_2XS, FontWeight::MEDIUM)
-                .flex_none()
-                .text_color(t.text_primary),
-        )
-        .children(detail.map(|detail| {
-            ui::text(detail, TEXT_3XS_H, FontWeight::NORMAL)
-                .min_w_0()
-                .truncate()
-                .text_color(t.text_tertiary)
-        }))
-        .when(agent.others() > 0, |names| {
-            names.child(
-                ui::text(format!("+{}", agent.others()), TEXT_3XS, FontWeight::NORMAL)
-                    .flex_none()
-                    .font_features(theme::tabular())
-                    .text_color(t.text_tertiary),
-            )
-        })
-}
-
-fn rest_row(
-    view: &View,
-    agent: &Agent,
-    shown: &Shown,
-    window: &UsageWindow,
-    first: bool,
-    cx: &App,
-) -> AnyElement {
-    let t = Tokens::get(cx);
-    let stale = shown.stale(view.now);
-    let line = if first {
-        name_line()
-            .child(ui::mark(agent.provider, 14.))
-            .child(names(view, agent, shown, cx))
+/// The float's first column, an account's name, so the rulers line up.
+fn label_column(view: &View) -> f32 {
+    if view.compact {
+        64.
     } else {
-        name_line().child(div().w(px(14.))).child(div().flex_1())
-    };
-    let age = shown.age(view.now);
-    let line = line.child(numbers(window, view.now, age.as_deref(), cx));
-    div()
-        .id(SharedString::from(format!(
-            "limit-{}-{}",
-            agent.provider, window.label
-        )))
-        .tooltip(ui::tooltip(tip(window, view.now, stale)))
-        .child(row_frame(
-            view,
-            line,
-            ruler(
-                window.used_at(view.now),
-                time_gone(window, view.now, stale),
-                t,
-            )
-            .flex_1()
-            .h_full(),
-        ))
-        .into_any_element()
+        74.
+    }
 }
 
-/// The numbers at the end of a name's line: the window, how much is used and when it is back.
-fn numbers(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div {
+fn rest_row(view: &View, agent: &Agent, week: &Week, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
-    div()
+    let used = week.used();
+    let sum = div()
         .flex_none()
         .flex()
         .items_baseline()
-        .gap(SPACE_2)
+        .gap(px(4.))
         .font_features(theme::tabular())
         .child(
-            ui::text(window.label.clone(), TEXT_3XS, FontWeight::NORMAL)
-                .max_w(px(62.))
-                .overflow_hidden()
-                .text_ellipsis()
-                .text_color(t.text_tertiary),
+            ui::text(
+                format!("{}%", week.left.round()),
+                TEXT_2XS,
+                FontWeight::MEDIUM,
+            )
+            .text_color(match used {
+                used if used < 70. => t.text_primary,
+                used => signal(used, t),
+            }),
         )
-        .child(percent_cell(window, now, cx))
-        .child(when_cell(window, now, age, true, cx))
+        .child(
+            ui::text(
+                format!("/ {}%", week.accounts * 100),
+                TEXT_3XS,
+                FontWeight::NORMAL,
+            )
+            .text_color(t.text_tertiary),
+        );
+    div()
+        .id(SharedString::from(format!("limit-{}", agent.provider)))
+        .child(rest_frame(view, agent, Some(used), sum, cx))
+        .into_any_element()
 }
 
 fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
     let t = Tokens::get(cx);
     let used = window.used_at(now);
-    let text = match used >= 100. {
-        true => "full".to_owned(),
-        false => format!("{}%", used.round()),
-    };
-    ui::text(text, TEXT_2XS, FontWeight::NORMAL)
-        .min_w(px(26.))
+    ui::text(left(used), TEXT_2XS, FontWeight::NORMAL)
+        .min_w(px(48.))
         .text_right()
         .text_color(match used {
             used if used < 70. => t.text_primary,
@@ -661,16 +573,23 @@ fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
         })
 }
 
+/// How much of a window is left, as every limit says it.
+fn left(used: f64) -> String {
+    match used >= 100. {
+        true => "used up".to_owned(),
+        false => format!("{}% left", (100. - used).round()),
+    }
+}
+
 /// When the window is back. Past its reset with reads failing it says how old the reading is,
 /// as "resetting now" would stay true for as long as the reads keep failing.
-fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, say_back: bool, cx: &App) -> Div {
+fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div {
     let t = Tokens::get(cx);
     let reset = reset_at(window);
     let full = window.used_at(now) >= 100.;
     let text = match (full, reset, age.filter(|_| window.is_past_reset(now))) {
         (_, _, Some(age)) => format!("read {age}"),
-        (true, Some(reset), _) if say_back => format!("back {}", time_of_day(reset)),
-        (true, Some(reset), _) => time_of_day(reset),
+        (true, Some(reset), _) => format!("back {}", time_of_day(reset)),
         (true, None, _) => String::new(),
         (false, reset, _) => ui::time::countdown(reset),
     };
@@ -684,21 +603,14 @@ fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, say_back: bool, 
         })
 }
 
-fn nothing_row(view: &View, agent: &Agent, shown: &Shown, cx: &App) -> AnyElement {
-    let t = Tokens::get(cx);
+fn nothing_row(view: &View, agent: &Agent, cx: &App) -> AnyElement {
+    let shown = agent.current();
     div()
         .id(SharedString::from(format!("limit-{}-none", agent.provider)))
         .when_some(shown.no_limits_reason(), |row, reason| {
             row.tooltip(ui::tooltip(reason))
         })
-        .child(row_frame(
-            view,
-            name_line()
-                .child(ui::mark(agent.provider, 14.))
-                .child(names(view, agent, shown, cx))
-                .child(note(shown.nothing(), cx)),
-            ruler(0., None, t).flex_1().h_full(),
-        ))
+        .child(rest_frame(view, agent, None, note(shown.nothing(), cx), cx))
         .into_any_element()
 }
 
@@ -728,8 +640,9 @@ fn sign_in(
     })
 }
 
-fn sign_in_row(view: &View, agent: &Agent, shown: &Shown, cx: &App) -> Stateful<Div> {
+fn sign_in_row(view: &View, agent: &Agent, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
+    let shown = agent.current();
     div()
         .id(SharedString::from(format!(
             "limits-sign-in-{}",
@@ -739,17 +652,11 @@ fn sign_in_row(view: &View, agent: &Agent, shown: &Shown, cx: &App) -> Stateful<
         .cursor_pointer()
         .hover(|row| row.bg(t.surface_hover))
         .on_click(sign_in(view, agent.provider, shown))
-        .child(row_frame(
-            view,
-            name_line()
-                .child(ui::mark(agent.provider, 14.))
-                .child(names(view, agent, shown, cx))
-                .child(go("Sign in", cx)),
-            ruler(0., None, t).flex_1().h_full(),
-        ))
+        .child(rest_frame(view, agent, None, go("Sign in", cx), cx))
+        .into_any_element()
 }
 
-/// Every account of every agent: the one in use with all its windows, the others one line each.
+/// Every account of every agent, one line each, the one in use lifted.
 fn every_account(view: &View, agents: &[Agent], cx: &App) -> Stateful<Div> {
     let mut heights = Vec::new();
     let mut items: Vec<AnyElement> = Vec::new();
@@ -760,9 +667,8 @@ fn every_account(view: &View, agents: &[Agent], cx: &App) -> Stateful<Div> {
             items.push(agent_head(view, agent, gap, cx).into_any_element());
         }
         for (index, shown) in agent.accounts.iter().enumerate() {
-            let (height, item) = account(view, agent, shown, index == agent.in_use, cx);
-            heights.push(height);
-            items.push(item);
+            heights.push(ACCOUNT_LINE);
+            items.push(account_line(view, agent, shown, index == agent.in_use, cx));
         }
     }
     let total: f32 = heights.iter().sum();
@@ -806,13 +712,6 @@ fn agent_head(view: &View, agent: &Agent, gap: f32, cx: &App) -> Div {
         .child(add_button(view, agent))
 }
 
-fn account(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &App) -> (f32, AnyElement) {
-    if in_use && !shown.signed_out && !shown.windows().is_empty() {
-        return in_use_block(view, agent, shown, cx);
-    }
-    (ACCOUNT_LINE, account_line(view, agent, shown, in_use, cx))
-}
-
 /// What an account's name line says about how far to trust its numbers.
 fn status(view: &View, shown: &Shown) -> Option<String> {
     let usage = shown.usage?;
@@ -825,101 +724,8 @@ fn status(view: &View, shown: &Shown) -> Option<String> {
     }
 }
 
-fn in_use_block(view: &View, agent: &Agent, shown: &Shown, cx: &App) -> (f32, AnyElement) {
-    let t = Tokens::get(cx);
-    let many = agent.accounts.len() > 1;
-    let status = status(view, shown);
-    let unnamed = agent.unnamed(shown);
-    let state = status.clone().or_else(|| many.then(|| "In use".to_owned()));
-    let name_line = (!unnamed || status.is_some()).then(|| {
-        div()
-            .h(px(BLOCK_NAME))
-            .flex()
-            .items_center()
-            .gap(SPACE_2)
-            .child(
-                ui::text(
-                    if unnamed {
-                        String::new()
-                    } else {
-                        shown.name.clone()
-                    },
-                    TEXT_2XS,
-                    FontWeight::MEDIUM,
-                )
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_color(t.text_primary),
-            )
-            .children(state.map(|state| {
-                ui::text(state, TEXT_3XS, FontWeight::NORMAL)
-                    .flex_none()
-                    .text_color(t.text_tertiary)
-            }))
-    });
-    let stale = shown.stale(view.now);
-    let tall = BLOCK_PAD
-        + name_line.as_ref().map_or(0., |_| BLOCK_NAME)
-        + shown.windows().len() as f32 * WINDOW_ROW;
-    let key = shown.key(agent.provider);
-    let age = shown.age(view.now);
-    let block = div()
-        .pt(px(3.))
-        .pb(SPACE_1)
-        .px(SPACE_1H)
-        .rounded(RADIUS_2)
-        .when(many, |block| block.bg(t.surface_chosen))
-        .children(name_line)
-        .children(
-            (shown.windows().iter())
-                .map(|window| window_row(view, window, stale, age.as_deref(), &key, cx)),
-        );
-    (tall, block.into_any_element())
-}
-
-fn window_row(
-    view: &View,
-    window: &UsageWindow,
-    stale: bool,
-    age: Option<&str>,
-    key: &str,
-    cx: &App,
-) -> AnyElement {
-    let t = Tokens::get(cx);
-    div()
-        .id(SharedString::from(format!("limit-{key}-{}", window.label)))
-        .h(px(WINDOW_ROW))
-        .flex()
-        .items_center()
-        .gap(SPACE_2)
-        .font_features(theme::tabular())
-        .tooltip(ui::tooltip(tip(window, view.now, stale)))
-        .child(
-            ui::text(window.label.clone(), TEXT_3XS, FontWeight::NORMAL)
-                .flex_none()
-                .w(px(if view.compact { 50. } else { 58. }))
-                .overflow_hidden()
-                .text_ellipsis()
-                .text_color(t.text_tertiary),
-        )
-        .child(
-            ruler(
-                window.used_at(view.now),
-                time_gone(window, view.now, stale),
-                t,
-            )
-            .flex_1()
-            .min_w_0()
-            .h(px(10.)),
-        )
-        .child(percent_cell(window, view.now, cx))
-        .child(when_cell(window, view.now, age, false, cx))
-        .into_any_element()
-}
-
-/// An account that is not in use, or has no windows to draw, as one line. Clicking one not in
-/// use moves the agent's chats onto it.
+/// An account as one line: its name, then its week's ruler. Clicking one not in use moves the
+/// agent's chats onto it.
 fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let key = shown.key(agent.provider);
@@ -977,22 +783,43 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
             )
             .into_any_element();
     }
-    let window = shown.at_rest(view.now, 1).first().copied();
+    let window = shown.week();
     let stale = shown.stale(view.now);
     let age = shown.age(view.now);
     let tip = window
         .map(|window| tip(window, view.now, stale))
         .or_else(|| shown.no_limits_reason());
-    let status = status(view, shown).filter(|_| window.is_some());
-    let end = match window {
-        Some(window) => numbers(window, view.now, age.as_deref(), cx),
-        None => note(shown.nothing(), cx),
+    let tip = match (status(view, shown).filter(|_| window.is_some()), tip) {
+        (Some(status), Some(tip)) => Some(format!("{status}. {tip}")),
+        (status, tip) => tip.or(status),
     };
+    let end = div()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .font_features(theme::tabular())
+        .child(
+            ruler(window.map(|window| window.used_at(view.now)), t)
+                .flex_1()
+                .min_w_0()
+                .h(px(10.)),
+        )
+        .map(|end| match window {
+            Some(window) => end
+                .child(percent_cell(window, view.now, cx))
+                .child(when_cell(window, view.now, age.as_deref(), cx)),
+            None => end.child(note(shown.nothing(), cx)),
+        });
     let target = shown.profile.filter(|_| !in_use).cloned();
     let pickable = target.is_some();
     frame()
         .id(id)
         .group(group.clone())
+        .when(in_use && agent.accounts.len() > 1, |line| {
+            line.bg(t.surface_chosen)
+        })
         .when_some(tip, |line, tip| line.tooltip(ui::tooltip(tip)))
         .when_some(target, |line, target| {
             line.cursor_pointer()
@@ -1000,9 +827,11 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                 .on_click(view.on(move |bench, _, cx| pick(bench, &target, cx)))
         })
         .child(
-            side()
-                .child(name(shown.name.clone()))
-                .children(status.map(meta)),
+            div()
+                .flex_none()
+                .w(px(label_column(view)))
+                .flex()
+                .child(name(shown.name.clone())),
         )
         .child(end.when(pickable, |end| {
             end.group_hover(group.clone(), |end| end.opacity(0.))
@@ -1115,19 +944,16 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
     let now = ui::time::now_ms();
     let this = cx.weak_entity();
     let open_this = this.clone();
-    let pairs: Vec<(String, Option<UsageWindow>)> = (agents.iter())
-        .map(|agent| {
-            let window = (agent.current().at_rest(now, 1).first()).map(|window| (*window).clone());
-            (agent.provider.to_owned(), window)
-        })
+    let pairs: Vec<(String, Option<Week>)> = (agents.iter())
+        .map(|agent| (agent.provider.to_owned(), Week::of(agent, now)))
         .collect();
     let spoken: Vec<String> = (agents.iter().zip(&pairs))
-        .map(|(agent, (_, window))| match window {
-            Some(window) => format!(
-                "{} {} {}%",
+        .map(|(agent, (_, week))| match week {
+            Some(week) => format!(
+                "{} 7d {}% of {}% left",
                 agent.name,
-                window.label,
-                window.used_at(now).round()
+                week.left.round(),
+                week.accounts * 100
             ),
             None => agent.name.to_owned(),
         })
@@ -1139,14 +965,11 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
             .anchor(Anchor::TopRight)
             .offset(SPACE_1H)
             .trigger_with(move |open, _, _| {
-                let pairs = pairs.into_iter().map(|(provider, window)| {
-                    let (text, ink) = match &window {
-                        Some(window) => {
-                            let used = window.used_at(now);
-                            let text = match used >= 100. {
-                                true => "full".to_owned(),
-                                false => format!("{}%", used.round()),
-                            };
+                let pairs = pairs.into_iter().map(|(provider, week)| {
+                    let (text, ink) = match &week {
+                        Some(week) => {
+                            let used = week.used();
+                            let text = format!("{}%", week.left.round());
                             let ink = if used < 70. {
                                 t.text_secondary
                             } else {
@@ -1227,41 +1050,29 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
     )
 }
 
-/// One window's ruler: a tick for each 4 points, lit as far as it is used, or a flat line once
-/// it is used up, with a small notch under it for how far through the window it is.
-fn ruler(used: f64, gone: Option<f32>, t: &Tokens) -> gpui_kit::Canvas<()> {
-    let color = signal(used, t);
+/// One window's ruler: a tick for each 4 points, lit for as much as is left, or none lit when
+/// nothing was read.
+fn ruler(used: Option<f64>, t: &Tokens) -> gpui_kit::Canvas<()> {
+    let color = signal(used.unwrap_or(0.), t);
     let unlit = Hsla {
         a: 0.10,
         ..t.text_primary
     };
-    let (blocked, notch) = (t.danger, t.text_tertiary);
+    let left = used.map_or(0., |used| (100. - used).clamp(0., 100.));
     canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
-            let (width, origin) = (f32::from(bounds.size.width), bounds.origin);
-            let mut quad = |x: f32, y: f32, w: f32, h: f32, ink: Hsla| {
+            let lit = f32::from(bounds.size.width) * (left / 100.) as f32;
+            let mut x = 0.;
+            while x < f32::from(bounds.size.width) - 1. {
                 window.paint_quad(fill(
                     Bounds::new(
-                        point(origin.x + px(x), origin.y + px(y)),
-                        size(px(w), px(h)),
+                        point(bounds.origin.x + px(x), bounds.origin.y),
+                        size(px(1.5), bounds.size.height),
                     ),
-                    ink,
+                    if x < lit { color } else { unlit },
                 ));
-            };
-            if used >= 100. {
-                quad(0., 2., width, 2., blocked);
-                return;
-            }
-            let lit = width * (used / 100.) as f32;
-            let mut x = 0.;
-            while x < width - 1. {
-                quad(x, 0., 1.5, 6., if x < lit { color } else { unlit });
                 x += 4.;
-            }
-            if let Some(gone) = gone {
-                let at = ((width * gone / 4.).round() * 4.).min(width - 1.5);
-                quad(at, 7., 1.5, 3., notch);
             }
         },
     )
@@ -1280,11 +1091,7 @@ fn time_gone(window: &UsageWindow, now: u64, stale: bool) -> Option<f32> {
 }
 
 fn tip(window: &UsageWindow, now: u64, stale: bool) -> String {
-    let mut parts = vec![format!(
-        "{}: {}% used.",
-        window.label,
-        window.used_at(now).round()
-    )];
+    let mut parts = vec![format!("{}: {}.", window.label, left(window.used_at(now)))];
     if let Some(gone) = time_gone(window, now, stale) {
         parts.push(format!("{}% of the time has gone.", (gone * 100.).round()));
     }

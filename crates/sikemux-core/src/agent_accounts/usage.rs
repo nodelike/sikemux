@@ -74,43 +74,12 @@ impl UsageWindow {
             self.used_percent.clamp(0.0, 100.0)
         }
     }
-
-    fn reset_ms(&self) -> u64 {
-        (self.resets_at.as_ref())
-            .and_then(UsageResetAt::unix_ms)
-            .unwrap_or(0)
-    }
 }
 
 impl Usage {
-    /// The window that holds the account back at `now_ms`: of those used up, the last to
-    /// reset, since the account is back only then; otherwise the most used. Ties go to the
-    /// plan's own order, so the choice does not flicker between equal windows.
-    pub fn tightest(&self, now_ms: u64) -> Option<&UsageWindow> {
-        let windows = self.windows.iter().rev();
-        let full = windows
-            .clone()
-            .filter(|window| window.used_at(now_ms) >= 100.0)
-            .max_by_key(|window| window.reset_ms());
-        full.or_else(|| windows.max_by(|a, b| a.used_at(now_ms).total_cmp(&b.used_at(now_ms))))
-    }
-
-    /// The windows an agent shows at rest with room for `rows`: the plan's first ones, with
-    /// the last giving way to the tightest when it would otherwise be hidden.
-    pub fn at_rest(&self, now_ms: u64, rows: usize) -> Vec<&UsageWindow> {
-        let Some(tightest) = self.tightest(now_ms) else {
-            return Vec::new();
-        };
-        if rows <= 1 {
-            return vec![tightest];
-        }
-        let mut shown: Vec<&UsageWindow> = self.windows.iter().take(rows).collect();
-        if !shown.iter().any(|window| std::ptr::eq(*window, tightest)) {
-            if let Some(last) = shown.last_mut() {
-                *last = tightest;
-            }
-        }
-        shown
+    /// The plan's own week: its first week-long window, before any one model's.
+    pub fn week(&self) -> Option<&UsageWindow> {
+        (self.windows.iter()).find(|window| window.window_minutes == Some(10_080))
     }
 
     /// When the account can be used again, in Unix milliseconds: once each
