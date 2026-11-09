@@ -593,8 +593,7 @@ fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div
         (false, reset, _) => ui::time::countdown(reset),
     };
     ui::text(text, TEXT_3XS, FontWeight::NORMAL)
-        .min_w(px(38.))
-        .text_right()
+        .flex_none()
         .text_color(if full {
             t.text_primary
         } else {
