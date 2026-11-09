@@ -42,8 +42,16 @@ const ACTION_WIDTH: f32 = 76.;
 const LIST_MOST: f32 = 420.;
 const LIST_LEAST: f32 = 96.;
 /// What the title, field and buttons around a list need, so they stay on the screen.
-const AROUND_AGENTS: f32 = 240.;
+const AROUND_AGENTS: f32 = 180.;
 const AROUND_PROJECTS: f32 = 290.;
+const SIDE_SHARE: f32 = 0.38;
+const SIDE_LEAST: f32 = 340.;
+const SIDE_MOST: f32 = 460.;
+const STEP_SHARE: f32 = 0.58;
+const STEP_LEAST: f32 = 520.;
+const STEP_MOST: f32 = 720.;
+/// How much of a narrow pane the step may fill, whatever its least width.
+const STEP_MOST_SHARE: f32 = 0.9;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Stage {
@@ -56,7 +64,6 @@ enum Stage {
 #[derive(Clone, Copy, PartialEq)]
 enum Stop {
     Row(usize),
-    More,
     Anyway,
     Field,
     Browse,
@@ -114,7 +121,6 @@ pub struct Welcome {
     stage: Stage,
     at: Option<Stop>,
     git_missing: bool,
-    more_open: bool,
     rows: Vec<Candidate>,
     looking: bool,
     partial: bool,
@@ -137,7 +143,6 @@ impl Welcome {
             stage: Stage::Agents,
             at: Some(Stop::Row(0)),
             git_missing: false,
-            more_open: false,
             rows: Vec::new(),
             looking: true,
             partial: false,
@@ -336,9 +341,8 @@ fn anyway_offered(bench: &Workbench) -> bool {
     bench.agent_setup.failed && usable_agents(bench) == 0
 }
 
-/// The agents listed, ready ones first and then those with a next step, and how many others
-/// there are. Those stay folded until asked for, unless nothing is ready and they are all there is.
-fn listed_agents<'a>(bench: &'a Workbench, welcome: &Welcome) -> (Vec<&'a Found>, usize) {
+/// Every agent, ready ones first, then those with a next step, then the rest.
+fn listed_agents(bench: &Workbench) -> Vec<&Found> {
     let found = found_agents(bench);
     let ready = found.iter().filter(|agent| is_ready(agent));
     let with_step = found
@@ -349,12 +353,8 @@ fn listed_agents<'a>(bench: &'a Workbench, welcome: &Welcome) -> (Vec<&'a Found>
         .iter()
         .filter(|agent| !listed.iter().any(|shown| shown.kind == agent.kind))
         .collect();
-    let folds = found.iter().any(is_ready);
-    let folded = if folds { rest.len() } else { 0 };
-    if !folds || welcome.more_open {
-        listed.extend(rest);
-    }
-    (listed, folded)
+    listed.extend(rest);
+    listed
 }
 
 /// The agents the first chat can start on: those ready, or those found when none is.
@@ -390,14 +390,10 @@ fn start_agent<'a>(bench: &'a Workbench, welcome: &Welcome) -> Option<&'a Found>
 
 fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
     match welcome.stage {
-        Stage::Agents => {
-            let (listed, folded) = listed_agents(bench, welcome);
-            (0..listed.len())
-                .map(Stop::Row)
-                .chain((folded > 0).then_some(Stop::More))
-                .chain(anyway_offered(bench).then_some(Stop::Anyway))
-                .collect()
-        }
+        Stage::Agents => (0..listed_agents(bench).len())
+            .map(Stop::Row)
+            .chain(anyway_offered(bench).then_some(Stop::Anyway))
+            .collect(),
         Stage::Projects => (0..welcome.rows.len())
             .map(Stop::Row)
             .chain([Stop::Field, Stop::Browse, Stop::Back])
@@ -492,10 +488,9 @@ fn run_step(bench: &mut Workbench, row: usize, cx: &mut Context<Workbench>) {
     if bench.agent_setup.busy() {
         return;
     }
-    let next = welcome_in(bench).and_then(|welcome| {
-        let (listed, _) = listed_agents(bench, welcome);
-        setup::next_step(bench, listed.get(row)?)
-    });
+    let next = listed_agents(bench)
+        .get(row)
+        .and_then(|agent| setup::next_step(bench, agent));
     if let Some((_, sheet)) = next {
         setup::run(bench, sheet, cx);
     }
@@ -504,13 +499,6 @@ fn run_step(bench: &mut Workbench, row: usize, cx: &mut Context<Workbench>) {
 fn toggle(bench: &mut Workbench, row: usize, cx: &mut Context<Workbench>) {
     if let Some(found) = welcome_of(bench).and_then(|welcome| welcome.rows.get_mut(row)) {
         found.ticked = !found.ticked;
-    }
-    redraw(bench, cx);
-}
-
-fn toggle_more(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    if let Some(welcome) = welcome_of(bench) {
-        welcome.more_open = !welcome.more_open;
     }
     redraw(bench, cx);
 }
@@ -568,7 +556,6 @@ fn activate(bench: &mut Workbench, space: bool, window: &mut Window, cx: &mut Co
     };
     match (welcome.stage, welcome.at) {
         (_, Some(Stop::Anyway)) => show_stage(bench, Stage::Projects, window, cx),
-        (_, Some(Stop::More)) => toggle_more(bench, cx),
         (_, Some(Stop::Browse)) => browse(window, cx),
         (_, Some(Stop::Back)) => back(bench, window, cx),
         (_, Some(Stop::JustOpen)) => finish(bench, false, window, cx),
@@ -805,9 +792,9 @@ fn side(stage: Stage, cx: &App) -> Div {
     div()
         .relative()
         .flex_none()
-        .w(relative(0.38))
-        .min_w(px(340.))
-        .max_w(px(460.))
+        .w(relative(SIDE_SHARE))
+        .min_w(px(SIDE_LEAST))
+        .max_w(px(SIDE_MOST))
         .h_full()
         .overflow_hidden()
         .border_r_1()
@@ -906,6 +893,15 @@ fn note_row(note: AnyElement, t: &Tokens) -> AnyElement {
         .text_color(t.text_tertiary)
         .child(note)
         .into_any_element()
+}
+
+/// The step's width in what the side column leaves of the window.
+fn step_width(window: &Window) -> Pixels {
+    let width = f32::from(window.viewport_size().width);
+    let pane = width - (width * SIDE_SHARE).clamp(SIDE_LEAST, SIDE_MOST);
+    px((pane * STEP_SHARE)
+        .clamp(STEP_LEAST, STEP_MOST)
+        .min(pane * STEP_MOST_SHARE))
 }
 
 fn list_height(window: &Window, around: f32) -> Pixels {
@@ -1127,7 +1123,7 @@ fn agents_screen(
     cx: &mut Context<Workbench>,
 ) -> Vec<AnyElement> {
     let t = Tokens::get(cx).clone();
-    let (listed, folded) = listed_agents(bench, welcome);
+    let listed = listed_agents(bench);
     let rows: Vec<AnyElement> = match &bench.agent_setup.found {
         None => vec![note_row(
             ui::shimmer::shimmer("welcome-agents-looking", "Looking on your PATH…"),
@@ -1165,22 +1161,6 @@ fn agents_screen(
             .to_owned(),
         &t,
     );
-    let more = (folded > 0).then(|| {
-        let toggled = this.clone();
-        let words = match welcome.more_open {
-            true => format!("Hide {folded} found on this machine"),
-            false => format!("{folded} more found on this machine"),
-        };
-        quiet("welcome-more", words, Stop::More, lit, this, &t)
-            .mt(SPACE_2)
-            .self_start()
-            .on_click(move |_, window, cx| {
-                toggled.update(cx, |bench, cx| {
-                    go(bench, Stop::More, window, cx);
-                })
-            })
-            .into_any_element()
-    });
     [
         title.into_any_element(),
         sub.into_any_element(),
@@ -1194,7 +1174,6 @@ fn agents_screen(
         .into_any_element(),
     ]
     .into_iter()
-    .chain(more)
     .chain([foot()
         .child(hint(
             match (ready, usable) {
@@ -1631,8 +1610,7 @@ pub fn render(
                 .items_center()
                 .child(
                     div()
-                        .w(px(520.))
-                        .max_w(relative(0.9))
+                        .w(step_width(window))
                         .flex()
                         .flex_col()
                         .children(screen),
