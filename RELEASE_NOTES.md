@@ -1,4 +1,4 @@
-# Sikemux v0.6.1-nightly.8
+# Sikemux v0.6.1-nightly.9
 
 Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
 
@@ -7,22 +7,28 @@ Nightlies are signed and delivered exactly like stable releases, but they carry 
 - **Your phone needs 0.2.0-nightly.13 or later**, from TestFlight on iPhone or the Google Play testing track on Android.
 - **This nightly links only with hosts on the 0.6.1 nightlies.** Hosts on stable 0.6.0 can't reach it.
 
-## New since nightly.7
+## New since nightly.8
 
-- **Auto runs without you for longer.** It brings back agents whose turn failed or whose process died, holds a card that spends without progress, checks each change on the latest branch before merging, and takes cards agents add, up to 64 agents at once. When this host is full, it starts agents on linked hosts you name in Auto's settings.
-- **Auto's reviewer uses the change.** It builds and runs the commit instead of only reading a diff, a builder agrees a contract before it builds, and you can turn on scaling review to the risk of the change.
-- **Standing roles and a reservoir.** A project can name roles in `sikemux.json` that come back as work lands, such as docs or duplicate code, and a `reservoir` command that keeps Auto supplied with work.
-- **Pi in chat.** Pi now runs as a chat, on the Mac and the phone, with its dialogs answered in the question card.
-- **Connected keys stay out of agents.** A provider's key no longer enters an agent's environment, for Pi, OpenCode and OMP too. They reach it through the core's own model proxy.
-- **An agent's first write to a website or connector waits for you**, as the docs promised of everything leaving this Mac.
-- **A failed check reaches one agent**, the author of the commit that broke it, with the lines that name the error.
-- **Follow Omarchy's background.** On Omarchy, panes follow its wallpaper unless you choose a picture yourself.
+- **A new first-run setup.** Two required steps, Agents then Projects, on one poster-like screen. Every agent is listed with its state and the action it needs, installs and sign-ins run right there, and any one agent that works is enough to continue.
+- **Ruler.** The Limits panel becomes Ruler: Claude and Codex side by side, each with its tightest window and countdown, and the week left summed across accounts.
+- **Answered questions read as a card**, one per round, each question with your answer under it.
+- **Code blocks are a raised card** with their language's icon, and wrap and copy buttons.
+- **Closing a chat pauses its triggers** instead of deleting them. The toast offers Undo, and Recent keeps the chat with its paused triggers until you take it up again.
+- **Boards tidy themselves.** A finished card moves to the archive after three days, a card whose cards under it are all done is marked done, and a card whose owner went quiet goes back to Open.
+- **The desk's viewport menu** holds a page at Desktop, Tablet or Phone size, or Fit to follow the pane. ⌘K shows the desk alone and brings the agent back.
+- **Open a folder by path** in ⌘O, starting with / or ~.
+- **All projects lists agents on one line each.**
+- **Linux on arm64.** The desktop app now ships for arm64 as well as x86_64, as a deb, rpm, AppImage and tarball.
+- **Home's composer is the chat's**, with Stash, YOLO, the model, effort, the project, worktree and account in its bar.
 
 ## Fixes
 
-- A rule an agent wrote no longer reaches later agents as if it were yours.
-- A teammate's own checkout no longer holds up tab switches and messages while a large build folder is copied.
-- Under XWayland the app draws at the scale the compositor gives its displays.
-- The board stays fast with thousands of cards.
+- The bundled SQLite is updated for RUSTSEC-2026-0459.
+- A crash in WebKit while describing a failed tab script is gone.
+- An agent too busy to name its version in time is no longer shown as broken.
+- A shared checkout with nothing uncommitted can be moved, and git run outside any agent is never refused.
+- The notch peeks an inbox item once, not on every update.
+- Codex, Muse and OMP marks stay sharp at any size.
+- Under XWayland the window follows the scale of the display it is on, live.
 
-For the complete patch history, compare [`v0.6.1-nightly.7...v0.6.1-nightly.8`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.7...v0.6.1-nightly.8).
+For the complete patch history, compare [`v0.6.1-nightly.8...v0.6.1-nightly.9`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.8...v0.6.1-nightly.9).
