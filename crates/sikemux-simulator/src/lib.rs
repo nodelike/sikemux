@@ -19,6 +19,7 @@ use sikemux_process::sync::Locked;
 use claims::{Claim, Claims};
 use tools::{Device, Element, Numbered, Numbering};
 
+pub mod android;
 pub mod claims;
 mod helper;
 pub mod tools;
@@ -59,6 +60,7 @@ pub(crate) const MAX_BOOTED: usize = 3;
 const CALL_DEADLINE: Duration = Duration::from_secs(PAGE_REPLY_TIMEOUT.as_secs() - 15);
 /// A device Sikemux booted is shut down this long after nobody holds it, so an agent that restarts finds it still running.
 const SHUTDOWN_GRACE: Duration = Duration::from_secs(180);
+const BOOT_LIMIT: Duration = Duration::from_secs(180);
 const CANCELLED: &str = "the simulator call was cancelled";
 const OVERRAN: &str = "the simulator call ran out of time; call sim_state to see where it got to";
 
@@ -121,6 +123,7 @@ struct Shared {
 
 pub struct SimulatorManager {
     sim: SimManager,
+    android: android::Android,
     host: Arc<dyn Host>,
     /// The helper tests run in place of the app's own, which is downloaded if it must be.
     helper: Option<PathBuf>,
@@ -194,6 +197,7 @@ impl SimulatorManager {
     fn made(host: Arc<dyn Host>, helper: Option<PathBuf>, claims: Claims) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             sim: SimManager::default(),
+            android: android::Android::new(host.data_dir()),
             host,
             helper,
             claims,
@@ -223,10 +227,23 @@ impl SimulatorManager {
         self.enabled.load(Ordering::Relaxed)
     }
 
+    pub fn android(&self) -> &android::Android {
+        &self.android
+    }
+
     /// Whether agents are offered the `sim_*` tools: the person has not turned them
-    /// off, and this Mac can run simulators.
+    /// off, and this computer can run iOS simulators or has the Android SDK.
     pub(crate) fn offered(&self) -> bool {
-        self.enabled() && capable()
+        self.enabled() && (capable() || self.android.sdk().is_some())
+    }
+
+    /// Why no device can be driven here, when neither platform can run.
+    pub(crate) fn unavailable(&self) -> Option<String> {
+        let ios = unsupported_reason()?;
+        if self.android.sdk().is_some() {
+            return None;
+        }
+        Some(format!("{ios} {}", android::NO_SDK))
     }
 
     pub(crate) fn emit(&self, event: &str, payload: Value) {
@@ -236,7 +253,7 @@ impl SimulatorManager {
     /// Sends `kind` with `fields`, such as `tap` with `{"udid": …, "x": 10, "y": 20}`.
     pub async fn request(&self, kind: &str, fields: Value) -> Result<Value, String> {
         let limit = if kind == "boot" {
-            Duration::from_secs(180)
+            BOOT_LIMIT
         } else {
             Duration::from_secs(60)
         };
@@ -256,15 +273,58 @@ impl SimulatorManager {
             Value::Null => Map::new(),
             _ => return Err("simulator request fields must be an object".into()),
         };
+        let limit = remaining().map_or(limit, |left| limit.min(left));
+        if kind == "devices" {
+            return self.all_devices(limit).await;
+        }
+        if request
+            .get("udid")
+            .and_then(Value::as_str)
+            .is_some_and(android::is_android)
+        {
+            let answer = self.android.request(kind, request, limit).await;
+            checkpoint()?;
+            return answer;
+        }
         request.insert("type".into(), kind.into());
         let executable = match &self.helper {
             Some(path) => path.clone(),
             None => helper::executable(&*self.host).await?,
         };
-        let limit = remaining().map_or(limit, |left| limit.min(left));
         let answer = self.sim.call_within(executable, request, limit).await;
         checkpoint()?;
         answer.map_err(|error| error.to_string())
+    }
+
+    /// The iOS simulators the helper lists, when this Mac can run them, then the Android devices.
+    async fn all_devices(&self, limit: Duration) -> SimResult<Value> {
+        let ios = async {
+            if self.helper.is_none() && helper::supported().await.is_err() {
+                return Ok(Vec::new());
+            }
+            let executable = match &self.helper {
+                Some(path) => path.clone(),
+                None => helper::executable(&*self.host).await?,
+            };
+            let request = json!({ "type": "devices" });
+            let answer = self
+                .sim
+                .call_within(
+                    executable,
+                    request.as_object().cloned().unwrap_or_default(),
+                    limit,
+                )
+                .await?;
+            Ok::<_, String>(answer["devices"].as_array().cloned().unwrap_or_default())
+        };
+        let (ios, android) = tokio::join!(ios, self.android.devices());
+        let mut devices = match ios {
+            Ok(devices) => devices,
+            Err(error) if android.is_empty() => return Err(error),
+            Err(_) => Vec::new(),
+        };
+        devices.extend(android);
+        Ok(json!({ "devices": devices }))
     }
 
     /// Runs one of an agent's calls once its earlier ones are done, within the call's deadline.
@@ -427,6 +487,11 @@ impl SimulatorManager {
             .into_iter()
             .filter(|udid| self.claims.holder(udid).is_none())
             .collect();
+        let (emulators, unheld): (Vec<String>, Vec<String>) = unheld
+            .into_iter()
+            .partition(|udid| android::is_android(udid));
+        self.android.shut_down(&emulators);
+        self.android.drain();
         if unheld.is_empty() {
             return;
         }
@@ -818,7 +883,36 @@ impl SimulatorManager {
 
     /// A request from the window's own view of a device, such as a tap the person
     /// made on its screen. A boot is remembered as Sikemux's.
-    pub async fn window_call(&self, request: Map<String, Value>) -> SimResult<Value> {
+    pub async fn window_call(&self, mut request: Map<String, Value>) -> SimResult<Value> {
+        let kind = request
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        let android = request
+            .get("udid")
+            .and_then(Value::as_str)
+            .is_some_and(android::is_android);
+        if kind == "devices" || android {
+            request.remove("type");
+            let limit = if kind == "boot" {
+                BOOT_LIMIT
+            } else {
+                Duration::from_secs(60)
+            };
+            let answer = match kind.as_str() {
+                "devices" => self.all_devices(limit).await,
+                _ => self.android.request(&kind, request.clone(), limit).await,
+            };
+            if let (Ok(_), "boot", Some(udid)) = (
+                &answer,
+                kind.as_str(),
+                request.get("udid").and_then(Value::as_str),
+            ) {
+                self.note_booted(udid);
+            }
+            return answer;
+        }
         helper::supported().await?;
         let boot = request.get("type").and_then(Value::as_str) == Some("boot");
         let udid = request
