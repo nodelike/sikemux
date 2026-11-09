@@ -1162,6 +1162,31 @@ impl Workbench {
         }
     }
 
+    /// Lets the nearest agent's desk fill its tab, opening it when it is closed, or puts the
+    /// agent back beside it.
+    pub fn toggle_desk_alone(&mut self, cx: &mut Context<Self>) {
+        let Some((tab, view, agent)) = self.nearest_agent(cx) else {
+            return;
+        };
+        match self.desk_of(&tab, &agent) {
+            Some(desk) if self.panes.zoomed.as_ref() == Some(&desk) => self.panes.zoomed = None,
+            Some(desk) => {
+                if self.panes.desk_shutting(&desk) {
+                    self.panes.slide_desk(&desk, true);
+                }
+                self.panes.zoomed = Some(desk);
+            }
+            None => {
+                let Some(strip) = self.strip() else {
+                    return;
+                };
+                self.split_desk_alone(&strip, &tab, &view, &agent, cx);
+                self.open_first_page(&agent, cx);
+            }
+        }
+        self.parts.redraw_stage(cx);
+    }
+
     /// The nearest agent's desk, turned to its simulator.
     pub fn front_simulator(&mut self, cx: &mut Context<Self>) {
         if let Some((_, _, agent)) = self.nearest_agent(cx) {
