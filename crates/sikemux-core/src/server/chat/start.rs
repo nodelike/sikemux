@@ -218,8 +218,19 @@ pub(super) fn start(
     let resume_id = launch_spec.resume_id.clone();
     let waking = core.workspaces.agent(&launch_spec.agent_id).is_some();
     let (chat, queue) = core.chats.insert(core, launch_spec, origin, None)?;
-    if resume_id.is_none() && !briefed {
-        *chat.brief.locked() = crate::server::memory::for_chat(core, &chat.launch.cwd);
+    match &resume_id {
+        None if !briefed => {
+            *chat.brief.locked() = crate::server::memory::for_chat(core, &chat.launch.cwd);
+        }
+        Some(session) if !waking => {
+            *chat.brief.locked() = crate::server::board::lease::resumed_session(
+                core,
+                chat.agent_id(),
+                chat.provider(),
+                session,
+            );
+        }
+        _ => {}
     }
     core.workspaces.note_begun(&chat);
     crate::server::model_providers::chat_begun(core, &chat.launch);

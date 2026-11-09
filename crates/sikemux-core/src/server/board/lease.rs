@@ -316,12 +316,63 @@ pub(super) fn give(core: &Core, project: &str, id: u64, agent: &str) -> Result<(
         .get_mut(project)
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let card: &mut Card = board.card_mut(id)?;
-    if let Some(owner) = holder(core, card) {
+    if let Some(owner) = holder(core, card).filter(|owner| *owner != agent) {
         return Err(format!("{} has #{id} now", name_of(core, owner)));
     }
     take_on(core, board, id, agent)?;
     core.boards.save(&mut state, project);
     Ok(())
+}
+
+/// A chat taken up again on the provider session of an owner that lost its slices holds them
+/// again, unless someone took them meanwhile, and answers with where its goal and card stand,
+/// for it to be handed with its next message.
+pub(crate) fn resumed_session(
+    core: &Core,
+    agent: &str,
+    provider: &str,
+    session: &str,
+) -> Option<String> {
+    let ran = |stalled: &Stalled| {
+        core.names
+            .ran_session(&stalled.agent)
+            .is_some_and(|ran| ran.provider == provider && ran.session_id == session)
+    };
+    let mut taken = false;
+    {
+        let mut state = core.boards.state.locked();
+        let projects: Vec<String> = state.boards.keys().cloned().collect();
+        for project in projects {
+            let Some(board) = state.boards.get_mut(&project) else {
+                continue;
+            };
+            let lost: Vec<u64> = (board.cards.iter())
+                .filter(|card| card.owner.is_none())
+                .filter(|card| {
+                    (card.slice.as_ref())
+                        .and_then(|slice| slice.stalled.as_ref())
+                        .is_some_and(ran)
+                })
+                .map(|card| card.id)
+                .collect();
+            let mut changed = false;
+            for id in lost {
+                changed |= take_on(core, board, id, agent).is_ok();
+            }
+            if changed {
+                core.boards.save(&mut state, &project);
+                taken = true;
+            }
+        }
+    }
+    let standing = standing_for(core, agent);
+    (!standing.is_empty()).then(|| {
+        let lead = match taken {
+            true => "You lost your slice while your chat was closed and hold it again now that it is taken up.",
+            false => "Your chat was closed and is taken up again.",
+        };
+        format!("{lead} Where your work stands now, as Sikemux keeps it:\n\n{standing}")
+    })
 }
 
 /// The chat that lost the slice `id` by sitting idle is working again, so it holds the slice
@@ -415,6 +466,9 @@ pub(crate) async fn person_resume(
     let (project, stalled, label) = stalled_card(core, &params).await?;
     let agent = bring_back(core, &stalled).await?;
     give(core, &project, params.id, &agent)?;
+    if let Some(chat) = core.chats.get(&agent) {
+        chat.take_brief();
+    }
     let standing = standing_for(core, &agent);
     tell(core, &agent, format!(
         "You lost your slice {label} because you stalled, and the person gave it back to you. board_list with card {} shows where it stands: carry on with it.\n\n{standing}",
