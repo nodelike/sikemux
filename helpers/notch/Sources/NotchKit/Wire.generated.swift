@@ -462,6 +462,9 @@ enum InboxKind: String, Codable, Hashable {
     case failed
     case finished
     case working
+    /// Something about a host needs the person, as `hostAlert` says: this host's, or the
+    /// linked one `host` names. Open its page on the Hosts tab.
+    case hostAlert
     /// One added after this build.
     case unknown
 

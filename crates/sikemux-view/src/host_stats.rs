@@ -54,6 +54,9 @@ pub struct HostStats {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostAbout {
+    /// The computer's own name, such as "kishore-mbp".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     /// What its maker calls it, such as "Mac mini (M2, 2023)" or "Hetzner AX52".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -189,6 +192,8 @@ pub enum HostAlertKind {
     Disk,
     /// Every core busy for a while.
     Cpu,
+    /// A linked host stopped answering.
+    Offline,
     #[serde(other)]
     Unknown,
 }

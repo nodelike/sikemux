@@ -10,7 +10,7 @@ use sikemux_process::sync::Locked;
 use tokio::sync::Notify;
 
 use super::connection::ClientConn;
-use super::{access, display, goals, inbox, layout, load, updates, workspace, Core};
+use super::{access, display, goals, host_stats, inbox, layout, updates, workspace, Core};
 use sikemux_view::device::DeviceView;
 use sikemux_wire::protocol::{encode_device_view, AgentGroup};
 
@@ -222,8 +222,8 @@ impl Core {
             account: self.account.shown().map(Box::new),
             face_style: Box::new(self.faces.style()),
             load: self.shows_load().then(|| {
-                let load = load::now();
-                *self.device_view.shown_load.locked() = Some(load::shown(&load));
+                let load = host_stats::load(self);
+                *self.device_view.shown_load.locked() = Some(host_stats::shown_load(&load));
                 load
             }),
             updates: updates::host_view(self),
@@ -256,7 +256,7 @@ impl Core {
 
     /// Whether what the rows show of `load` moved since the view last went out.
     pub(crate) fn load_moved(&self, load: &sikemux_view::device::HostLoad) -> bool {
-        *self.device_view.shown_load.locked() != Some(load::shown(load))
+        *self.device_view.shown_load.locked() != Some(host_stats::shown_load(load))
     }
 
     /// Sends every paired device what it shows of this host, when that changed since they were

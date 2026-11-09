@@ -173,6 +173,22 @@ impl Hosts {
         state.connections.contains_key(host) || !state.down.contains_key(host)
     }
 
+    /// The linked hosts that failed to answer for `for_ms` or longer, each with since when.
+    pub(crate) fn out_of_reach(&self, for_ms: u64) -> Vec<(String, u64)> {
+        let now = epoch_ms();
+        let state = self.state.locked();
+        state
+            .down
+            .iter()
+            .filter(|(host, down)| {
+                down.failures > 0
+                    && now.saturating_sub(down.since) >= for_ms
+                    && !state.connections.contains_key(*host)
+            })
+            .map(|(host, down)| (host.clone(), down.since))
+            .collect()
+    }
+
     /// Whether it is time to tell an agent's teammates elsewhere that it did
     /// other work, noting that they are told now.
     pub(crate) fn worked_due(&self, agent_id: &str, every_ms: u64) -> bool {

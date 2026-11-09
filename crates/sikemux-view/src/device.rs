@@ -37,7 +37,7 @@ pub struct DeviceView {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostLoad {
-    /// The last minute's load as a share of the host's cores, in percent.
+    /// How busy all its cores were lately, in percent.
     pub cpu: u32,
     /// Memory in use, in bytes, where the host says.
     pub memory_used: Option<u64>,

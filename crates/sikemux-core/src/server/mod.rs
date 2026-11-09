@@ -51,7 +51,6 @@ mod kept;
 pub mod launching;
 pub mod layout;
 mod lifecycle;
-mod load;
 mod local_peer;
 pub mod lsp;
 pub mod memory;
@@ -388,6 +387,7 @@ pub(crate) struct Core {
     pub(crate) session_watch: session_watch::SessionWatch,
     pub(crate) activity_log: Arc<activity_log::ActivityLog>,
     pub(crate) device_view: device_view::DeviceViews,
+    pub(crate) host_watch: host_stats::HostWatch,
     pub(crate) names: names::Names,
     pub(crate) boards: board::Boards,
     pub(crate) goal_summaries: goal_summary::Summaries,
@@ -538,6 +538,7 @@ impl Core {
             session_watch: session_watch::SessionWatch::default(),
             activity_log: Arc::new(activity_log::ActivityLog::new(data_dir)),
             device_view: device_view::DeviceViews::default(),
+            host_watch: host_stats::HostWatch::default(),
             names,
             boards: board::Boards::new(data_dir),
             goal_summaries: goal_summary::Summaries::new(data_dir),
@@ -1130,7 +1131,6 @@ pub(crate) async fn run_core(
     background.extend([
         tokio::spawn(poll_sessions(core.clone())),
         tokio::spawn(sweep(core.clone())),
-        tokio::spawn(load::watch(core.clone())),
         tokio::spawn(network_watch::run(core.clone())),
     ]);
     let mut shutdown = core.shutdown.subscribe();

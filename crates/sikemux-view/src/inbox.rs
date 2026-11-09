@@ -114,6 +114,12 @@ pub enum InboxKind {
     Failed,
     Finished,
     Working,
+    /// Something about a host needs the person, as `hostAlert` says: this host's, or the
+    /// linked one `host` names. Open its page on the Hosts tab.
+    HostAlert,
+    /// A kind from a later release.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A browser recording an agent made.
@@ -226,9 +232,12 @@ pub struct InboxItem {
     pub url: Option<String>,
     pub handoff: Option<InboxHandoff>,
     pub recordings: Vec<InboxRecording>,
-    /// The linked host the agent runs on, when it is not this one.
+    /// The linked host the agent runs on, or a HostAlert item is about, when it is not this one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host: Option<String>,
+    /// What a HostAlert item is about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_alert: Option<crate::host_stats::HostAlert>,
     /// What the person can do about the slice on `card` losing `agentId`: `boardResumeOwner`
     /// or `boardHandOn`.
     #[serde(default, skip_serializing_if = "Option::is_none")]

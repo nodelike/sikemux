@@ -793,8 +793,10 @@ export interface InboxItem {
     url: string | null;
     handoff: InboxHandoff | null;
     recordings: InboxRecording[];
-    /** The linked host the agent runs on, when it is not this one. */
+    /** The linked host the agent runs on, or a HostAlert item is about, when it is not this one. */
     host?: string;
+    /** What a HostAlert item is about. */
+    hostAlert?: HostAlert;
     /**
      * What the person can do about the slice on `card` losing `agentId`: `boardResumeOwner`
      * or `boardHandOn`.
@@ -825,7 +827,8 @@ export type InboxKind =
     | "changes"
     | "failed"
     | "finished"
-    | "working";
+    | "working"
+    | "hostAlert";
 
 /** What the person is needed for, for an item that waits on them. */
 export type InboxNeed = "decide" | "unblock" | "fix";
@@ -1020,6 +1023,20 @@ export interface InboxRecording {
     feed: string | null;
     turn: number | null;
 }
+
+/** Something about the host that needs the person, while it lasts. */
+export interface HostAlert {
+    kind: HostAlertKind;
+    level: AlertLevel;
+    /** When it started, in Unix milliseconds. */
+    since: number;
+    /** How full or busy, in percent. */
+    percent: number;
+}
+
+export type HostAlertKind = "memory" | "disk" | "cpu" | "offline";
+
+export type AlertLevel = "warn" | "danger";
 
 export interface InboxStalled {
     /** Whether the agent or its session is there to start again. */
@@ -1239,7 +1256,7 @@ export interface FaceStyle {
 
 /** How busy a host is, for the rows clients show it in. */
 export interface HostLoad {
-    /** The last minute's load as a share of the host's cores, in percent. */
+    /** How busy all its cores were lately, in percent. */
     cpu: number;
     /** Memory in use, in bytes, where the host says. */
     memoryUsed: number | null;

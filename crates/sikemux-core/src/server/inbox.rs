@@ -32,6 +32,7 @@ use super::roster;
 use super::{Core, CoreResult};
 use sikemux_fold::AgentNeed;
 use sikemux_view::chat::TeamNeedKind;
+use sikemux_view::host_stats::HostAlertKind;
 use sikemux_view::slice::{Gate, Proof};
 
 use super::board::environments::Step;
@@ -75,6 +76,8 @@ enum Case {
     Ship(ShipHold),
     /// An agent proposed the project's environments, for the person to accept.
     ProposedEnvironments,
+    /// Something about a host needs the person.
+    HostAlert,
     /// An agent wrote a command as an assertion's evidence, for the person to accept.
     ProposedCommand,
     PullRequest,
@@ -138,6 +141,7 @@ impl Case {
                 (InboxKind::Held, Wants::Person(Decide))
             }
             Case::ProposedEnvironments => (InboxKind::ProposedEnvironments, Wants::Person(Decide)),
+            Case::HostAlert => (InboxKind::HostAlert, Wants::Person(Fix)),
             Case::Failed(Some(Fault::Account)) => (InboxKind::Failed, Wants::Person(Unblock)),
             Case::Failed(Some(Fault::Broke)) => (InboxKind::Failed, Wants::Person(Fix)),
             Case::Failed(Some(Fault::Retrying) | None) => {
@@ -646,6 +650,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         handoff: None,
         recordings: Vec::new(),
         host: None,
+        host_alert: None,
     }
 }
 
@@ -1588,6 +1593,7 @@ pub(crate) fn agent_needs(core: &Core) -> Vec<AgentNeed> {
 /// Everything that waits on the person besides how agents' turns went.
 fn waiting(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxItem> {
     let mut items = needs(core, agents, sessions);
+    items.extend(host_alert_items(core));
     for card in board::cards_for_person(core, None) {
         if let Some(item) = card
             .waits
@@ -1599,6 +1605,28 @@ fn waiting(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<Inbox
         }
     }
     items
+}
+
+/// What about this host and the linked ones needs the person, each named by its host.
+fn host_alert_items(core: &Core) -> Vec<InboxItem> {
+    let alerts = super::host_stats::inbox_alerts(core);
+    (alerts.into_iter())
+        .map(|(host, name, alert)| {
+            let (word, what) = match alert.kind {
+                HostAlertKind::Memory => ("memory", format!("Memory {}% used", alert.percent)),
+                HostAlertKind::Disk => ("disk", format!("Disk {}% full", alert.percent)),
+                HostAlertKind::Cpu => ("cpu", format!("CPU {}% busy", alert.percent)),
+                HostAlertKind::Offline => ("offline", "Out of reach".to_owned()),
+                HostAlertKind::Unknown => ("unknown", String::new()),
+            };
+            let id = format!("host-alert:{}:{word}", host.as_deref().unwrap_or("here"));
+            let mut item = item(id, Case::HostAlert, what, alert.since);
+            item.title = Some(name);
+            item.host = host;
+            item.host_alert = Some(alert);
+            item
+        })
+        .collect()
 }
 
 fn view_of(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Inbox {

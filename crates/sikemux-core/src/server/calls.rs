@@ -134,7 +134,7 @@ calls! { core, client, method, params;
     "agentCatalog" AgentCatalog (NoParams) -> Vec<CatalogAgent>: Watch, any_program => super::catalog::view(),
     "agentNameTheme" AgentNameTheme (NoParams) -> names::NameThemeParams: Full => names::name_theme(&core),
     "setAgentNameTheme" SetAgentNameTheme (names::NameThemeParams) -> names::NameThemeParams: Owner, counted => names::set_name_theme(&core, params),
-    "hostLoad": Watch, any_program => answer(super::load::now()),
+    "hostLoad": Watch, any_program => answer(super::host_stats::load(&core)),
     "stopChatIfIdle": NoDevice => answer(json!({ "stopped": super::lifecycle::sleep(&core, &parse::<AgentParams>(params)?.agent_id) })),
     "switchAgentView" SwitchAgentView (super::agent_view::AgentViewParams) -> Value: Owner => super::agent_view::switch(&core, params).await?,
     "sleepAgent" SleepAgent (AgentParams) -> (): Owner, counted => super::lifecycle::sleep_agent(&core, &params.agent_id)?,

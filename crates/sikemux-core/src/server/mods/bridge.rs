@@ -302,7 +302,7 @@ async fn run(
         Reach::Usage => Ok(serde_json::to_value(
             super::super::agent_accounts::usages(core).await,
         )?),
-        Reach::Load => Ok(serde_json::to_value(super::super::load::now())?),
+        Reach::Load => Ok(serde_json::to_value(super::super::host_stats::load(core))?),
         Reach::Repo => {
             let project = in_project(params, &project)?["project"]
                 .as_str()

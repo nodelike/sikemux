@@ -47,6 +47,7 @@ impl Core {
             &self.ports,
             &self.spares,
             &self.device_view,
+            &self.host_watch,
             &self.lifecycle,
             &self.updates,
             &self.changes,

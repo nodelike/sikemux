@@ -160,6 +160,14 @@ fn live_roots() -> HashMap<u32, (u64, String)> {
         .collect()
 }
 
+/// Every agent's root process that still runs, with its agent.
+pub(crate) fn agent_roots() -> HashMap<u32, String> {
+    live_roots()
+        .into_iter()
+        .map(|(pid, (_, agent_id))| (pid, agent_id))
+        .collect()
+}
+
 /// The agent whose process holds the client end of the loopback connection
 /// from `peer` to this core's `port`. Blocks while it reads the process table.
 pub(crate) fn identify(peer: SocketAddr, port: u16) -> Option<String> {
