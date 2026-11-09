@@ -19,6 +19,7 @@ mod code_host_marks;
 mod command_popup;
 mod commands;
 pub mod console;
+pub mod copies;
 pub mod core;
 mod desk;
 mod diagram;

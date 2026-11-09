@@ -19,10 +19,10 @@ use sikemux_core::server::hosts::HostReach;
 use sikemux_view::device::AccountInfo;
 use sikemux_view::layout::PaneKind;
 use sikemux_view::prefs::{Preferences, TabRailPage, TabRailScope};
-use sikemux_view::workspace::ProjectInfo;
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
 use crate::agents::rows::AgentRow;
+use crate::copies::Folded;
 use crate::hosts::install_pane::{SetUp, Words};
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
@@ -159,11 +159,14 @@ pub const SIDE_RAIL: RailWidth = RailWidth {
 
 pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let space = bench.space();
-    let projects: Vec<_> = bench
-        .projects()
-        .iter()
-        .filter(|project| space.is_none_or(|space| project.space.as_deref() == Some(&space.id)))
-        .map(|project| project_tree(bench, project, cx).into_any_element())
+    let listed = bench.folded();
+    let projects: Vec<_> = (listed.iter())
+        .filter(|folded| {
+            space.is_none_or(|space| {
+                folded.own.as_ref().and_then(|own| own.space.as_deref()) == Some(&space.id)
+            })
+        })
+        .map(|folded| project_tree(bench, folded, cx).into_any_element())
         .collect();
     let empty = match space {
         Some(space) => format!("no projects in {}", space.name),
@@ -199,7 +202,7 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                             ],
                             cx,
                         ))
-                        .toolbar((!bench.projects().is_empty()).then(|| space_switch(bench, cx)))
+                        .toolbar((!listed.is_empty()).then(|| space_switch(bench, cx)))
                         .children(projects),
                 )
                 .child(
@@ -781,60 +784,93 @@ fn actions<const N: usize>(
 
 fn project_tree(
     bench: &Workbench,
-    project: &ProjectInfo,
+    folded: &Folded,
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
+    let in_front = bench.copy_in_front(folded).cloned();
     let active = !bench.settings.read(cx).is_open()
-        && bench.strip() == Some(Strip::Project(project.id.clone()));
-    let agents = bench.agents_of(&project.id);
-    let id = project.id.clone();
-    let menu = project_menu(bench, project, cx);
-    let name = project.name.clone();
-    let closable = bench.projects().len() > 1;
-    let close = closable.then(|| {
-        let project = project.clone();
+        && in_front
+            .as_ref()
+            .is_some_and(|copy| bench.strip() == Some(Strip::Project(copy.project.clone())));
+    let agents = bench.agents_of_folded(folded);
+    let key = folded.key();
+    let menu = project_menu(bench, folded, cx);
+    let front = bench.front_copy(folded).cloned();
+    let closing = (front.clone())
+        .filter(|copy| {
+            bench
+                .view_at(&copy.place)
+                .is_some_and(|view| view.workspace.projects.len() > 1)
+        })
+        .and_then(|copy| {
+            let project = bench.project_on(&copy.place, &copy.project)?.clone();
+            Some((copy.place, project))
+        });
+    let close = closing.map(|(place, project)| {
         ui::hover_actions(PROJECT_ROW)
             .top_0()
             .bottom_0()
             .child(ui::close_button(
-                SharedString::from(format!("close-project-{}", project.id)),
+                SharedString::from(format!("close-project-{key}")),
                 format!("Close {}", project.name),
-                cx.listener(move |bench, _, _, cx| bench.close_project(project.clone(), cx)),
+                cx.listener(move |bench, _, _, cx| {
+                    bench.close_project(place.clone(), project.clone(), cx)
+                }),
                 cx,
             ))
     });
+    let go = {
+        let (front, identity) = (front.clone(), folded.identity.clone());
+        cx.listener(move |bench, _, _, cx| {
+            if let Some(front) = &front {
+                bench.go_to_copy(front, identity.as_deref(), cx)
+            }
+        })
+    };
+    let name = folded.name.clone();
+    let row = Row::new(
+        SharedString::from(format!("project-{key}")),
+        folded.name.clone(),
+    )
+    .mark(16., ui::icon(Icon::Folder, 13.).text_color(t.live))
+    .quiet()
+    .bold(active)
+    .chosen(active)
+    .padding_right(4.)
+    .when(close.is_some(), |row| row.hover_padding(PROJECT_ROW, 28.))
+    .on_click(go)
+    .child(faces(&agents, cx))
+    .children(crate::copies::where_held(folded, cx))
+    .status(rollup(bench, folded, cx))
+    .into_any_element();
+    let row = match &folded.own {
+        Some(own) => crate::drag::project(
+            row,
+            crate::drag::DraggedProject {
+                id: own.id.clone(),
+                label: own.name.clone().into(),
+            },
+            &cx.entity(),
+            cx,
+        )
+        .into_any_element(),
+        None => row,
+    };
     let row = div()
-        .id(SharedString::from(format!("project-menu-{}", project.id)))
+        .id(SharedString::from(format!("project-menu-{key}")))
         .group(PROJECT_ROW)
         .relative()
         .children(ui::spot(|| format!("project-row-{name}")))
         .context_menu(ui::menu(menu))
-        .child(crate::drag::project(
-            Row::new(
-                SharedString::from(format!("project-{}", project.id)),
-                project.name.clone(),
-            )
-            .mark(16., ui::icon(Icon::Folder, 13.).text_color(t.live))
-            .quiet()
-            .bold(active)
-            .chosen(active)
-            .padding_right(4.)
-            .when(closable, |row| row.hover_padding(PROJECT_ROW, 28.))
-            .on_click(cx.listener(move |bench, _, _, _| bench.activate_project(&id)))
-            .child(faces(&agents, cx))
-            .status(rollup(bench, &project.id, cx))
-            .into_any_element(),
-            crate::drag::DraggedProject {
-                id: project.id.clone(),
-                label: project.name.clone().into(),
-            },
-            &cx.entity(),
-            cx,
-        ))
+        .child(row)
         .children(close);
+    let copies = (folded.copies.len() > 1)
+        .then(|| crate::copies::copy_row(bench, folded, cx))
+        .flatten();
     div().flex().flex_col().child(row).when(active, |tree| {
         tree.pb(SPACE_1)
+            .children(copies.map(|copies| div().ml(px(13.5)).pt(SPACE_0).child(copies)))
             .child(surfaces(lit_surface(bench), bench.environments_lit(cx), cx))
     })
 }
@@ -860,77 +896,64 @@ fn lit_surface(bench: &Workbench) -> Option<PaneKind> {
 /// The hover group of a project's row, whose × shows on hover.
 const PROJECT_ROW: &str = "project-row";
 
-/// What right-clicking a project offers: its settings, and the space the rail lists it under.
+/// What right-clicking a project offers: the settings of the copy the person works on, its
+/// copies and a copy on each host without one, and the space the rail lists this host's copy
+/// under.
 fn project_menu(
     bench: &Workbench,
-    project: &ProjectInfo,
+    folded: &Folded,
     cx: &Context<Workbench>,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
     let bench_entity = cx.weak_entity();
-    let (id, current) = (project.id.clone(), project.space.clone());
-    let path = project.path.clone();
-    let others = bench.other_hosts();
-    let spaces: Vec<(String, String, Option<Icon>)> = bench.shown().map_or(Vec::new(), |view| {
-        view.workspace
-            .spaces
-            .iter()
-            .map(|space| {
-                (
-                    space.id.clone(),
-                    space.name.clone(),
-                    Icon::named(&space.icon),
-                )
-            })
-            .collect()
-    });
-    move |popup, _, _| {
+    let front = bench.front_copy(folded).cloned();
+    let own = (folded.own.as_ref()).map(|own| (own.id.clone(), own.space.clone()));
+    let copies = crate::copies::copy_menu(bench, folded, cx);
+    let spaces: Vec<(String, String, Option<Icon>)> =
+        bench.this_view().map_or(Vec::new(), |view| {
+            view.workspace
+                .spaces
+                .iter()
+                .map(|space| {
+                    (
+                        space.id.clone(),
+                        space.name.clone(),
+                        Icon::named(&space.icon),
+                    )
+                })
+                .collect()
+        });
+    move |popup, window, cx| {
         let act = |work: Rc<dyn Fn(&mut Workbench)>| {
             let bench = bench_entity.clone();
             move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
                 let _ = bench.update(cx, |bench, _| work(bench));
             }
         };
+        let mut popup = match &front {
+            Some(front) => {
+                let front = front.clone();
+                popup.item(
+                    PopupMenuItem::new("Project settings")
+                        .icon(Icon::Settings)
+                        .on_click(act(Rc::new(move |bench: &mut Workbench| {
+                            bench.open_copy_settings(&front)
+                        }))),
+                )
+            }
+            None => popup,
+        };
+        popup = copies(popup.separator(), window, cx);
+        let Some((id, current)) = &own else {
+            return popup;
+        };
         let move_to = |space: Option<String>| {
             let id = id.clone();
             act(Rc::new(move |bench: &mut Workbench| {
-                bench
-                    .target()
-                    .call_typed::<call::UpdateProject>(UpdateProjectParams::space(
-                        id.clone(),
-                        space.clone(),
-                    ))
+                crate::core::Target::here(&bench.asks).call_typed::<call::UpdateProject>(
+                    UpdateProjectParams::space(id.clone(), space.clone()),
+                )
             }))
         };
-        let settings = {
-            let id = id.clone();
-            act(Rc::new(move |bench: &mut Workbench| {
-                bench.open_project_settings(&id)
-            }))
-        };
-        let mut popup = popup.item(
-            PopupMenuItem::new("Project settings")
-                .icon(Icon::Settings)
-                .on_click(settings),
-        );
-        for (host, label, reached, after) in &others {
-            let (bench, path, host, label, after) = (
-                bench_entity.clone(),
-                path.clone(),
-                host.clone(),
-                label.clone(),
-                after.clone(),
-            );
-            popup = popup.item(
-                PopupMenuItem::new(format!("Open on {label}"))
-                    .icon(Icon::Server)
-                    .disabled(!reached)
-                    .on_click(move |_, _, cx| {
-                        let _ = bench.update(cx, |bench, cx| {
-                            bench.open_on(&path, &host, label.clone(), after.clone(), cx)
-                        });
-                    }),
-            );
-        }
         popup = popup.separator();
         for (space, name, glyph) in &spaces {
             let mut item = PopupMenuItem::new(name.clone())
@@ -996,15 +1019,22 @@ fn faces(agents: &[AgentRow], cx: &App) -> impl IntoElement {
         })
 }
 
-/// How a project's open agents stand together, as the core rolls them up; none while all are idle.
-fn rollup(bench: &Workbench, project: &str, cx: &App) -> Option<gpui_kit::AnyElement> {
-    let status = match bench.shown()?.inbox.projects.get(project)?.group {
+/// How a project's open agents stand together on every host that holds it, as each core rolls
+/// them up; none while all are idle.
+fn rollup(bench: &Workbench, folded: &Folded, cx: &App) -> Option<gpui_kit::AnyElement> {
+    let group = (folded.copies.iter())
+        .filter_map(|copy| {
+            let view = bench.view_at(&copy.place)?;
+            Some(view.inbox.projects.get(&copy.project)?.group)
+        })
+        .min()?;
+    let status = match group {
         AgentGroup::Blocked => AgentStatus::Blocked,
         AgentGroup::Working => AgentStatus::Working,
         AgentGroup::Done => AgentStatus::Done,
         AgentGroup::Idle => return None,
     };
-    ui::status_mark(&format!("project:{project}"), status, cx)
+    ui::status_mark(&format!("project:{}", folded.key()), status, cx)
 }
 
 /// The project's surfaces and its environments, hung off a spine with a tick to each, the one
@@ -1130,7 +1160,7 @@ fn tree_row(
 fn space_switch(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let spaces = bench
-        .shown()
+        .this_view()
         .map_or(&[][..], |view| view.workspace.spaces.as_slice());
     if spaces.is_empty() {
         return div()

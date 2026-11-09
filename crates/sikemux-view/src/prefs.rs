@@ -162,6 +162,9 @@ pub struct Preferences {
     pub window_view: WindowView,
     /// The commands the person ran from the command deck, the last first.
     pub recent_command_keys: Vec<String>,
+    /// The host whose copy of each project is in front (ADR 0023), by the
+    /// project's identity: `this` or `host:<key>`.
+    pub front_copies: BTreeMap<String, String>,
 }
 
 /// Declares `PreferenceChange`, a row for each field of `Preferences`. The compiler refuses a field
@@ -252,6 +255,7 @@ preference_changes! {
     TabRailAllAgents tab_rail_all_agents: bool,
     WindowView window_view: WindowView,
     RecentCommandKeys recent_command_keys: Vec<String>,
+    FrontCopies front_copies: BTreeMap<String, String>,
 }
 
 /// What the window shows in place of the other.
@@ -392,6 +396,7 @@ impl Default for Preferences {
             tab_rail_all_agents: false,
             window_view: WindowView::default(),
             recent_command_keys: Vec::new(),
+            front_copies: BTreeMap::new(),
         }
     }
 }

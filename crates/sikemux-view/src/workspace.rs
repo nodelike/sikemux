@@ -23,11 +23,16 @@ pub struct ProjectInfo {
     /// host's plugin id, over what its remote and the host's accounts say.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub code_hosts: BTreeMap<String, CodeHostChoice>,
-    /// What the project is known by on every host (ADR 0017): its remote,
-    /// normalised, else its repository's first commit. A folder outside git
-    /// has none. The core keeps it; clients only read it.
+    /// What the project is known by on every host (ADR 0023): its remote,
+    /// normalised, else its repository's first commit, then its folder within
+    /// the repository when it is not the top. A folder outside git has none.
+    /// The core keeps it; clients only read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<String>,
+    /// The copies the account's other hosts hold of the same repository, as
+    /// each last said. The core fills it in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub copies: Vec<ProjectCopy>,
     /// Where its repository stands, while the folder is one. The core fills
     /// it in; clients only read it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -45,6 +50,38 @@ pub struct ProjectInfo {
     /// The core fills it in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_host: Option<ProjectCodeHost>,
+}
+
+/// A project's copy on another host of the account (ADR 0023), as that host
+/// last said.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectCopy {
+    /// The host's key.
+    pub host: String,
+    /// What the person named the host.
+    pub host_name: String,
+    /// The project's id on that host.
+    pub project: String,
+    pub name: String,
+    pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<ProjectGit>,
+    /// This host cannot reach that one now, so the copy is as it last said.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub away: bool,
+}
+
+/// A project only the account's other hosts hold, each with its copy there.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectElsewhere {
+    pub name: String,
+    /// Its identity, as [`ProjectInfo::identity`]; none for a folder outside
+    /// git, which has one copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<String>,
+    pub copies: Vec<ProjectCopy>,
 }
 
 /// A project's repository on a code host, and what Sikemux shows of it.
@@ -235,6 +272,10 @@ pub struct ConfigChoice {
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
     pub projects: Vec<ProjectInfo>,
+    /// The projects only the account's other hosts hold, after this host's
+    /// own. The core fills it in.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub elsewhere: Vec<ProjectElsewhere>,
     #[serde(default)]
     pub spaces: Vec<SpaceInfo>,
     #[serde(default)]

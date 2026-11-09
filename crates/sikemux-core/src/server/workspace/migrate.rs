@@ -134,6 +134,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 path: cwd.into(),
                 pinned: session["pinned"].as_bool().unwrap_or(false),
                 identity: None,
+                copies: Vec::new(),
                 git: None,
                 launcher: None,
                 code_host: None,

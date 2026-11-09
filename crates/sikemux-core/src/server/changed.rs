@@ -75,6 +75,7 @@ impl Core {
     /// The view is built afresh, and with it what the inbox is made from may have moved.
     fn view_moved(&self) {
         self.device_view.stale.notify_one();
+        self.hosts.copies.wake.now();
         self.notify.inbox_moved();
     }
 

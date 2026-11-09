@@ -11,6 +11,7 @@
 pub(crate) mod account;
 mod calls;
 pub(crate) mod code;
+pub(crate) mod copies;
 pub mod install;
 mod join;
 mod link;
@@ -92,6 +93,8 @@ pub(crate) struct Hosts {
     state: Mutex<State>,
     pub(crate) outbox: outbox::Outbox,
     pub(crate) team: team::Team,
+    /// What the other hosts hold of the account's projects.
+    pub(crate) copies: copies::Copies,
     /// Tries hosts out of reach again and tells leads when one stays away.
     pub(crate) wake: Wake,
     /// Links with the account's other hosts, when it may have one not linked.
@@ -117,6 +120,7 @@ impl Hosts {
             state: Mutex::new(State::default()),
             outbox: outbox::Outbox::new(data_dir),
             team: team::Team::new(data_dir),
+            copies: copies::Copies::new(data_dir),
             wake: Wake::default(),
             relink: Wake::default(),
             linking: AtomicBool::new(false),
@@ -468,6 +472,7 @@ fn adopt(core: &Arc<Core>, host: &str, connection: Connection) {
     ));
     tokio::spawn(until_closed(core.clone(), host.to_owned(), connection));
     flush(core, host);
+    core.hosts.copies.reached(host);
     route::resync(core, host);
     if was_down.is_some_and(|down| down.told) {
         route::back_in_reach(core, host);
@@ -550,6 +555,7 @@ pub(crate) fn unlink(core: &Core, host: &str) {
 /// waits for it is dropped, and the leads of workers there are told.
 pub(crate) fn unlinked(core: &Core, host: &str, why: &str) {
     core.hosts.outbox.forget(host);
+    core.hosts.copies.forget(host);
     let connection = {
         let mut state = core.hosts.state.locked();
         state.down.remove(host);
@@ -600,7 +606,9 @@ pub(crate) fn settle(core: &Arc<Core>) {
         for link in &links {
             let wanted = core.hosts.outbox.has(&link.id)
                 || core.hosts.team.has_host(&link.id)
-                || core.hosts.listed.load(Ordering::Acquire);
+                || core.hosts.listed.load(Ordering::Acquire)
+                || core.hosts.copies.holds(&link.id)
+                || !core.hosts.copies.heard_from(&link.id);
             if !wanted
                 || state.connections.contains_key(&link.id)
                 || state.dialing.contains(&link.id)
@@ -693,6 +701,7 @@ impl crate::server::part::Part for Hosts {
         vec![
             on_wake(core, |core| &core.hosts.wake, settle),
             on_wake(core, |core| &core.hosts.relink, account::relink),
+            on_wake(core, |core| &core.hosts.copies.wake, copies::share),
         ]
     }
 }

@@ -179,6 +179,7 @@ impl Core {
             }
             (project.code_host, project.git) = self.git.shown(&folder);
         }
+        self.hosts.copies.fold(self, &mut workspace);
         workspace
     }
 

@@ -83,6 +83,11 @@ export interface DeviceView {
 
 export interface Workspace {
     projects: ProjectInfo[];
+    /**
+     * The projects only the account's other hosts hold, after this host's
+     * own. The core fills it in.
+     */
+    elsewhere?: ProjectElsewhere[];
     spaces?: SpaceInfo[];
     agents?: WorkspaceAgent[];
     pinned?: PinnedChat[];
@@ -114,11 +119,17 @@ export interface ProjectInfo {
      */
     codeHosts?: Record<string, CodeHostChoice>;
     /**
-     * What the project is known by on every host (ADR 0017): its remote,
-     * normalised, else its repository's first commit. A folder outside git
-     * has none. The core keeps it; clients only read it.
+     * What the project is known by on every host (ADR 0023): its remote,
+     * normalised, else its repository's first commit, then its folder within
+     * the repository when it is not the top. A folder outside git has none.
+     * The core keeps it; clients only read it.
      */
     identity?: string;
+    /**
+     * The copies the account's other hosts hold of the same repository, as
+     * each last said. The core fills it in.
+     */
+    copies?: ProjectCopy[];
     /**
      * Where its repository stands, while the folder is one. The core fills
      * it in; clients only read it.
@@ -147,6 +158,24 @@ export interface CodeHostChoice {
     /** `owner/name`. */
     repo?: string;
     account?: string;
+}
+
+/**
+ * A project's copy on another host of the account (ADR 0023), as that host
+ * last said.
+ */
+export interface ProjectCopy {
+    /** The host's key. */
+    host: string;
+    /** What the person named the host. */
+    hostName: string;
+    /** The project's id on that host. */
+    project: string;
+    name: string;
+    path: string;
+    git?: ProjectGit;
+    /** This host cannot reach that one now, so the copy is as it last said. */
+    away?: boolean;
 }
 
 /** A project's branch as its chip shows it. */
@@ -238,6 +267,17 @@ export interface CiAbilities {
     deleteRuns: boolean;
     /** A run's logs can go while the run stays. */
     deleteLogs: boolean;
+}
+
+/** A project only the account's other hosts hold, each with its copy there. */
+export interface ProjectElsewhere {
+    name: string;
+    /**
+     * Its identity, as [`ProjectInfo::identity`]; none for a folder outside
+     * git, which has one copy.
+     */
+    identity?: string;
+    copies: ProjectCopy[];
 }
 
 /** A set of projects the person shows on their own. */
@@ -2421,6 +2461,11 @@ export interface Preferences {
     windowView: WindowView;
     /** The commands the person ran from the command deck, the last first. */
     recentCommandKeys: string[];
+    /**
+     * The host whose copy of each project is in front (ADR 0023), by the
+     * project's identity: `this` or `host:<key>`.
+     */
+    frontCopies: Record<string, string>;
 }
 
 export type MidTurnSend = "steer" | "queue";
@@ -2655,6 +2700,8 @@ export interface ProjectBoard {
     triggers: ChatTrigger[];
     /** What it inherits from the folders above it, nearest first. */
     inherited?: InheritedEnvironment[];
+    /** When its drift audits run and what the latest found; none when it never had any. */
+    audit?: AuditView | null;
 }
 
 export interface BoardCard {
@@ -2714,6 +2761,10 @@ export interface BoardCard {
     goalStalled?: boolean;
     /** For a goal, when its work should be through and whether that slipped. */
     eta?: GoalEta | null;
+    /** For a goal, how often its report is written; none writes none. */
+    reportEvery?: ReportEvery | null;
+    /** For a goal, its latest report; `goalReports` lists those before it. */
+    report?: GoalReport | null;
     /** For a goal, what it decided, oldest first, retired ones too. */
     decisions: Decision[];
     /**
@@ -3045,6 +3096,52 @@ export type Slip =
           kind: "takingLonger";
       };
 
+/** How often a goal's report is written: every so many minutes, or whenever the goal moves. */
+export type ReportEvery =
+    | {
+          kind: "minutes";
+          minutes: number;
+      }
+    | {
+          kind: "change";
+      };
+
+/**
+ * How a goal stood when the core wrote it down, in one fixed shape: what waits on the person,
+ * what is done, what moves, what waits on something else, what comes next and when it should be
+ * through.
+ */
+export interface GoalReport {
+    at: number;
+    /** When the report before it was written; none for the first. */
+    since?: number | null;
+    needsYou: ReportLine[];
+    /** Done since the report before it, or all done for the first. */
+    done: ReportLine[];
+    moving: ReportLine[];
+    waiting: ReportLine[];
+    next: NextGate[];
+    eta?: GoalEta | null;
+    /** When the report before it said the goal would be through. */
+    etaBefore?: number | null;
+}
+
+/** One slice in a goal's report. */
+export interface ReportLine {
+    card: number;
+    promise: string;
+    ownerName?: string | null;
+    state: SliceState;
+    /** The gate it waits at; none once it is done. */
+    gate?: Gate | null;
+    environment?: string;
+    wait?: Wait | null;
+    /** When it got where it is: since its wait began, or when it was done. */
+    at?: number | null;
+    /** It was not here in the report before. */
+    new?: boolean;
+}
+
 /** What a goal decided, kept on its card. */
 export interface Decision {
     /**
@@ -3329,6 +3426,38 @@ export interface InheritedEnvironment {
     /** The folder's path. */
     folder: string;
     environment: Environment;
+}
+
+export interface AuditView {
+    /** When audits run; none runs none. */
+    every?: TriggerWhen | null;
+    nextAt?: number | null;
+    latest?: AuditDigest | null;
+}
+
+/** What one audit found: the problems it filed as cards, and how many found before were fixed since. */
+export interface AuditDigest {
+    /** The audit's own card, which its findings sit under. */
+    card: number;
+    at: number;
+    agentName?: string | null;
+    /** Its agent is still reading. */
+    running: boolean;
+    /** How many commits landed since the audit before. */
+    commits: number;
+    /** Since the audit before, or none for the first. */
+    since?: number | null;
+    findings: AuditFinding[];
+    /** Findings of earlier audits done since the audit before. */
+    fixed: number;
+    /** What its agent said of the codebase as a whole. */
+    summary?: string | null;
+}
+
+export interface AuditFinding {
+    card: number;
+    title: string;
+    done: boolean;
 }
 
 /** The computer a core runs on, as a person would recognise it. */

@@ -7,6 +7,8 @@ use sikemux_view::layout::PaneKind;
 use sikemux_view::workspace::AgentFace;
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
+use crate::copies::Folded;
+use crate::hosts::Place;
 use crate::tabs::shows;
 use crate::workbench::Workbench;
 
@@ -37,6 +39,8 @@ pub struct AgentRow {
     pub called_at: Option<u64>,
     /// Its place on its lead's team, which the rows after a lead belong to.
     pub team: Option<TeamLink>,
+    /// The host it runs on.
+    pub place: Place,
 }
 
 impl AgentRow {
@@ -64,33 +68,48 @@ impl Workbench {
     }
 
     pub fn agent_by_id(&self, id: &str) -> Option<AgentRow> {
-        rows_of(self.shown()?)
+        let place = self.place();
+        rows_of(self.view_at(&place)?)
             .find(|row| row.agent_id == id)
-            .and_then(agent_row)
+            .and_then(|row| agent_row(row, &place))
     }
 
-    /// The project's agents, those running first as the core ranks them.
+    /// The project's agents on the host in front, those running first as the core ranks them.
     pub fn agents_of(&self, project: &str) -> Vec<AgentRow> {
-        let Some(view) = self.shown() else {
+        self.agents_at(&self.place(), project)
+    }
+
+    /// The agents of the project `project` of the host at `place`, as its core ranks them.
+    pub fn agents_at(&self, place: &Place, project: &str) -> Vec<AgentRow> {
+        let Some(view) = self.view_at(place) else {
             return Vec::new();
         };
         rows_of(view)
             .filter(|row| row.project.as_deref() == Some(project))
-            .filter_map(agent_row)
+            .filter_map(|row| agent_row(row, place))
             .collect()
+    }
+
+    /// The agents of every copy of `folded`, as one list.
+    pub fn agents_of_folded(&self, folded: &Folded) -> Vec<AgentRow> {
+        merged(
+            (folded.copies.iter())
+                .map(|copy| self.agents_at(&copy.place, &copy.project))
+                .collect(),
+        )
     }
 
     /// The rows the agent rail lists: this project's, or every project's.
     pub fn listed_agents(&self) -> Vec<AgentRow> {
         let focus = self.rails.goal_focus.as_ref();
         let mut rows: Vec<AgentRow> = if self.rails.all_projects || focus.is_some() {
-            self.projects()
+            self.folded()
                 .iter()
-                .flat_map(|project| self.agents_of(&project.id))
+                .flat_map(|folded| self.agents_of_folded(folded))
                 .collect()
         } else {
-            self.project()
-                .map(|project| self.agents_of(&project.id))
+            self.folded_in_front()
+                .map(|folded| self.agents_of_folded(&folded))
                 .unwrap_or_default()
         };
         if let Some(focus) = focus {
@@ -140,9 +159,37 @@ fn rows_of(view: &DeviceView) -> impl Iterator<Item = &AgentShown> {
     view.inbox.agents.iter().chain(&view.inbox.kept)
 }
 
+/// Each host's ranked rows as one list: a lead keeps its workers after it, and the lists are
+/// taken by whose next row stands highest, as each core ranks its own.
+fn merged(lists: Vec<Vec<AgentRow>>) -> Vec<AgentRow> {
+    let mut teams: Vec<std::collections::VecDeque<Vec<AgentRow>>> = (lists.into_iter())
+        .map(|list| {
+            let mut teams: std::collections::VecDeque<Vec<AgentRow>> = Default::default();
+            for row in list {
+                match (row.team, teams.back_mut()) {
+                    (Some(TeamLink::Member | TeamLink::Last), Some(team)) => team.push(row),
+                    _ => teams.push_back(vec![row]),
+                }
+            }
+            teams
+        })
+        .collect();
+    let mut rows = Vec::new();
+    loop {
+        let next = (teams.iter().enumerate())
+            .filter_map(|(at, list)| Some((at, &list.front()?[0])))
+            .min_by_key(|(at, head)| (head.group, std::cmp::Reverse(head.active_at), *at))
+            .map(|(at, _)| at);
+        let Some(at) = next else {
+            return rows;
+        };
+        rows.extend(teams[at].pop_front().unwrap_or_default());
+    }
+}
+
 /// `row` as the rails and tabs show it, or none for one outside every project, such as an agent
 /// the core only noticed running in a terminal.
-fn agent_row(row: &AgentShown) -> Option<AgentRow> {
+fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
     Some(AgentRow {
         id: row.agent_id.clone(),
         provider: row.cli.clone(),
@@ -164,5 +211,6 @@ fn agent_row(row: &AgentShown) -> Option<AgentRow> {
         triggers: row.triggers,
         called_at: row.called_at,
         team: row.team,
+        place: place.clone(),
     })
 }

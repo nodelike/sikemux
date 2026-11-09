@@ -112,7 +112,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     match page {
         TabRailPage::Files => {
             return page_body()
-                .child(page_header("Files", bench, cx))
+                .child(files_header(bench, cx))
                 .child(crate::files::page(bench, cx))
                 .into_any_element();
         }
@@ -218,12 +218,9 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 .flex_none()
                 .pt(SPACE_1)
                 .px(SPACE_2H)
-                .children(
-                    other_host(bench)
-                        .map(|host| ui::meta(format!("on {host}"), cx).px(SPACE_2).pt(SPACE_1)),
-                )
                 .child(
                     new_row("new-chat", Icon::Plus, "New chat", actions::NewChat::ID, cx)
+                        .children(elsewhere_chip("new-chat-copy", bench, cx))
                         .on_click(cx.listener(|bench, _, window, cx| bench.new_chat(window, cx))),
                 )
                 .child(
@@ -234,6 +231,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                         actions::NewTerminal::ID,
                         cx,
                     )
+                    .children(elsewhere_chip("new-terminal-copy", bench, cx))
                     .on_click(cx.listener(|bench, _, _, cx| bench.new_terminal(cx))),
                 )
                 .child(
@@ -663,6 +661,20 @@ fn pin_chat(this: &Entity<Workbench>, recent: &RecentInfo) -> (&'static str, Cli
     (label, Rc::new(pin))
 }
 
+/// The copy switch, while the copy in front is on another host.
+fn elsewhere_chip(
+    id: &'static str,
+    bench: &Workbench,
+    cx: &Context<Workbench>,
+) -> Option<AnyElement> {
+    if bench.place() == Place::This {
+        return None;
+    }
+    let folded = bench.folded_in_front()?;
+    crate::copies::copy_chip(id, bench, &folded, cx)
+        .map(|chip| div().pr(SPACE_1).child(chip).into_any_element())
+}
+
 fn new_row(
     id: &'static str,
     glyph: Icon,
@@ -700,9 +712,17 @@ fn team_rows(
         .choose(chosen, cx.reduce_motion());
     let teams = bench.filter_text().is_empty();
     let remote = if teams {
-        remote_workers(bench)
+        remote_workers(bench, agents)
     } else {
         Vec::new()
+    };
+    let listed_elsewhere =
+        |worker: &RemoteAgent| (agents.iter()).find(|agent| agent.id == worker.agent_id);
+    let under_lead = |agent: &AgentRow| {
+        remote.iter().any(|worker| {
+            worker.agent_id == agent.id
+                && (agents.iter()).any(|lead| worker.lead.as_deref() == Some(lead.id.as_str()))
+        })
     };
     let remote_of = |members: &[&AgentRow]| -> Vec<&RemoteAgent> {
         remote
@@ -720,6 +740,9 @@ fn team_rows(
     let mut drawn: Vec<(String, AnyElement)> = Vec::with_capacity(agents.len());
     let mut shown = Vec::new();
     for (ix, agent) in agents.iter().enumerate() {
+        if teams && under_lead(agent) {
+            continue;
+        }
         let team = agent.team.filter(|_| teams);
         let continues = |at: usize| {
             agents
@@ -752,8 +775,22 @@ fn team_rows(
         let row = agent_row(bench, agent, team, fold, glided, cx);
         drawn.push((agent.id.clone(), row.into_any_element()));
         if team.is_some() && !folded && !continues(ix + 1) {
-            for worker in remote_of(&team_members) {
-                drawn.push((String::new(), remote_row(worker, cx)));
+            let workers = remote_of(&team_members);
+            let last = workers.len().saturating_sub(1);
+            for (at, worker) in workers.into_iter().enumerate() {
+                let row = match listed_elsewhere(worker) {
+                    Some(row) => {
+                        let link = if at == last {
+                            TeamLink::Last
+                        } else {
+                            TeamLink::Member
+                        };
+                        shown.push((row.id.clone(), row.clone()));
+                        agent_row(bench, row, Some(link), None, glided, cx).into_any_element()
+                    }
+                    None => remote_row(worker, cx),
+                };
+                drawn.push((worker.agent_id.clone(), row));
             }
         }
     }
@@ -828,11 +865,17 @@ fn team_lines(team: Option<TeamLink>, open_head: bool, cx: &App) -> Vec<AnyEleme
     }
 }
 
-/// The workers agents here started on linked hosts, as the core lists them in team order.
-fn remote_workers(bench: &Workbench) -> Vec<&RemoteAgent> {
-    bench
-        .shown()
-        .into_iter()
+/// The workers the agents listed started on linked hosts, as each lead's core lists them in team
+/// order.
+fn remote_workers<'a>(bench: &'a Workbench, agents: &[AgentRow]) -> Vec<&'a RemoteAgent> {
+    let mut places: Vec<&Place> = Vec::new();
+    for agent in agents {
+        if !places.contains(&&agent.place) {
+            places.push(&agent.place);
+        }
+    }
+    (places.into_iter())
+        .filter_map(|place| bench.view_at(place))
         .flat_map(|view| &view.inbox.remote_agents)
         .filter(|worker| worker.team.is_some())
         .collect()
@@ -901,20 +944,18 @@ fn agent_row(
     cx: &mut Context<Workbench>,
 ) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
+    let elsewhere = agent.place != bench.place();
     let project = bench
         .rails
         .all_projects
-        .then(|| {
-            bench
-                .projects()
-                .iter()
-                .find(|project| project.id == agent.project)
-        })
+        .then(|| bench.project_on(&agent.place, &agent.project))
         .flatten()
         .map(|project| project.name.clone());
     let chosen = bench.agent().is_some_and(|front| front.id == agent.id);
     let id = agent.id.clone();
-    let menu = AgentMenu::new(bench, &agent.id, cx);
+    let menu = (!elsewhere)
+        .then(|| AgentMenu::new(bench, &agent.id, cx))
+        .flatten();
     let mark = match &fold {
         Some(fold) => div()
             .relative()
@@ -953,8 +994,8 @@ fn agent_row(
     };
     let status = ui::status_mark(&agent.id, agent.status, cx);
     let fades = status.is_none();
-    let pin = bench
-        .chat_of(&agent.id)
+    let pin = (bench.chat_of(&agent.id))
+        .filter(|_| !elsewhere)
         .map(|chat| (chat.pinned, pin_chat(&cx.entity(), chat).1));
     let editing = bench
         .overlays
@@ -985,11 +1026,12 @@ fn agent_row(
                 return;
             }
             match event.click_count() {
-                2 => bench.retitle(&id, true, window, cx),
+                2 if !elsewhere => bench.retitle(&id, true, window, cx),
                 _ => bench.open_agent(&id, cx),
             }
         }
     }))
+    .children(host_tag(bench, agent, cx))
     .children(agent.name.clone().map(|name| {
         let name = ui::meta(format!("@{name}"), cx).pl(SPACE_2).pr(SPACE_1);
         match fades {
@@ -1014,7 +1056,9 @@ fn agent_row(
         false => counts.into_any_element(),
     }));
     let lines = team_lines(team, matches!(fold, Some(Fold { open: true, .. })), cx);
-    let card = crate::agents::card::view(bench, agent, project.as_deref(), cx);
+    let card = (!elsewhere)
+        .then(|| crate::agents::card::view(bench, agent, project.as_deref(), cx))
+        .flatten();
     let close = agent.id.clone();
     let actions = ui::hover_actions(AGENT_ROW)
         .top_0()
@@ -1030,12 +1074,14 @@ fn agent_row(
             .pressed(pinned)
             .on_click(move |_, window, cx| pin(window, cx))
         }))
-        .child(ui::close_button(
-            SharedString::from(format!("close-{}", agent.id)),
-            format!("Close {}", agent.title),
-            cx.listener(move |bench, _, _, cx| bench.close_agents(vec![close.clone()], cx)),
-            cx,
-        ));
+        .when(!elsewhere, |actions| {
+            actions.child(ui::close_button(
+                SharedString::from(format!("close-{}", agent.id)),
+                format!("Close {}", agent.title),
+                cx.listener(move |bench, _, _, cx| bench.close_agents(vec![close.clone()], cx)),
+                cx,
+            ))
+        });
     div()
         .id(SharedString::from(format!("agent-menu-{}", agent.id)))
         .group(AGENT_ROW)
@@ -1065,6 +1111,28 @@ fn agent_row(
             Some(menu) => menu.build(popup),
             None => popup,
         }))
+}
+
+/// The host an agent runs on, on its row, while that is not this host.
+fn host_tag(bench: &Workbench, agent: &AgentRow, cx: &App) -> Option<AnyElement> {
+    let Place::Account(key) = &agent.place else {
+        return None;
+    };
+    Some(tag(bench.host_name(key), cx))
+}
+
+fn tag(host: SharedString, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(3.))
+        .pl(SPACE_2)
+        .text_color(t.host)
+        .child(ui::icon(Icon::Server, 11.).text_color(t.host))
+        .child(ui::text(host, TEXT_2XS, FontWeight::MEDIUM))
+        .into_any_element()
 }
 
 /// A band of light that passes once over the row each time the agent is named with `@` or
@@ -1213,6 +1281,24 @@ fn pages(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             TabRailPage::Files,
             cx,
         ))
+}
+
+/// The Files page's head, with the copy switch while the project has more than one copy.
+fn files_header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
+    let t = Tokens::get(cx).clone();
+    let title = ui::text("Files", TEXT_XS, FontWeight::MEDIUM).text_color(t.text_primary);
+    let chip = (bench.folded_in_front())
+        .filter(|folded| folded.copies.len() > 1)
+        .and_then(|folded| crate::copies::copy_chip("files-copy", bench, &folded, cx));
+    let title = div()
+        .flex()
+        .flex_1()
+        .items_center()
+        .justify_between()
+        .gap(SPACE_2)
+        .child(title)
+        .children(chip);
+    header_frame(title, [], bench, cx)
 }
 
 pub(crate) fn page_header(

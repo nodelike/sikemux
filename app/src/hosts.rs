@@ -5,7 +5,6 @@ pub mod install_pane;
 pub(crate) mod top_place;
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::WindowExt;
@@ -264,71 +263,73 @@ impl Workbench {
         }
     }
 
-    /// Opens the project at `path` on the account host `host`, once the person agrees: that
-    /// host clones it from its remote or takes it from this host as a bundle, then the person is
-    /// on that host, in that project. Only committed work goes.
-    pub fn open_on(
+    /// Makes a copy of the project `from` holds on the account host `host`, once the person
+    /// agrees: that host clones it from its remote, or takes it from `from`'s host as a bundle,
+    /// then the new copy is in front. Only committed work goes.
+    pub fn copy_to(
         &mut self,
-        path: &Path,
-        host: &str,
+        from: crate::copies::HostCopy,
+        identity: Option<String>,
+        host: String,
         label: SharedString,
-        after: HostChoice,
         cx: &mut Context<Self>,
     ) {
-        let name = path
+        let name = from
+            .path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default();
-        let (path, host) = (path.to_owned(), host.to_owned());
         self.confirm(
-            format!("Open {name} on {label}?"),
-            format!("{label} clones it from its remote, or takes it from where it is when it cannot reach the remote. Only what is committed goes over; uncommitted changes stay there."),
-            "Open",
+            format!("Copy {name} to {label}?"),
+            format!("{label} clones it from its remote, or takes it from {} when it cannot reach the remote. Only what is committed goes over; uncommitted changes stay there.", from.host),
+            "Copy",
             false,
             move |bench, yes, _, cx| {
                 if yes {
-                    bench.open_on_now(&path, &host, &name, label.clone(), after.clone(), cx);
+                    bench.copy_now(&from, identity.clone(), &host, &name, label.clone(), cx);
                 }
             },
             cx,
         );
     }
 
-    fn open_on_now(
+    fn copy_now(
         &mut self,
-        path: &Path,
+        from: &crate::copies::HostCopy,
+        identity: Option<String>,
         host: &str,
         name: &str,
         label: SharedString,
-        after: HostChoice,
         cx: &mut Context<Self>,
     ) {
         let params = OpenOnParams {
-            path: path.to_owned(),
+            path: from.path.clone(),
             host: host.to_owned(),
         };
-        // The project's own host sends it, so the call goes to the host in front.
-        let opening = self.target().request_typed::<call::OpenOnHost>(params);
-        self.notify(toast::info(format!("Opening {name} on {label}…")), cx);
+        // The copy's own host sends it.
+        let opening = core::Target::new(&self.asks, from.place.clone())
+            .request_typed::<call::OpenOnHost>(params);
+        self.notify(toast::info(format!("Copying {name} to {label}…")), cx);
+        let host = host.to_owned();
         cx.spawn(async move |bench, cx| {
             let opened = opening.await;
             let _ = bench.update(cx, |bench, cx| match opened {
                 Ok(opened) => {
-                    let place = match &after {
-                        HostChoice::Account(key) => Place::Account(key.clone()),
-                        _ => Place::This,
+                    let Some(project) = opened["project"].as_str() else {
+                        return;
                     };
-                    bench.choose_host(after, cx);
-                    if let Some(project) = opened["project"].as_str() {
-                        core::Target::new(&bench.asks, place).call_typed::<call::ActivateProject>(
-                            ActivateProjectParams {
-                                project: project.to_owned(),
-                            },
-                        );
-                    }
+                    let copy = crate::copies::HostCopy {
+                        place: Place::Account(host.clone()),
+                        project: project.to_owned(),
+                        host: label.clone(),
+                        path: opened["path"].as_str().unwrap_or_default().into(),
+                        git: None,
+                        away: false,
+                    };
+                    bench.go_to_copy(&copy, identity.as_deref(), cx);
                 }
                 Err(error) => bench.notify(
-                    toast::error(format!("It did not open on {label}: {error}")),
+                    toast::error(format!("It did not copy to {label}: {error}")),
                     cx,
                 ),
             });

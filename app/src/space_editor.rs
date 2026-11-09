@@ -137,7 +137,7 @@ impl Render for SpaceEditor {
             .upgrade()
             .and_then(|bench| {
                 let bench = bench.read(cx);
-                Some(bench.shown()?.workspace.spaces.clone())
+                Some(bench.this_view()?.workspace.spaces.clone())
             })
             .unwrap_or_default();
         self.names
@@ -354,7 +354,7 @@ pub fn anchor(bench: &Workbench, width: f32, cx: &mut Context<Workbench>) -> imp
 impl Workbench {
     /// The space the rail shows, while it still exists.
     pub fn space(&self) -> Option<&SpaceInfo> {
-        let spaces = &self.shown()?.workspace.spaces;
+        let spaces = &self.this_view()?.workspace.spaces;
         spaces
             .iter()
             .find(|space| Some(&space.id) == self.space.as_ref())
@@ -376,20 +376,21 @@ impl Workbench {
                     .map_or(0, |since| since.as_nanos());
                 let id = format!("space-{made:x}");
                 let mut spaces = bench
-                    .shown()
+                    .this_view()
                     .map_or_else(Vec::new, |view| view.workspace.spaces.clone());
                 spaces.push(SpaceInfo {
                     id: id.clone(),
                     name,
                     icon: "folder".into(),
                 });
-                bench
-                    .target()
+                crate::core::Target::here(&bench.asks)
                     .call_typed::<call::SetSpaces>(SpacesParams { spaces });
                 match &into {
-                    Some(project) => bench.target().call_typed::<call::UpdateProject>(
-                        UpdateProjectParams::space(project.clone(), Some(id)),
-                    ),
+                    Some(project) => {
+                        crate::core::Target::here(&bench.asks).call_typed::<call::UpdateProject>(
+                            UpdateProjectParams::space(project.clone(), Some(id)),
+                        )
+                    }
                     None => bench.show_space(Some(id), cx),
                 }
             },
@@ -401,17 +402,17 @@ impl Workbench {
     /// Sets the spaces of the host in front to what `edit` makes of them.
     pub(crate) fn edit_spaces(&self, edit: impl FnOnce(&mut Vec<SpaceInfo>)) {
         let mut spaces = self
-            .shown()
+            .this_view()
             .map_or_else(Vec::new, |view| view.workspace.spaces.clone());
         edit(&mut spaces);
-        self.target()
+        crate::core::Target::here(&self.asks)
             .call_typed::<call::SetSpaces>(SpacesParams { spaces });
     }
 
     /// Asks for the space's new name, as the Mac does.
     pub fn rename_space(&mut self, id: String, cx: &mut Context<Self>) {
         let current = self
-            .shown()
+            .this_view()
             .and_then(|view| view.workspace.spaces.iter().find(|space| space.id == id))
             .map(|space| space.name.clone())
             .unwrap_or_default();
@@ -436,7 +437,7 @@ impl Workbench {
     /// Deletes the space once the person agrees; its projects stay open and show under All.
     pub fn delete_space(&mut self, id: String, cx: &mut Context<Self>) {
         let name = self
-            .shown()
+            .this_view()
             .and_then(|view| view.workspace.spaces.iter().find(|space| space.id == id))
             .map(|space| space.name.clone())
             .unwrap_or_default();
@@ -451,7 +452,7 @@ impl Workbench {
                 }
                 bench.edit_spaces(|spaces| spaces.retain(|space| space.id != id));
                 let held: Vec<String> = bench
-                    .shown()
+                    .this_view()
                     .map(|view| {
                         view.workspace
                             .projects
@@ -462,11 +463,9 @@ impl Workbench {
                     })
                     .unwrap_or_default();
                 for project in held {
-                    bench
-                        .target()
-                        .call_typed::<call::UpdateProject>(UpdateProjectParams::space(
-                            project, None,
-                        ));
+                    crate::core::Target::here(&bench.asks).call_typed::<call::UpdateProject>(
+                        UpdateProjectParams::space(project, None),
+                    );
                 }
                 if bench.space.as_ref() == Some(&id) {
                     bench.show_space(None, cx);

@@ -223,16 +223,14 @@ pub fn project(
         .on_drop(move |dropped: &DraggedProject, _, cx| {
             let (id, target) = (dropped.id.clone(), target.clone());
             this.update(cx, |bench, _| {
-                let Some(index) = bench
-                    .projects()
-                    .iter()
+                let Some(index) = (bench.this_view().into_iter())
+                    .flat_map(|view| &view.workspace.projects)
                     .position(|project| project.id == target)
                 else {
                     return;
                 };
                 if id != target {
-                    bench
-                        .target()
+                    crate::core::Target::here(&bench.asks)
                         .call_typed::<call::MoveProject>(MoveProjectParams { id, index });
                 }
             })

@@ -525,6 +525,7 @@ impl Workspaces {
                 space: None,
                 code_hosts: Default::default(),
                 identity: None,
+                copies: Vec::new(),
                 git: None,
                 launcher: None,
                 code_host: None,
@@ -569,7 +570,11 @@ impl Workspaces {
                 .iter()
                 .position(|project| project.id == id)
                 .ok_or_else(|| CoreError::from("that project is not on this host"))?;
-            let project = patched(&saved.projects[index], patch, &["id", "path", "identity"])?;
+            let project = patched(
+                &saved.projects[index],
+                patch,
+                &["id", "path", "identity", "copies"],
+            )?;
             check_project(&project, saved)?;
             saved.projects[index] = project.clone();
             Ok(project)
@@ -1059,6 +1064,11 @@ impl Workspaces {
             .map(|image| image.data_url.clone())
     }
 
+    /// This host's projects, as kept.
+    pub(crate) fn projects(&self) -> Vec<ProjectInfo> {
+        self.published.locked().saved.projects.clone()
+    }
+
     pub(crate) fn project_paths(&self) -> Vec<PathBuf> {
         self.published
             .locked()
@@ -1193,6 +1203,7 @@ impl Workspaces {
                     ..project.clone()
                 })
                 .collect(),
+            elsewhere: Vec::new(),
             spaces: saved.spaces.clone(),
             agents: (saved.agents.iter())
                 .map(|kept| {
@@ -1641,6 +1652,7 @@ mod tests {
             space: None,
             code_hosts: Default::default(),
             identity: None,
+            copies: Vec::new(),
             git: None,
             launcher: None,
             code_host: None,

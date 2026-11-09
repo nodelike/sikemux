@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::super::Core;
 use super::link::{Answer, Received};
-use super::{answered, code, introduction, not_linked, open, route, spawn, transfer};
+use super::{answered, code, copies, introduction, not_linked, open, route, spawn, transfer};
 
 /// One ask between hosts: what it is called and what it carries, shared by the host asking
 /// and the host answering, which may run different builds.
@@ -46,6 +46,7 @@ host_asks! {
     Stop "stop" route::AboutAgent;
     PassOn "passOn" route::PassOnParams;
     QuestionClosed "questionClosed" route::ClosedParams;
+    Copies "copies" copies::HeldParams;
 }
 
 pub(super) fn params_of<A: HostAsk>(params: &A::Params) -> Value {
@@ -100,6 +101,7 @@ pub(super) async fn answer(
             super::super::questions::closed_elsewhere(core, host, &params.id)
         }
         PassOn::METHOD => route::pass_on_here(core, host, read::<PassOn>(params)?),
+        Copies::METHOD => copies::heard(core, host, read::<Copies>(params)?),
         _ => Err(format!("this host does not know {method}")),
     }
 }

@@ -10,6 +10,8 @@ use sikemux_view::layout::OpenTab;
 use sikemux_view::layout::{Pane, PaneKind};
 use sikemux_view::workspace::ProjectInfo;
 
+use crate::core::Target;
+use crate::hosts::Place;
 use crate::tabs;
 use crate::workbench::{Strip, Workbench};
 use sikemux_core::server::call;
@@ -67,29 +69,31 @@ impl Workbench {
                 .cloned(),
         };
         if let Some(project) = project {
-            self.close_project(project, cx);
+            self.close_project(self.place(), project, cx);
         }
     }
 
     /// Stops offering a project, asking first when agents are at work in it or files are unsaved.
-    pub fn close_project(&mut self, project: ProjectInfo, cx: &mut Context<Self>) {
-        if self.projects().len() < 2 {
+    pub fn close_project(&mut self, place: Place, project: ProjectInfo, cx: &mut Context<Self>) {
+        if self
+            .view_at(&place)
+            .is_none_or(|view| view.workspace.projects.len() < 2)
+        {
             return;
         }
         let working = self
-            .agents_of(&project.id)
+            .agents_at(&place, &project.id)
             .iter()
             .filter(|agent| agent.busy)
             .count();
         let unsaved = self
             .editors
             .read(cx)
-            .unsaved_under(&self.place(), &project.path)
+            .unsaved_under(&place, &project.path)
             .count();
         let path = project.path.clone();
         let close = move |bench: &mut Workbench| {
-            bench
-                .target()
+            Target::new(&bench.asks, place.clone())
                 .call_typed::<call::RemoveProject>(RemoveProjectParams { path: path.clone() })
         };
         if working == 0 && unsaved == 0 {

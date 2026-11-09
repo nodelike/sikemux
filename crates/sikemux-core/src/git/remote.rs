@@ -37,24 +37,31 @@ pub(crate) fn main_remote(path: &str) -> Option<String> {
     git_ok(path, &["remote", "get-url", &remote]).ok()
 }
 
-/// What a project is known by on every host (ADR 0017): its remote,
-/// normalised, else its repository's first commit, which every copy shares.
-/// A folder outside git has none.
+/// What a project is known by on every host (ADR 0023): its remote,
+/// normalised, else its repository's first commit, which every copy shares,
+/// then its folder within the repository when it is not the top, so one
+/// package of a monorepo stays a project of its own. A folder outside git has
+/// none.
 pub fn project_identity(path: &str) -> Option<String> {
     let remote = default_remote(path)
         .and_then(|remote| git_ok(path, &["remote", "get-url", &remote]))
         .ok()
         .filter(|url| !url.trim().is_empty());
-    if let Some(url) = remote {
-        return Some(normalized_remote(&url));
+    let repository = match remote {
+        Some(url) => normalized_remote(&url),
+        None => git_ok(path, &["rev-list", "--max-parents=0", "HEAD"])
+            .ok()?
+            .lines()
+            .map(str::trim)
+            .filter(|root| !root.is_empty())
+            .min()?
+            .to_owned(),
+    };
+    let within = git_ok(path, &["rev-parse", "--show-prefix"]).unwrap_or_default();
+    match within.trim().trim_end_matches('/') {
+        "" => Some(repository),
+        within => Some(format!("{repository}//{within}")),
     }
-    git_ok(path, &["rev-list", "--max-parents=0", "HEAD"])
-        .ok()?
-        .lines()
-        .map(str::trim)
-        .filter(|root| !root.is_empty())
-        .min()
-        .map(str::to_owned)
 }
 
 /// The repository's origin and its current branch, which a new pull request
