@@ -2298,7 +2298,7 @@
       "name": "trigger_add",
       "row": {"verb": "set", "kind": "edit", "icon": "clock", "target": ["trigger {title}"]},
       "method": "trigger.add",
-      "description": "Prompt this chat later. Pauses while the chat is closed.",
+      "description": "Prompt this chat later.",
       "properties": {
         "title": {
           "description": "What it is for, shown to the person",
@@ -2367,7 +2367,7 @@
       "name": "trigger_remove",
       "row": {"verb": "remove", "kind": "edit", "icon": "clock", "target": ["trigger {trigger}"]},
       "method": "trigger.remove",
-      "description": "Stop a trigger for good.",
+      "description": "Stop a trigger.",
       "properties": {
         "trigger": {
           "type": "integer",
