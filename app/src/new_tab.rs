@@ -36,7 +36,7 @@ impl Choice {
     }
 }
 
-fn choices() -> [Choice; 9] {
+fn choices() -> [Choice; 10] {
     [
         Choice::of(
             PaneKind::Terminal,
@@ -87,6 +87,12 @@ fn choices() -> [Choice; 9] {
             actions::FocusBoard::ID,
             "What the project's agents are doing",
             true,
+        ),
+        Choice::of(
+            PaneKind::Hosts,
+            actions::FocusHosts::ID,
+            "How busy each host is and what its agents use",
+            false,
         ),
         Choice::of(
             PaneKind::Mod,

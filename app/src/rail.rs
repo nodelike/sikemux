@@ -228,6 +228,10 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                         .actions(actions(
                             keymap::hint(actions::OpenHost::ID, cx),
                             [
+                                IconButton::new("hosts-overview", Icon::Gauge, hosts_overview(cx))
+                                    .on_click(|_, window, cx| {
+                                        keymap::dispatch(actions::FocusHosts::ID, window, cx)
+                                    }),
                                 IconButton::new("edit-ssh", Icon::Pencil, "Edit ~/.ssh/config")
                                     .on_click(cx.listener(|bench, _, _, cx| {
                                         bench.edit_ssh_config(None, cx)
@@ -277,6 +281,27 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
         .child(account(bench, cx))
 }
 
+/// The Hosts header's gauge, naming its shortcut.
+fn hosts_overview(cx: &App) -> String {
+    match keymap::hint(actions::FocusHosts::ID, cx) {
+        Some(keys) => format!("Hosts overview — {keys}"),
+        None => "Hosts overview".to_owned(),
+    }
+}
+
+/// "Host details" at the top of a host's menu, opening the Hosts page on `host`.
+fn details_item(bench: WeakEntity<Workbench>, host: String) -> PopupMenuItem {
+    PopupMenuItem::new("Host details")
+        .icon(Icon::Gauge)
+        .on_click(move |_, _, cx| {
+            let host = host.clone();
+            let _ = bench.update(cx, |bench, cx| {
+                bench.show_workbench(cx);
+                bench.open_hosts(Some(host));
+            });
+        })
+}
+
 /// The host this window runs on, where new work starts.
 fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
@@ -311,6 +336,8 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
         move |popup, _, _| {
             let bench = bench_entity.clone();
             popup
+                .item(details_item(bench.clone(), HostChoice::This.key().into()))
+                .separator()
                 .item(
                     PopupMenuItem::new("New terminal here")
                         .icon(Icon::Terminal)
@@ -543,7 +570,9 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                 menu_id,
                 move |popup, _, cx| {
                     let bench = bench_entity.clone();
-                    let mut popup = popup;
+                    let mut popup = popup
+                        .item(details_item(bench.clone(), key.clone()))
+                        .separator();
                     if let Some(item) = set_up_item(bench.clone(), false) {
                         popup = popup.item(item).separator();
                     }

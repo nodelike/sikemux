@@ -472,6 +472,14 @@
         "other": "Ctrl+Alt+Digit7"
     },
     {
+        "id": "window.hosts",
+        "label": "Hosts",
+        "detail": "Open the Hosts page: how busy each host is, what its agents use and what needs you",
+        "category": "Navigation",
+        "mac": "Meta+Shift+KeyH",
+        "other": "Ctrl+Shift+KeyH"
+    },
+    {
         "id": "browser.tabNew",
         "label": "New browser tab",
         "detail": "Open a page on the desk of the agent in front, or the one that worked last",

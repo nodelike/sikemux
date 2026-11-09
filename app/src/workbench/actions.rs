@@ -116,6 +116,7 @@ commands! {
     FocusFiles = "window.files" opens |bench, _, cx| bench.focus_files(cx);
     FocusAgents = "window.agents" opens Workbench::focus_agents;
     FocusBoard = "window.board" opens |bench, _, cx| bench.focus_board(cx);
+    FocusHosts = "window.hosts" opens |bench, _, _| bench.open_hosts(None);
     /// Switches the window between the workbench and the goals.
     ToggleGoals = "window.goals" acts |bench, _, cx| bench.toggle_goals_view(cx);
     NextPlace = "session.next" acts |bench, window, cx| bench.step_place(1, window, cx);
