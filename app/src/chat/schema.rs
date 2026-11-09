@@ -126,8 +126,8 @@ fn block(
         None => div().truncate().child(fence.lang).into_any_element(),
     };
     let title = div()
-        .mt(SPACE_2H)
-        .h(px(28.))
+        .mt(SPACE_1H)
+        .h(px(22.))
         .pl(SPACE_3H)
         .pr(SPACE_2H)
         .flex()
