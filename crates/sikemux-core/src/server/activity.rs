@@ -76,10 +76,12 @@ impl Core {
             }
             Activity::NeedsYou => {
                 self.journal_agent(agent_id, Happened::NeedsYou);
+                super::settling::needs_person(self, agent_id);
                 self.seen.wants_a_look(agent_id);
             }
             Activity::Problem(message) => {
                 self.journal_agent(agent_id, Happened::Failed);
+                super::settling::needs_person(self, agent_id);
                 self.came_to_rest(agent_id);
                 super::board::chat_goal::turn_ended(self, agent_id, false);
                 self.seen.wants_a_look(agent_id);

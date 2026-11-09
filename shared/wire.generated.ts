@@ -1126,6 +1126,15 @@ export interface AgentShown {
     projectName?: string;
     /** The attempt it is retrying a failed request on, 0 when it did not say. */
     reconnecting?: number;
+    /**
+     * It is snoozed out of the main list until then, in Unix milliseconds. None once it
+     * wakes, at that time or earlier when it asks the person something.
+     */
+    snoozedUntil?: number;
+    /** When it was settled out of the main list; none while it is in it. */
+    settledAt?: number;
+    /** The core settled it by itself rather than the person, so a client offers Undo. */
+    autoSettled?: boolean;
 }
 
 /**

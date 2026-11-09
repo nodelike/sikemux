@@ -149,6 +149,7 @@ pub(crate) async fn steer(
     message: Option<QueuedMessageParams>,
 ) -> CoreResult<()> {
     let chat = core.chats.running(agent_id)?;
+    core.workspaces.person_said(agent_id);
     let message = match message {
         Some(mut message) => {
             super::mentions::wake(core, agent_id, &mut message.context).await?;

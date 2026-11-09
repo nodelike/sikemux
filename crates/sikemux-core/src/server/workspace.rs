@@ -42,9 +42,11 @@ use super::model_providers::checks::Checks;
 use super::wake::Wake;
 use super::{Core, CoreError, CoreResult};
 use crate::acp::pickers;
+pub(crate) use place::{ListPlace, Settled, Snooze};
 
 mod launchers;
 mod migrate;
+mod place;
 mod policy;
 mod recent;
 
@@ -120,6 +122,8 @@ pub(crate) struct Kept {
     /// person opening or messaging it wakes it, never mail waiting for it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub held: bool,
+    #[serde(default, skip_serializing_if = "ListPlace::is_empty")]
+    pub place: ListPlace,
 }
 
 /// What survives a restart of the core.
@@ -744,6 +748,7 @@ impl Workspaces {
                     fallbacks: Vec::new(),
                     program: None,
                     held: false,
+                    place: ListPlace::default(),
                 }),
             }
             Ok(agent)

@@ -84,6 +84,7 @@ pub mod search;
 mod seen;
 pub mod session;
 mod session_watch;
+pub(crate) mod settling;
 pub mod share;
 pub mod ship;
 mod shown_cache;
@@ -379,6 +380,7 @@ pub(crate) struct Core {
     pub(crate) hooks: hooks::Hooks,
     pub(crate) workspaces: workspace::Workspaces,
     pub(crate) seen: seen::Seen,
+    pub(crate) settling: settling::Settling,
     pub(crate) lifecycle: lifecycle::Lifecycle,
     /// Agents' actions that leave this machine, held for the person.
     pub(crate) ship: ship::Ships,
@@ -529,6 +531,7 @@ impl Core {
             hooks: hooks::Hooks::default(),
             workspaces: workspace::Workspaces::new(data_dir),
             seen: seen::Seen::default(),
+            settling: settling::Settling::default(),
             lifecycle: lifecycle::Lifecycle::default(),
             ship: ship::Ships::default(),
             session_watch: session_watch::SessionWatch::default(),

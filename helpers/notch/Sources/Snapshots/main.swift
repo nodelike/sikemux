@@ -128,7 +128,8 @@ func catalogueFaces() -> [AgentFace] {
 let faces = arguments.contains("--faces") ? catalogueFaces() : []
 let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumerated().map { index, agent in
     AgentShown(agentId: agent.agentId, name: agent.name, cli: agent.cli, title: agent.title, session: agent.session, group: agent.group, subagents: agent.subagents, tasks: agent.tasks, failed: agent.failed, nextTrigger: agent.nextTrigger, calledAt: agent.calledAt,
-               face: faces[index % faces.count], projectName: agent.projectName, reconnecting: agent.reconnecting)
+               face: faces[index % faces.count], projectName: agent.projectName, reconnecting: agent.reconnecting,
+               snoozedUntil: nil, settledAt: nil)
 }
 let full = DeviceView(
     workspace: decoded.workspace, attentions: decoded.attentions,

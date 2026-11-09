@@ -73,12 +73,14 @@ pub(crate) async fn edit_with(
     paths: Vec<String>,
     mut context: Vec<ChatContext>,
 ) -> CoreResult<()> {
+    core.workspaces.person_said(&agent_id);
     super::wake_for_message(core, &agent_id, &mut context).await?;
     super::edit(core, &agent_id, message_id, text, paths, context).await
 }
 
 /// What the person says to an agent running in a terminal goes in as a message.
 pub(crate) fn steer_terminal(core: &Arc<Core>, agent_id: &str, text: String) -> CoreResult<String> {
+    core.workspaces.person_said(agent_id);
     crate::server::messages::from_person(core, agent_id, text)?;
     Ok("queued".to_owned())
 }
@@ -90,6 +92,7 @@ pub(crate) async fn steer_chat(
     paths: Vec<String>,
     mut context: Vec<ChatContext>,
 ) -> CoreResult<String> {
+    core.workspaces.person_said(agent_id);
     super::wake_for_message(core, agent_id, &mut context).await?;
     let steered = super::steer(core, agent_id, text, paths, context).await?;
     Ok(steered.word().to_owned())
@@ -138,6 +141,7 @@ pub(crate) fn prompt_awake(core: &Arc<Core>, params: PromptChatParams) -> CoreRe
         paths,
         context,
     } = params;
+    core.workspaces.person_said(&agent_id);
     if core.workspaces.in_terminal(&agent_id) {
         crate::server::messages::from_person(core, &agent_id, text)
     } else {

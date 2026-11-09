@@ -195,6 +195,9 @@ fn agent_shown(agent_id: String, cli: String, title: String, status: AgentStatus
         project: None,
         project_name: None,
         reconnecting: None,
+        snoozed_until: None,
+        settled_at: None,
+        auto_settled: false,
     }
 }
 
@@ -1207,10 +1210,19 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     let own_titles: HashMap<&str, bool> = (workspace_agents.iter())
         .map(|agent| (agent.id.as_str(), agent.titled))
         .collect();
-    let mut listed = in_teams(
-        shown(core, chats, sessions, &own_titles),
-        &core.workspaces.agent_leads(),
-    );
+    let places = core.workspaces.places();
+    let now = epoch_ms();
+    let mut shown = shown(core, chats, sessions, &own_titles);
+    for agent in &mut shown {
+        if let Some((place, _)) = places.get(&agent.agent_id) {
+            super::settling::show(agent, place, now);
+        }
+    }
+    let leads = core.workspaces.agent_leads();
+    let (main, snoozed, settled) = super::settling::sections(shown);
+    let mut listed = in_teams(main, &leads);
+    listed.extend(in_teams(snoozed, &leads));
+    listed.extend(in_teams(settled, &leads));
     let project_names = core.workspaces.project_names();
     let called = |place: &str| {
         (project_names.get(place).cloned()).or_else(|| {
@@ -1224,7 +1236,12 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
     for agent in &mut listed {
         agent.face = faces.get(agent.agent_id.as_str()).map(|&face| face.clone());
     }
-    let kept = kept_agents(core, &workspace_agents, &listed, called);
+    let mut kept = kept_agents(core, &workspace_agents, &listed, called);
+    for agent in &mut kept {
+        if let Some((place, _)) = places.get(&agent.agent_id) {
+            super::settling::show(agent, place, now);
+        }
+    }
     let mut by_project: BTreeMap<String, Vec<&AgentShown>> = BTreeMap::new();
     let project_of = core.workspaces.agent_projects();
     for agent in &mut listed {
@@ -1232,7 +1249,8 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         let place = agent.project.clone().or(agent.project_name.take());
         agent.project_name = place.and_then(|place| called(&place));
     }
-    for agent in &listed {
+    let in_main = |agent: &&AgentShown| agent.snoozed_until.is_none() && agent.settled_at.is_none();
+    for agent in listed.iter().filter(in_main) {
         if let Some(project) = &agent.project {
             by_project.entry(project.clone()).or_default().push(agent);
         }
@@ -1243,6 +1261,14 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         .collect();
     let mut view = view_of(core, &agents(core, chats, sessions), sessions);
     with_remote_workers(&mut listed, &mut view.remote_agents);
+    view.items.retain(|item| {
+        let Some(agent) =
+            (listed.iter()).find(|agent| item.agent_id.as_ref() == Some(&agent.agent_id))
+        else {
+            return true;
+        };
+        agent.snoozed_until.is_none() && (agent.settled_at.is_none() || item.need.is_some())
+    });
     for agent in &mut listed {
         agent.failed = (view.items.iter()).any(|item| {
             item.kind == InboxKind::Failed && item.agent_id.as_ref() == Some(&agent.agent_id)
@@ -1272,7 +1298,7 @@ pub(crate) fn view(core: &Core, chats: &[ChatInfo], sessions: &[SessionInfo]) ->
         }
     }
     Inbox {
-        rollup: rollup(&listed),
+        rollup: rollup(listed.iter().filter(in_main)),
         projects,
         needs,
         needed,

@@ -511,6 +511,11 @@ struct AgentShown: Codable, Hashable {
     let projectName: String?
     /// The attempt it is retrying a failed request on, 0 when it did not say.
     let reconnecting: Int?
+    /// It is snoozed out of the main list until then, in Unix milliseconds. None once it
+    /// wakes, at that time or earlier when it asks the person something.
+    let snoozedUntil: Int?
+    /// When it was settled out of the main list; none while it is in it.
+    let settledAt: Int?
 }
 
 /// Where an agent stands for the person, in the order lists show the groups:

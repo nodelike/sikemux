@@ -417,6 +417,16 @@ pub struct AgentShown {
     /// The attempt it is retrying a failed request on, 0 when it did not say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reconnecting: Option<u32>,
+    /// It is snoozed out of the main list until then, in Unix milliseconds. None once it
+    /// wakes, at that time or earlier when it asks the person something.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snoozed_until: Option<u64>,
+    /// When it was settled out of the main list; none while it is in it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settled_at: Option<u64>,
+    /// The core settled it by itself rather than the person, so a client offers Undo.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub auto_settled: bool,
 }
 
 /// Where an agent sits on its team: the lead heads it, the last worker ends it.

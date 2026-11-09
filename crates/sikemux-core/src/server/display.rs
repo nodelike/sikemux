@@ -69,11 +69,13 @@ pub(crate) fn show_session(session: &mut SessionInfo, asking: bool) {
 
 /// Numbers the open agents in the order they want the person. Within a
 /// group of busy agents each keeps its place while it works, the newest
-/// begun first; the rest go most recently active first.
+/// begun first; the rest go most recently written to by the person first,
+/// so what agents do on their own never reshuffles them.
 pub(crate) fn rank(
     chats: &mut [ChatInfo],
     sessions: &mut [SessionInfo],
     started_at: impl Fn(&str) -> Option<u64>,
+    said_at: impl Fn(&str) -> Option<u64>,
 ) {
     enum Slot {
         Chat(usize),
@@ -84,7 +86,7 @@ pub(crate) fn rank(
         let at = if busy {
             started_at(agent_id).or(active_at)
         } else {
-            active_at
+            said_at(agent_id).or(active_at)
         };
         (group, Reverse(at.unwrap_or(0)), agent_id.to_owned())
     };

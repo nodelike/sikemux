@@ -9,7 +9,7 @@
     "Attention": "id agentId choices",
     "PermissionChoices": "allowOnce allowAlways reject command title",
     "Inbox": "items working agents rollup",
-    "AgentShown": "agentId name cli title session group failed subagents tasks nextTrigger calledAt face projectName reconnecting",
+    "AgentShown": "agentId name cli title session group failed subagents tasks nextTrigger calledAt face projectName reconnecting snoozedUntil settledAt",
     "AgentFace": "pack shape color box",
     "FaceStyle": "motion",
     "AgentRollup": "subagents tasks",

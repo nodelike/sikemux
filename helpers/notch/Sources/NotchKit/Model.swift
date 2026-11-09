@@ -112,18 +112,21 @@ func agentName(_ provider: String) -> String {
 }
 
 extension DeviceView {
-    /// Every open agent once, in the order the core lists them on every device, each with what the inbox says about it
+    /// Every open agent in the main list once, in the order the core lists them on every device, each with what the inbox says about it
     /// and the question it asks from `questions`. Agents on other hosts the inbox lists follow; items that are not about
     /// an agent are left out.
     func entries(_ questions: [AgentQuestion]) -> [Entry] {
-        let listed = Set(inbox.agents.map(\.agentId))
+        let agents = inbox.agents.filter { $0.snoozedUntil == nil && $0.settledAt == nil }
+        let hidden = Set(inbox.agents.map(\.agentId)).subtracting(agents.map(\.agentId))
+        let listed = Set(agents.map(\.agentId))
         var seen = Set<String>()
-        let others = inbox.items.compactMap(\.agentId).filter { !listed.contains($0) && seen.insert($0).inserted }
-        return (inbox.agents.map(\.agentId) + others).map { agentId in
+        let others = inbox.items.compactMap(\.agentId)
+            .filter { !listed.contains($0) && !hidden.contains($0) && seen.insert($0).inserted }
+        return (agents.map(\.agentId) + others).map { agentId in
             let item = inbox.items.first { $0.agentId == agentId }
             return Entry(
                 item: item,
-                agent: inbox.agents.first { $0.agentId == agentId },
+                agent: agents.first { $0.agentId == agentId },
                 ask: attentions.first { $0.id == item?.requestId }.map(Ask.init),
                 question: questions.first { $0.id == item?.questionId }
             )

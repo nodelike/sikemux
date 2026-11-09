@@ -15,9 +15,11 @@ import { listed, Recent } from '@/devices/DeviceRecent';
 
 export type Tab = 'agents' | 'terminals' | 'board';
 
-/** The open agents in the order the host lists them on every device, what wants the person first. */
+/** The open agents in the main list, in the order the host lists them on every device, what wants the person first. */
 function openAgents(snapshot: Snapshot, scope: ProjectInfo | undefined, provider: string): AgentShown[] {
-  return snapshot.inbox.agents.filter((agent) => listed(scope, provider, agent.project, agent.cli));
+  return snapshot.inbox.agents.filter(
+    (agent) => agent.snoozedUntil == null && agent.settledAt == null && listed(scope, provider, agent.project, agent.cli),
+  );
 }
 
 /** The host's agents: its open agents in one list, each with its own state, then its recent chats. */

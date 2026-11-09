@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use sikemux_wire::protocol::PermissionMode;
 
-use super::{check_agent, dress, is_chat_provider, Kept, Saved};
+use super::{check_agent, dress, is_chat_provider, Kept, ListPlace, Saved};
 use sikemux_view::workspace::{CodeHostChoice, PinnedChat, ProjectInfo, SpaceInfo, WorkspaceAgent};
 use sikemux_wire::protocol::ChatAccount;
 
@@ -256,6 +256,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                     .unwrap_or_default(),
                 program: None,
                 held: false,
+                place: ListPlace::default(),
             });
         }
     }
