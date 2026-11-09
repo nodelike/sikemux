@@ -55,7 +55,7 @@ mod system {
         (length > 0).then(|| String::from_utf8_lossy(&buffer[..length as usize]).into_owned())
     }
 
-    pub(super) fn processes() -> Vec<(u32, u32, u64)> {
+    fn all_pids() -> Vec<u32> {
         // SAFETY: a null buffer asks only for how many pids there are.
         let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
         let Ok(count) = usize::try_from(count) else {
@@ -68,10 +68,89 @@ mod system {
         let listed = usize::try_from(listed).unwrap_or(0).min(pids.len());
         pids[..listed]
             .iter()
+            .filter_map(|pid| u32::try_from(*pid).ok())
+            .collect()
+    }
+
+    pub(super) fn processes() -> Vec<(u32, u32, u64)> {
+        all_pids()
+            .into_iter()
             .filter_map(|pid| {
-                let pid = u32::try_from(*pid).ok()?;
                 let info = bsd_info(pid)?;
                 Some((pid, info.pbi_ppid, start_of(&info)))
+            })
+            .collect()
+    }
+
+    fn rusage(pid: u32) -> Option<libc::rusage_info_v2> {
+        let mut usage = MaybeUninit::<libc::rusage_info_v2>::zeroed();
+        // SAFETY: `usage` is a writable `rusage_info_v2`, the flavor the kernel is asked for.
+        let status = unsafe {
+            libc::proc_pid_rusage(
+                pid as libc::c_int,
+                libc::RUSAGE_INFO_V2,
+                usage.as_mut_ptr().cast(),
+            )
+        };
+        // SAFETY: the kernel filled it when it answered 0.
+        (status == 0).then(|| unsafe { usage.assume_init() })
+    }
+
+    /// Nanoseconds in one unit of the kernel's CPU times, which are not nanoseconds on Apple
+    /// silicon.
+    fn timebase() -> (u64, u64) {
+        static TIMEBASE: std::sync::OnceLock<(u64, u64)> = std::sync::OnceLock::new();
+        *TIMEBASE.get_or_init(|| {
+            #[repr(C)]
+            struct Timebase {
+                numer: u32,
+                denom: u32,
+            }
+            extern "C" {
+                fn mach_timebase_info(info: *mut Timebase) -> libc::c_int;
+            }
+            let mut timebase = Timebase { numer: 1, denom: 1 };
+            // SAFETY: `timebase` is a writable struct of the shape the call fills.
+            let status = unsafe { mach_timebase_info(&mut timebase) };
+            if status != 0 || timebase.denom == 0 {
+                return (1, 1);
+            }
+            (u64::from(timebase.numer), u64::from(timebase.denom))
+        })
+    }
+
+    fn text(chars: &[libc::c_char]) -> String {
+        let bytes: Vec<u8> = chars
+            .iter()
+            .take_while(|char| **char != 0)
+            .map(|char| *char as u8)
+            .collect();
+        String::from_utf8_lossy(&bytes).into_owned()
+    }
+
+    /// Only this user's processes: the kernel keeps others' usage to their owners.
+    pub(super) fn usages() -> Vec<super::Usage> {
+        let (numer, denom) = timebase();
+        all_pids()
+            .into_iter()
+            .filter_map(|pid| {
+                let info = bsd_info(pid)?;
+                let usage = rusage(pid)?;
+                let name = match text(&info.pbi_name) {
+                    name if name.is_empty() => text(&info.pbi_comm),
+                    name => name,
+                };
+                let cpu_time = u128::from(usage.ri_user_time + usage.ri_system_time)
+                    * u128::from(numer)
+                    / u128::from(denom);
+                Some(super::Usage {
+                    pid,
+                    parent: info.pbi_ppid,
+                    name,
+                    cpu_ns: cpu_time as u64,
+                    memory: usage.ri_phys_footprint,
+                    started_ms: start_of(&info) / 1_000,
+                })
             })
             .collect()
     }
@@ -105,9 +184,9 @@ mod system {
         }
     }
 
-    /// macOS hides the environment of Apple's own binaries. Agents are not
-    /// those, so theirs stays readable.
-    pub(super) fn environment_value(pid: u32, key: &str) -> Option<String> {
+    /// What `pid` was started with: argc, the executable path, padding, argv, then the
+    /// environment.
+    fn procargs(pid: u32) -> Option<Vec<u8>> {
         let mut argmax: libc::c_int = 0;
         let mut size = size_of::<libc::c_int>();
         let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
@@ -142,7 +221,31 @@ mod system {
         if status != 0 {
             return None;
         }
-        environment_from_procargs(&buffer[..size.min(buffer.len())], key)
+        buffer.truncate(size);
+        Some(buffer)
+    }
+
+    /// macOS hides the environment of Apple's own binaries. Agents are not
+    /// those, so theirs stays readable.
+    pub(super) fn environment_value(pid: u32, key: &str) -> Option<String> {
+        environment_from_procargs(&procargs(pid)?, key)
+    }
+
+    pub(super) fn command_line(pid: u32) -> Option<Vec<String>> {
+        arguments_from_procargs(&procargs(pid)?)
+    }
+
+    fn arguments_from_procargs(bytes: &[u8]) -> Option<Vec<String>> {
+        let argc = usize::try_from(i32::from_ne_bytes(bytes.get(..4)?.try_into().ok()?)).ok()?;
+        let rest = bytes.get(4..)?;
+        let rest = &rest[rest.iter().position(|byte| *byte == 0)?..];
+        let rest = &rest[rest.iter().position(|byte| *byte != 0)?..];
+        Some(
+            rest.split(|byte| *byte == 0)
+                .take(argc)
+                .map(|argument| String::from_utf8_lossy(argument).into_owned())
+                .collect(),
+        )
     }
 
     /// Reads one variable out of a `KERN_PROCARGS2` buffer: argc, the executable
@@ -208,6 +311,63 @@ mod system {
             .collect()
     }
 
+    /// Every process's usage, from `/proc/<pid>/stat`: CPU time in clock ticks, resident
+    /// memory in pages and the start in ticks since boot.
+    pub(super) fn usages() -> Vec<super::Usage> {
+        // SAFETY: sysconf only reads the system's configuration.
+        let (tick, page) = unsafe {
+            (
+                libc::sysconf(libc::_SC_CLK_TCK).max(1) as u64,
+                libc::sysconf(libc::_SC_PAGESIZE).max(1) as u64,
+            )
+        };
+        let booted_ms = fs::read_to_string("/proc/stat")
+            .ok()
+            .and_then(|stat| {
+                let line = stat.lines().find(|line| line.starts_with("btime "))?;
+                line[6..].trim().parse::<u64>().ok()
+            })
+            .unwrap_or(0)
+            * 1_000;
+        let Ok(entries) = fs::read_dir("/proc") else {
+            return Vec::new();
+        };
+        let mut stat = String::new();
+        entries
+            .filter_map(|entry| {
+                let pid: u32 = entry.ok()?.file_name().to_str()?.parse().ok()?;
+                stat.clear();
+                std::io::Read::read_to_string(
+                    &mut fs::File::open(format!("/proc/{pid}/stat")).ok()?,
+                    &mut stat,
+                )
+                .ok()?;
+                let close = stat.rfind(')')?;
+                let name = stat.get(stat.find('(')? + 1..close)?.to_owned();
+                let fields: Vec<&str> = stat.get(close + 2..)?.split(' ').collect();
+                let number = |index: usize| fields.get(index)?.parse::<u64>().ok();
+                Some(super::Usage {
+                    pid,
+                    parent: number(1)? as u32,
+                    name,
+                    cpu_ns: (number(11)? + number(12)?) * 1_000_000_000 / tick,
+                    memory: number(21)? * page,
+                    started_ms: booted_ms + number(19)? * 1_000 / tick,
+                })
+            })
+            .collect()
+    }
+
+    pub(super) fn command_line(pid: u32) -> Option<Vec<String>> {
+        let line = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+        Some(
+            line.split(|byte| *byte == 0)
+                .filter(|argument| !argument.is_empty())
+                .map(|argument| String::from_utf8_lossy(argument).into_owned())
+                .collect(),
+        )
+    }
+
     pub(super) fn environment_value(pid: u32, key: &str) -> Option<String> {
         let environment = fs::read(format!("/proc/{pid}/environ")).ok()?;
         environment.split(|byte| *byte == 0).find_map(|entry| {
@@ -240,6 +400,14 @@ mod system {
     pub(super) fn environment_value(_pid: u32, _key: &str) -> Option<String> {
         None
     }
+
+    pub(super) fn usages() -> Vec<super::Usage> {
+        Vec::new()
+    }
+
+    pub(super) fn command_line(_pid: u32) -> Option<Vec<String>> {
+        None
+    }
 }
 
 /// When `pid` started, in the system's own terms, which tells it apart from a later process
@@ -264,6 +432,30 @@ pub fn processes() -> Vec<(u32, u32, u64)> {
 
 pub fn environment_value(pid: u32, key: &str) -> Option<String> {
     system::environment_value(pid, key)
+}
+
+/// What one process uses now.
+#[derive(Clone, Debug)]
+pub struct Usage {
+    pub pid: u32,
+    pub parent: u32,
+    pub name: String,
+    /// The CPU time it has used since it started, in nanoseconds.
+    pub cpu_ns: u64,
+    /// Its memory, in bytes: what it alone holds where the system says, else what is resident.
+    pub memory: u64,
+    /// When it started, in Unix milliseconds.
+    pub started_ms: u64,
+}
+
+/// What every process this user may look at uses.
+pub fn usages() -> Vec<Usage> {
+    system::usages()
+}
+
+/// The arguments `pid` was started with, its program first.
+pub fn command_line(pid: u32) -> Option<Vec<String>> {
+    system::command_line(pid)
 }
 
 /// Every process below `root`, mapped to its parent.
