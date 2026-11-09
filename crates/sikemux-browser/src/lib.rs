@@ -26,6 +26,7 @@ pub mod page_view;
 mod person;
 mod preview;
 mod recording;
+pub mod snip;
 mod strip;
 mod tab;
 mod tab_events;

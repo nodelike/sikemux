@@ -954,6 +954,14 @@ impl BrowserManager {
             .and_then(|agent| agent.viewports.get(tab_id).copied())
     }
 
+    /// Tab `tab_id` of the agent, while its page is loaded.
+    pub(crate) fn loaded_view(&self, agent_id: &str, tab_id: &str) -> Option<Tab> {
+        self.agents
+            .locked()
+            .get(agent_id)
+            .and_then(|agent| agent.views.get(tab_id).cloned())
+    }
+
     /// The agent's shown tab, with its page loading again if it was unloaded.
     pub fn active_view(&self, agent_id: &str) -> BrowserResult<(String, Tab)> {
         validate_agent_id(agent_id)?;

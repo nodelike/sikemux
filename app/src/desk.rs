@@ -2,6 +2,7 @@
 
 mod address;
 mod downloads;
+mod snip;
 
 use crate::desk::downloads::downloaded;
 use gpui_kit::Task;
@@ -77,6 +78,11 @@ pub struct Desks {
     tab_scrolls: std::cell::RefCell<HashMap<String, (gpui_kit::ScrollHandle, Option<usize>)>>,
     /// What the engine tells the window, until the window listens.
     hearing: Option<mpsc::UnboundedReceiver<Heard>>,
+    told: mpsc::UnboundedSender<Heard>,
+    /// The desks in snip mode.
+    snips: HashMap<String, snip::Snipper>,
+    /// Boxes taken while the chat they go to starts.
+    snips_for_new_chat: Option<Vec<(String, sikemux_browser::snip::Snip)>>,
     _theming: Subscription,
 }
 
@@ -198,6 +204,8 @@ enum Heard {
     Downloaded(BrowserDownload),
     Shortcut(BrowserShortcut),
     Acting(String),
+    Snipped(sikemux_browser::snip::Snip),
+    SnipEnded(String),
 }
 
 impl Desks {
@@ -224,7 +232,7 @@ impl Desks {
         let engine = window_pointer(window).map(|view| {
             BrowserManager::new(Arc::new(DeskHost {
                 view,
-                heard,
+                heard: heard.clone(),
                 home,
                 pages: page_files.clone(),
             }))
@@ -260,6 +268,9 @@ impl Desks {
             floating: None,
             tab_scrolls: Default::default(),
             hearing,
+            told: heard,
+            snips: HashMap::new(),
+            snips_for_new_chat: None,
             _theming: theming,
         }
     }
@@ -283,6 +294,7 @@ impl Desks {
         self.front.remove(agent);
         self.last_front.retain(|(held, _), _| held != agent);
         self.tab_scrolls.borrow_mut().remove(agent);
+        self.snips.remove(agent);
     }
 
     fn show_kind(&mut self, agent: &str, kind: DeskKind, cx: &mut Context<Self>) {
@@ -665,7 +677,12 @@ impl Workbench {
 
     fn hear(&mut self, heard: Heard, window: &mut Window, cx: &mut Context<Self>) {
         match heard {
-            Heard::Tabs => self.read_strips(cx),
+            Heard::Tabs => {
+                self.read_strips(cx);
+                self.desks.read(cx).rearm_snips();
+            }
+            Heard::Snipped(snip) => self.snipped(snip, window, cx),
+            Heard::SnipEnded(agent) => self.snip_ended(&agent, cx),
             Heard::Downloaded(download) => {
                 #[cfg(feature = "drive")]
                 crate::drive::trace(format_args!(
@@ -1626,6 +1643,18 @@ fn viewport_select(
     .into_any_element()
 }
 
+fn snip_toggle(bench: &Workbench, agent: &str, cx: &Context<Workbench>) -> IconButton {
+    let label = match crate::keymap::hint(crate::workbench::actions::Snip::ID, cx) {
+        Some(keys) => format!("Snip to chat {keys}"),
+        None => "Snip to chat".to_owned(),
+    };
+    let agent = agent.to_owned();
+    IconButton::new("desk-snip", Icon::Focus, label)
+        .glyph(13.)
+        .pressed(bench.desks.read(cx).snipping(&agent))
+        .on_click(cx.listener(move |bench, _, _, cx| bench.toggle_snip(&agent, cx)))
+}
+
 /// What the address bar shows for a page: a local file as its path, a blank page as nothing.
 fn shown_address(tab: &sikemux_browser::BrowserTab) -> String {
     if let Some(path) = &tab.local_file {
@@ -1982,7 +2011,8 @@ pub fn pane(
                     field.child(Input::new(&page.address).appearance(false))
                 })
         }))
-        .children(front.map(|tab| viewport_select(bench, agent, &tab.id, cx)));
+        .children(front.map(|tab| viewport_select(bench, agent, &tab.id, cx)))
+        .child(snip_toggle(bench, agent, cx));
     if let Some(item) = front_item {
         let shown = match item {
             DeskItem::File(path) => {

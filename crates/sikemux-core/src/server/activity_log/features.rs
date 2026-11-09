@@ -37,6 +37,7 @@ const COMMANDS: &[&str] = &[
     "window.board",
     "window.goals",
     "browser.tabNew",
+    "browser.snip",
     "text.sizeIncrease",
 ];
 
