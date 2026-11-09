@@ -496,23 +496,39 @@ impl Workbench {
     /// It goes by the chat's session rather than its place in the core's list, which forgets
     /// the oldest chats any device paged to.
     pub fn resume_chat(&self, recent: &RecentInfo, cx: &mut Context<Self>) {
-        let Some(project) = self
-            .projects()
-            .iter()
-            .find(|known| known.id == recent.project)
-        else {
-            return;
-        };
         let session = recent
             .id
             .strip_prefix(&format!("{}:", recent.provider))
             .unwrap_or(&recent.id);
+        self.resume_session(
+            &recent.project,
+            recent.provider.clone(),
+            session.to_owned(),
+            recent.cwd.clone(),
+            recent.title.clone(),
+            cx,
+        );
+    }
+
+    /// Takes `provider`'s session up again in the project `project`, in a tab of its own.
+    pub fn resume_session(
+        &self,
+        project: &str,
+        provider: String,
+        session_id: String,
+        cwd: PathBuf,
+        title: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(project) = self.projects().iter().find(|known| known.id == project) else {
+            return;
+        };
         let asked = SessionChoice {
-            provider: recent.provider.clone(),
-            session_id: session.to_owned(),
+            provider,
+            session_id,
             project: project.path.clone(),
-            cwd: Some(recent.cwd.clone()),
-            title: Some(recent.title.clone()),
+            cwd: Some(cwd),
+            title: Some(title),
         };
         let target = self.target();
         let taken = target.request_typed::<call::ResumeSession>(asked);

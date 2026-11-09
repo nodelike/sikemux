@@ -464,11 +464,21 @@ fn harness_label(bench: &Workbench, launcher: &LauncherInfo) -> String {
     bench.agent_name(&launcher.provider).to_owned()
 }
 
-/// A saved chat no agent holds, to take up again: how long ago it ran, or a pin when it is
-/// pinned, and Pin or Unpin on a right-click.
+/// A saved chat no agent holds, to take up again: how many triggers wait for it, else how long
+/// ago it ran, or a pin when it is pinned, and Pin or Unpin on a right-click. Resting on a chat
+/// whose triggers wait shows them in a card.
 fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench>) -> AnyElement {
     let t = Tokens::get(cx).clone();
+    let waiting = recent.triggers.len();
     let tail = match recent.pinned {
+        _ if waiting > 0 => div()
+            .flex()
+            .items_center()
+            .gap(px(3.))
+            .text_color(t.text_tertiary)
+            .child(ui::icon(Icon::Timer, 11.).text_color(t.text_tertiary))
+            .child(ui::mono(waiting.to_string(), TEXT_2XS, cx))
+            .into_any_element(),
         true => ui::gives_way(
             RECENT_ROW,
             ui::icon(Icon::Pin, 11.).text_color(t.text_tertiary),
@@ -510,12 +520,25 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
         .kind(&recent.provider)
         .is_some_and(|kind| kind.deletable_chats);
     let (this, chat) = (cx.weak_entity(), recent.clone());
+    let key = crate::agents::card::paused_key(&recent.id);
+    let card = crate::agents::card::paused(bench, recent, cx);
     div()
         .id(SharedString::from(format!("recent-menu-{}", recent.id)))
         .group(RECENT_ROW)
         .relative()
+        .when(waiting > 0, |wrap| {
+            let rest = key.clone();
+            wrap.on_hover(cx.listener(move |bench, inside: &bool, _, cx| {
+                bench.rest_on_agent(&rest, *inside, cx)
+            }))
+            .on_mouse_move(cx.listener(move |bench, _, _, cx| bench.move_on_agent(&key, cx)))
+        })
         .child(row)
         .children(unpin)
+        .when(card.is_some(), |wrap| {
+            wrap.child(crate::agents::card::follow_row(cx.entity()))
+        })
+        .children(card.map(|card| div().absolute().top_0().left_0().child(card)))
         .context_menu(ui::menu(move |popup, _, cx| {
             let (label, pin) = pin.clone();
             let pin = PopupMenuItem::new(label)

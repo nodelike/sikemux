@@ -3,6 +3,9 @@
 
 use std::collections::HashMap;
 
+use std::rc::Rc;
+
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::theme::Theme as KitTheme;
 use gpui_kit::component::{h_flex, Icon, IconName, WindowExt};
@@ -22,6 +25,8 @@ const LEFT: Pixels = px(10.);
 const RIGHT: Pixels = px(24.);
 const BORDER: Pixels = px(1.);
 const WIDEST: Pixels = px(520.);
+/// Room for the Undo button and the gaps around it.
+const UNDO: Pixels = px(66.);
 /// What a window keeps clear on each side of its toasts.
 const MARGIN: Pixels = px(16.);
 
@@ -40,6 +45,26 @@ pub fn success(text: impl Into<SharedString>) -> Notification {
 
 pub fn error(text: impl Into<SharedString>) -> Notification {
     toast(Kind::Error, text.into())
+}
+
+/// Says what was just done, with Undo to take it back.
+pub fn undoable(
+    text: impl Into<SharedString>,
+    undo: impl Fn(&mut Window, &mut App) + 'static,
+) -> Notification {
+    let undo = Rc::new(undo);
+    toast_with(Kind::Info, text.into(), UNDO)
+        .action(move |_, _, cx| {
+            let undo = undo.clone();
+            Button::new("undo")
+                .label("Undo")
+                .ghost()
+                .on_click(cx.listener(move |note, _, window, cx| {
+                    undo(window, cx);
+                    note.dismiss(window, cx);
+                }))
+        })
+        .autohide(true)
 }
 
 #[derive(Clone, Copy)]
@@ -64,6 +89,11 @@ impl Kind {
 struct Said;
 
 fn toast(kind: Kind, text: SharedString) -> Notification {
+    toast_with(kind, text, px(0.))
+}
+
+/// A toast whose line leaves `beside` for a button after it.
+fn toast_with(kind: Kind, text: SharedString, beside: Pixels) -> Notification {
     let one_per_text = Notification::new().id1::<Said>(text.clone());
     one_per_text.content(move |note, window, cx| {
         let t = Tokens::get(cx);
@@ -106,7 +136,7 @@ fn toast(kind: Kind, text: SharedString) -> Notification {
                         fit(
                             id,
                             laid - bounds.size.width,
-                            MARK + GAP + said.ceil(),
+                            MARK + GAP + said.ceil() + beside,
                             window,
                             cx,
                         )

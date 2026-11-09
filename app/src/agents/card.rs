@@ -1,5 +1,6 @@
 //! What an agent row stands for, in a card beside it once the pointer rests on the row:
-//! its project, its worktree's branch and folder, and that branch's pull requests.
+//! its project, its worktree's branch and folder, and that branch's pull requests. A closed
+//! chat in Recent whose triggers wait for it shows them in the same card.
 
 use sikemux_core::server::call;
 use sikemux_core::server::codehost::PullsParams;
@@ -11,7 +12,9 @@ use gpui_kit::{
     Entity, FontWeight, InteractiveElement, IntoElement, ParentElement, Pixels, Point,
     SharedString, StatefulInteractiveElement, Styled, Task,
 };
+use sikemux_core::server::triggers::TriggerParams;
 use sikemux_plugin_api::codehost::PullList;
+use sikemux_view::device::RecentInfo;
 use sikemux_view::workspace::WorkspaceAgent;
 
 use crate::agents::rows::AgentRow;
@@ -293,7 +296,96 @@ pub fn view(
             }));
         facts.push(fact(Some(Icon::PullRequest), pulls.into_any_element()).into_any_element());
     }
-    let id = agent.id.clone();
+    let header = header(
+        agent.mark(22., cx),
+        agent.title.clone(),
+        who.join(" · "),
+        &t,
+    );
+    Some(frame(agent.id.clone(), header, facts, &t, cx))
+}
+
+/// What names a closed chat's card, beside the agents' own.
+pub fn paused_key(recent: &str) -> String {
+    format!("recent:{recent}")
+}
+
+/// The card for the closed chat `recent` when it is the one showing: the triggers paused until
+/// it is taken up again, each with a button that removes it for good.
+pub fn paused(
+    bench: &Workbench,
+    recent: &RecentInfo,
+    cx: &mut Context<Workbench>,
+) -> Option<AnyElement> {
+    let key = paused_key(&recent.id);
+    if recent.triggers.is_empty() || bench.agent_card.agent.as_deref() != Some(key.as_str()) {
+        return None;
+    }
+    let t = Tokens::get(cx).clone();
+    let count = recent.triggers.len();
+    let header = header(
+        ui::mark(&recent.provider, 20.).into_any_element(),
+        recent.title.clone(),
+        format!(
+            "{} paused until it is opened again",
+            crate::ui::numbers::plural(count as f64, "trigger")
+        ),
+        &t,
+    );
+    let rows = recent
+        .triggers
+        .iter()
+        .map(|trigger| {
+            let id = trigger.id;
+            crate::chat::live::trigger_row(
+                trigger,
+                &t,
+                cx.listener(move |bench, _, _, _| {
+                    bench
+                        .target()
+                        .call_typed::<call::RemoveTrigger>(TriggerParams { trigger: id });
+                }),
+            )
+        })
+        .collect();
+    Some(frame(key, header, rows, &t, cx))
+}
+
+/// A card's top line: its mark, its title and a line under the title.
+fn header(mark: AnyElement, title: String, under: String, t: &Tokens) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2H)
+        .min_w_0()
+        .child(mark)
+        .child(
+            div()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .min_w_0()
+                .child(
+                    div()
+                        .truncate()
+                        .text_size(crate::theme::ui_text(TEXT_SM))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.text_primary)
+                        .child(title),
+                )
+                .child(div().truncate().text_color(t.text_tertiary).child(under)),
+        )
+        .into_any_element()
+}
+
+/// The card named `key`: `header`, then `facts` under a hairline, beside its row.
+fn frame(
+    key: String,
+    header: AnyElement,
+    facts: Vec<AnyElement>,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> AnyElement {
     let card = div()
         .id("agent-card")
         .occlude()
@@ -315,38 +407,10 @@ pub fn view(
             if *inside {
                 bench.stay_on_card();
             } else {
-                bench.rest_on_agent(&id, false, cx);
+                bench.rest_on_agent(&key, false, cx);
             }
         }))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(SPACE_2H)
-                .min_w_0()
-                .child(agent.mark(22., cx))
-                .child(
-                    div()
-                        .flex_1()
-                        .flex()
-                        .flex_col()
-                        .min_w_0()
-                        .child(
-                            div()
-                                .truncate()
-                                .text_size(crate::theme::ui_text(TEXT_SM))
-                                .font_weight(FontWeight::MEDIUM)
-                                .text_color(t.text_primary)
-                                .child(agent.title.clone()),
-                        )
-                        .child(
-                            div()
-                                .truncate()
-                                .text_color(t.text_tertiary)
-                                .child(who.join(" · ")),
-                        ),
-                ),
-        )
+        .child(header)
         .when(!facts.is_empty(), |card| {
             card.child(
                 div()
@@ -359,16 +423,14 @@ pub fn view(
                     .children(facts),
             )
         });
-    Some(
-        deferred(
-            anchored()
-                .position_mode(AnchoredPositionMode::Local)
-                .position(point(px(-8.), px(-6.)))
-                .anchor(Anchor::TopRight)
-                .snap_to_window()
-                .child(card),
-        )
-        .with_priority(1)
-        .into_any_element(),
+    deferred(
+        anchored()
+            .position_mode(AnchoredPositionMode::Local)
+            .position(point(px(-8.), px(-6.)))
+            .anchor(Anchor::TopRight)
+            .snap_to_window()
+            .child(card),
     )
+    .with_priority(1)
+    .into_any_element()
 }

@@ -31,6 +31,8 @@ pub struct AgentRow {
     pub active_at: u64,
     /// When the soonest trigger set on it sends it a prompt, in Unix milliseconds.
     pub next_trigger: Option<u64>,
+    /// How many triggers it set on its own chat, which pause when it closes.
+    pub triggers: u32,
     /// When it was last named with `@` or messaged by another agent, in Unix milliseconds.
     pub called_at: Option<u64>,
     /// Its place on its lead's team, which the rows after a lead belong to.
@@ -159,6 +161,7 @@ fn agent_row(row: &AgentShown) -> Option<AgentRow> {
         background: row.background,
         active_at: row.active_at.unwrap_or(0),
         next_trigger: row.next_trigger,
+        triggers: row.triggers,
         called_at: row.called_at,
         team: row.team,
     })

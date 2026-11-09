@@ -1,10 +1,15 @@
 //! Closing agents stops them, so every way of closing one asks here first: when one is at
-//! work, and when the agents it started could stop with it or keep running on their own.
+//! work, and when the agents it started could stop with it or keep running on their own. Their
+//! triggers pause, and a toast says so with Undo, which takes their chats up again.
+
+use std::rc::Rc;
 
 use gpui_kit::Context;
 use sikemux_view::layout::PaneKind;
+use sikemux_view::workspace::WorkspaceAgent;
 
 use crate::asking::Choice;
+use crate::toast;
 use crate::workbench::{Strip, Workbench};
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::CloseAgentsParams;
@@ -69,6 +74,12 @@ impl Workbench {
         cx: &mut Context<Self>,
         close: impl Fn(&mut Workbench, Vec<String>) + 'static,
     ) {
+        let closing = agents.clone();
+        let close = move |bench: &mut Workbench, workers: Vec<String>, cx: &mut Context<Self>| {
+            let paused = bench.pausing(closing.iter().chain(&workers));
+            close(bench, workers);
+            bench.say_paused(paused, cx);
+        };
         let busy: Vec<&String> = agents
             .iter()
             .filter(|id| self.agent_by_id(id).is_some_and(|row| row.busy))
@@ -76,7 +87,7 @@ impl Workbench {
         let workers = self.workers_of(&agents);
         if workers.is_empty() {
             if busy.is_empty() {
-                return close(self, Vec::new());
+                return close(self, Vec::new(), cx);
             }
             let shown: Vec<String> = busy.iter().map(|id| self.label_of(id, false)).collect();
             let one = busy.len() == 1;
@@ -90,9 +101,9 @@ impl Workbench {
                 body,
                 "Close",
                 true,
-                move |bench, yes, _, _| {
+                move |bench, yes, _, cx| {
                     if yes {
-                        close(bench, Vec::new());
+                        close(bench, Vec::new(), cx);
                     }
                 },
                 cx,
@@ -135,13 +146,65 @@ impl Workbench {
             if one { "Stop it" } else { "Stop them" },
             Some((if one { "Keep it" } else { "Keep them" }).into()),
             true,
-            move |bench, choice, _, _| match choice {
-                Choice::Yes => close(bench, workers.clone()),
-                Choice::Other => close(bench, Vec::new()),
+            move |bench, choice, _, cx| match choice {
+                Choice::Yes => close(bench, workers.clone(), cx),
+                Choice::Other => close(bench, Vec::new(), cx),
                 Choice::No => {}
             },
             cx,
         );
+    }
+
+    /// The chats of these agents whose triggers pause as they close, each with how many.
+    fn pausing<'a>(&self, agents: impl Iterator<Item = &'a String>) -> Vec<(WorkspaceAgent, u32)> {
+        let Some(view) = self.shown() else {
+            return Vec::new();
+        };
+        agents
+            .filter_map(|id| {
+                let triggers = self.agent_by_id(id)?.triggers;
+                let agent = view.workspace.agents.iter().find(|agent| &agent.id == id)?;
+                (triggers > 0 && agent.resume_id.is_some()).then(|| (agent.clone(), triggers))
+            })
+            .collect()
+    }
+
+    /// Says which triggers paused as their chats closed, with Undo taking those chats up again.
+    fn say_paused(&mut self, paused: Vec<(WorkspaceAgent, u32)>, cx: &mut Context<Self>) {
+        let triggers: u32 = paused.iter().map(|(_, triggers)| triggers).sum();
+        let closed = match paused.as_slice() {
+            [] => return,
+            [(agent, _)] => self.agent_by_id(&agent.id).map_or_else(
+                || "the chat".to_owned(),
+                |row| row.name.map_or(row.title, |name| format!("@{name}")),
+            ),
+            more => format!("{} chats", more.len()),
+        };
+        let text = format!(
+            "Closed {closed} · paused {triggers} {}",
+            if triggers == 1 { "trigger" } else { "triggers" }
+        );
+        let (bench, paused) = (cx.weak_entity(), Rc::new(paused));
+        let note = toast::undoable(text, move |_, cx| {
+            let paused = paused.clone();
+            let _ = bench.update(cx, |bench, cx| {
+                for (agent, _) in paused.iter() {
+                    let Some(session) = agent.resume_id.clone() else {
+                        continue;
+                    };
+                    let (provider, cwd) = (agent.provider.clone(), agent.cwd.clone());
+                    bench.resume_session(
+                        &agent.project,
+                        provider,
+                        session,
+                        cwd,
+                        agent.title.clone(),
+                        cx,
+                    );
+                }
+            });
+        });
+        self.notify(note, cx);
     }
 
     /// The open agents these agents started, and the ones those started, without these.
