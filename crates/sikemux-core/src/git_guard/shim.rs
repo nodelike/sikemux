@@ -461,6 +461,9 @@ fn run(args: Vec<OsString>) -> i32 {
 /// The other agents whose work a git command in `dir` would touch, as the
 /// core that started this agent knows them.
 fn others(dir: &Path, paths: &[String]) -> Option<Vec<String>> {
+    if std::env::var_os(vars::AGENT_ID).is_none() {
+        return Some(Vec::new());
+    }
     let answer = crate::cli::client::attempt(
         &footer::endpoint()?,
         &dir.to_string_lossy(),
