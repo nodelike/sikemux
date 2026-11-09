@@ -1,6 +1,6 @@
 //! What the window's renderer paints behind panes and overlays with the shaders in
 //! `assets/shaders`: the moving grain, the person's own picture dithered in its place,
-//! and the skies over the first-run setup and the release notes. The grain and the picture
+//! the first-run setup's dithered mark and tiles, and the sky over the release notes. The grain and the picture
 //! are on the window's ground, which macOS keeps in a layer of its own at one pixel per
 //! point, so the grain moves without anything over it drawn again. The sky is over the
 //! shell, so it moves by showing the whole last frame again with the clock moved on.
@@ -8,7 +8,7 @@
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use gpui::{
@@ -32,8 +32,13 @@ macro_rules! program {
 static FIELD: ShaderProgram = program!("field");
 static PICTURE: ShaderProgram = program!("picture");
 static SKY: ShaderProgram = program!("sky");
-static SETUP_SKY: ShaderProgram = program!("setup_sky");
+static POSTER_MARK: ShaderProgram = program!("poster_mark");
 static TILE: ShaderProgram = program!("tile");
+
+static MARK_PNG: &[u8] = include_bytes!("../../../brand/mark/mark-white-256.png");
+/// How much of the distance between dots each dot fills, and how solid they are.
+const MARK_DOT: f32 = 2. / 3.;
+const MARK_OPACITY: f32 = 0.9;
 
 const FRAMES_PER_SECOND: u64 = 30;
 /// Slower on battery, where every frame is paid for out of the charge.
@@ -402,32 +407,37 @@ pub fn sky(fade_from: f32, opacity: f32, cx: &App) -> impl IntoElement + Styled 
     )
 }
 
-/// Where the first-run setup's sky reaches and how it keeps clear of a block of text.
-#[derive(Clone, Copy)]
-pub struct SetupSky {
-    pub level: f32,
-    pub densest: f32,
-    pub seed: f32,
-    pub opacity: f32,
-    pub clear: [f32; 4],
-    pub margin: f32,
-    pub feather: f32,
+/// The brand's mark, only its shape read: it is decoded once, on the first welcome shown.
+fn mark_shape() -> Option<Arc<RenderImage>> {
+    static SHAPE: OnceLock<Option<Arc<RenderImage>>> = OnceLock::new();
+    SHAPE
+        .get_or_init(|| {
+            let pixels = image::load_from_memory(MARK_PNG)
+                .inspect_err(|error| eprintln!("sikemux: the mark does not decode: {error}"))
+                .ok()?
+                .into_rgba8();
+            Some(Arc::new(RenderImage::new([image::Frame::new(pixels)])))
+        })
+        .clone()
 }
 
-/// The first-run setup's sky in the accent, filling whatever holds it.
-pub fn setup_sky(sky: SetupSky, cx: &App) -> impl IntoElement + Styled {
+/// The mark as a dither in the accent, come in as far as `resolved` says, with its dots
+/// `spacing` points apart.
+pub fn poster_mark(resolved: f32, spacing: f32, cx: &App) -> Option<impl IntoElement + Styled> {
+    let shape = mark_shape()?;
     let accent = Tokens::get(cx).accent.to_rgb();
-    canvas(
+    Some(canvas(
         |_, _, _| {},
         move |bounds, (), window, _| {
+            let pitch = (spacing * window.scale_factor()).round().max(2.);
             let mut params = [0.; gpui::SHADER_PARAMS];
-            params[..4].copy_from_slice(&[window.scale_factor(), sky.level, sky.densest, sky.seed]);
-            params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, sky.opacity]);
-            params[8..10].copy_from_slice(&[sky.margin, sky.feather]);
-            params[12..16].copy_from_slice(&sky.clear);
-            let _ = window.paint_shader(bounds, &SETUP_SKY, params, None);
+            params[..4].copy_from_slice(&[resolved, pitch, (pitch * MARK_DOT).round().max(1.), 0.]);
+            params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, MARK_OPACITY]);
+            if let Err(error) = window.paint_shader(bounds, &POSTER_MARK, params, Some(&shape)) {
+                eprintln!("sikemux: the mark does not draw: {error}");
+            }
         },
-    )
+    ))
 }
 
 /// What one tile's dither on the setup's wall looks like. Sizes are in points, and clearances

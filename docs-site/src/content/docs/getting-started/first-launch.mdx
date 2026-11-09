@@ -3,9 +3,9 @@ title: First launch
 description: "The two-step setup: a working agent, then your projects."
 ---
 
-The first time Sikemux opens it shows its name for a moment while it looks for your agents, and any key skips that. Then it walks you through a short setup: **Agents**, then **Projects**. The steps are required, and quitting midway brings the setup back next launch.
+The first time Sikemux opens it walks you through a short setup: **Agents**, then **Projects**. The steps are required, and quitting midway brings the setup back next launch.
 
-The window is a grid. The top-left cell asks the question, says where you stand and holds the button that moves on.
+The left half of the window welcomes you, says where you stand and holds the button that moves on. The right half is the step. The first time it appears the Sikemux mark resolves in over a moment, and any key skips that.
 
 Tab and the arrows move between tiles and rows, Space ticks a project or runs an agent's action, and Return continues. If `git` is not installed, the setup says so, since the Git view needs it.
 
@@ -13,7 +13,7 @@ Tab and the arrows move between tiles and rows, Space ticks a project or runs an
 
 Each agent Sikemux can set up gets a tile saying where it stands: **Ready**, **Installed**, **Signed out**, **Not installed** or **Won't start**. Pick the one that should start your first chat, with a click, Tab or the arrows.
 
-A tile that needs something offers it: **Install** and **Reinstall** run the agent's own installer, and **Sign in** runs its own sign-in, in a terminal under the grid where you can watch it. The question cell shows the exact command before it runs. If one fails, **Try again** appears on the tile. Return on a tile with an action runs it; Return on one that works continues with that agent. **Check again**, offered while the chosen agent isn't working, reads every agent's status afresh, which also happens when you come back to the window.
+A tile that needs something offers it: **Install** and **Reinstall** run the agent's own installer, and **Sign in** runs its own sign-in, in a terminal under the grid where you can watch it. The left half shows the exact command before it runs. If one fails, **Try again** appears on the tile. Return on a tile with an action runs it; Return on one that works continues with that agent. **Check again**, offered while the chosen agent isn't working, reads every agent's status afresh, which also happens when you come back to the window.
 
 If an install or sign-in ends and still no agent works, for example on a machine with no network, **Continue anyway** appears so you are never locked out.
 
@@ -25,9 +25,9 @@ See [Supported agents](/agents/supported/) for the list.
 
 Sikemux offers the folders your agents have worked in, read from their saved chats. Repositories come first, newest activity on top, with clones of one remote side by side and folders outside git last. A repository with at least three chats in the last 30 days starts ticked. Folders that no longer exist, linked worktrees, temporary folders and anything under `Downloads` are left out.
 
-The field under **Add a folder** narrows the list as you type, and Return ticks the first match. To add a folder that isn't listed, use **Choose folder…**, or type or paste its path (starting with `/`, `~` or `.`) and press Return. At least one project has to be ticked to continue.
+The field above the list narrows it as you type, and Return ticks the first match. To add a folder that isn't listed, use **Choose folder…**, or type or paste its path (starting with `/`, `~` or `.`) and press Return. At least one project has to be ticked to continue.
 
-The agent you chose sits under the question. Click it, or Tab to it and press Return, to go back and change it.
+The agent you chose is named above the welcome. Click it, or Tab to it and press Return, to go back and change it.
 
 **Open Sikemux** adds your projects, finishes the setup and opens a new chat on your agent in the first ticked project, ready to type in. If a project can't be added, the setup stays open and says which one. If you used **Continue anyway** and no agent works, it opens the app without a chat.
 

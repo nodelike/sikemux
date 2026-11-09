@@ -2,7 +2,6 @@
 //! On a real first run nothing leaves it but finishing, and only finishing counts it done.
 
 use std::cell::Cell;
-use std::f32::consts::PI;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -12,11 +11,11 @@ use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::Role;
 use gpui_kit::{
-    actions, div, px, radians, relative, transparent_black, AnyElement, App, AppContext, Context,
-    Div, Entity, FocusHandle, FontFeatures, FontWeight, Hsla, InteractiveElement, IntoElement,
+    actions, div, px, relative, transparent_black, AnyElement, App, AppContext, Context, Div,
+    Entity, FocusHandle, FontFeatures, FontWeight, Hsla, InteractiveElement, IntoElement,
     KeyBinding, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, PathPromptOptions, Rgba,
-    ScrollHandle, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription,
-    Transformation, Window, WindowControlArea,
+    ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription, Window,
+    WindowControlArea,
 };
 use sikemux_core::agent_accounts::status::AgentStatus;
 use sikemux_core::server::call;
@@ -45,23 +44,9 @@ const COMPACT_HEIGHT: f32 = 700.;
 const COMPACT_WIDTH: f32 = 1100.;
 const ROW_HEIGHT: f32 = 46.;
 const ROW_HEIGHT_COMPACT: f32 = 32.;
-/// Across and down the window's grid of cells.
-const GRID: usize = 3;
+const TILES_ACROSS: usize = 2;
 const STEPS: usize = 2;
-const ANSWER_SEED: f32 = 4.;
-/// The question cell's width and height at the smallest window and at a roomy one.
-const SMALLEST_CELL: (f32, f32) = (286., 180.);
-const ROOMIEST_CELL: (f32, f32) = (588., 366.);
-const TIGHT_COLUMN: f32 = 540.;
-/// A line of quiet actions in a narrow question cell.
-const ACTION_LINE: f32 = 18.;
-const REASON_SIZE: f32 = 13.;
-/// Rounding in the text estimates, which a line may overrun without being dropped.
-const FIT_SLACK: f32 = 1.5;
-/// How much of the fold passes before the step appears under the name.
-const FOLD_HOLD: f32 = 0.5;
 const LABEL_LINE: f32 = 1.4;
-const LOGO_FILL: f32 = 1.55;
 /// How much dither a tile gets for its state, in a roomy window and a small one.
 #[derive(Clone, Copy)]
 struct Density {
@@ -93,25 +78,26 @@ const DENSITY_RUNNING: Density = Density {
     roomy: 0.15,
     compact: 0.105,
 };
-const ANSWER_DENSITY: Density = Density {
-    roomy: 0.16,
-    compact: 0.182,
-};
 /// A bright colour is dimmed by its opacity; thinning its dots as far would leave only specks.
 const LEAST_DENSITY_FIT: f32 = 0.85;
-const RISE_MILLIS: u64 = 900;
-const FOLD_MILLIS: u64 = 280;
 const STEP_MILLIS: u64 = 200;
-/// The shortest the opening holds, and the longest it waits for the agents to be known.
-const OPENING_LEAST: Duration = Duration::from_millis(1300);
-const OPENING_MOST: Duration = Duration::from_millis(3200);
-const OPENING_POLL: Duration = Duration::from_millis(100);
+const RESOLVE_MILLIS: u64 = 700;
+const APPEAR_MILLIS: u64 = 260;
+/// The window sizes the poster's measures run between.
+const SMALLEST_WINDOW: (f32, f32) = (860., 540.);
+const ROOMIEST_WINDOW: (f32, f32) = (1768., 1099.);
+/// Below this much room for text, the poster's quiet actions get a line of their own.
+const EXTRAS_INLINE_WIDTH: f32 = 620.;
+/// The most of a row a project's name takes before its path.
+const NAME_SHARE: f32 = 0.62;
+/// An agent's mark sits in a box this much taller than it, and at least this far above its name.
+const MARK_BOX: f32 = 1.36;
+const MARK_TO_NAME: f32 = 16.;
 
-/// Where the opening beat has got to.
+/// Whether the mark is still resolving in, the first thing the setup does.
 #[derive(Clone, Copy)]
 enum Beat {
-    Holding(Instant),
-    Folding(Instant),
+    Resolving(Instant),
     Done,
 }
 
@@ -223,7 +209,7 @@ impl Welcome {
             was_busy: false,
             scan_failed: false,
             filter: String::new(),
-            beat: Beat::Holding(Instant::now()),
+            beat: Beat::Resolving(Instant::now()),
             stage_at: Instant::now(),
             fade: Cell::new(1.),
             scroll: ScrollHandle::new(),
@@ -280,20 +266,6 @@ fn redraw(bench: &Workbench, cx: &mut Context<Workbench>) {
 pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     bench.agent_setup.ended = false;
     setup::read(bench, cx);
-    cx.spawn(async move |bench, cx| {
-        let opened = Instant::now();
-        loop {
-            cx.background_executor().timer(OPENING_POLL).await;
-            let known = bench
-                .update(cx, |bench, _| bench.agent_setup.found.is_some())
-                .unwrap_or(true);
-            if opened.elapsed() >= OPENING_LEAST && (known || opened.elapsed() >= OPENING_MOST) {
-                break;
-            }
-        }
-        let _ = bench.update(cx, begin_fold);
-    })
-    .detach();
     let asks = bench.asks.clone();
     cx.spawn(async move |bench, cx| {
         let tools = Target::here(&asks)
@@ -335,16 +307,11 @@ pub fn opened(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     .detach();
 }
 
-/// Ends the opening beat, folding it away unless the person asked for less motion.
-fn begin_fold(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let still = cx.reduce_motion();
+/// Shows the mark and the step at once, for whoever pressed a key while it resolved.
+fn skip_opening(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     if let Some(welcome) = welcome_of(bench) {
-        if matches!(welcome.beat, Beat::Holding(_)) {
-            welcome.beat = if still {
-                Beat::Done
-            } else {
-                Beat::Folding(Instant::now())
-            };
+        if matches!(welcome.beat, Beat::Resolving(_)) {
+            welcome.beat = Beat::Done;
             welcome.stage_at = Instant::now();
         }
     }
@@ -352,7 +319,7 @@ fn begin_fold(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 }
 
 fn opening_is_up(bench: &Workbench) -> bool {
-    welcome_in(bench).is_some_and(|welcome| matches!(welcome.beat, Beat::Holding(_)))
+    welcome_in(bench).is_some_and(|welcome| matches!(welcome.beat, Beat::Resolving(_)))
 }
 
 /// Which rows the field leaves showing. A path being typed narrows nothing.
@@ -417,8 +384,9 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
         welcome.path = Some(path);
         welcome._typing = Some(typing);
     }
-    if let Beat::Folding(since) = welcome.beat {
-        if since.elapsed() >= Duration::from_millis(FOLD_MILLIS) {
+    if let Beat::Resolving(since) = welcome.beat {
+        let opening = Duration::from_millis(RESOLVE_MILLIS + APPEAR_MILLIS);
+        if cx.reduce_motion() || since.elapsed() >= opening {
             welcome.beat = Beat::Done;
         }
     }
@@ -638,7 +606,7 @@ fn go(bench: &mut Workbench, stop: Stop, window: &mut Window, cx: &mut Context<W
 
 fn step(bench: &mut Workbench, forward: bool, window: &mut Window, cx: &mut Context<Workbench>) {
     if opening_is_up(bench) {
-        return begin_fold(bench, cx);
+        return skip_opening(bench, cx);
     }
     let Some(welcome) = welcome_in(bench) else {
         return;
@@ -667,7 +635,7 @@ fn step(bench: &mut Workbench, forward: bool, window: &mut Window, cx: &mut Cont
 /// Up and down a row of tiles on the first step; elsewhere the arrows step like Tab.
 fn step_row(bench: &mut Workbench, down: bool, window: &mut Window, cx: &mut Context<Workbench>) {
     if opening_is_up(bench) {
-        return begin_fold(bench, cx);
+        return skip_opening(bench, cx);
     }
     let tile = welcome_in(bench).and_then(|welcome| match (welcome.stage, welcome.at) {
         (Stage::Agents, Some(Stop::Row(_))) => Some(chosen_index(bench, welcome)),
@@ -678,8 +646,8 @@ fn step_row(bench: &mut Workbench, down: bool, window: &mut Window, cx: &mut Con
     };
     let last = listed_agents(bench).len().saturating_sub(1);
     let to = match down {
-        true => (at + GRID).min(last),
-        false => at.checked_sub(GRID).unwrap_or(at),
+        true => (at + TILES_ACROSS).min(last),
+        false => at.checked_sub(TILES_ACROSS).unwrap_or(at),
     };
     go(bench, Stop::Row(to), window, cx);
 }
@@ -800,7 +768,7 @@ fn key_down(
 ) {
     if opening_is_up(bench) {
         cx.stop_propagation();
-        return begin_fold(bench, cx);
+        return skip_opening(bench, cx);
     }
     let Some(welcome) = welcome_in(bench) else {
         return;
@@ -1026,89 +994,74 @@ impl Room {
         }
     }
 
-    fn pad(self) -> f32 {
-        self.pick(48., 22.)
-    }
-
-    fn column(self) -> f32 {
-        ((self.width - (GRID - 1) as f32) / GRID as f32).floor()
-    }
-
-    fn row_height(self) -> f32 {
-        self.pick(ROW_HEIGHT, ROW_HEIGHT_COMPACT)
-    }
-
-    /// How far this window is from the smallest question cell towards the roomiest.
+    /// How far this window is from the smallest it can be towards a roomy one.
     fn ease(self) -> f32 {
-        if self.compact {
-            return 0.;
-        }
-        let tall =
-            (self.height / GRID as f32 - SMALLEST_CELL.1) / (ROOMIEST_CELL.1 - SMALLEST_CELL.1);
-        let wide = (self.column() - SMALLEST_CELL.0) / (ROOMIEST_CELL.0 - SMALLEST_CELL.0);
-        tall.min(wide).clamp(0., 1.)
+        let wide = (self.width - SMALLEST_WINDOW.0) / (ROOMIEST_WINDOW.0 - SMALLEST_WINDOW.0);
+        let tall = (self.height - SMALLEST_WINDOW.1) / (ROOMIEST_WINDOW.1 - SMALLEST_WINDOW.1);
+        wide.min(tall).clamp(0., 1.)
     }
 
     fn fit(self, roomy: f32, compact: f32) -> f32 {
         compact + (roomy - compact) * self.ease()
     }
 
-    /// The foot of a narrow question cell has room for the dots and the button alone.
-    fn tight(self) -> bool {
-        self.compact || self.column() < TIGHT_COLUMN
+    fn poster_width(self) -> f32 {
+        (self.width * self.fit(0.5, 0.4)).round()
     }
 
-    fn content(self) -> f32 {
-        self.column() - self.pad() * 2.
+    fn pane_width(self) -> f32 {
+        self.width - self.poster_width() - 1.
+    }
+
+    fn pad(self) -> f32 {
+        self.fit(64., 22.)
+    }
+
+    fn text_width(self) -> f32 {
+        self.poster_width() - self.pad() * 2.
+    }
+
+    fn mark_top(self) -> f32 {
+        self.fit(90., 30.)
+    }
+
+    /// As large as the poster can hold with room left for its longest text.
+    fn mark_size(self) -> f32 {
+        self.fit(580., 230.)
+            .min(self.text_width())
+            .min(self.height - self.mark_top() - self.fit(428., 262.))
+            .floor()
     }
 
     fn said_size(self) -> f32 {
-        self.fit(18., 13.)
-    }
-
-    fn said_height(self) -> f32 {
-        self.said_size() * self.fit(1.4, 1.25)
+        self.fit(21., 13.)
     }
 
     fn mono_size(self) -> f32 {
         self.fit(13., 11.)
     }
 
-    fn mono_height(self) -> f32 {
-        self.mono_size() * 1.3
-    }
-
     fn line_gap(self) -> f32 {
         self.fit(6., 2.)
     }
 
-    /// What the question cell spends on its padding, a two-line heading and its foot.
-    fn question_frame(self) -> f32 {
-        self.fit(56., 34.)
-            + self.fit(62., 30.) * 1.04 * 2.
-            + self.fit(16., 3.)
-            + self.fit(12., 4.)
-            + self.fit(46., 30.)
-            + self.fit(34., 10.)
+    fn row_height(self) -> f32 {
+        self.pick(ROW_HEIGHT, ROW_HEIGHT_COMPACT)
+    }
+
+    fn list_edge(self) -> f32 {
+        self.fit(44., 14.)
     }
 
     fn list_inset(self) -> f32 {
-        self.pick(18., 6.)
+        self.fit(8., 4.)
+    }
+
+    fn list_top(self) -> f32 {
+        self.fit(108., 54.)
     }
 }
 
-/// The mark filling a `size` box. The icon's own artwork sits inside a wide margin.
-fn logo(size: f32, ink: Hsla) -> Div {
-    let drawn = size * LOGO_FILL;
-    let inset = (size - drawn) / 2.;
-    div().relative().flex_none().size(px(size)).child(
-        div()
-            .absolute()
-            .left(px(inset))
-            .top(px(inset))
-            .child(ui::icon(Icon::Logo, drawn).text_color(ink)),
-    )
-}
 /// How an agent's mark sits in its box: the edges of what is drawn, as shares of the box, and
 /// how much of that is ink. Equal targets then read as equal sizes.
 fn mark_ink(kind: &str) -> [f32; 5] {
@@ -1182,9 +1135,9 @@ fn sized_mark(kind: &str, target: f32) -> (Div, f32, f32) {
     (slot, box_width, box_height)
 }
 
-/// What the question cell asks, says and offers on a step.
-struct Question {
-    title: &'static str,
+/// What the poster says and offers under the mark on a step.
+struct Poster {
+    back: Option<AnyElement>,
     lines: Vec<AnyElement>,
     extras: Vec<AnyElement>,
     primary: AnyElement,
@@ -1202,9 +1155,8 @@ fn said(text: impl Into<SharedString>, ink: Hsla, room: Room) -> AnyElement {
         .into_any_element()
 }
 
-fn said_mono(text: String, room: Room, t: &Tokens) -> Stateful<Div> {
+fn said_mono(text: String, room: Room, t: &Tokens) -> AnyElement {
     div()
-        .id(SharedString::from(text.clone()))
         .min_w_0()
         .truncate()
         .font_family(theme::MONO)
@@ -1213,6 +1165,7 @@ fn said_mono(text: String, room: Room, t: &Tokens) -> Stateful<Div> {
         .line_height(relative(1.3))
         .text_color(t.text_tertiary)
         .child(text)
+        .into_any_element()
 }
 
 /// A command as it can be shown in `fits` characters: whole when it fits, else broken before
@@ -1227,7 +1180,6 @@ fn command_lines(command: &str, fits: usize) -> Vec<String> {
         _ => vec![command.to_owned()],
     }
 }
-
 /// A failure in one short line: its first line, with paths cut to their last part and the
 /// agent named as people know it.
 fn short_reason(reason: &str, agent: &Found) -> String {
@@ -1251,7 +1203,7 @@ fn short_reason(reason: &str, agent: &Found) -> String {
 fn dots_fit(label: &str, closes: bool, room: Room) -> bool {
     let button = label.chars().count() as f32 * 13.5 * 0.5 + 50.;
     let closing = if closes { 66. } else { 0. };
-    !room.compact || 43. + closing + button <= room.content()
+    !room.compact || 43. + closing + button <= room.text_width()
 }
 
 fn progress_dots(step: usize, room: Room, t: &Tokens) -> Div {
@@ -1271,22 +1223,24 @@ fn progress_dots(step: usize, room: Room, t: &Tokens) -> Div {
         }))
 }
 
-/// The top-left cell of every step: the question, what is true of it, and how to go on.
-fn question_cell(
-    question: Question,
+/// The left of every step: the mark, the welcome, what is true right now and how to go on.
+fn poster(
+    poster: Poster,
+    resolved: f32,
     welcome: &Welcome,
     room: Room,
     this: &Entity<Workbench>,
-    t: &Tokens,
+    cx: &App,
 ) -> Div {
-    let Question {
-        title,
+    let t = Tokens::get(cx).clone();
+    let Poster {
+        back,
         mut lines,
         extras,
         primary,
         step,
         dots,
-    } = question;
+    } = poster;
     if welcome.git_missing {
         let warning = if cfg!(target_os = "macos") {
             "Git isn't set up. Run xcode-select --install."
@@ -1295,7 +1249,12 @@ fn question_cell(
         };
         lines.push(said(warning, t.warn, room));
     }
-    let dots = dots.then(|| progress_dots(step, room, t));
+    let extras_above = room.text_width() < EXTRAS_INLINE_WIDTH && !extras.is_empty();
+    let (above, inline) = match extras_above {
+        true => (extras, Vec::new()),
+        false => (Vec::new(), extras),
+    };
+    let dots = dots.then(|| progress_dots(step, room, &t));
     let closes = (!welcome.required).then(|| {
         let this = this.clone();
         let ink = t.text_primary;
@@ -1310,60 +1269,85 @@ fn question_cell(
             .on_click(move |_, _, cx| this.update(cx, leave))
             .child("Esc closes")
     });
+    let size = room.mark_size();
+    let mark = ui::grain::poster_mark(resolved, room.fit(3., 2.), cx).map(|mark| {
+        mark.absolute()
+            .left(px(((room.poster_width() - size) / 2.).floor()))
+            .top(px(room.mark_top()))
+            .size(px(size))
+    });
     div()
+        .relative()
+        .flex_none()
+        .w(px(room.poster_width()))
+        .h_full()
         .overflow_hidden()
+        .border_r_1()
+        .border_color(t.border)
         .bg(t.surface_sunken)
-        .pt(px(room.fit(56., 34.)))
-        .px(px(room.pad()))
-        .pb(px(room.fit(34., 10.)))
-        .flex()
-        .flex_col()
+        .children(mark)
         .child(
             div()
-                .flex_none()
-                .text_size(theme::ui_text(room.fit(62., 30.)))
-                .font_weight(FontWeight::SEMIBOLD)
-                .letter_spacing(-0.035)
-                .line_height(relative(1.04))
-                .text_color(t.text_primary)
-                .child(title),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .overflow_hidden()
-                .mt(px(room.fit(16., 3.)))
+                .absolute()
+                .left(px(room.pad()))
+                .right(px(room.pad()))
+                .bottom(px(room.fit(56., 14.)))
                 .flex()
                 .flex_col()
-                .gap(px(room.line_gap()))
-                .children(lines),
-        )
-        .child(
-            div()
-                .flex_none()
-                .pt(px(room.fit(12., 4.)))
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(room.fit(16., 8.)))
+                .children(back)
                 .child(
                     div()
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .gap(px(room.fit(14., 10.)))
-                        .children(dots)
-                        .children(closes),
+                        .text_size(theme::ui_text(room.fit(88., 40.)))
+                        .font_weight(FontWeight(650.))
+                        .letter_spacing(-0.04)
+                        .line_height(relative(1.))
+                        .text_color(t.text_primary)
+                        .child("Welcome to")
+                        .child(div().text_color(t.accent).child("Sikemux")),
                 )
                 .child(
                     div()
-                        .flex_none()
+                        .mt(px(room.fit(16., 4.)))
+                        .flex()
+                        .flex_col()
+                        .gap(px(room.line_gap()))
+                        .children(lines),
+                )
+                .when(!above.is_empty(), |text| {
+                    text.child(
+                        div()
+                            .mt(px(room.fit(10., 4.)))
+                            .flex()
+                            .justify_end()
+                            .gap(px(room.fit(14., 10.)))
+                            .children(above),
+                    )
+                })
+                .child(
+                    div()
+                        .mt(px(room.fit(30., 8.)))
                         .flex()
                         .items_center()
-                        .gap(px(room.fit(14., 8.)))
-                        .children(extras)
-                        .child(primary),
+                        .justify_between()
+                        .gap(px(room.fit(16., 8.)))
+                        .child(
+                            div()
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .gap(px(room.fit(14., 10.)))
+                                .children(dots)
+                                .children(closes),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .gap(px(room.fit(14., 8.)))
+                                .children(inline)
+                                .child(primary),
+                        ),
                 ),
         )
 }
@@ -1375,8 +1359,8 @@ fn agent_tile(
     at: usize,
     chosen: bool,
     room: Room,
+    size: (f32, f32),
     bright: (f32, f32),
-    column: Option<f32>,
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
@@ -1385,13 +1369,17 @@ fn agent_tile(
     let state = tile_state(bench, agent, &t);
     let brand = theme::brand(&agent.kind);
     let busy = bench.agent_setup.busy();
-    let (edge, left) = (room.fit(34., 14.), room.pad());
-    let (slot, slot_width, slot_height) = sized_mark(&agent.kind, room.fit(46., 28.));
-    let (name_size, word_size) = (room.fit(32., 16.), room.fit(18., 13.));
+    let (edge, left) = (room.fit(40., 10.), room.fit(44., 14.));
+    let (name_size, word_size) = (room.fit(30., 16.), room.fit(17., 13.));
+    let labels = (name_size + word_size) * LABEL_LINE;
+    let target = room
+        .fit(46., 28.)
+        .min((size.1 - edge * 2. - labels - MARK_TO_NAME) / MARK_BOX);
+    let (slot, slot_width, slot_height) = sized_mark(&agent.kind, target);
     let widest = (agent.label.chars().count() as f32 * name_size)
         .max(state.word.chars().count() as f32 * word_size)
         * 0.56;
-    let pill_size = room.fit(14.5, 12.);
+    let pill_size = room.fit(15., 12.);
     let pill_label = state.action.as_ref().map(|(label, _)| *label);
     let fit = luminance_fit(brand);
     let density = room.pick(state.density.roomy, state.density.compact);
@@ -1405,16 +1393,16 @@ fn agent_tile(
         } * fit.min(1.)
             * welcome_fade,
         seed: at as f32 * 13. + 5.,
-        feather: room.fit(240., 80.),
+        feather: size.0.min(size.1) * room.fit(0.36, 0.4),
         anchor: dots_anchor(&agent.kind),
         mark_right: left + slot_width,
         mark_bottom: edge + slot_height,
         label_right: left + widest,
-        label_height: edge + (name_size + word_size) * LABEL_LINE,
+        label_height: edge + labels,
         pill_width: pill_label.map_or(0., |label| {
-            edge + label.len() as f32 * pill_size * 0.6 + room.fit(26., 20.)
+            room.fit(36., 10.) + label.len() as f32 * pill_size * 0.6 + room.fit(28., 20.)
         }),
-        pill_bottom: pill_label.map_or(0., |_| room.fit(30., 12.) + room.fit(32., 26.)),
+        pill_bottom: pill_label.map_or(0., |_| room.fit(36., 8.) + room.fit(34., 26.)),
         bright,
         running: state.running,
     };
@@ -1432,8 +1420,8 @@ fn agent_tile(
         let this = this.clone();
         div()
             .absolute()
-            .top(px(room.fit(30., 12.)))
-            .right(px(edge))
+            .top(px(room.fit(36., 8.)))
+            .right(px(room.fit(36., 10.)))
             .child(
                 ui::Button::new(
                     SharedString::from(format!("welcome-step-{}", agent.kind)),
@@ -1441,7 +1429,7 @@ fn agent_tile(
                     ui::Variant::Outline,
                 )
                 .solid(t.text_primary.opacity(0.09), t.text_primary.opacity(0.14))
-                .sized(room.fit(32., 26.), room.fit(13., 10.), pill_size)
+                .sized(room.fit(34., 26.), room.fit(14., 10.), pill_size)
                 .disabled(busy)
                 .on_click(move |_, window, cx| {
                     this.update(cx, |bench, cx| {
@@ -1457,10 +1445,7 @@ fn agent_tile(
         .role(Role::Button)
         .aria_label(SharedString::from(screen_reader))
         .relative()
-        .map(|tile| match column {
-            Some(width) => tile.flex_none().w(px(width)),
-            None => tile.flex_1(),
-        })
+        .flex_1()
         .min_w_0()
         .h_full()
         .overflow_hidden()
@@ -1515,7 +1500,6 @@ fn agent_tile(
 fn agents_grid(
     bench: &Workbench,
     welcome: &Welcome,
-    lit: Option<Stop>,
     room: Room,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
@@ -1523,119 +1507,84 @@ fn agents_grid(
     let t = Tokens::get(cx).clone();
     let listed = listed_agents(bench);
     let chosen = chosen_agent(bench, welcome).map(|agent| agent.kind.clone());
-    let row_count = (listed.len() + 1).div_ceil(GRID).max(1);
+    let row_count = listed.len().div_ceil(TILES_ACROSS).max(1);
     let below = match bench.agent_setup.shown() {
         true => room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT),
         false => 0.,
     };
-    let equal = (room.height - below - (row_count - 1) as f32) / row_count as f32;
-    let question_height = match bench.agent_setup.shown() {
-        true => equal.max(room.question_frame() + room.fit(96., 52.)),
-        false => equal,
-    };
-    let tile_height = equal;
-    let bright = (0.5, tile_height / 2. / room.width);
-    let question = agents_question(bench, welcome, lit, question_height, room, this, cx);
-    let question = question_cell(question, welcome, room, this, &t)
-        .flex_none()
-        .w(px(room.column()));
-    let mut rows: Vec<Vec<AnyElement>> = vec![vec![question.into_any_element()]];
+    let size = (
+        (room.pane_width() - 1.) / TILES_ACROSS as f32,
+        (room.height - below - (row_count - 1) as f32) / row_count as f32,
+    );
+    let bright = (
+        (room.poster_width() + size.0 / 2.) / room.width,
+        size.1 / 2. / room.width,
+    );
+    let mut grid = div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .gap(px(1.))
+        .bg(t.border);
     if listed.is_empty() {
         let looking = bench
             .agent_setup
             .found
             .is_none()
             .then(|| ui::shimmer::shimmer("welcome-agents-looking", "Looking on your PATH…"));
-        rows[0].push(
+        return grid.child(
             div()
                 .flex_1()
                 .bg(t.surface_sunken)
                 .flex()
                 .items_center()
-                .pl(px(room.pad()))
-                .text_size(theme::ui_text(room.pick(16., 13.)))
-                .children(looking)
-                .into_any_element(),
+                .pl(px(room.list_edge()))
+                .text_size(theme::ui_text(room.fit(16., 13.)))
+                .children(looking),
         );
     }
-    for (at, agent) in listed.iter().enumerate() {
-        let place = at + 1;
-        if place % GRID == 0 {
-            rows.push(Vec::new());
-        }
-        let ends_row = place % GRID == GRID - 1 || place == listed.len();
-        let width = (!ends_row).then_some(room.column());
-        let is_chosen = chosen.as_deref() == Some(agent.kind.as_str());
-        let tile = agent_tile(bench, agent, at, is_chosen, room, bright, width, this, cx);
-        if let Some(row) = rows.last_mut() {
-            row.push(tile);
-        }
+    for (row, agents) in listed.chunks(TILES_ACROSS).enumerate() {
+        let tiles: Vec<AnyElement> = agents
+            .iter()
+            .enumerate()
+            .map(|(column, agent)| {
+                let is_chosen = chosen.as_deref() == Some(agent.kind.as_str());
+                let at = row * TILES_ACROSS + column;
+                agent_tile(bench, agent, at, is_chosen, room, size, bright, this, cx)
+            })
+            .collect();
+        grid = grid.child(div().flex_1().min_h_0().flex().gap(px(1.)).children(tiles));
     }
-    div()
-        .flex_1()
-        .min_h_0()
-        .flex()
-        .flex_col()
-        .gap(px(1.))
-        .bg(t.border)
-        .children(rows.into_iter().enumerate().map(|(at, cells)| {
-            div()
-                .min_h_0()
-                .flex()
-                .gap(px(1.))
-                .map(|row| match at {
-                    0 => row.flex_none().h(px(question_height)),
-                    _ => row.flex_1(),
-                })
-                .children(cells)
-        }))
+    grid
 }
 
-fn agents_screen(
+fn agents_pane(
     bench: &Workbench,
     welcome: &Welcome,
-    lit: Option<Stop>,
     room: Room,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Div {
     let t = Tokens::get(cx).clone();
-    let grid = agents_grid(bench, welcome, lit, room, this, cx);
+    let grid = agents_grid(bench, welcome, room, this, cx);
     let terminal = setup::terminal_pane(bench, this, cx);
     let shown = bench.agent_setup.shown();
-    let close = shown.then(|| {
-        let words = if bench.agent_setup.busy() {
-            "Cancel"
-        } else {
-            "Close"
-        };
-        quiet(
-            "welcome-sheet-close",
-            words.to_owned(),
-            Stop::SheetClose,
-            lit,
-            room,
-            this,
-            &t,
-        )
-    });
     div()
-        .flex_1()
-        .min_h_0()
+        .size_full()
         .flex()
         .flex_col()
         .child(grid)
-        .when(shown, |main| {
-            main.child(
+        .when(shown, |pane| {
+            pane.child(
                 div()
                     .flex_none()
                     .h(px(room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT)))
                     .border_t_1()
                     .border_color(t.border)
                     .bg(t.surface_sunken)
-                    .relative()
                     .py(px(room.pick(20., 10.)))
-                    .px(px(room.pad()))
+                    .px(px(room.list_edge()))
                     .on_mouse_down(MouseButton::Left, keep_press)
                     .child(
                         div()
@@ -1643,16 +1592,7 @@ fn agents_screen(
                             .ml(-theme::SPACE_2)
                             .mt(-theme::SPACE_2)
                             .children(terminal),
-                    )
-                    .children(close.map(|close| {
-                        div()
-                            .absolute()
-                            .top(px(room.pick(16., 8.)))
-                            .right(px(room.pad()))
-                            .pl(px(8.))
-                            .bg(t.surface_sunken)
-                            .child(close)
-                    })),
+                    ),
             )
         })
 }
@@ -1697,15 +1637,17 @@ fn project_row(
             .flex()
             .justify_end()
             .whitespace_nowrap()
-            .text_size(theme::ui_text(room.pick(14., 12.5)))
+            .text_size(theme::ui_text(room.fit(14., 12.5)))
             .text_color(ink)
             .child(text)
     };
+    let columns = room.fit(30., 24.) + room.fit(86., 60.) + room.fit(84., 62.);
+    let longest_name = (room.pane_width() - room.list_edge() * 2. - columns) * NAME_SHARE;
     div()
         .id(SharedString::from(format!("welcome-project-{at}")))
         .flex_none()
         .h(px(room.row_height()))
-        .px(px(room.pick(44., 14.)))
+        .px(px(room.list_edge()))
         .flex()
         .items_center()
         .cursor_pointer()
@@ -1723,216 +1665,44 @@ fn project_row(
         .child(
             div()
                 .flex_none()
-                .w(px(room.pick(26., 24.)))
+                .w(px(room.fit(30., 24.)))
                 .child(tick(candidate.ticked, &t)),
-        )
-        .child(
-            div()
-                .flex_none()
-                .w(px(room.pick(300., 150.)))
-                .pr(px(12.))
-                .truncate()
-                .text_size(theme::ui_text(room.pick(16., 13.5)))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(t.text_primary)
-                .child(candidate.name.clone()),
         )
         .child(
             div()
                 .flex_1()
                 .min_w_0()
-                .truncate()
-                .font_family(theme::MONO)
-                .text_size(theme::ui_text(room.pick(13., 11.5)))
-                .text_color(t.text_tertiary)
-                .child(candidate.shown.clone()),
+                .flex()
+                .items_baseline()
+                .gap(px(room.fit(14., 8.)))
+                .child(
+                    div()
+                        .flex_none()
+                        .max_w(px(longest_name))
+                        .truncate()
+                        .text_size(theme::ui_text(room.fit(17., 13.5)))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(t.text_primary)
+                        .child(candidate.name.clone()),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .font_family(theme::MONO)
+                        .text_size(theme::ui_text(room.fit(13., 11.5)))
+                        .text_color(t.text_tertiary)
+                        .child(candidate.shown.clone()),
+                ),
         )
-        .child(right(room.pick(90., 60.), chats, t.text_secondary))
+        .child(right(room.fit(86., 60.), chats, t.text_secondary))
         .child(right(
-            room.pick(90., 62.),
+            room.fit(84., 62.),
             candidate.ago.clone().unwrap_or_default(),
             t.text_tertiary,
         ))
         .into_any_element()
-}
-
-/// The agent already chosen, under the question; it leads back to the step that chose it.
-fn agent_answer_cell(
-    bench: &Workbench,
-    welcome: &Welcome,
-    lit: bool,
-    room: Room,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> Stateful<Div> {
-    let t = Tokens::get(cx).clone();
-    let agent = start_agent(bench, welcome);
-    let (edge, left) = (room.fit(44., 14.), room.pad());
-    let (name_size, note_size) = (room.fit(30., 16.), room.fit(17., 13.));
-    let slot = agent.map(|agent| sized_mark(&agent.kind, room.fit(44., 28.)));
-    let (name, note) = match agent {
-        Some(agent) => (agent.label.clone(), "Does the work"),
-        None => ("No agent".to_owned(), "Set one up later in Settings"),
-    };
-    let dots = agent
-        .zip(slot.as_ref())
-        .map(|(agent, (_, slot_width, slot_height))| {
-            let brand = theme::brand(&agent.kind);
-            let fit = luminance_fit(brand);
-            let widest = (name.chars().count() as f32 * name_size)
-                .max(note.chars().count() as f32 * note_size)
-                * 0.56;
-            ui::grain::WallDots {
-                colour: brand,
-                density: room.pick(ANSWER_DENSITY.roomy, ANSWER_DENSITY.compact)
-                    * fit.clamp(LEAST_DENSITY_FIT, 1.25),
-                opacity: 0.56 * fit.min(1.) * welcome.fade.get(),
-                seed: ANSWER_SEED,
-                feather: room.fit(240., 80.),
-                anchor: dots_anchor(&agent.kind),
-                mark_right: left + slot_width,
-                mark_bottom: edge + slot_height,
-                label_right: left + widest,
-                label_height: edge + (name_size + note_size) * LABEL_LINE,
-                pill_width: edge + 20.,
-                pill_bottom: edge + 16.,
-                bright: (1. / (GRID as f32 * 2.), room.height / 2. / room.width),
-                running: false,
-            }
-        });
-    let ground = t.surface_sunken;
-    let (lift, hovered) = (
-        ground.blend(t.surface_chosen),
-        ground.blend(t.surface_hover),
-    );
-    let this = this.clone();
-    div()
-        .id("welcome-answer-agent")
-        .role(Role::Button)
-        .aria_label(SharedString::from(format!("{name}. Back to Agents")))
-        .relative()
-        .overflow_hidden()
-        .flex()
-        .flex_col()
-        .justify_end()
-        .py(px(edge))
-        .pl(px(left))
-        .pr(px(edge))
-        .cursor_pointer()
-        .map(|cell| match lit {
-            true => cell.bg(lift),
-            false => cell.bg(ground).hover(move |cell| cell.bg(hovered)),
-        })
-        .on_mouse_down(MouseButton::Left, keep_press)
-        .on_click(move |_, window, cx| {
-            this.update(cx, |bench, cx| show_stage(bench, Stage::Agents, window, cx))
-        })
-        .children(dots.map(|dots| {
-            ui::grain::wall_dots(dots, cx)
-                .absolute()
-                .inset_0()
-                .size_full()
-        }))
-        .children(slot.map(|(slot, ..)| div().absolute().top(px(edge)).left(px(left)).child(slot)))
-        .child(
-            div().absolute().top(px(edge)).right(px(edge)).child(
-                ui::icon(Icon::Chevron, room.fit(12., 10.))
-                    .with_transformation(Transformation::rotate(radians(PI)))
-                    .text_color(t.text_tertiary),
-            ),
-        )
-        .child(
-            div()
-                .text_size(theme::ui_text(name_size))
-                .font_weight(FontWeight::SEMIBOLD)
-                .letter_spacing(-0.02)
-                .line_height(relative(LABEL_LINE))
-                .whitespace_nowrap()
-                .text_color(match agent {
-                    Some(_) => t.text_primary,
-                    None => t.text_tertiary,
-                })
-                .child(name),
-        )
-        .child(
-            div()
-                .text_size(theme::ui_text(note_size))
-                .line_height(relative(LABEL_LINE))
-                .text_color(t.text_secondary)
-                .child(note),
-        )
-}
-
-fn add_folder_cell(
-    welcome: &Welcome,
-    lit: Option<Stop>,
-    room: Room,
-    this: &Entity<Workbench>,
-    t: &Tokens,
-) -> Div {
-    let this = this.clone();
-    let browse = ui::Button::new("welcome-browse", "Choose folder…", ui::Variant::Outline)
-        .solid(t.text_primary.opacity(0.09), t.text_primary.opacity(0.14))
-        .wide()
-        .sized(room.fit(42., 30.), 14., room.fit(15., 12.5))
-        .pressed(lit == Some(Stop::Browse))
-        .on_click(move |_, window, cx| {
-            this.update(cx, |bench, cx| {
-                go(bench, Stop::Browse, window, cx);
-                activate(bench, false, window, cx);
-            })
-        });
-    let edge = room.fit(44., 14.);
-    div()
-        .overflow_hidden()
-        .bg(t.surface_sunken)
-        .py(px(edge))
-        .px(px(room.pad()))
-        .flex()
-        .flex_col()
-        .child(
-            div()
-                .text_size(theme::ui_text(room.fit(30., 16.)))
-                .font_weight(FontWeight::SEMIBOLD)
-                .letter_spacing(-0.02)
-                .line_height(relative(1.15))
-                .text_color(t.text_primary)
-                .child("Add a folder"),
-        )
-        .child(
-            div()
-                .mt_auto()
-                .flex()
-                .flex_col()
-                .on_mouse_down(MouseButton::Left, keep_press)
-                .children(welcome.error.as_ref().map(|error| {
-                    div()
-                        .mb(px(room.fit(10., 4.)))
-                        .text_size(theme::ui_text(room.fit(14., 12.)))
-                        .line_height(relative(1.3))
-                        .text_color(t.warn)
-                        .child(error.clone())
-                }))
-                .child(
-                    div()
-                        .flex_none()
-                        .h(px(room.fit(46., 32.)))
-                        .px(px(room.fit(14., 10.)))
-                        .flex()
-                        .items_center()
-                        .rounded(px(room.fit(9., 6.)))
-                        .bg(t.surface_raised)
-                        .font_family(theme::MONO)
-                        .text_size(theme::ui_text(room.fit(14., 12.5)))
-                        .children(welcome.path.as_ref().map(|path| {
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .child(Input::new(path).appearance(false).bordered(false).px_0())
-                        })),
-                )
-                .child(div().mt(px(room.fit(10., 6.))).child(browse)),
-        )
 }
 
 fn project_list(
@@ -1961,10 +1731,10 @@ fn project_list(
         div()
             .flex_none()
             .h(px(room.row_height()))
-            .px(px(room.pick(44., 14.)))
+            .px(px(room.list_edge()))
             .flex()
             .items_center()
-            .text_size(theme::ui_text(room.pick(14., 12.5)))
+            .text_size(theme::ui_text(room.fit(14., 12.5)))
             .text_color(t.text_tertiary)
             .child(note)
             .into_any_element()
@@ -1983,38 +1753,13 @@ fn project_list(
         rows.extend(words.map(|words| note(words.into_any_element())));
     }
     let inset = room.list_inset();
-    let free = room.height - inset * 2. - rows.len() as f32 * room.row_height();
-    let sky = (free > room.row_height()).then(|| {
-        div()
-            .absolute()
-            .left_0()
-            .right_0()
-            .bottom_0()
-            .h(px(free))
-            .child(
-                ui::grain::setup_sky(
-                    ui::grain::SetupSky {
-                        level: 0.7,
-                        densest: 0.18,
-                        seed: 8.,
-                        opacity: 0.42 * welcome.fade.get(),
-                        clear: [0.; 4],
-                        margin: 0.,
-                        feather: 1.,
-                    },
-                    cx,
-                )
-                .size_full(),
-            )
-    });
-    let overflows = free < 0.;
+    let overflows =
+        rows.len() as f32 * room.row_height() + inset * 2. + room.list_top() > room.height;
     let thumb_ink = t.border_strong;
     div()
         .relative()
         .flex_1()
-        .min_w_0()
-        .bg(t.surface_sunken)
-        .children(sky)
+        .min_h_0()
         .child(
             div()
                 .id("welcome-rows")
@@ -2049,12 +1794,129 @@ fn project_list(
         })
 }
 
-fn projects_question(
+fn projects_pane(
     welcome: &Welcome,
+    lit: Option<Stop>,
+    room: Room,
+    this: &Entity<Workbench>,
+    cx: &mut Context<Workbench>,
+) -> Div {
+    let t = Tokens::get(cx).clone();
+    let browse = {
+        let this = this.clone();
+        ui::Button::new("welcome-browse", "Choose folder…", ui::Variant::Outline)
+            .solid(t.text_primary.opacity(0.09), t.text_primary.opacity(0.14))
+            .sized(room.fit(48., 32.), room.fit(18., 10.), room.fit(16., 12.5))
+            .pressed(lit == Some(Stop::Browse))
+            .on_click(move |_, window, cx| {
+                this.update(cx, |bench, cx| {
+                    go(bench, Stop::Browse, window, cx);
+                    activate(bench, false, window, cx);
+                })
+            })
+    };
+    let list = project_list(welcome, lit, room, this, cx);
+    div()
+        .size_full()
+        .flex()
+        .flex_col()
+        .bg(t.surface_sunken)
+        .child(
+            div()
+                .flex_none()
+                .pt(px(room.fit(40., 12.)))
+                .pb(px(room.fit(20., 8.)))
+                .px(px(room.list_edge()))
+                .flex()
+                .flex_col()
+                .gap(px(room.fit(8., 4.)))
+                .on_mouse_down(MouseButton::Left, keep_press)
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(room.fit(10., 8.)))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .h(px(room.fit(48., 32.)))
+                                .px(px(room.fit(16., 10.)))
+                                .flex()
+                                .items_center()
+                                .rounded(px(room.fit(9., 6.)))
+                                .bg(t.surface_raised)
+                                .font_family(theme::MONO)
+                                .text_size(theme::ui_text(room.fit(15., 12.5)))
+                                .children(welcome.path.as_ref().map(|path| {
+                                    div().flex_1().min_w_0().child(
+                                        Input::new(path).appearance(false).bordered(false).px_0(),
+                                    )
+                                })),
+                        )
+                        .child(div().flex_none().child(browse)),
+                )
+                .children(welcome.error.as_ref().map(|error| {
+                    div()
+                        .text_size(theme::ui_text(room.fit(14., 12.)))
+                        .line_height(relative(1.3))
+                        .text_color(t.warn)
+                        .child(error.clone())
+                })),
+        )
+        .child(list)
+}
+
+/// The way back to the agents, naming the one chosen.
+fn back_link(
+    bench: &Workbench,
+    welcome: &Welcome,
+    lit: Option<Stop>,
     room: Room,
     this: &Entity<Workbench>,
     t: &Tokens,
-) -> Question {
+) -> AnyElement {
+    let agent = start_agent(bench, welcome);
+    let this = this.clone();
+    let ink = t.text_primary;
+    div()
+        .id("welcome-back")
+        .role(Role::Button)
+        .aria_label(SharedString::from("Back to Agents"))
+        .mb(px(room.fit(22., 6.)))
+        .flex()
+        .items_center()
+        .self_start()
+        .gap(px(room.fit(9., 6.)))
+        .cursor_pointer()
+        .text_size(theme::ui_text(room.fit(17., 13.)))
+        .text_color(if lit == Some(Stop::Back) {
+            t.text_primary
+        } else {
+            t.text_secondary
+        })
+        .hover(move |back| back.text_color(ink))
+        .on_mouse_down(MouseButton::Left, keep_press)
+        .on_click(move |_, window, cx| {
+            this.update(cx, |bench, cx| {
+                go(bench, Stop::Back, window, cx);
+                activate(bench, false, window, cx);
+            })
+        })
+        .child("‹")
+        .children(agent.map(|agent| ui::mark(&agent.kind, room.fit(20., 15.))))
+        .child(agent.map_or_else(|| "Agents".to_owned(), |agent| agent.label.clone()))
+        .into_any_element()
+}
+
+fn projects_poster(
+    bench: &Workbench,
+    welcome: &Welcome,
+    lit: Option<Stop>,
+    room: Room,
+    this: &Entity<Workbench>,
+    t: &Tokens,
+) -> Poster {
     let ticked = welcome.ticked().count();
     let empty = welcome.rows.is_empty() && !welcome.looking;
     let older = if welcome.partial {
@@ -2087,52 +1949,14 @@ fn projects_question(
         "Open Sikemux"
     };
     let enabled = can_continue_projects(welcome) && !welcome.opening;
-    Question {
-        title: "Bring your projects",
+    Poster {
+        back: Some(back_link(bench, welcome, lit, room, this, t)),
         lines,
         extras: Vec::new(),
         primary: primary_button(label, enabled, room, this, t),
         step: 1,
         dots: dots_fit(label, !welcome.required, room),
     }
-}
-
-fn projects_screen(
-    bench: &Workbench,
-    welcome: &Welcome,
-    lit: Option<Stop>,
-    room: Room,
-    this: &Entity<Workbench>,
-    cx: &mut Context<Workbench>,
-) -> Div {
-    let t = Tokens::get(cx).clone();
-    let question = projects_question(welcome, room, this, &t);
-    div()
-        .flex_1()
-        .min_h_0()
-        .flex()
-        .gap(px(1.))
-        .bg(t.border)
-        .child(
-            div()
-                .flex_none()
-                .w(px(room.column()))
-                .flex()
-                .flex_col()
-                .gap(px(1.))
-                .child(question_cell(question, welcome, room, this, &t).flex_1())
-                .child(
-                    agent_answer_cell(bench, welcome, lit == Some(Stop::Back), room, this, cx)
-                        .flex_1()
-                        .min_h_0(),
-                )
-                .child(
-                    add_folder_cell(welcome, lit, room, this, &t)
-                        .flex_1()
-                        .min_h_0(),
-                ),
-        )
-        .child(project_list(welcome, lit, room, this, cx))
 }
 
 /// A word in the band that acts, quiet until it is under the keys or the pointer.
@@ -2186,7 +2010,7 @@ fn primary_button(
             false => ui::Variant::Outline,
         },
     )
-    .sized(room.fit(46., 30.), room.fit(20., 14.), room.fit(17., 13.5))
+    .sized(room.fit(50., 32.), room.fit(22., 14.), room.fit(18., 13.5))
     .when(!enabled, |button| {
         button.solid(t.surface_raised, t.surface_raised)
     })
@@ -2211,17 +2035,17 @@ fn agents_say(
         .is_some();
     let sentence = match (progress.busy() || (progress.shown() && !failure), &state) {
         (true, _) => progress.sheet_state().unwrap_or_default(),
-        (false, Some((agent, state))) if state.works && !room.compact => {
-            match agent.about.is_empty() {
-                true => format!("{} Arrows choose, Return continues.", state.sentence),
+        (false, Some((agent, state))) if state.works => {
+            match room.compact || agent.about.is_empty() {
+                true => format!("Choose who does the work. {}", state.sentence),
                 false => format!(
-                    "{}. {} Arrows choose, Return continues.",
+                    "Choose who does the work. {}. {}",
                     agent.about, state.sentence
                 ),
             }
         }
         (false, Some((_, state))) => state.sentence.clone(),
-        (false, None) => String::new(),
+        (false, None) => "Choose who does the work.".to_owned(),
     };
     let command = state
         .filter(|_| !progress.busy())
@@ -2229,15 +2053,14 @@ fn agents_say(
     (sentence, command)
 }
 
-fn agents_question(
+fn agents_poster(
     bench: &Workbench,
     welcome: &Welcome,
     lit: Option<Stop>,
-    height: f32,
     room: Room,
     this: &Entity<Workbench>,
     cx: &App,
-) -> Question {
+) -> Poster {
     let t = Tokens::get(cx).clone();
     let progress = &bench.agent_setup;
     let chosen = chosen_agent(bench, welcome);
@@ -2274,8 +2097,18 @@ fn agents_question(
             &t,
         ));
     }
-    let anyway = anyway_offered(bench);
-    if anyway {
+    if progress.shown() {
+        extras.push(quiet(
+            "welcome-sheet-close",
+            if busy { "Cancel" } else { "Close" }.to_owned(),
+            Stop::SheetClose,
+            lit,
+            room,
+            this,
+            &t,
+        ));
+    }
+    if anyway_offered(bench) {
         extras.push(quiet(
             "welcome-anyway",
             "Continue anyway".to_owned(),
@@ -2286,92 +2119,28 @@ fn agents_question(
             &t,
         ));
     }
-    let gap = room.line_gap();
-    let mut left = height - room.question_frame() + FIT_SLACK;
-    if welcome.git_missing {
-        left -= room.said_height() + gap;
-    }
-    let wrapped = (sentence.chars().count() as f32 * room.said_size() * 0.45 / room.content())
-        .ceil()
-        .max(1.);
-    let sentence_height = wrapped * room.said_height();
-    let beside_sentence = reason.is_some() || sentence_height + gap + ACTION_LINE <= left;
-    let action_line = room.tight() && !extras.is_empty() && (beside_sentence || anyway);
-    let one_line = action_line && !beside_sentence;
-    if action_line {
-        left -= ACTION_LINE + gap;
-    }
-    let reason_height = REASON_SIZE * room.fit(1.4, 1.25);
-    let mut lines = Vec::new();
-    let sentence_fits = reason.is_none() || sentence_height + gap + reason_height <= left;
-    if one_line {
-        lines.push(
-            div()
-                .flex_none()
-                .truncate()
-                .child(said(sentence, t.text_secondary, room))
-                .into_any_element(),
-        );
-        left -= room.said_height() + gap;
-    } else if sentence_fits {
-        lines.push(said(sentence, t.text_secondary, room));
-        left -= sentence_height + gap;
-    }
+    let mut lines = vec![said(sentence, t.text_secondary, room)];
     if let Some(reason) = reason {
         lines.push(
             div()
                 .truncate()
-                .text_size(theme::ui_text(REASON_SIZE))
-                .line_height(relative(room.fit(1.4, 1.25)))
+                .text_size(theme::ui_text(room.fit(15., 13.)))
+                .line_height(relative(1.3))
                 .text_color(t.warn)
                 .child(reason)
                 .into_any_element(),
         );
-        left -= reason_height + gap;
     }
-    let fits = (room.content() / (room.mono_size() * 0.6)) as usize;
-    if action_line {
-        let beside = command.filter(|_| !anyway);
-        lines.push(
-            div()
-                .flex_none()
-                .h(px(ACTION_LINE))
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(10.))
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .children(beside.map(|command| said_mono(command, room, &t))),
-                )
-                .child(
-                    div()
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .children(std::mem::take(&mut extras)),
-                )
-                .into_any_element(),
-        );
-    } else if let Some(command) = command {
-        let room_for = (left / room.mono_height()).floor() as usize;
-        let broken = command_lines(&command, fits);
-        let shown = match room_for {
-            0 => Vec::new(),
-            1 => vec![command],
-            _ => broken,
-        };
+    if let Some(command) = command {
+        let fits = (room.text_width() / (room.mono_size() * 0.6)) as usize;
         lines.extend(
-            shown
+            command_lines(&command, fits)
                 .into_iter()
-                .map(|line| said_mono(line, room, &t).into_any_element()),
+                .map(|line| said_mono(line, room, &t)),
         );
     }
-    Question {
-        title: "Choose who does the work",
+    Poster {
+        back: None,
         lines,
         dots: dots_fit(&action, !welcome.required, room),
         extras,
@@ -2396,59 +2165,6 @@ fn ease_out(share: f32) -> f32 {
     1. - (1. - share) * (1. - share)
 }
 
-/// The first beat: the name, large, over the rising sky. When it ends it settles where the
-/// question will be asked and fades into it.
-fn opening(rise: f32, fold: f32, room: Room, cx: &App) -> Div {
-    let t = Tokens::get(cx).clone();
-    let (size, logo_size) = (room.pick(176., 72.), room.pick(72., 36.));
-    let gap = room.pick(34., 14.);
-    let block = logo_size + gap + size * 1.02 * 2.;
-    let bottom = room.pick(290., 120.);
-    let top = room.height - bottom - block;
-    let eased = ease_out(fold);
-    let settle = |from: f32, to: f32| from + (to - from) * eased;
-    let width = (10. * size * 0.5).min(room.width - room.pad() * 2.);
-    let sky = ui::grain::SetupSky {
-        level: 0.66 * ease_out(rise),
-        densest: 0.3,
-        seed: 6.,
-        opacity: 0.5 * (1. - eased),
-        clear: [0., top, room.pad() + width, top + block],
-        margin: room.pick(18., 8.),
-        feather: room.pick(280., 110.),
-    };
-    div()
-        .absolute()
-        .inset_0()
-        .child(
-            ui::grain::setup_sky(sky, cx)
-                .absolute()
-                .inset_0()
-                .size_full(),
-        )
-        .child(
-            div()
-                .absolute()
-                .left(px(room.pad()))
-                .top(px(settle(top, room.pick(64., 34.))))
-                .flex()
-                .flex_col()
-                .opacity(1. - eased)
-                .child(logo(settle(logo_size, 0.), t.text_primary))
-                .child(
-                    div()
-                        .mt(px(settle(gap, 0.)))
-                        .text_size(theme::ui_text(settle(size, room.pick(62., 30.))))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .letter_spacing(-0.045)
-                        .line_height(relative(1.02))
-                        .text_color(t.text_primary)
-                        .child("Welcome to")
-                        .child(div().text_color(t.accent).child("Sikemux")),
-                ),
-        )
-}
-
 pub fn render(
     bench: &Workbench,
     this: &Entity<Workbench>,
@@ -2465,17 +2181,28 @@ pub fn render(
         .is_focused(window)
         .then_some(welcome.at)
         .flatten();
-    let (rise, fold) = match welcome.beat {
-        Beat::Holding(since) => (progress(since, RISE_MILLIS, window, cx), 0.),
-        Beat::Folding(since) => (1., progress(since, FOLD_MILLIS, window, cx)),
+    let (resolved, appeared) = match welcome.beat {
+        Beat::Resolving(since) => {
+            let spent = progress(since, RESOLVE_MILLIS + APPEAR_MILLIS, window, cx)
+                * (RESOLVE_MILLIS + APPEAR_MILLIS) as f32;
+            (
+                ease_out((spent / RESOLVE_MILLIS as f32).min(1.)),
+                ((spent - RESOLVE_MILLIS as f32) / APPEAR_MILLIS as f32).clamp(0., 1.),
+            )
+        }
         Beat::Done => (1., 1.),
     };
-    let reveal = ((fold - FOLD_HOLD) / (1. - FOLD_HOLD)).clamp(0., 1.);
-    let step_fade = progress(welcome.stage_at, STEP_MILLIS, window, cx).min(ease_out(reveal));
+    let step_fade = progress(welcome.stage_at, STEP_MILLIS, window, cx).min(ease_out(appeared));
     welcome.fade.set(step_fade);
-    let screen = match welcome.stage {
-        Stage::Agents => agents_screen(bench, welcome, lit, room, this, cx),
-        Stage::Projects => projects_screen(bench, welcome, lit, room, this, cx),
+    let (left, pane) = match welcome.stage {
+        Stage::Agents => (
+            agents_poster(bench, welcome, lit, room, this, cx),
+            agents_pane(bench, welcome, room, this, cx),
+        ),
+        Stage::Projects => (
+            projects_poster(bench, welcome, lit, room, this, &t),
+            projects_pane(welcome, lit, room, this, cx),
+        ),
     };
     let keys = this.clone();
     let next = this.clone();
@@ -2501,7 +2228,6 @@ pub fn render(
         .absolute()
         .inset_0()
         .flex()
-        .flex_col()
         .overflow_hidden()
         .bg(t.surface_sunken)
         .occlude()
@@ -2510,18 +2236,15 @@ pub fn render(
         .on_key_down(move |event, window, cx| {
             keys.update(cx, |bench, cx| key_down(bench, event, window, cx))
         })
-        .when(reveal > 0., |page| {
-            page.child(
-                div()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .opacity(step_fade)
-                    .child(screen),
-            )
-        })
-        .when(fold < 1., |page| page.child(opening(rise, fold, room, cx)))
+        .child(poster(left, resolved, welcome, room, this, cx))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .h_full()
+                .opacity(step_fade)
+                .child(pane),
+        )
         .into_any_element()
 }
 

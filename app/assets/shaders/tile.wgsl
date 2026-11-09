@@ -15,9 +15,10 @@ const CELL_COMPACT: f32 = 1.0;
 const FRAY_FROM: f32 = 0.14;
 const FRAY_TO: f32 = 0.42;
 const POINTS_PER_UNIT: f32 = 4.0;
-const EDGE_FADE_ROOMY: f32 = 96.0;
-const EDGE_FADE_COMPACT: f32 = 40.0;
-const COMPACT_FEATHER: f32 = 100.0;
+// How much of a tile's shorter side its field takes to fade in from each edge.
+const EDGE_FADE: f32 = 0.26;
+// A tile shorter than this has its dots closer together.
+const SMALL_TILE: f32 = 150.0;
 
 fn bytes(packed: f32) -> vec3<f32> {
     return vec3<f32>(floor(packed / 65536.0), floor(packed / 256.0) % 256.0, packed % 256.0);
@@ -37,7 +38,7 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let scale = setup.z;
     let size = shader.bounds.zw / scale;
     let feather = look.w;
-    let pitch = select(CELL_COMPACT, CELL, feather > COMPACT_FEATHER);
+    let pitch = select(CELL_COMPACT, CELL, min(size.x, size.y) > SMALL_TILE);
     let cell = floor((device - shader.bounds.xy) / scale / pitch);
     let at = (cell + 0.5) * pitch;
 
@@ -55,8 +56,11 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
             clear_of(at, vec4<f32>(size.x - others.y, 0.0, size.x, others.z), margin, feather),
         );
     }
-    let edge_fade = select(EDGE_FADE_COMPACT, EDGE_FADE_ROOMY, feather > COMPACT_FEATHER);
-    let edge = clamp(min(min(at.x, at.y), min(size.x - at.x, size.y - at.y)) / edge_fade, 0.0, 1.0);
+    let edge = clamp(
+        min(min(at.x, at.y), min(size.x - at.x, size.y - at.y)) / (min(size.x, size.y) * EDGE_FADE),
+        0.0,
+        1.0,
+    );
     let fade = clear * smoothstep(0.0, 1.0, edge);
     if (fade <= 0.0) {
         discard;
