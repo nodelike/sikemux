@@ -1041,22 +1041,23 @@ fn context_meter(
 
 /// The context ring grown to hold how often the conversation was compacted.
 fn counted_ring(percent: f64, signal: Hsla, count: u32, t: &Tokens) -> AnyElement {
+    // Odd so the ring and a figure, whose height is odd at these sizes, share a pixel centre.
+    const DIAMETER: f32 = 19.;
     let size = if count < 10 { 10. } else { 8.5 };
     div()
         .relative()
-        .size(px(18.))
-        .flex()
-        .items_center()
-        .justify_center()
+        .size(px(DIAMETER))
         .child(
             div()
                 .absolute()
                 .inset_0()
-                .child(ui::ring(Some((percent, signal)), 18., 2., t.line)),
+                .child(ui::ring(Some((percent, signal)), DIAMETER, 2., t.line)),
         )
         .child(
             ui::text(count.to_string(), size, FontWeight::SEMIBOLD)
-                .font_features(theme::tabular())
+                .w_full()
+                .line_height(px(DIAMETER))
+                .text_center()
                 .text_color(t.text_primary),
         )
         .into_any_element()
