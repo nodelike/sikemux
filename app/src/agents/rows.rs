@@ -43,6 +43,10 @@ pub struct AgentRow {
     pub team: Option<TeamLink>,
     /// The host it runs on.
     pub place: Place,
+    /// It is out of the main list until then, in Unix milliseconds.
+    pub snoozed_until: Option<u64>,
+    /// When it was settled out of the main list.
+    pub settled_at: Option<u64>,
 }
 
 impl AgentRow {
@@ -261,5 +265,7 @@ fn agent_row(row: &AgentShown, place: &Place) -> Option<AgentRow> {
         called_at: row.called_at,
         team: row.team,
         place: place.clone(),
+        snoozed_until: row.snoozed_until,
+        settled_at: row.settled_at,
     })
 }

@@ -1140,12 +1140,12 @@ fn with_agent_menu(
         return line.into_any_element();
     };
     let bench = bench.clone();
-    line.context_menu(ui::menu(move |popup, _, cx| {
+    line.context_menu(ui::menu(move |popup, window, cx| {
         let menu = (bench.update(cx, |bench, cx| AgentMenu::new(bench, &agent, cx)))
             .ok()
             .flatten();
         match menu {
-            Some(menu) => menu.build(popup),
+            Some(menu) => menu.build(popup, window, cx),
             None => popup,
         }
     }))

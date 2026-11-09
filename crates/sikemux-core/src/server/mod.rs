@@ -84,7 +84,7 @@ pub mod search;
 mod seen;
 pub mod session;
 mod session_watch;
-pub(crate) mod settling;
+pub mod settling;
 pub mod share;
 pub mod ship;
 mod shown_cache;

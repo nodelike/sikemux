@@ -46,6 +46,8 @@ pub struct AgentMenu {
     in_front: bool,
     /// Agents wear faces, which it can have one of its own of.
     faces_on: bool,
+    snoozed: bool,
+    settled: bool,
 }
 
 impl AgentMenu {
@@ -57,6 +59,7 @@ impl AgentMenu {
             .find(|agent| agent.id == agent_id)?
             .clone();
         let catalog = bench.reads.catalog.kind(&agent.provider);
+        let row = bench.agent_by_id(agent_id);
         let project = workspace
             .projects
             .iter()
@@ -85,7 +88,7 @@ impl AgentMenu {
                 && (agent.resume_id.is_none()
                     || catalog.is_some_and(|kind| kind.relocatable_sessions)
                         && (agent.asleep
-                            || bench.agent_by_id(&agent.id).is_none_or(|row| {
+                            || row.as_ref().is_none_or(|row| {
                                 !matches!(
                                     row.status,
                                     sikemux_wire::protocol::AgentStatus::Working
@@ -100,11 +103,18 @@ impl AgentMenu {
             in_front: !bench.showing_goals()
                 && bench.agent().is_some_and(|front| front.id == agent.id),
             faces_on: bench.shown().is_some_and(|view| view.face_style.on),
+            snoozed: row.as_ref().is_some_and(|row| row.snoozed_until.is_some()),
+            settled: row.as_ref().is_some_and(|row| row.settled_at.is_some()),
             agent,
         })
     }
 
-    pub fn build(&self, mut popup: PopupMenu) -> PopupMenu {
+    pub fn build(
+        &self,
+        mut popup: PopupMenu,
+        window: &mut Window,
+        cx: &mut Context<PopupMenu>,
+    ) -> PopupMenu {
         let agent = &self.agent;
         let id = agent.id.clone();
         let (bench, renamed, name) = (
@@ -216,6 +226,15 @@ impl AgentMenu {
                     })),
             );
         }
+        popup = crate::agents::settled::menu_items(
+            popup,
+            self.bench.clone(),
+            &id,
+            self.snoozed,
+            self.settled,
+            window,
+            cx,
+        );
         if agent.asleep {
             let (bench, row) = (self.bench.clone(), id.clone());
             popup = popup.item(PopupMenuItem::new("Resume").icon(Icon::Rotate).on_click(

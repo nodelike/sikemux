@@ -19,6 +19,7 @@ pub enum Page {
     Installed,
     Permissions,
     Chats,
+    Settled,
     Skills,
     Helpers,
     Accounts,
@@ -46,7 +47,10 @@ use Page::*;
 pub const GROUPS: [(&str, &[Page]); 6] = [
     ("General", &[General, Keyboard, Notifications]),
     ("Appearance", &[Theme, Interface, Buddies]),
-    ("Agents", &[Installed, Permissions, Chats, Skills, Helpers]),
+    (
+        "Agents",
+        &[Installed, Permissions, Chats, Settled, Skills, Helpers],
+    ),
     ("Models", &[Accounts, Plans, Providers, LocalModels]),
     ("This Mac", MAC_ONLY),
     (
@@ -111,6 +115,11 @@ impl Page {
                 Icon::Shield,
             ),
             Chats => ("Chats", "How chats behave while agents work", Icon::Message),
+            Settled => (
+                "Settled chats",
+                "Chats out of the rail, to find and bring back",
+                Icon::Check,
+            ),
             Skills => (
                 "Skills",
                 "What every agent Sikemux starts can use",
@@ -270,6 +279,7 @@ fn entries() -> impl Iterator<Item = &'static Entry> {
         pages::appearance::WINDOW,
         pages::agents::setup::ENTRIES,
         pages::agents::sessions::ENTRIES,
+        pages::settled::ENTRIES,
         pages::agents::skills::ENTRIES,
         pages::agents::providers::HELPERS,
         pages::agents::accounts::ENTRIES,

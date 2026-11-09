@@ -438,8 +438,8 @@ fn agent_header(bench: &Workbench, agent: &AgentRow, cx: &mut Context<Workbench>
         .child(ui::icon(Icon::More, 14.).text_color(t.text_secondary))
         .dropdown_menu_with_anchor(
             Anchor::TopRight,
-            ui::menu(move |popup, _, _| match &menu {
-                Some(menu) => menu.build(popup),
+            ui::menu(move |popup, window, cx| match &menu {
+                Some(menu) => menu.build(popup, window, cx),
                 None => popup,
             }),
         );

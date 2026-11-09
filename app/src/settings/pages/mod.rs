@@ -21,6 +21,7 @@ pub(super) mod general;
 pub(crate) use general::sent as session_sent;
 pub(super) mod keybindings;
 pub(super) mod mods;
+pub(super) mod settled;
 pub mod theme_editor;
 
 /// What the pages keep while settings are open: what the core last answered
@@ -36,6 +37,7 @@ pub struct State {
     pub connectors: Option<connectors::Fields>,
     pub general: Option<general::Fields>,
     pub keybindings: Option<keybindings::Fields>,
+    pub settled: Option<settled::Fields>,
     /// The command a search found, which the shortcuts page opens filtered to.
     pub shortcut: Option<&'static str>,
     /// The command line's install, once the page has asked, and none until the core says.
@@ -93,6 +95,7 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
         }
         Page::General if pages.general.is_none() => cx.defer_in(window, general::make),
         Page::Keyboard if pages.keybindings.is_none() => cx.defer_in(window, keybindings::make),
+        Page::Settled if pages.settled.is_none() => cx.defer_in(window, settled::make),
         Page::Theme | Page::Interface | Page::Buddies if pages.appearance.is_none() => {
             cx.defer_in(window, appearance::make)
         }
@@ -166,6 +169,7 @@ pub fn render(
         | Page::Simulator => agents::render(bench, pages, page, &lit, this, cx),
         Page::Connectors => connectors::render(bench, pages, &lit, this, cx),
         Page::Mods => mods::render(bench, &lit, this, cx),
+        Page::Settled => settled::render(bench, pages, &lit, this, cx),
         Page::SignOn => cloud::render(bench, pages, &lit, this, cx),
         Page::Actions => actions::render(bench, pages, &lit, this, cx),
         Page::Cli => cli::render(bench, pages, &lit, this, cx),

@@ -156,6 +156,7 @@ impl Workbench {
             return;
         }
         self.mods_follow(&place, crate::mod_pane::Moved::View, cx);
+        let settled_before = crate::agents::settled::auto_settled(self.view_at(&place));
         match &place {
             Place::This => {
                 crate::ui::moving_face::set_on(view.face_style.motion, cx);
@@ -171,6 +172,7 @@ impl Workbench {
                 self.feeds.host_mut(host).view = Some(view);
             }
         }
+        crate::agents::settled::tell(self, &place, &settled_before, cx);
         self.settle_closing();
         self.keep_terminals();
         crate::editor::keep(self, cx);

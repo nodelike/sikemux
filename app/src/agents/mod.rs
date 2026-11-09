@@ -52,6 +52,7 @@ pub mod palette;
 pub(crate) mod retitle;
 pub mod review;
 pub mod rows;
+pub mod settled;
 pub mod setup;
 mod terminal_pages;
 
@@ -131,6 +132,18 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         pins.iter()
             .any(|pin| pin.agent_id.as_deref() == Some(agent.id.as_str()))
     });
+    let (away, agents): (Vec<_>, Vec<_>) = (agents.into_iter())
+        .partition(|agent| agent.snoozed_until.is_some() || agent.settled_at.is_some());
+    let (settled, snoozed): (Vec<_>, Vec<_>) = away
+        .into_iter()
+        .partition(|agent| agent.settled_at.is_some());
+    let away_rows = |agents: &[AgentRow], cx: &mut Context<Workbench>| -> Vec<AnyElement> {
+        (agents.iter())
+            .map(|agent| agent_row(bench, agent, agent.team, None, false, cx).into_any_element())
+            .collect()
+    };
+    let snoozed = away_rows(&snoozed, cx);
+    let settled = away_rows(&settled, cx);
     let (copy, mut rows) = team_rows(bench, &agents, cx);
     if let Some(focus) = &bench.rails.goal_focus {
         rows.insert(0, goal_focus_row(&focus.title, cx));
@@ -160,52 +173,53 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
         recent.push(older_when_seen(bench, cx));
     }
-    let empty = (rows.is_empty() && pinned.is_empty() && recent.is_empty()).then(|| {
-        let shown = (project.zip(other_host(bench)))
-            .filter(|_| bench.filter_text().is_empty())
-            .map(|(project, host)| match bench.rails.all_projects {
-                true => format!("No chats on {host}"),
-                false => format!("No chats in {} on {host}", project.name),
-            });
-        if let Some(title) = shown {
-            rail_empty(
-                Icon::Agent,
-                title,
-                Some((actions::NewChat::ID, "start one")),
-                cx,
-            )
-        } else if project.is_none() {
-            rail_empty(
-                Icon::Agent,
-                "No project open",
-                Some((actions::OpenProject::ID, "open one")),
-                cx,
-            )
-        } else if bench.launchers().is_empty() {
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .child(rail_empty(Icon::Agent, "No agents set up", None, cx))
-                .child(
-                    ui::Button::new("set-up-agent", "Set one up", ui::Variant::Outline).on_click(
-                        cx.listener(|bench, _, window, cx| {
-                            bench.open_settings(crate::settings::Page::Installed, window, cx)
-                        }),
-                    ),
+    let away = snoozed.len() + settled.len();
+    let empty =
+        (rows.is_empty() && away == 0 && pinned.is_empty() && recent.is_empty()).then(|| {
+            let shown = (project.zip(other_host(bench)))
+                .filter(|_| bench.filter_text().is_empty())
+                .map(|(project, host)| match bench.rails.all_projects {
+                    true => format!("No chats on {host}"),
+                    false => format!("No chats in {} on {host}", project.name),
+                });
+            if let Some(title) = shown {
+                rail_empty(
+                    Icon::Agent,
+                    title,
+                    Some((actions::NewChat::ID, "start one")),
+                    cx,
                 )
-                .into_any_element()
-        } else if !bench.filter_text().is_empty() {
-            rail_empty(Icon::Search, "No chats match", None, cx)
-        } else {
-            rail_empty(
-                Icon::Agent,
-                "No agents yet",
-                Some((actions::NewChat::ID, "start one")),
-                cx,
-            )
-        }
-    });
+            } else if project.is_none() {
+                rail_empty(
+                    Icon::Agent,
+                    "No project open",
+                    Some((actions::OpenProject::ID, "open one")),
+                    cx,
+                )
+            } else if bench.launchers().is_empty() {
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .child(rail_empty(Icon::Agent, "No agents set up", None, cx))
+                    .child(
+                        ui::Button::new("set-up-agent", "Set one up", ui::Variant::Outline)
+                            .on_click(cx.listener(|bench, _, window, cx| {
+                                bench.open_settings(crate::settings::Page::Installed, window, cx)
+                            })),
+                    )
+                    .into_any_element()
+            } else if !bench.filter_text().is_empty() {
+                rail_empty(Icon::Search, "No chats match", None, cx)
+            } else {
+                rail_empty(
+                    Icon::Agent,
+                    "No agents yet",
+                    Some((actions::NewChat::ID, "start one")),
+                    cx,
+                )
+            }
+        });
     page_body()
         .child(header(bench, cx))
         .children(bench.filter.as_ref().map(|filter| {
@@ -275,6 +289,12 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                             .children(rows)
                             .on_children_prepainted(glide.keep_items(skip)),
                     )
+                })
+                .when(!snoozed.is_empty(), |scroll| {
+                    scroll.child(Group::new("Snoozed", "").children(snoozed))
+                })
+                .when(!settled.is_empty(), |scroll| {
+                    scroll.child(Group::new("Settled", "").children(settled))
                 })
                 .when(!pinned.is_empty(), |scroll| {
                     scroll.child(
@@ -1032,6 +1052,11 @@ fn agent_row(
             .into_any_element(),
         None => agent.mark(20., cx),
     };
+    let away = agent.snoozed_until.is_some() || agent.settled_at.is_some();
+    let mark = match away {
+        true => div().opacity(0.55).child(mark).into_any_element(),
+        false => mark,
+    };
     let status = ui::status_mark(&agent.id, agent.status, cx);
     let fades = status.is_none();
     let pin = (bench.chat_of(&agent.id))
@@ -1054,6 +1079,7 @@ fn agent_row(
     .glided(glided && chosen)
     .compact(bench.rail_compact())
     .status(status)
+    .when(away, Row::quiet)
     .on_click(cx.listener({
         let id = id.clone();
         move |bench, event: &ClickEvent, window, cx| {
@@ -1091,6 +1117,7 @@ fn agent_row(
             .font_features(crate::theme::tabular())
             .child(format!("+{}", fold.count))
     }))
+    .children((agent.snoozed_until).map(|until| crate::agents::settled::wake_label(until, cx)))
     .children(counts(agent, cx).map(|counts| match fades {
         true => ui::gives_way(AGENT_ROW, counts).into_any_element(),
         false => counts.into_any_element(),
@@ -1157,8 +1184,8 @@ fn agent_row(
             wrap.child(crate::agents::card::follow_row(cx.entity()))
         })
         .children(card.map(|card| div().absolute().top_0().left_0().child(card)))
-        .context_menu(ui::menu(move |popup, _, _| match &menu {
-            Some(menu) => menu.build(popup),
+        .context_menu(ui::menu(move |popup, window, cx| match &menu {
+            Some(menu) => menu.build(popup, window, cx),
             None => popup,
         }))
 }
