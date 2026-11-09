@@ -51,7 +51,8 @@ pub trait Surface: 'static {
     }
 }
 
-/// Where an element sits, in window points from the top left.
+/// Where an element sits from the window's top left: in points on macOS, and on Linux in the
+/// device pixels X11 places a native window by.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Frame {
     pub bounds: Bounds<Pixels>,
@@ -173,6 +174,14 @@ impl Element for NativeView {
         }
         let visible = bounds.intersect(&window.content_mask().bounds);
         window.insert_hitbox(visible, HitboxBehavior::BlockMouseExceptScroll);
+        #[cfg(target_os = "linux")]
+        let (bounds, visible) = {
+            let scale = window.scale_factor();
+            (
+                bounds.map(|value| value * scale),
+                visible.map(|value| value * scale),
+            )
+        };
         let frame = (!visible.is_empty()).then_some(Frame { bounds, visible });
         let id = id.expect("a native view has an id");
         window.with_element_state(id, |placement: Option<Placement>, window| {

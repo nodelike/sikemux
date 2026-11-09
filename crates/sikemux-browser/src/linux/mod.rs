@@ -79,15 +79,15 @@ impl Page {
     }
 
     /// Shows the part of the page that falls in `shown` (x, y, width, height), the page itself
-    /// being at `page`, both top-down in the app's window.
+    /// being at `page`, both in device pixels top-down in the app's window.
     pub(crate) fn place(&self, shown: (f64, f64, f64, f64), page: (f64, f64, f64, f64)) {
         let (x, y, width, height) = shown;
         let (x, y) = (x.max(PARKED), y.max(PARKED));
         let (left, top) = (page.0.max(PARKED), page.1.max(PARKED));
         self.clip.place(x, y, width, height);
         let _ = self.view.set_bounds(wry::Rect {
-            position: wry::dpi::LogicalPosition::new(left - x, top - y).into(),
-            size: wry::dpi::LogicalSize::new(page.2, page.3).into(),
+            position: wry::dpi::PhysicalPosition::new((left - x) as i32, (top - y) as i32).into(),
+            size: wry::dpi::PhysicalSize::new(page.2 as u32, page.3 as u32).into(),
         });
     }
 

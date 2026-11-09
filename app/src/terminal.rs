@@ -850,7 +850,7 @@ fn layout(
         .terminals
         .metrics
         .as_ref()
-        .is_some_and(|metrics| metrics.font_size != size)
+        .is_some_and(|metrics| metrics.font_size != size || metrics.scale != window.scale_factor())
     {
         bench.terminals.metrics = None;
     }

@@ -210,6 +210,8 @@ impl Workbench {
             bench.battery.is_some_and(|battery| !battery.charging)
         });
         crate::ui::clock::follow(window, cx);
+        #[cfg(target_os = "linux")]
+        crate::xwayland_scale::follow(window, cx);
         let (power_changed, mut power) = mpsc::unbounded_channel();
         crate::battery::watch(move || {
             let _ = power_changed.send(());
