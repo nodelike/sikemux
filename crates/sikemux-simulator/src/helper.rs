@@ -543,6 +543,41 @@ impl SimManager {
         Ok(id)
     }
 
+    /// Follows a screen Sikemux streams itself rather than through the helper, under an id
+    /// [`Self::unwatch`] stops; a stream that ends on its own sends [`WATCH_ENDED_EVENT`].
+    pub fn follow(
+        &self,
+        host: Arc<dyn Host>,
+        udid: String,
+        format: String,
+        stream: impl std::future::Future<Output = SimResult<()>> + Send + 'static,
+    ) -> u64 {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst) + 1;
+        let mut watches = self.watches.locked();
+        let manager = self.clone();
+        let task = tokio::spawn(async move {
+            let ended = stream.await;
+            if manager.end_watch(id).is_none() {
+                return;
+            }
+            let reason = match ended {
+                Ok(()) => return,
+                Err(error) => format!("the stream stopped: {error}"),
+            };
+            host.emit(WATCH_ENDED_EVENT, json!({ "id": id, "reason": reason }));
+        });
+        watches.insert(
+            id,
+            Watch {
+                task,
+                udid,
+                format,
+                read: Arc::default(),
+            },
+        );
+        id
+    }
+
     /// The reader has read this many frames of a watch.
     pub fn watch_read(&self, id: u64, frames: u64) {
         if let Some(watch) = self.watches.locked().get(&id) {
@@ -555,7 +590,7 @@ impl SimManager {
             return Ok(());
         };
         watch.task.abort();
-        if !self.streamed(&watch.udid, &watch.format) {
+        if !crate::android::is_android(&watch.udid) && !self.streamed(&watch.udid, &watch.format) {
             let request =
                 json!({ "type": "stopStream", "udid": watch.udid, "format": watch.format });
             let _ = self

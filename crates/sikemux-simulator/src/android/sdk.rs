@@ -9,7 +9,7 @@ pub(crate) fn root(data_dir: Option<&Path>) -> Option<PathBuf> {
     android_sdk::root(data_dir)
 }
 
-fn tool(root: &Path, folder: &str, name: &str) -> PathBuf {
+pub(crate) fn tool(root: &Path, folder: &str, name: &str) -> PathBuf {
     let file = if cfg!(windows) {
         format!("{name}.exe")
     } else {
