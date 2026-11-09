@@ -152,6 +152,7 @@ impl Row {
 
 type Pick = Rc<dyn Fn(&Row, &mut Workbench, &mut Window, &mut Context<Workbench>)>;
 type Leave = Rc<dyn Fn(&mut Workbench, &mut Window, &mut Context<Workbench>)>;
+type Typed = Rc<dyn Fn(&str) -> Option<Row>>;
 
 /// One palette as its opener describes it.
 pub struct Spec {
@@ -174,6 +175,8 @@ pub struct Spec {
     pub choice: Option<Choice>,
     /// A button beside the field that does something the rows cannot, such as opening a folder.
     pub aside: Option<Aside>,
+    /// A row made from what is typed, offered first, such as a folder named by its path.
+    typed: Option<Typed>,
     /// Drawn as the command deck: wider and taller, its rows' words in tracked capitals and
     /// their keys in keycaps.
     deck: bool,
@@ -226,6 +229,7 @@ impl Spec {
             start: None,
             choice: None,
             aside: None,
+            typed: None,
             deck: false,
             numbered: false,
             on_stage: false,
@@ -270,6 +274,11 @@ impl Spec {
             label: label.into(),
             press: Rc::new(press),
         });
+        self
+    }
+
+    pub fn typed(mut self, typed: impl Fn(&str) -> Option<Row> + 'static) -> Self {
+        self.typed = Some(Rc::new(typed));
         self
     }
 
@@ -324,6 +333,8 @@ impl Line {
 pub struct Palette {
     spec: Spec,
     input: Entity<InputState>,
+    /// How many of the spec's rows its opener gave, before the one made from what is typed.
+    given: usize,
     lines: Vec<Line>,
     selected: Option<usize>,
     list: ListState,
@@ -354,6 +365,12 @@ impl Palette {
     }
 
     fn filter(&mut self, query: &str) {
+        self.spec.rows.truncate(self.given);
+        let typed = self
+            .spec
+            .typed
+            .as_ref()
+            .and_then(|typed| typed(query.trim()));
         let rows = &self.spec.rows;
         self.lines = if self.spec.ruled {
             ruled(rows, query.trim())
@@ -374,6 +391,10 @@ impl Palette {
                 .map(Line::Row)
                 .collect()
         };
+        if let Some(row) = typed {
+            self.lines.insert(0, Line::Row(self.spec.rows.len()));
+            self.spec.rows.push(row);
+        }
         self.list.reset(self.lines.len());
         let start = self
             .spec
@@ -402,6 +423,7 @@ impl Palette {
     /// and the row they had reached.
     pub fn refill(&mut self, rows: Vec<Row>, cx: &App) {
         let reached = self.highlighted();
+        self.given = rows.len();
         self.spec.rows = rows;
         let query = self.input.read(cx).value().to_string();
         self.filter(&query);
@@ -512,6 +534,7 @@ impl Workbench {
         );
         input.update(cx, |state, cx| state.focus(window, cx));
         let mut palette = Palette {
+            given: spec.rows.len(),
             spec,
             input,
             lines: Vec::new(),

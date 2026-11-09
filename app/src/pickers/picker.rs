@@ -74,6 +74,33 @@ fn host_line(host: &SshHost) -> String {
     format!("{user}{name}{port}")
 }
 
+/// The folder a typed absolute or `~` path names, to open as a project.
+fn folder_typed(query: &str) -> Option<Row> {
+    let home = this_home();
+    let path = match query.strip_prefix('~') {
+        Some(rest) if rest.is_empty() || rest.starts_with('/') => {
+            format!("{}{rest}", home.as_deref()?)
+        }
+        Some(_) => return None,
+        None if query.starts_with('/') => query.to_owned(),
+        None => return None,
+    };
+    let path = path.trim_end_matches('/');
+    let path = if path.is_empty() { "/" } else { path };
+    let folder = Path::new(path).is_dir();
+    let shown = tilde(path, home.as_deref());
+    Some(
+        Row::new(format!("{FOLDER}{path}"), shown)
+            .meta(if folder {
+                "open as project"
+            } else {
+                "no folder here"
+            })
+            .mark(Mark::Place(Icon::FolderPlus))
+            .disabled(!folder),
+    )
+}
+
 impl Workbench {
     pub fn toggle_picker(&mut self, picking: Picking, window: &mut Window, cx: &mut Context<Self>) {
         self.moving = None;
@@ -187,28 +214,32 @@ impl Workbench {
             "no projects match"
         });
         let spec = match picking.projects() {
-            true => spec.aside(Icon::Folder, "Open folder", move |bench, window, cx| {
-                bench.close_palette(window, cx);
-                let picked = cx.prompt_for_paths(PathPromptOptions {
-                    files: false,
-                    directories: true,
-                    multiple: false,
-                    prompt: None,
-                });
-                cx.spawn_in(window, async move |bench, cx| {
-                    let Ok(Ok(Some(paths))) = picked.await else {
-                        return;
-                    };
-                    let Some(path) = paths.first() else {
-                        return;
-                    };
-                    let key = format!("{FOLDER}{}", path.to_string_lossy());
-                    let _ = bench.update_in(cx, |bench, window, cx| {
-                        bench.open_place(&key, then, window, cx)
+            true => spec.typed(folder_typed).aside(
+                Icon::Folder,
+                "Open folder",
+                move |bench, window, cx| {
+                    bench.close_palette(window, cx);
+                    let picked = cx.prompt_for_paths(PathPromptOptions {
+                        files: false,
+                        directories: true,
+                        multiple: false,
+                        prompt: None,
                     });
-                })
-                .detach();
-            }),
+                    cx.spawn_in(window, async move |bench, cx| {
+                        let Ok(Ok(Some(paths))) = picked.await else {
+                            return;
+                        };
+                        let Some(path) = paths.first() else {
+                            return;
+                        };
+                        let key = format!("{FOLDER}{}", path.to_string_lossy());
+                        let _ = bench.update_in(cx, |bench, window, cx| {
+                            bench.open_place(&key, then, window, cx)
+                        });
+                    })
+                    .detach();
+                },
+            ),
             false => spec,
         };
         self.toggle_palette(spec, window, cx);
