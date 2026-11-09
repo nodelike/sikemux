@@ -65,15 +65,20 @@ pub(crate) fn rebind(board: &mut Board) -> Vec<u64> {
 
 /// The project's check failed on `sha`, the latest commit of the slice on
 /// `id`: the fix goes on a card under it, held by its owner, which the slice
-/// waits on. A slice keeps one open fix card, which a later failure goes to.
-/// What the owner is told of it.
+/// waits on. A slice keeps one open fix card, which a later failure goes to,
+/// and one fix card for each commit. What the owner is told of it.
 pub(crate) fn file_fix(core: &Core, board: &mut Board, id: u64, sha: &str) -> Option<String> {
     let slice = board.card(id).ok()?;
     let (owner, label) = (slice.owner_id()?.to_owned(), slice.label());
-    let open = (slice.slice.as_ref()?.fix)
-        .and_then(|fix| board.card(fix).ok())
-        .filter(|fix| fix.status != CardStatus::Done)
-        .map(|fix| fix.id);
+    let title = format!("Fix: the project's check failed on {}", short(sha));
+    let filed = (slice.slice.as_ref()?.fix).and_then(|fix| board.card(fix).ok());
+    let open = (filed.filter(|fix| fix.status != CardStatus::Done)).map(|fix| fix.id);
+    if let Some(done) = filed.filter(|fix| fix.status == CardStatus::Done && fix.title == title) {
+        return Some(format!(
+            "#{} was this commit's fix and is done, yet the check failed on it again: no new card is filed for it. Mend it with a new commit, such as one rebased on the project's branch, then mark {label} done again.",
+            done.id
+        ));
+    }
     let failed = format!(
         "The project's check failed on {}, the latest commit of {label}.",
         short(sha)
@@ -94,7 +99,7 @@ pub(crate) fn file_fix(core: &Core, board: &mut Board, id: u64, sha: &str) -> Op
         core,
         fix,
         super::super::Adding {
-            title: format!("Fix: the project's check failed on {}", short(sha)),
+            title,
             details: format!("{failed} Mend it here; {label} waits on this card, and once it is done, mark {label} done again."),
             parent: Some(id),
             ..super::super::Adding::default()
