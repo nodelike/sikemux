@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::server::changed::What;
+use sikemux_view::workspace::{ConfigChoice, ConfigPicker};
 
 /// A launcher's id: the CLI it starts and the account it starts it on, written `kind` or
 /// `kind:account`.
@@ -146,6 +147,7 @@ pub(super) fn launcher_info(saved: &Saved, launcher: &Launcher) -> LauncherInfo 
         .cloned()
         .unwrap_or(Value::Null);
     let (model, effort) = pickers::pickers(&config_options);
+    let effort = effort.or_else(|| catalog_efforts(&launcher.agent.provider));
     LauncherInfo {
         id: launcher.id.clone(),
         provider: launcher.agent.provider.clone(),
@@ -159,6 +161,26 @@ pub(super) fn launcher_info(saved: &Saved, launcher: &Launcher) -> LauncherInfo 
         model,
         effort,
     }
+}
+
+/// The efforts `provider`'s CLI takes, for a launcher no session has said them for yet.
+fn catalog_efforts(provider: &str) -> Option<ConfigPicker> {
+    let agent = crate::agent_catalog::agent(provider)?;
+    let offered = agent.chat.as_ref().is_some_and(|chat| chat.offers_effort());
+    (offered && !agent.efforts.is_empty()).then(|| ConfigPicker {
+        id: "effort".to_owned(),
+        current: String::new(),
+        choices: agent
+            .efforts
+            .iter()
+            .map(|effort| ConfigChoice {
+                value: (*effort).to_owned(),
+                label: pickers::level_name(effort),
+                description: None,
+                is_default: false,
+            })
+            .collect(),
+    })
 }
 
 /// An account the agent picker offers whose agent reports its plan usage.
