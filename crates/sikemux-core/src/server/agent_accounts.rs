@@ -395,6 +395,20 @@ pub struct AccountUsage {
     pub problem: Option<String>,
 }
 
+/// How old a reading may grow before it says so: three of the app's reads missed.
+const READING_STALE_AFTER_MS: u64 = 15 * 60 * 1000;
+
+impl AccountUsage {
+    /// Whether its numbers are old news at `now_ms`: the last lookup failed, or the reading
+    /// is well past the next one due.
+    pub fn is_stale(&self, now_ms: u64) -> bool {
+        self.problem.is_some()
+            || self
+                .read_at
+                .is_some_and(|read| now_ms.saturating_sub(read) >= READING_STALE_AFTER_MS)
+    }
+}
+
 /// Every offered account's usage as last read, starting no agent's CLI.
 pub(super) async fn usages(core: &Arc<Core>) -> Vec<AccountUsage> {
     usages_read(core, false).await
