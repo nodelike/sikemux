@@ -48,6 +48,8 @@ const BATTERY_FRAMES_PER_SECOND: u64 = 20;
 const FIELD_SPEED: f32 = 0.5;
 const SKY_SPEED: f32 = 0.35;
 const TILE_SPEED: f32 = 1.2;
+/// The setup's tiles and mark move in seconds.
+const BREATHE_SPEED: f32 = 1.;
 /// Where the clock stands for a person who asked for less motion, so everything holds still.
 const STILL: f32 = 2.5;
 /// High, because the grain's dots are the only paint and nothing is drawn between them.
@@ -428,6 +430,7 @@ fn mark_shape() -> Option<Arc<RenderImage>> {
 pub fn poster_mark(resolved: f32, spacing: f32, cx: &App) -> Option<impl IntoElement + Styled> {
     let shape = mark_shape()?;
     let accent = Tokens::get(cx).accent.to_rgb();
+    let (start, speed) = clock(BREATHE_SPEED, cx);
     Some(canvas(
         |_, _, _| {},
         move |bounds, (), window, _| {
@@ -441,6 +444,7 @@ pub fn poster_mark(resolved: f32, spacing: f32, cx: &App) -> Option<impl IntoEle
             let mut params = [0.; gpui::SHADER_PARAMS];
             params[..4].copy_from_slice(&[resolved, pitch, dot, 0.]);
             params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, MARK_OPACITY]);
+            params[8..12].copy_from_slice(&[start, speed, window.scale_factor(), 0.]);
             if let Err(error) = window.paint_shader(bounds, &POSTER_MARK, params, Some(&shape)) {
                 eprintln!("sikemux: the mark does not draw: {error}");
             }
@@ -464,8 +468,6 @@ pub struct WallDots {
     pub label_height: f32,
     pub pill_width: f32,
     pub pill_bottom: f32,
-    /// Where the wall is brightest, as shares of the window's width.
-    pub bright: (f32, f32),
     pub running: bool,
 }
 
@@ -475,10 +477,10 @@ fn packed(first: f32, second: f32, third: f32) -> f32 {
     byte(first) * 65536. + byte(second) * 256. + byte(third)
 }
 
-/// A tile's dither on the setup's wall, drifting on the sky's clock.
+/// A tile's dither on the setup's wall, swelling and settling on its own clock.
 pub fn wall_dots(dots: WallDots, cx: &App) -> impl IntoElement + Styled {
     let colour = dots.colour.to_rgb();
-    let (start, speed) = clock(SKY_SPEED, cx);
+    let (start, speed) = clock(BREATHE_SPEED, cx);
     let rise = if dots.running {
         clock(TILE_SPEED, cx).1
     } else {
@@ -496,7 +498,7 @@ pub fn wall_dots(dots: WallDots, cx: &App) -> impl IntoElement + Styled {
             unit(dots.pill_width),
             unit(dots.pill_bottom),
         ),
-        packed(dots.bright.0 * 255., dots.bright.1 * 255., 0.),
+        0.,
         rise,
     ];
     let colour = packed(colour.r * 255., colour.g * 255., colour.b * 255.);

@@ -55,19 +55,19 @@ struct Density {
 }
 
 const DENSITY_READY: Density = Density {
-    roomy: 0.26,
-    compact: 0.182,
+    roomy: 0.62,
+    compact: 0.62,
 };
 const DENSITY_INSTALLED: Density = Density {
-    roomy: 0.22,
-    compact: 0.,
+    roomy: 0.42,
+    compact: 0.42,
 };
 const DENSITY_SIGNED_OUT: Density = Density {
-    roomy: 0.19,
+    roomy: 0.34,
     compact: 0.,
 };
 const DENSITY_MISSING: Density = Density {
-    roomy: 0.17,
+    roomy: 0.26,
     compact: 0.,
 };
 const DENSITY_FAILED: Density = Density {
@@ -75,14 +75,12 @@ const DENSITY_FAILED: Density = Density {
     compact: 0.,
 };
 const DENSITY_RUNNING: Density = Density {
-    roomy: 0.15,
-    compact: 0.105,
+    roomy: 0.42,
+    compact: 0.42,
 };
 /// A bright colour is dimmed by its opacity; thinning its dots as far would leave only specks.
 const LEAST_DENSITY_FIT: f32 = 0.85;
 const STEP_MILLIS: u64 = 200;
-/// A roomy tile's field thinner than this reads as dust, not as a cloud.
-const LEAST_FIELD: f32 = 0.24;
 const RESOLVE_MILLIS: u64 = 700;
 const APPEAR_MILLIS: u64 = 260;
 /// The window sizes the poster's measures run between.
@@ -1430,7 +1428,6 @@ fn agent_tile(
     room: Room,
     size: (f32, f32),
     spans: bool,
-    bright: (f32, f32),
     this: &Entity<Workbench>,
     cx: &App,
 ) -> AnyElement {
@@ -1453,12 +1450,7 @@ fn agent_tile(
     let pill_label = state.action.as_ref().map(|(label, _)| *label);
     let fit = luminance_fit(brand);
     let density = room.pick(state.density.roomy, state.density.compact);
-    let fitted = density * fit.clamp(LEAST_DENSITY_FIT, 1.25);
-    let field = if room.compact || fitted <= 0. {
-        fitted
-    } else {
-        fitted.max(LEAST_FIELD)
-    };
+    let field = density * fit.clamp(LEAST_DENSITY_FIT, 1.25);
     let dots = ui::grain::WallDots {
         colour: brand,
         density: field,
@@ -1480,7 +1472,6 @@ fn agent_tile(
             room.fit(36., 10.) + label.len() as f32 * pill_size * 0.6 + room.fit(28., 20.)
         }),
         pill_bottom: pill_label.map_or(0., |_| room.fit(36., 8.) + room.fit(34., 26.)),
-        bright,
         running: state.running,
     };
     let screen_reader = match pill_label {
@@ -1595,10 +1586,6 @@ fn agents_grid(
         (room.pane_width() - 1.) / TILES_ACROSS as f32,
         (room.height - below - (row_count - 1) as f32) / row_count as f32,
     );
-    let bright = (
-        (room.poster_width() + size.0 / 2.) / room.width,
-        size.1 / 2. / room.width,
-    );
     let mut grid = div()
         .flex_1()
         .min_h_0()
@@ -1631,9 +1618,7 @@ fn agents_grid(
             .map(|(column, agent)| {
                 let is_chosen = chosen.as_deref() == Some(agent.kind.as_str());
                 let at = row * TILES_ACROSS + column;
-                agent_tile(
-                    bench, agent, at, is_chosen, room, size, spans, bright, this, cx,
-                )
+                agent_tile(bench, agent, at, is_chosen, room, size, spans, this, cx)
             })
             .collect();
         grid = grid.child(div().flex_1().min_h_0().flex().gap(px(1.)).children(tiles));

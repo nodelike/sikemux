@@ -1,19 +1,16 @@
-// An agent's dither on the first-run setup's wall: one noise field across the window, gathered
-// around an anchor of the agent's own and faded out at every edge and around what the tile
-// says. A running tile's anchor rises and falls.
+// An agent's dither on the first-run setup's wall: a cloud gathered around an anchor of the
+// agent's own, dense at its centre and thinning through every step of the ordered pattern to
+// nothing, kept clear of what the tile says and faded out at every edge. It swells and settles
+// on a phase of its own, and a running tile's cloud rises and falls as well.
 //
-// params: where the clock starts, how fast it runs, device pixels per point and the density;
-// the colour as three bytes, its opacity, a seed and how softly the dots clear the text; the
-// anchor and its reach across and down; the mark's right and bottom with the label's right,
-// then the label's height with the pill's width and bottom, in units of 4 points; where the
-// wall is brightest, as bytes of the window's width; and how fast it rises and falls.
+// params: where the clock starts, how fast it runs, device pixels per point and the peak
+// density; the colour as three bytes, its opacity, a seed and how softly the dots clear the
+// text; the anchor and its reach across and down; the mark's right and bottom with the label's
+// right, then the label's height with the pill's width and bottom, in units of 4 points, and
+// how fast a running tile rises and falls.
 
 const CELL: f32 = 1.5;
 const CELL_COMPACT: f32 = 1.0;
-// The thin end of a field, as shares of its density: dots drop out at random between these, so
-// it frays instead of stopping at an edge or leaving stray dots beyond it.
-const FRAY_FROM: f32 = 0.14;
-const FRAY_TO: f32 = 0.42;
 const POINTS_PER_UNIT: f32 = 4.0;
 // How much of a tile's shorter side its field takes to fade in from each edge.
 const EDGE_FADE: f32 = 0.26;
@@ -23,6 +20,12 @@ const SMALL_TILE: f32 = 150.0;
 const CUTOUT_BLEND: f32 = 40.0;
 const CUTOUT_WOBBLE: f32 = 30.0;
 const CUTOUT_WOBBLE_SIZE: f32 = 46.0;
+// How the cloud swells: its least and its range, and how fast in radians a second.
+const BREATH_LEAST: f32 = 0.72;
+const BREATH_RANGE: f32 = 0.42;
+const BREATH_RATE: f32 = 1.05;
+// How far the cloud's shape strays from round, at about this many points across.
+const SHAPE_SIZE: f32 = 70.0;
 
 fn bytes(packed: f32) -> vec3<f32> {
     return vec3<f32>(floor(packed / 65536.0), floor(packed / 256.0) % 256.0, packed % 256.0);
@@ -69,34 +72,21 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let width = globals.viewport_size.x / scale;
-    let window_at = shader.bounds.xy / scale + at;
-    let t = 0.5 * (setup.x + globals.time * setup.y);
-    let wall = window_at / width * 2.8 + vec2<f32>(t * 0.04, -t * 0.025);
-    let warp = layered_noise(wall * 0.7, 23.0) * 0.9;
-    let gathered = smoothstep(
-        0.0,
-        1.0,
-        clamp((layered_noise(wall + vec2<f32>(1.7 + warp, warp), 11.0) - 0.34) / 0.3, 0.0, 1.0),
-    );
-
+    let t = setup.x + globals.time * setup.y;
+    let moving = step(0.0001, setup.y);
+    let breath = mix(1.0, BREATH_LEAST + BREATH_RANGE * sin(t * BREATH_RATE + look.z), moving);
     let share = at / size;
-    let wander = (layered_noise(share * 2.6, look.z) - 0.5) * 0.9;
     let lift = sin(globals.time * placed.w) * step(0.0001, placed.w) * 0.14;
     let reach = vec2<f32>((share.x - anchor.x) / anchor.z, (share.y - anchor.y - lift) / anchor.w);
-    let far = length(reach) + wander;
-    let amount = select(exp(-far * far * 2.3), 1.0, far <= 0.0);
-    let bright = bytes(placed.z) / 255.0;
-    let away = length(window_at / width - bright.xy);
-    let light = 0.62 + 0.38 * exp(-away * away * 9.0);
+    let shape = layered_noise(at / SHAPE_SIZE, look.z);
+    let amount = exp(-dot(reach, reach) * 1.5) * (0.72 + 0.56 * shape);
 
-    let value = min(0.5, setup.w * amount * (0.62 + 0.73 * gathered) * light * 1.1) * fade;
-    let kept = smoothstep(setup.w * FRAY_FROM, setup.w * FRAY_TO, value);
-    if (cell_hash(cell, 7.0) > kept || value + (cell_hash(cell, 3.0) - 0.5) * 0.03 + bayer8(cell) < 1.0) {
+    let value = clamp(setup.w * breath * amount, 0.0, 1.0) * fade;
+    if (value + bayer8(cell) < 1.0) {
         discard;
     }
     let colour = bytes(look.x) / 255.0;
-    let alpha = look.y * (0.6 + 0.4 * clamp(value / 0.42, 0.0, 1.0));
+    let alpha = look.y * (0.6 + 0.4 * clamp(value / 0.6, 0.0, 1.0));
     if (globals.premultiplied_alpha != 0u) {
         return vec4<f32>(colour * alpha, alpha);
     }
