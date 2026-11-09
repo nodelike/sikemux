@@ -40,6 +40,7 @@ pub enum Notice {
 type Pick = Rc<dyn Fn(&str, &str, &mut Window, &mut App)>;
 type Paste = Rc<dyn Fn(&ClipboardItem, &mut Window, &mut App) -> bool>;
 type Chip = Rc<dyn Fn(&InlineTokenContext, &mut Window, &mut App) -> AnyElement>;
+type DrawAside = Box<dyn FnOnce(bool) -> AnyElement>;
 
 /// Wraps the project's name in the switcher it opens.
 pub type ProjectMenu = Box<dyn FnOnce(BaseButton) -> Popover>;
@@ -107,7 +108,7 @@ pub struct Composer {
     heard: Option<SharedString>,
     /// A control of the composer's owner at the end of the bar, before the mic and send, told
     /// whether it keeps its words.
-    aside: Option<(AsideRoom, Box<dyn FnOnce(bool) -> AnyElement>)>,
+    aside: Option<(AsideRoom, DrawAside)>,
     /// Controls of the composer's owner at the start of the bar, after the attach button.
     leading: Option<AnyElement>,
     /// Words on the send button in place of its arrow.

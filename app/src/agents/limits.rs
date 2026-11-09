@@ -496,8 +496,8 @@ fn rest_rows(view: &View, agents: &[Agent], cx: &App) -> Vec<AnyElement> {
         let windows = shown.at_rest(view.now, 2);
         return (0..2)
             .map(|slot| match (windows.get(slot), slot) {
-                (Some(window), 0) => rest_row(view, agent, shown, *window, true, cx),
-                (Some(window), _) => rest_row(view, agent, shown, *window, false, cx),
+                (Some(window), 0) => rest_row(view, agent, shown, window, true, cx),
+                (Some(window), _) => rest_row(view, agent, shown, window, false, cx),
                 (None, 0) => nothing_row(view, agent, shown, cx),
                 (None, _) => div().h(px(row_height(view))).into_any_element(),
             })

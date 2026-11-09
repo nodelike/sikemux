@@ -418,6 +418,7 @@ impl GoalsPane {
 
     /// Hands the work to an agent that takes it in its own checkout, in the background, as a
     /// slice of its own; no chat opens.
+    #[allow(clippy::too_many_arguments)]
     fn hand_off(
         &mut self,
         text: String,
