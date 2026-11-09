@@ -1560,7 +1560,11 @@ mod tests {
     /// A dispatched click is untrusted, and pages that check refuse it.
     #[test]
     fn clicks_and_keys_are_never_played_by_the_page_script() {
-        for synthetic in [r#""click""#, r#""mousedown""#, r#""keydown""#] {
+        for synthetic in [
+            r#"Event("click""#,
+            r#"Event("mousedown""#,
+            r#"Event("keydown""#,
+        ] {
             assert!(
                 !PAGE_SCRIPT.contains(synthetic),
                 "page.js dispatches {synthetic}"
