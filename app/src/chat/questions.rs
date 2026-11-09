@@ -680,86 +680,124 @@ pub(super) fn tick(on: bool, t: &Tokens) -> AnyElement {
     .into_any_element()
 }
 
-/// A question as it reads once answered: who asked, when not the chat's own agent, its words,
-/// and the answer, or only that it was answered when the answer is a secret.
-pub(super) fn answered_question(
-    asker: Option<(&str, &str)>,
-    question: &str,
-    answer: &str,
-    secret: bool,
+/// One answer in a thread of answered questions: what was typed, or that it was kept private,
+/// and the files sent with it.
+pub(super) struct Answered<'a> {
+    pub question: &'a str,
+    pub answer: &'a str,
+    pub secret: bool,
+    pub files: Vec<AnyElement>,
+}
+
+/// The questions an agent asked and the person's answers, as a thread down a thin line: the
+/// agent's mark beside the first question, a dot beside each later one, a tick beside each answer.
+pub(super) fn answered_questions(
+    mark: AnyElement,
+    asker: Option<&str>,
+    answers: Vec<Answered>,
     t: &Tokens,
 ) -> gpui_kit::Div {
-    let bold = HighlightStyle {
-        color: Some(t.text_primary),
-        font_weight: Some(FontWeight::SEMIBOLD),
-        ..Default::default()
-    };
-    let asked = match asker {
-        Some((cli, name)) => div()
+    let step = |glyph: AnyElement, last: bool, content: gpui_kit::Div| {
+        div()
             .flex()
-            .items_center()
-            .gap(px(7.))
-            .text_size(crate::theme::ui_text(TEXT_2XS))
-            .text_color(t.text_tertiary)
-            .child(ui::mark(cli, 14.))
+            .gap(SPACE_2H)
             .child(
-                StyledText::new(format!("{name} asked you"))
-                    .with_highlights([(0..name.len(), bold)]),
-            ),
-        None => div()
-            .text_size(crate::theme::ui_text(TEXT_3XS))
-            .text_color(t.text_disabled)
-            .child("QUESTION"),
+                div()
+                    .w(px(16.))
+                    .flex_none()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .child(div().h(px(20.)).flex().items_center().child(glyph))
+                    .when(!last, |rail| {
+                        rail.child(div().flex_1().w(px(1.)).my(SPACE_1).bg(t.border))
+                    }),
+            )
+            .child(content.flex_1().min_w_0().when(!last, |c| c.pb(SPACE_3)))
     };
-    let (icon, answered) = if secret {
-        (
-            Icon::Shield,
-            div().text_color(t.text_tertiary).child("Kept private"),
-        )
-    } else {
-        (
-            Icon::Check,
-            div().text_color(t.text_primary).child(answer.to_owned()),
-        )
+    let dot = || {
+        div()
+            .size(px(5.))
+            .rounded_full()
+            .bg(t.text_disabled)
+            .into_any_element()
     };
-    div()
-        .w_full()
-        .flex()
-        .flex_col()
-        .border_1()
-        .border_color(t.border)
-        .rounded(theme::RADIUS_3)
-        .bg(t.surface_composer)
-        .child(div().px(SPACE_3).pt(px(9.)).child(asked))
-        .child(
+    let count = answers.len();
+    let mut mark = Some(mark);
+    let mut steps = Vec::with_capacity(count * 2);
+    for (ix, answered) in answers.into_iter().enumerate() {
+        let first = ix == 0;
+        let asked = (first).then_some(asker).flatten().map(|name| {
+            let name = format!("@{name}");
+            let bold = HighlightStyle {
+                color: Some(t.text_primary),
+                font_weight: Some(FontWeight::SEMIBOLD),
+                ..Default::default()
+            };
             div()
-                .px(SPACE_3)
-                .pt(SPACE_1)
-                .pb(SPACE_2H)
-                .text_size(crate::theme::ui_text(13.5))
-                .line_height(relative(1.5))
-                .text_color(t.text_primary)
-                .child(question.to_owned()),
-        )
-        .child(
-            div()
-                .px(SPACE_3)
-                .py(SPACE_2)
+                .h(px(20.))
                 .flex()
-                .items_start()
-                .gap(SPACE_2)
-                .border_t_1()
-                .border_color(t.border)
-                .text_size(crate::theme::ui_text(TEXT_SM))
-                .line_height(relative(1.45))
+                .items_center()
+                .text_size(crate::theme::ui_text(TEXT_XS))
+                .text_color(t.text_tertiary)
                 .child(
-                    ui::icon(icon, 12.)
-                        .flex_none()
-                        .mt(px(3.))
-                        .text_color(t.text_tertiary),
+                    StyledText::new(format!("{name} asked you"))
+                        .with_highlights([(0..name.len(), bold)]),
                 )
-                .child(answered.min_w_0()),
-        )
+        });
+        let glyph = match mark.take().filter(|_| first) {
+            Some(mark) => mark,
+            None => dot(),
+        };
+        steps.push(step(
+            glyph,
+            false,
+            div().flex().flex_col().children(asked).child(
+                div()
+                    .text_size(crate::theme::ui_text(13.5))
+                    .line_height(px(20.))
+                    .text_color(t.text_primary)
+                    .child(answered.question.to_owned()),
+            ),
+        ));
+        let (icon, said) = if answered.secret {
+            (
+                Icon::Shield,
+                div().text_color(t.text_tertiary).child("Kept private"),
+            )
+        } else {
+            (
+                Icon::Check,
+                div()
+                    .text_color(t.text_secondary)
+                    .child(answered.answer.to_owned()),
+            )
+        };
+        let files = (!answered.files.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(SPACE_1H)
+                .children(answered.files)
+        });
+        steps.push(step(
+            ui::icon(icon, 12.)
+                .text_color(t.text_tertiary)
+                .into_any_element(),
+            ix + 1 == count,
+            div()
+                .flex()
+                .flex_col()
+                .gap(SPACE_1H)
+                .text_size(crate::theme::ui_text(TEXT_SM))
+                .line_height(px(20.))
+                .when(!answered.answer.is_empty() || answered.secret, |c| {
+                    c.child(said)
+                })
+                .children(files),
+        ));
+    }
+    div().w_full().flex().flex_col().children(steps)
 }
 
 /// The questions the agent put to the person, answered from its chat.

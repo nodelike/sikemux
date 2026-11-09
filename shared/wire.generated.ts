@@ -2028,6 +2028,8 @@ export interface AgentLetter {
     text: string;
     /** The answer is a secret the agent reads from a file, so `text` only says where. */
     secret?: boolean;
+    /** The files sent with an answer, which `text` then leaves out. */
+    attachments?: string[];
     /** The tree of a message's `text`, for a client that cannot read markdown itself. */
     tree?: PartTree;
     /**

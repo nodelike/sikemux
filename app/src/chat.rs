@@ -30,9 +30,9 @@ use rows::*;
 use serde_json::{json, Value};
 use sikemux_view::catalog::ChatDriver;
 use sikemux_view::chat::{
-    AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole, ChatView,
-    FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree, PermissionAsk,
-    SubagentCard, SubagentState, TeamLine, TeamNeedKind, ToolDetail, WorkFold,
+    AgentLetter, AgentNotice, ChatConnection, ChatHead, ChatMessage, ChatPage, ChatPart, ChatRole,
+    ChatView, FiredRequest, LetterKind, MoveReason, NoticeSeverity, NoticeState, PartTree,
+    PermissionAsk, SubagentCard, SubagentState, TeamLine, TeamNeedKind, ToolDetail, WorkFold,
 };
 use sikemux_view::layout::PaneKind;
 use sikemux_view::questions::{AgentQuestion, QuestionState};

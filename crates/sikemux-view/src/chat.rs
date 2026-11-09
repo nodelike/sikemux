@@ -952,6 +952,9 @@ pub struct AgentLetter {
     /// The answer is a secret the agent reads from a file, so `text` only says where.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub secret: bool,
+    /// The files sent with an answer, which `text` then leaves out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<String>,
     /// The tree of a message's `text`, for a client that cannot read markdown itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree: Option<PartTree>,

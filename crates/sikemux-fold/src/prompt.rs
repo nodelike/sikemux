@@ -174,14 +174,16 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
                 .unwrap_or_default()
         };
         letters.push(if tag == "question-answer" {
+            let (text, attachments) = split_attached(&body);
             AgentLetter {
                 kind: LetterKind::Answer,
                 name: attribute("asker"),
                 agent_id: attribute("asker-id"),
                 cli: attribute("cli"),
                 question: attribute("question"),
-                text: body,
+                text,
                 secret: attribute("secret") == "true",
+                attachments,
                 tree: None,
                 trigger: None,
             }
@@ -203,12 +205,37 @@ pub(super) fn agent_letters(text: &str) -> Option<Vec<AgentLetter>> {
                 tree: Some(super::send::read(&text)),
                 text,
                 secret: false,
+                attachments: Vec::new(),
                 trigger,
             }
         });
         rest = &rest[body_start + body_len + close.len()..];
     }
     (!letters.is_empty() && outside.trim().is_empty()).then_some(letters)
+}
+
+/// An answer's typed text and the files listed under the `Attached:` the core wrote after it,
+/// with the `[Image #n]` tags that stood for those files taken out of the text.
+fn split_attached(answer: &str) -> (String, Vec<String>) {
+    const HEAD: &str = "Attached:\n";
+    let start = match answer.strip_prefix(HEAD) {
+        Some(_) => 0,
+        None => match answer.find(&format!("\n\n{HEAD}")) {
+            Some(at) => at + 2,
+            None => return (answer.to_owned(), Vec::new()),
+        },
+    };
+    let listed = &answer[start + HEAD.len()..];
+    let end = listed.find("\n\n").unwrap_or(listed.len());
+    let paths: Vec<String> = (listed[..end].lines())
+        .filter_map(|line| line.strip_prefix("- "))
+        .map(str::to_owned)
+        .collect();
+    let mut text = [&answer[..start], &listed[end..]].concat();
+    for number in 1..=paths.len() {
+        text = text.replace(&format!("[Image #{number}]"), "");
+    }
+    (text.trim().to_owned(), paths)
 }
 
 /// The context items a message carries in its text, read back out of it: the

@@ -526,21 +526,24 @@ pub(super) fn letters(
     window: &mut Window,
     cx: &mut App,
 ) -> gpui_kit::Div {
-    let drawn = row
-        .message
-        .letters
-        .iter()
-        .enumerate()
-        .map(|(ix, letter)| match letter.kind {
-            LetterKind::Answer => answered_question(
-                (letter.agent_id != looks.agent)
-                    .then_some((letter.cli.as_str(), letter.name.as_str())),
-                &letter.question,
-                &letter.text,
-                letter.secret,
-                Tokens::get(cx),
-            )
-            .into_any_element(),
+    let letters = &row.message.letters;
+    let mut drawn = Vec::with_capacity(letters.len());
+    let mut ix = 0;
+    while ix < letters.len() {
+        let letter = &letters[ix];
+        if letter.kind == LetterKind::Answer {
+            let run = letters[ix..]
+                .iter()
+                .take_while(|next| {
+                    next.kind == LetterKind::Answer && next.agent_id == letter.agent_id
+                })
+                .count();
+            drawn.push(answer_thread(row, &letters[ix..ix + run], ix, looks, cx));
+            ix += run;
+            continue;
+        }
+        drawn.push(match letter.kind {
+            LetterKind::Answer => unreachable!(),
             LetterKind::Message | LetterKind::Trigger => {
                 let (bench, agent) = (looks.bench.clone(), letter.agent_id.clone());
                 let name = div()
@@ -590,6 +593,8 @@ pub(super) fn letters(
                     .into_any_element()
             }
         });
+        ix += 1;
+    }
     div()
         .w_full()
         .flex()
@@ -598,6 +603,49 @@ pub(super) fn letters(
         .min_w_0()
         .children(drawn)
         .children(gestures::reactions(&row.message, looks))
+}
+
+/// A run of answers to one agent's questions, drawn as one thread with the files each carried.
+fn answer_thread(
+    row: &ChatRow,
+    answers: &[AgentLetter],
+    first: usize,
+    looks: &Drawn,
+    cx: &App,
+) -> AnyElement {
+    let t = Tokens::get(cx);
+    let asker = &answers[0];
+    let answered = answers.iter().enumerate().map(|(at, letter)| {
+        let files = letter.attachments.iter().enumerate().map(|(index, path)| {
+            let bench = looks.bench.clone();
+            attach::carried(
+                format!("{}:{}:{index}", row.message.id, letter_doc(first + at)),
+                PathBuf::from(path),
+                Some(index + 1),
+                move |path, window, cx| {
+                    bench
+                        .update(cx, |bench, cx| bench.show_picture(path, window, cx))
+                        .ok();
+                },
+                looks.file_pressed(),
+                t,
+                cx,
+            )
+        });
+        Answered {
+            question: &letter.question,
+            answer: &letter.text,
+            secret: letter.secret,
+            files: files.collect(),
+        }
+    });
+    answered_questions(
+        looks.mark_of(&asker.agent_id, &asker.cli, 16., cx),
+        (asker.agent_id != looks.agent).then_some(asker.name.as_str()),
+        answered.collect(),
+        t,
+    )
+    .into_any_element()
 }
 
 pub(super) enum Shown<'a> {

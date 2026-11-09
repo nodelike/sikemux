@@ -1031,53 +1031,18 @@ pub fn sent(
         .enumerate()
         .filter(|(_, path)| !in_text(path));
     let files = files.map(|(index, path)| {
-        let path = PathBuf::from(path);
-        let id = SharedString::from(format!("sent-{}-{index}", message.id));
-        if !is_image(&path) {
-            let (name, menu_name) = (
-                path.to_string_lossy().into_owned(),
-                path.to_string_lossy().into_owned(),
-            );
-            let (file, menu_file) = (file.clone(), file.clone());
-            return div()
-                .on_mouse_down(MouseButton::Left, move |event, window, cx| {
-                    let press = if event.click_count > 1 {
-                        FilePress::OpenTwice
-                    } else {
-                        FilePress::Open
-                    };
-                    file(&name, press, window, cx);
-                })
-                .on_mouse_down(MouseButton::Right, move |event, window, cx| {
-                    menu_file(&menu_name, FilePress::Menu(event.position), window, cx);
-                })
-                .child(
-                    Attachment::new()
-                        .id(id)
-                        .with_size(gpui_kit::component::Size::Small)
-                        .tooltip(path.to_string_lossy().into_owned())
-                        .media(media(&path, &t, cx))
-                        .content(AttachmentContent::new().title(AttachmentTitle::new(
-                            SharedString::from(crate::ui::path::file_name(&path)),
-                        ))),
-                )
-                .into_any_element();
-        }
         let number = index + 1;
-        let tagged = written.contains(&format!("[Image #{number}]"));
-        let open = open.clone();
-        let mut tile = media(&path, &t, cx);
-        if tagged {
-            tile = tile.overlay(badge(number, &t, cx));
-        }
-        Attachment::new()
-            .id(id)
-            .axis(Axis::Vertical)
-            .with_size(gpui_kit::component::Size::Size(px(16.6)))
-            .tooltip(path.to_string_lossy().into_owned())
-            .media(tile)
-            .on_click(move |_, window, cx| open(path.clone(), window, cx))
-            .into_any_element()
+        carried(
+            format!("sent-{}-{index}", message.id),
+            PathBuf::from(path),
+            written
+                .contains(&format!("[Image #{number}]"))
+                .then_some(number),
+            open.clone(),
+            file.clone(),
+            &t,
+            cx,
+        )
     });
     let context = message.context.iter().enumerate();
     let context: Vec<_> = context
@@ -1107,4 +1072,60 @@ pub fn sent(
             .children(files)
             .children(context),
     )
+}
+
+/// One file a message carried: a picture as a tile that opens over the window, with the number its
+/// `[Image #n]` tag in the text names when it has one, or any other file by name.
+pub fn carried(
+    id: String,
+    path: PathBuf,
+    tag: Option<usize>,
+    open: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
+    file: super::files::FilePressed,
+    t: &Tokens,
+    cx: &App,
+) -> gpui_kit::AnyElement {
+    let id = SharedString::from(id);
+    if !is_image(&path) {
+        let (name, menu_name) = (
+            path.to_string_lossy().into_owned(),
+            path.to_string_lossy().into_owned(),
+        );
+        let menu_file = file.clone();
+        return div()
+            .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+                let press = if event.click_count > 1 {
+                    FilePress::OpenTwice
+                } else {
+                    FilePress::Open
+                };
+                file(&name, press, window, cx);
+            })
+            .on_mouse_down(MouseButton::Right, move |event, window, cx| {
+                menu_file(&menu_name, FilePress::Menu(event.position), window, cx);
+            })
+            .child(
+                Attachment::new()
+                    .id(id)
+                    .with_size(gpui_kit::component::Size::Small)
+                    .tooltip(path.to_string_lossy().into_owned())
+                    .media(media(&path, t, cx))
+                    .content(AttachmentContent::new().title(AttachmentTitle::new(
+                        SharedString::from(crate::ui::path::file_name(&path)),
+                    ))),
+            )
+            .into_any_element();
+    }
+    let mut tile = media(&path, t, cx);
+    if let Some(number) = tag {
+        tile = tile.overlay(badge(number, t, cx));
+    }
+    Attachment::new()
+        .id(id)
+        .axis(Axis::Vertical)
+        .with_size(gpui_kit::component::Size::Size(px(16.6)))
+        .tooltip(path.to_string_lossy().into_owned())
+        .media(tile)
+        .on_click(move |_, window, cx| open(path.clone(), window, cx))
+        .into_any_element()
 }

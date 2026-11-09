@@ -309,15 +309,17 @@ export function Message({
           letter.trigger ? (
             <FiredTrigger key={index} id={`${message.id}/letter/${index}`} fired={letter.trigger} />
           ) : letter.kind === 'answer' ? (
-            <AnsweredQuestion
-              key={index}
-              own={letter.agentId === chatAgent}
-              asker={letter.name}
-              cli={letter.cli}
-              question={letter.question ?? ''}
-              answer={letter.text}
-              secret={letter.secret ?? false}
-            />
+            <View key={index}>
+              <AnsweredQuestion
+                own={letter.agentId === chatAgent}
+                asker={letter.name}
+                cli={letter.cli}
+                question={letter.question ?? ''}
+                answer={letter.text}
+                secret={letter.secret ?? false}
+              />
+              {letter.attachments?.length ? <SentAttachments paths={letter.attachments} sentFiles={sentFiles} /> : null}
+            </View>
           ) : (
             <View key={index}>
               <View style={styles.letterFrom}>
