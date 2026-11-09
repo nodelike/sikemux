@@ -71,20 +71,6 @@ pub fn detail(
 
 fn head(bench: &Workbench, host: &Listed, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
     let tint = host.state.tint(t);
-    let sub: Vec<String> = [
-        host.model(),
-        host.stats()
-            .map(|stats| stats.about.system.clone())
-            .unwrap_or_default(),
-    ]
-    .into_iter()
-    .filter(|part| !part.is_empty())
-    .fold(Vec::new(), |mut parts, part| {
-        if !parts.contains(&part) {
-            parts.push(part);
-        }
-        parts
-    });
     div()
         .flex()
         .items_center()
@@ -112,7 +98,7 @@ fn head(bench: &Workbench, host: &Listed, t: &Tokens, cx: &mut Context<Workbench
                         .min_w_0()
                         .child(pill(&host.state.words(), tint))
                         .child(
-                            ui::text(sub.join(" · "), TEXT_XS, FontWeight::NORMAL)
+                            ui::text(host.model(), TEXT_XS, FontWeight::NORMAL)
                                 .truncate()
                                 .text_color(t.text_tertiary),
                         ),
@@ -332,8 +318,6 @@ fn section(
 /// A fix the page offers for what needs the person, and what it does when pressed.
 struct Fix {
     words: String,
-    /// The fix the alert suggests first, drawn as the primary action.
-    first: bool,
     run: Box<Run>,
 }
 
@@ -384,11 +368,7 @@ fn needs_you(
                 Button::new(
                     SharedString::from(format!("host-fix-{at}-{index}")),
                     fix.words,
-                    if fix.first {
-                        Variant::Primary
-                    } else {
-                        Variant::Outline
-                    },
+                    Variant::Primary,
                 )
                 .on_click(cx.listener(move |bench, _, _, cx| run(bench, cx)))
                 .into_any_element()
@@ -488,20 +468,13 @@ fn explain(
             ));
         }
     }
-    if let Some(other) = roomiest {
+    let moving = top.zip(roomiest).and_then(|(agent, other)| {
+        move_fix(bench, host, other, &agent.agent_id).map(|fix| (other, fix))
+    });
+    if let Some((other, _)) = &moving {
         said.push_str(&format!(" {} has room.", other.name));
     }
-    let mut fixes = Vec::new();
-    if let (Some(agent), Some(other), Place::Account(_) | Place::This) =
-        (top, roomiest, &host.place)
-    {
-        if let Some(fix) = move_fix(bench, host, other, &agent.agent_id) {
-            fixes.push(fix);
-        }
-        if let Some(fix) = close_fix(host, &agent.agent_id) {
-            fixes.push(fix);
-        }
-    }
+    let fixes: Vec<Fix> = moving.map(|(_, fix)| fix).into_iter().collect();
     (said.trim().to_owned(), fixes)
 }
 
@@ -542,7 +515,6 @@ fn move_fix(bench: &Workbench, host: &Listed, to: &Listed, agent: &str) -> Optio
     let (from, label) = (host.place.clone(), to.name.clone());
     Some(Fix {
         words,
-        first: true,
         run: Box::new(move |bench, cx| {
             bench.move_session_asking(
                 Sending {
@@ -567,7 +539,6 @@ fn close_fix(host: &Listed, agent: &str) -> Option<Fix> {
     let (place, id, name) = (host.place.clone(), agent.to_owned(), host.agent_name(agent));
     Some(Fix {
         words: format!("Close {name}"),
-        first: false,
         run: Box::new(move |bench, cx| bench.close_agent_on(&place, &id, &name, cx)),
     })
 }

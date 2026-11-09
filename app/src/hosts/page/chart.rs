@@ -60,6 +60,9 @@ fn spot(bounds: Bounds<Pixels>) -> [u32; 4] {
     ]
 }
 
+/// The room over a chart for the words of its marks, which sit just above the plot.
+const LABEL_ROW: f32 = 14.;
+
 /// Where a tick of a meter starts after the one before it.
 const TICK_STEP: f32 = 4.;
 const DASH: f32 = 3.;
@@ -144,17 +147,18 @@ pub fn history(series: Series, height: f32, t: &Tokens) -> AnyElement {
     )
     .absolute()
     .inset_0();
-    div()
-        .relative()
-        .w_full()
-        .h(px(height))
-        .child(painted)
-        .children(marks.into_iter().filter_map(|(x, words)| {
-            let words = words?;
-            Some(
+    let labels: Vec<(f32, String)> = (marks.into_iter())
+        .filter_map(|(x, words)| Some((x, words?)))
+        .collect();
+    let over = (!labels.is_empty()).then(|| {
+        div()
+            .relative()
+            .w_full()
+            .h(px(LABEL_ROW))
+            .children(labels.into_iter().map(|(x, words)| {
                 div()
                     .absolute()
-                    .top(px(-15.))
+                    .bottom(px(2.))
                     .map(|label| match x > 0.6 {
                         true => label.right(relative(1. - x)).mr(px(5.)),
                         false => label.left(relative(x)).ml(px(5.)),
@@ -163,9 +167,14 @@ pub fn history(series: Series, height: f32, t: &Tokens) -> AnyElement {
                         ui::text(words, TEXT_3XS, FontWeight::NORMAL)
                             .font_family(crate::theme::MONO)
                             .text_color(label_ink),
-                    ),
-            )
-        }))
+                    )
+            }))
+    });
+    let plot = div()
+        .relative()
+        .w_full()
+        .h(px(height))
+        .child(painted)
         .children(end.map(|(x, y)| {
             div()
                 .absolute()
@@ -176,7 +185,12 @@ pub fn history(series: Series, height: f32, t: &Tokens) -> AnyElement {
                 .size(px(6.))
                 .rounded_full()
                 .bg(tint)
-        }))
+        }));
+    div()
+        .flex()
+        .flex_col()
+        .children(over)
+        .child(plot)
         .into_any_element()
 }
 
