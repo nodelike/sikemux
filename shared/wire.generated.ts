@@ -2459,7 +2459,7 @@ export interface Preferences {
     tabRailScope: TabRailScope;
     /** The tab rail lists every agent's chats rather than one agent's. */
     tabRailAllAgents: boolean;
-    /** The rails' groups the person folded, by key, such as `pinned`. */
+    /** The rails' groups folded away, by key, such as `pinned`; Settled starts folded. */
     foldedRailGroups: string[];
     /** The order the side rail lists projects in. */
     projectSort: ProjectSort;
