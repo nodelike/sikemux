@@ -18,8 +18,8 @@ mod select;
 mod transcript;
 
 pub use draw::{
-    Chip, CodeColours, CodeRuns, DrawFence, DrawImage, Fence, Fences, FileIcon, FileKind, FileOf,
-    FilePress, LinkIcon, OnFile, OnLink, OnTask, Pen, Style,
+    Chip, CodeCard, CodeColours, CodeIcon, CodeRuns, DrawFence, DrawImage, Fence, Fences, FileIcon,
+    FileKind, FileOf, FilePress, LinkIcon, OnFile, OnLink, OnTask, Pen, Style,
 };
 pub use find::{DocFind, FoundChanged, Query};
 pub use markdown::{Kind, Markdown, Marks, Node, Picture, Piece, Rich, Table};

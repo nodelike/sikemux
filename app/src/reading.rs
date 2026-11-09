@@ -1,10 +1,14 @@
 //! How markdown reads in the app: its parsing options and the look of text meant for reading.
 
-use gpui_kit::{px, App, Hsla};
-use gpui_transcript::{Markdown, Style};
+use std::rc::Rc;
+
+use gpui_kit::{px, App, Hsla, IntoElement, Styled};
+use gpui_transcript::{CodeCard, Markdown, Style};
 use serde_json::Value;
 use sikemux_markdown::{Doc, MarkdownOptions, MdOp};
 
+use crate::file_icons;
+use crate::icons::Icon;
 use crate::theme::{self, Tokens};
 
 pub(crate) const OPTIONS: MarkdownOptions = MarkdownOptions {
@@ -51,11 +55,57 @@ pub(crate) fn reading_style(text_size: f32, cx: &App) -> Style {
             a: 0.72,
             ..t.line_soft
         },
-        code_ground: Hsla {
-            a: 0.72,
-            ..t.surface_sunken
-        },
+        card: code_card(t),
         ..Style::default()
+    }
+}
+
+/// How the app draws a fenced code block: a card a step above the text, headed by its
+/// language's icon.
+pub(crate) fn code_card(t: &Tokens) -> CodeCard {
+    CodeCard {
+        ground: Hsla {
+            a: 0.8,
+            ..t.surface_raised
+        },
+        radius: px(10.),
+        button: t.text_secondary,
+        hover: t.surface_hover,
+        held: t.surface_chosen,
+        copy: Icon::Copy.path().into(),
+        copied: Icon::Check.path().into(),
+        wrap: Icon::Wrap.path().into(),
+        icon: Some(Rc::new(|lang, code, size, cx| {
+            let icon = lang
+                .and_then(|lang| file_icons::language_icon(lang, cx))
+                .or_else(|| shell_like(lang, code).then(|| file_icons::console_icon(cx))?)?;
+            Some(
+                gpui_kit::img(icon)
+                    .size(size)
+                    .flex_none()
+                    .into_any_element(),
+            )
+        })),
+    }
+}
+
+/// Whether a code block shows a shell: it names one, or names nothing and starts at a prompt.
+fn shell_like(lang: Option<&str>, code: &str) -> bool {
+    const SHELLS: &[&str] = &[
+        "console",
+        "terminal",
+        "shell-session",
+        "shellsession",
+        "sh-session",
+        "fish",
+        "nu",
+        "ksh",
+        "csh",
+        "tcsh",
+    ];
+    match lang {
+        Some(lang) => SHELLS.iter().any(|shell| lang.eq_ignore_ascii_case(shell)),
+        None => code.starts_with("$ "),
     }
 }
 

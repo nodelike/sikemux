@@ -102,6 +102,23 @@ pub fn icon(name: &str, cx: &App) -> Option<Arc<Image>> {
     drawn(icons, bundle, bundle.icon_of(name))
 }
 
+/// The icon of the language a code block names, such as `rust` or `sh`.
+pub fn language_icon(lang: &str, cx: &App) -> Option<Arc<Image>> {
+    let icons = cx.try_global::<FileIcons>()?;
+    let bundle = bundle(icons)?;
+    let lang = lang.to_lowercase();
+    let language = (bundle.known.get(&lang))
+        .or_else(|| bundle.language_extensions.get(&lang))
+        .map_or(lang.as_str(), String::as_str);
+    drawn(icons, bundle, bundle.languages.get(language)?)
+}
+
+/// The bundle's icon of a shell's output.
+pub fn console_icon(cx: &App) -> Option<Arc<Image>> {
+    let icons = cx.try_global::<FileIcons>()?;
+    drawn(icons, bundle(icons)?, "console")
+}
+
 /// A file's icon at `size`, or the plain file glyph when the bundle has none for it.
 pub fn glyph(name: &str, size: f32, cx: &App) -> AnyElement {
     match icon(name, cx) {

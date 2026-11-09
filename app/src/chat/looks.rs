@@ -176,10 +176,7 @@ impl Looks {
                 a: 0.72,
                 ..t.line_soft
             },
-            code_ground: Hsla {
-                a: 0.72,
-                ..t.surface_sunken
-            },
+            card: crate::reading::code_card(t),
             code: Some(code_colours(reader.clone())),
             fences: Some(schema::fences(bench.clone(), agent.clone(), asks.clone())),
             on_link: Some(Rc::new({

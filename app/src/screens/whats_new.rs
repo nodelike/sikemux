@@ -929,7 +929,7 @@ fn notes_markdown(
             a: 0.72,
             ..t.line_soft
         },
-        code_ground: t.surface_raised,
+        card: crate::reading::code_card(t),
         numbered_sections: true,
         on_link: Some(Rc::new(|link: &str, _: &mut Window, cx: &mut App| {
             if link.starts_with("https://") || link.starts_with("http://") {

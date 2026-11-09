@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, AnyElement, AnyView, App, AppContext, Div, ElementId, Entity, Hsla,
-    InteractiveElement, IntoElement, ParentElement, SharedString, Stateful,
-    StatefulInteractiveElement, StyleRefinement, Styled, WeakEntity, Window,
+    div, px, AnyElement, AnyView, App, AppContext, Div, ElementId, Entity, InteractiveElement,
+    IntoElement, ParentElement, SharedString, Stateful, StatefulInteractiveElement,
+    StyleRefinement, Styled, WeakEntity, Window,
 };
 use gpui_transcript::{Fence, Fences};
 
@@ -18,7 +18,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use crate::core::Ask;
 use crate::diagram::{Diagram, Kept, KeptKey};
-use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H};
+use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, SPACE_3H};
 use crate::workbench::Workbench;
 
 /// Draws the ```dbml blocks of `agent`'s chat.
@@ -88,6 +88,7 @@ fn block(
     let empty = diagram.read(cx).is_empty();
     let source = block.read(cx).source || empty;
     let t = Tokens::get(cx).clone();
+    let card = crate::reading::code_card(&t);
     let choice = |id: &'static str, label: &'static str, shows_source: bool| {
         let block = block.clone();
         let chosen = source == shows_source;
@@ -120,17 +121,21 @@ fn block(
             .on_click(move |_, _, cx| open_on_desk(&code, &bench, &agent, cx))
             .child("Open on desk")
     };
+    let name = match fence.icon {
+        Some(icon) => icon,
+        None => div().truncate().child(fence.lang).into_any_element(),
+    };
     let title = div()
-        .h(px(23.))
-        .px(SPACE_2H)
+        .mt(SPACE_2H)
+        .h(px(28.))
+        .pl(SPACE_3H)
+        .pr(SPACE_2H)
         .flex()
         .items_center()
         .gap(SPACE_0)
-        .border_b_1()
-        .border_color(t.line_soft)
         .text_size(px(10.))
         .text_color(t.text_disabled)
-        .child(div().flex_1().min_w_0().truncate().child(fence.lang))
+        .child(div().flex_1().min_w_0().flex().child(name))
         .when(!empty, |title| {
             title
                 .child(choice("dbml-diagram", "Diagram", false))
@@ -145,13 +150,8 @@ fn block(
             Arc::new(fence.id),
             "dbml-card".into(),
         ))
-        .rounded(px(5.))
-        .border_1()
-        .border_color(t.line_soft)
-        .bg(Hsla {
-            a: 0.72,
-            ..t.surface_sunken
-        })
+        .rounded(card.radius)
+        .bg(card.ground)
         .overflow_hidden()
         .child(title)
         .map(|frame| match source {

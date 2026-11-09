@@ -8,12 +8,13 @@ use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder;
 use gpui::{
-    canvas, combine_highlights, div, img, point, px, relative, rgb, rgba, size, AnyElement, App,
-    AvailableSpace, Bounds, ClipboardItem, DispatchPhase, Div, Element, ElementId, Font, FontStyle,
-    FontWeight, GlobalElementId, HighlightStyle, HitboxBehavior, Hsla, InspectorElementId,
-    InteractiveElement, InteractiveText, IntoElement, LayoutId, MouseButton, ParentElement, Pixels,
-    Point, ScrollEvent, ScrollHandle, SharedString, Stateful, StatefulInteractiveElement,
-    StrikethroughStyle, Styled, StyledText, TextAlign, Window,
+    canvas, combine_highlights, div, img, point, px, relative, rgb, rgba, size, svg, AnyElement,
+    App, AvailableSpace, Bounds, ClipboardItem, DispatchPhase, Div, Element, ElementId, Font,
+    FontStyle, FontWeight, GlobalElementId, HighlightStyle, HitboxBehavior, Hsla,
+    InspectorElementId, InteractiveElement, InteractiveText, IntoElement, LayoutId, MouseButton,
+    ParentElement, Pixels, Point, ScrollEvent, ScrollHandle, SharedString, Stateful,
+    StatefulInteractiveElement, StrikethroughStyle, Styled, StyledText, TextAlign, TextLayout,
+    Window,
 };
 
 use crate::markdown::{superscript, Kind, Markdown, Marks, Node, Picture, Piece, Rich};
@@ -30,6 +31,7 @@ struct CodeScroll {
 pub struct Fence {
     pub id: ElementId,
     pub lang: SharedString,
+    pub icon: Option<AnyElement>,
     pub code: SharedString,
     /// The block's text as the transcript draws it, coloured, selectable and scrolling, for
     /// when the host shows the code itself.
@@ -55,6 +57,8 @@ pub type CodeRuns = Rc<[(Range<usize>, HighlightStyle)]>;
 /// A fenced code block's colours from its language and text, once the host has them.
 pub type CodeColours =
     Rc<dyn Fn(Option<&SharedString>, &SharedString, &mut App) -> Option<CodeRuns>>;
+/// The icon a code block heads itself with, by its language and its text, `size` square.
+pub type CodeIcon = Rc<dyn Fn(Option<&str>, &str, Pixels, &mut App) -> Option<AnyElement>>;
 /// Draws a picture from its address and its alt text.
 pub type DrawImage = Rc<dyn Fn(&str, &str, &mut Window, &mut App) -> AnyElement>;
 
@@ -102,6 +106,38 @@ const CHIP_SPACE: Pixels = px(2.);
 const FILE_ICON_EMS: f32 = 0.95;
 const FILE_ICON_SPACE_EMS: f32 = 0.3;
 
+/// How a fenced code block's card looks.
+#[derive(Clone)]
+pub struct CodeCard {
+    pub ground: Hsla,
+    pub radius: Pixels,
+    /// The buttons' icons at rest, and the ground under a button hovered or held on.
+    pub button: Hsla,
+    pub hover: Hsla,
+    pub held: Hsla,
+    /// The buttons' icons, as paths among the app's assets.
+    pub copy: SharedString,
+    pub copied: SharedString,
+    pub wrap: SharedString,
+    pub icon: Option<CodeIcon>,
+}
+
+impl Default for CodeCard {
+    fn default() -> Self {
+        CodeCard {
+            ground: rgba(0x1a1a1fcc).into(),
+            radius: px(10.),
+            button: rgb(0xb4b1c0).into(),
+            hover: rgba(0xffffff0f).into(),
+            held: rgba(0xffffff17).into(),
+            copy: "icons/copy.svg".into(),
+            copied: "icons/check.svg".into(),
+            wrap: "icons/wrap.svg".into(),
+            icon: None,
+        }
+    }
+}
+
 /// How markdown looks and what it does when clicked. The defaults are Sikemux's dark theme.
 #[derive(Clone)]
 pub struct Style {
@@ -117,7 +153,7 @@ pub struct Style {
     pub ink_faint: Hsla,
     pub accent: Hsla,
     pub code_ink: Hsla,
-    pub code_ground: Hsla,
+    pub card: CodeCard,
     pub mark_ground: Hsla,
     pub selection: Hsla,
     /// The ground under each place a find found, and under the one the reader is on.
@@ -170,7 +206,7 @@ impl Default for Style {
             mono: gpui::font("JetBrainsMono NFM"),
             text_size: px(14.),
             line_height: 1.65,
-            code_size: px(12.),
+            code_size: px(12.5),
             table_size: px(13.5),
             gap: px(10.),
             ink: rgb(0xe7e5ef).into(),
@@ -178,7 +214,7 @@ impl Default for Style {
             ink_faint: rgb(0x736f80).into(),
             accent: rgb(0xa277ff).into(),
             code_ink: rgb(0xb494fb).into(),
-            code_ground: rgba(0x09090bb8).into(),
+            card: CodeCard::default(),
             mark_ground: rgba(0xa277ff1a).into(),
             selection: rgba(0xa277ff4d).into(),
             found: rgba(0xa277ff47).into(),
@@ -770,7 +806,7 @@ impl Draw<'_> {
                             div()
                                 .flex_none()
                                 .font(style.mono.clone())
-                                .text_size(style.code_size * 0.92)
+                                .text_size(style.code_size * 0.88)
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(style.accent)
                                 .child(number),
@@ -923,13 +959,23 @@ impl Draw<'_> {
         (place, highlights(rich, selected, &found, &on.style))
     }
 
-    /// A code block's text with `colours` beneath the selection, its lines drawn as they show.
-    fn code(&mut self, rich: &Rich, colours: Option<CodeRuns>) -> AnyElement {
+    /// A code block's place among the texts drawn, and its looks: `colours` beneath the selection.
+    fn code_looks(
+        &mut self,
+        rich: &Rich,
+        colours: Option<CodeRuns>,
+    ) -> ((usize, usize, u32), Looks) {
         let (place, own) = self.marked(rich);
         let looks = match colours {
             Some(colours) => combine_highlights(colours.iter().cloned(), own).collect(),
             None => own,
         };
+        (place, looks)
+    }
+
+    /// A code block's text, its lines drawn as they show.
+    fn code(&mut self, rich: &Rich, colours: Option<CodeRuns>) -> AnyElement {
+        let (place, looks) = self.code_looks(rich, colours);
         let selecting = self.on.selecting.as_ref();
         let shown = selecting.map(|selecting| {
             let key = (selecting.row.clone(), place.0, place.1, place.2);
@@ -946,6 +992,39 @@ impl Draw<'_> {
             budget: selecting.map(|selecting| selecting.budget.clone()),
         }
         .into_any_element()
+    }
+
+    /// A code block's text wrapped to the block's width, laid out whole.
+    fn wrapped(&mut self, rich: &Rich, colours: Option<CodeRuns>) -> AnyElement {
+        let (place, looks) = self.code_looks(rich, colours);
+        let text = StyledText::new(rich.text.clone()).with_highlights(looks);
+        let layout = text.layout().clone();
+        self.recorded(place, layout, rich.text.len(), text.into_any_element())
+    }
+
+    /// `inner`, recording where its text was laid out so the pointer can select it.
+    fn recorded(
+        &self,
+        place: (usize, usize, u32),
+        layout: TextLayout,
+        len: usize,
+        inner: AnyElement,
+    ) -> AnyElement {
+        let Some(selecting) = &self.on.selecting else {
+            return inner;
+        };
+        let key = (selecting.row.clone(), place.0, place.1, place.2);
+        let shown = Cell::new(Some(Shown {
+            key,
+            layout,
+            len,
+            offset: 0,
+        }));
+        let all = selecting.shown.clone();
+        div()
+            .child(inner)
+            .on_children_prepainted(move |_, _, _| all.borrow_mut().extend(shown.take()))
+            .into_any_element()
     }
 
     /// Text with `colours` beneath its own marks and the selection.
@@ -1173,21 +1252,7 @@ impl Draw<'_> {
             }
             _ => inner,
         };
-        let Some(selecting) = &on.selecting else {
-            return inner;
-        };
-        let key = (selecting.row.clone(), place.0, place.1, place.2);
-        let shown = Cell::new(Some(Shown {
-            key,
-            layout,
-            len: rich.text.len(),
-            offset: 0,
-        }));
-        let all = selecting.shown.clone();
-        div()
-            .child(inner)
-            .on_children_prepainted(move |_, _, _| all.borrow_mut().extend(shown.take()))
-            .into_any_element()
+        self.recorded(place, layout, rich.text.len(), inner)
     }
 
     fn list(&mut self, node: &Node, window: &mut Window, cx: &mut App) -> AnyElement {
@@ -1246,7 +1311,7 @@ impl Draw<'_> {
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let style = &*self.on.style;
+        let style = self.on.style.clone();
         let [Piece::Text(code)] = node.flow() else {
             return div().into_any_element();
         };
@@ -1255,6 +1320,8 @@ impl Draw<'_> {
             .code
             .clone()
             .and_then(|colour| colour(lang.as_ref(), &code.text, cx));
+        let icon = (style.card.icon.as_ref())
+            .and_then(|icon| icon(lang.as_deref(), &code.text, px(14.), cx));
         let fences = (style.fences.clone())
             .zip(lang.clone())
             .filter(|(fences, lang)| {
@@ -1264,12 +1331,13 @@ impl Draw<'_> {
                     .any(|known| lang.eq_ignore_ascii_case(known))
             });
         if let Some((fences, lang)) = fences {
-            let lines = self.lines(id.clone(), code, colours, window, cx);
-            let copy = self.copy(code.text.clone(), window, cx).into_any_element();
+            let lines = self.lines(id.clone(), code, colours, false, window, cx);
+            let copy = self.copy_button(code.text.clone(), window, cx);
             return (fences.draw)(
                 Fence {
                     id,
                     lang,
+                    icon,
                     code: code.text.clone(),
                     lines,
                     copy,
@@ -1278,26 +1346,37 @@ impl Draw<'_> {
                 cx,
             );
         }
-        let title = div()
-            .h(px(23.))
-            .px(px(10.))
+        let key = ElementId::NamedChild(Arc::new(id.clone()), "wrap".into());
+        let wrap = window.use_keyed_state(key, cx, |_, _| false);
+        let wrapped = *wrap.read(cx);
+        let block = self.on.blocks[self.block].clone();
+        let wrap_id = self.id("wrap");
+        let toggle = self
+            .button(wrap_id, style.card.wrap.clone(), wrapped)
+            .on_click(move |_, window, cx| {
+                wrap.update(cx, |wrapped, cx| {
+                    *wrapped = !*wrapped;
+                    cx.notify();
+                });
+                block.size.set(None);
+                window.refresh();
+            });
+        let head = div()
+            .mt(px(10.))
+            .h(px(28.))
+            .pl(px(14.))
+            .pr(px(10.))
             .flex()
             .items_center()
-            .border_b_1()
-            .border_color(style.line_soft)
-            .text_size(px(10.))
-            .text_color(style.ink_faint)
-            .child(div().flex_1().min_w_0().truncate().children(lang))
-            .child(self.copy(code.text.clone(), window, cx));
-        let body = self.lines(id, code, colours, window, cx);
-        let frame = div()
-            .rounded(style.radius)
-            .border_1()
-            .border_color(style.line_soft);
-        frame
-            .bg(style.code_ground)
-            .child(title)
-            .child(body)
+            .gap(px(2.))
+            .child(div().flex_1().flex().children(icon))
+            .child(toggle)
+            .child(self.copy_button(code.text.clone(), window, cx));
+        div()
+            .rounded(style.card.radius)
+            .bg(style.card.ground)
+            .child(head)
+            .child(self.lines(id, code, colours, wrapped, window, cx))
             .into_any_element()
     }
 
@@ -1308,27 +1387,35 @@ impl Draw<'_> {
         id: ElementId,
         code: &Rich,
         colours: Option<CodeRuns>,
+        wrapped: bool,
         window: &mut Window,
         cx: &mut App,
     ) -> AnyElement {
-        let style = &*self.on.style;
-        let (mono, size, ink) = (style.mono.clone(), style.code_size, style.ink_dim);
+        let style = self.on.style.clone();
         let key = ElementId::NamedChild(Arc::new(id.clone()), "scroll".into());
         let scroll = window.use_keyed_state(key, cx, |_, _| CodeScroll::default());
         let handle = scroll.read(cx).handle.clone();
+        if wrapped && handle.offset().x != px(0.) {
+            handle.set_offset(point(px(0.), handle.offset().y));
+        }
+        let text = match wrapped {
+            true => self.wrapped(code, colours),
+            false => self.code(code, colours),
+        };
         let lines = div()
             .id(id)
             .max_h(px(420.))
             .overflow_hidden()
             .track_scroll(&handle)
-            .px(px(12.))
-            .py(px(9.))
-            .font(mono)
-            .text_size(size)
-            .line_height(relative(1.55))
-            .whitespace_nowrap()
-            .text_color(ink)
-            .child(self.code(code, colours));
+            .pt(px(12.))
+            .px(px(18.))
+            .pb(px(18.))
+            .font(style.mono.clone())
+            .text_size(style.code_size)
+            .line_height(relative(1.7))
+            .when(!wrapped, |lines| lines.whitespace_nowrap())
+            .text_color(style.ink)
+            .child(text);
         div()
             .relative()
             .child(lines)
@@ -1374,37 +1461,73 @@ impl Draw<'_> {
             .into_any_element()
     }
 
-    fn copy(&mut self, text: SharedString, window: &mut Window, cx: &mut App) -> Stateful<Div> {
-        let ink = self.on.style.ink;
+    /// A button drawn by `button` with whether it has just copied, that copies `text`.
+    fn copy(
+        &mut self,
+        text: SharedString,
+        window: &mut Window,
+        cx: &mut App,
+        button: impl FnOnce(&Self, ElementId, bool) -> Stateful<Div>,
+    ) -> Stateful<Div> {
         let id = self.id("copy");
         let copied = window.use_keyed_state(id.clone(), cx, |_, _| false);
         let shown = *copied.read(cx);
+        button(self, id, shown).on_click(move |_, _, cx| {
+            cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
+            copied.update(cx, |shown, cx| {
+                *shown = true;
+                cx.notify();
+            });
+            let copied = copied.downgrade();
+            cx.spawn(async move |cx| {
+                cx.background_executor()
+                    .timer(Duration::from_millis(1500))
+                    .await;
+                copied
+                    .update(cx, |shown, cx| {
+                        *shown = false;
+                        cx.notify();
+                    })
+                    .ok();
+            })
+            .detach();
+        })
+    }
+
+    fn copy_button(&mut self, text: SharedString, window: &mut Window, cx: &mut App) -> AnyElement {
+        self.copy(text, window, cx, |draw, id, copied| {
+            let card = &draw.on.style.card;
+            let icon = if copied { &card.copied } else { &card.copy };
+            draw.button(id, icon.clone(), copied)
+        })
+        .into_any_element()
+    }
+
+    /// One of a code block's small square buttons, showing `icon`, on a ground while `held`.
+    fn button(&self, id: ElementId, icon: SharedString, held: bool) -> Stateful<Div> {
+        let style = &self.on.style;
+        let card = &style.card;
+        let (hover, ink) = (card.hover, style.ink);
         div()
             .id(id)
+            .group("code-button")
+            .size(px(26.))
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .rounded(style.radius)
             .cursor_pointer()
-            .hover(move |copy| copy.text_color(ink))
-            .when(shown, |copy| copy.text_color(ink))
-            .child(if shown { "Copied" } else { "Copy" })
-            .on_click(move |_, _, cx| {
-                cx.write_to_clipboard(ClipboardItem::new_string(text.to_string()));
-                copied.update(cx, |shown, cx| {
-                    *shown = true;
-                    cx.notify();
-                });
-                let copied = copied.downgrade();
-                cx.spawn(async move |cx| {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(1500))
-                        .await;
-                    copied
-                        .update(cx, |shown, cx| {
-                            *shown = false;
-                            cx.notify();
-                        })
-                        .ok();
-                })
-                .detach();
-            })
+            .hover(move |button| button.bg(hover))
+            .when(held, |button| button.bg(card.held))
+            .child(
+                svg()
+                    .path(icon)
+                    .size(px(15.))
+                    .flex_none()
+                    .text_color(if held { ink } else { card.button })
+                    .group_hover("code-button", move |icon| icon.text_color(ink)),
+            )
     }
 
     /// A table as rows of cells. A column is as wide as its longest text,
@@ -1439,8 +1562,17 @@ impl Draw<'_> {
                     .unwrap_or(0) as f32
             })
             .collect();
+        let source = node.table_source().unwrap_or_default().into();
+        let ink = style.ink;
         let copy = self
-            .copy(node.table_source().unwrap_or_default().into(), window, cx)
+            .copy(source, window, cx, |_, id, copied| {
+                div()
+                    .id(id)
+                    .cursor_pointer()
+                    .hover(move |copy| copy.text_color(ink))
+                    .when(copied, |copy| copy.text_color(ink))
+                    .child(if copied { "Copied" } else { "Copy" })
+            })
             .absolute()
             .top(px(4.))
             .right(px(8.));

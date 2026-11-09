@@ -378,6 +378,12 @@ export const IconCopy = makeSvgIcon(
         <path d="M10.2 3.6a1 1 0 0 0-1-1.1H3.5a1 1 0 0 0-1 1v5.7a1 1 0 0 0 1.1 1" />
     </>,
 );
+export const IconWrap = makeSvgIcon(
+    <>
+        <path d="M2.5 4h11M2.5 8h9a2 2 0 0 1 0 4H9" />
+        <path d="M10.5 10.5 9 12l1.5 1.5M2.5 12h3.5" />
+    </>,
+);
 export const IconPencil = makeSvgIcon(
     <>
         <path d="M9.6 3.4 12.6 6.4" />

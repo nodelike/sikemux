@@ -179,6 +179,7 @@ icons!(
     Waterfall => "waterfall",
     Window => "window",
     Workflow => "workflow",
+    Wrap => "wrap",
     Wrench => "wrench",
     Grok => "grok",
     Hermes => "hermes",
