@@ -78,6 +78,8 @@ opt-level = "z"
 opt-level = "z"
 [profile.release.package.sikemux-plugin-gitlab]
 opt-level = "z"
+[profile.release.package.sikemux-plugin-googleplay]
+opt-level = "z"
 [profile.release.package.sikemux-plugin-jira]
 opt-level = "z"
 [profile.release.package.sikemux-plugin-linear]

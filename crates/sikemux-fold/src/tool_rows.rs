@@ -1270,6 +1270,72 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
+        "play_tracks",
+        Spec {
+            verb: "list",
+            kind: "read",
+            icon: "rocket",
+            target: &["{package} tracks"],
+            detail: &[],
+            plugin: Some("sikemux.googleplay"),
+        },
+    ),
+    (
+        "play_upload",
+        Spec {
+            verb: "upload",
+            kind: "execute",
+            icon: "upload",
+            target: &["{file}"],
+            detail: &["{package}", "{track}"],
+            plugin: Some("sikemux.googleplay"),
+        },
+    ),
+    (
+        "play_keystore",
+        Spec {
+            verb: "read",
+            kind: "read",
+            icon: "eye",
+            target: &["{path}", "upload keys"],
+            detail: &[],
+            plugin: Some("sikemux.googleplay"),
+        },
+    ),
+    (
+        "play_keystore_create",
+        Spec {
+            verb: "create",
+            kind: "edit",
+            icon: "square-plus",
+            target: &["{path}"],
+            detail: &[],
+            plugin: Some("sikemux.googleplay"),
+        },
+    ),
+    (
+        "play_keystore_add",
+        Spec {
+            verb: "add",
+            kind: "edit",
+            icon: "square-plus",
+            target: &["{path}"],
+            detail: &[],
+            plugin: Some("sikemux.googleplay"),
+        },
+    ),
+    (
+        "play_sign",
+        Spec {
+            verb: "sign",
+            kind: "edit",
+            icon: "highlighter",
+            target: &["{file}"],
+            detail: &[],
+            plugin: Some("sikemux.googleplay"),
+        },
+    ),
+    (
         "jira_search",
         Spec {
             verb: "search",

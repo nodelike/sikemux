@@ -1,0 +1,90 @@
+{
+  "id": "sikemux.googleplay",
+  "name": "Google Play",
+  "callTimeoutSecs": 600,
+  "environment": ["JAVA_HOME", "ANDROID_HOME", "ANDROID_SDK_ROOT"],
+  "accountMethods": ["signIn", "signOut"],
+  "tokenForm": {
+    "method": "signIn",
+    "lede": "Tools for your agents to read your Play tracks, keep your upload key and send builds to testing. Every upload waits for you.",
+    "fields": [
+      {
+        "name": "keyFile",
+        "label": "Service account key file",
+        "placeholder": "~/Downloads/play-uploader-3f9c2a.json"
+      }
+    ],
+    "tokenPage": "https://developers.google.com/android-publisher/getting_started"
+  },
+  "tools": [
+    {
+      "name": "play_tracks",
+      "row": {"verb": "list", "kind": "read", "icon": "rocket", "target": ["{package} tracks"]},
+      "method": "tracks",
+      "description": "Every track of an app on Google Play and its releases: name, version codes, status, rollout.",
+      "properties": {
+        "package": { "type": "string", "description": "The app's package name, such as com.example.app." }
+      },
+      "required": ["package"]
+    },
+    {
+      "name": "play_upload",
+      "row": {"verb": "upload", "kind": "execute", "icon": "upload", "target": ["{file}"], "detail": ["{package}", "{track}"]},
+      "method": "upload",
+      "description": "Upload a signed .aab and release it on a track. Waits for the person to approve. An app still a draft in Play Console takes only status draft.",
+      "properties": {
+        "package": { "type": "string" },
+        "file": { "type": "string", "description": "Absolute path of the signed .aab." },
+        "track": { "type": "string", "description": "Default internal; also alpha, beta, production or a closed track's name." },
+        "status": { "type": "string", "enum": ["completed", "draft"], "description": "Default completed: out to the track's testers once Play processes it." },
+        "name": { "type": "string", "description": "Release name. Default: the version name." },
+        "releaseNotes": { "type": "string", "description": "What's new, in en-US." }
+      },
+      "required": ["package", "file"]
+    },
+    {
+      "name": "play_keystore",
+      "row": {"verb": "read", "kind": "read", "icon": "eye", "target": ["{path}", "upload keys"]},
+      "method": "keystore",
+      "description": "The upload keys Sikemux keeps, or one keystore's alias, fingerprints, algorithm and expiry. Never a password.",
+      "properties": {
+        "path": { "type": "string", "description": "A kept keystore. Default: every one." }
+      }
+    },
+    {
+      "name": "play_keystore_create",
+      "row": {"verb": "create", "kind": "edit", "icon": "square-plus", "target": ["{path}"]},
+      "method": "keystoreCreate",
+      "description": "Make a new upload keystore (RSA 4096, 27 years) with a password only Sikemux holds, and its certificate as .pem beside it. Never replaces a file.",
+      "properties": {
+        "path": { "type": "string", "description": "Absolute path for the new .jks, outside the repository." },
+        "alias": { "type": "string", "description": "Default upload." },
+        "name": { "type": "string", "description": "Who the certificate names. Default: Upload key." }
+      },
+      "required": ["path"]
+    },
+    {
+      "name": "play_keystore_add",
+      "row": {"verb": "add", "kind": "edit", "icon": "square-plus", "target": ["{path}"]},
+      "method": "keystoreAdd",
+      "description": "Keep an existing upload keystore. Get its password with ask and secret: true, and pass the file that answer is in.",
+      "properties": {
+        "path": { "type": "string" },
+        "alias": { "type": "string" },
+        "passwordFile": { "type": "string", "description": "The file holding the password." }
+      },
+      "required": ["path", "alias", "passwordFile"]
+    },
+    {
+      "name": "play_sign",
+      "row": {"verb": "sign", "kind": "edit", "icon": "highlighter", "target": ["{file}"]},
+      "method": "sign",
+      "description": "Sign an .aab or .apk in place with a kept upload key, then verify it and answer the signer's SHA-256.",
+      "properties": {
+        "file": { "type": "string", "description": "Absolute path. An .apk must be zipaligned first." },
+        "keystore": { "type": "string", "description": "A kept keystore's path. Default: the only one kept." }
+      },
+      "required": ["file"]
+    }
+  ]
+}
