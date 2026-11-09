@@ -2723,6 +2723,8 @@ export interface BoardCard {
     assertions: Assertion[];
     at: number;
     updatedAt: number;
+    /** When it was put aside in Later, off the board until someone takes it up again. */
+    asideAt?: number;
 }
 
 /** A card's contract as the app and devices read it. */

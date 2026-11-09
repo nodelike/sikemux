@@ -7,7 +7,13 @@ Each project has a board of cards, open with `⌘⌥6`. You and your agents add 
 
 The Done column draws its newest 200 cards, and its count includes the rest. **Find a card** searches all of them.
 
-While an agent holds a card, only it and the agents above it can change it or take it. Once that agent closes, its card counts as nobody's, so any agent can finish it or claim it and it never stays stuck. A slice goes further and tells you: see [when an owner stalls](/agents/goals/#when-an-owner-stalls).
+The board tidies itself without asking you:
+
+- A finished card moves to the project's archive three days after it finished, once nothing is under it, nothing runs on it and its ticket knows it's done.
+- A card whose cards under it are all done is marked done too, saying so, unless an agent is working it, it has a ticket, or its goal still waits for you to look at it.
+- An open card nobody holds that hasn't changed for seven days moves to **Later** and leaves the board. Pick **Later** next to **Needs you** to see those cards and how long each has been aside. A card comes back once someone claims or changes it, a card that waits on it gets an agent, or you drag it to a column. Nothing in Later is ever deleted.
+
+While an agent holds a card, only it and the agents above it can change it or take it. Once that agent closes, its card counts as nobody's, so any agent can finish it or claim it and it never stays stuck. A card under another goes back to Open by itself when its agent closes, stops, or sits idle with it for 30 minutes while nothing it waits on can bring it back, with a line such as "@Thistle left it unfinished." A slice goes further and tells you: see [when an owner stalls](/agents/goals/#when-an-owner-stalls).
 
 The same work never gets two cards. A Jira or Linear ticket you put on the board again, while its card is still open, goes to that card, and so does a board trigger that fires again, with what came with it, such as a webhook's request. The card keeps the last eight such arrivals, and the agent working it, or its team's lead, is told. A ticket put on the board again after its card is done gets a new card, and its open subtasks move under it.
 
@@ -45,13 +51,13 @@ A goal can say, before its slices are cut, what must hold once they're done, so 
 
 A slice names the assertions it fulfils. Built then also needs evidence of each one's kind on the slice's latest commit: the project's check passing on it, its workflow passing on the pushed tip of the project's branch once that holds the commit (a re-run that passes counts after one that failed or was cancelled), its command exiting with success in a clean checkout of it, or a recording or screenshot the agent took while the slice was its card. When a screenshot is kept this way, Sikemux also takes the same page at a phone's width (390 px) and a tablet's (820 px), by resizing it only, so nothing reloads, then puts the tab back as it was, so you see all three; a newer screenshot replaces all three. You judge recordings and screenshots when you look at the goal. An assertion that's retired, or whose goal goes, no longer binds the slice, which shows it as detached; moving a slice to another goal frees it of its assertions until they're named again.
 
-When Built is refused because the project's check failed, Sikemux files the fix as a card under the slice, held by the same agent, and the slice waits on it. A later failure goes to the same card while it's open. Once the fix card is done, the agent marks the slice done again.
+When Built is refused because the project's check failed, Sikemux files the fix as a card under the slice, held by the same agent, and the slice waits on it. A later failure goes to the same card while it's open. Once the fix card is done, the agent marks the slice done again. Each commit gets one fix card: if the check failed on the same commit after its fix card was done, no second card is filed, and the agent is told to mend it with a new commit.
 
 ## Cards Auto runs
 
 Auto takes any card that nobody holds and nothing holds up, whoever added it, the highest priority first and then the oldest. Only cards from a project's [reservoir](/getting-started/projects/#the-reservoir) have a priority, so that command can keep Auto supplied with work you never had to add. A project's [standing roles](/getting-started/projects/#standing-roles) add cards of their own as commits land, and Auto runs those the same way. A card an agent added waits until that agent's team is through with it: while its lead or any of its workers is in a turn, the card stays for them. Turn off **Also take cards agents add** in the board's Auto settings to leave those cards to agents. Auto runs up to 64 agents at once in a project, counted together with the agents agents started.
 
-Auto keeps itself from running away without asking you. One run can have at most 16 unfinished cards of its own on the board, and a card added by a run that itself came from such a card rests once more than three unfinished runs stand above it, until one finishes. When a board fills up, its oldest finished cards move to an archive by themselves, up to 1000 unfinished cards.
+Auto keeps itself from running away without asking you. One run can have at most 16 unfinished cards of its own on the board, and a card added by a run that itself came from such a card rests once more than three unfinished runs stand above it, until one finishes. When a board nears 1000 cards, its oldest finished cards move to the archive at once, without waiting their three days.
 
 When Auto takes a card, the card becomes a slice, promising what its title says unless it already makes a promise. Shipping its work counts as the agent saying it's done, and Built passes once the pull request's checks pass on the commit Auto pushed.
 

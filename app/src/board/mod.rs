@@ -84,6 +84,7 @@ enum Show {
     All,
     Tickets,
     Needs,
+    Later,
 }
 
 /// What is open beside the board.
@@ -328,7 +329,7 @@ impl BoardPane {
         let Some(card) = self.card(id) else {
             return;
         };
-        if card.status == to {
+        if card.status == to && card.aside_at.is_none() {
             return;
         }
         self.moving.insert(id, to);
@@ -368,7 +369,8 @@ impl BoardPane {
     fn shown(&self, card: &BoardCard) -> bool {
         let wanted = self.words.trim().to_lowercase();
         let matches = |text: &str| text.to_lowercase().contains(&wanted);
-        (self.show != Show::Tickets || card.ticket.is_some())
+        (card.aside_at.is_some() == (self.show == Show::Later))
+            && (self.show != Show::Tickets || card.ticket.is_some())
             && (self.show != Show::Needs || self.column_of(card) == BoardColumn::Needs)
             && (wanted.is_empty()
                 || matches(&card.title)
@@ -711,7 +713,10 @@ impl Render for BoardPane {
 
 fn head(pane: &BoardPane, cx: &mut Context<BoardPane>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
-    let cards = pane.cards();
+    let (later, cards): (Vec<&BoardCard>, Vec<&BoardCard>) = pane
+        .cards()
+        .iter()
+        .partition(|card| card.aside_at.is_some());
     let from_tickets = cards.iter().filter(|card| card.ticket.is_some()).count();
     let needing = cards
         .iter()
@@ -722,6 +727,9 @@ fn head(pane: &BoardPane, cx: &mut Context<BoardPane>) -> impl IntoElement {
         shows.push((Show::Tickets, "From Jira", from_tickets));
     }
     shows.push((Show::Needs, "Needs you", needing));
+    if !later.is_empty() || pane.show == Show::Later {
+        shows.push((Show::Later, "Later", later.len()));
+    }
     let chosen = shows
         .iter()
         .position(|(show, ..)| *show == pane.show)
@@ -1108,12 +1116,14 @@ fn card_view(pane: &BoardPane, card: &BoardCard, cx: &mut Context<BoardPane>) ->
         let asked = bench.feeds.questions().find(|question| question.id == id)?;
         Some(format!("{} asks: {}", asked.name, asked.text))
     });
-    let line = question.or_else(|| {
-        card.auto
-            .as_ref()
-            .filter(|_| card.status != CardStatus::Done)
-            .and_then(|run| run.note.clone())
-    });
+    let line = question
+        .or_else(|| {
+            card.auto
+                .as_ref()
+                .filter(|_| card.status != CardStatus::Done)
+                .and_then(|run| run.note.clone())
+        })
+        .or_else(|| (card.aside_at).map(|at| format!("Put aside {}", crate::ui::time::ago(at))));
     let under = pane.under_card(id);
     let waits: Vec<&BoardCard> = card
         .waits_on

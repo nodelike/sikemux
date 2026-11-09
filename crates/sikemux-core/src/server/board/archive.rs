@@ -1,5 +1,6 @@
-//! A full board moves its oldest finished cards to a file beside the boards,
-//! so a large reservoir keeps taking cards without the person clearing any.
+//! Finished cards move to a file beside the boards a few days after they finish, and a full
+//! board moves its oldest ones there at once, so a large reservoir keeps taking cards without
+//! the person clearing any.
 
 use std::io::Write;
 
@@ -9,6 +10,8 @@ const FOLDER: &str = "board-archive";
 /// Archiving starts this far below the limit and frees as many again, so it
 /// does not run for every card added and the board keeps room for fix cards.
 pub(super) const ROOM_KEPT: usize = 100;
+/// How long a finished card stays on its board.
+const KEPT_MS: u64 = 3 * 24 * 60 * 60 * 1000;
 
 fn may_archive(state: &State, project: &str, parents: &HashSet<u64>, card: &Card) -> bool {
     card.status == CardStatus::Done
@@ -26,17 +29,53 @@ pub(super) fn make_room(boards: &Boards, state: &mut State, project: &str) {
     if board.cards.len() + ROOM_KEPT < MAX_CARDS {
         return;
     }
-    let parents: HashSet<u64> = board.cards.iter().filter_map(|card| card.parent).collect();
-    let mut oldest: Vec<(u64, u64)> = (board.cards.iter())
-        .filter(|card| may_archive(state, project, &parents, card))
+    let mut oldest: Vec<(u64, u64)> = (finished(state, project).into_iter())
         .map(|card| (card.updated_at, card.id))
         .collect();
     oldest.sort_unstable();
     oldest.truncate(board.cards.len() + 2 * ROOM_KEPT - MAX_CARDS);
-    if oldest.is_empty() {
+    move_off(
+        boards,
+        state,
+        project,
+        oldest.into_iter().map(|(_, id)| id).collect(),
+    );
+}
+
+/// Moves off the board the cards that finished long enough ago and wait on the person for
+/// nothing, such as a look, and answers when the next one that may go will have.
+pub(super) fn finished_long_ago(
+    core: &Core,
+    state: &mut State,
+    project: &str,
+    now: u64,
+) -> Option<u64> {
+    let board = state.boards.get(project)?;
+    let (old, young): (Vec<&Card>, Vec<&Card>) = (finished(state, project).into_iter())
+        .filter(|card| waits(core, board, card).is_none())
+        .partition(|card| card.updated_at + KEPT_MS <= now);
+    let next = young.iter().map(|card| card.updated_at + KEPT_MS).min();
+    let going = old.iter().map(|card| card.id).collect();
+    move_off(&core.boards, state, project, going);
+    next
+}
+
+/// The finished cards that may leave the board: none under them, none being worked, and their
+/// ticket told they are done.
+fn finished<'a>(state: &'a State, project: &str) -> Vec<&'a Card> {
+    let Some(board) = state.boards.get(project) else {
+        return Vec::new();
+    };
+    let parents: HashSet<u64> = board.cards.iter().filter_map(|card| card.parent).collect();
+    (board.cards.iter())
+        .filter(|card| may_archive(state, project, &parents, card))
+        .collect()
+}
+
+fn move_off(boards: &Boards, state: &mut State, project: &str, going: HashSet<u64>) {
+    if going.is_empty() {
         return;
     }
-    let going: HashSet<u64> = oldest.into_iter().map(|(_, id)| id).collect();
     let Some(board) = state.boards.get_mut(project) else {
         return;
     };

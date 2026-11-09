@@ -60,6 +60,7 @@ mod risk;
 pub(crate) mod roles;
 mod slice;
 pub(crate) mod tickets;
+mod tidy;
 mod wait;
 mod workflows;
 
@@ -244,6 +245,10 @@ struct Card {
     /// owner's latest claim is the card it works now.
     #[serde(default)]
     acted_at: u64,
+    /// When it was put aside in Later, having sat open and untouched; it stays off the board
+    /// until someone takes it up again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    aside_at: Option<u64>,
 }
 
 /// Bumped by a change to what a board file holds that an earlier file needs
@@ -1538,6 +1543,9 @@ pub struct BoardCard {
     pub assertions: Vec<Assertion>,
     pub at: u64,
     pub updated_at: u64,
+    /// When it was put aside in Later, off the board until someone takes it up again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aside_at: Option<u64>,
 }
 
 /// Where a board shows a card: `needs` holds the cards waiting on the person.
@@ -1671,6 +1679,7 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         assertions: card.goal.assertions().to_vec(),
         at: card.at,
         updated_at: card.updated_at,
+        aside_at: card.aside_at,
     }
 }
 
@@ -1793,6 +1802,9 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     if let Some(stalled) = card.slice.as_ref().and_then(|slice| slice.stalled.as_ref()) {
         fields.insert("stalledOwner".into(), stalled.name.clone().into());
     }
+    if card.aside_at.is_some() {
+        fields.insert("later".into(), true.into());
+    }
     if full {
         if let Some(record) = &card.record {
             fields.insert("record".into(), json!(record));
@@ -1863,6 +1875,7 @@ fn new_card(
         at: now,
         updated_at: now,
         acted_at: now,
+        aside_at: None,
     }
 }
 
@@ -1882,7 +1895,7 @@ fn add_card(
         .or_insert_with(|| Board::empty(project));
     if board.cards.len() >= MAX_CARDS {
         return Err(format!(
-            "This project's board already holds {MAX_CARDS} unfinished cards, the most it may; finish some before adding more"
+            "This project's board already holds {MAX_CARDS} cards, the most it may, and none of its finished ones can leave it yet; finish or remove some before adding more"
         ));
     }
     if let Some(id) = arrival::Key::of(&adding).and_then(|key| arrival::holder(board, &key)) {
@@ -3611,6 +3624,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let mut next = offers::offer(core);
     finish::clear_dropped(core);
     next = sooner(next, lease::settle(core));
+    next = sooner(next, tidy::settle(core));
     auto::start_free(core);
     next = sooner(next, finish::due(core));
     next = sooner(next, queue::due(core));
@@ -3756,6 +3770,33 @@ mod tests {
         let card = state.boards[PROJECT].card(id).unwrap();
         assert_eq!(card.status, CardStatus::Open);
         assert_eq!(card.owner_id(), None);
+    }
+
+    /// On 2026-11-08 a slice marked done again on the commit whose check failed, after its fix
+    /// card was done with no new commit, got a second fix card for that same commit.
+    #[test]
+    fn a_failing_commit_gets_one_fix_card() {
+        let core = Core::new(Default::default(), None).unwrap();
+        let adding = Adding {
+            title: "Slice".to_owned(),
+            promise: Some("It works.".to_owned()),
+            ..Adding::default()
+        };
+        let creator = By::Agent("creator".to_owned());
+        let (id, _) = add_card(&core, PROJECT, &creator, adding, None).unwrap();
+        core.names.pin(HashSet::from(["owner".to_owned()]));
+        claim_card(&core, PROJECT, "owner", id).unwrap();
+        let sha = "c1f0c6e0000000000000000000000000000000000";
+        let mut state = core.boards.state.locked();
+        let board = state.boards.get_mut(PROJECT).unwrap();
+
+        slice::file_fix(&core, board, id, sha).unwrap();
+        let fix = board.cards.last().unwrap().id;
+        board.card_mut(fix).unwrap().status = CardStatus::Done;
+        let said = slice::file_fix(&core, board, id, sha).unwrap();
+
+        assert_eq!(board.cards.len(), 2);
+        assert!(said.contains("new commit"));
     }
 
     /// The same day, cards of chats closed weeks before all came up as stalled at once.
