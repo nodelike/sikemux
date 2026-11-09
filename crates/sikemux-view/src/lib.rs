@@ -3,6 +3,7 @@
 //! change here reaches it over the air. A type the phone's Rust acts on belongs in
 //! `sikemux-wire` instead.
 
+pub mod audit;
 pub mod catalog;
 pub mod changed;
 pub mod chat;

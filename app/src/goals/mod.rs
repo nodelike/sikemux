@@ -53,9 +53,11 @@ mod environments;
 mod evidence;
 mod goal;
 mod happened;
+mod health;
 mod home;
 mod panel;
 mod rails;
+mod report;
 mod room;
 mod rules;
 mod slice;
@@ -187,9 +189,12 @@ pub struct GoalsPane {
     unfolded: std::collections::HashSet<String>,
     /// The sentence of a summary under the pointer, which alone of those closed is underlined.
     pointed: Option<String>,
+    /// The earlier report of the goal open that the person stepped back to.
+    stepping: Option<report::Stepping>,
     focus: FocusHandle,
     _reading: Task<()>,
     _reading_summary: Task<()>,
+    _reading_reports: Task<()>,
 }
 
 impl GoalsPane {
@@ -225,9 +230,11 @@ impl GoalsPane {
             summary: None,
             unfolded: Default::default(),
             pointed: None,
+            stepping: None,
             focus: cx.focus_handle(),
             _reading: Task::ready(()),
             _reading_summary: Task::ready(()),
+            _reading_reports: Task::ready(()),
         };
         pane.changed(cx);
         pane.read_goals(cx);

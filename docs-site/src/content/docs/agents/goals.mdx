@@ -66,7 +66,11 @@ An agent's chat opens right here in Goals, the same live chat as the agent's tab
 
 Whatever comes to need you also tells you, once: a notification on your Mac while Sikemux isn't in front, and on your phone as its notification settings say. That covers a gate to pass, a card handed back, an owner that stalled, agents stuck on each other, knowledge that no longer holds and a turn that ends asking you something, besides the permissions, questions and problems that always did. It doesn't tell you again about the same thing, or while you have that agent open, and the notification goes away once it no longer needs you.
 
-When things finished, failed or were decided while you were away, a link beside the find box says how many, counting only what happened between leaving and coming back, and opens **Overnight**: how many finished, failed, were decided without you and wait on you, then each event in time order, grouped by goal, then **Decided without you**. Each event opens its slice or its agent's chat.
+When things finished, failed or were decided while you were away, a link beside the find box says how many, counting only what happened between leaving and coming back, and opens **Overnight**: how many finished, failed, were decided without you and wait on you, then the project's [codebase health](#codebase-health), then each event in time order, grouped by goal, then **Decided without you**. Each event opens its slice or its agent's chat.
+
+### Codebase health
+
+A drift audit is an agent with fresh eyes, one that never saw the work, that reads what landed since the audit before and reports how the codebase holds up: dead code, the same logic written twice, docs and design notes that no longer match the code, rules the code breaks, checks weakened. It changes nothing. Under **Codebase health** on **Overnight**, pick when audits run: **Every day at 09:00**, **Every 12 hours** or **Every 6 hours**; **Audit now** runs one at once. The audit starts on the agent, provider and model set for Auto, at the project's root, on a card of its own titled **Drift audit**, and files each problem as a card under it, where you or Auto can take it up. The digest shows how many commits it read, its findings, each opening its card, how many findings of earlier audits were fixed since, and its few sentences on the codebase as a whole.
 
 ## A goal
 
@@ -112,7 +116,7 @@ Every slice wears the same mark: solid green when done, a green ring while it mo
 
 Holding a slice is a lease, so the team never waits in silence on an agent that has gone. A slice loses its owner when the agent's chat closes, or when the agent has run no turn and left the slice untouched for 30 minutes, whether it sits idle, asleep or stopped. It keeps its gates and its work, and anyone can take it up: another agent on the team, or Auto where it takes the card. With **Recover** on, Auto takes it on without asking and carries on in the worktree its owner left, and what it did shows among what agents decided while you were away, with **Overrule** to stop that agent and put the slice back. A slice you were working on in a chat of your own is left to you.
 
-The slice turns amber and a card under **Your calls** says who stalled and on what, and it tells you once. A goal with nothing left but slices like this stops moving until someone takes one up. **Resume** starts that agent again, on its saved session if its chat closed, and gives it the slice back. **Hand on** gives the slice to another agent open in the project or to a new one, which runs the agent picked in Home's composer. If that agent is signed out, Sikemux says so and starts nothing.
+The slice turns amber and a card under **Your calls** says who stalled and on what, and it tells you once. A goal with nothing left but slices like this stops moving until someone takes one up. **Resume** starts that agent again, on its saved session if its chat closed, and gives it the slice back with where it stands now. **Hand on** gives the slice to another agent open in the project or to a new one, which runs the agent picked in Home's composer. The agent that takes it is told the goal, where the slice stands and what the stalled owner left: its branch and checkout, its commits, what it left uncommitted and the last thing it wrote. If that agent is signed out, Sikemux says so and starts nothing.
 
 A chat that lost its goal's slice this way takes it back when it next runs a turn, unless someone took it meanwhile.
 
@@ -136,6 +140,19 @@ A check's estimate comes from how long the project's last few checks took since 
 A goal and its line on Home show when the work left in it should be through, such as "ETA 16:40". Sikemux works it out from its slices and shows one only when it has an estimate for all of them, so a slice nobody holds, or one whose owner isn't working on it, means no ETA. The time you take at your own gates doesn't count: "ETA 16:40, then you" means a gate only you pass comes after it, and once only you are left the ETA goes away.
 
 When the ETA moves later than it first said, by more than two minutes or a tenth of how far off it was, the goal says why, such as "ETA slipped: CI failed, re-running, first said 16:40", and its time turns amber. The reason is one of a failed check, a new commit that has to be checked again, a slice added to the goal, another card or you holding a slice up, a slice with no owner, or work taking longer than it did before. When Sikemux has no new estimate, the goal says when it was due instead.
+
+## A goal's report
+
+A goal can report on itself, so you never have to ask its lead for status. Pick how often in the **Report** heading on the goal's page: **On change**, **Every 15 min**, **Every 30 min** or **Every hour**; **Off** stops it. Each report has the same rows every time:
+
+- **Waiting on you**, first and amber when anything does, with the gate and since when
+- **Done**: slices done since the report before, with when and by whom
+- **Moving**: what is under way and what it waits on, such as "check · ETA 16:40"
+- **Waiting on**: slices held up by another card, or with no owner
+- **Next**: the next two gates and who passes them
+- **ETA**: when the goal should be through and, when it moved later, by how much since the report before said and why
+
+A dot marks what the report before didn't say. **‹** and **›** step through the goal's last twelve reports. On a timer a report is written even when nothing changed, but it tells you only when it says something new: the same notification as below, saying what waits on you, what got done and when the goal should be through. **On change** writes one at most once a minute, whenever a slice moves, lands or comes to wait on you.
 
 ## When a goal moves
 

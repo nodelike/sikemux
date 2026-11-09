@@ -22,7 +22,8 @@ use sikemux_process::sync::Locked;
 use sikemux_view::inbox::SwarmDecision;
 use sikemux_view::memory::Learned;
 use sikemux_view::slice::{
-    Assertion, ChangedFile, Collect, CommandFiles, Decision, GoalRule, NamedFile,
+    Assertion, ChangedFile, Collect, CommandFiles, Decision, GoalReport, GoalRule, NamedFile,
+    ReportEvery,
 };
 
 use super::{goal_of, project_at, project_view, Board, GoalRef, ProjectBoard};
@@ -60,12 +61,42 @@ pub(super) struct Goal {
     rules: Vec<GoalRule>,
     #[serde(default)]
     assertions: Vec<Assertion>,
+    /// How often its report is written; none writes none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    report_every: Option<ReportEvery>,
+    /// Its latest reports, oldest first.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    reports: Vec<GoalReport>,
 }
 
 impl Goal {
     /// The card never kept anything as a goal.
     pub(super) fn is_none(&self) -> bool {
-        self.last == 0
+        self.last == 0 && self.report_every.is_none() && self.reports.is_empty()
+    }
+
+    pub(super) fn report_every(&self) -> Option<ReportEvery> {
+        self.report_every
+    }
+
+    /// Writes its report as often as `every` says, or no more for none.
+    pub(super) fn report_on(&mut self, every: Option<ReportEvery>) {
+        self.report_every = every;
+    }
+
+    pub(super) fn reports(&self) -> &[GoalReport] {
+        &self.reports
+    }
+
+    pub(super) fn last_report(&self) -> Option<&GoalReport> {
+        self.reports.last()
+    }
+
+    /// Keeps `report` as its latest, letting the oldest go past `keep`.
+    pub(super) fn reported(&mut self, report: GoalReport, keep: usize) {
+        self.reports.push(report);
+        let over = self.reports.len().saturating_sub(keep);
+        self.reports.drain(..over);
     }
 
     pub(super) fn decisions(&self) -> Vec<Decision> {

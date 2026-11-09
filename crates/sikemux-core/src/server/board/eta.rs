@@ -357,6 +357,7 @@ pub(super) fn moved(board: &mut Board, mut slipped: HashMap<u64, Slip>) -> Vec<G
                 landed,
                 finished,
                 slip,
+                report: None,
             });
         }
     }

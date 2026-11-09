@@ -447,6 +447,18 @@ calls! { core, client, method, params;
     "goalSummary" GoalSummary (sikemux_view::slice::GoalSummaryParams) -> sikemux_view::slice::GoalSummaryView: Full => {
         goal_summary::read(&core, params).await?
     },
+    "boardAuditEvery" BoardAuditEvery (board::audit::AuditEveryParams) -> board::ProjectBoard: Full => {
+        board::audit::person_audit_every(&core, params).await?
+    },
+    "boardAuditNow" BoardAuditNow (board::audit::AuditNowParams) -> board::ProjectBoard: Full => {
+        board::audit::person_audit_now(&core, params).await?
+    },
+    "goalReports" GoalReports (board::report::GoalReportsParams) -> Vec<sikemux_view::slice::GoalReport>: Watch, any_program => {
+        board::report::reports(&core, params)?
+    },
+    "boardReportEvery" BoardReportEvery (board::report::ReportEveryParams) -> board::ProjectBoard: Full => {
+        board::report::person_report_every(&core, params).await?
+    },
     "goals" Goals (NoParams) -> sikemux_view::goals::GoalsView: Watch, any_program => goals::view(&core),
     "setDesks" SetDesks (sikemux_view::goals::DesksParams) -> (): Owner => goals::set_desks(&core, client.id, params),
     "boardAssert" BoardAssert (board::goal::AssertParams) -> board::ProjectBoard: Full => {

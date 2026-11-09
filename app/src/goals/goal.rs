@@ -38,6 +38,9 @@ pub(super) fn goal(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> An
         .flex_grow(1.)
         .flex_basis(px(380.))
         .min_w_0()
+        .when(!goal.goal_slices.is_empty(), |account| {
+            account.child(super::report::report(pane, goal, cx))
+        })
         .children(super::happened::what_happened(pane, id, cx))
         .children(super::happened::decided(pane, goal, cx));
     div()

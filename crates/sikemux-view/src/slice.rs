@@ -364,6 +364,65 @@ pub struct NextGate {
     pub environment: Option<String>,
 }
 
+/// How often a goal's report is written: every so many minutes, or whenever the goal moves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum ReportEvery {
+    Minutes { minutes: u32 },
+    Change,
+}
+
+/// How a goal stood when the core wrote it down, in one fixed shape: what waits on the person,
+/// what is done, what moves, what waits on something else, what comes next and when it should be
+/// through.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalReport {
+    pub at: u64,
+    /// When the report before it was written; none for the first.
+    #[serde(default)]
+    pub since: Option<u64>,
+    pub needs_you: Vec<ReportLine>,
+    /// Done since the report before it, or all done for the first.
+    pub done: Vec<ReportLine>,
+    pub moving: Vec<ReportLine>,
+    pub waiting: Vec<ReportLine>,
+    pub next: Vec<NextGate>,
+    #[serde(default)]
+    pub eta: Option<GoalEta>,
+    /// When the report before it said the goal would be through.
+    #[serde(default)]
+    pub eta_before: Option<u64>,
+}
+
+/// One slice in a goal's report.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportLine {
+    pub card: u64,
+    pub promise: String,
+    #[serde(default)]
+    pub owner_name: Option<String>,
+    pub state: SliceState,
+    /// The gate it waits at; none once it is done.
+    #[serde(default)]
+    pub gate: Option<Gate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    #[serde(default)]
+    pub wait: Option<Wait>,
+    /// When it got where it is: since its wait began, or when it was done.
+    #[serde(default)]
+    pub at: Option<u64>,
+    /// It was not here in the report before.
+    #[serde(default)]
+    pub new: bool,
+}
+
 /// What a goal decided, kept on its card.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

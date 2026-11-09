@@ -1,6 +1,6 @@
-//! Tells the person a goal moved: slices landed, it finished, or its ETA
-//! slipped. The board says so once for each change, so this never repeats and
-//! never runs on a timer. What moves close together is gathered into one
+//! Tells the person a goal moved: slices landed, it finished, its ETA
+//! slipped, or a report on it says something the one before did not. The board
+//! says so once for each change, so this never repeats. What moves close together is gathered into one
 //! notification, kept off a phone with Sikemux in front; the window decides for
 //! itself whether the person is looking.
 
@@ -33,6 +33,8 @@ pub(crate) struct GoalMoved {
     pub landed: Vec<String>,
     pub finished: bool,
     pub slip: Option<Slip>,
+    /// What its report says, when a new report is why the person hears of it.
+    pub report: Option<String>,
 }
 
 impl GoalMoved {
@@ -40,12 +42,16 @@ impl GoalMoved {
         self.landed.extend(more.landed);
         self.finished |= more.finished;
         self.slip = more.slip.or(self.slip);
+        self.report = more.report.or(self.report.take());
     }
 
     /// In a few words. A finished goal says only that.
     fn words(&self) -> String {
         if self.finished {
             return "Goal finished".to_owned();
+        }
+        if let Some(report) = &self.report {
+            return report.clone();
         }
         let landed = match self.landed.as_slice() {
             [] => None,

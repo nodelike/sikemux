@@ -1136,6 +1136,7 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
                 "What finishes and fails while you are away shows here once you have been.",
                 cx,
             ))
+            .child(super::health::health(pane, cx))
             .into_any_element();
     }
     let Some(bench) = pane.bench.upgrade() else {
@@ -1191,6 +1192,7 @@ pub(super) fn overnight(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyEle
                 .child(number(decided.len(), "decided"))
                 .child(number(waiting, "wait on you")),
         )
+        .child(super::health::health(pane, cx))
         .when(happened.is_empty() && decided.is_empty(), |view| {
             view.child(
                 div()

@@ -290,7 +290,7 @@ impl Triggers {
 
 /// When a trigger that was due at `due` fires next after `now`; none for one that fired its
 /// only time.
-fn next_after(when: &TriggerWhen, due: u64, now: u64) -> Option<u64> {
+pub(crate) fn next_after(when: &TriggerWhen, due: u64, now: u64) -> Option<u64> {
     match when {
         TriggerWhen::Once { .. } | TriggerWhen::Webhook { .. } | TriggerWhen::Ci { .. } => None,
         TriggerWhen::Every { seconds } => {

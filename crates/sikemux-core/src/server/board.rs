@@ -26,11 +26,13 @@ use super::wake::{sooner, Wake};
 use super::Core;
 use sikemux_view::inbox::InboxRecording;
 use sikemux_view::slice::{
-    Assertion, Collect, Decision, GoalEta, GoalRule, NextGate, SliceState, SliceView, Wait,
+    Assertion, Collect, Decision, GoalEta, GoalReport, GoalRule, NextGate, ReportEvery, SliceState,
+    SliceView, Wait,
 };
 
 mod archive;
 mod arrival;
+pub mod audit;
 pub(crate) mod auto;
 pub(crate) mod backup;
 mod blind;
@@ -55,6 +57,7 @@ mod page;
 mod queue;
 mod record;
 pub(crate) mod recover;
+pub mod report;
 mod reservoir;
 mod review;
 mod risk;
@@ -278,6 +281,9 @@ struct Board {
     /// Where each standing role the project names stands, by name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     roles: BTreeMap<String, roles::Role>,
+    /// When its drift audits run and those that ran.
+    #[serde(default, skip_serializing_if = "audit::Audits::is_none")]
+    audits: audit::Audits,
     /// Why Auto cannot start anything here now.
     #[serde(skip)]
     auto_note: Option<String>,
@@ -353,6 +359,7 @@ impl Board {
             environments_proposal,
             decided,
             roles,
+            audits,
             auto_note: _,
             writing: _,
             checking: _,
@@ -374,6 +381,7 @@ impl Board {
             environments_proposal: environments_proposal.clone(),
             decided: decided.clone(),
             roles: roles.clone(),
+            audits: audits.clone(),
             ..Self::default()
         }
     }
@@ -1532,6 +1540,12 @@ pub struct BoardCard {
     /// For a goal, when its work should be through and whether that slipped.
     #[serde(default)]
     pub eta: Option<GoalEta>,
+    /// For a goal, how often its report is written; none writes none.
+    #[serde(default)]
+    pub report_every: Option<ReportEvery>,
+    /// For a goal, its latest report; `goalReports` lists those before it.
+    #[serde(default)]
+    pub report: Option<GoalReport>,
     /// For a goal, what it decided, oldest first, retired ones too.
     pub decisions: Vec<Decision>,
     /// For a goal, rules only its own agents follow, oldest first, retired
@@ -1594,6 +1608,9 @@ pub struct ProjectBoard {
     /// What it inherits from the folders above it, nearest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub inherited: Vec<InheritedEnvironment>,
+    /// When its drift audits run and what the latest found; none when it never had any.
+    #[serde(default)]
+    pub audit: Option<sikemux_view::audit::AuditView>,
 }
 
 /// An environment a folder above a project holds, which the project inherits.
@@ -1674,6 +1691,8 @@ fn card_view(core: &Core, board: &Board, card: &Card) -> BoardCard {
         }),
         goal_stalled: slice::goal_stalled(board, card) || chat_goal::plain_owner_closed(core, card),
         eta: board.promises.get(&card.id).and_then(eta::Promise::view),
+        report_every: card.goal.report_every(),
+        report: card.goal.last_report().cloned(),
         decisions: card.goal.decisions(),
         rules: card.goal.rules(),
         arrivals: card.arrivals.clone(),
@@ -1726,6 +1745,7 @@ fn board_view(core: &Core, state: &State, board: &Board) -> ProjectBoard {
                 })
             })
             .collect(),
+        audit: audit::view(core, board),
     };
     board.forget_places();
     view
@@ -3634,8 +3654,12 @@ pub(crate) fn settle(core: &Arc<Core>) {
     commands::due(core);
     reservoir::due(core);
     roles::due(core);
-    let (due, moved) = wait::settle(core, &mut core.boards.state.locked());
+    next = sooner(next, audit::due(core));
+    let (due, mut moved) = wait::settle(core, &mut core.boards.state.locked());
     next = sooner(next, due);
+    let (due, reported) = report::due(core);
+    next = sooner(next, due);
+    moved.extend(reported);
     if let Some(next) = next {
         core.boards.wake.at(next);
     }
