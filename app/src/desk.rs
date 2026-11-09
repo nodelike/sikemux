@@ -1546,6 +1546,60 @@ pub fn prepare(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Work
     }
 }
 
+/// The size the desk's front page lays out at: the pane's own, or a held desktop, tablet or phone one.
+fn viewport_select(
+    bench: &Workbench,
+    agent: &str,
+    tab_id: &str,
+    cx: &Context<Workbench>,
+) -> AnyElement {
+    use sikemux_browser::viewport::Viewport;
+    let held =
+        (bench.desks.read(cx).engine.as_ref()).and_then(|engine| engine.viewport(agent, tab_id));
+    let label = |preset: &str| match preset {
+        "desktop" => "Desktop",
+        "tablet" => "Tablet",
+        _ => "Phone",
+    };
+    let shown: SharedString = match held {
+        None => "Fit".into(),
+        Some(Viewport {
+            preset: Some(preset),
+            ..
+        }) => label(preset).into(),
+        Some(fixed) => format!("{} × {}", fixed.width, fixed.height).into(),
+    };
+    let mut picks = vec![ui::Pick::new("fit", "Fit").hint("The pane's size")];
+    for preset in ["desktop", "tablet", "mobile"] {
+        let size = Viewport::preset(preset).expect("a known preset");
+        picks.push(
+            ui::Pick::new(preset, label(preset)).hint(format!("{} × {}", size.width, size.height)),
+        );
+    }
+    let chosen = match held {
+        None => Some("fit".into()),
+        Some(fixed) => fixed.preset.map(SharedString::from),
+    };
+    let (bench, agent, tab_id) = (cx.entity().downgrade(), agent.to_owned(), tab_id.to_owned());
+    ui::select(
+        "desk-viewport",
+        shown,
+        picks,
+        chosen,
+        false,
+        move |key, _, cx| {
+            let fixed = Viewport::preset(key);
+            bench
+                .update(cx, |bench, cx| {
+                    bench.with_engine(cx, |engine| engine.set_viewport(&agent, &tab_id, fixed));
+                    cx.notify();
+                })
+                .ok();
+        },
+        cx,
+    )
+}
+
 /// What the address bar shows for a page: a local file as its path, a blank page as nothing.
 fn shown_address(tab: &sikemux_browser::BrowserTab) -> String {
     if let Some(path) = &tab.local_file {
@@ -1901,7 +1955,8 @@ pub fn pane(
                 .when(!floating, |field| {
                     field.child(Input::new(&page.address).appearance(false))
                 })
-        }));
+        }))
+        .children(front.map(|tab| viewport_select(bench, agent, &tab.id, cx)));
     if let Some(item) = front_item {
         let shown = match item {
             DeskItem::File(path) => {
