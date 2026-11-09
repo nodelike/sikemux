@@ -1,6 +1,6 @@
 # ADR 0019: Projects belong to their host
 
-- Status: Accepted
+- Status: Superseded by [ADR 0023](./0023-projects-are-repositories-with-a-copy-per-host.md)
 - Decision date: 2026-10-22
 - Supersedes: [ADR 0017](./0017-projects-belong-to-no-host.md)
 

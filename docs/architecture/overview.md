@@ -17,7 +17,7 @@ One word for each idea, in the interface, docs and the core's messages.
 | app                       | The software on a device: the desktop app, phone app, web app and the notch.                        |
 | pair                      | A device on another account joins a host, once the host's owner allows it.                          |
 | link                      | Every host on one account works for the others ([ADR 0018](./0018-the-account-is-the-trust.md)).    |
-| project                   | A folder on one host, listed under that host ([ADR 0019](./0019-projects-belong-to-their-host.md)). |
+| project                   | A repository, with a copy on each host that holds one ([ADR 0023](./0023-projects-are-repositories-with-a-copy-per-host.md)). |
 | you                       | Devices on the host's own account with full access, which act as the person. In code, "the person". |
 | full access               | Can run any command on the host as the person.                                                      |
 | watch                     | Can read, answer questions and allow permissions, but not start or drive anything.                  |
