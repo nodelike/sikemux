@@ -57,7 +57,62 @@ impl UsageResetAt {
     }
 }
 
+impl UsageWindow {
+    /// Whether the window has started over since it was read, so its numbers are the last
+    /// window's.
+    pub fn is_past_reset(&self, now_ms: u64) -> bool {
+        (self.resets_at.as_ref())
+            .and_then(UsageResetAt::unix_ms)
+            .is_some_and(|reset| reset <= now_ms)
+    }
+
+    /// How much of the window is used at `now_ms`: nothing once it has started over.
+    pub fn used_at(&self, now_ms: u64) -> f64 {
+        if self.is_past_reset(now_ms) {
+            0.0
+        } else {
+            self.used_percent.clamp(0.0, 100.0)
+        }
+    }
+
+    fn reset_ms(&self) -> u64 {
+        (self.resets_at.as_ref())
+            .and_then(UsageResetAt::unix_ms)
+            .unwrap_or(0)
+    }
+}
+
 impl Usage {
+    /// The window that holds the account back at `now_ms`: of those used up, the last to
+    /// reset, since the account is back only then; otherwise the most used. Ties go to the
+    /// plan's own order, so the choice does not flicker between equal windows.
+    pub fn tightest(&self, now_ms: u64) -> Option<&UsageWindow> {
+        let windows = self.windows.iter().rev();
+        let full = windows
+            .clone()
+            .filter(|window| window.used_at(now_ms) >= 100.0)
+            .max_by_key(|window| window.reset_ms());
+        full.or_else(|| windows.max_by(|a, b| a.used_at(now_ms).total_cmp(&b.used_at(now_ms))))
+    }
+
+    /// The windows an agent shows at rest with room for `rows`: the plan's first ones, with
+    /// the last giving way to the tightest when it would otherwise be hidden.
+    pub fn at_rest(&self, now_ms: u64, rows: usize) -> Vec<&UsageWindow> {
+        let Some(tightest) = self.tightest(now_ms) else {
+            return Vec::new();
+        };
+        if rows <= 1 {
+            return vec![tightest];
+        }
+        let mut shown: Vec<&UsageWindow> = self.windows.iter().take(rows).collect();
+        if !shown.iter().any(|window| std::ptr::eq(*window, tightest)) {
+            if let Some(last) = shown.last_mut() {
+                *last = tightest;
+            }
+        }
+        shown
+    }
+
     /// When the account can be used again, in Unix milliseconds: once each
     /// window it has used up resets. `None` when none reads used up, or one
     /// that does never says when it resets.
