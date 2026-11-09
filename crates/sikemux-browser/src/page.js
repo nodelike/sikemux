@@ -543,6 +543,10 @@
         ".box.marks { border-width: 1px; }",
         ".tag { position: absolute; left: -2px; bottom: 100%; margin-bottom: 2px; padding: 1px 5px; border-radius: 3px; background: #ff4f7b; color: #fff; white-space: nowrap; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }",
         ".box.marks .tag { bottom: auto; top: 0; margin: 0; padding: 0 3px; font-size: 10px; border-radius: 0 0 3px 0; }",
+        ".snip { position: absolute; inset: 0; pointer-events: auto; cursor: crosshair; }",
+        ".snip-box { position: absolute; border: 1.5px solid #a277ff; border-radius: 2px; background: rgba(162, 119, 255, .08); box-shadow: 0 0 0 100vmax rgba(0, 0, 0, .12); }",
+        ".snip-box.taken { box-shadow: none; animation: taken 520ms ease-out forwards; }",
+        "@keyframes taken { from { background: rgba(162, 119, 255, .4); } to { background: rgba(162, 119, 255, 0); border-color: rgba(162, 119, 255, 0); } }",
         ".caption { position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%); max-width: 80%; padding: 10px 16px; border-radius: 8px; background: rgba(17, 17, 20, .86); color: #fff; font-size: 15px; font-weight: 500; text-align: center; }",
     ].join("\n");
     const POINTER_SVG =
@@ -585,6 +589,118 @@
         else Object.assign(node.style, { left: `${point.x - 14}px`, top: `${point.y - 14}px`, width: "24px", height: "24px", borderRadius: "50%" });
         layer().layer.append(node);
         return note;
+    };
+
+    // Snip mode: the person drags a box over the page, and the app takes a picture of what it
+    // covers. The box is gone before the answer goes, so that picture never shows it.
+    const SNIP_ELEMENTS = 6;
+    const SNIP_HTML = 600;
+    const SNIP_SMALLEST = 4;
+    let snipWaiter = null;
+    let snipMissed = null;
+    const answerSnip = (value) => {
+        if (!snipWaiter) return (snipMissed = value);
+        const waiter = snipWaiter;
+        snipWaiter = null;
+        waiter(value);
+    };
+    const selectorOf = (element) => {
+        const steps = [];
+        for (let node = element; node instanceof Element && steps.length < 5; node = node.parentElement) {
+            if (node.id && !/\d{4,}/.test(node.id)) {
+                steps.unshift(`#${CSS.escape(node.id)}`);
+                break;
+            }
+            const classes = [...node.classList].filter((name) => !/\d{4,}|[:[\]]/.test(name)).slice(0, 2);
+            let step = node.tagName.toLowerCase() + classes.map((name) => `.${CSS.escape(name)}`).join("");
+            const twins = node.parentElement ? [...node.parentElement.children].filter((other) => other.tagName === node.tagName) : [];
+            if (twins.length > 1) step += `:nth-of-type(${twins.indexOf(node) + 1})`;
+            steps.unshift(step);
+            if (node === document.body) break;
+        }
+        return steps.join(" > ");
+    };
+    const snipEntry = (element) => ({ selector: selectorOf(element), tag: element.tagName.toLowerCase(), text: describe(element), html: clip(compact(element.outerHTML), SNIP_HTML) });
+    // The outermost elements lying mostly inside `area`, or the smallest one holding all of it.
+    const snipped = (area) => {
+        const overlap = (rect) =>
+            Math.max(0, Math.min(rect.right, area.right) - Math.max(rect.left, area.left)) * Math.max(0, Math.min(rect.bottom, area.bottom) - Math.max(rect.top, area.top));
+        const inside = [];
+        let more = 0;
+        const visit = (element) => {
+            const rect = element.getBoundingClientRect();
+            const size = rect.width * rect.height;
+            if (size >= 1 && overlap(rect) >= size * 0.6 && shown(element)) {
+                if (inside.length < SNIP_ELEMENTS) inside.push(element);
+                else more += 1;
+                return;
+            }
+            if (size >= 1 && !overlap(rect)) return;
+            for (const child of element.children) visit(child);
+        };
+        if (document.body) visit(document.body);
+        const found = { left: area.left, top: area.top, width: area.right - area.left, height: area.bottom - area.top, viewport: { width: innerWidth, height: innerHeight }, url: location.href, title: document.title };
+        if (inside.length) return { ...found, elements: inside.map(snipEntry), ...(more ? { more } : {}) };
+        let holder = elementAt((area.left + area.right) / 2, (area.top + area.bottom) / 2);
+        for (; holder && holder !== document.body; holder = parentAcross(holder)) {
+            const rect = rectOf(holder);
+            if (rect.left <= area.left && rect.top <= area.top && rect.right >= area.right && rect.bottom >= area.bottom) break;
+        }
+        return holder ? { ...found, holder: snipEntry(holder) } : found;
+    };
+    const endOnEscape = (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        stopSnipping();
+        answerSnip({ ended: true });
+    };
+    const stopSnipping = () => {
+        if (overlay) overlay.layer.querySelectorAll(".snip, .snip-box").forEach((node) => node.remove());
+        removeEventListener("keydown", endOnEscape, true);
+    };
+    const snipLayer = () => {
+        const { layer: root } = layer();
+        if (root.querySelector(".snip")) return;
+        const catcher = document.createElement("div");
+        catcher.className = "snip";
+        let start = null;
+        let drawn = null;
+        const corner = (event) => ({ x: Math.min(Math.max(event.clientX, 0), innerWidth), y: Math.min(Math.max(event.clientY, 0), innerHeight) });
+        const between = (from, to) => ({ left: Math.min(from.x, to.x), top: Math.min(from.y, to.y), right: Math.max(from.x, to.x), bottom: Math.max(from.y, to.y) });
+        const draw = (rect) => Object.assign(drawn.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.right - rect.left}px`, height: `${rect.bottom - rect.top}px` });
+        catcher.addEventListener("pointerdown", (event) => {
+            if (event.button !== 0) return;
+            event.preventDefault();
+            catcher.setPointerCapture(event.pointerId);
+            start = corner(event);
+            drawn = document.createElement("div");
+            drawn.className = "snip-box";
+            draw(between(start, start));
+            root.append(drawn);
+        });
+        catcher.addEventListener("pointermove", (event) => start && draw(between(start, corner(event))));
+        catcher.addEventListener("pointerup", (event) => {
+            if (!start) return;
+            const area = between(start, corner(event));
+            start = null;
+            drawn.remove();
+            if (area.right - area.left < SNIP_SMALLEST || area.bottom - area.top < SNIP_SMALLEST) return;
+            catcher.style.pointerEvents = "none";
+            const found = snipped(area);
+            catcher.style.pointerEvents = "";
+            root.classList.add("quiet");
+            requestAnimationFrame(() => requestAnimationFrame(() => answerSnip(found)));
+        });
+        root.append(catcher);
+        addEventListener("keydown", endOnEscape, true);
+    };
+    const flashTaken = (taken) => {
+        const node = document.createElement("div");
+        node.className = "snip-box taken";
+        Object.assign(node.style, { left: `${taken.left}px`, top: `${taken.top}px`, width: `${taken.width}px`, height: `${taken.height}px` });
+        layer().layer.append(node);
+        setTimeout(() => node.remove(), 600);
     };
 
     const scrollerOf = (element) => {
@@ -936,6 +1052,25 @@
         // The height the page's content needs, which a short page's scrollHeight hides behind the viewport's.
         contentHeight() {
             return Math.ceil(document.documentElement.getBoundingClientRect().height);
+        },
+        // Turns snip mode on or off. On, it flashes `taken`, the box answered last, and waits for
+        // the next box the person drags, or Escape; a later call takes the wait over.
+        snip(on, taken) {
+            const missed = snipMissed;
+            snipMissed = null;
+            if (snipWaiter) answerSnip(null);
+            if (!on) {
+                stopSnipping();
+                return null;
+            }
+            if (missed && missed.ended) return missed;
+            snipLayer();
+            overlay.layer.classList.remove("quiet");
+            if (taken) flashTaken(taken);
+            if (missed) return missed;
+            return new Promise((resolve) => {
+                snipWaiter = resolve;
+            });
         },
         pointerVisible(visible) {
             if (overlay) overlay.layer.classList.toggle("quiet", !visible);

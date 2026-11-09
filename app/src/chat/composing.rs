@@ -977,6 +977,9 @@ impl Workbench {
         if let Some(text) = self.chats.deliveries.remove(&agent) {
             self.deliver(&agent, text, window, cx);
         }
+        if let Some((paths, notes)) = self.chats.held_files.remove(&agent) {
+            self.attach_there(&agent, paths, notes, window, cx);
+        }
     }
 
     /// A composer for `owner`, an agent's chat or the goals' Home, sending what it holds on

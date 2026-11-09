@@ -496,6 +496,14 @@
         "other": "Ctrl+Shift+KeyL"
     },
     {
+        "id": "browser.snip",
+        "label": "Snip page to chat",
+        "detail": "Turn snip mode on or off: each box dragged over the page on the desk in front goes to the chat as a picture",
+        "category": "Browser",
+        "mac": "Meta+Shift+KeyX",
+        "other": "Ctrl+Shift+KeyX"
+    },
+    {
         "id": "browser.reload",
         "label": "Reload browser tab",
         "detail": "Reload the active embedded browser tab",

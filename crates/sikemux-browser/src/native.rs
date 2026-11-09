@@ -111,6 +111,20 @@ pub(crate) async fn run_helper(view: &Tab, body: &str) -> Result<String, String>
     }
 }
 
+/// Runs `body` in the tab's helper world for as long as `limit`, for a script that waits on the
+/// person; None when it ran out of time.
+pub(crate) async fn wait_helper(
+    view: &Tab,
+    body: &str,
+    limit: Duration,
+) -> Result<Option<String>, String> {
+    match run_in(view, body, World::Helper, limit).await {
+        Ok(answer) => Ok(Some(answer)),
+        Err(None) => Ok(None),
+        Err(Some(error)) => Err(error),
+    }
+}
+
 /// `Err(None)` when the script ran out of time.
 async fn run_in(
     view: &Tab,

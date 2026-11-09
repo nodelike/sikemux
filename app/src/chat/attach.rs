@@ -24,7 +24,7 @@ use sikemux_view::chat::{
 };
 use sikemux_view::chat::{ChatMessage, SentContext};
 use sikemux_wire::protocol::ChatContext;
-use sikemux_wire::protocol::MAX_ATTACHMENT_BYTES;
+use sikemux_wire::protocol::{FOR_AGENT_URI, MAX_ATTACHMENT_BYTES};
 use tokio::sync::oneshot;
 
 use super::mention::{AGENT, COMMAND, EARLIER, FILE, FOLDER, TRACKED};
@@ -144,6 +144,11 @@ fn mark_of(id: &str, tint: Hsla, named: Option<AgentRow>, cx: &App) -> gpui_kit:
     )
 }
 
+/// Where the note the agent alone gets about picture `path` is filed, so it goes with the picture.
+fn about_uri(path: &Path) -> String {
+    format!("{FOR_AGENT_URI}picture{}", path.to_string_lossy())
+}
+
 fn image_tag(number: usize, path: &Path) -> InlineToken {
     InlineToken::new(
         format!("{IMAGE}{}", path.to_string_lossy()),
@@ -232,6 +237,8 @@ impl Composing {
             .remove(index)
             .to_string_lossy()
             .into_owned();
+        let note = about_uri(Path::new(&gone));
+        self.context.retain(|item| item.uri != note);
         let attachments = &self.attachments;
         self.draft.update(cx, |draft, cx| {
             let spans = draft.tokens().to_vec();
@@ -285,14 +292,17 @@ impl Workbench {
         if !keep.is_empty() {
             self.keep_files(agent, keep, window, cx);
         }
-        self.attach_there(agent, paths, window, cx);
+        self.attach_there(agent, paths, Vec::new(), window, cx);
     }
 
-    /// Hands the next message of `agent`'s chat files that are already where the agent runs.
-    fn attach_there(
+    /// Hands the next message of `agent`'s chat files that are already where the agent runs,
+    /// with notes about them for the agent alone. They wait for a composer the chat has not
+    /// made yet.
+    pub(crate) fn attach_there(
         &mut self,
         agent: &str,
         paths: Vec<PathBuf>,
+        notes: Vec<ChatContext>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -300,11 +310,56 @@ impl Workbench {
             return;
         }
         let Some(composing) = self.composing_mut(agent) else {
+            let held = self.chats.held_files.entry(agent.to_owned()).or_default();
+            held.0.extend(paths);
+            held.1.extend(notes);
             return;
         };
         composing.attach(paths, window, cx);
+        let attached: Vec<String> = composing
+            .attachments
+            .iter()
+            .map(|path| about_uri(path))
+            .collect();
+        composing.context.extend(
+            notes
+                .into_iter()
+                .filter(|note| attached.contains(&note.uri)),
+        );
         self.typed_draft(agent, cx);
         cx.notify();
+    }
+
+    /// Hands `agent`'s next message a picture made in the app, such as a snip of a page, named at
+    /// its draft's caret. `about` writes, from where the picture was kept, a title and text the
+    /// agent alone is told with it; an agent in a terminal is typed its path and that text.
+    #[allow(clippy::too_many_arguments)]
+    pub fn attach_picture(
+        &mut self,
+        agent: &str,
+        name: String,
+        mime: &str,
+        bytes: Vec<u8>,
+        about: impl FnOnce(&Path) -> (String, String) + 'static,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let owner = agent.to_owned();
+        let kept =
+            move |bench: &mut Self, path: PathBuf, window: &mut Window, cx: &mut Context<Self>| {
+                let (title, text) = about(&path);
+                if bench.in_terminal(&owner) {
+                    let typed = format!("{}\n{text}", path.to_string_lossy());
+                    return bench.deliver(&owner, typed, window, cx);
+                }
+                let note = ChatContext {
+                    uri: about_uri(&path),
+                    title,
+                    text,
+                };
+                bench.attach_there(&owner, vec![path], vec![note], window, cx);
+            };
+        self.keep(agent, name, mime, bytes, kept, window, cx);
     }
 
     /// Reads files off the window's thread and has the chat's core keep each, attaching it
@@ -341,7 +396,7 @@ impl Workbench {
                             "application/octet-stream"
                         };
                         this.update_in(cx, |bench, window, cx| {
-                            bench.keep(&agent, name, mime, bytes, window, cx)
+                            bench.keep(&agent, name, mime, bytes, attach_kept(&agent), window, cx)
                         })
                         .ok();
                     }
@@ -362,33 +417,32 @@ impl Workbench {
         .detach();
     }
 
-    /// Asks the core to keep a file that lives nowhere the agent can read, and attaches it
-    /// once the core says where it went.
+    /// Asks the core to keep a file that lives nowhere the agent can read, and hands where it
+    /// went to `kept`.
+    #[allow(clippy::too_many_arguments)]
     fn keep(
         &self,
         agent: &str,
         name: String,
         mime: &str,
         bytes: Vec<u8>,
+        kept: impl FnOnce(&mut Self, PathBuf, &mut Window, &mut Context<Self>) + 'static,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let (kept, answer) = oneshot::channel();
+        let (stored, answer) = oneshot::channel();
         let ask = ChatAsk::Keep {
             agent: agent.to_owned(),
             name,
             mime: mime.to_owned(),
             bytes,
-            kept,
+            kept: stored,
         };
         self.ask_chat(ask);
-        let agent = agent.to_owned();
         cx.spawn_in(window, async move |this, cx| match answer.await {
             Ok(Ok(path)) => {
-                this.update_in(cx, |bench, window, cx| {
-                    bench.attach_there(&agent, vec![path], window, cx)
-                })
-                .ok();
+                this.update_in(cx, |bench, window, cx| kept(bench, path, window, cx))
+                    .ok();
             }
             Ok(Err(error)) => {
                 let note = format!("The picture or file could not be attached: {error}");
@@ -447,7 +501,8 @@ impl Workbench {
                         let name = format!("{stamp}.{}", image.format.extension());
                         this.update_in(cx, |bench, window, cx| {
                             let mime = image.format.mime_type();
-                            bench.keep(&agent, name, mime, image.bytes, window, cx)
+                            let kept = attach_kept(&agent);
+                            bench.keep(&agent, name, mime, image.bytes, kept, window, cx)
                         })
                         .ok();
                     })
@@ -483,6 +538,14 @@ impl Workbench {
         })
         .detach();
     }
+}
+
+/// Attaches a file the core kept to `agent`'s next message.
+fn attach_kept(
+    agent: &str,
+) -> impl FnOnce(&mut Workbench, PathBuf, &mut Window, &mut Context<Workbench>) + 'static {
+    let agent = agent.to_owned();
+    move |bench, path, window, cx| bench.attach_there(&agent, vec![path], Vec::new(), window, cx)
 }
 
 /// What the draft takes in place of its paste, for pictures and files on the clipboard.
@@ -847,11 +910,14 @@ pub fn tiles(
             .content(AttachmentContent::new().title(AttachmentTitle::new(name)))
             .on_remove(move |_, window, cx| remove(index, window, cx))
     });
-    let chips = context.iter().enumerate().map(|(index, item)| {
-        let forget = forget.clone();
-        context_chip(format!("context-{index}"), &item.uri, &item.title, asks, &t)
-            .on_remove(move |_, window, cx| forget(index, window, cx))
-    });
+    let shown = context.iter().enumerate();
+    let chips = shown
+        .filter(|(_, item)| !item.for_agent_only())
+        .map(|(index, item)| {
+            let forget = forget.clone();
+            context_chip(format!("context-{index}"), &item.uri, &item.title, asks, &t)
+                .on_remove(move |_, window, cx| forget(index, window, cx))
+        });
     Some(
         div()
             .flex()

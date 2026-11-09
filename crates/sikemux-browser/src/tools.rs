@@ -1193,7 +1193,7 @@ fn plain_enter(key: &str) -> bool {
 
 /// The tab the agent is on, unless a dialog has frozen its page: a page
 /// waiting on an alert answers nothing, so calling into it would only time out.
-fn active(manager: &BrowserManager, agent_id: &str) -> Result<(String, Tab), String> {
+pub(crate) fn active(manager: &BrowserManager, agent_id: &str) -> Result<(String, Tab), String> {
     let (tab_id, view) = active_tab(manager, agent_id)?;
     if let Some(stall) = manager.stalled(&tab_id) {
         return Err(stall.message().into());
@@ -1355,7 +1355,7 @@ async fn settle(manager: &BrowserManager, agent_id: &str, tab_id: &str) {
 /// Call one of the page script's functions and parse what it returns. The
 /// script always answers with a JSON string, because WebKit refuses to hand
 /// back anything it cannot serialize.
-async fn call(view: &Tab, function: &str, args: &[Value]) -> Result<Value, String> {
+pub(crate) async fn call(view: &Tab, function: &str, args: &[Value]) -> Result<Value, String> {
     let answer = answer_of("window.__sikemux", function, args);
     let raw = native::run_helper(view, &format!("{PAGE_SCRIPT}\nreturn {answer};")).await?;
     let inner = serde_json::from_str::<Value>(&raw)
@@ -1412,7 +1412,7 @@ fn area_rect(area: &Value) -> (f64, f64, f64, f64) {
 
 /// The visible part of the tab, only `area` of it, or with `height` the
 /// whole page down to it.
-async fn screenshot(
+pub(crate) async fn screenshot(
     view: &Tab,
     height: Option<f64>,
     area: Option<(f64, f64, f64, f64)>,
