@@ -195,6 +195,14 @@ final class NotchStore {
         }
     }
 
+    /// Answers an agent's question with files, which reach it as the composer's do.
+    func answer(_ question: AgentQuestion, paths: [String]) {
+        link?.request(CoreCall.AnswerQuestion(params: AnswerParams(id: question.id, paths: paths))) {
+            [weak self] result in
+            if case .failure(let error) = result { self?.fail(error.message) }
+        }
+    }
+
     /// Lets a waiting device in with `access`, or turns it away when that is nil.
     func answer(_ device: PendingDevice, access: DeviceAccess?) {
         let request = CoreRequest.AnswerPairing(id: device.id, allow: access != nil, access: access ?? .watch)

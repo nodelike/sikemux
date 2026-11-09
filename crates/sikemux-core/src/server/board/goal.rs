@@ -994,8 +994,12 @@ pub(crate) async fn overrule(
             .clone()
             .unwrap_or_else(|| "The person overruled this.".to_owned());
         let note = "The person overruled this decision of the team's. Stop going by it and undo what rests on it; if they have not said what they want instead, hold that work until they do.".to_owned();
-        if let Err(error) =
-            crate::server::messages::answer(core, agent.clone(), vec![(answered, text, note)]).await
+        if let Err(error) = crate::server::messages::answer(
+            core,
+            agent.clone(),
+            vec![(answered, text, note, Vec::new())],
+        )
+        .await
         {
             eprintln!(
                 "sikemux core: an overruled decision in {project} did not reach its agent: {error}"

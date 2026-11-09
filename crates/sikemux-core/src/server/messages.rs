@@ -90,6 +90,8 @@ struct Letter {
     answers: Option<Answered>,
     /// The question it puts, when it puts one.
     puts: Option<String>,
+    /// Files the person attached, which a chat takes as it takes the composer's.
+    paths: Vec<String>,
 }
 
 /// A question the person answered, and the agent that asked it.
@@ -199,6 +201,7 @@ impl Letter {
             note,
             answers: None,
             puts: None,
+            paths: Vec::new(),
         }
     }
 
@@ -243,6 +246,8 @@ struct Queued {
     /// What [`withdraw`] and [`is_waiting`] know it by: the question it puts, or [`TASK`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     mark: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    paths: Vec<String>,
 }
 
 fn joined(queued: &[Queued]) -> String {
@@ -539,6 +544,7 @@ impl Mailbox {
                 text,
                 origin: None,
                 mark: None,
+                paths: Vec::new(),
             }],
         );
     }
@@ -551,6 +557,7 @@ impl Mailbox {
                 text,
                 origin: None,
                 mark: Some(TASK.to_owned()),
+                paths: Vec::new(),
             }],
         );
     }
@@ -641,6 +648,7 @@ pub(crate) fn task(
         at: epoch_ms(),
         answers: None,
         puts: None,
+        paths: Vec::new(),
         note: Some(format!(
             "{lead_name}, another agent in Sikemux, started you to do this; it is your lead, not the person. {answer}"
         )),
@@ -676,13 +684,14 @@ pub(crate) async fn hand_task(
             kind: MessageKind::Message,
         }),
         mark: None,
+        paths: Vec::new(),
     };
     if mailbox.has_waiting(agent_id) {
         log(core, agent_id, [&queued], MessageOutcome::Waiting);
         mailbox.put_back(agent_id, vec![queued]);
         return Ok(());
     }
-    match chat::letter(core, agent_id, task).await {
+    match chat::letter(core, agent_id, task, Vec::new()).await {
         Ok(delivered @ (Delivery::Steered | Delivery::NewTurn)) => {
             let outcome = match delivered {
                 Delivery::Steered => MessageOutcome::Steered,
@@ -913,6 +922,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                         kind: MessageKind::Message,
                     }),
                     mark: None,
+                    paths: Vec::new(),
                 };
                 log(&core, &target.agent_id, [&refused], MessageOutcome::Refused);
                 return Err(why.into());
@@ -1036,6 +1046,7 @@ async fn carry(
             kind: letter.kind,
         }),
         mark: None,
+        paths: Vec::new(),
     };
     let sent = super::hosts::route::deliver(
         core,
@@ -1096,6 +1107,7 @@ pub(crate) async fn from_host(
         note: carried.note,
         answers: carried.answered,
         puts: None,
+        paths: Vec::new(),
     };
     if let Some((branch, count)) = landed {
         letter.text.push_str(&format!(
@@ -1201,7 +1213,7 @@ pub(crate) async fn question(
 pub(crate) async fn answer(
     core: &Arc<Core>,
     to: String,
-    answers: Vec<(Answered, String, String)>,
+    answers: Vec<(Answered, String, String, Vec<String>)>,
 ) -> Result<Value, String> {
     let target = {
         let core = core.clone();
@@ -1215,18 +1227,21 @@ pub(crate) async fn answer(
         .await
         .map_err(|error| error.to_string())?
     };
-    let mut letters = answers.into_iter().map(|(answered, text, note)| Letter {
-        kind: MessageKind::Answer,
-        from_id: Sender::Person.id().to_owned(),
-        from_name: Sender::Person.name().to_owned(),
-        cli: "person".to_owned(),
-        text,
-        at: epoch_ms(),
-        note: Some(note),
-        answers: Some(answered),
-        puts: None,
-    });
-    let letter = letters.next().ok_or("there is no answer to send")?;
+    let mut letters = answers
+        .into_iter()
+        .map(|(answered, text, note, paths)| Letter {
+            kind: MessageKind::Answer,
+            from_id: Sender::Person.id().to_owned(),
+            from_name: Sender::Person.name().to_owned(),
+            cli: "person".to_owned(),
+            text,
+            at: epoch_ms(),
+            note: Some(note),
+            answers: Some(answered),
+            puts: None,
+            paths,
+        });
+    let mut letter = letters.next().ok_or("there is no answer to send")?;
     let rest: Vec<Letter> = letters.collect();
     if rest.is_empty() {
         return deliver(core, &target, letter).await;
@@ -1243,6 +1258,9 @@ pub(crate) async fn answer(
         .map(wrapped)
         .collect::<Vec<_>>()
         .join("\n\n");
+    letter
+        .paths
+        .extend(rest.into_iter().flat_map(|rest| rest.paths));
     deliver_as(core, &target, letter, text).await
 }
 
@@ -1457,6 +1475,7 @@ fn letter_from(
         note,
         answers: None,
         puts: None,
+        paths: Vec::new(),
     }
 }
 
@@ -1523,6 +1542,7 @@ async fn deliver_as(
             kind: letter.kind,
         }),
         mark: letter.puts.clone(),
+        paths: letter.paths.clone(),
     };
     let handed = handed(core, target, letter, &queued).await;
     let outcome = handed
@@ -1627,19 +1647,18 @@ async fn handed(
         held = Some("already has messages waiting");
     }
     if held.is_none() {
-        let delivered =
-            match reach {
-                Reach::Terminal => ready_terminal(core, &target.agent_id).map(|terminal| {
-                    paste(core, &target.agent_id, terminal, vec![queued.clone()]);
-                    MessageOutcome::Typed
+        let delivered = match reach {
+            Reach::Terminal => ready_terminal(core, &target.agent_id).map(|terminal| {
+                paste(core, &target.agent_id, terminal, vec![queued.clone()]);
+                MessageOutcome::Typed
+            }),
+            _ => hand(core, &target.agent_id, &queued.text, &queued.paths)
+                .await
+                .map(|delivered| match delivered {
+                    Delivery::Steered => MessageOutcome::Steered,
+                    _ => MessageOutcome::NewTurn,
                 }),
-                _ => hand(core, &target.agent_id, &queued.text)
-                    .await
-                    .map(|delivered| match delivered {
-                        Delivery::Steered => MessageOutcome::Steered,
-                        _ => MessageOutcome::NewTurn,
-                    }),
-            };
+        };
         match delivered {
             Ok(MessageOutcome::Steered) => {
                 return Ok((
@@ -1712,7 +1731,12 @@ fn rested(core: &Core, agent_id: &str) -> bool {
 
 /// Hands `text` to the chat as one message, or says why it cannot take it
 /// now.
-async fn hand(core: &Core, agent_id: &str, text: &str) -> Result<Delivery, &'static str> {
+async fn hand(
+    core: &Core,
+    agent_id: &str,
+    text: &str,
+    paths: &[String],
+) -> Result<Delivery, &'static str> {
     let chat = core.chats.get(agent_id).ok_or("is not running")?;
     if !chat.is_ready() {
         chat.start_agent();
@@ -1721,7 +1745,7 @@ async fn hand(core: &Core, agent_id: &str, text: &str) -> Result<Delivery, &'sta
     if !chat.turn_running() && !rested(core, agent_id) {
         return Err("has just finished a turn");
     }
-    match chat::letter(core, agent_id, text.to_owned()).await {
+    match chat::letter(core, agent_id, text.to_owned(), paths.to_vec()).await {
         Ok(delivered @ (Delivery::Steered | Delivery::NewTurn)) => Ok(delivered),
         Ok(Delivery::TurnEnded) => Err("has just finished a turn"),
         Ok(Delivery::Refused) | Err(_) => Err("is working and cannot read messages mid-turn"),
@@ -1824,6 +1848,7 @@ pub(crate) fn from_person(core: &Arc<Core>, agent_id: &str, text: String) -> Cor
             text,
             origin: None,
             mark: None,
+            paths: Vec::new(),
         },
     );
     mailbox.wake.now();
@@ -2023,7 +2048,11 @@ fn deliver_later(core: &Arc<Core>, agent_id: String, pending: Pending) {
             Pending::Chat => {
                 let texts = mailbox.take(&agent_id);
                 if !texts.is_empty() {
-                    match hand(&core, &agent_id, &joined(&texts)).await {
+                    let paths: Vec<String> = texts
+                        .iter()
+                        .flat_map(|queued| queued.paths.clone())
+                        .collect();
+                    match hand(&core, &agent_id, &joined(&texts), &paths).await {
                         Ok(_) => log(&core, &agent_id, &texts, MessageOutcome::Delivered),
                         Err(_) => mailbox.put_back(&agent_id, texts),
                     }

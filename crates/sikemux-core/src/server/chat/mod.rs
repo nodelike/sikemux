@@ -129,6 +129,8 @@ pub(crate) enum ChatCommand {
     /// start of a new one when none runs.
     Letter {
         text: String,
+        /// Files the person attached to an answer, taken as the composer's are.
+        paths: Vec<String>,
         reply: oneshot::Sender<Delivery>,
     },
     StopTask {

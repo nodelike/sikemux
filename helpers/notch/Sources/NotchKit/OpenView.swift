@@ -253,10 +253,13 @@ struct AskCard: View {
     }
 }
 
-/// Dropping a file: start an agent with it, or hand it to the agent that worked last.
+/// Dropping a file: start an agent with it, answer the question waiting with it, or hand it to
+/// the agent that worked last.
 struct DropTargets: View {
     let store: NotchStore
     let island: IslandModel
+
+    private var asking: Entry? { store.entries.first { $0.question != nil } }
 
     private var recent: Entry? {
         store.entries.first { $0.isChat && ($0.mark == .working || $0.mark == .needs) } ?? store.entries.first(where: \.isChat)
@@ -270,7 +273,14 @@ struct DropTargets: View {
                 Text("\(agentName(island.provider)) in \(island.project?.name ?? store.defaultProject?.name ?? "a project")")
                     .font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim)
             }
-            if let recent {
+            if let asking, let question = asking.question {
+                target(Self.answering) {
+                    AgentLook(entry: asking, size: 20)
+                    Text("Answer \(agentName(asking.provider))").font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
+                    Text(question.text).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
+                }
+            }
+            if let recent, recent.id != asking?.id {
                 target(recent.id) {
                     AgentLook(entry: recent, size: 20)
                     Text("Send to \(agentName(recent.provider))").font(Theme.ui(13, .semibold)).foregroundStyle(Theme.ink)
@@ -301,9 +311,14 @@ struct DropTargets: View {
             }
     }
 
+    private static let answering = "answer"
+
     private func drop(_ paths: [String], on id: String) {
         guard !paths.isEmpty else { return }
-        if id == "new" {
+        if id == Self.answering, let question = asking?.question {
+            store.answer(question, paths: paths)
+            island.set(.closed)
+        } else if id == "new" {
             island.attachments = paths
             island.tab = .compose
             island.set(.open)

@@ -290,11 +290,16 @@ pub(crate) async fn steer(
         .map_err(CoreError::from)
 }
 
-pub(crate) async fn letter(core: &Core, agent_id: &str, text: String) -> CoreResult<Delivery> {
+pub(crate) async fn letter(
+    core: &Core,
+    agent_id: &str,
+    text: String,
+    paths: Vec<String>,
+) -> CoreResult<Delivery> {
     let (reply, answer) = oneshot::channel();
     core.chats
         .running(agent_id)?
-        .send(ChatCommand::Letter { text, reply })?;
+        .send(ChatCommand::Letter { text, paths, reply })?;
     answer.await.map_err(|_| CoreError::from(STOPPED))
 }
 

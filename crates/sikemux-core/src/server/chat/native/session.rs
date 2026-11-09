@@ -1009,13 +1009,13 @@ impl<B: Backend> Running<'_, B> {
 
     async fn command(&mut self, command: ChatCommand) -> ControlFlow<Outcome> {
         match command {
-            ChatCommand::Letter { text, reply } if !self.chat.prompted() => {
+            ChatCommand::Letter { text, paths, reply } if !self.chat.prompted() => {
                 let _ = reply.send(Delivery::NewTurn);
                 return self
-                    .prompt(None, text, Vec::new(), Vec::new(), false, true)
+                    .prompt(None, text, paths, Vec::new(), false, true)
                     .await;
             }
-            ChatCommand::Letter { text, reply } => self.letter(text, reply),
+            ChatCommand::Letter { text, paths, reply } => self.letter(text, paths, reply),
             ChatCommand::Prompt {
                 message_id,
                 text,
@@ -1078,11 +1078,16 @@ impl<B: Backend> Running<'_, B> {
         ControlFlow::Continue(())
     }
 
-    fn letter(&mut self, text: String, reply: tokio::sync::oneshot::Sender<Delivery>) {
+    fn letter(
+        &mut self,
+        text: String,
+        paths: Vec<String>,
+        reply: tokio::sync::oneshot::Sender<Delivery>,
+    ) {
         let prompt = Prompt {
             message_id: None,
             text,
-            paths: Vec::new(),
+            paths,
             context: Vec::new(),
             letter: true,
             resent: false,
@@ -1092,7 +1097,7 @@ impl<B: Backend> Running<'_, B> {
         tokio::spawn(async move {
             let delivery = match steering.await {
                 Ok(Steered::Injected) => {
-                    chat.feed.prompted(None, &prompt.text, &[], &[]);
+                    chat.feed.prompted(None, &prompt.text, &prompt.paths, &[]);
                     Delivery::Steered
                 }
                 Ok(Steered::PromptRequired) => Delivery::TurnEnded,

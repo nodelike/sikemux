@@ -279,6 +279,8 @@ struct ReplyQuestion {
     /// The person's answer, held until every question of the same reply has one, so the
     /// agent hears them all in one message.
     given: Option<String>,
+    /// The files given with it.
+    given_paths: Vec<String>,
     at: u64,
 }
 
@@ -1502,6 +1504,7 @@ pub(crate) fn asked_in_reply(core: &Arc<Core>, agent_id: &str) {
         text: clipped(&ask.text, MAX_QUESTION_BYTES),
         choices: ask.choice.map(reply_choices).unwrap_or_default(),
         given: None,
+        given_paths: Vec::new(),
         at,
     });
     let questions = &core.harness.questions;
@@ -1685,9 +1688,10 @@ pub struct AnswersParams {
 
 impl AnswerParams {
     /// Writes the files and context into `answer`: what was typed, the files, then the context,
-    /// so the agent reads the same text whichever client answered.
+    /// so the agent reads the same text whichever client answered. The files stay, for a chat to
+    /// take as it takes the composer's.
     fn written_out(&mut self) {
-        let paths = std::mem::take(&mut self.paths);
+        let paths = self.paths.clone();
         let context = std::mem::take(&mut self.context);
         if paths.is_empty() && context.is_empty() {
             return;
@@ -1769,7 +1773,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
         core.harness.questions.changed(&mut state);
     };
     // Each answer as the asker gets it, with what was done about it when that is not the answer itself.
-    let mut letters: Vec<(Question, String, Option<String>)> = Vec::new();
+    let mut letters: Vec<(Question, String, Option<String>, Vec<String>)> = Vec::new();
     for (question, given, text) in taken {
         if let Some(host) = &question.from_host {
             let params = serde_json::to_value(&given).map_err(|error| error.to_string())?;
@@ -1799,7 +1803,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             (None, false) => Ok((text, None)),
         };
         match told {
-            Ok((text, done)) => letters.push((question, text, done)),
+            Ok((text, done)) => letters.push((question, text, done, given.paths)),
             Err(error) => {
                 reopen(
                     letters
@@ -1820,13 +1824,13 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
     askers.dedup();
     let mut failed = None;
     for asker in askers {
-        let own: Vec<&(Question, String, Option<String>)> = letters
+        let own: Vec<&(Question, String, Option<String>, Vec<String>)> = letters
             .iter()
             .filter(|(question, ..)| question.agent_id == asker)
             .collect();
         let sent = own
             .iter()
-            .map(|(question, text, done)| {
+            .map(|(question, text, done, paths)| {
                 let note = match (done, &question.assumption) {
                     (Some(done), _) => done.clone(),
                     (None, Some(assumption)) => format!(
@@ -1834,7 +1838,12 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
                     ),
                     (None, None) => "The person answered the question you asked; go on with it.".to_owned(),
                 };
-                (answered(question, &question.asked), text.clone(), note)
+                (
+                    answered(question, &question.asked),
+                    text.clone(),
+                    note,
+                    paths.clone(),
+                )
             })
             .collect();
         match messages::answer(core, asker.to_owned(), sent).await {
@@ -1850,7 +1859,7 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
                 continue;
             }
         }
-        for (question, text, _) in own {
+        for (question, text, ..) in own {
             copy_to_lead(core, question, text).await;
         }
     }
@@ -1870,7 +1879,7 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
     let questions = &core.harness.questions;
     let ready: Vec<(String, Vec<ReplyQuestion>)> = {
         let mut state = questions.state.locked();
-        let mut answers: Vec<(String, String)> = Vec::with_capacity(given.len());
+        let mut answers: Vec<(String, String, Vec<String>)> = Vec::with_capacity(given.len());
         for given in &given {
             let question = (state.reply_questions.iter())
                 .find(|question| question.id == given.id && question.waits())
@@ -1881,12 +1890,13 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
                     .ok_or("That choice is not one of the question's")?,
                 None => reply_text(given)?,
             };
-            answers.push((question.id.clone(), text));
+            answers.push((question.id.clone(), text, given.paths.clone()));
         }
         let mut askers: Vec<String> = Vec::new();
-        for (id, text) in answers {
+        for (id, text, paths) in answers {
             if let Some(question) = (state.reply_questions.iter_mut()).find(|kept| kept.id == id) {
                 question.given = Some(text);
+                question.given_paths = paths;
                 if !askers.contains(&question.agent_id) {
                     askers.push(question.agent_id.clone());
                 }
@@ -1915,7 +1925,8 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
         let sent = (answered.iter())
             .map(|question| {
                 let text = question.given.clone().unwrap_or_default();
-                (question.answered(), text, note.to_owned())
+                let paths = question.given_paths.clone();
+                (question.answered(), text, note.to_owned(), paths)
             })
             .collect();
         if let Err(error) = messages::answer(core, asker.clone(), sent).await {
@@ -1927,6 +1938,7 @@ async fn answer_replies(core: &Arc<Core>, given: Vec<AnswerParams>) -> Result<()
             {
                 let reopened = answered.into_iter().map(|question| ReplyQuestion {
                     given: None,
+                    given_paths: Vec::new(),
                     ..question
                 });
                 state.reply_questions.extend(reopened);
@@ -1985,7 +1997,12 @@ async fn copy_to_lead(core: &Arc<Core>, question: &Question, text: &str) {
         let _ = messages::answer(
             core,
             lead_id.clone(),
-            vec![(answered(question, &question.text), text.to_owned(), note)],
+            vec![(
+                answered(question, &question.text),
+                text.to_owned(),
+                note,
+                Vec::new(),
+            )],
         )
         .await;
     }

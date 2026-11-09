@@ -292,12 +292,12 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
     height: 18px; padding: 0 7px; border-radius: 9px; display: inline-flex; align-items: center;
     font: 600 9.5px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--acc); background: var(--acc-soft);
 }
-.drops { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.drops { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 8px; }
 .drop {
     height: 104px; border-radius: 14px; background: rgba(255, 255, 255, 0.05); display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 7px; font-size: 13px; font-weight: 600; text-align: center; padding: 0 12px;
 }
-.drop .sub { font-weight: 500; }
+.drop .sub { font-weight: 500; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drop.hot, .drop:hover { background: var(--acc-soft); box-shadow: inset 0 0 0 1px var(--acc-line); }
 .drop svg { width: 20px; height: 20px; }
 .file { display: inline-flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink-dim); padding-right: 12px; }
@@ -878,11 +878,13 @@ class Island {
 
         let body = "";
         if (this.mode === "drop") {
+            const asking = this.agents.find((a) => a.question);
             const target = this.agents.find((a) => a.tier === "needs" || a.tier === "progress") || listed(this.agents)[0];
             body = `
                 <div class="drops">
                     <div class="drop hot" data-drop="new">${GLYPH.plus}New agent with this file<span class="sub">${NAME[this.selectedType]} in sikemux</span></div>
-                    ${target ? `<div class="drop" data-drop="${target.id}">${face(target)}Send to ${NAME[target.type]}<span class="sub">${target.title}</span></div>` : ""}
+                    ${asking ? `<div class="drop" data-drop="answer">${face(asking)}Answer ${NAME[asking.type]}<span class="sub">${asking.question.text}</span></div>` : ""}
+                    ${target && target !== asking ? `<div class="drop" data-drop="${target.id}">${face(target)}Send to ${NAME[target.type]}<span class="sub">${target.title}</span></div>` : ""}
                 </div>`;
         } else if (this.tab === "agents") {
             if (!listed(this.agents).length) {
@@ -1212,7 +1214,7 @@ const SECTIONS = [
         lede: "A file dragged towards the top of the screen opens the island before the pointer reaches it.",
         states: [
             { id: "D1", name: "File dragged in", when: "A file is being dragged near the top of the screen.",
-              shows: "Two targets: start a new agent with the file, or send it to the agent you used last.",
+              shows: "Start a new agent with the file, answer the question an agent is waiting on with it, which it gets as an attachment, or send it to the agent you used last.",
               leaves: "Dropping closes it. Dragging away closes it after 0.5 s.", opts: { agents: () => freshAgents(), mode: "drop" } },
         ],
     },
