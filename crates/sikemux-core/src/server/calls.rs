@@ -406,6 +406,7 @@ calls! { core, client, method, params;
         super::codehost::tracked(&core, client.id, params).await
     },
     "hosts" Hosts (NoParams) -> Vec<super::hosts::HostRow>: Watch => super::hosts::rows(&core),
+    "hostStats" HostStats (sikemux_view::host_stats::HostStatsParams) -> sikemux_view::host_stats::HostStats: Watch => super::host_stats::read(&core, params),
     "hostInstalledFrom": Owner => answer(super::hosts::installed_from(&core, parse(params)?)?),
     "installHost" InstallHost (super::hosts::install::InstallParams) -> Value: Owner => super::hosts::install::install_host(&core, params).await?,
     "hostSetup": Owner => answer(super::hosts::install::host_setup(&core, parse(params)?).await?),

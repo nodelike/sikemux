@@ -297,6 +297,8 @@ enum Topic: String, Codable, Hashable {
     case mods
     /// The core is stopping on purpose, so its clients do not start it again.
     case stopping
+    /// How busy this host is, for its page, while a client shows it.
+    case hostStats
     /// One added after this build.
     case unknown
 

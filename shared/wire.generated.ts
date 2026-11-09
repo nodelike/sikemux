@@ -1212,7 +1212,8 @@ export type Pane =
           sizes: number[];
       };
 
-export type PaneKind = "agent" | "terminal" | "files" | "git" | "search" | "board" | "desk" | "projectSettings" | "installSikemux" | "stash" | "mod";
+export type PaneKind =
+    "agent" | "terminal" | "files" | "git" | "search" | "board" | "desk" | "projectSettings" | "installSikemux" | "stash" | "hosts" | "mod";
 
 export type SplitDir = "row" | "column" | "stack";
 

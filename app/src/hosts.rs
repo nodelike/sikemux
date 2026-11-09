@@ -2,6 +2,7 @@
 //! without Sikemux. The rail, the top bar and the tab list follow the one chosen.
 
 pub mod install_pane;
+pub mod page;
 pub(crate) mod top_place;
 
 use std::collections::HashMap;

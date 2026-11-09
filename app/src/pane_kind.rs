@@ -54,6 +54,7 @@ pub fn of(kind: PaneKind) -> Kind {
         PaneKind::ProjectSettings => kind_of(Icon::Settings, "Project settings", Never, true),
         PaneKind::InstallSikemux => kind_of(Icon::Download, "Install Sikemux", Never, true),
         PaneKind::Stash => kind_of(Icon::Stack, "Stash", Never, true),
+        PaneKind::Hosts => kind_of(Icon::Gauge, "Hosts", Never, true),
         PaneKind::Mod => kind_of(Icon::Dashboard, "Mod", Always, false),
         PaneKind::Unknown => kind_of(Icon::Window, "Needs a newer Sikemux", Never, true),
     }
@@ -148,6 +149,7 @@ pub fn make(
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
         | PaneKind::Stash
+        | PaneKind::Hosts
         | PaneKind::Mod
         | PaneKind::Unknown => {}
     }
@@ -191,6 +193,7 @@ pub fn draw(
         PaneKind::ProjectSettings => crate::project_settings::pane(bench, target, window, cx),
         PaneKind::InstallSikemux => crate::hosts::install_pane::pane(bench, target, cx),
         PaneKind::Stash => crate::stash::pane(bench, cx),
+        PaneKind::Hosts => crate::hosts::page::pane(bench, target, window, cx),
         PaneKind::Unknown => ui::pane(cx)
             .child(
                 div()
@@ -233,6 +236,7 @@ pub fn focus(kind: PaneKind, bench: &Workbench, target: &str, window: &mut Windo
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
         | PaneKind::Stash
+        | PaneKind::Hosts
         | PaneKind::Mod
         | PaneKind::Unknown => bench.keys.focus.focus(window, cx),
     }

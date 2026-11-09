@@ -9,6 +9,7 @@ pub mod changed;
 pub mod chat;
 pub mod device;
 pub mod goals;
+pub mod host_stats;
 pub mod inbox;
 pub mod layout;
 pub mod memory;

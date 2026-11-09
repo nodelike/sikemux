@@ -172,6 +172,7 @@ fn fitted(mut layout: Layout, workspace: &Workspace, sessions: &[SessionInfo]) -
         | PaneKind::ProjectSettings
         | PaneKind::InstallSikemux
         | PaneKind::Stash
+        | PaneKind::Hosts
         | PaneKind::Mod => true,
     };
     let shown = |kind: PaneKind, target: &str| shown_in(None, kind, target);
@@ -924,6 +925,7 @@ pub(crate) async fn lay_out_carried(
         | PaneKind::Board
         | PaneKind::ProjectSettings
         | PaneKind::Stash
+        | PaneKind::Hosts
         | PaneKind::Mod => true,
     };
     let mut carried = Vec::new();

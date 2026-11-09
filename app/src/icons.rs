@@ -193,6 +193,13 @@ icons!(
     Postgresql => "postgresql",
     Mysql => "mysql",
     Sqlite => "sqlite",
+    Apple => "apple",
+    Hetzner => "hetzner",
+    DigitalOcean => "digitalocean",
+    Nvidia => "nvidia",
+    Ubuntu => "ubuntu",
+    Debian => "debian",
+    Linux => "linux",
 );
 
 /// Whether an SVG draws in `currentColor`.

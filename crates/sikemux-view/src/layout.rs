@@ -100,6 +100,9 @@ pub enum PaneKind {
     InstallSikemux,
     /// What the account keeps in its Stash; `target` is `stash`.
     Stash,
+    /// Every host on the account, how busy each is, and one host's detail; `target` is the
+    /// host chosen, by its key as the app names it.
+    Hosts,
     /// A panel the person made as a web page; `target` is the mod's id.
     Mod,
     /// A kind a newer core shows, which this build does not know and leaves out.

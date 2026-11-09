@@ -56,6 +56,8 @@ pub enum Topic {
     Mods,
     /// The core is stopping on purpose, so its clients do not start it again.
     Stopping,
+    /// How busy this host is, for its page, while a client shows it.
+    HostStats,
     /// A topic from a newer core, which a client skips.
     #[serde(other)]
     Unknown,
