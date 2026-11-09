@@ -79,3 +79,33 @@ fn outside_corners(local: vec2<f32>, size: vec2<f32>, radius: f32) -> bool {
     let corner = abs(local - 0.5 * size) - (0.5 * size - radius);
     return length(max(corner, vec2<f32>(0.0))) > radius;
 }
+
+// A repeatable random value for a cell, for one seed.
+fn cell_hash(cell: vec2<f32>, seed: f32) -> f32 {
+    return fract(sin(cell.x * 127.1 + cell.y * 311.7 + seed * 74.7) * 43758.5453);
+}
+
+// Smooth value noise.
+fn value_noise(at: vec2<f32>, seed: f32) -> f32 {
+    let whole = floor(at);
+    let part = smoothstep(vec2<f32>(0.0), vec2<f32>(1.0), at - whole);
+    let p = cell_hash(whole, seed);
+    let q = cell_hash(whole + vec2<f32>(1.0, 0.0), seed);
+    let r = cell_hash(whole + vec2<f32>(0.0, 1.0), seed);
+    let s = cell_hash(whole + vec2<f32>(1.0, 1.0), seed);
+    return p + (q - p) * part.x + (r - p) * part.y + (p - q - r + s) * part.x * part.y;
+}
+
+// Three octaves of value noise.
+fn layered_noise(at: vec2<f32>, seed: f32) -> f32 {
+    return value_noise(at, seed) * 0.57
+        + value_noise(at * 2.03, seed + 1.0) * 0.29
+        + value_noise(at * 4.1, seed + 2.0) * 0.14;
+}
+
+// 0 inside `rect` and `margin` around it, easing to 1 over `feather` points beyond.
+fn clear_of(at: vec2<f32>, rect: vec4<f32>, margin: f32, feather: f32) -> f32 {
+    let dx = max(max(rect.x - at.x, 0.0), at.x - rect.z);
+    let dy = max(max(rect.y - at.y, 0.0), at.y - rect.w);
+    return smoothstep(0.0, 1.0, clamp((length(vec2<f32>(dx, dy)) - margin) / feather, 0.0, 1.0));
+}

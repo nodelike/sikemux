@@ -5,8 +5,7 @@
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Div, Entity,
-    FocusHandle, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful, Styled,
-    Window,
+    FocusHandle, Hsla, InteractiveElement, IntoElement, ParentElement, Stateful, Styled, Window,
 };
 use sikemux_core::agent_accounts::status::AgentStatus;
 use sikemux_core::server::agent_accounts::{Account, Forget};
@@ -131,6 +130,11 @@ impl Setup {
         self.sheet
             .as_ref()
             .is_some_and(|sheet| sheet.session == Some(session))
+    }
+
+    /// How the sheet's command stands, in a sentence.
+    pub fn sheet_state(&self) -> Option<String> {
+        self.sheet.as_ref().map(state)
     }
 
     /// Whether a sheet is up, running or not.
@@ -548,7 +552,7 @@ pub fn close(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     redraw(bench, cx);
 }
 
-pub fn again(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+fn again(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(mut sheet) = bench.agent_setup.sheet.take() else {
         return;
     };
@@ -591,7 +595,6 @@ fn state(sheet: &Sheet) -> String {
 fn body(
     bench: &Workbench,
     this: &Entity<Workbench>,
-    lit: Option<SheetStop>,
     cx: &mut Context<Workbench>,
 ) -> Option<Stateful<Div>> {
     let sheet = bench.agent_setup.sheet.as_ref()?;
@@ -612,11 +615,9 @@ fn body(
     };
     let button = |id: &'static str,
                   label: &'static str,
-                  stop: SheetStop,
                   run: fn(&mut Workbench, &mut Context<Workbench>)| {
         let this = this.clone();
         ui::Button::new(id, label, ui::Variant::Outline)
-            .pressed(lit == Some(stop))
             .on_click(move |_, _, cx| this.update(cx, run))
     };
     let failed = matches!(sheet.phase, Phase::Failed(_) | Phase::Refused(_));
@@ -677,39 +678,31 @@ fn body(
                         .child(state(sheet)),
                 )
                 .when(failed, |foot| {
-                    foot.child(button(
-                        "agent-sheet-again",
-                        "Try again",
-                        SheetStop::Again,
-                        again,
-                    ))
+                    foot.child(button("agent-sheet-again", "Try again", again))
                 })
                 .child(button(
                     "agent-sheet-close",
                     if running { "Cancel" } else { "Close" },
-                    SheetStop::Close,
                     close,
                 )),
         );
     Some(body)
 }
 
-/// The command as part of the page it was started from, `height` tall.
-pub fn inline(
+/// Just the running command's terminal, for a page that says the rest itself.
+pub fn terminal_pane(
     bench: &Workbench,
     this: &Entity<Workbench>,
-    height: Pixels,
-    lit: Option<SheetStop>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
-    Some(body(bench, this, lit, cx)?.h(height).into_any_element())
-}
-
-/// Which of the command's buttons the keyboard stands on.
-#[derive(Clone, Copy, PartialEq)]
-pub enum SheetStop {
-    Again,
-    Close,
+    let session = bench.agent_setup.sheet.as_ref()?.session?;
+    Some(crate::terminal::pane(
+        bench,
+        this,
+        &crate::hosts::Place::This,
+        &session.to_string(),
+        cx,
+    ))
 }
 
 /// What takes the keys in the running command's terminal, once it has been drawn.
@@ -727,7 +720,7 @@ pub fn sheet(
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
-    let card = body(bench, this, None, cx)?
+    let card = body(bench, this, cx)?
         .w(px(760.))
         .h(px(520.))
         .bg(t.surface_overlay)

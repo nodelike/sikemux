@@ -32,7 +32,7 @@ macro_rules! program {
 static FIELD: ShaderProgram = program!("field");
 static PICTURE: ShaderProgram = program!("picture");
 static SKY: ShaderProgram = program!("sky");
-static RISING: ShaderProgram = program!("rising");
+static SETUP_SKY: ShaderProgram = program!("setup_sky");
 static TILE: ShaderProgram = program!("tile");
 
 const FRAMES_PER_SECOND: u64 = 30;
@@ -40,14 +40,7 @@ const FRAMES_PER_SECOND: u64 = 30;
 const BATTERY_FRAMES_PER_SECOND: u64 = 20;
 const FIELD_SPEED: f32 = 0.5;
 const SKY_SPEED: f32 = 0.35;
-const RISING_OPACITY: f32 = 0.55;
-const RISING_DENSITY: f32 = 0.3;
-/// Where the rising sky starts and is full, from the top, as shares of its column's height.
-const RISING_REACH: [f32; 2] = [0.58, 1.];
 const TILE_SPEED: f32 = 1.2;
-const TILE_OPACITY: f32 = 0.72;
-/// How far up a running tile's dither reaches past where it starts, as a share of the tile.
-const TILE_LIFT: f32 = 0.16;
 /// Where the clock stands for a person who asked for less motion, so everything holds still.
 const STILL: f32 = 2.5;
 /// High, because the grain's dots are the only paint and nothing is drawn between them.
@@ -409,50 +402,94 @@ pub fn sky(fade_from: f32, opacity: f32, cx: &App) -> impl IntoElement + Styled 
     )
 }
 
-/// The first-run setup's sky: the accent alone, rising from the bottom across the column's whole
-/// width and thinning out on its way up.
-pub fn rising(cx: &App) -> impl IntoElement + Styled {
+/// Where the first-run setup's sky reaches and how it keeps clear of a block of text.
+#[derive(Clone, Copy)]
+pub struct SetupSky {
+    pub level: f32,
+    pub densest: f32,
+    pub seed: f32,
+    pub opacity: f32,
+    pub clear: [f32; 4],
+    pub margin: f32,
+    pub feather: f32,
+}
+
+/// The first-run setup's sky in the accent, filling whatever holds it.
+pub fn setup_sky(sky: SetupSky, cx: &App) -> impl IntoElement + Styled {
     let accent = Tokens::get(cx).accent.to_rgb();
-    let (start, speed) = clock(SKY_SPEED, cx);
     canvas(
         |_, _, _| {},
         move |bounds, (), window, _| {
             let mut params = [0.; gpui::SHADER_PARAMS];
-            params[..4].copy_from_slice(&[start, speed, window.scale_factor(), RISING_DENSITY]);
-            params[4..8].copy_from_slice(&[
-                accent.r,
-                accent.g,
-                accent.b,
-                accent.a * RISING_OPACITY,
-            ]);
-            params[8..10].copy_from_slice(&RISING_REACH);
-            let _ = window.paint_shader(bounds, &RISING, params, None);
+            params[..4].copy_from_slice(&[window.scale_factor(), sky.level, sky.densest, sky.seed]);
+            params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, sky.opacity]);
+            params[8..10].copy_from_slice(&[sky.margin, sky.feather]);
+            params[12..16].copy_from_slice(&sky.clear);
+            let _ = window.paint_shader(bounds, &SETUP_SKY, params, None);
         },
     )
 }
 
-/// A first-run setup tile's dither in `colour`, on the sky's clock, starting `from` of the way
-/// down and thickening to `density` at the bottom edge. Running, its top also rises and falls.
-pub fn tile(
-    colour: Hsla,
-    density: f32,
-    from: f32,
-    running: bool,
-    cx: &App,
-) -> impl IntoElement + Styled {
-    let colour = colour.to_rgb();
+/// What one tile's dither on the setup's wall looks like. Sizes are in points, and clearances
+/// run from the tile's own corners, so they hold whatever size the tile is drawn.
+#[derive(Clone, Copy)]
+pub struct WallDots {
+    pub colour: Hsla,
+    pub density: f32,
+    pub opacity: f32,
+    pub seed: f32,
+    pub feather: f32,
+    pub anchor: [f32; 4],
+    pub mark_right: f32,
+    pub mark_bottom: f32,
+    pub label_right: f32,
+    pub label_height: f32,
+    pub pill_width: f32,
+    pub pill_bottom: f32,
+    /// Where the wall is brightest, as shares of the window's width.
+    pub bright: (f32, f32),
+    pub running: bool,
+}
+
+/// Three whole numbers to 255 as one float, which holds them exactly.
+fn packed(first: f32, second: f32, third: f32) -> f32 {
+    let byte = |value: f32| value.clamp(0., 255.).round();
+    byte(first) * 65536. + byte(second) * 256. + byte(third)
+}
+
+/// A tile's dither on the setup's wall, drifting on the sky's clock.
+pub fn wall_dots(dots: WallDots, cx: &App) -> impl IntoElement + Styled {
+    let colour = dots.colour.to_rgb();
     let (start, speed) = clock(SKY_SPEED, cx);
-    let (from, lift, rise) = match running {
-        true => (from + TILE_LIFT, TILE_LIFT, clock(TILE_SPEED, cx).1),
-        false => (from, 0., 0.),
+    let rise = if dots.running {
+        clock(TILE_SPEED, cx).1
+    } else {
+        0.
     };
+    let unit = |points: f32| (points / 4.).ceil();
+    let layout = [
+        packed(
+            unit(dots.mark_right),
+            unit(dots.mark_bottom),
+            unit(dots.label_right),
+        ),
+        packed(
+            unit(dots.label_height),
+            unit(dots.pill_width),
+            unit(dots.pill_bottom),
+        ),
+        packed(dots.bright.0 * 255., dots.bright.1 * 255., 0.),
+        rise,
+    ];
+    let colour = packed(colour.r * 255., colour.g * 255., colour.b * 255.);
     canvas(
         |_, _, _| {},
         move |bounds, (), window, _| {
             let mut params = [0.; gpui::SHADER_PARAMS];
-            params[..4].copy_from_slice(&[start, speed, window.scale_factor(), density]);
-            params[4..8].copy_from_slice(&[colour.r, colour.g, colour.b, colour.a * TILE_OPACITY]);
-            params[8..12].copy_from_slice(&[from, lift, f32::from(RADIUS_3), rise]);
+            params[..4].copy_from_slice(&[start, speed, window.scale_factor(), dots.density]);
+            params[4..8].copy_from_slice(&[colour, dots.opacity, dots.seed, dots.feather]);
+            params[8..12].copy_from_slice(&dots.anchor);
+            params[12..16].copy_from_slice(&layout);
             let _ = window.paint_shader(bounds, &TILE, params, None);
         },
     )

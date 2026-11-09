@@ -227,6 +227,7 @@ pub enum Variant {
 #[derive(IntoElement)]
 pub struct Button {
     solid: Option<(Hsla, Hsla)>,
+    sized: Option<(f32, f32, f32)>,
     id: ElementId,
     label: SharedString,
     icon: Option<Icon>,
@@ -256,6 +257,7 @@ impl Button {
     pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>, variant: Variant) -> Self {
         Self {
             solid: None,
+            sized: None,
             id: id.into(),
             label: label.into(),
             icon: None,
@@ -291,6 +293,12 @@ impl Button {
     /// A borderless fill that hides what is behind it, for a button on a busy ground.
     pub fn solid(mut self, rest: Hsla, hovered: Hsla) -> Self {
         self.solid = Some((rest, hovered));
+        self
+    }
+
+    /// Its height, side padding and text size, for a button set larger or smaller than the rest.
+    pub fn sized(mut self, height: f32, padding: f32, text: f32) -> Self {
+        self.sized = Some((height, padding, text));
         self
     }
 
@@ -403,10 +411,19 @@ impl RenderOnce for Button {
                 .h(px(26.))
                 .border_0()
                 .bg(rest)
-                .font_weight(FontWeight::SEMIBOLD)
+                .font_weight(FontWeight::MEDIUM)
                 .text_size(crate::theme::ui_text(TEXT_2XS))
                 .text_color(t.text_primary)
                 .hover(move |button| button.bg(hovered))
+        });
+        let base = base.when_some(self.sized, |button, (height, padding, text)| {
+            button
+                .h(px(height))
+                .px(px(padding))
+                .text_size(crate::theme::ui_text(text))
+                .when(self.variant == Variant::Primary, |button| {
+                    button.font_weight(FontWeight::SEMIBOLD).gap(SPACE_3)
+                })
         });
         let base = base.when(self.wide, |button| {
             button
@@ -441,10 +458,16 @@ impl RenderOnce for Button {
         }))
         .child(self.label)
         .children(self.trail)
-        .children(
-            self.keys
-                .map(|keys| kbd(keys, cx).font_family(crate::theme::MONO)),
-        )
+        .children(self.keys.map(|keys| {
+            kbd(keys, cx)
+                .font_family(crate::theme::MONO)
+                .when(self.variant == Variant::Primary, |keys| {
+                    keys.text_color(t.on_accent.opacity(0.6))
+                })
+                .when_some(self.sized, |keys, (_, _, text)| {
+                    keys.text_size(crate::theme::ui_text(text))
+                })
+        }))
     }
 }
 

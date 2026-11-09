@@ -53,7 +53,7 @@ pub fn select(
 
 /// [`select`] with `lead` before its words, such as an agent's mark.
 #[allow(clippy::too_many_arguments)]
-pub fn select_led(
+fn select_led(
     id: impl Into<SharedString>,
     lead: Option<AnyElement>,
     shown: impl Into<SharedString>,

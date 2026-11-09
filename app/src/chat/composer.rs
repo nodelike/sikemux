@@ -115,6 +115,8 @@ pub struct Composer {
     send_label: Option<SharedString>,
     /// The chat's text size, as a share of its designed size.
     text_scale: f32,
+    /// Just the draft, at this size in points, with no box or bar around it.
+    display: Option<f32>,
     /// Stands one line tall until more is written, where it sits under a long list.
     on_send: Act,
     on_stop: Act,
@@ -153,6 +155,7 @@ impl Composer {
             leading: None,
             send_label: None,
             text_scale: 1.,
+            display: None,
             on_send,
             on_stop,
         }
@@ -165,6 +168,11 @@ impl Composer {
 
     pub fn send_label(mut self, label: impl Into<SharedString>) -> Self {
         self.send_label = Some(label.into());
+        self
+    }
+
+    pub fn display(mut self, size: f32) -> Self {
+        self.display = Some(size);
         self
     }
 
@@ -292,6 +300,32 @@ impl RenderOnce for Composer {
             }
             None => (None, None, None, None),
         };
+        if let Some(size) = self.display {
+            return div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .font_weight(FontWeight::SEMIBOLD)
+                .letter_spacing(-0.028)
+                // The text field insets its text by this much, which would break the page's edge.
+                .ml(px(-10.))
+                .children(tiles)
+                .child(
+                    Textarea::new(&self.draft)
+                        .appearance(false)
+                        .text_size(px(size))
+                        .line_height(gpui_kit::relative(1.14))
+                        .text_color(t.text_primary)
+                        .when_some(on_paste, |draft, on_paste| {
+                            draft.on_paste(move |item, window, cx| on_paste(item, window, cx))
+                        })
+                        .when_some(chip, |draft, chip| {
+                            draft.token(move |token, window, cx| chip(token, window, cx))
+                        }),
+                )
+                .children(self.menu)
+                .into_any_element();
+        }
         let drafted = tiles.is_some() || !self.draft.read(cx).value().trim().is_empty();
         let stopping = self.running && !drafted;
         let job = crate::motion::follow(
@@ -539,6 +573,7 @@ impl RenderOnce for Composer {
                         ),
                 }
             }))
+            .into_any_element()
     }
 }
 
