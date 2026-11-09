@@ -353,6 +353,7 @@ pub(super) fn trouble(
             failure,
             &head.capabilities,
             &this,
+            cx,
         ));
     }
     let details = failure
@@ -449,14 +450,15 @@ fn action(
 }
 
 /// What the account the chat runs on can do about a turn it failed: sign in to it, or to the
-/// agent when the chat has no account of its own, or carry the chat on in another account that
-/// is signed in and keeps chats where this one does, once this one is at its limit.
+/// agent when the chat has no account of its own, or carry the chat on in another account the
+/// core says can take it, once this one is at its limit.
 fn account_ways(
     bench: &Workbench,
     agent: &AgentRow,
     failure: Option<&sikemux_view::chat::ChatFailure>,
     capabilities: &ChatCapabilities,
     this: &WeakEntity<Workbench>,
+    cx: &mut Context<Workbench>,
 ) -> Vec<Button> {
     let limit = failure.is_some_and(|failure| failure.kind == FailureKind::Limit);
     // The accounts listed are this host's, and moving a chat to one is this host's to do.
@@ -478,28 +480,18 @@ fn account_ways(
         .and_then(|id| bench.accounts.profile(id))
         .or_else(|| bench.accounts.current(&agent.provider))
         .cloned();
-    let signed_in = |profile: &sikemux_core::agent_accounts::Profile| {
-        crate::accounts::status(bench, profile)
-            .and_then(|status| status.as_ref().ok())
-            .filter(|status| status.signed_in)
-            .cloned()
-    };
     if limit {
         let Some(on) = on else {
             return Vec::new();
         };
-        let Some(sessions) = signed_in(&on).and_then(|status| status.sessions) else {
+        let Some(takers) = crate::accounts::takers(bench, &agent.id, &on.id, cx) else {
             return Vec::new();
         };
-        return bench
-            .accounts
-            .of(&agent.provider)
-            .into_iter()
-            .filter(|other| other.id != on.id)
-            .filter_map(|other| Some((other.clone(), signed_in(other)?)))
-            .filter(|(_, status)| status.sessions.as_ref() == Some(&sessions))
-            .map(|(other, status)| {
-                let name = crate::accounts::name(bench, &other, Some(&status));
+        return (takers.others.iter())
+            .filter_map(|other| bench.accounts.profile(&other.id).cloned())
+            .map(|other| {
+                let status = crate::accounts::status(bench, &other).and_then(|s| s.as_ref().ok());
+                let name = crate::accounts::name(bench, &other, status);
                 let (this, chat) = (this.clone(), agent.id.clone());
                 Button::new(
                     SharedString::from(format!("chat-continue-{}", other.id)),
@@ -507,8 +499,8 @@ fn account_ways(
                     Variant::Outline,
                 )
                 .on_click(move |_, _, cx| {
-                    this.update(cx, |bench, _| {
-                        crate::account_picker::move_chat(bench, &chat, &other)
+                    this.update(cx, |bench, cx| {
+                        crate::accounts::move_chat(bench, &chat, &other, cx)
                     })
                     .ok();
                 })
@@ -571,17 +563,7 @@ fn account_ways(
     )
     .on_click(move |_, window, cx| {
         this.update(cx, |bench, cx| match &account {
-            Some(account) => {
-                let waiting = bench
-                    .accounts
-                    .waiting_chats
-                    .entry(account.clone())
-                    .or_default();
-                if !waiting.contains(&chat) {
-                    waiting.push(chat.clone());
-                }
-                crate::accounts::open_sign_in(bench, &provider, Some(account), window, cx)
-            }
+            Some(account) => crate::accounts::sign_in_then_move(bench, &chat, account, window, cx),
             None => bench.sign_in_agent(&provider, window, cx),
         })
         .ok();

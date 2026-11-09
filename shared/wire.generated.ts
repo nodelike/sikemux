@@ -3970,10 +3970,14 @@ export interface DeviceChange {
     access?: DeviceAccess | null;
 }
 
-/** The account a chat runs on and those it may move to, as a client offers them. */
+/**
+ * The account a chat runs on, those it may move to, and why there are none when there are none,
+ * as a client offers them.
+ */
 export interface ChatAccounts {
     account: NamedAccount | null;
     others: NamedAccount[];
+    noneBecause: string | null;
 }
 
 export interface NamedAccount {

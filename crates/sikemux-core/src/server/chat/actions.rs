@@ -2,6 +2,7 @@
 
 use super::offers::{choose_before_start, keep_model_choice};
 use super::*;
+use crate::agent_accounts::Takers;
 
 /// The person began writing in a new chat, or a sleeping one, so its agent starts while
 /// they write.
@@ -303,83 +304,88 @@ pub(crate) async fn letter(
     answer.await.map_err(|_| CoreError::from(STOPPED))
 }
 
-/// Moves the agent's chat to `account`, a turn at work carrying on there. An
-/// agent with no chat running starts on it next time.
-pub(crate) fn switch_account(core: &Core, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
-    send_switch(core, agent_id, account, None)
-}
-
-/// Moves the agent's chat to `account`, answering whether it is really going there: a chat that
-/// cannot change accounts stays put, and only the chat's own loop knows that.
-pub(crate) async fn moved_to_account(
-    core: &Core,
-    agent_id: &str,
-    account: ChatAccount,
-) -> CoreResult<bool> {
-    let (moved, answered) = tokio::sync::oneshot::channel();
-    send_switch(core, agent_id, account, Some(moved))?;
-    let answer = tokio::time::timeout(MOVE_ANSWERED_WITHIN, answered).await;
-    Ok(matches!(answer, Ok(Ok(true))))
+/// Moves the agent's chat to `account`, a turn at work carrying on there, and answers once the
+/// chat says whether it is going. The agent's record names the account at once, so every client
+/// shows the chat on its way there, and names the one before again when the chat stays. An agent
+/// with no chat running starts on it next time.
+pub(crate) async fn move_chat(core: &Core, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
+    validate_account(&account)?;
+    let before = core.workspaces.agent_or_gone(agent_id)?.profile_id;
+    let to = account.id.clone();
+    core.workspaces
+        .edit_agent(agent_id, |agent| agent.profile_id = Some(to))?;
+    let going = send_switch(core, agent_id, account).await;
+    if going.is_err() {
+        let _ = core
+            .workspaces
+            .edit_agent(agent_id, |agent| agent.profile_id = before);
+    }
+    going
 }
 
 const MOVE_ANSWERED_WITHIN: std::time::Duration = std::time::Duration::from_secs(5);
 
-fn send_switch(
-    core: &Core,
-    agent_id: &str,
-    account: ChatAccount,
-    moved: Option<tokio::sync::oneshot::Sender<bool>>,
-) -> CoreResult<()> {
-    validate_account(&account)?;
-    if let Some(chat) = core.chats.get(agent_id) {
-        if !chat.unstarted() {
-            return chat.send(ChatCommand::SwitchAccount { account, moved });
-        }
+async fn send_switch(core: &Core, agent_id: &str, account: ChatAccount) -> CoreResult<()> {
+    let Some(chat) = core.chats.get(agent_id) else {
+        return Ok(());
+    };
+    if chat.unstarted() {
         // A chat waiting for the person starts on the account chosen, as on a model chosen.
         chat.set_current(rebind::on_account(
             chat.provider(),
             &chat.current_launch(),
             &account,
         ));
+        return Ok(());
     }
-    core.workspaces
-        .edit_agent(agent_id, |agent| agent.profile_id = Some(account.id))?;
-    if let Some(moved) = moved {
-        let _ = moved.send(true);
+    let (moved, answered) = tokio::sync::oneshot::channel();
+    chat.send(ChatCommand::SwitchAccount {
+        account,
+        moved: Some(moved),
+    })?;
+    match tokio::time::timeout(MOVE_ANSWERED_WITHIN, answered).await {
+        Ok(Ok(going)) => Ok(going?),
+        Ok(Err(_)) => Err("The chat ended before it could move".into()),
+        Err(_) => Err("The chat did not answer in time, so it stayed on its account".into()),
     }
-    Ok(())
 }
 
-/// The account the agent's chat runs on, and the signed-in accounts that keep
-/// its chats too, which it may move to.
-pub(crate) fn accounts(
+/// The account the agent's chat runs on, and those it may carry on in, as one rule of the core's
+/// decides for every client.
+pub(crate) fn accounts(core: &Core, agent_id: &str) -> CoreResult<Takers> {
+    let agent = core.workspaces.agent_or_gone(agent_id)?;
+    let book = core.workspaces.accounts().unwrap_or_default();
+    if agent.pty_id.is_some() || agent.terminal {
+        let takers = book.takers(&agent.provider, agent.profile_id.as_deref(), true);
+        return Ok(Takers {
+            others: Vec::new(),
+            none_because: Some("A chat in its own terminal stays on its account".into()),
+            ..takers
+        });
+    }
+    let started = core
+        .chats
+        .get(agent_id)
+        .is_none_or(|chat| !chat.unstarted());
+    Ok(book.takers(&agent.provider, agent.profile_id.as_deref(), started))
+}
+
+pub(crate) async fn move_to_account(
     core: &Core,
     agent_id: &str,
-) -> CoreResult<(Option<ChatAccount>, Vec<ChatAccount>)> {
-    let chat = core.chats.running(agent_id)?;
-    let (provider, launch) = (chat.provider(), chat.current_launch());
-    let others = launch
-        .fallbacks
-        .iter()
-        .filter(|other| {
-            let env = rebind::on_account(provider, &launch, other).env;
-            matches!(
-                crate::agent_accounts::sign_in::signed_in(provider, &env),
-                Some(crate::agent_accounts::sign_in::SignIn::Account(_))
-            )
-        })
-        .cloned()
-        .collect();
-    Ok((launch.account, others))
-}
-
-pub(crate) fn move_to_account(core: &Core, agent_id: &str, account_id: &str) -> CoreResult<()> {
-    let (_, others) = accounts(core, agent_id)?;
-    let account = others
+    account_id: &str,
+) -> CoreResult<()> {
+    let takers = accounts(core, agent_id)?;
+    let account = takers
+        .others
         .into_iter()
         .find(|other| other.id == account_id)
-        .ok_or("that account cannot carry this chat on")?;
-    switch_account(core, agent_id, account)
+        .ok_or_else(|| {
+            takers
+                .none_because
+                .unwrap_or_else(|| "That account cannot carry this chat on".into())
+        })?;
+    move_chat(core, agent_id, account).await
 }
 
 /// Stops the running turn. The messages waiting behind it go back to the

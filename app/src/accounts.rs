@@ -17,9 +17,10 @@ use sikemux_core::agent_accounts::status::AccountStatus;
 use sikemux_core::agent_accounts::{Book, Profile};
 use sikemux_core::agent_catalog::AgentKind;
 use sikemux_core::server::agent_accounts::{
-    Account as AgentAccount, AccountUsage, Adding, Choosing, Forget, Removing, Saving, Switching,
-    Unpicking,
+    Account as AgentAccount, AccountUsage, Adding, ChatAccounts, ChatAccountsParams, Choosing,
+    Forget, MoveChatParams, Removing, Saving, Switching, Unpicking,
 };
+use sikemux_core::server::agent_sign_in::AfterSignIn;
 use sikemux_core::server::agent_sign_in::{Account as SignInAccount, Code};
 use sikemux_core::server::call::{self, Call};
 use sikemux_core::server::calls::NoParams;
@@ -59,9 +60,9 @@ pub struct Accounts {
     asking: HashSet<(String, Option<String>)>,
     pub signing: HashMap<String, SignIn>,
     pub dialog: Option<Dialog>,
-    /// The chats that failed for want of an account's sign-in, by that account, to move onto
-    /// it once it signs in.
-    pub waiting_chats: HashMap<String, Vec<String>>,
+    /// What the core says each chat may move to, by the chat and the account it is on.
+    takers: HashMap<(String, String), ChatAccounts>,
+    asking_takers: HashSet<(String, String)>,
     /// What the Limits panel and popover are holding open.
     pub limits: crate::agents::limits::Reveal,
     /// When coming back to the app last had the core check every agent's sign-in.
@@ -236,8 +237,97 @@ fn fetch(bench: &Workbench, cx: &mut Context<Workbench>) {
     .detach();
 }
 
+/// The accounts the core says the chat `agent`, on the account `on`, may carry on in. Asks the
+/// core the first time something shows them.
+pub fn takers<'a>(
+    bench: &'a Workbench,
+    agent: &str,
+    on: &str,
+    cx: &mut Context<Workbench>,
+) -> Option<&'a ChatAccounts> {
+    let key = (agent.to_owned(), on.to_owned());
+    let known = bench.accounts.takers.get(&key);
+    if known.is_none() && !bench.accounts.asking_takers.contains(&key) {
+        let this = cx.entity();
+        cx.defer(move |cx| this.update(cx, |bench, cx| ask_takers(bench, key, cx)));
+    }
+    known
+}
+
+fn ask_takers(bench: &mut Workbench, key: (String, String), cx: &mut Context<Workbench>) {
+    if bench.accounts.takers.contains_key(&key) || !bench.accounts.asking_takers.insert(key.clone())
+    {
+        return;
+    }
+    let params = ChatAccountsParams {
+        agent_id: key.0.clone(),
+    };
+    let asked = Target::here(&bench.asks).request_typed::<call::ChatAccounts>(params);
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            bench.accounts.asking_takers.remove(&key);
+            let answer = answer.unwrap_or_else(|why| ChatAccounts {
+                none_because: Some(why),
+                ..ChatAccounts::default()
+            });
+            bench.accounts.takers.insert(key, answer);
+            redraw(bench, cx);
+        });
+    })
+    .detach();
+}
+
+/// Carries the chat `agent` on to `profile`; a turn at work stops and carries on there. Says why
+/// when the core keeps it where it is.
+pub fn move_chat(bench: &Workbench, agent: &str, profile: &Profile, cx: &mut Context<Workbench>) {
+    let params = MoveChatParams {
+        agent_id: agent.to_owned(),
+        account_id: profile.id.clone(),
+    };
+    let asked = Target::here(&bench.asks).request_typed::<call::MoveChatAccount>(params);
+    let name = profile.name.clone();
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| {
+            bench.accounts.takers.clear();
+            if let Err(why) = answer {
+                let note = crate::toast::error(format!("The chat stayed off {name}: {why}"));
+                bench.notify(note, cx);
+            }
+            redraw(bench, cx);
+        });
+    })
+    .detach();
+}
+
+/// Has the core move the chat onto the account once it signs in, then opens its sign-in.
+pub fn sign_in_then_move(
+    bench: &mut Workbench,
+    agent: &str,
+    profile_id: &str,
+    window: &mut Window,
+    cx: &mut Context<Workbench>,
+) {
+    let after = AfterSignIn {
+        agent_id: agent.to_owned(),
+        account_id: profile_id.to_owned(),
+    };
+    let _ = bench
+        .asks
+        .send(typed_call::<call::MoveChatAfterSignIn>(after));
+    let provider = bench
+        .accounts
+        .profile(profile_id)
+        .map(|profile| profile.provider.clone());
+    if let Some(provider) = provider {
+        open_sign_in(bench, &provider, Some(profile_id), window, cx);
+    }
+}
+
 /// Keeps the accounts as the core answered them after a change.
 fn adopt(bench: &mut Workbench, book: Book, cx: &mut Context<Workbench>) {
+    bench.accounts.takers.clear();
     bench.accounts.book = Some(book);
     ask_statuses(bench, cx);
     redraw(bench, cx);
@@ -300,6 +390,14 @@ pub fn pick(
         let _ = bench.update(cx, |bench, cx| {
             adopt(bench, picked.book, cx);
             then(bench, picked.undo, cx);
+            if let Some(first) = picked.stayed.first() {
+                let chats = match picked.stayed.len() {
+                    1 => "A chat".to_owned(),
+                    many => format!("{many} chats"),
+                };
+                let note = crate::toast::info(format!("{chats} stayed put: {}", first.why));
+                bench.notify(note, cx);
+            }
         });
     })
     .detach();
@@ -420,6 +518,7 @@ fn ask(
             let _ = bench.update(cx, |bench, cx| {
                 bench.accounts.asking.remove(&asked);
                 bench.accounts.status.insert(asked, status);
+                bench.accounts.takers.clear();
                 redraw(bench, cx);
             });
         })
@@ -532,10 +631,6 @@ pub fn sign_in(bench: &mut Workbench, id: &str, cx: &mut Context<Workbench>) {
                 }
                 Ok(_) => {
                     bench.accounts.signing.remove(&profile.id);
-                    let chats = bench.accounts.waiting_chats.remove(&profile.id);
-                    for chat in chats.into_iter().flatten() {
-                        crate::account_picker::move_chat(bench, &chat, &profile);
-                    }
                 }
             }
             forget(bench, &profile, cx);

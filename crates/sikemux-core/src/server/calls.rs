@@ -227,6 +227,7 @@ calls! { core, client, method, params;
     "adoptSkill" AdoptSkill (skill_library::Located) -> crate::skills::Skill: Owner, counted => skill_library::adopt(&core, params).await?,
     "agentSignIns" AgentSignIns (NoParams) -> Vec<agent_sign_in::Page>: Full, any_program => agent_sign_in::pages(),
     "agentSignIn" AgentSignIn (agent_sign_in::Account) -> (): Owner, counted => agent_sign_in::sign_in(&core, params).await?,
+    "moveChatAfterSignIn" MoveChatAfterSignIn (agent_sign_in::AfterSignIn) -> (): Full => agent_sign_in::move_after_sign_in(&core, params)?,
     "signInLauncher" SignInLauncher (agent_sign_in::LauncherParams) -> (): Owner => agent_sign_in::sign_in_launcher(&core, params).await?,
     "agentSignInCode" AgentSignInCode (agent_sign_in::Code) -> (): Owner => agent_sign_in::sign_in_code(params).await?,
     "cancelAgentSignIn" CancelAgentSignIn (agent_sign_in::Account) -> (): Owner => agent_sign_in::cancel(params),
@@ -305,7 +306,7 @@ calls! { core, client, method, params;
     "chatAccounts" ChatAccounts (agent_accounts::ChatAccountsParams) -> agent_accounts::ChatAccounts: Full => {
         agent_accounts::chat_accounts(&core, params)?
     },
-    "moveChatAccount" MoveChatAccount (agent_accounts::MoveChatParams) -> (): Full => super::chat::move_to_account(&core, &params.agent_id, &params.account_id)?,
+    "moveChatAccount" MoveChatAccount (agent_accounts::MoveChatParams) -> (): Full => super::chat::move_to_account(&core, &params.agent_id, &params.account_id).await?,
     "authenticateChat" AuthenticateChat (agent_accounts::Authenticate) -> (): NoDevice => {
         super::chat::authenticate(&core, &params.agent_id, params.method_id).await?
     },

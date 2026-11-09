@@ -107,6 +107,64 @@ fn pages_changed(core: &Core) {
     core.changed(What::Read(Topic::AgentSignIn));
 }
 
+/// A chat to move onto one of the person's accounts once it signs in.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AfterSignIn {
+    pub agent_id: String,
+    pub account_id: String,
+}
+
+/// The chats waiting for an account's sign-in, by the account's id.
+fn waiting() -> MutexGuard<'static, HashMap<String, Vec<String>>> {
+    static WAITING: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
+    WAITING.get_or_init(Mutex::default).locked()
+}
+
+/// Moves the chat onto the account as soon as a sign-in to it finishes, from whichever client.
+pub(super) fn move_after_sign_in(core: &Core, after: AfterSignIn) -> CoreResult<()> {
+    core.workspaces.agent_or_gone(&after.agent_id)?;
+    let mut waiting = waiting();
+    let chats = waiting.entry(after.account_id).or_default();
+    if !chats.contains(&after.agent_id) {
+        chats.push(after.agent_id);
+    }
+    Ok(())
+}
+
+/// Moves the chats waiting for the account in `config_path` onto it.
+fn signed_in(core: &Arc<Core>, account: &Account) {
+    let book = core
+        .workspaces
+        .accounts()
+        .unwrap_or_default()
+        .with_built_ins();
+    let profiles = book.profiles.into_iter().filter(|profile| {
+        profile.provider == account.agent.as_str() && profile.config_path == account.config_path
+    });
+    for profile in profiles {
+        let Some(chats) = waiting().remove(&profile.id) else {
+            continue;
+        };
+        let target = crate::agent_accounts::chat_account(
+            &profile.provider,
+            &profile.id,
+            &profile.name,
+            profile.config_path.as_deref(),
+        );
+        for agent_id in chats {
+            let (core, target) = (core.clone(), target.clone());
+            tokio::spawn(async move {
+                if let Err(error) = super::chat::move_chat(&core, &agent_id, target).await {
+                    eprintln!(
+                        "sikemux core: {agent_id} stayed on its account after sign-in: {error}"
+                    );
+                }
+            });
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct LauncherParams {
     /// The launcher whose account to sign in to, such as `claude:work`.
@@ -226,7 +284,10 @@ pub(super) async fn sign_in(core: &Arc<Core>, account: Account) -> CoreResult<()
     sign_ins().remove(&key);
     pages_changed(core);
     match ended {
-        Ok(Some(Ok(status))) if status.success() => Ok(()),
+        Ok(Some(Ok(status))) if status.success() => {
+            signed_in(core, &account);
+            Ok(())
+        }
         Ok(Some(_)) => Err(match tail.last() {
             Some(last) => format!("Sign-in did not finish: {last}"),
             None => "Sign-in did not finish".into(),

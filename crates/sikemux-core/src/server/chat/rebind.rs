@@ -102,13 +102,17 @@ pub(super) fn name_accounts(core: &Core, launch: &mut ChatLaunch) {
     if !launch.fallbacks.is_empty() {
         return;
     }
-    let Some(book) = core.workspaces.accounts() else {
-        return;
-    };
+    let book = core.workspaces.accounts().unwrap_or_default();
     let folder = crate::launch::named_account(&launch.provider, &launch.env);
-    let (current, others) = book.chat_accounts(&launch.provider, folder);
-    launch.account = launch.account.take().or(current);
-    launch.fallbacks = others;
+    let current = match &launch.account {
+        Some(account) => Some(account.id.clone()),
+        None => book
+            .account_in(&launch.provider, folder)
+            .map(|profile| profile.id),
+    };
+    let takers = book.takers(&launch.provider, current.as_deref(), true);
+    launch.account = launch.account.take().or(takers.current);
+    launch.fallbacks = takers.others;
 }
 
 /// Whether the person lets a chat of this agent move to another account

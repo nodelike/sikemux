@@ -40,25 +40,27 @@ pub struct ChatAccountsParams {
     pub agent_id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MoveChatParams {
-    pub(super) agent_id: String,
-    pub(super) account_id: String,
+    pub agent_id: String,
+    pub account_id: String,
 }
 
-/// The account a chat runs on and those it may move to, as a client offers them.
-#[derive(Serialize)]
+/// The account a chat runs on, those it may move to, and why there are none when there are none,
+/// as a client offers them.
+#[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatAccounts {
-    account: Option<NamedAccount>,
-    others: Vec<NamedAccount>,
+    pub account: Option<NamedAccount>,
+    pub others: Vec<NamedAccount>,
+    pub none_because: Option<String>,
 }
 
-#[derive(Serialize)]
-pub(super) struct NamedAccount {
-    id: String,
-    label: String,
+#[derive(Serialize, Deserialize, Clone)]
+pub struct NamedAccount {
+    pub id: String,
+    pub label: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -92,11 +94,21 @@ pub struct MovedChat {
     pub from: String,
 }
 
-/// The accounts after a pick, and what a client hands back to undo it.
+/// A chat a pick left where it was, and why.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StayedChat {
+    pub agent_id: String,
+    pub why: String,
+}
+
+/// The accounts after a pick, what a client hands back to undo it, and the chats that stayed.
 #[derive(Serialize, Deserialize)]
 pub struct Picked {
     pub book: Book,
     pub undo: Unpicking,
+    #[serde(default)]
+    pub stayed: Vec<StayedChat>,
 }
 
 /// A pick to take back: the account picked, the one chosen before it, and the chats it moved.
@@ -145,52 +157,43 @@ async fn change(
 
 /// Moves `provider`'s chats onto the account `id` the person chose, where it
 /// keeps their chats too, with a turn at work carrying on there. Agents in a
-/// terminal stay where they are. A chat that names no account follows
-/// `chosen_before`, the choice this pick replaces.
-async fn move_chats(
-    core: &Core,
-    book: &Book,
-    provider: &str,
-    id: &str,
-    chosen_before: &str,
-) -> Vec<MovedChat> {
-    let Some(target) = book
-        .profile(id)
-        .filter(|profile| profile.provider == provider)
-    else {
-        return Vec::new();
-    };
-    let mut moved = Vec::new();
+/// terminal stay where they are.
+async fn move_chats(core: &Core, provider: &str, id: &str) -> (Vec<MovedChat>, Vec<StayedChat>) {
+    let (mut moved, mut stayed) = (Vec::new(), Vec::new());
     for agent_id in core.workspaces.agent_ids() {
         let Some(agent) = core.workspaces.agent(&agent_id) else {
             continue;
         };
-        let on = agent
-            .profile_id
-            .clone()
-            .unwrap_or_else(|| chosen_before.to_owned());
-        if agent.provider != provider || agent.pty_id.is_some() || on == id {
+        let on = agent.profile_id.clone().unwrap_or_default();
+        if agent.provider != provider || agent.terminal || on == id {
             continue;
         }
-        let from = book
-            .profile(&on)
-            .and_then(|profile| profile.config_path.as_deref());
-        if !folders::sessions_shared(provider, from, target.config_path.as_deref()) {
+        let takers = match super::chat::accounts(core, &agent_id) {
+            Ok(takers) => takers,
+            Err(error) => {
+                stayed.push(StayedChat {
+                    agent_id,
+                    why: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let Some(account) = takers.others.into_iter().find(|other| other.id == id) else {
+            let why = takers
+                .none_because
+                .unwrap_or_else(|| "That account keeps its chats apart from this one".into());
+            stayed.push(StayedChat { agent_id, why });
             continue;
-        }
-        let account = chat_account(
-            provider,
-            &target.id,
-            &target.name,
-            target.config_path.as_deref(),
-        );
-        match super::chat::moved_to_account(core, &agent_id, account).await {
-            Ok(true) => moved.push(MovedChat { agent_id, from: on }),
-            Ok(false) => {}
-            Err(error) => eprintln!("sikemux core: {agent_id} stayed on its account: {error}"),
+        };
+        match super::chat::move_chat(core, &agent_id, account).await {
+            Ok(()) => moved.push(MovedChat { agent_id, from: on }),
+            Err(error) => stayed.push(StayedChat {
+                agent_id,
+                why: error.to_string(),
+            }),
         }
     }
-    moved
+    (moved, stayed)
 }
 
 /// One pick of an agent's account at a time, so that quick picks record each default and move
@@ -241,7 +244,7 @@ pub(super) async fn pick(core: &Arc<Core>, choosing: Choosing) -> CoreResult<Pic
         Ok(())
     })
     .await?;
-    let moved = move_chats(core, &book, &choosing.provider, &choosing.id, &back_to).await;
+    let (moved, stayed) = move_chats(core, &choosing.provider, &choosing.id).await;
     Ok(Picked {
         book,
         undo: Unpicking {
@@ -250,6 +253,7 @@ pub(super) async fn pick(core: &Arc<Core>, choosing: Choosing) -> CoreResult<Pic
             back_to,
             moved,
         },
+        stayed,
     })
 }
 
@@ -291,7 +295,7 @@ pub(super) async fn unpick(core: &Arc<Core>, undoing: Unpicking) -> CoreResult<B
             &target.name,
             target.config_path.as_deref(),
         );
-        if let Err(error) = super::chat::switch_account(core, &moved.agent_id, account) {
+        if let Err(error) = super::chat::move_chat(core, &moved.agent_id, account).await {
             eprintln!(
                 "sikemux core: {} stayed on its account: {error}",
                 moved.agent_id
@@ -489,10 +493,11 @@ pub(super) fn chat_accounts(core: &Core, chat: ChatAccountsParams) -> CoreResult
         id: account.id,
         label: account.label,
     };
-    let (account, others) = super::chat::accounts(core, &chat.agent_id)?;
+    let takers = super::chat::accounts(core, &chat.agent_id)?;
     Ok(ChatAccounts {
-        account: account.map(named),
-        others: others.into_iter().map(named).collect(),
+        account: takers.current.map(named),
+        others: takers.others.into_iter().map(named).collect(),
+        none_because: takers.none_because,
     })
 }
 

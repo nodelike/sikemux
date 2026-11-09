@@ -1221,19 +1221,18 @@ impl<B: Backend> Running<'_, B> {
     async fn switch_account(
         &mut self,
         account: ChatAccount,
-        moved: Option<tokio::sync::oneshot::Sender<bool>>,
+        moved: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
     ) -> ControlFlow<Outcome> {
-        let say = |going: bool| {
+        let say = |going: Result<(), &str>| {
             if let Some(moved) = moved {
-                let _ = moved.send(going);
+                let _ = moved.send(going.map_err(str::to_owned));
             }
         };
         let chat = &self.chat;
         if !self.state.reloadable {
-            chat.error(error_message(
-                "This agent cannot carry a chat to another account",
-            ));
-            say(false);
+            let refused = "This agent cannot carry a chat to another account";
+            chat.error(error_message(refused));
+            say(Err(refused));
             return ControlFlow::Continue(());
         }
         if chat.prompted() {
@@ -1247,12 +1246,11 @@ impl<B: Backend> Running<'_, B> {
                 let sent = self.backend.cancel().await;
                 chat.cancel_sent(sent, self.state.turn, &self.stalled);
             }
-            let going = moves || self.state.switching.is_some();
-            if going {
+            if moves || self.state.switching.is_some() {
                 let carry_on = self.state.switching.as_ref().is_none_or(|was| was.carry_on);
                 self.state.switching = Some(Switching { account, carry_on });
             }
-            say(going);
+            say(Ok(()));
             return ControlFlow::Continue(());
         }
         let replay = self
@@ -1260,9 +1258,18 @@ impl<B: Backend> Running<'_, B> {
             .failed_prompt
             .take()
             .or_else(|| chat.unprompted().then(Switching::carry_on_prompt));
-        let outcome = switch_to(chat, self.provider, self.launch, &account, replay);
-        say(outcome.is_some());
-        outcome.map_or(ControlFlow::Continue(()), ControlFlow::Break)
+        match switch_to(chat, self.provider, self.launch, &account, replay) {
+            Some(outcome) => {
+                say(Ok(()));
+                ControlFlow::Break(outcome)
+            }
+            None => {
+                say(Err(
+                    "This chat has not begun yet, so it has nothing to carry over",
+                ));
+                ControlFlow::Continue(())
+            }
+        }
     }
 
     async fn set_permission_mode(

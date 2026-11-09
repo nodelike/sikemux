@@ -164,57 +164,86 @@ impl Book {
             })
     }
 
-    /// The account a chat of `provider` runs on when its folder is `folder`,
-    /// and the others that keep chats where it does, which it may move to.
-    pub fn chat_accounts(
-        &self,
-        provider: &str,
-        folder: Option<&str>,
-    ) -> (Option<ChatAccount>, Vec<ChatAccount>) {
-        let folder_of = |profile: &Profile| {
-            account_environment(provider, profile.config_path.as_deref()).map(|(_, dir)| dir)
-        };
-        let own: Vec<&Profile> = self
+    /// The account of `provider` whose folder is `folder`, built-in ones included.
+    pub fn account_in(&self, provider: &str, folder: Option<&str>) -> Option<Profile> {
+        self.clone()
+            .with_built_ins()
             .profiles
-            .iter()
+            .into_iter()
+            .filter(|profile| profile.provider == provider)
+            .find(|profile| {
+                account_environment(provider, profile.config_path.as_deref())
+                    .map(|(_, dir)| dir)
+                    .as_deref()
+                    == folder
+            })
+    }
+
+    /// The accounts a chat of `provider` on the account `current` may carry on in: those signed
+    /// in, and once it has started, only those that keep its chats where `current` does.
+    pub fn takers(&self, provider: &str, current: Option<&str>, started: bool) -> Takers {
+        let book = self.clone().with_built_ins();
+        let own: Vec<&Profile> = (book.profiles.iter())
             .filter(|profile| profile.provider == provider)
             .collect();
-        let Some(current) = own
+        let current = own
             .iter()
-            .find(|profile| folder_of(profile).as_deref() == folder)
-        else {
-            return (None, Vec::new());
+            .find(|profile| Some(profile.id.as_str()) == current);
+        let named = |profile: &Profile| {
+            chat_account(
+                provider,
+                &profile.id,
+                &profile.name,
+                profile.config_path.as_deref(),
+            )
         };
-        let config_path = current.config_path.as_deref();
-        let others = own
-            .iter()
+        let others: Vec<&&Profile> = (own.iter())
+            .filter(|other| current.is_none_or(|current| current.id != other.id))
+            .collect();
+        let signed_in: Vec<&&Profile> = (others.iter().copied())
             .filter(|other| {
-                other.id != current.id
-                    && folders::sessions_shared(provider, config_path, other.config_path.as_deref())
-            })
-            .map(|other| {
-                chat_account(
-                    provider,
-                    &other.id,
-                    &other.name,
-                    other.config_path.as_deref(),
+                matches!(
+                    sign_in::signed_in(provider, &named(other).env),
+                    Some(sign_in::SignIn::Account(_))
                 )
             })
             .collect();
-        let current = chat_account(provider, &current.id, &current.name, config_path);
-        (Some(current), others)
+        let from = current.and_then(|current| current.config_path.as_deref());
+        let taking: Vec<ChatAccount> = (signed_in.iter())
+            .filter(|other| {
+                !started || folders::shares_chats(provider, from, other.config_path.as_deref())
+            })
+            .map(|other| named(other))
+            .collect();
+        let agent = crate::agent_catalog::agent(provider).map_or(provider, |agent| agent.label);
+        let none_because = taking.is_empty().then(|| match () {
+            _ if others.is_empty() => format!("{agent} has no other account here"),
+            _ if signed_in.is_empty() => format!("No other {agent} account is signed in"),
+            _ => format!("The other {agent} accounts keep their chats apart from this one"),
+        });
+        Takers {
+            current: current.map(|current| named(current)),
+            others: taking,
+            none_because,
+        }
     }
 }
 
-/// The account in `config_path` as a chat names it, with its folder sharing
-/// the default one's chats.
+/// The account a chat runs on, the others it may carry on in, and why there are none when
+/// there are none.
+pub struct Takers {
+    pub current: Option<ChatAccount>,
+    pub others: Vec<ChatAccount>,
+    pub none_because: Option<String>,
+}
+
+/// The account in `config_path` as a chat names it.
 pub fn chat_account(
     provider: &str,
     id: &str,
     label: &str,
     config_path: Option<&str>,
 ) -> ChatAccount {
-    folders::link_shared(provider, config_path);
     ChatAccount {
         id: id.to_owned(),
         label: label.to_owned(),

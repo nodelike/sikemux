@@ -1,7 +1,7 @@
 //! Carries over a workspace saved before the core kept agents: the projects
 //! devices added, how sleeping chats ran, and the projects, agents, spaces and
 //! pinned chats the app kept in its own state then. Agents kept before the
-//! core chose buddy colours get theirs.
+//! core chose buddy colours, or before chats named their account, get theirs.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -75,6 +75,20 @@ pub(super) fn mark_terminals(saved: &mut Saved) {
     for kept in &mut saved.agents {
         let agent = &mut kept.agent;
         agent.terminal = agent.pty_id.is_some() || !is_chat_provider(&agent.provider);
+    }
+}
+
+/// Names the account each chat kept before chats named theirs ran on: the one its agent was
+/// set to then.
+pub(super) fn name_accounts(saved: &mut Saved) {
+    let book = saved.accounts.clone().unwrap_or_default();
+    for kept in &mut saved.agents {
+        let agent = &mut kept.agent;
+        let keeps_accounts =
+            crate::agent_catalog::agent(&agent.provider).is_some_and(|entry| entry.accounts);
+        if agent.profile_id.is_none() && keeps_accounts {
+            agent.profile_id = Some(book.chosen(&agent.provider));
+        }
     }
 }
 

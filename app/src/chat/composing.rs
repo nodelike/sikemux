@@ -650,8 +650,8 @@ pub(super) fn strip(
         let pick: crate::account_picker::Pick = {
             let (this, agent) = (cx.entity(), agent.id.clone());
             Rc::new(move |chosen, cx| {
-                this.update(cx, |bench, _| match started {
-                    true => crate::account_picker::move_chat(bench, &agent, chosen),
+                this.update(cx, |bench, cx| match started {
+                    true => crate::accounts::move_chat(bench, &agent, chosen, cx),
                     false => bench.start_as(
                         &agent,
                         AgentPatch {
@@ -667,7 +667,7 @@ pub(super) fn strip(
             key: &agent.id,
             provider: &agent.provider,
             on: &on,
-            started,
+            started: started.then_some(agent.id.as_str()),
             pick,
         };
         let running = head.is_some_and(|head| head.running);

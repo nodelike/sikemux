@@ -688,7 +688,7 @@ fn strip(
             key: START,
             provider: &launcher.provider,
             on: &on,
-            started: false,
+            started: None,
             pick,
         };
         account_picker::picker(bench, chat, false, false, cx)

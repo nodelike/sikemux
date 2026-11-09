@@ -31,8 +31,8 @@ use sikemux_host::login_item::{self, CoreLaunch};
 use sikemux_linked::{Happened, Linked};
 use sikemux_view::device::DeviceView;
 use sikemux_wire::protocol::{
-    ask, CallId, ChatAccount, ChatAttachment, ChatContext, ChatMark, DeviceAccess, ErrorKind,
-    Event, LaunchIdentity, NetworkChange, NoticeGoal, PermissionMode, RemoteStatus, SessionId,
+    ask, CallId, ChatAttachment, ChatContext, ChatMark, DeviceAccess, ErrorKind, Event,
+    LaunchIdentity, NetworkChange, NoticeGoal, PermissionMode, RemoteStatus, SessionId,
     SpawnTarget, StreamId, TerminalSpawn, WindowAnswer, WindowCall,
 };
 use sikemux_wire::pty::shell_protocol::{PtyShellMetadataEvent, ShellMetadataSnapshot};
@@ -295,11 +295,6 @@ pub enum Ask {
     /// Starts the core again after it stopped on purpose.
     StartCore,
     Remote(RemoteAsk),
-    /// Carries a chat on to another of the person's accounts; a turn at work goes on there.
-    MoveChat {
-        agent: String,
-        account: ChatAccount,
-    },
     /// Starts a terminal running `spawn` outside any tab, answering its id.
     Spawn {
         spawn: Box<TerminalSpawn>,
@@ -1581,14 +1576,6 @@ async fn run(
                                     let _ = tokio::task::spawn_blocking(move || core_start::end(&socket, pid)).await;
                                 }
                                 let _ = updates.send(Update::ShutDown);
-                            }
-                            Some(Ask::MoveChat { agent, account }) => {
-                                let client = client.clone();
-                                tokio::spawn(async move {
-                                    if let Err(error) = client.ask(ask::AcpSwitchAccount { agent_id: agent, account }).await {
-                                        eprintln!("sikemux: the chat stayed on its account: {error}");
-                                    }
-                                });
                             }
                             Some(Ask::Spawn { spawn, started }) => {
                                 let client = client.clone();

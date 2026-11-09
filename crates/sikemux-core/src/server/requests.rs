@@ -603,8 +603,10 @@ pub(super) async fn run(
                 });
             }
             Request::AcpSwitchAccount(ask::AcpSwitchAccount { agent_id, account }) => {
-                let result = chat::switch_account(&core, &agent_id, account);
-                client.answer::<ask::AcpSwitchAccount>(request_id, result);
+                tokio::spawn(async move {
+                    let result = chat::move_chat(&core, &agent_id, account).await;
+                    client.answer::<ask::AcpSwitchAccount>(request_id, result);
+                });
             }
         }
     }

@@ -53,7 +53,7 @@ pub use recent::*;
 
 /// Bumped by a change to what [`Saved`] holds that an earlier file needs
 /// carried over to.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 const MAX_PROJECTS: usize = 512;
 const MAX_SPACES: usize = 64;
 const MAX_PINNED: usize = 256;
@@ -448,6 +448,9 @@ impl Workspaces {
         }
         if saved.version < 3 {
             migrate::mark_terminals(&mut saved);
+        }
+        if saved.version < 4 {
+            migrate::name_accounts(&mut saved);
         }
         saved.version = VERSION;
         let workspaces = Self {
@@ -902,10 +905,15 @@ impl Workspaces {
     pub(crate) fn note_begun(&self, chat: &chat::Chat) {
         let launch = &chat.launch;
         if let Some(known) = self.agent(chat.agent_id()) {
-            if known.asleep || known.terminal {
+            let unnamed = known.profile_id.is_none() && launch.account.is_some();
+            if known.asleep || known.terminal || unnamed {
                 let _ = self.change(|saved| {
                     if let Some(kept) = saved.kept_mut(&known.id) {
                         (kept.agent.asleep, kept.agent.terminal) = (false, false);
+                        if kept.agent.profile_id.is_none() {
+                            kept.agent.profile_id =
+                                launch.account.as_ref().map(|account| account.id.clone());
+                        }
                     }
                     Ok(())
                 });
@@ -932,7 +940,13 @@ impl Workspaces {
             .map(LauncherId::parse)
             .filter(|launcher| launcher.kind == launch.provider)
             .and_then(|launcher| launcher.account)
-            .map(str::to_owned);
+            .map(str::to_owned)
+            .or_else(|| launch.account.as_ref().map(|account| account.id.clone()))
+            .or_else(|| {
+                let keeps = crate::agent_catalog::agent(&launch.provider)?.accounts;
+                let book = self.accounts().unwrap_or_default();
+                keeps.then(|| book.chosen(&launch.provider))
+            });
         let worktree = lead.as_ref().and_then(|lead| {
             let worktree = lead.worktree.as_ref()?;
             launch
