@@ -295,6 +295,8 @@ calls! { core, client, method, params;
     "saveAgentAccount" SaveAgentAccount (agent_accounts::Saving) -> crate::agent_accounts::Book: NoDevice => agent_accounts::save(&core, params).await?,
     "removeAgentAccount" RemoveAgentAccount (agent_accounts::Removing) -> crate::agent_accounts::Book: NoDevice => agent_accounts::remove(&core, params).await?,
     "selectAgentAccount" SelectAgentAccount (agent_accounts::Choosing) -> crate::agent_accounts::Book: NoDevice, counted => agent_accounts::select(&core, params).await?,
+    "pickAgentAccount" PickAgentAccount (agent_accounts::Choosing) -> agent_accounts::Picked: NoDevice, counted => agent_accounts::pick(&core, params).await?,
+    "undoAgentAccountPick" UndoAgentAccountPick (agent_accounts::Unpicking) -> crate::agent_accounts::Book: NoDevice, counted => agent_accounts::unpick(&core, params).await?,
     "setAccountAutoSwitch" SetAccountAutoSwitch (agent_accounts::Switching) -> crate::agent_accounts::Book: NoDevice, counted => {
         agent_accounts::set_auto_switch(&core, params).await?
     },

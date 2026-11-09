@@ -17,7 +17,8 @@ use sikemux_core::agent_accounts::status::AccountStatus;
 use sikemux_core::agent_accounts::{Book, Profile};
 use sikemux_core::agent_catalog::AgentKind;
 use sikemux_core::server::agent_accounts::{
-    Account as AgentAccount, AccountUsage, Adding, Choosing, Forget, Removing, Saving, Switching,
+    Account as AgentAccount, AccountUsage, Adding, Choosing, Forget, MovedChat, Removing, Saving,
+    Switching, Unpicking,
 };
 use sikemux_core::server::agent_sign_in::{Account as SignInAccount, Code};
 use sikemux_core::server::call::{self, Call};
@@ -277,6 +278,36 @@ pub fn select(bench: &Workbench, profile: &Profile, cx: &mut Context<Workbench>)
         id: profile.id.clone(),
     };
     change::<call::SelectAgentAccount>(bench, params, cx);
+}
+
+/// Makes the account the one its agent runs on, as `select` does, and answers with the chats
+/// that moved, so the pick can be taken back.
+pub fn pick(
+    bench: &Workbench,
+    profile: &Profile,
+    cx: &mut Context<Workbench>,
+    then: impl FnOnce(&mut Workbench, Vec<MovedChat>, &mut Context<Workbench>) + 'static,
+) {
+    let params = Choosing {
+        provider: profile.provider.clone(),
+        id: profile.id.clone(),
+    };
+    let asked = Target::here(&bench.asks).request_typed::<call::PickAgentAccount>(params);
+    cx.spawn(async move |bench, cx| {
+        let Ok(picked) = asked.await else {
+            return;
+        };
+        let _ = bench.update(cx, |bench, cx| {
+            adopt(bench, picked.book, cx);
+            then(bench, picked.moved, cx);
+        });
+    })
+    .detach();
+}
+
+/// Takes a pick back, each chat it moved returning to the account it was on.
+pub fn unpick(bench: &Workbench, undoing: Unpicking, cx: &mut Context<Workbench>) {
+    change::<call::UndoAgentAccountPick>(bench, undoing, cx);
 }
 
 pub fn set_auto_switch(bench: &Workbench, provider: &str, on: bool, cx: &mut Context<Workbench>) {

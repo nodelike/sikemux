@@ -1,6 +1,7 @@
 //! The Limits panel: how much of its plan each agent's account has used, drawn as a ruler per
 //! agent, with every account in a float over the rows and in the top bar's popover.
 
+use std::cell::Cell;
 use std::f32::consts::TAU;
 use std::time::Duration;
 
@@ -13,14 +14,14 @@ use gpui_kit::{
 };
 use sikemux_core::agent_accounts::usage::UsageWindow;
 use sikemux_core::agent_accounts::Profile;
-use sikemux_core::server::agent_accounts::AccountUsage;
+use sikemux_core::server::agent_accounts::{AccountUsage, MovedChat, Unpicking};
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
-use sikemux_view::prefs::TabRailPage;
 use sikemux_view::workspace::LauncherInfo;
 
 use crate::core::Target;
 use crate::icons::Icon;
+use crate::rail::Edge;
 use crate::theme::{
     Tokens, RADIUS_2, RADIUS_4, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_2XS, TEXT_3XS,
     TEXT_3XS_H,
@@ -65,11 +66,16 @@ pub struct Reveal {
     popover: bool,
     undo: Option<Undo>,
     reading: Option<Task<()>>,
+    /// Whether the rail's last draw held the panel, which only drawing it can say.
+    panel_drawn: Cell<bool>,
 }
 
-/// The account a pick came from, offered back for a few seconds.
+/// A pick, offered back for a few seconds with the chats it moved.
 struct Undo {
+    provider: String,
+    picked: String,
     back_to: String,
+    moved: Vec<MovedChat>,
     _expires: Task<()>,
 }
 
@@ -118,9 +124,17 @@ impl Shown<'_> {
         };
         match (&usage.problem, &usage.usage) {
             (Some(_), _) => "Could not read".into(),
-            (None, Some(_)) => "No limits reported".into(),
+            (None, Some(_)) => "No plan limits".into(),
             (None, None) => "Not read yet".into(),
         }
+    }
+
+    /// The core's own explanation of an account that reports no limits, too long for the row.
+    fn no_limits_reason(&self) -> Option<String> {
+        let usage = self.usage?;
+        (usage.problem.is_none())
+            .then(|| usage.usage.as_ref()?.unavailable_reason.clone())
+            .flatten()
     }
 }
 
@@ -184,8 +198,9 @@ impl<'a> Agent<'a> {
     }
 }
 
-fn reports_limits(provider: &str) -> bool {
+fn reports_limits(bench: &Workbench, provider: &str) -> bool {
     sikemux_core::agent_catalog::agent(provider).is_some_and(|agent| agent.usage)
+        && bench.has_agent(provider)
 }
 
 /// The agents the panel has a row for, in the rail's own order: every one that reports limits,
@@ -193,12 +208,12 @@ fn reports_limits(provider: &str) -> bool {
 fn launchers(bench: &Workbench, every: bool) -> Vec<&LauncherInfo> {
     if !every {
         return (bench.launcher().into_iter())
-            .filter(|launcher| reports_limits(&launcher.provider))
+            .filter(|launcher| reports_limits(bench, &launcher.provider))
             .collect();
     }
     let mut found: Vec<&LauncherInfo> = Vec::new();
     for launcher in bench.launchers() {
-        if reports_limits(&launcher.provider)
+        if reports_limits(bench, &launcher.provider)
             && found.iter().all(|seen| seen.provider != launcher.provider)
         {
             found.push(
@@ -249,13 +264,15 @@ pub(crate) fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<i
     if agents.is_empty() {
         return None;
     }
+    bench.accounts.limits.panel_drawn.set(true);
     let compact = bench.rail_compact();
     let rows = rest_slots(&agents, !every);
     let row = if compact { ROW_COMPACT } else { ROW };
     let tall = HEADER + rows as f32 * row + (rows as f32 - 1.) * ROW_GAP;
     let room = (bench.rails.frame.get()[3] - RAIL_HEAD - tall - FLOAT_MARGIN).max(FLOAT_LEAST);
     let view = view(bench, !every, compact, room, cx.weak_entity());
-    let open = bench.accounts.limits.open;
+    let adds = float_adds(&agents, !every);
+    let open = bench.accounts.limits.open && adds;
     let hovered = |this: WeakEntity<Workbench>, over: fn(&mut Reveal) -> &mut bool| {
         move |inside: &bool, _: &mut Window, cx: &mut App| {
             let inside = *inside;
@@ -281,7 +298,9 @@ pub(crate) fn limits(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<i
                     .flex()
                     .flex_col()
                     .gap(px(ROW_GAP))
-                    .on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_rows))
+                    .when(adds, |rows| {
+                        rows.on_hover(hovered(view.this.clone(), |reveal| &mut reveal.over_rows))
+                    })
                     .children(rest_rows(&view, &agents, cx)),
             )
             .when(open, |panel| {
@@ -329,6 +348,12 @@ fn view(
         undo: reveal.undo.as_ref().map(|undo| undo.back_to.clone()),
         room,
     }
+}
+
+/// Whether the float would show anything the rows do not: another account, windows the rows
+/// have no room for, or, with every agent listed, each agent's add button.
+fn float_adds(agents: &[Agent], solo: bool) -> bool {
+    !solo || (agents.iter()).any(|agent| agent.others() > 0 || agent.current().windows().len() > 2)
 }
 
 /// How many rows the panel holds: a fixed number, so that no reading can resize it.
@@ -399,12 +424,7 @@ fn refresh_button(view: &View, agents: &[Agent], cx: &App) -> AnyElement {
     )
     .on_click(view.on(move |bench, _, cx| {
         if bench.accounts.limits.reading.is_none() {
-            bench.read_usage();
-            bench.accounts.limits.reading = Some(cx.spawn(async move |bench, cx| {
-                cx.background_executor().timer(READING_AT_MOST).await;
-                let _ = bench.update(cx, |bench, cx| usage_read(bench, cx));
-            }));
-            redraw(bench, cx);
+            start_reading(bench, cx);
             for provider in &providers {
                 crate::accounts::ask_again(bench, provider, cx);
             }
@@ -435,6 +455,31 @@ fn refresh_button(view: &View, agents: &[Agent], cx: &App) -> AnyElement {
                 ),
         )
         .into_any_element()
+}
+
+/// Reads every account's limits, with the refresh button turning until the core answers.
+fn start_reading(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    if bench.accounts.limits.reading.is_some() {
+        return;
+    }
+    bench.read_usage();
+    bench.accounts.limits.reading = Some(cx.spawn(async move |bench, cx| {
+        cx.background_executor().timer(READING_AT_MOST).await;
+        let _ = bench.update(cx, |bench, cx| usage_read(bench, cx));
+    }));
+    redraw(bench, cx);
+}
+
+/// Whether a signed-in account's reading is older than the reads made while limits show.
+fn reading_is_old(bench: &Workbench, now: u64) -> bool {
+    let every = crate::workbench::LIMITS_EVERY.as_millis() as u64;
+    (bench.reads.usage.iter())
+        .filter(|account| account.signed_in)
+        .any(|account| {
+            account
+                .read_at
+                .is_none_or(|read| now.saturating_sub(read) >= every)
+        })
 }
 
 fn rest_rows(view: &View, agents: &[Agent], cx: &App) -> Vec<AnyElement> {
@@ -554,7 +599,8 @@ fn rest_row(
     } else {
         name_line().child(div().w(px(14.))).child(div().flex_1())
     };
-    let line = line.child(numbers(window, view.now, cx));
+    let age = shown.age(view.now);
+    let line = line.child(numbers(window, view.now, age.as_deref(), cx));
     div()
         .id(SharedString::from(format!(
             "limit-{}-{}",
@@ -576,7 +622,7 @@ fn rest_row(
 }
 
 /// The numbers at the end of a name's line: the window, how much is used and when it is back.
-fn numbers(window: &UsageWindow, now: u64, cx: &App) -> Div {
+fn numbers(window: &UsageWindow, now: u64, age: Option<&str>, cx: &App) -> Div {
     let t = Tokens::get(cx);
     div()
         .flex_none()
@@ -592,7 +638,7 @@ fn numbers(window: &UsageWindow, now: u64, cx: &App) -> Div {
                 .text_color(t.text_tertiary),
         )
         .child(percent_cell(window, now, cx))
-        .child(when_cell(window, now, true, cx))
+        .child(when_cell(window, now, age, true, cx))
 }
 
 fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
@@ -611,15 +657,18 @@ fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
         })
 }
 
-fn when_cell(window: &UsageWindow, now: u64, say_back: bool, cx: &App) -> Div {
+/// When the window is back. Past its reset with reads failing it says how old the reading is,
+/// as "resetting now" would stay true for as long as the reads keep failing.
+fn when_cell(window: &UsageWindow, now: u64, age: Option<&str>, say_back: bool, cx: &App) -> Div {
     let t = Tokens::get(cx);
     let reset = reset_at(window);
     let full = window.used_at(now) >= 100.;
-    let text = match (full, reset) {
-        (true, Some(reset)) if say_back => format!("back {}", time_of_day(reset)),
-        (true, Some(reset)) => time_of_day(reset),
-        (true, None) => String::new(),
-        (false, reset) => ui::time::countdown(reset),
+    let text = match (full, reset, age.filter(|_| window.is_past_reset(now))) {
+        (_, _, Some(age)) => format!("read {age}"),
+        (true, Some(reset), _) if say_back => format!("back {}", time_of_day(reset)),
+        (true, Some(reset), _) => time_of_day(reset),
+        (true, None, _) => String::new(),
+        (false, reset, _) => ui::time::countdown(reset),
     };
     ui::text(text, TEXT_3XS, FontWeight::NORMAL)
         .min_w(px(38.))
@@ -633,15 +682,20 @@ fn when_cell(window: &UsageWindow, now: u64, say_back: bool, cx: &App) -> Div {
 
 fn nothing_row(view: &View, agent: &Agent, shown: &Shown, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
-    row_frame(
-        view,
-        name_line()
-            .child(ui::mark(agent.provider, 14.))
-            .child(names(view, agent, shown, cx))
-            .child(note(shown.nothing(), cx)),
-        ruler(0., None, t).flex_1().h_full(),
-    )
-    .into_any_element()
+    div()
+        .id(SharedString::from(format!("limit-{}-none", agent.provider)))
+        .when_some(shown.no_limits_reason(), |row, reason| {
+            row.tooltip(ui::tooltip(reason))
+        })
+        .child(row_frame(
+            view,
+            name_line()
+                .child(ui::mark(agent.provider, 14.))
+                .child(names(view, agent, shown, cx))
+                .child(note(shown.nothing(), cx)),
+            ruler(0., None, t).flex_1().h_full(),
+        ))
+        .into_any_element()
 }
 
 fn note(text: String, cx: &App) -> Div {
@@ -805,6 +859,7 @@ fn in_use_block(view: &View, agent: &Agent, shown: &Shown, cx: &App) -> (f32, An
         + name_line.as_ref().map_or(0., |_| BLOCK_NAME)
         + shown.windows().len() as f32 * WINDOW_ROW;
     let key = shown.key(agent.provider);
+    let age = shown.age(view.now);
     let block = div()
         .pt(px(3.))
         .pb(SPACE_1)
@@ -812,11 +867,21 @@ fn in_use_block(view: &View, agent: &Agent, shown: &Shown, cx: &App) -> (f32, An
         .rounded(RADIUS_2)
         .when(many, |block| block.bg(t.surface_chosen))
         .children(name_line)
-        .children((shown.windows().iter()).map(|window| window_row(view, window, stale, &key, cx)));
+        .children(
+            (shown.windows().iter())
+                .map(|window| window_row(view, window, stale, age.as_deref(), &key, cx)),
+        );
     (tall, block.into_any_element())
 }
 
-fn window_row(view: &View, window: &UsageWindow, stale: bool, key: &str, cx: &App) -> AnyElement {
+fn window_row(
+    view: &View,
+    window: &UsageWindow,
+    stale: bool,
+    age: Option<&str>,
+    key: &str,
+    cx: &App,
+) -> AnyElement {
     let t = Tokens::get(cx);
     div()
         .id(SharedString::from(format!("limit-{key}-{}", window.label)))
@@ -845,12 +910,12 @@ fn window_row(view: &View, window: &UsageWindow, stale: bool, key: &str, cx: &Ap
             .h(px(10.)),
         )
         .child(percent_cell(window, view.now, cx))
-        .child(when_cell(window, view.now, false, cx))
+        .child(when_cell(window, view.now, age, false, cx))
         .into_any_element()
 }
 
-/// An account that is not in use, or has no windows to draw, as one line. Clicking one that
-/// has numbers moves the agent's chats onto it.
+/// An account that is not in use, or has no windows to draw, as one line. Clicking one not in
+/// use moves the agent's chats onto it.
 fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let key = shown.key(agent.provider);
@@ -894,10 +959,8 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
             .child(go("Sign in", cx))
             .into_any_element();
     }
-    let profile = shown.profile.cloned();
     let undoing = shown.id().is_some() && view.undo.as_deref() == shown.id();
     if undoing {
-        let back = profile.clone();
         return frame()
             .id(id)
             .child(side().child(name(shown.name.clone())))
@@ -906,71 +969,75 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                     .id(SharedString::from(format!("limits-undo-{key}")))
                     .cursor_pointer()
                     .hover(|link| link.text_color(t.text_primary))
-                    .on_click(view.on(move |bench, _, cx| {
-                        if let Some(profile) = back.as_ref() {
-                            crate::accounts::select(bench, profile, cx);
-                        }
-                        bench.accounts.limits.undo = None;
-                        redraw(bench, cx);
-                    })),
+                    .on_click(view.on(move |bench, _, cx| undo_pick(bench, cx))),
             )
             .into_any_element();
     }
-    let Some(window) = shown.at_rest(view.now, 1).first().copied() else {
-        return frame()
-            .id(id)
-            .child(side().child(name(shown.name.clone())))
-            .child(note(shown.nothing(), cx))
-            .into_any_element();
-    };
+    let window = shown.at_rest(view.now, 1).first().copied();
     let stale = shown.stale(view.now);
-    let status = status(view, shown);
+    let age = shown.age(view.now);
+    let tip = window
+        .map(|window| tip(window, view.now, stale))
+        .or_else(|| shown.no_limits_reason());
+    let status = status(view, shown).filter(|_| window.is_some());
+    let end = match window {
+        Some(window) => numbers(window, view.now, age.as_deref(), cx),
+        None => note(shown.nothing(), cx),
+    };
+    let target = shown.profile.filter(|_| !in_use).cloned();
+    let pickable = target.is_some();
     frame()
         .id(id)
         .group(group.clone())
-        .cursor_pointer()
-        .hover(|line| line.bg(t.surface_hover))
-        .tooltip(ui::tooltip(tip(window, view.now, stale)))
-        .on_click(view.on(move |bench, _, cx| {
-            if let Some(profile) = profile.as_ref() {
-                pick(bench, profile, cx);
-            }
-        }))
+        .when_some(tip, |line, tip| line.tooltip(ui::tooltip(tip)))
+        .when_some(target, |line, target| {
+            line.cursor_pointer()
+                .hover(|line| line.bg(t.surface_hover))
+                .on_click(view.on(move |bench, _, cx| pick(bench, &target, cx)))
+        })
         .child(
             side()
                 .child(name(shown.name.clone()))
                 .children(status.map(meta)),
         )
-        .child(
-            numbers(window, view.now, cx).group_hover(group.clone(), |numbers| numbers.opacity(0.)),
-        )
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .right(SPACE_1H)
-                .flex()
-                .items_center()
-                .opacity(0.)
-                .group_hover(group, |action| action.opacity(1.))
-                .child(
-                    ui::text("Move chats here", TEXT_3XS, FontWeight::NORMAL)
-                        .text_color(t.text_primary),
-                ),
-        )
+        .child(end.when(pickable, |end| {
+            end.group_hover(group.clone(), |end| end.opacity(0.))
+        }))
+        .when(pickable, |line| {
+            line.child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right(SPACE_1H)
+                    .flex()
+                    .items_center()
+                    .opacity(0.)
+                    .group_hover(group.clone(), |action| action.opacity(1.))
+                    .child(
+                        ui::text("Move chats here", TEXT_3XS, FontWeight::NORMAL)
+                            .text_color(t.text_primary),
+                    ),
+            )
+        })
         .into_any_element()
 }
 
 /// Puts the agent on `profile`, which moves its open chats, and offers the way back.
 fn pick(bench: &mut Workbench, profile: &Profile, cx: &mut Context<Workbench>) {
-    let was = (bench.accounts.current(&profile.provider))
+    let Some(back_to) = (bench.accounts.current(&profile.provider))
         .filter(|current| current.id != profile.id)
-        .map(|current| current.id.clone());
-    crate::accounts::select(bench, profile, cx);
-    if let Some(back_to) = was {
+        .map(|current| current.id.clone())
+    else {
+        return;
+    };
+    let (provider, picked) = (profile.provider.clone(), profile.id.clone());
+    crate::accounts::pick(bench, profile, cx, move |bench, moved, cx| {
         bench.accounts.limits.undo = Some(Undo {
+            provider,
+            picked,
             back_to,
+            moved,
             _expires: cx.spawn(async move |bench, cx| {
                 cx.background_executor().timer(UNDO_FOR).await;
                 let _ = bench.update(cx, |bench, cx| {
@@ -979,7 +1046,21 @@ fn pick(bench: &mut Workbench, profile: &Profile, cx: &mut Context<Workbench>) {
                 });
             }),
         });
-    }
+        redraw(bench, cx);
+    });
+}
+
+fn undo_pick(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    let Some(undo) = bench.accounts.limits.undo.take() else {
+        return;
+    };
+    let undoing = Unpicking {
+        provider: undo.provider,
+        picked: undo.picked,
+        back_to: undo.back_to,
+        moved: undo.moved,
+    };
+    crate::accounts::unpick(bench, undoing, cx);
     redraw(bench, cx);
 }
 
@@ -1008,8 +1089,12 @@ fn settle_hover(bench: &mut Workbench, cx: &mut Context<Workbench>) {
 }
 
 impl Reveal {
-    /// Forgets the pointer, as when the page under it goes away without telling the rows.
-    pub(crate) fn pointer_gone(&mut self) {
+    pub(crate) fn drawing_rail(&mut self) {
+        *self.panel_drawn.get_mut() = false;
+    }
+
+    /// Forgets the pointer: a panel that stops being drawn never hears it leave.
+    fn pointer_gone(&mut self) {
         self.open = false;
         self.over_rows = false;
         self.over_panel = false;
@@ -1113,6 +1198,9 @@ pub(crate) fn chip(bench: &Workbench, cx: &mut Context<Workbench>) -> Option<imp
                 let open = *open;
                 let _ = open_this.update(cx, |bench, cx| {
                     bench.accounts.limits.popover = open;
+                    if open && reading_is_old(bench, ui::time::now_ms()) {
+                        start_reading(bench, cx);
+                    }
                     redraw(bench, cx);
                 });
             })
@@ -1265,14 +1353,27 @@ pub(crate) fn reset_at(window: &UsageWindow) -> Option<chrono::DateTime<chrono::
 }
 
 impl Workbench {
-    /// Whether plan limits are on screen: the panel at the foot of the tab rail's agents page,
-    /// or the top bar's popover. The chip alone never counts, since each read boots the
-    /// agent's CLI.
+    /// Whether the rail is up and its last draw held the panel. On an SSH host or in Goals the
+    /// rail draws something else, and a peeking rail draws it with the rail kept closed.
+    fn limits_panel_shown(&self) -> bool {
+        (self.rails.tab_open || self.rails.peeking == Some(Edge::End))
+            && self.accounts.limits.panel_drawn.get()
+    }
+
+    /// Whether plan limits are on screen: the panel or the top bar's popover. The chip alone
+    /// never counts, since each read boots the agent's CLI.
     pub(crate) fn limits_shown(&self) -> bool {
-        let panel = self.rails.tab_open
-            && self.rails.page == TabRailPage::Agents
-            && !launchers(self, self.rails.all_harnesses).is_empty();
-        panel || self.accounts.limits.popover
+        self.limits_panel_shown() || self.accounts.limits.popover
+    }
+
+    /// Lets go of what a panel or chip no longer on screen was holding open.
+    pub(crate) fn settle_limits(&mut self) {
+        if !self.limits_panel_shown() {
+            self.accounts.limits.pointer_gone();
+        }
+        if self.accounts.limits.popover && launchers(self, true).is_empty() {
+            self.accounts.limits.popover = false;
+        }
     }
 
     /// Reads the plan limits again: each lookup reaches the agent's service on the person's
