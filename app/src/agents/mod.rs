@@ -31,7 +31,7 @@ use crate::motion;
 use crate::rail::{Edge, RailWidth};
 use crate::theme::{
     self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_6, TEXT_2XS,
-    TEXT_3XS, TEXT_MD, TEXT_SM, TEXT_XS,
+    TEXT_3XS, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, Field, Group, IconButton, Row, Segmented};
 use crate::workbench::Workbench;
@@ -949,17 +949,6 @@ fn agent_row(
     .chosen(chosen)
     .glided(glided && chosen)
     .compact(bench.rail_compact())
-    .when_some(project.clone(), |row, project| {
-        row.subtitle(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(5.))
-                .line_height(crate::theme::ui_text(TEXT_MD))
-                .child(ui::icon(Icon::Folder, 11.).text_color(t.live))
-                .child(ui::meta(project, cx)),
-        )
-    })
     .status(status)
     .on_click(cx.listener({
         let id = id.clone();
