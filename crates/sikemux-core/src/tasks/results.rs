@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use std::time::{Duration, SystemTime};
 
 use quick_xml::escape::resolve_predefined_entity;
 use quick_xml::events::{BytesStart, Event};
@@ -8,7 +9,9 @@ use quick_xml::{Reader, XmlVersion};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
-use super::detect::{CARGO_TEST_LOG, GO_TEST_LOG, JEST_REPORT, PYTEST_REPORT, VITEST_REPORT};
+use super::detect::{
+    runs_gradle, CARGO_TEST_LOG, GO_TEST_LOG, JEST_REPORT, PYTEST_REPORT, VITEST_REPORT,
+};
 use super::read_text;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -32,9 +35,23 @@ pub struct TestResults {
     pub failures: Vec<TestFailure>,
 }
 
-/// Where Maven's surefire and Gradle write their JUnit XML reports, relative to the module.
-const REPORT_DIRS: [&str; 2] = ["target/surefire-reports", "build/test-results/test"];
-const TEST_SOURCES: [&str; 2] = ["src/test/java", "src/test/kotlin"];
+/// Where Maven's surefire, Gradle's test tasks and Android's connected tests
+/// write their JUnit XML reports, relative to the module, with how many
+/// folders deep each keeps them: Gradle one per test task, Android one per
+/// variant and device.
+const REPORT_DIRS: [(&str, usize); 3] = [
+    ("target/surefire-reports", 0),
+    ("build/test-results", 1),
+    ("build/outputs/androidTest-results/connected", 3),
+];
+const TEST_SOURCES: [&str; 4] = [
+    "src/test/java",
+    "src/test/kotlin",
+    "src/androidTest/java",
+    "src/androidTest/kotlin",
+];
+/// Some file systems keep modification times to the nearest two seconds.
+const MODIFIED_SLACK: Duration = Duration::from_secs(2);
 const MAX_FAILURES: usize = 50;
 
 fn regex(pattern: &str) -> Regex {
@@ -65,7 +82,9 @@ static JEST_VALUE: LazyLock<Regex> =
 static GO_TEST_NAME: LazyLock<Regex> = LazyLock::new(|| regex(r"^[0-9A-Za-z_]+$"));
 static CARGO_TEST_NAME: LazyLock<Regex> = LazyLock::new(|| regex(r"^[0-9A-Za-z_:]+$"));
 static MAVEN: LazyLock<Regex> = LazyLock::new(|| regex(r"mvnw?$"));
-static GRADLE: LazyLock<Regex> = LazyLock::new(|| regex(r"gradlew?$"));
+static GRADLE_UNIT_TESTS: LazyLock<Regex> = LazyLock::new(|| regex(r"^test[A-Za-z0-9]*UnitTest$"));
+static ANDROID_CONNECTED_TESTS: LazyLock<Regex> =
+    LazyLock::new(|| regex(r"^connected[A-Za-z0-9]*AndroidTest$"));
 static METHOD_ARGUMENTS: LazyLock<Regex> = LazyLock::new(|| regex(r"\([^\n\r\u{2028}\u{2029}]*$"));
 static SHELL_SAFE: LazyLock<Regex> = LazyLock::new(|| regex(r"^[A-Za-z0-9_./:=@+-]+$"));
 
@@ -143,13 +162,8 @@ fn line_in(stack: &str, file: &str) -> Option<u32> {
 
 fn report_files(cwd: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    for dir in REPORT_DIRS {
-        files.extend(
-            list_files(&join(cwd, &[dir]))
-                .into_iter()
-                .filter(|(name, _)| REPORT_NAME.is_match(name))
-                .map(|(_, path)| path),
-        );
+    for (dir, depth) in REPORT_DIRS {
+        junit_reports(&join(cwd, &[dir]), depth, &mut files);
     }
     for report in [VITEST_REPORT, PYTEST_REPORT] {
         let path = join(cwd, &[report]);
@@ -160,18 +174,37 @@ fn report_files(cwd: &Path) -> Vec<PathBuf> {
     files
 }
 
-/// The files directly in `dir` by name, ignoring case, or none when it cannot be listed.
-fn list_files(dir: &Path) -> Vec<(String, PathBuf)> {
+/// The `TEST-*.xml` reports in `dir` and the folders up to `depth` below it, by name.
+fn junit_reports(dir: &Path, depth: usize, found: &mut Vec<PathBuf>) {
+    let (files, folders) = list_entries(dir);
+    found.extend(
+        files
+            .into_iter()
+            .filter(|(name, _)| REPORT_NAME.is_match(name))
+            .map(|(_, path)| path),
+    );
+    if depth > 0 {
+        for folder in folders {
+            junit_reports(&folder, depth - 1, found);
+        }
+    }
+}
+
+/// The files and the folders directly in `dir`, each by name ignoring case, or
+/// none when it cannot be listed.
+fn list_entries(dir: &Path) -> (Vec<(String, PathBuf)>, Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
     let mut files = Vec::new();
+    let mut folders = Vec::new();
     for entry in entries {
         let Ok(entry) = entry else {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         };
-        let is_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
-        if !is_dir {
+        if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            folders.push(entry.path());
+        } else {
             files.push((
                 entry.file_name().to_string_lossy().into_owned(),
                 entry.path(),
@@ -179,7 +212,14 @@ fn list_files(dir: &Path) -> Vec<(String, PathBuf)> {
         }
     }
     files.sort_by_cached_key(|(name, _)| name.to_lowercase());
-    files
+    folders.sort_by_cached_key(|path| path.to_string_lossy().to_lowercase());
+    (files, folders)
+}
+
+fn written_since(path: &Path, since: SystemTime) -> bool {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .is_ok_and(|modified| modified + MODIFIED_SLACK >= since)
 }
 
 struct Failing {
@@ -570,9 +610,14 @@ fn junit_failure(cwd: &Path, failing: Failing) -> TestFailure {
     }
 }
 
-/// The latest results a test task left in `cwd`, or none.
-pub fn read(cwd: &Path) -> Option<TestResults> {
-    let files = report_files(cwd);
+/// The latest results a test task left in `cwd`, or none. With `since`, only
+/// the reports written after it count, so a run is not credited with what an
+/// earlier run of another test task left.
+pub fn read(cwd: &Path, since: Option<SystemTime>) -> Option<TestResults> {
+    let mut files = report_files(cwd);
+    if let Some(since) = since {
+        files.retain(|file| written_since(file, since));
+    }
     if files.is_empty() {
         return read_jest_results(cwd)
             .or_else(|| read_go_results(cwd))
@@ -616,7 +661,8 @@ enum Runner<'a> {
     Jest,
     /// With the program the command starts, `mvn` or the project's `./mvnw`.
     Maven(&'a str),
-    Gradle(&'a str),
+    /// With the program and the task it runs.
+    Gradle(&'a str, &'a str),
 }
 
 /// The file each runner's detected command writes its results to, which
@@ -636,11 +682,12 @@ impl<'a> Runner<'a> {
         if let Some((runner, _)) = REPORTED.iter().find(|(_, report)| command.contains(report)) {
             return Some(*runner);
         }
-        let tool = command.split(' ').next().unwrap_or("");
+        let mut words = command.split(' ');
+        let tool = words.next().unwrap_or("");
         if MAVEN.is_match(tool) {
             Some(Self::Maven(tool))
-        } else if GRADLE.is_match(tool) {
-            Some(Self::Gradle(tool))
+        } else if runs_gradle(command) {
+            Some(Self::Gradle(tool, words.next().unwrap_or("")))
         } else {
             None
         }
@@ -715,7 +762,25 @@ pub fn rerun_failed_command(command: &str, failures: &[TestFailure]) -> Option<S
                 shell_quote(&selector)
             ))
         }
-        Runner::Gradle(tool) => {
+        Runner::Gradle(tool, task) if ANDROID_CONNECTED_TESTS.is_match(task) => {
+            let mut by_class: Vec<String> = Vec::new();
+            for failure in failures {
+                let test = format!("{}#{}", failure.class_name, method_name(&failure.name));
+                if !by_class.contains(&test) {
+                    by_class.push(test);
+                }
+            }
+            Some(format!(
+                "{tool} {task} -Pandroid.testInstrumentationRunnerArguments.class={}",
+                shell_quote(&by_class.join(","))
+            ))
+        }
+        Runner::Gradle(tool, task) => {
+            let task = if GRADLE_UNIT_TESTS.is_match(task) {
+                task
+            } else {
+                "test"
+            };
             let filters = failures
                 .iter()
                 .map(|failure| {
@@ -730,7 +795,7 @@ pub fn rerun_failed_command(command: &str, failures: &[TestFailure]) -> Option<S
                 })
                 .collect::<Vec<_>>()
                 .join(" ");
-            Some(format!("{tool} test {filters}"))
+            Some(format!("{tool} {task} {filters}"))
         }
     }
 }

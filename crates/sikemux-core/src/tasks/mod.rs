@@ -1,7 +1,8 @@
 //! What a project can run: its `sikemux.json`, the tasks its build files
 //! suggest, the Java they need, what stops them starting, and the test results
-//! they leave behind.
+//! and build errors they leave behind.
 
+pub mod build_errors;
 pub mod check;
 pub mod config;
 pub mod detect;

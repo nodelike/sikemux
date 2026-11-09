@@ -55,6 +55,15 @@ impl OutputLog {
         (self.bytes.iter().copied().collect(), self.end)
     }
 
+    /// Every line still held, as a person would have seen it settle.
+    pub fn plain_lines(&self) -> Vec<String> {
+        let (bytes, _) = self.contents();
+        terminal_text::render(&bytes, self.start())
+            .into_iter()
+            .map(|line| line.text)
+            .collect()
+    }
+
     /// A log holding `bytes` as the newest output, ending at `end`.
     pub fn restored(bytes: &[u8], end: u64) -> Self {
         let kept = bytes

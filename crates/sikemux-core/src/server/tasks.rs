@@ -32,6 +32,7 @@ use super::kept::Kept;
 use super::ports::{self, PortOwner};
 use super::{session, Core, CoreResult};
 
+mod build_errors;
 mod test_results;
 mod trust;
 mod writing;
@@ -652,6 +653,10 @@ pub(crate) fn inspect(core: &Core, project: &Path) -> Value {
         if !found.is_empty() {
             object.insert("testResults".into(), found.into());
         }
+        let errors = build_errors::for_agent(project);
+        if !errors.is_empty() {
+            object.insert("buildErrors".into(), errors.into());
+        }
     }
     value
 }
@@ -1080,7 +1085,8 @@ pub(crate) fn runs(core: &Core) -> Vec<RunView> {
         .collect()
 }
 
-/// A task session ended: a test task's results are read for the person to see.
+/// A task session ended: a Gradle build's errors go beside the language
+/// servers' diagnostics, and a test task's results are read for the person to see.
 pub(crate) fn ended(core: &Core, pty_id: SessionId) {
     let Some(run) = core.harness.run_on(pty_id) else {
         return;
@@ -1088,11 +1094,28 @@ pub(crate) fn ended(core: &Core, pty_id: SessionId) {
     let (Some(cwd), Some(core)) = (run.cwd.clone(), core.arc()) else {
         return;
     };
-    if !detect::is_test_task(&run.task_id) {
+    let gradle = run.command.as_deref().is_some_and(detect::runs_gradle) && run.signal.is_none();
+    let lines = if gradle {
+        core.session(pty_id)
+            .and_then(|session| session::task_lines(&session))
+    } else {
+        None
+    };
+    let tests = detect::is_test_task(&run.task_id);
+    if lines.is_none() && !tests {
         return;
     }
     tokio::task::spawn_blocking(move || {
-        if let Some(found) = results::read(Path::new(&cwd)) {
+        if let Some(lines) = lines {
+            build_errors::publish(&core, &run.project, Path::new(&cwd), &lines);
+        }
+        if !tests {
+            return;
+        }
+        let started = run
+            .started_at
+            .map(|ms| std::time::UNIX_EPOCH + Duration::from_millis(ms));
+        if let Some(found) = results::read(Path::new(&cwd), started) {
             core.tasks
                 .state
                 .locked()
