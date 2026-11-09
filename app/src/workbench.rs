@@ -100,6 +100,10 @@ pub struct Workbench {
     pub badge: usize,
     /// A tab being dragged along its strip, and where it would land.
     pub reorder: Option<crate::drag::Reorder>,
+    /// A pinned chat being dragged among the others, and where it would land.
+    pub pin_move: Option<crate::drag::PinMove>,
+    /// A chat of the agent rail being dragged, and the ghost that lives as long as its drag.
+    pub chat_drag: Option<(WeakEntity<crate::drag::Ghost>, crate::drag::DraggedChat)>,
     /// The project or host in front, and the one in front before it.
     pub place: Option<Strip>,
     pub last_place: Option<Strip>,
@@ -320,6 +324,8 @@ impl Workbench {
             accounts: Default::default(),
             badge: 0,
             reorder: None,
+            pin_move: None,
+            chat_drag: None,
             place: None,
             last_place: None,
             rails: crate::rail::Rails::new(cx),

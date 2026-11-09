@@ -1606,7 +1606,7 @@ pub fn pane(
             composing.view.clone().into_element().isolated()
         }))
         .when(composing && cx.has_active_drag(), |pane| {
-            let hint = attach::drop_hint("Drop files or folders into this session", cx);
+            let hint = attach::drop_hint("Drop files or folders into this session", id, bench, cx);
             pane.child(gpui_kit::deferred(hint))
         });
     let this = cx.weak_entity();

@@ -158,6 +158,10 @@ pub struct Preferences {
     pub tab_rail_scope: TabRailScope,
     /// The tab rail lists every agent's chats rather than one agent's.
     pub tab_rail_all_agents: bool,
+    /// The rails' groups folded away, by key, such as `pinned`; Settled starts folded.
+    pub folded_rail_groups: Vec<String>,
+    /// The order the side rail lists projects in.
+    pub project_sort: ProjectSort,
     /// What the window shows: the workbench, or the goals.
     pub window_view: WindowView,
     /// The commands the person ran from the command deck, the last first.
@@ -253,6 +257,8 @@ preference_changes! {
     TabRailPage tab_rail_page: TabRailPage,
     TabRailScope tab_rail_scope: TabRailScope,
     TabRailAllAgents tab_rail_all_agents: bool,
+    FoldedRailGroups folded_rail_groups: Vec<String>,
+    ProjectSort project_sort: ProjectSort,
     WindowView window_view: WindowView,
     RecentCommandKeys recent_command_keys: Vec<String>,
     FrontCopies front_copies: BTreeMap<String, String>,
@@ -276,6 +282,17 @@ pub enum TabRailPage {
     Agents,
     Terminals,
     Files,
+}
+
+/// The order projects are listed in: last worked in first, first added first, or as the
+/// person dragged them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProjectSort {
+    #[default]
+    Recent,
+    Created,
+    Manual,
 }
 
 /// Whose agents the tab rail lists: the project in front's, or every project's.
@@ -394,6 +411,8 @@ impl Default for Preferences {
             tab_rail_page: TabRailPage::default(),
             tab_rail_scope: TabRailScope::default(),
             tab_rail_all_agents: false,
+            folded_rail_groups: vec!["settled".to_owned()],
+            project_sort: ProjectSort::default(),
             window_view: WindowView::default(),
             recent_command_keys: Vec::new(),
             front_copies: BTreeMap::new(),

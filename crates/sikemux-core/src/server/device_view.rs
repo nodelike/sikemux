@@ -179,6 +179,11 @@ impl Core {
             }
             (project.code_host, project.git) = self.git.shown(&folder);
         }
+        workspace::sort_projects(
+            &mut workspace.projects,
+            preferences.project_sort,
+            &self.workspaces.last_active(),
+        );
         self.hosts.copies.fold(self, &mut workspace);
         workspace
     }

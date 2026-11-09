@@ -16,6 +16,9 @@ pub struct ProjectInfo {
     pub path: PathBuf,
     #[serde(default)]
     pub pinned: bool,
+    /// When it was added to this host, in Unix milliseconds.
+    #[serde(default)]
+    pub added_at: u64,
     /// The space it is shown in, by id; none shows it in every space.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub space: Option<String>,

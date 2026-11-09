@@ -11,10 +11,12 @@ use gpui_kit::{
 use smallvec::SmallVec;
 
 use super::controls::OnClick;
-use super::{caps, icon, mark_box, meta, text};
+use super::{caps, icon, mark_box, meta, mono, text};
 use crate::icons::Icon;
 use crate::motion;
-use crate::theme::{Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_XS};
+use crate::theme::{
+    Tokens, RADIUS_2, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_XS,
+};
 
 /// The hover group a row puts itself in, for a glyph in it that follows its text.
 pub const ROW: &str = "row";
@@ -335,6 +337,7 @@ pub struct Group {
     toolbar: Option<AnyElement>,
     empty: SharedString,
     first: bool,
+    fold: Option<(bool, OnClick)>,
     rows: SmallVec<[AnyElement; 8]>,
 }
 
@@ -346,6 +349,7 @@ impl Group {
             toolbar: None,
             empty: empty.into(),
             first: false,
+            fold: None,
             rows: SmallVec::new(),
         }
     }
@@ -366,6 +370,17 @@ impl Group {
         self.first = true;
         self
     }
+
+    /// Its heading folds the rows away, or brings them back, on a click; folded, it says how
+    /// many rows it holds.
+    pub fn folds(
+        mut self,
+        folded: bool,
+        toggle: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.fold = Some((folded, Rc::new(toggle)));
+        self
+    }
 }
 
 impl ParentElement for Group {
@@ -376,27 +391,49 @@ impl ParentElement for Group {
 
 impl RenderOnce for Group {
     fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        let border = Tokens::get(cx).border;
+        let t = Tokens::get(cx).clone();
         let empty = self.rows.is_empty();
+        let folded = self.fold.as_ref().is_some_and(|(folded, _)| *folded);
+        let count = self.rows.len();
+        let heading = div()
+            .id(SharedString::from(format!("group-{}", self.label)))
+            .flex()
+            .items_center()
+            .gap(SPACE_2)
+            .pt(SPACE_1)
+            .pr(SPACE_1H)
+            .pb(SPACE_1H)
+            .pl(SPACE_2)
+            .rounded(RADIUS_2)
+            .child(caps(self.label, cx).flex_none())
+            .when(folded && count > 0, |heading| {
+                heading.child(
+                    mono(count.to_string(), TEXT_2XS, cx)
+                        .flex_none()
+                        .text_color(t.text_tertiary),
+                )
+            })
+            .child(div().flex_1().h(px(1.)).bg(t.border))
+            .children(self.actions)
+            .when_some(self.fold, |heading, (folded, toggle)| {
+                heading
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(t.surface_hover))
+                    .on_click(move |event, window, cx| toggle(event, window, cx))
+                    .child(motion::turn(
+                        format!("group-fold-{}", self.label),
+                        motion::fold_angle(!folded),
+                        motion::LANE_FOLD,
+                        icon(Icon::Chevron, 11.).text_color(t.text_tertiary),
+                    ))
+            });
         div()
             .flex()
             .flex_col()
             .when(!self.first, |group| group.mt(SPACE_4))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_2)
-                    .pt(SPACE_1)
-                    .pr(SPACE_1H)
-                    .pb(SPACE_1H)
-                    .pl(SPACE_2)
-                    .child(caps(self.label, cx).flex_none())
-                    .child(div().flex_1().h(px(1.)).bg(border))
-                    .children(self.actions),
-            )
-            .children(self.toolbar)
-            .when(empty, |group| {
+            .child(heading)
+            .when(!folded, |group| group.children(self.toolbar))
+            .when(empty && !folded, |group| {
                 group.child(
                     div().p(SPACE_3).child(
                         text(self.empty, TEXT_XS, FontWeight::NORMAL)
@@ -404,7 +441,7 @@ impl RenderOnce for Group {
                     ),
                 )
             })
-            .children(self.rows)
+            .when(!folded, |group| group.children(self.rows))
     }
 }
 

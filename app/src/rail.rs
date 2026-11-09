@@ -18,7 +18,7 @@ use sikemux_core::server::hosts::HostFound;
 use sikemux_core::server::hosts::HostReach;
 use sikemux_view::device::AccountInfo;
 use sikemux_view::layout::PaneKind;
-use sikemux_view::prefs::{Preferences, TabRailPage, TabRailScope};
+use sikemux_view::prefs::{Preferences, ProjectSort, TabRailPage, TabRailScope};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
 use crate::agents::rows::AgentRow;
@@ -87,6 +87,7 @@ impl Rails {
             goal_focus: None,
             all_harnesses: false,
             folded_teams: HashSet::new(),
+            folded_groups: Vec::new(),
             seen: Default::default(),
             scroll: Default::default(),
             glide: Default::default(),
@@ -106,6 +107,12 @@ impl Rails {
         self.page = preferences.tab_rail_page;
         self.all_projects = preferences.tab_rail_scope == TabRailScope::All;
         self.all_harnesses = preferences.tab_rail_all_agents;
+        self.folded_groups
+            .clone_from(&preferences.folded_rail_groups);
+    }
+
+    pub(crate) fn folded(&self, group: &str) -> bool {
+        self.folded_groups.iter().any(|folded| folded == group)
     }
 }
 
@@ -139,6 +146,8 @@ pub struct Rails {
     pub(crate) all_harnesses: bool,
     /// The leads whose teams the agent rail folds away.
     pub(crate) folded_teams: std::collections::HashSet<String>,
+    /// The rail groups folded away, by key, such as `pinned`.
+    pub(crate) folded_groups: Vec<String>,
     /// The agent rows the rail drew last, for telling the rows that have just arrived.
     pub(crate) seen: std::cell::RefCell<crate::agents::RailSeen>,
     /// The tab rail's list of agents and chats, whose foot brings older chats into view.
@@ -192,16 +201,21 @@ pub fn side_rail(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEle
                 .child(
                     Group::new("Projects", empty)
                         .first()
-                        .actions(actions(
-                            keymap::hint(actions::OpenProject::ID, cx),
-                            [
-                                IconButton::new("add-project", Icon::Plus, "Open project")
-                                    .on_click(|_, window, cx| {
-                                        keymap::dispatch(actions::OpenProject::ID, window, cx)
-                                    }),
-                            ],
-                            cx,
-                        ))
+                        .actions(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(SPACE_0)
+                                .children((listed.len() > 1).then(|| project_sort(bench, cx)))
+                                .child(actions(
+                                    keymap::hint(actions::OpenProject::ID, cx),
+                                    [IconButton::new("add-project", Icon::Plus, "Open project")
+                                        .on_click(|_, window, cx| {
+                                            keymap::dispatch(actions::OpenProject::ID, window, cx)
+                                        })],
+                                    cx,
+                                )),
+                        )
                         .toolbar((!listed.is_empty()).then(|| space_switch(bench, cx)))
                         .children(projects),
                 )
@@ -767,6 +781,39 @@ fn split_version(version: &str) -> (String, Option<String>) {
         Some((release, channel)) => (release.into(), Some(channel.replacen('.', " ", 1))),
         None => (version.into(), None),
     }
+}
+
+/// The menu that sorts the projects: the one worked in last first, the first added first, or
+/// as the person drags them.
+fn project_sort(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
+    let chosen = bench.project_sort();
+    let choose = Rc::new(cx.listener(|bench, sort: &ProjectSort, _, _| {
+        crate::settings::set(bench, PreferenceChange::ProjectSort(*sort));
+    }));
+    ui::menu_button(
+        "project-sort",
+        gpui_kit::Anchor::TopRight,
+        IconButton::new("project-sort-button", Icon::Sort, "Sort projects").small(),
+        move |mut popup, _, cx| {
+            popup = popup.label("Sort projects");
+            for (sort, label) in [
+                (ProjectSort::Recent, "Recent"),
+                (ProjectSort::Created, "Created"),
+                (ProjectSort::Manual, "Manual"),
+            ] {
+                let choose = choose.clone();
+                let row = ui::MenuRow::new(label)
+                    .when(sort == ProjectSort::Manual, |row| row.hint("drag"));
+                popup = popup.item(
+                    row.item(cx)
+                        .checked(sort == chosen)
+                        .on_click(move |_, window, cx| choose(&sort, window, cx)),
+                );
+            }
+            popup
+        },
+    )
+    .into_any_element()
 }
 
 fn actions<const N: usize>(
@@ -1684,6 +1731,7 @@ impl Workbench {
             PreferenceChange::TabRailPage(page),
             PreferenceChange::TabRailScope(scope),
             PreferenceChange::TabRailAllAgents(self.rails.all_harnesses),
+            PreferenceChange::FoldedRailGroups(self.rails.folded_groups.clone()),
             PreferenceChange::WindowView(self.window_view),
             PreferenceChange::RecentCommandKeys(recent),
         ];
@@ -1693,6 +1741,26 @@ impl Workbench {
                 crate::settings::set(self, change);
             }
         }
+    }
+
+    /// The order the side rail lists projects in.
+    pub(crate) fn project_sort(&self) -> ProjectSort {
+        self.preferences
+            .as_ref()
+            .map_or_else(ProjectSort::default, |preferences| preferences.project_sort)
+    }
+
+    /// Folds the rail group `key` away, or opens it again, and keeps that.
+    pub fn fold_group(&mut self, key: &str, cx: &mut Context<Self>) {
+        let folded = &mut self.rails.folded_groups;
+        match folded.iter().position(|kept| kept == key) {
+            Some(at) => {
+                folded.remove(at);
+            }
+            None => folded.push(key.to_owned()),
+        }
+        self.keep_rails(cx);
+        cx.notify();
     }
 
     /// Opens both rails when either is closed, else closes both.

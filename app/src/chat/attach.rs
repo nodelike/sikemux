@@ -31,7 +31,7 @@ use super::mention::{AGENT, COMMAND, EARLIER, FILE, FOLDER, TRACKED};
 use super::Composing;
 use crate::agents::rows::AgentRow;
 use crate::core::ChatAsk;
-use crate::drag::DraggedPath;
+use crate::drag::{DraggedChat, DraggedPath};
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XS};
@@ -561,11 +561,25 @@ pub fn on_paste(
 }
 
 /// Files dropped on a composer's pane, from Finder or from the file tree, go with its next
-/// message.
+/// message, and a chat dragged from the agent rail goes in it as context.
 pub fn takes_drops(pane: Div, agent: &str, this: WeakEntity<Workbench>) -> Div {
     let agent = agent.to_owned();
     let (from_tree, from_tree_agent) = (this.clone(), agent.clone());
-    pane.on_drop(move |dropped: &ExternalPaths, window, cx| {
+    let (from_rail, from_rail_agent) = (this.clone(), agent.clone());
+    let own = agent.clone();
+    pane.can_drop(move |value, _, _| {
+        value
+            .downcast_ref::<DraggedChat>()
+            .is_none_or(|chat| takes_chat(chat, &own))
+    })
+    .on_drop(move |dropped: &DraggedChat, window, cx| {
+        from_rail
+            .update(cx, |bench, cx| {
+                bench.mention_chat(&from_rail_agent, dropped, window, cx)
+            })
+            .ok();
+    })
+    .on_drop(move |dropped: &ExternalPaths, window, cx| {
         this.update(cx, |bench, cx| {
             bench.attach(&agent, dropped.paths().to_vec(), window, cx)
         })
@@ -580,9 +594,31 @@ pub fn takes_drops(pane: Div, agent: &str, this: WeakEntity<Workbench>) -> Div {
     })
 }
 
-/// What shows over a composer's pane while files are dragged over it, saying where they go.
-pub fn drop_hint(words: &'static str, cx: &App) -> Div {
+/// Whether `agent`'s composer takes `chat` as context: any chat but its own that names an
+/// agent or a saved chat.
+fn takes_chat(chat: &DraggedChat, agent: &str) -> bool {
+    (chat.agent.is_some() || chat.recent.is_some())
+        && chat.agent.as_ref().is_none_or(|(id, _)| id != agent)
+}
+
+/// What shows over a composer's pane while files or a chat are dragged over it, saying where
+/// they go: `words` for files, and whose chat goes in as context for a chat.
+pub fn drop_hint(words: &'static str, agent: &str, bench: &Workbench, cx: &App) -> Div {
     let t = Tokens::get(cx).clone();
+    let dragged = crate::drag::dragged_chat(bench);
+    let takes = dragged.is_some_and(|chat| takes_chat(chat, agent));
+    let chat = dragged.filter(|_| takes).map(|chat| {
+        let named = chat.agent.as_ref().map(|(_, name)| format!("@{name}"));
+        let title = chat.label.clone();
+        match named {
+            Some(named) => (format!("Add {named} as context"), Some(title)),
+            None => (format!("Add \"{title}\" as context"), None),
+        }
+    });
+    let (words, under) = match chat {
+        Some((words, under)) => (SharedString::from(words), under),
+        None => (SharedString::from(words), None),
+    };
     div()
         .absolute()
         .inset(px(10.))
@@ -598,9 +634,20 @@ pub fn drop_hint(words: &'static str, cx: &App) -> Div {
             ..t.surface_sunken
         })
         .invisible()
+        .flex_col()
+        .gap(SPACE_1)
         .drag_over::<ExternalPaths>(|style, _, _, _| style.visible())
         .drag_over::<DraggedPath>(|style, _, _, _| style.visible())
+        .when(takes, |hint| {
+            hint.drag_over::<DraggedChat>(|style, _, _, _| style.visible())
+        })
         .child(ui::text(words, TEXT_SM, FontWeight::MEDIUM).text_color(t.text_primary))
+        .children(under.map(|under| {
+            ui::text(under, TEXT_XS, FontWeight::NORMAL)
+                .max_w(px(320.))
+                .truncate()
+                .text_color(t.text_tertiary)
+        }))
 }
 
 /// A tag in the draft as a chip, with the glyph `mark` gives it.

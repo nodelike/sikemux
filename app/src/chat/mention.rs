@@ -27,6 +27,7 @@ use sikemux_view::workspace::ProjectInfo;
 use sikemux_wire::protocol::ChatContext;
 
 use super::Composing;
+use crate::drag::DraggedChat;
 use crate::icons::Icon;
 use crate::ui::{self, DockMenu, DockRow, DockScope};
 use crate::workbench::Workbench;
@@ -639,6 +640,52 @@ impl Workbench {
                 menu._ranking = Some(ranking);
             }
         }
+    }
+
+    /// Puts a chat dragged from the agent rail into `agent`'s draft at the caret, as naming it
+    /// with `@` does: its agent, for the core to describe, or a closed chat, which the core opens
+    /// again for the message.
+    pub fn mention_chat(
+        &mut self,
+        agent: &str,
+        chat: &DraggedChat,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(composing) = self.composing_mut(agent) else {
+            return;
+        };
+        let token = match (&chat.agent, &chat.recent) {
+            (Some((id, name)), _) => {
+                Some(InlineToken::new(format!("{AGENT}{id}"), format!("@{name}")))
+            }
+            (None, Some(recent)) => {
+                let uri = recent
+                    .split_once(':')
+                    .map(|(cli, session)| format!("{EARLIER_URI}{cli}/{session}"));
+                if let Some(uri) =
+                    uri.filter(|uri| !composing.context.iter().any(|held| held.uri == *uri))
+                {
+                    composing.context.push(ChatContext {
+                        uri,
+                        title: chat.label.to_string(),
+                        text: String::new(),
+                    });
+                }
+                None
+            }
+            (None, None) => None,
+        };
+        composing.draft.update(cx, |draft, cx| {
+            if let Some(token) = token {
+                if let Err(error) = draft.replace_with_token(token, window, cx) {
+                    eprintln!("sikemux: a dropped chat did not go into the draft: {error}");
+                }
+                draft.replace(" ", window, cx);
+            }
+            draft.focus_handle(cx).focus(window, cx);
+        });
+        cx.notify();
     }
 
     /// Moves the menu's pick by `by`, round its ends.

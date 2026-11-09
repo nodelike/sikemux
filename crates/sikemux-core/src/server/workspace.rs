@@ -26,6 +26,7 @@ use crate::launch::providers::{Helper, Providers, Wiring};
 use crate::launch::{skills, AgentSpec, PermissionMode};
 use crate::sessions::recent::{self as saved_chats, RecentProvider, RecentRequest};
 use sikemux_view::device::RecentInfo;
+use sikemux_view::prefs::{PreferenceChange, ProjectSort};
 use sikemux_view::workspace::{
     AgentBuddy, Backdrop, LauncherInfo, PinnedChat, ProjectInfo, SpaceInfo, Workspace,
     WorkspaceAgent,
@@ -525,6 +526,7 @@ impl Workspaces {
                 name,
                 path,
                 pinned: false,
+                added_at: epoch_ms(),
                 space: None,
                 code_hosts: Default::default(),
                 identity: None,
@@ -607,6 +609,38 @@ impl Workspaces {
             }
             Ok(())
         });
+    }
+
+    /// When each project was last worked in, by id: its newest saved chat or agent.
+    pub(crate) fn last_active(&self) -> HashMap<String, u64> {
+        let published = self.published.locked();
+        let saved = &published.saved;
+        let mut last: HashMap<String, u64> = HashMap::new();
+        let mut note = |project: &str, at: u64| {
+            let kept = last.entry(project.to_owned()).or_default();
+            *kept = (*kept).max(at);
+        };
+        for chat in &published.recent {
+            if let Some(project) = saved.projects.iter().find(|p| p.path == chat.project) {
+                note(&project.id, chat.active_at);
+            }
+        }
+        for kept in &saved.agents {
+            note(&kept.agent.project, kept.agent.created_at);
+        }
+        last
+    }
+
+    /// Lists the projects in the order of `ids`, leaving any it misses after them.
+    fn order_projects(&self, ids: &[String]) -> CoreResult<()> {
+        self.change(|saved| {
+            saved.projects.sort_by_key(|project| {
+                ids.iter()
+                    .position(|id| *id == project.id)
+                    .unwrap_or(usize::MAX)
+            });
+            Ok(())
+        })
     }
 
     fn move_project(&self, id: &str, index: usize) -> CoreResult<()> {
@@ -1347,8 +1381,33 @@ pub struct MoveProjectParams {
     pub index: usize,
 }
 
+/// Moves a project to `index` of the list as clients show it. A list sorted by recency or by
+/// when projects were added becomes the order the person drags from then on.
 pub(crate) fn move_project(core: &Core, params: MoveProjectParams) -> CoreResult<()> {
+    if core.preferences.get().project_sort != ProjectSort::Manual {
+        let shown: Vec<String> = (core.workspace_view().projects.into_iter())
+            .map(|project| project.id)
+            .collect();
+        core.workspaces.order_projects(&shown)?;
+        super::preferences::set(core, PreferenceChange::ProjectSort(ProjectSort::Manual))?;
+    }
     core.workspaces.move_project(&params.id, params.index)
+}
+
+/// Puts `projects` in the order the person chose: the one worked in last first, the first
+/// added first, or as they dragged them, the order they are kept in.
+pub(crate) fn sort_projects(
+    projects: &mut [ProjectInfo],
+    sort: ProjectSort,
+    last_active: &HashMap<String, u64>,
+) {
+    match sort {
+        ProjectSort::Manual => {}
+        ProjectSort::Created => projects.sort_by_key(|project| project.added_at),
+        ProjectSort::Recent => projects.sort_by_key(|project| {
+            std::cmp::Reverse(last_active.get(&project.id).copied().unwrap_or(0))
+        }),
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1663,6 +1722,7 @@ mod tests {
             name: "sikemux".into(),
             path: "/Users/me/sikemux".into(),
             pinned: false,
+            added_at: 0,
             space: None,
             code_hosts: Default::default(),
             identity: None,

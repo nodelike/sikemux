@@ -223,6 +223,7 @@ pub(crate) fn set(core: &Core, change: PreferenceChange) -> CoreResult<Preferenc
             super::backdrop::follow(core);
         }
         PreferenceChange::OnboardingComplete(_) => super::about::introduced(core)?,
+        PreferenceChange::ProjectSort(_) => core.changed(What::ViewNow),
         _ => {}
     }
     core.theme_changed();

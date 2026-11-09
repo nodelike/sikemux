@@ -1,10 +1,12 @@
 //! An agent as the rails and tabs show it, and which agents each place lists.
 
 use gpui_kit::{AnyElement, App};
+use sikemux_core::server::call;
+use sikemux_core::server::workspace::PinnedParams;
 use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::inbox::{AgentShown, TeamLink};
 use sikemux_view::layout::PaneKind;
-use sikemux_view::workspace::AgentFace;
+use sikemux_view::workspace::{AgentFace, PinnedChat};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
 use crate::copies::Folded;
@@ -128,12 +130,59 @@ impl Workbench {
             .collect()
     }
 
-    /// The project's pinned chats, held by an agent or not.
+    /// The project's pinned chats, held by an agent or not, in the order the person keeps them.
     pub fn pinned_of(&self, project: &str) -> Vec<&RecentInfo> {
-        self.chats_of(project)
+        let order = self.pin_order();
+        let mut pins: Vec<&RecentInfo> = self
+            .chats_of(project)
             .into_iter()
             .filter(|recent| recent.pinned)
-            .collect()
+            .collect();
+        pins.sort_by_key(|pin| order.iter().position(|id| *id == pin.id));
+        pins
+    }
+
+    /// Every pinned chat, as the core lists it, in the order the person keeps them.
+    fn pin_order(&self) -> Vec<String> {
+        self.shown().map_or_else(Vec::new, |view| {
+            (view.workspace.pinned.iter())
+                .map(|pin| format!("{}:{}", pin.provider, pin.session_id))
+                .collect()
+        })
+    }
+
+    /// Moves the pinned chat `chat` to `index` among the project's pinned chats, keeping the
+    /// other projects' where they are.
+    pub fn move_pin(&self, chat: &str, index: usize) {
+        let Some(view) = self.shown() else { return };
+        let Some(project) = self.project().map(|project| project.id.clone()) else {
+            return;
+        };
+        let mut shown: Vec<String> = self
+            .pinned_of(&project)
+            .iter()
+            .map(|pin| pin.id.clone())
+            .collect();
+        let Some(from) = shown.iter().position(|id| id == chat) else {
+            return;
+        };
+        let moved = shown.remove(from);
+        shown.insert(index.min(shown.len()), moved);
+        let mut pins = view.workspace.pinned.clone();
+        let id = |pin: &PinnedChat| format!("{}:{}", pin.provider, pin.session_id);
+        let slots: Vec<usize> = (0..pins.len())
+            .filter(|&at| shown.contains(&id(&pins[at])))
+            .collect();
+        let kept = pins.clone();
+        for (slot, chat) in slots.iter().zip(&shown) {
+            if let Some(pin) = kept.iter().find(|pin| id(pin) == *chat) {
+                pins[*slot] = pin.clone();
+            }
+        }
+        if pins != view.workspace.pinned {
+            self.target()
+                .call_typed::<call::SetPinnedChats>(PinnedParams { chats: pins });
+        }
     }
 
     /// The saved chat the agent holds, once the core lists it.

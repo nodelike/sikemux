@@ -152,6 +152,7 @@ icons!(
     ShieldBolt => "shield-bolt",
     Signoz => "signoz",
     Slack => "slack",
+    Sort => "sort",
     Sparkle => "sparkle",
     SquarePlus => "square-plus",
     Stack => "stack",

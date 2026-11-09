@@ -135,16 +135,19 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     if let Some(focus) = &bench.rails.goal_focus {
         rows.insert(0, goal_focus_row(&focus.title, cx));
     }
+    let moving = bench.pin_move.as_ref().filter(|_| cx.has_active_drag());
     let pinned: Vec<_> = pins
         .iter()
-        .map(|pin| {
-            match held
+        .enumerate()
+        .map(|(index, pin)| {
+            let row = match held
                 .iter()
                 .find(|agent| pin.agent_id.as_deref() == Some(agent.id.as_str()))
             {
                 Some(agent) => agent_row(bench, agent, None, None, false, cx).into_any_element(),
                 None => recent_row(bench, pin, cx),
-            }
+            };
+            crate::drag::pinned(row, &pin.id, index, moving, &cx.entity()).into_any_element()
         })
         .collect();
     let mut recent: Vec<_> = project
@@ -154,7 +157,7 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
         .filter(|recent| !recent.pinned || bench.rails.all_projects)
         .map(|recent| recent_row(bench, recent, cx))
         .collect();
-    if bench.has_older() && !recent.is_empty() {
+    if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
         recent.push(older_when_seen(bench, cx));
     }
     let empty = (rows.is_empty() && pinned.is_empty() && recent.is_empty()).then(|| {
@@ -274,15 +277,36 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                     )
                 })
                 .when(!pinned.is_empty(), |scroll| {
-                    scroll.child(Group::new("Pinned", "").children(pinned))
+                    scroll.child(
+                        folding(Group::new("Pinned", ""), PINNED, bench, cx).children(pinned),
+                    )
                 })
                 .when(!recent.is_empty(), |scroll| {
-                    scroll.child(Group::new("Recent", "").children(recent))
+                    scroll.child(
+                        folding(Group::new("Recent", ""), RECENT, bench, cx).children(recent),
+                    )
                 }),
             cx,
         ))
         .children(limits(bench, cx))
         .into_any_element()
+}
+
+/// The keys the agent rail's groups are kept folded under.
+const PINNED: &str = "pinned";
+const RECENT: &str = "recent";
+
+/// `group` folding on a click on its heading, and staying folded under `key` across restarts.
+pub(crate) fn folding(
+    group: Group,
+    key: &'static str,
+    bench: &Workbench,
+    cx: &mut Context<Workbench>,
+) -> Group {
+    group.folds(
+        bench.rails.folded(key),
+        cx.listener(move |bench, _, _, cx| bench.fold_group(key, cx)),
+    )
 }
 
 fn header(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
@@ -520,10 +544,17 @@ fn recent_row(bench: &Workbench, recent: &RecentInfo, cx: &mut Context<Workbench
     let (this, chat) = (cx.weak_entity(), recent.clone());
     let key = crate::agents::card::paused_key(&recent.id);
     let card = crate::agents::card::paused(bench, recent, cx);
-    div()
+    let dragged = crate::drag::DraggedChat {
+        agent: None,
+        recent: Some(recent.id.clone()),
+        pinned: recent.pinned,
+        label: recent.title.clone().into(),
+    };
+    let wrap = div()
         .id(SharedString::from(format!("recent-menu-{}", recent.id)))
         .group(RECENT_ROW)
-        .relative()
+        .relative();
+    crate::drag::chat(wrap, dragged, cx.weak_entity())
         .when(waiting > 0, |wrap| {
             let rest = key.clone();
             wrap.on_hover(cx.listener(move |bench, inside: &bool, _, cx| {
@@ -1082,10 +1113,18 @@ fn agent_row(
                 cx,
             ))
         });
-    div()
+    let chat = bench.chat_of(&agent.id);
+    let dragged = crate::drag::DraggedChat {
+        agent: agent.name.clone().map(|name| (agent.id.clone(), name)),
+        recent: chat.map(|chat| chat.id.clone()),
+        pinned: chat.is_some_and(|chat| chat.pinned),
+        label: agent.title.clone().into(),
+    };
+    let wrap = div()
         .id(SharedString::from(format!("agent-menu-{}", agent.id)))
         .group(AGENT_ROW)
-        .relative()
+        .relative();
+    crate::drag::chat(wrap, dragged, cx.weak_entity())
         .when(
             matches!(team, Some(TeamLink::Member | TeamLink::Last)),
             |wrap| wrap.pl(px(18.)),

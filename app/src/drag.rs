@@ -1,6 +1,7 @@
 //! What can be dragged around the window, and what each place does with it
-//! when it lands: tabs reorder in their strip, projects in the rail, and files
-//! move between folders, or go to a chat or a terminal.
+//! when it lands: tabs reorder in their strip, projects and pinned chats in the
+//! rails, files move between folders or go to a chat or a terminal, and a chat
+//! from the agent rail goes to another chat as context.
 
 use std::path::{Path, PathBuf};
 
@@ -15,6 +16,7 @@ use crate::theme::{Tokens, SPACE_1, SPACE_2H, TEXT_XS};
 use crate::workbench::{Strip, Workbench};
 use sikemux_core::server::call;
 use sikemux_core::server::workspace::MoveProjectParams;
+use sikemux_view::prefs::ProjectSort;
 
 #[derive(Clone)]
 pub struct DraggedTab {
@@ -35,24 +37,69 @@ pub struct Reorder {
 }
 
 impl Reorder {
-    /// How far the tab at `index` slides to open the gap, while the drag goes on.
+    fn gap(&self) -> Gap {
+        Gap {
+            from: self.from,
+            to: self.to,
+            size: f32::from(self.width),
+        }
+    }
+
     pub fn shift(&self, index: usize) -> f32 {
-        let width = f32::from(self.width);
+        self.gap().shift(index)
+    }
+
+    pub fn slid(&self, index: usize) -> f32 {
+        self.gap().slid(index)
+    }
+}
+
+/// An item of a list on its way from one place in it to another, and how far the items it
+/// passes slide aside to open the gap it drops into.
+#[derive(Clone, Copy, PartialEq)]
+struct Gap {
+    from: usize,
+    to: usize,
+    size: f32,
+}
+
+impl Gap {
+    /// How far the item at `index` slides to open the gap, while the drag goes on.
+    fn shift(&self, index: usize) -> f32 {
         match () {
-            _ if self.from < index && index <= self.to => -width,
-            _ if self.to <= index && index < self.from => width,
+            _ if self.from < index && index <= self.to => -self.size,
+            _ if self.to <= index && index < self.from => self.size,
             _ => 0.,
         }
     }
 
-    /// How far the tab at `index` would have slid had the gap opened past it, which is where
+    /// How far the item at `index` would have slid had the gap opened past it, which is where
     /// it slides back from when the gap moves away.
-    pub fn slid(&self, index: usize) -> f32 {
-        let width = f32::from(self.width);
+    fn slid(&self, index: usize) -> f32 {
         match index.cmp(&self.from) {
-            std::cmp::Ordering::Greater => -width,
-            std::cmp::Ordering::Less => width,
+            std::cmp::Ordering::Greater => -self.size,
+            std::cmp::Ordering::Less => self.size,
             std::cmp::Ordering::Equal => 0.,
+        }
+    }
+}
+
+/// A pinned chat on its way to another place among the project's pinned chats.
+#[derive(Clone, PartialEq)]
+pub struct PinMove {
+    /// The chat, as the core lists it.
+    pub chat: String,
+    pub from: usize,
+    pub to: usize,
+    pub height: f32,
+}
+
+impl PinMove {
+    fn gap(&self) -> Gap {
+        Gap {
+            from: self.from,
+            to: self.to,
+            size: self.height,
         }
     }
 }
@@ -75,6 +122,17 @@ pub struct DraggedCard {
 #[derive(Clone)]
 pub struct DraggedPath {
     pub path: PathBuf,
+}
+
+/// An agent's or a saved chat's row of the agent rail, which a composer takes as context.
+#[derive(Clone)]
+pub struct DraggedChat {
+    /// The agent holding the chat, and its name, when one does.
+    pub agent: Option<(String, String)>,
+    /// The saved chat, as the core lists it, once it has one.
+    pub recent: Option<String>,
+    pub pinned: bool,
+    pub label: SharedString,
 }
 
 /// What follows the pointer while something is dragged: its name.
@@ -100,6 +158,128 @@ impl Render for Ghost {
 
 pub(crate) fn ghost(label: SharedString, cx: &mut App) -> Entity<Ghost> {
     cx.new(|_| Ghost { label })
+}
+
+/// A row of the agent rail that drags out as its chat. The ghost it trails is kept, so a
+/// composer can say whose chat it would take while the drag lasts.
+pub fn chat(
+    row: Stateful<Div>,
+    dragged: DraggedChat,
+    this: WeakEntity<Workbench>,
+) -> Stateful<Div> {
+    row.on_drag(dragged, move |dragged: &DraggedChat, _, _, cx| {
+        let ghost = ghost(dragged.label.clone(), cx);
+        let (held, dragged) = (ghost.downgrade(), dragged.clone());
+        let _ = this.update(cx, |bench, _| bench.chat_drag = Some((held, dragged)));
+        ghost
+    })
+}
+
+/// The chat a row of the agent rail is dragging now, while its drag lasts.
+pub fn dragged_chat(bench: &Workbench) -> Option<&DraggedChat> {
+    let (ghost, chat) = bench.chat_drag.as_ref()?;
+    ghost.upgrade().is_some().then_some(chat)
+}
+
+/// A pinned chat's row, which takes another pinned chat dragged over it: the rows between
+/// slide aside to open the gap it drops into, and the drop moves it there.
+pub fn pinned(
+    row: AnyElement,
+    chat: &str,
+    index: usize,
+    moving: Option<&PinMove>,
+    this: &Entity<Workbench>,
+) -> impl IntoElement {
+    let lifted = moving.is_some_and(|moving| moving.chat == chat);
+    let shift = moving.map_or(0., |moving| moving.gap().shift(index));
+    let back = moving.map_or(0., |moving| moving.gap().slid(index));
+    let slid = div()
+        .when(lifted, |row| row.opacity(0.))
+        .child(row)
+        .with_animation(
+            SharedString::from(format!("pin-slide-{chat}-{}", shift != 0.)),
+            gpui_kit::Animation::new(SLIDE).with_easing(gpui_kit::ease_out_quint()),
+            move |row, delta| {
+                let from = if shift != 0. { 0. } else { back };
+                row.relative().top(px(from + (shift - from) * delta))
+            },
+        );
+    let (own, this) = (chat.to_owned(), this.clone());
+    div()
+        .id(SharedString::from(format!("drag-pin-{chat}")))
+        .can_drop(|value, _, _| {
+            value
+                .downcast_ref::<DraggedChat>()
+                .is_some_and(|dragged| dragged.pinned)
+        })
+        .on_drag_move::<DraggedChat>({
+            let this = this.clone();
+            move |event, _, cx| {
+                if !event.bounds.contains(&event.event.position) {
+                    return;
+                }
+                let Some(dragged) = event
+                    .drag(cx)
+                    .recent
+                    .clone()
+                    .filter(|_| event.drag(cx).pinned)
+                else {
+                    return;
+                };
+                let height = f32::from(event.bounds.size.height);
+                let itself = own == dragged;
+                this.update(cx, |bench, cx| {
+                    pin_over(bench, dragged, index, itself, height, cx)
+                });
+            }
+        })
+        .on_drop(move |dropped: &DraggedChat, _, cx| {
+            let Some(chat) = dropped.recent.clone() else {
+                return;
+            };
+            this.update(cx, |bench, cx| {
+                bench.pin_move = None;
+                bench.move_pin(&chat, index);
+                cx.notify();
+            })
+        })
+        .child(slid)
+}
+
+/// Notes the place among the pinned chats a dragged one is over, which the rows between slide
+/// aside for.
+fn pin_over(
+    bench: &mut Workbench,
+    chat: String,
+    index: usize,
+    itself: bool,
+    height: f32,
+    cx: &mut Context<Workbench>,
+) {
+    let Some(project) = bench.project().map(|project| project.id.clone()) else {
+        return;
+    };
+    let Some(from) = bench
+        .pinned_of(&project)
+        .iter()
+        .position(|pin| pin.id == chat)
+    else {
+        return;
+    };
+    let height = match (&bench.pin_move, itself) {
+        (Some(moving), false) if moving.chat == chat => moving.height,
+        _ => height,
+    };
+    let next = PinMove {
+        chat,
+        from,
+        to: index,
+        height,
+    };
+    if bench.pin_move.as_ref() != Some(&next) {
+        bench.pin_move = Some(next);
+        cx.notify();
+    }
 }
 
 /// A strip's tab that can be dragged to another place in its strip. While a tab of
@@ -222,16 +402,21 @@ pub fn project(
         })
         .on_drop(move |dropped: &DraggedProject, _, cx| {
             let (id, target) = (dropped.id.clone(), target.clone());
-            this.update(cx, |bench, _| {
+            this.update(cx, |bench, cx| {
                 let Some(index) = (bench.this_view().into_iter())
                     .flat_map(|view| &view.workspace.projects)
                     .position(|project| project.id == target)
                 else {
                     return;
                 };
-                if id != target {
-                    crate::core::Target::here(&bench.asks)
-                        .call_typed::<call::MoveProject>(MoveProjectParams { id, index });
+                if id == target {
+                    return;
+                }
+                crate::core::Target::here(&bench.asks)
+                    .call_typed::<call::MoveProject>(MoveProjectParams { id, index });
+                if bench.project_sort() != ProjectSort::Manual {
+                    let note = crate::toast::info("Projects now keep the order you drag them in");
+                    bench.notify(note, cx);
                 }
             })
         })

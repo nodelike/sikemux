@@ -180,7 +180,12 @@ pub(super) fn home(pane: &mut GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElem
                 .child(composer.into_element().isolated())
         }))
         .when(cx.has_active_drag(), |home| {
-            let hint = crate::chat::drop_hint("Drop files or folders to go with the work", cx);
+            let hint = crate::chat::drop_hint(
+                "Drop files or folders to go with the work",
+                START,
+                bench.read(cx),
+                cx,
+            );
             home.child(gpui_kit::deferred(hint))
         })
         .into_any_element()

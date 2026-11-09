@@ -111,6 +111,8 @@ export interface ProjectInfo {
     name: string;
     path: string;
     pinned?: boolean;
+    /** When it was added to this host, in Unix milliseconds. */
+    addedAt?: number;
     /** The space it is shown in, by id; none shows it in every space. */
     space?: string;
     /**
@@ -2457,6 +2459,10 @@ export interface Preferences {
     tabRailScope: TabRailScope;
     /** The tab rail lists every agent's chats rather than one agent's. */
     tabRailAllAgents: boolean;
+    /** The rails' groups the person folded, by key, such as `pinned`. */
+    foldedRailGroups: string[];
+    /** The order the side rail lists projects in. */
+    projectSort: ProjectSort;
     /** What the window shows: the workbench, or the goals. */
     windowView: WindowView;
     /** The commands the person ran from the command deck, the last first. */
@@ -2610,6 +2616,12 @@ export type TabRailPage = "agents" | "terminals" | "files";
 
 /** Whose agents the tab rail lists: the project in front's, or every project's. */
 export type TabRailScope = "project" | "all";
+
+/**
+ * The order projects are listed in: last worked in first, first added first, or as the
+ * person dragged them.
+ */
+export type ProjectSort = "recent" | "created" | "manual";
 
 /** What the window shows in place of the other. */
 export type WindowView = "workbench" | "goals";
