@@ -549,11 +549,11 @@ fn name_line() -> Div {
     div().h(px(16.)).flex().items_center().gap(SPACE_1H)
 }
 
-/// The agent's name, the account or how old its numbers are, and how many more it has.
+/// The agent's name, its one account or how old its numbers are, and how many more it has.
 fn names(view: &View, agent: &Agent, shown: &Shown, cx: &App) -> Div {
     let t = Tokens::get(cx);
     let detail = (shown.age(view.now).map(|age| format!("read {age}")))
-        .or_else(|| (!agent.unnamed(shown)).then(|| shown.name.clone()));
+        .or_else(|| (agent.others() == 0 && !agent.unnamed(shown)).then(|| shown.name.clone()));
     div()
         .flex_1()
         .min_w_0()
