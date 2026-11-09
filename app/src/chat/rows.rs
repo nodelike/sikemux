@@ -617,20 +617,18 @@ fn answer_thread(
     let asker = &answers[0];
     let answered = answers.iter().enumerate().map(|(at, letter)| {
         let files = letter.attachments.iter().enumerate().map(|(index, path)| {
+            let id = format!("{}:{}:{index}", row.message.id, letter_doc(first + at));
+            let path = PathBuf::from(path);
             let bench = looks.bench.clone();
-            attach::carried(
-                format!("{}:{}:{index}", row.message.id, letter_doc(first + at)),
-                PathBuf::from(path),
-                Some(index + 1),
-                move |path, window, cx| {
-                    bench
-                        .update(cx, |bench, cx| bench.show_picture(path, window, cx))
-                        .ok();
-                },
-                looks.file_pressed(),
-                t,
-                cx,
-            )
+            let open = move |path, window: &mut Window, cx: &mut App| {
+                bench
+                    .update(cx, |bench, cx| bench.show_picture(path, window, cx))
+                    .ok();
+            };
+            match attach::is_image(&path) {
+                true => attach::thumbnail(id, path, open, t),
+                false => attach::file_pill(id, path, looks.file_pressed(), t, cx),
+            }
         });
         Answered {
             question: &letter.question,

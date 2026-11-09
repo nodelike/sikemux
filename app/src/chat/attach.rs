@@ -34,7 +34,7 @@ use crate::core::ChatAsk;
 use crate::drag::DraggedPath;
 use crate::hosts::Place;
 use crate::icons::Icon;
-use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, TEXT_SM};
+use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, TEXT_SM, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -1076,7 +1076,7 @@ pub fn sent(
 
 /// One file a message carried: a picture as a tile that opens over the window, with the number its
 /// `[Image #n]` tag in the text names when it has one, or any other file by name.
-pub fn carried(
+fn carried(
     id: String,
     path: PathBuf,
     tag: Option<usize>,
@@ -1127,5 +1127,85 @@ pub fn carried(
         .tooltip(path.to_string_lossy().into_owned())
         .media(tile)
         .on_click(move |_, window, cx| open(path.clone(), window, cx))
+        .into_any_element()
+}
+
+/// A picture sent with an answer, as a square thumbnail that opens over the window.
+pub fn thumbnail(
+    id: String,
+    path: PathBuf,
+    open: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
+    t: &Tokens,
+) -> gpui_kit::AnyElement {
+    let picture = crate::picture::Picture::File(path.clone()).source_at(px(128.));
+    div()
+        .id(SharedString::from(id))
+        .size(px(64.))
+        .flex_none()
+        .rounded(px(7.))
+        .overflow_hidden()
+        .border_1()
+        .border_color(t.border)
+        .bg(t.surface_sunken)
+        .cursor_pointer()
+        .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+            open(path.clone(), window, cx)
+        })
+        .child(
+            gpui_kit::img(picture)
+                .size_full()
+                .object_fit(gpui_kit::ObjectFit::Cover),
+        )
+        .into_any_element()
+}
+
+/// A file sent with an answer, as a slim pill with its icon and name that opens it.
+pub fn file_pill(
+    id: String,
+    path: PathBuf,
+    file: super::files::FilePressed,
+    t: &Tokens,
+    cx: &App,
+) -> gpui_kit::AnyElement {
+    let name = crate::ui::path::file_name(&path).to_owned();
+    let icon = crate::file_icons::icon(&SharedString::from(name.clone()), cx)
+        .map(|icon| gpui_kit::img(icon).size(px(14.)).into_any_element())
+        .unwrap_or_else(|| {
+            ui::icon(Icon::File, 13.)
+                .text_color(t.text_tertiary)
+                .into_any_element()
+        });
+    let (full, menu_full, menu_file) = (
+        path.to_string_lossy().into_owned(),
+        path.to_string_lossy().into_owned(),
+        file.clone(),
+    );
+    div()
+        .id(SharedString::from(id))
+        .h(px(30.))
+        .pl(SPACE_2)
+        .pr(SPACE_2H)
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .rounded(px(7.))
+        .border_1()
+        .border_color(t.border)
+        .text_size(crate::theme::ui_text(TEXT_XS))
+        .text_color(t.text_secondary)
+        .cursor_pointer()
+        .hover(|pill| pill.bg(t.surface_hover))
+        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+            let press = match event.click_count > 1 {
+                true => FilePress::OpenTwice,
+                false => FilePress::Open,
+            };
+            file(&full, press, window, cx);
+        })
+        .on_mouse_down(MouseButton::Right, move |event, window, cx| {
+            menu_file(&menu_full, FilePress::Menu(event.position), window, cx);
+        })
+        .child(icon)
+        .child(name)
         .into_any_element()
 }
