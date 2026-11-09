@@ -4,7 +4,7 @@ use serde_json::json;
 use sikemux_process::sync::Locked;
 use tokio::task;
 
-use super::discovery::{install_gopls, install_jdtls};
+use super::discovery::{install_by_brew, install_gopls};
 use super::documents::{
     change_document, change_document_incremental, open_document, restore_last_change,
 };
@@ -34,9 +34,14 @@ pub(crate) async fn lsp_install_server(language: String) -> LspResult<String> {
         "go" => task::spawn_blocking(install_gopls)
             .await
             .map_err(|e| LspError::new(format!("join: {e}")))?,
-        "java" => task::spawn_blocking(install_jdtls)
+        "java" => task::spawn_blocking(|| install_by_brew("jdtls", "jdtls"))
             .await
             .map_err(|e| LspError::new(format!("join: {e}")))?,
+        "kotlin" => {
+            task::spawn_blocking(|| install_by_brew("JetBrains/utils/kotlin-lsp", "kotlin-lsp"))
+                .await
+                .map_err(|e| LspError::new(format!("join: {e}")))?
+        }
         _ => Err(LspError::new(format!(
             "no language-server installer configured for `{language}`"
         ))),
