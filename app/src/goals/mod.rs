@@ -42,6 +42,7 @@ use crate::agents::menu::AgentMenu;
 use crate::board::ChangesBoards;
 use crate::chat::Chats;
 use crate::core::{self, Ask};
+use crate::hosts::HostChoice;
 use crate::theme::{Tokens, SPACE_1H, TEXT_SM};
 use crate::ui;
 use crate::workbench::Workbench;
@@ -443,7 +444,7 @@ impl GoalsPane {
     }
 
     /// Opens what an inbox item is about: an agent's question or assumption in its chat, a pull
-    /// request's page, else its slice or goal here or its card on the project's board, else its
+    /// request's page, a host's alert on its Hosts page, else its slice or goal here or its card on the project's board, else its
     /// agent's chat.
     fn open(&mut self, item: &InboxItem, cx: &mut Context<Self>) {
         let agent = item.agent_id.clone();
@@ -454,6 +455,14 @@ impl GoalsPane {
         match (item.kind, &item.card, &item.url) {
             (InboxKind::SeededRules, ..) => return self.go(At::Home, cx),
             (InboxKind::ProposedEnvironments, ..) => return self.go(At::Environments, cx),
+            (InboxKind::HostAlert, ..) => {
+                let host = (item.host.clone()).unwrap_or_else(|| HostChoice::This.key().into());
+                let _ = self.bench.update(cx, |bench, cx| {
+                    bench.show_workbench(cx);
+                    bench.open_hosts(Some(host));
+                });
+                return;
+            }
             (InboxKind::PullRequest, _, Some(url)) => return self.open_url(agent, url.clone(), cx),
             (_, Some(inbox), _) if !in_chat || agent.is_none() => {
                 if let Some(card) = (self.board_of(&inbox.project))

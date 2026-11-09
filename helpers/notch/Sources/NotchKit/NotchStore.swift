@@ -215,9 +215,12 @@ final class NotchStore {
         }
     }
 
-    /// Shows what the entry is about: its agent in Sikemux, or else its pull request.
+    /// Shows what the entry is about: its agent in Sikemux, a host's alert on Sikemux's Hosts page, or else its pull
+    /// request.
     func open(_ entry: Entry) {
-        if let agentId = entry.agentId {
+        if let item = entry.item, item.kind == .hostAlert {
+            openHosts(item.host ?? "this")
+        } else if let agentId = entry.agentId {
             focus(agentId)
         } else if let url = entry.item?.url.flatMap(URL.init(string:)) {
             NSWorkspace.shared.open(url)
@@ -247,6 +250,15 @@ final class NotchStore {
         NSApp.activate(ignoringOtherApps: true)
         NSApp.yieldActivation(to: running)
         running.activate()
+    }
+
+    /// Opens Sikemux's Hosts page on `host` with a link only this helper's own app follows, since Sikemux and Sikemux
+    /// Dev both answer `sikemux://`.
+    func openHosts(_ host: String) {
+        guard let app = options.app, app.hasSuffix(".app"),
+              let key = host.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let url = URL(string: "sikemux://hosts/\(key)") else { return openApp() }
+        NSWorkspace.shared.open([url], withApplicationAt: URL(fileURLWithPath: app), configuration: NSWorkspace.OpenConfiguration())
     }
 
     func openApp() {

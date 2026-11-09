@@ -97,7 +97,7 @@ struct AgentList: View {
     let marks: Namespace.ID
 
     var body: some View {
-        if store.entries.isEmpty {
+        if store.entries.isEmpty && store.view.hostAlerts.isEmpty {
             VStack(spacing: 14) {
                 Text("No agents open").font(Theme.ui(13)).foregroundStyle(Theme.inkDim)
                 Button {
@@ -121,6 +121,9 @@ struct AgentList: View {
         } else {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
+                    ForEach(store.view.hostAlerts) { alert in
+                        HostAlertRow(store: store, entry: alert)
+                    }
                     ForEach(store.entries) { entry in
                         if entry.mark == .needs {
                             AskCard(store: store, island: island, entry: entry, marks: marks)
@@ -156,6 +159,38 @@ struct EntryRow: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(hovering ? Theme.hover : .clear))
                 .modifier(CalledWave(calledAt: entry.calledAt))
                 .contentShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+    }
+}
+
+/// A host in trouble: the server in amber, or red once it is serious, what is wrong with how long, then the host.
+struct HostAlertRow: View {
+    let store: NotchStore
+    let entry: Entry
+    @State private var hovering = false
+
+    var body: some View {
+        Button {
+            store.open(entry)
+        } label: {
+            HStack(spacing: 10) {
+                IconView(icon: Icons.server, size: 16)
+                    .foregroundStyle(entry.item?.hostAlert?.level == .danger ? Theme.danger : Theme.warn)
+                    .frame(width: 20, height: 20)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(entry.item?.what ?? "").font(Theme.ui(13, .medium)).foregroundStyle(Theme.ink).lineLimit(1)
+                    SinceText(mark: .needs, since: entry.since).fixedSize()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Text(entry.title).font(Theme.ui(11.5)).foregroundStyle(Theme.inkDim).lineLimit(1)
+                    .frame(maxWidth: 150, alignment: .trailing).fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            .background(RoundedRectangle(cornerRadius: 12).fill(hovering ? Theme.hover : .clear))
+            .contentShape(RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }

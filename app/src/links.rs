@@ -3,6 +3,7 @@
 //! can hold one, so a folder that is not already a project is opened only once the person
 //! agrees. `sikemux://slice/<card>?repo=<owner/name>`, which a pull request's description
 //! holds, opens that slice in the project whose code host repository it names.
+//! `sikemux://hosts/<host>` opens the Hosts page on that host, as the notch's alerts do.
 
 use std::path::PathBuf;
 
@@ -52,6 +53,23 @@ fn parse(link: &str) -> Option<Resume> {
         session,
         project,
     })
+}
+
+/// The host a `sikemux://hosts/<host>` link names, empty for every host.
+fn hosts_link(link: &str) -> Option<String> {
+    let url = Url::parse(link).ok()?;
+    if url.scheme() != "sikemux" || url.host_str() != Some("hosts") {
+        return None;
+    }
+    let host = url
+        .path_segments()
+        .and_then(|mut parts| parts.find(|part| !part.is_empty()))
+        .map(|part| {
+            percent_encoding::percent_decode_str(part)
+                .decode_utf8_lossy()
+                .into_owned()
+        });
+    Some(host.unwrap_or_default())
 }
 
 /// Takes what the system hands this app to open: each `sikemux://` link, such as one clicked
@@ -127,6 +145,10 @@ pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
             bench.notify(toast::error(format!("No project here is {repo}")), cx);
         }
         return;
+    }
+    if let Some(host) = hosts_link(link) {
+        bench.show_workbench(cx);
+        return bench.open_hosts(Some(host).filter(|host| !host.is_empty()));
     }
     let resume = parse(link).filter(|resume| {
         bench

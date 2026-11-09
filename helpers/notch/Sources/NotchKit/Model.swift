@@ -112,6 +112,11 @@ func agentName(_ provider: String) -> String {
 }
 
 extension DeviceView {
+    /// What about a host on the account needs the person, each its own row above the agents.
+    var hostAlerts: [Entry] {
+        inbox.items.filter { $0.kind == .hostAlert }.map { Entry(item: $0, agent: nil, ask: nil) }
+    }
+
     /// Every open agent in the main list once, in the order the core lists them on every device, each with what the inbox says about it
     /// and the question it asks from `questions`. Agents on other hosts the inbox lists follow; items that are not about
     /// an agent are left out.

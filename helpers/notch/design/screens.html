@@ -176,6 +176,9 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: def
 .row:hover { background: rgba(255, 255, 255, 0.07); }
 .mark { width: 20px; height: 20px; flex: 0 0 auto; }
 .mark svg { width: 20px; height: 20px; display: block; }
+.mark.host { display: grid; place-items: center; color: var(--warn); }
+.mark.host.danger { color: var(--danger); }
+.mark.host svg { width: 16px; height: 16px; }
 /* A buddy moves as a whole, as the app's do; its eyes and sparkles stay still, as the island's do. */
 .island svg { overflow: visible; }
 @media (prefers-reduced-motion: no-preference) {
@@ -550,6 +553,7 @@ async function loadIcons() {
         agent: icon("IconAgent", 10),
         command: icon("IconCommand", 11),
         timer: icon("IconTimer", 11),
+        server: icon("IconServer", 16),
     };
 }
 const MARK = `<img src="../../../brand/mark/mark-white.svg" alt="">`;
@@ -692,6 +696,7 @@ class Island {
         this.display = opts.display || "notch";
         this.channel = opts.channel || "prod";
         this.agents = opts.agents || freshAgents();
+        this.alerts = opts.alerts || [];
         this.mode = opts.mode || "closed";
         this.tab = opts.tab || "agents";
         this.peekAgent = opts.peekAgent || null;
@@ -892,7 +897,12 @@ class Island {
                     <div style="margin-top:14px"><button class="btn primary" data-tab="new">${GLYPH.plus.replace("<svg", '<svg width="12" height="12"')} New agent</button></div></div>`;
             } else {
                 const items = listed(this.agents);
-                body = items.map((a, i) => `
+                body = this.alerts.map((h) => `
+                    <div class="row">
+                        <span class="mark host${h.level === "danger" ? " danger" : ""}">${GLYPH.server}</span>
+                        <span class="head"><span class="title">${h.what}</span><span class="time">${h.time}</span></span>
+                        <span class="proj">${h.host}</span>
+                    </div>`).join("") + items.map((a, i) => `
                     ${a.tier === "needs" ? `
                         <div class="ask">
                             <div class="ask-head">
@@ -1198,6 +1208,9 @@ const SECTIONS = [
             { id: "O5", name: "Finished work", when: "Opened while turns wait to be seen.",
               shows: "Changes to review, then finished turns, newest first, each with how long ago; one that ran into a problem has a red dot. Every row counts what its agent still has going: ✦ subagents in green, >_ shells and monitors in amber, and an agent that waits shows how long until a trigger it set wakes it, ⏱ 18m beside the pink timer. When an agent is named with @ or messaged by another agent, a band of light passes once over its row, as on the app's rail; here Birch's repeats so it can be seen.",
               opts: { agents: () => only(["a2", "a4", "a10", "a11"]), mode: "open" } },
+            { id: "O6", name: "A host in trouble", when: "Opened while a host on the account is short of memory or disk, busy on every core, or out of reach.",
+              shows: "Above the agents, a row for each alert: the server in amber, or red once it is serious, what is wrong with how long ago, then the host's name. Clicking it opens the Hosts page in Sikemux on that host.",
+              opts: { agents: () => only(["a2", "a4", "a11"]), alerts: [{ host: "mini", what: "Memory 92% used", time: "2:04", level: "danger" }, { host: "forge", what: "CPU 97% busy", time: "20:31", level: "warn" }], mode: "open" } },
         ],
     },
     {
@@ -1234,7 +1247,7 @@ const OPTIONS = [
 ];
 
 const FLOW = [
-    [["state", "C1–C7", "Closed", "closed"], ["arrow", "rest 0.3 s"], ["state", "O1–O5", "Open", "open"], ["arrow", "leave 0.1 s"], ["state", "C1–C7", "Closed", "closed"]],
+    [["state", "C1–C7", "Closed", "closed"], ["arrow", "rest 0.3 s"], ["state", "O1–O6", "Open", "open"], ["arrow", "leave 0.1 s"], ["state", "C1–C7", "Closed", "closed"]],
     [["event", "", "Something needs you"], ["arrow", ""], ["state", "P1", "Needs you", "P1"], ["arrow", "6 s"], ["state", "C3", "Needs you", "C3"]],
     [["event", "", "Device asks to connect"], ["arrow", ""], ["state", "P3", "Connect", "P3"], ["arrow", "answer"], ["state", "C1–C7", "Closed", "closed"]],
     [["event", "", "Agent finishes"], ["arrow", ""], ["state", "P2", "Finished", "P2"], ["arrow", "3 s"], ["state", "C4", "Done", "C4"]],

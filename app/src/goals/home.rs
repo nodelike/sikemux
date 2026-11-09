@@ -19,6 +19,7 @@ use sikemux_core::server::board::BoardPassParams;
 use sikemux_core::server::board::HandOnParams as BoardHandOnParams;
 use sikemux_core::server::call;
 use sikemux_core::server::questions::AnswerParams;
+use sikemux_view::host_stats::AlertLevel;
 use sikemux_view::inbox::{
     InboxItem, InboxKind, InboxLook, InboxNeed, LookPicture, RaisedFor, ShipHold, SwarmDecision,
 };
@@ -217,6 +218,12 @@ fn call_kind(item: &InboxItem) -> Option<(&'static str, Tone)> {
         (InboxKind::Ship, _) => Some(("Leaves this Mac", Tone::Warn)),
         (InboxKind::Permission, _) => Some(("Access", Tone::Plain)),
         (InboxKind::PullRequest, _) => Some(("Review", Tone::Plain)),
+        (InboxKind::HostAlert, _) => {
+            Some(match item.host_alert.as_ref().map(|alert| alert.level) {
+                Some(AlertLevel::Danger) => ("Host", Tone::Failed),
+                _ => ("Host", Tone::Warn),
+            })
+        }
         (_, _) if item.stalled.is_some() => Some(("Stalled", Tone::Failed)),
         (_, Some(InboxNeed::Fix)) => Some(("Failed", Tone::Failed)),
         (_, Some(InboxNeed::Unblock)) => Some(("Unblock", Tone::Plain)),
@@ -1171,6 +1178,7 @@ fn call_buttons(
     }
     let (label, variant) = match item.need {
         _ if item.kind == InboxKind::SeededRules => ("Review", Variant::Primary),
+        _ if item.kind == InboxKind::HostAlert => ("Host details", Variant::Primary),
         Some(InboxNeed::Fix) => ("See why", Variant::Primary),
         Some(InboxNeed::Unblock) => ("Unblock", Variant::Primary),
         _ if item.kind == InboxKind::Question => ("Answer", Variant::Primary),

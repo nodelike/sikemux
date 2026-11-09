@@ -31,6 +31,7 @@ const LINE_ICONS = {
   stack: "IconStack",
   globe: "IconGlobe",
   timer: "IconTimer",
+  server: "IconServer",
 };
 
 // Line icons the app fills from its stylesheet rather than from the icon itself.

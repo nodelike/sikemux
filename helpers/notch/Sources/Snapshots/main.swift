@@ -74,7 +74,11 @@ let fixture = #"""
     {"id": "agent:a2", "tier": "progress", "kind": "working", "heading": "Refactor the auth middleware", "about": "Refactor the auth middleware", "agentId": "a2", "name": "Flint", "cli": "codex", "projectName": "server",
      "title": "Refactor the auth middleware", "what": "Working", "at": AGO(252)},
     {"id": "agent:a3", "tier": "progress", "kind": "working", "heading": "Draft the notch spec", "about": "Draft the notch spec", "agentId": "a3", "name": "Wren", "cli": "opencode", "projectName": "sikemux",
-     "title": "Draft the notch spec", "what": "Working", "at": AGO(48)}
+     "title": "Draft the notch spec", "what": "Working", "at": AGO(48)},
+    {"id": "host-alert:here:memory", "tier": "needs", "kind": "hostAlert", "heading": "mini", "what": "Memory 92% used", "at": AGO(124),
+     "hostAlert": {"kind": "memory", "level": "danger", "since": AGO(124), "percent": 92}},
+    {"id": "host-alert:forge:cpu", "tier": "needs", "kind": "hostAlert", "heading": "forge", "what": "CPU 97% busy", "at": AGO(1231), "host": "forge",
+     "hostAlert": {"kind": "cpu", "level": "warn", "since": AGO(1231), "percent": 97}}
   ]}
 }
 """#
@@ -133,13 +137,13 @@ let agents = faces.isEmpty ? decoded.inbox.agents : decoded.inbox.agents.enumera
 }
 let full = DeviceView(
     workspace: decoded.workspace, attentions: decoded.attentions,
-    inbox: Inbox(items: decoded.inbox.items, working: decoded.inbox.working, agents: agents, rollup: decoded.inbox.rollup),
+    inbox: Inbox(items: decoded.inbox.items.filter { $0.kind != .hostAlert }, working: decoded.inbox.working, agents: agents, rollup: decoded.inbox.rollup),
     faceStyle: decoded.faceStyle
 )
 
 func view(keeping ids: Set<String>?) -> DeviceView {
     guard let ids else { return full }
-    let items = full.inbox.items.filter { $0.agentId.map(ids.contains) ?? false }
+    let items = decoded.inbox.items.filter { $0.agentId.map(ids.contains) ?? ids.contains($0.id) }
     let agents = full.inbox.agents.filter { ids.contains($0.agentId) }
     return DeviceView(
         workspace: full.workspace,
@@ -264,6 +268,7 @@ if arguments.contains("--film") {
 render("C1-idle", agents: [])
 render("C7-subagents-and-shells", agents: ["a2", "a5"])
 render("O5-finished", agents: ["a2", "a4", "a10", "a11"], height: 340) { $0.mode = .open }
+render("O6-host-alerts", agents: ["a2", "a4", "a11", "host-alert:here:memory", "host-alert:forge:cpu"], height: 320) { $0.mode = .open }
 render("C2-working", agents: ["a2", "a3"])
 render("C3-needs-you")
 render("C4-done", agents: ["a4", "a10", "a11"])
