@@ -69,6 +69,8 @@ pub enum Update {
     ShutDown,
     /// Where remote access stands, whenever it changes.
     Remote(Box<RemoteStatus>),
+    /// A terminal's process ended, with its exit code when that could be read.
+    TerminalExited(SessionId, Option<u32>),
     /// Something the core says the person should hear about an agent, such as it needing them.
     Notice {
         title: String,
@@ -1272,6 +1274,9 @@ async fn run(
                             }
                             Some(ClientEvent::Event(Event::FocusAgent { agent_id })) => {
                                 let _ = updates.send(Update::FocusAgent(agent_id));
+                            }
+                            Some(ClientEvent::Event(Event::Exited { id, code, .. })) => {
+                                let _ = updates.send(Update::TerminalExited(id, code));
                             }
                             Some(ClientEvent::Event(Event::Network { change })) => {
                                 if change != NetworkChange::Offline {

@@ -226,6 +226,7 @@ pub enum Variant {
 /// A labelled button, optionally with a leading icon and a trailing shortcut.
 #[derive(IntoElement)]
 pub struct Button {
+    solid: Option<(Hsla, Hsla)>,
     id: ElementId,
     label: SharedString,
     icon: Option<Icon>,
@@ -254,6 +255,7 @@ impl Selectable for Button {
 impl Button {
     pub fn new(id: impl Into<ElementId>, label: impl Into<SharedString>, variant: Variant) -> Self {
         Self {
+            solid: None,
             id: id.into(),
             label: label.into(),
             icon: None,
@@ -283,6 +285,12 @@ impl Button {
     /// Dimmed, and does nothing when clicked.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// A borderless fill that hides what is behind it, for a button on a busy ground.
+    pub fn solid(mut self, rest: Hsla, hovered: Hsla) -> Self {
+        self.solid = Some((rest, hovered));
         self
     }
 
@@ -390,6 +398,16 @@ impl RenderOnce for Button {
                     if lit { t.text_primary } else { t.text_tertiary },
                 )),
         };
+        let base = base.when_some(self.solid, |button, (rest, hovered)| {
+            button
+                .h(px(26.))
+                .border_0()
+                .bg(rest)
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_size(crate::theme::ui_text(TEXT_2XS))
+                .text_color(t.text_primary)
+                .hover(move |button| button.bg(hovered))
+        });
         let base = base.when(self.wide, |button| {
             button
                 .w_full()

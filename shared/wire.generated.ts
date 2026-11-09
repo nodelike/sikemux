@@ -2348,6 +2348,8 @@ export interface Preferences {
     shareUsageData: boolean;
     /** The person went through the first-run introduction. */
     onboardingComplete: boolean;
+    /** An install or sign-in has been tried during it, so a relaunch can still offer a way past. */
+    onboardingTried: boolean;
     /** The release whose notes the person last saw. */
     lastSeenVersion: string;
     /** The first launch already asked macOS to let Sikemux notify. */

@@ -125,6 +125,9 @@ impl Workbench {
                     .voice
                     .update(cx, |voice, cx| voice.network_changed(change, cx));
             }
+            Update::TerminalExited(session, code) => {
+                crate::agents::setup::exited(self, session, code, cx);
+            }
             Update::Remote(status) => {
                 let was_required = self.remote.as_ref().map(|remote| &remote.update_required);
                 if was_required != Some(&status.update_required) {

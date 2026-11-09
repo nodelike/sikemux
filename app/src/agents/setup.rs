@@ -5,12 +5,14 @@
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     anchored, deferred, div, point, px, AnchoredPositionMode, AnyElement, Context, Div, Entity,
-    Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful, Styled, Window,
+    FocusHandle, Hsla, InteractiveElement, IntoElement, ParentElement, Pixels, Stateful, Styled,
+    Window,
 };
 use sikemux_core::agent_accounts::status::AgentStatus;
 use sikemux_core::server::agent_accounts::{Account, Forget};
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
+use sikemux_view::prefs::PreferenceChange;
 use sikemux_wire::protocol::{SessionId, TerminalSpawn};
 use tokio::sync::oneshot;
 
@@ -31,6 +33,9 @@ pub struct Found {
     program: Option<String>,
     pub status: AgentStatus,
 }
+
+/// How many exits are kept in case a spawn's reply is still on its way.
+const MAX_EXITS_KEPT: usize = 16;
 
 #[derive(Clone)]
 enum Phase {
@@ -65,6 +70,11 @@ pub enum Doing {
 }
 
 impl Sheet {
+    /// What it runs, as the person would read it.
+    pub fn shown_command(&self) -> &str {
+        &self.shown
+    }
+
     fn doing(&self) -> Doing {
         match self.install {
             true => Doing::Installing,
@@ -80,8 +90,12 @@ pub struct Setup {
     pub found: Option<Vec<Found>>,
     sheet: Option<Sheet>,
     behind: Vec<Sheet>,
-    /// An install or sign-in has failed since this was last cleared.
-    pub failed: bool,
+    /// An install or sign-in ended, however it did, since this was last cleared.
+    pub ended: bool,
+    /// Status is being read again at the person's asking.
+    pub checking: bool,
+    /// The last exits heard, for a command whose spawn reply came after its exit.
+    exits: Vec<(SessionId, Option<u32>)>,
 }
 
 /// How an install running with no sheet is going.
@@ -117,6 +131,18 @@ impl Setup {
         self.sheet
             .as_ref()
             .is_some_and(|sheet| sheet.session == Some(session))
+    }
+
+    /// Whether a sheet is up, running or not.
+    pub fn shown(&self) -> bool {
+        self.sheet.is_some()
+    }
+
+    /// Whether the sheet's command stopped short.
+    pub fn sheet_failed(&self) -> bool {
+        self.sheet
+            .as_ref()
+            .is_some_and(|sheet| matches!(sheet.phase, Phase::Failed(_) | Phase::Refused(_)))
     }
 
     /// Whether the sheet's command is still going, which another must wait for.
@@ -195,6 +221,7 @@ pub fn read(bench: &Workbench, cx: &mut Context<Workbench>) {
                     }
                 })
                 .collect();
+            bench.agent_setup.checking = false;
             bench.agent_setup.found = Some(found);
             redraw(bench, cx);
         });
@@ -365,18 +392,29 @@ fn start(bench: &mut Workbench, sheet: Sheet, cx: &mut Context<Workbench>) {
                 .iter_mut()
                 .chain(setup.behind.iter_mut())
                 .find(|sheet| sheet.kind == kind && sheet.session.is_none());
-            if let Some(sheet) = waiting {
-                match session {
-                    Ok(Ok(session)) => sheet.session = Some(session),
-                    Ok(Err(error)) => sheet.phase = Phase::Refused(error),
-                    Err(_) => sheet.phase = Phase::Refused("the core is not connected".into()),
+            let refused = match (waiting, session) {
+                (Some(sheet), Ok(Ok(session))) => {
+                    sheet.session = Some(session);
+                    false
                 }
-                setup.failed |= setup
-                    .sheet
-                    .iter()
-                    .chain(setup.behind.iter())
-                    .any(|sheet| matches!(sheet.phase, Phase::Refused(_)));
+                (Some(sheet), Ok(Err(error))) => {
+                    sheet.phase = Phase::Refused(error);
+                    true
+                }
+                (Some(sheet), Err(_)) => {
+                    sheet.phase = Phase::Refused("the core is not connected".to_owned());
+                    true
+                }
+                (None, Ok(Ok(session))) => {
+                    let _ = bench.asks.send(Ask::Terminal(session, TerminalAsk::Kill));
+                    false
+                }
+                (None, _) => false,
+            };
+            if refused {
+                note_tried(bench);
             }
+            settle(bench, cx);
             redraw(bench, cx);
         });
     })
@@ -384,28 +422,66 @@ fn start(bench: &mut Workbench, sheet: Sheet, cx: &mut Context<Workbench>) {
     redraw(bench, cx);
 }
 
+/// Remembers that a step has ended, across a relaunch, so the setup can offer a way past it.
+fn note_tried(bench: &mut Workbench) {
+    bench.agent_setup.ended = true;
+    let preferences = bench.preferences();
+    if !preferences.onboarding_complete && !preferences.onboarding_tried {
+        crate::settings::set(bench, PreferenceChange::OnboardingTried(true));
+    }
+}
+
+/// Reads again where every agent stands, past what the core last heard.
+pub fn recheck(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+    bench.agent_setup.checking = true;
+    redraw(bench, cx);
+    let forgot =
+        Target::here(&bench.asks).request_typed::<call::ForgetAgentStatus>(Forget::default());
+    cx.spawn(async move |bench, cx| {
+        let _ = forgot.await;
+        let _ = bench.update(cx, |bench, cx| read(bench, cx));
+    })
+    .detach();
+}
+
+/// Hears that a terminal's process ended, which comes before the core drops it from the list.
+pub fn exited(
+    bench: &mut Workbench,
+    session: SessionId,
+    code: Option<u32>,
+    cx: &mut Context<Workbench>,
+) {
+    let setup = &mut bench.agent_setup;
+    setup.exits.push((session, code));
+    let over = setup.exits.len().saturating_sub(MAX_EXITS_KEPT);
+    setup.exits.drain(..over);
+    settle(bench, cx);
+}
+
 /// Moves on every sheet whose command ended, as the core's view says. A session the core has
 /// dropped without saying how it ended counts as stopped, so the sheet never waits forever.
 pub fn settle(bench: &mut Workbench, cx: &mut Context<Workbench>) {
-    let Some(view) = bench.this_view() else {
-        return;
-    };
-    let listed: Vec<(SessionId, Option<Option<u32>>)> = view
-        .sessions
+    let listed: Vec<(SessionId, Option<Option<u32>>)> = bench
+        .this_view()
+        .map_or(&[][..], |view| view.sessions.as_slice())
         .iter()
         .map(|session| (session.id, session.exit.as_ref().map(|exit| exit.code)))
         .collect();
+    let has_view = bench.this_view().is_some();
     let setup = &mut bench.agent_setup;
+    let exits = setup.exits.clone();
     let mut over = Vec::new();
     for sheet in setup.sheet.iter_mut().chain(setup.behind.iter_mut()) {
         let (Some(session), Phase::Running) = (sheet.session, &sheet.phase) else {
             continue;
         };
-        match listed.iter().find(|(id, _)| *id == session) {
-            Some((_, Some(code))) => over.push((session, *code)),
-            Some(_) => sheet.seen = true,
-            None if sheet.seen => over.push((session, None)),
-            None => {}
+        let heard = exits.iter().find(|(id, _)| *id == session);
+        match (heard, listed.iter().find(|(id, _)| *id == session)) {
+            (Some((_, code)), _) => over.push((session, *code)),
+            (None, Some((_, Some(code)))) => over.push((session, *code)),
+            (None, Some(_)) => sheet.seen = true,
+            (None, None) if sheet.seen && has_view => over.push((session, None)),
+            (None, None) => {}
         }
     }
     for (session, code) in over {
@@ -425,12 +501,13 @@ fn ended(
     };
     if code != Some(0) {
         sheet.phase = Phase::Failed(code);
-        bench.agent_setup.failed = true;
+        note_tried(bench);
         read(bench, cx);
         return redraw(bench, cx);
     }
     sheet.phase = Phase::Checking;
     let kind = sheet.kind.clone();
+    note_tried(bench);
     let config = bench
         .accounts
         .current(&kind)
@@ -458,17 +535,20 @@ fn ended(
 }
 
 /// Closes the sheet, ending its command when it still runs.
-fn close(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+pub fn close(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(sheet) = bench.agent_setup.sheet.take() else {
         return;
     };
+    if matches!(sheet.phase, Phase::Running | Phase::Checking) {
+        note_tried(bench);
+    }
     if let (Some(session), Phase::Running) = (sheet.session, &sheet.phase) {
         let _ = bench.asks.send(Ask::Terminal(session, TerminalAsk::Kill));
     }
     redraw(bench, cx);
 }
 
-fn again(bench: &mut Workbench, cx: &mut Context<Workbench>) {
+pub fn again(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(mut sheet) = bench.agent_setup.sheet.take() else {
         return;
     };
@@ -511,6 +591,7 @@ fn state(sheet: &Sheet) -> String {
 fn body(
     bench: &Workbench,
     this: &Entity<Workbench>,
+    lit: Option<SheetStop>,
     cx: &mut Context<Workbench>,
 ) -> Option<Stateful<Div>> {
     let sheet = bench.agent_setup.sheet.as_ref()?;
@@ -531,9 +612,11 @@ fn body(
     };
     let button = |id: &'static str,
                   label: &'static str,
+                  stop: SheetStop,
                   run: fn(&mut Workbench, &mut Context<Workbench>)| {
         let this = this.clone();
         ui::Button::new(id, label, ui::Variant::Outline)
+            .pressed(lit == Some(stop))
             .on_click(move |_, _, cx| this.update(cx, run))
     };
     let failed = matches!(sheet.phase, Phase::Failed(_) | Phase::Refused(_));
@@ -594,11 +677,17 @@ fn body(
                         .child(state(sheet)),
                 )
                 .when(failed, |foot| {
-                    foot.child(button("agent-sheet-again", "Try again", again))
+                    foot.child(button(
+                        "agent-sheet-again",
+                        "Try again",
+                        SheetStop::Again,
+                        again,
+                    ))
                 })
                 .child(button(
                     "agent-sheet-close",
                     if running { "Cancel" } else { "Close" },
+                    SheetStop::Close,
                     close,
                 )),
         );
@@ -610,9 +699,25 @@ pub fn inline(
     bench: &Workbench,
     this: &Entity<Workbench>,
     height: Pixels,
+    lit: Option<SheetStop>,
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
-    Some(body(bench, this, cx)?.h(height).into_any_element())
+    Some(body(bench, this, lit, cx)?.h(height).into_any_element())
+}
+
+/// Which of the command's buttons the keyboard stands on.
+#[derive(Clone, Copy, PartialEq)]
+pub enum SheetStop {
+    Again,
+    Close,
+}
+
+/// What takes the keys in the running command's terminal, once it has been drawn.
+pub fn terminal_focus(bench: &Workbench) -> Option<FocusHandle> {
+    let session = bench.agent_setup.sheet.as_ref()?.session?;
+    bench
+        .terminals
+        .focus_of(&crate::hosts::Place::This, session)
 }
 
 pub fn sheet(
@@ -622,7 +727,7 @@ pub fn sheet(
     cx: &mut Context<Workbench>,
 ) -> Option<AnyElement> {
     let t = Tokens::get(cx).clone();
-    let card = body(bench, this, cx)?
+    let card = body(bench, this, None, cx)?
         .w(px(760.))
         .h(px(520.))
         .bg(t.surface_overlay)

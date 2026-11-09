@@ -11,9 +11,9 @@ Tab and the arrows move between rows, Space ticks a project or runs an agent's a
 
 Each agent Sikemux can set up gets a tile saying where it stands: **ready**, **installed**, **signed out**, **not installed** or **won't start**. Pick the one that should start your first chat, with a click, Tab or the arrows.
 
-A tile that needs something offers it: **Install** and **Reinstall** run the agent's own installer, and **Sign in** runs its own sign-in, in a terminal under the tiles where you can watch it. If one fails, **Try again** appears on the tile. Return on a tile with an action runs it; Return on one that works continues with that agent.
+A tile that needs something offers it: **Install** and **Reinstall** run the agent's own installer, and **Sign in** runs its own sign-in, in a terminal under the tiles where you can watch it. The footer shows the exact command before it runs. If one fails, **Try again** appears on the tile. Return on a tile with an action runs it; Return on one that works continues with that agent. **Check again** reads every agent's status afresh, which also happens when you come back to the window.
 
-If an install or sign-in fails and no agent works, for example on a machine with no network, **Continue anyway** appears so you are never locked out.
+If an install or sign-in ends and still no agent works, for example on a machine with no network, **Continue anyway** appears so you are never locked out.
 
 The same list, with the same buttons, is under **Agents on this host** in **Settings → Installed**. The agent palette (`⌘⇧N`) also offers **Sign in to** a signed-out agent beside starting it.
 
@@ -29,6 +29,6 @@ To add a folder that isn't listed, use **Add folder…**, or type or paste its p
 
 Say what should get done first, pick the project and the agent from the chips, and press Return or **Start**. Sikemux adds your projects and opens a chat in that project with your message sent.
 
-**Just open Sikemux** adds your projects without starting a chat. If no agent is ready because setup failed, it is the only way forward.
+**Just open Sikemux** adds your projects and opens an empty chat on that agent, with nothing sent. If no agent is ready because setup failed, it opens your projects without a chat, and it is the only way forward.
 
 You can look at the setup again from the command deck (`⌘⇧P`, then **Show welcome**) or from **Settings → About**. Once you've finished it the first time, `esc` closes it.

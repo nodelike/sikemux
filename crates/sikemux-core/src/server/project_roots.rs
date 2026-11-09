@@ -63,10 +63,15 @@ pub struct ResolveParams {
 }
 
 pub(crate) fn resolve(params: ResolveParams) -> Resolved {
-    let path = expand_home(&params.path);
-    let kind = fs::metadata(&path)
-        .ok()
-        .map(|meta| if meta.is_dir() { "dir" } else { "file" }.to_owned());
+    let typed = expand_home(&params.path);
+    let path = fs::canonicalize(&typed).unwrap_or(typed);
+    let kind = match fs::metadata(&path) {
+        Ok(meta) if meta.is_dir() => Some("dir"),
+        Ok(_) => Some("file"),
+        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied => Some("denied"),
+        Err(_) => None,
+    }
+    .map(str::to_owned);
     Resolved {
         path: path.to_string_lossy().into_owned(),
         kind,

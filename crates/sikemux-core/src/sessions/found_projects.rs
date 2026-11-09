@@ -2,6 +2,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -13,6 +16,8 @@ const MAX_CHATS_PER_AGENT: usize = 4_000;
 const MAX_FOLDERS: usize = 512;
 const ACTIVE_WITHIN_MS: u64 = 30 * 24 * 60 * 60 * 1000;
 const ACTIVE_CHATS: u32 = 3;
+const MOST_SUGGESTED: usize = 8;
+const FOLDER_CHECK: Duration = Duration::from_secs(2);
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +25,7 @@ pub struct FoundProject {
     /// `owner/name` from the remote, or the folder's name.
     pub name: String,
     pub path: String,
+    /// The chats Recent will list under it, those that ran in this very folder.
     pub chats: u32,
     pub active_ms: u64,
     pub suggested: bool,
@@ -36,12 +42,15 @@ pub struct FoundProjects {
 #[derive(Clone, Copy, Default)]
 struct Activity {
     chats: u32,
+    /// Those of `chats` that ran in the folder itself rather than one inside it.
+    listed: u32,
     active_ms: u64,
 }
 
 impl Activity {
     fn add(&mut self, other: Activity) {
         self.chats += other.chats;
+        self.listed += other.listed;
         self.active_ms = self.active_ms.max(other.active_ms);
     }
 }
@@ -81,9 +90,9 @@ fn never_projects(home: Option<&Path>) -> Vec<PathBuf> {
 }
 
 /// Where a chat's folder counts as a project: the repository it is inside, or itself. Nothing
-/// for a folder that is gone, in a place that is never a project, or in a linked worktree.
-fn place_of(folder: &Path, home: Option<&Path>, never: &[PathBuf]) -> Option<Place> {
-    if !folder.is_dir() || never.iter().any(|place| folder.starts_with(place)) {
+/// for a folder that is gone or in a linked worktree.
+fn place_of(folder: &Path, home: Option<&Path>) -> Option<Place> {
+    if !folder.is_dir() {
         return None;
     }
     for ancestor in folder.ancestors() {
@@ -99,6 +108,13 @@ fn place_of(folder: &Path, home: Option<&Path>, never: &[PathBuf]) -> Option<Pla
         }
     }
     Some(Place::Folder(folder.to_path_buf()))
+}
+
+/// What `check` answers, unless a folder on a dead mount holds it past the limit.
+fn bounded<T: Send + 'static>(check: impl FnOnce() -> T + Send + 'static) -> Option<T> {
+    let (sender, answer) = mpsc::channel();
+    std::thread::spawn(move || drop(sender.send(check())));
+    answer.recv_timeout(FOLDER_CHECK).ok()
 }
 
 /// A submodule's `.git` file points into `modules/`, a linked worktree's into `worktrees/`.
@@ -137,6 +153,7 @@ fn activity_by_folder(providers: &[RecentProvider]) -> (Vec<(String, Activity)>,
     for hit in scans.into_iter().flatten() {
         folders.entry(hit.found.project).or_default().add(Activity {
             chats: 1,
+            listed: 1,
             active_ms: hit.at_ms,
         });
     }
@@ -145,7 +162,7 @@ fn activity_by_folder(providers: &[RecentProvider]) -> (Vec<(String, Activity)>,
     (folders, partial)
 }
 
-fn grouped(places: Vec<(Place, Activity)>) -> Vec<Group> {
+fn grouped(places: Vec<(Place, Activity)>, slow: &AtomicBool) -> Vec<Group> {
     let mut repositories: HashMap<PathBuf, Activity> = HashMap::new();
     let mut folders: HashMap<PathBuf, Activity> = HashMap::new();
     for (place, activity) in places {
@@ -157,7 +174,11 @@ fn grouped(places: Vec<(Place, Activity)>) -> Vec<Group> {
     let remotes: Vec<(PathBuf, Activity, Option<String>)> = repositories
         .into_par_iter()
         .map(|(path, activity)| {
-            let remote = main_remote(&path.to_string_lossy())
+            let asked = path.to_string_lossy().into_owned();
+            let remote = bounded(move || main_remote(&asked));
+            slow.fetch_or(remote.is_none(), Ordering::Relaxed);
+            let remote = remote
+                .flatten()
                 .map(|remote| normalized_remote(&remote))
                 .filter(|remote| !remote.is_empty());
             (path, activity, remote)
@@ -203,22 +224,33 @@ fn grouped(places: Vec<(Place, Activity)>) -> Vec<Group> {
 /// newest clone of an active repository is suggested, so one remote does not open twice.
 pub fn found_projects(providers: Vec<RecentProvider>, now_ms: u64) -> FoundProjects {
     let (mut folders, mut partial) = activity_by_folder(&providers);
+    let home = sikemux_process::paths::home();
+    let never = never_projects(home.as_deref());
+    folders.retain(|(folder, _)| {
+        !never
+            .iter()
+            .any(|place| Path::new(folder).starts_with(place))
+    });
     if folders.len() > MAX_FOLDERS {
         folders.truncate(MAX_FOLDERS);
         partial = true;
     }
-    let home = sikemux_process::paths::home();
-    let never = never_projects(home.as_deref());
+    let slow = AtomicBool::new(false);
     let places: Vec<(Place, Activity)> = folders
         .into_par_iter()
-        .filter_map(|(folder, activity)| {
-            Some((
-                place_of(Path::new(&folder), home.as_deref(), &never)?,
-                activity,
-            ))
+        .filter_map(|(folder, mut activity)| {
+            let (asked, home) = (PathBuf::from(&folder), home.clone());
+            let place = bounded(move || place_of(&asked, home.as_deref()));
+            slow.fetch_or(place.is_none(), Ordering::Relaxed);
+            let place = place??;
+            let (Place::Repository(top) | Place::Folder(top)) = &place;
+            if top != Path::new(&folder) {
+                activity.listed = 0;
+            }
+            Some((place, activity))
         })
         .collect();
-    let projects = grouped(places)
+    let mut projects: Vec<FoundProject> = grouped(places, &slow)
         .into_iter()
         .flat_map(|group| {
             let active = group.git
@@ -236,11 +268,17 @@ pub fn found_projects(providers: Vec<RecentProvider>, now_ms: u64) -> FoundProje
                 .map(move |(at, checkout)| FoundProject {
                     name: name.clone().unwrap_or_else(|| folder_name(&checkout.path)),
                     path: checkout.path.to_string_lossy().into_owned(),
-                    chats: checkout.activity.chats,
+                    chats: checkout.activity.listed,
                     active_ms: checkout.activity.active_ms,
                     suggested: active && at == 0,
                 })
         })
         .collect();
+    let mut suggestions = MOST_SUGGESTED;
+    for project in projects.iter_mut().filter(|project| project.suggested) {
+        project.suggested = suggestions > 0;
+        suggestions = suggestions.saturating_sub(1);
+    }
+    partial |= slow.into_inner();
     FoundProjects { projects, partial }
 }

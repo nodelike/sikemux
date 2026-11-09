@@ -771,14 +771,13 @@ async fn read_output(core: Arc<Core>, session: Arc<Session>) {
         }
         Some(PumpEnd::Eof) => {}
     }
-    // Terminals leave when their output ends, unless nobody was watching:
+    send_last_frames(&session);
+    // Terminals leave once their exit is reported, unless nobody was watching:
     // then the next client to open one sees how it ended. Completed tasks
     // stay, so a command that finished before its spawn reply arrived can
     // still be read, and so do agents, so one resumed after a crash starts
     // below its last screen.
-    if !session.is_task() && session.agent.is_none() && session.has_subscribers() {
-        core.remove_session(&session);
-    }
+    let leaves = !session.is_task() && session.agent.is_none() && session.has_subscribers();
     let _ = tokio::task::spawn_blocking(move || {
         let status = {
             let mut child = session.child.locked();
@@ -789,8 +788,27 @@ async fn read_output(core: Arc<Core>, session: Arc<Session>) {
             status
         };
         report_exit(&core, &session, status.as_ref());
+        if leaves {
+            core.remove_session(&session);
+        }
     })
     .await;
+}
+
+/// Sends everyone watching what the screen ended on, however recently they had a frame, since
+/// nothing follows it.
+fn send_last_frames(session: &Session) {
+    let mut screen = session.screen.locked();
+    session.subscribers.locked().retain(|stream, subscriber| {
+        let Some(frame) = screen.terminal.frame(&mut subscriber.view) else {
+            return true;
+        };
+        let sent = subscriber.client.send(encode_grid(*stream, &frame).into());
+        if !sent {
+            subscriber.client.forget_stream(*stream);
+        }
+        sent
+    });
 }
 
 pub(crate) fn stamp_exited(core: &Core, session: &Session) -> Option<u64> {

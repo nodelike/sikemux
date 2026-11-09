@@ -9,7 +9,7 @@ use super::AgentSession;
 use crate::agent_catalog::AgentKind;
 
 const MAX_PAGE: usize = 100;
-pub(crate) const MAX_PROJECTS: usize = 64;
+pub const MAX_PROJECTS: usize = 64;
 const MAX_EXCLUDED: usize = 512;
 
 #[derive(Clone, Deserialize)]

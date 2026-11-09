@@ -76,11 +76,28 @@ pub struct Tools {
     pub rnd: bool,
 }
 
+/// Whether a git that runs is here. A Mac without the developer tools has a stand-in at
+/// /usr/bin/git that only offers to install them.
+fn git_works() -> bool {
+    let Some(git) = find_executable("git") else {
+        return false;
+    };
+    if !cfg!(target_os = "macos") || git != std::path::Path::new("/usr/bin/git") {
+        return true;
+    }
+    sikemux_process::user_environment::command("/usr/bin/xcode-select")
+        .arg("-p")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
 pub(crate) async fn tools() -> CoreResult<Tools> {
     blocking(|| {
         Ok(Tools {
             shell: sikemux_pty::user_shell::configured_shell(),
-            git: find_executable("git").is_some(),
+            git: git_works(),
             brew: find_executable("brew").is_some(),
             aws: find_executable("aws").is_some(),
             rnd: find_executable("rnd").is_some(),

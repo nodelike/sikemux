@@ -521,6 +521,12 @@ impl Terminals {
             .unwrap_or_default()
     }
 
+    /// What takes the keys for `session`, once its terminal has been drawn.
+    pub fn focus_of(&self, place: &Place, session: SessionId) -> Option<FocusHandle> {
+        let key = self.key(place, session);
+        self.open.get(&key).map(|terminal| terminal.focus.clone())
+    }
+
     /// Attaches again after the connection came back, from a blank screen.
     pub fn reattach(&mut self, asks: &mpsc::UnboundedSender<Ask>) {
         for (session, terminal) in &mut self.open {

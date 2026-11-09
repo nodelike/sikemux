@@ -104,6 +104,8 @@ pub struct Preferences {
     pub share_usage_data: bool,
     /// The person went through the first-run introduction.
     pub onboarding_complete: bool,
+    /// An install or sign-in has been tried during it, so a relaunch can still offer a way past.
+    pub onboarding_tried: bool,
     /// The release whose notes the person last saw.
     pub last_seen_version: String,
     /// The first launch already asked macOS to let Sikemux notify.
@@ -219,6 +221,7 @@ preference_changes! {
     UpdateChannel update_channel: UpdateChannel,
     ShareUsageData share_usage_data: bool,
     OnboardingComplete onboarding_complete: bool,
+    OnboardingTried onboarding_tried: bool,
     LastSeenVersion last_seen_version: String,
     NotificationsIntroduced notifications_introduced: bool,
     KeptRunningNoticeShown kept_running_notice_shown: bool,
@@ -354,6 +357,7 @@ impl Default for Preferences {
             update_channel: UpdateChannel::default(),
             share_usage_data: true,
             onboarding_complete: false,
+            onboarding_tried: false,
             last_seen_version: String::new(),
             notifications_introduced: false,
             kept_running_notice_shown: false,
