@@ -2,7 +2,7 @@
 //! On a real first run nothing leaves it but finishing, and only finishing counts it done.
 
 use std::cell::Cell;
-use std::f32::consts::FRAC_PI_2;
+use std::f32::consts::PI;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -48,9 +48,18 @@ const ROW_HEIGHT_COMPACT: f32 = 32.;
 /// Across and down the window's grid of cells.
 const GRID: usize = 3;
 const STEPS: usize = 2;
-/// The longest primary label that leaves a small window's foot room for the dots.
-const LONGEST_BESIDE_DOTS: usize = 14;
 const ANSWER_SEED: f32 = 4.;
+/// The question cell's width and height at the smallest window and at a roomy one.
+const SMALLEST_CELL: (f32, f32) = (286., 180.);
+const ROOMIEST_CELL: (f32, f32) = (589., 366.);
+const TIGHT_COLUMN: f32 = 540.;
+/// A line of quiet actions in a narrow question cell.
+const ACTION_LINE: f32 = 18.;
+const REASON_SIZE: f32 = 13.;
+/// Rounding in the text estimates, which a line may overrun without being dropped.
+const FIT_SLACK: f32 = 1.5;
+/// How much of the fold passes before the step appears under the name.
+const FOLD_HOLD: f32 = 0.5;
 const LABEL_LINE: f32 = 1.4;
 const LOGO_FILL: f32 = 1.55;
 /// How much dither a tile gets for its state, in a roomy window and a small one.
@@ -65,19 +74,19 @@ const DENSITY_READY: Density = Density {
     compact: 0.182,
 };
 const DENSITY_INSTALLED: Density = Density {
-    roomy: 0.18,
+    roomy: 0.22,
     compact: 0.32,
 };
 const DENSITY_SIGNED_OUT: Density = Density {
-    roomy: 0.15,
+    roomy: 0.19,
     compact: 0.,
 };
 const DENSITY_MISSING: Density = Density {
-    roomy: 0.12,
+    roomy: 0.17,
     compact: 0.,
 };
 const DENSITY_FAILED: Density = Density {
-    roomy: 0.1,
+    roomy: 0.,
     compact: 0.,
 };
 const DENSITY_RUNNING: Density = Density {
@@ -88,6 +97,8 @@ const ANSWER_DENSITY: Density = Density {
     roomy: 0.16,
     compact: 0.182,
 };
+/// A bright colour is dimmed by its opacity; thinning its dots as far would leave only specks.
+const LEAST_DENSITY_FIT: f32 = 0.85;
 const RISE_MILLIS: u64 = 900;
 const FOLD_MILLIS: u64 = 280;
 const STEP_MILLIS: u64 = 200;
@@ -1027,6 +1038,60 @@ impl Room {
         self.pick(ROW_HEIGHT, ROW_HEIGHT_COMPACT)
     }
 
+    /// How far this window is from the smallest question cell towards the roomiest.
+    fn ease(self) -> f32 {
+        if self.compact {
+            return 0.;
+        }
+        let tall =
+            (self.height / GRID as f32 - SMALLEST_CELL.1) / (ROOMIEST_CELL.1 - SMALLEST_CELL.1);
+        let wide = (self.column() - SMALLEST_CELL.0) / (ROOMIEST_CELL.0 - SMALLEST_CELL.0);
+        tall.min(wide).clamp(0., 1.)
+    }
+
+    fn fit(self, roomy: f32, compact: f32) -> f32 {
+        compact + (roomy - compact) * self.ease()
+    }
+
+    /// The foot of a narrow question cell has room for the dots and the button alone.
+    fn tight(self) -> bool {
+        self.compact || self.column() < TIGHT_COLUMN
+    }
+
+    fn content(self) -> f32 {
+        self.column() - self.pad() * 2.
+    }
+
+    fn said_size(self) -> f32 {
+        self.fit(18., 13.)
+    }
+
+    fn said_height(self) -> f32 {
+        self.said_size() * self.fit(1.4, 1.25)
+    }
+
+    fn mono_size(self) -> f32 {
+        self.fit(13., 11.)
+    }
+
+    fn mono_height(self) -> f32 {
+        self.mono_size() * 1.3
+    }
+
+    fn line_gap(self) -> f32 {
+        self.fit(6., 2.)
+    }
+
+    /// What the question cell spends on its padding, a two-line heading and its foot.
+    fn question_frame(self) -> f32 {
+        self.fit(56., 34.)
+            + self.fit(62., 30.) * 1.04 * 2.
+            + self.fit(16., 3.)
+            + self.fit(12., 4.)
+            + self.fit(46., 30.)
+            + self.fit(34., 10.)
+    }
+
     fn list_inset(self) -> f32 {
         self.pick(18., 6.)
     }
@@ -1062,7 +1127,7 @@ fn mark_ink(kind: &str) -> [f32; 5] {
 /// Where each agent's dither gathers in its tile: its centre and reach, as shares of the tile.
 fn dots_anchor(kind: &str) -> [f32; 4] {
     match kind {
-        "claude" => [0.56, 0.47, 0.7, 0.62],
+        "claude" => [0.56, 0.47, 0.5, 0.45],
         "hermes" => [0.6, 0.34, 0.46, 0.5],
         "grok" => [0.82, 0.62, 0.38, 0.56],
         "pi" => [0.64, 0.56, 0.5, 0.34],
@@ -1124,28 +1189,69 @@ struct Question {
     extras: Vec<AnyElement>,
     primary: AnyElement,
     step: usize,
-    /// In a small window the dots give way when the foot has too much else to hold.
-    crowded: bool,
+    /// In a small window the dots give way to a long button.
+    dots: bool,
 }
 
 fn said(text: impl Into<SharedString>, ink: Hsla, room: Room) -> AnyElement {
     div()
-        .text_size(theme::ui_text(room.pick(18., 13.)))
-        .line_height(relative(1.4))
+        .text_size(theme::ui_text(room.said_size()))
+        .line_height(relative(room.fit(1.4, 1.25)))
         .text_color(ink)
         .child(text.into())
         .into_any_element()
 }
 
-fn said_mono(text: String, room: Room, t: &Tokens) -> AnyElement {
+fn said_mono(text: String, room: Room, t: &Tokens) -> Stateful<Div> {
     div()
+        .id(SharedString::from(text.clone()))
+        .min_w_0()
+        .truncate()
         .font_family(theme::MONO)
         .font_features(FontFeatures::disable_ligatures())
-        .text_size(theme::ui_text(room.pick(13., 11.)))
-        .line_height(relative(1.35))
+        .text_size(theme::ui_text(room.mono_size()))
+        .line_height(relative(1.3))
         .text_color(t.text_tertiary)
         .child(text)
-        .into_any_element()
+}
+
+/// A command as it can be shown in `fits` characters: whole when it fits, else broken before
+/// its longest word so a URL stays in one piece.
+fn command_lines(command: &str, fits: usize) -> Vec<String> {
+    let longest = command.split(' ').max_by_key(|word| word.len());
+    match longest.and_then(|word| command.find(word)) {
+        Some(at) if at > 0 && command.chars().count() > fits => vec![
+            command[..at].trim_end().to_owned(),
+            command[at..].to_owned(),
+        ],
+        _ => vec![command.to_owned()],
+    }
+}
+
+/// A failure in one short line: its first line, with paths cut to their last part and the
+/// agent named as people know it.
+fn short_reason(reason: &str, agent: &Found) -> String {
+    let line = reason.lines().next().unwrap_or(reason);
+    let line = line
+        .split_whitespace()
+        .map(|word| match word.rsplit_once('/') {
+            Some((_, last)) if !last.is_empty() => last,
+            _ => word,
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+        .replace("exit status: ", "status ");
+    match line.strip_prefix(&format!("{}:", agent.kind)) {
+        Some(rest) => format!("{}{rest}", agent.label),
+        None => line,
+    }
+}
+
+/// Whether a small window's foot can hold the dots beside a button of this label.
+fn dots_fit(label: &str, closes: bool, room: Room) -> bool {
+    let button = label.chars().count() as f32 * 13.5 * 0.5 + 50.;
+    let closing = if closes { 66. } else { 0. };
+    !room.compact || 43. + closing + button <= room.content()
 }
 
 fn progress_dots(step: usize, room: Room, t: &Tokens) -> Div {
@@ -1179,7 +1285,7 @@ fn question_cell(
         extras,
         primary,
         step,
-        crowded,
+        dots,
     } = question;
     if welcome.git_missing {
         let warning = if cfg!(target_os = "macos") {
@@ -1189,7 +1295,7 @@ fn question_cell(
         };
         lines.push(said(warning, t.warn, room));
     }
-    let dots = (!(room.compact && crowded)).then(|| progress_dots(step, room, t));
+    let dots = dots.then(|| progress_dots(step, room, t));
     let closes = (!welcome.required).then(|| {
         let this = this.clone();
         let ink = t.text_primary;
@@ -1197,7 +1303,7 @@ fn question_cell(
             .id("welcome-close")
             .flex_none()
             .cursor_pointer()
-            .text_size(theme::ui_text(room.pick(14., 12.)))
+            .text_size(theme::ui_text(room.fit(14., 12.)))
             .text_color(t.text_tertiary)
             .hover(move |close| close.text_color(ink))
             .on_mouse_down(MouseButton::Left, keep_press)
@@ -1205,59 +1311,57 @@ fn question_cell(
             .child("Esc closes")
     });
     div()
+        .overflow_hidden()
         .bg(t.surface_sunken)
-        .pt(px(room.pick(64., 34.)))
+        .pt(px(room.fit(56., 34.)))
         .px(px(room.pad()))
-        .pb(px(room.pick(44., 12.)))
+        .pb(px(room.fit(34., 10.)))
         .flex()
         .flex_col()
         .child(
             div()
-                .text_size(theme::ui_text(room.pick(62., 30.)))
+                .flex_none()
+                .text_size(theme::ui_text(room.fit(62., 30.)))
                 .font_weight(FontWeight::SEMIBOLD)
                 .letter_spacing(-0.035)
                 .line_height(relative(1.04))
                 .text_color(t.text_primary)
                 .child(title),
         )
-        .when(!lines.is_empty(), |cell| {
-            cell.child(
-                div()
-                    .mt(px(room.pick(16., 3.)))
-                    .flex()
-                    .flex_col()
-                    .gap(px(room.pick(6., 2.)))
-                    .children(lines),
-            )
-        })
         .child(
             div()
-                .mt_auto()
-                .pt(px(room.pick(16., 6.)))
+                .flex_1()
+                .min_h_0()
+                .overflow_hidden()
+                .mt(px(room.fit(16., 3.)))
                 .flex()
-                .flex_wrap()
+                .flex_col()
+                .gap(px(room.line_gap()))
+                .children(lines),
+        )
+        .child(
+            div()
+                .flex_none()
+                .pt(px(room.fit(12., 4.)))
+                .flex()
                 .items_center()
                 .justify_between()
-                .gap_y(px(6.))
+                .gap(px(room.fit(16., 8.)))
                 .child(
                     div()
                         .flex_none()
                         .flex()
                         .items_center()
-                        .gap(px(room.pick(14., 10.)))
+                        .gap(px(room.fit(14., 10.)))
                         .children(dots)
                         .children(closes),
                 )
                 .child(
                     div()
-                        .ml_auto()
-                        .max_w_full()
+                        .flex_none()
                         .flex()
-                        .flex_wrap()
                         .items_center()
-                        .justify_end()
-                        .gap_x(px(room.pick(14., 8.)))
-                        .gap_y(px(6.))
+                        .gap(px(room.fit(14., 8.)))
                         .children(extras)
                         .child(primary),
                 ),
@@ -1293,7 +1397,7 @@ fn agent_tile(
     let density = room.pick(state.density.roomy, state.density.compact);
     let dots = ui::grain::WallDots {
         colour: brand,
-        density: density * fit.min(1.25),
+        density: density * fit.clamp(LEAST_DENSITY_FIT, 1.25),
         opacity: if matches!(agent.status, AgentStatus::Ready { .. }) {
             0.74
         } else {
@@ -1424,9 +1528,14 @@ fn agents_grid(
         true => room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT),
         false => 0.,
     };
-    let tile_height = (room.height - below) / row_count as f32;
+    let equal = (room.height - below - (row_count - 1) as f32) / row_count as f32;
+    let question_height = match bench.agent_setup.shown() {
+        true => equal.max(room.question_frame() + room.fit(96., 52.)),
+        false => equal,
+    };
+    let tile_height = equal;
     let bright = (0.5, tile_height / 2. / room.width);
-    let question = agents_question(bench, welcome, lit, room, this, cx);
+    let question = agents_question(bench, welcome, lit, question_height, room, this, cx);
     let question = question_cell(question, welcome, room, this, &t)
         .flex_none()
         .w(px(room.column()));
@@ -1471,10 +1580,13 @@ fn agents_grid(
         .bg(t.border)
         .children(rows.into_iter().enumerate().map(|(at, cells)| {
             div()
-                .flex_1()
-                .when(at > 0, |row| row.min_h_0())
+                .min_h_0()
                 .flex()
                 .gap(px(1.))
+                .map(|row| match at {
+                    0 => row.flex_none().h(px(question_height)),
+                    _ => row.flex_1(),
+                })
                 .children(cells)
         }))
 }
@@ -1491,7 +1603,22 @@ fn agents_screen(
     let grid = agents_grid(bench, welcome, lit, room, this, cx);
     let terminal = setup::terminal_pane(bench, this, cx);
     let shown = bench.agent_setup.shown();
-    let broken = broken_reason(bench, welcome, room, &t);
+    let close = shown.then(|| {
+        let words = if bench.agent_setup.busy() {
+            "Cancel"
+        } else {
+            "Close"
+        };
+        quiet(
+            "welcome-sheet-close",
+            words.to_owned(),
+            Stop::SheetClose,
+            lit,
+            room,
+            this,
+            &t,
+        )
+    });
     div()
         .flex_1()
         .min_h_0()
@@ -1506,6 +1633,7 @@ fn agents_screen(
                     .border_t_1()
                     .border_color(t.border)
                     .bg(t.surface_sunken)
+                    .relative()
                     .py(px(room.pick(20., 10.)))
                     .px(px(room.pad()))
                     .on_mouse_down(MouseButton::Left, keep_press)
@@ -1515,10 +1643,18 @@ fn agents_screen(
                             .ml(-theme::SPACE_2)
                             .mt(-theme::SPACE_2)
                             .children(terminal),
-                    ),
+                    )
+                    .children(close.map(|close| {
+                        div()
+                            .absolute()
+                            .top(px(room.pick(16., 8.)))
+                            .right(px(room.pad()))
+                            .pl(px(8.))
+                            .bg(t.surface_sunken)
+                            .child(close)
+                    })),
             )
         })
-        .children(broken)
 }
 
 fn tick(on: bool, t: &Tokens) -> Div {
@@ -1648,7 +1784,8 @@ fn agent_answer_cell(
                 * 0.56;
             ui::grain::WallDots {
                 colour: brand,
-                density: room.pick(ANSWER_DENSITY.roomy, ANSWER_DENSITY.compact) * fit.min(1.25),
+                density: room.pick(ANSWER_DENSITY.roomy, ANSWER_DENSITY.compact)
+                    * fit.clamp(LEAST_DENSITY_FIT, 1.25),
                 opacity: 0.56 * fit.min(1.) * welcome.fade.get(),
                 seed: ANSWER_SEED,
                 feather: room.pick(240., 80.),
@@ -1700,7 +1837,7 @@ fn agent_answer_cell(
         .child(
             div().absolute().top(px(edge)).right(px(edge)).child(
                 ui::icon(Icon::Chevron, room.pick(12., 10.))
-                    .with_transformation(Transformation::rotate(radians(FRAC_PI_2)))
+                    .with_transformation(Transformation::rotate(radians(PI)))
                     .text_color(t.text_tertiary),
             ),
         )
@@ -1870,6 +2007,7 @@ fn project_list(
                 .size_full(),
             )
     });
+    let overflows = free < 0.;
     let thumb_ink = t.border_strong;
     div()
         .relative()
@@ -1889,24 +2027,26 @@ fn project_list(
                 .overflow_y_scroll()
                 .children(rows),
         )
-        .child(
-            Scrollbar::vertical(&welcome.scroll)
-                .mode(ScrollbarMode::Always)
-                .styles(|styles| {
-                    let thumb = |style: ScrollbarThumbStyle| {
-                        style
-                            .width(px(4.))
-                            .inset(px(4.))
-                            .radius(px(2.))
-                            .bg(thumb_ink)
-                    };
-                    styles
-                        .track(|track| track.bg(transparent_black()))
-                        .thumb(thumb)
-                        .thumb_hover(thumb)
-                        .thumb_active(thumb)
-                }),
-        )
+        .when(overflows, |list| {
+            list.child(
+                Scrollbar::vertical(&welcome.scroll)
+                    .mode(ScrollbarMode::Always)
+                    .styles(|styles| {
+                        let thumb = |style: ScrollbarThumbStyle| {
+                            style
+                                .width(px(4.))
+                                .inset(px(4.))
+                                .radius(px(2.))
+                                .bg(thumb_ink)
+                        };
+                        styles
+                            .track(|track| track.bg(transparent_black()))
+                            .thumb(thumb)
+                            .thumb_hover(thumb)
+                            .thumb_active(thumb)
+                    }),
+            )
+        })
 }
 
 fn projects_question(
@@ -1953,7 +2093,7 @@ fn projects_question(
         extras: Vec::new(),
         primary: primary_button(label, enabled, room, this, t),
         step: 1,
-        crowded: false,
+        dots: dots_fit(label, !welcome.required, room),
     }
 }
 
@@ -2046,11 +2186,7 @@ fn primary_button(
             false => ui::Variant::Outline,
         },
     )
-    .sized(
-        room.pick(46., 34.),
-        room.pick(20., 14.),
-        room.pick(17., 13.5),
-    )
+    .sized(room.fit(46., 30.), room.fit(20., 14.), room.fit(17., 13.5))
     .when(!enabled, |button| {
         button.solid(t.surface_raised, t.surface_raised)
     })
@@ -2093,40 +2229,11 @@ fn agents_say(
     (sentence, command)
 }
 
-/// Why the chosen agent won't start, in full, where a terminal would otherwise be.
-fn broken_reason(
-    bench: &Workbench,
-    welcome: &Welcome,
-    room: Room,
-    t: &Tokens,
-) -> Option<AnyElement> {
-    let agent = chosen_agent(bench, welcome).filter(|_| !bench.agent_setup.shown())?;
-    let AgentStatus::Broken { reason } = &agent.status else {
-        return None;
-    };
-    Some(
-        div()
-            .id("welcome-broken-reason")
-            .flex_none()
-            .max_h(px(room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT)))
-            .overflow_y_scroll()
-            .border_t_1()
-            .border_color(t.border)
-            .py(px(room.pick(20., 10.)))
-            .px(px(room.pad()))
-            .font_family(theme::MONO)
-            .text_size(theme::ui_text(room.pick(15., 12.)))
-            .line_height(relative(1.65))
-            .text_color(t.warn)
-            .child(reason.clone())
-            .into_any_element(),
-    )
-}
-
 fn agents_question(
     bench: &Workbench,
     welcome: &Welcome,
     lit: Option<Stop>,
+    height: f32,
     room: Room,
     this: &Entity<Workbench>,
     cx: &App,
@@ -2145,8 +2252,12 @@ fn agents_question(
         },
         None => ("Continue".to_owned(), false),
     };
-    let mut lines = vec![said(sentence, t.text_secondary, room)];
-    lines.extend(command.map(|command| said_mono(command, room, &t)));
+    let reason = chosen
+        .filter(|_| !progress.shown())
+        .and_then(|agent| match &agent.status {
+            AgentStatus::Broken { reason } => Some(short_reason(reason, agent)),
+            _ => None,
+        });
     let mut extras = Vec::new();
     if recheck_offered(bench, welcome) {
         extras.push(quiet(
@@ -2163,18 +2274,8 @@ fn agents_question(
             &t,
         ));
     }
-    if progress.shown() {
-        extras.push(quiet(
-            "welcome-sheet-close",
-            if busy { "Cancel" } else { "Close" }.to_owned(),
-            Stop::SheetClose,
-            lit,
-            room,
-            this,
-            &t,
-        ));
-    }
-    if anyway_offered(bench) {
+    let anyway = anyway_offered(bench);
+    if anyway {
         extras.push(quiet(
             "welcome-anyway",
             "Continue anyway".to_owned(),
@@ -2185,10 +2286,94 @@ fn agents_question(
             &t,
         ));
     }
+    let gap = room.line_gap();
+    let mut left = height - room.question_frame() + FIT_SLACK;
+    if welcome.git_missing {
+        left -= room.said_height() + gap;
+    }
+    let wrapped = (sentence.chars().count() as f32 * room.said_size() * 0.45 / room.content())
+        .ceil()
+        .max(1.);
+    let sentence_height = wrapped * room.said_height();
+    let beside_sentence = reason.is_some() || sentence_height + gap + ACTION_LINE <= left;
+    let action_line = room.tight() && !extras.is_empty() && (beside_sentence || anyway);
+    let one_line = action_line && !beside_sentence;
+    if action_line {
+        left -= ACTION_LINE + gap;
+    }
+    let reason_height = REASON_SIZE * room.fit(1.4, 1.25);
+    let mut lines = Vec::new();
+    let sentence_fits = reason.is_none() || sentence_height + gap + reason_height <= left;
+    if one_line {
+        lines.push(
+            div()
+                .flex_none()
+                .truncate()
+                .child(said(sentence, t.text_secondary, room))
+                .into_any_element(),
+        );
+        left -= room.said_height() + gap;
+    } else if sentence_fits {
+        lines.push(said(sentence, t.text_secondary, room));
+        left -= sentence_height + gap;
+    }
+    if let Some(reason) = reason {
+        lines.push(
+            div()
+                .truncate()
+                .text_size(theme::ui_text(REASON_SIZE))
+                .line_height(relative(room.fit(1.4, 1.25)))
+                .text_color(t.warn)
+                .child(reason)
+                .into_any_element(),
+        );
+        left -= reason_height + gap;
+    }
+    let fits = (room.content() / (room.mono_size() * 0.6)) as usize;
+    if action_line {
+        let beside = command.filter(|_| !anyway);
+        lines.push(
+            div()
+                .flex_none()
+                .h(px(ACTION_LINE))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(10.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .children(beside.map(|command| said_mono(command, room, &t))),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .children(std::mem::take(&mut extras)),
+                )
+                .into_any_element(),
+        );
+    } else if let Some(command) = command {
+        let room_for = (left / room.mono_height()).floor() as usize;
+        let broken = command_lines(&command, fits);
+        let shown = match room_for {
+            0 => Vec::new(),
+            1 => vec![command],
+            _ => broken,
+        };
+        lines.extend(
+            shown
+                .into_iter()
+                .map(|line| said_mono(line, room, &t).into_any_element()),
+        );
+    }
     Question {
         title: "Choose who does the work",
         lines,
-        crowded: !extras.is_empty() || action.chars().count() > LONGEST_BESIDE_DOTS,
+        dots: dots_fit(&action, !welcome.required, room),
         extras,
         primary: primary_button(action, enabled, room, this, &t),
         step: 0,
@@ -2285,7 +2470,8 @@ pub fn render(
         Beat::Folding(since) => (1., progress(since, FOLD_MILLIS, window, cx)),
         Beat::Done => (1., 1.),
     };
-    let step_fade = progress(welcome.stage_at, STEP_MILLIS, window, cx).min(ease_out(fold));
+    let reveal = ((fold - FOLD_HOLD) / (1. - FOLD_HOLD)).clamp(0., 1.);
+    let step_fade = progress(welcome.stage_at, STEP_MILLIS, window, cx).min(ease_out(reveal));
     welcome.fade.set(step_fade);
     let screen = match welcome.stage {
         Stage::Agents => agents_screen(bench, welcome, lit, room, this, cx),
@@ -2324,7 +2510,7 @@ pub fn render(
         .on_key_down(move |event, window, cx| {
             keys.update(cx, |bench, cx| key_down(bench, event, window, cx))
         })
-        .when(fold > 0., |page| {
+        .when(reveal > 0., |page| {
             page.child(
                 div()
                     .flex_1()
@@ -2386,11 +2572,11 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
         let (word, sentence) = match doing {
             Doing::Installing => (
                 "Install failed",
-                "The installer stopped. Its output above says why.".to_owned(),
+                "The installer stopped. Its output below says why.".to_owned(),
             ),
             Doing::SigningIn => (
                 "Signed out",
-                "Sign-in stopped. Its output above says why.".to_owned(),
+                "Sign-in stopped. Its output below says why.".to_owned(),
             ),
         };
         return TileState {

@@ -8,7 +8,12 @@
 // then the label's height with the pill's width and bottom, in units of 4 points; where the
 // wall is brightest, as bytes of the window's width; and how fast it rises and falls.
 
-const CELL: f32 = 2.0;
+const CELL: f32 = 1.5;
+const CELL_COMPACT: f32 = 1.0;
+// The thin end of a field, as shares of its density: dots drop out at random between these, so
+// it frays instead of stopping at an edge or leaving stray dots beyond it.
+const FRAY_FROM: f32 = 0.14;
+const FRAY_TO: f32 = 0.42;
 const POINTS_PER_UNIT: f32 = 4.0;
 const EDGE_FADE_ROOMY: f32 = 96.0;
 const EDGE_FADE_COMPACT: f32 = 40.0;
@@ -31,10 +36,11 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let placed = shader.params[3];
     let scale = setup.z;
     let size = shader.bounds.zw / scale;
-    let cell = floor((device - shader.bounds.xy) / scale / CELL);
-    let at = (cell + 0.5) * CELL;
-
     let feather = look.w;
+    let pitch = select(CELL_COMPACT, CELL, feather > COMPACT_FEATHER);
+    let cell = floor((device - shader.bounds.xy) / scale / pitch);
+    let at = (cell + 0.5) * pitch;
+
     let margin = feather * 0.06;
     let mark = bytes(placed.x) * POINTS_PER_UNIT;
     let others = bytes(placed.y) * POINTS_PER_UNIT;
@@ -77,8 +83,9 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let away = length(window_at / width - bright.xy);
     let light = 0.62 + 0.38 * exp(-away * away * 9.0);
 
-    let value = min(0.5, setup.w * amount * (0.3 + 1.05 * gathered) * light * 1.1) * fade;
-    if (value <= 0.002 || value + (cell_hash(cell, 3.0) - 0.5) * 0.03 + bayer8(cell) < 1.0) {
+    let value = min(0.5, setup.w * amount * (0.62 + 0.73 * gathered) * light * 1.1) * fade;
+    let kept = smoothstep(setup.w * FRAY_FROM, setup.w * FRAY_TO, value);
+    if (cell_hash(cell, 7.0) > kept || value + (cell_hash(cell, 3.0) - 0.5) * 0.03 + bayer8(cell) < 1.0) {
         discard;
     }
     let colour = bytes(look.x) / 255.0;
