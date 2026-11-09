@@ -173,53 +173,53 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
     if bench.has_older() && !recent.is_empty() && !bench.rails.folded(RECENT) {
         recent.push(older_when_seen(bench, cx));
     }
-    let away = snoozed.len() + settled.len();
-    let empty =
-        (rows.is_empty() && away == 0 && pinned.is_empty() && recent.is_empty()).then(|| {
-            let shown = (project.zip(other_host(bench)))
-                .filter(|_| bench.filter_text().is_empty())
-                .map(|(project, host)| match bench.rails.all_projects {
-                    true => format!("No chats on {host}"),
-                    false => format!("No chats in {} on {host}", project.name),
-                });
-            if let Some(title) = shown {
-                rail_empty(
-                    Icon::Agent,
-                    title,
-                    Some((actions::NewChat::ID, "start one")),
-                    cx,
+    let quiet = rows.is_empty() && snoozed.is_empty() && settled.is_empty();
+    let empty = (quiet && pinned.is_empty() && recent.is_empty()).then(|| {
+        let shown = (project.zip(other_host(bench)))
+            .filter(|_| bench.filter_text().is_empty())
+            .map(|(project, host)| match bench.rails.all_projects {
+                true => format!("No chats on {host}"),
+                false => format!("No chats in {} on {host}", project.name),
+            });
+        if let Some(title) = shown {
+            rail_empty(
+                Icon::Agent,
+                title,
+                Some((actions::NewChat::ID, "start one")),
+                cx,
+            )
+        } else if project.is_none() {
+            rail_empty(
+                Icon::Agent,
+                "No project open",
+                Some((actions::OpenProject::ID, "open one")),
+                cx,
+            )
+        } else if bench.launchers().is_empty() {
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .child(rail_empty(Icon::Agent, "No agents set up", None, cx))
+                .child(
+                    ui::Button::new("set-up-agent", "Set one up", ui::Variant::Outline).on_click(
+                        cx.listener(|bench, _, window, cx| {
+                            bench.open_settings(crate::settings::Page::Installed, window, cx)
+                        }),
+                    ),
                 )
-            } else if project.is_none() {
-                rail_empty(
-                    Icon::Agent,
-                    "No project open",
-                    Some((actions::OpenProject::ID, "open one")),
-                    cx,
-                )
-            } else if bench.launchers().is_empty() {
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .child(rail_empty(Icon::Agent, "No agents set up", None, cx))
-                    .child(
-                        ui::Button::new("set-up-agent", "Set one up", ui::Variant::Outline)
-                            .on_click(cx.listener(|bench, _, window, cx| {
-                                bench.open_settings(crate::settings::Page::Installed, window, cx)
-                            })),
-                    )
-                    .into_any_element()
-            } else if !bench.filter_text().is_empty() {
-                rail_empty(Icon::Search, "No chats match", None, cx)
-            } else {
-                rail_empty(
-                    Icon::Agent,
-                    "No agents yet",
-                    Some((actions::NewChat::ID, "start one")),
-                    cx,
-                )
-            }
-        });
+                .into_any_element()
+        } else if !bench.filter_text().is_empty() {
+            rail_empty(Icon::Search, "No chats match", None, cx)
+        } else {
+            rail_empty(
+                Icon::Agent,
+                "No agents yet",
+                Some((actions::NewChat::ID, "start one")),
+                cx,
+            )
+        }
+    });
     page_body()
         .child(header(bench, cx))
         .children(bench.filter.as_ref().map(|filter| {
