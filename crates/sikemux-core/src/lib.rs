@@ -6,9 +6,9 @@ pub mod accounts;
 pub mod acp;
 #[cfg(unix)]
 pub mod agent_accounts;
-mod android_sdk;
 #[cfg(unix)]
 mod agent_shell;
+mod android_sdk;
 #[rustfmt::skip]
 pub mod agent_catalog;
 mod agent_ops;
