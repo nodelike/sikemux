@@ -875,6 +875,8 @@ impl GoalsPane {
             card: note.pinned.map_or(goal.id, |(slice, _)| slice),
             text,
             evidence: note.pinned.map(|(_, evidence)| evidence),
+            spot: None,
+            reopens: None,
         };
         self.ask::<call::BoardNote>(
             params,

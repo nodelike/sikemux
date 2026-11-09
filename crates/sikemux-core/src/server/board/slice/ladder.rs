@@ -27,7 +27,7 @@ pub(crate) struct Rule<'a> {
 pub(crate) fn rule(step: &Step) -> Rule<'_> {
     match step {
         Step::Gate(Gate::Built) => Rule {
-            needs: &[Need::PassingCheck, Need::Assertions],
+            needs: &[Need::PassingCheck, Need::Assertions, Need::Changes],
             words: "Built",
             key: "built",
         },
@@ -97,5 +97,6 @@ pub(crate) fn need_words(need: Need) -> &'static str {
         Need::PassingCheck => "the project's check to pass on its latest commit",
         Need::OnBranch => "its commits on the project's branch",
         Need::Assertions => "evidence on its latest commit for each assertion it fulfils",
+        Need::Changes => "each change the person asked for ticked off",
     }
 }

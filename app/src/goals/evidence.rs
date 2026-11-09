@@ -286,6 +286,7 @@ pub(super) fn thumb(
         .cursor_pointer()
         .on_click(cx.listener(move |pane, _, _, cx| {
             pane.picked = Some(id);
+            pane.spot = None;
             cx.notify();
         }))
         .child(face)

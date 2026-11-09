@@ -75,6 +75,8 @@ pub enum Need {
     /// Every assertion the slice fulfils to have evidence of its kind, which
     /// held up, collected on the slice's latest commit.
     Assertions,
+    /// Every change the person asked for on it to be ticked off by the agent it went to.
+    Changes,
 }
 
 /// Whether evidence held up when the core checked it.
@@ -172,16 +174,59 @@ pub struct Moment {
     pub text: String,
 }
 
-/// What someone wrote about a slice, pinned to a piece of its evidence when
-/// it was written on one, for the agent whose work that is.
+/// A change the person asked for on a slice, pinned to a piece of its evidence when it was
+/// written on one, for the agent whose work that is, which ticks it off with proof.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Note {
+    /// The same for as long as the slice keeps it.
+    pub id: u64,
     pub text: String,
     /// The agent that wrote it; none for the person.
     pub by: Option<String>,
     pub evidence: Option<u64>,
+    /// Where on that evidence it is pinned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spot: Option<Spot>,
     pub at: u64,
+    /// The agent it went to, which ticks it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ticked: Option<Tick>,
+}
+
+/// Where a change is pinned on a piece of evidence.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum Spot {
+    /// A point on a picture, as fractions of its width and height from its top left; on a
+    /// recording, in the frame `seconds` in.
+    Point {
+        x: f32,
+        y: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        seconds: Option<f64>,
+    },
+    /// A line of a file in a diff, as the new side numbers it.
+    Line { file: String, line: u32 },
+}
+
+/// How the agent a change went to ticked it off.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tick {
+    pub by: String,
+    pub at: u64,
+    /// What it did and what shows it.
+    pub proof: String,
+    /// The piece of the slice's evidence that shows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

@@ -1422,6 +1422,15 @@ slice untouched for 30 minutes while nothing you wait on can bring you back and
 the person didn't stop everything, the slice goes back to Open. Where Auto can run it, Auto takes it on in your worktree with a handover and the person can overrule that; otherwise, and always for a chat the person works in, they are asked to resume you or hand it on.
 `board_list` shows the owner it lost as `stalledOwner`; claim it to carry it on.
 
+The person asks for changes on a slice by pinning them to its evidence: a spot on
+a screenshot, a frame of a recording, a line of its diff. Each reaches the agent
+whose work that evidence shows as change `#N`, and Built does not pass while one
+is open. Make it, then tick it with `board_update` `ticks: [{change, proof,
+evidence}]`: `proof` says what you did, and `evidence` the id of the piece of the
+slice's evidence that shows it, which must be a screenshot or recording taken
+since when the change is pinned to a picture. A change the person reopens comes
+back with why.
+
 When a card is done, the cards waiting on it are free to claim, and their
 owners are told. When you were started by another agent and sit idle, the
 board tells you of your team's open cards nobody has taken, once each: claim

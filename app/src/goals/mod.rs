@@ -49,6 +49,7 @@ use sikemux_core::server::inbox::DigestParams;
 use sikemux_core::server::workspace::SessionChoice;
 
 mod assertions;
+mod changes;
 mod environments;
 mod evidence;
 mod goal;
@@ -162,8 +163,16 @@ pub struct GoalsPane {
     chat: Option<OpenChat>,
     /// The evidence of the open slice the person picked, in place of the one the gate leads with.
     picked: Option<u64>,
-    /// The note being written on what needs work, while it is open.
+    /// The change being written, while it is open.
     note: Option<(Entity<InputState>, Subscription)>,
+    /// Where on the picture in front the change being written is pinned.
+    spot: Option<sikemux_view::slice::Spot>,
+    /// Where the picture in front was last laid out.
+    placed: changes::Placed,
+    /// The size of each picture shown, read from its file once.
+    picture_sizes: std::cell::RefCell<std::collections::HashMap<String, Option<(u32, u32)>>>,
+    /// The standing rules under a slice's changes are unfolded.
+    rules_open: bool,
     /// The note being written on a Looks right card, while it is open.
     call_note: Option<home::CallNote>,
     busy: bool,
@@ -217,6 +226,10 @@ impl GoalsPane {
             chat: None,
             picked: None,
             note: None,
+            spot: None,
+            placed: Default::default(),
+            picture_sizes: Default::default(),
+            rules_open: false,
             call_note: None,
             busy: false,
             room: room::Room::new(cx),
@@ -311,6 +324,7 @@ impl GoalsPane {
             self.at = At::Home;
             self.picked = None;
             self.note = None;
+            self.spot = None;
         }
     }
 
@@ -387,6 +401,7 @@ impl GoalsPane {
         }
         self.picked = None;
         self.note = None;
+        self.spot = None;
         self.memory = None;
         self.changed(cx);
     }
@@ -500,6 +515,7 @@ impl GoalsPane {
         if self.at != at {
             self.picked = None;
             self.note = None;
+            self.spot = None;
             if let At::Goal(card) = at {
                 self.unfolded.clear();
                 self.at = at;
@@ -627,8 +643,10 @@ impl GoalsPane {
 
     /// Opens a line to say what needs work, pinned to the evidence in front.
     fn write_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let input =
-            cx.new(|cx| InputState::new(window, cx).placeholder("What needs work, for its owner"));
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("What should change, for the agent whose work it is")
+        });
         let sending = cx.subscribe_in(&input, window, |pane, input, event, _, cx| {
             if let InputEvent::PressEnter { .. } = event {
                 let text = input.read(cx).value().trim().to_owned();
@@ -660,8 +678,40 @@ impl GoalsPane {
             card,
             text,
             evidence,
+            spot: self.spot.clone().filter(|_| evidence.is_some()),
+            reopens: None,
         };
-        self.ask_moved::<call::BoardNote>(params, |pane| pane.note = None, cx);
+        self.ask_moved::<call::BoardNote>(
+            params,
+            |pane| {
+                pane.note = None;
+                pane.spot = None;
+            },
+            cx,
+        );
+    }
+
+    /// Says change `change` on slice `card`, ticked off, is not done, which sends it back.
+    fn reopen_change(&mut self, card: u64, change: u64, cx: &mut Context<Self>) {
+        let Some(project) = self.here.clone().filter(|_| !self.busy) else {
+            return;
+        };
+        let params = BoardNoteParams {
+            project,
+            card,
+            text: String::new(),
+            evidence: None,
+            spot: None,
+            reopens: Some(change),
+        };
+        self.ask_moved::<call::BoardNote>(params, |_| {}, cx);
+    }
+
+    /// The width and height of the picture at `path`, read from its header the first time.
+    fn picture_size(&self, path: &str) -> Option<(u32, u32)> {
+        *(self.picture_sizes.borrow_mut())
+            .entry(path.to_owned())
+            .or_insert_with(|| image::image_dimensions(path).ok())
     }
 
     /// Moves rule `id` into the AGENTS.md of the repository it is kept for, as the person.
@@ -777,6 +827,7 @@ impl GoalsPane {
                 self.at = At::Chat;
                 self.picked = None;
                 self.note = None;
+                self.spot = None;
                 cx.defer_in(window, |pane, window, cx| pane.take_keys(window, cx));
             }
             (true, false) => {
@@ -1175,6 +1226,7 @@ fn need_words(need: Need) -> &'static str {
         Need::PassingCheck => "a passing check",
         Need::OnBranch => "its commits on the goal's branch",
         Need::Assertions => "evidence for its assertions",
+        Need::Changes => "your changes ticked off",
     }
 }
 

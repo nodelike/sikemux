@@ -232,8 +232,9 @@ fn reviews(card: &Card, agent_id: &str) -> bool {
     })
 }
 
-/// What a change is graded on: the card, each line the person wrote, and each
-/// item of the contract, which only ever adds to them.
+/// What a change is graded on: the card, each line the person wrote, each change they asked
+/// for on its slice with how it was ticked off, and each item of the contract, which only ever
+/// adds to them.
 fn criteria(card: &Card) -> Vec<Criterion> {
     let mut list = vec![Criterion {
         id: CARD_CRITERION.to_owned(),
@@ -251,6 +252,18 @@ fn criteria(card: &Card) -> Vec<Criterion> {
     list.extend(lines.iter().enumerate().map(|(index, line)| Criterion {
         id: format!("A{}", index + 1),
         text: (*line).to_owned(),
+    }));
+    let changes = (card.slice.iter()).flat_map(|slice| &slice.notes);
+    list.extend(changes.filter(|note| note.by.is_none()).map(|note| {
+        let ticked = match &note.ticked {
+            Some(tick) if !tick.proof.is_empty() => format!(" Ticked off as: {}", tick.proof),
+            Some(_) => String::new(),
+            None => " Not ticked off yet.".to_owned(),
+        };
+        Criterion {
+            id: format!("N{}", note.id),
+            text: format!("The person asked for this change: {}.{ticked}", note.text),
+        }
     }));
     let terms = card.contract.iter().flat_map(|contract| &contract.terms);
     list.extend(terms.enumerate().map(|(index, term)| Criterion {

@@ -11,6 +11,7 @@ mod ladder;
 mod look;
 mod rollup;
 mod shots;
+mod spots;
 mod words;
 
 pub(crate) use follow::*;
@@ -18,6 +19,7 @@ pub(crate) use ladder::*;
 pub(crate) use look::*;
 pub(crate) use rollup::*;
 pub(crate) use shots::*;
+pub(crate) use spots::*;
 pub(crate) use words::*;
 
 use std::collections::{BTreeSet, VecDeque};
@@ -31,7 +33,7 @@ use sikemux_process::sync::Locked;
 use sikemux_view::inbox::InboxRecording;
 use sikemux_view::slice::{
     Asserted, Assertion, Collect, Evidence, Gate, GateState, GateView, Need, NextGate, Note,
-    Passer, Proof, SliceState, SliceView, Verdict, Wait,
+    Passer, Proof, SliceState, SliceView, Spot, Tick, Verdict, Wait,
 };
 
 use super::auto::{BoardSettings, Landing};
@@ -46,6 +48,7 @@ use crate::server::edits::footer;
 use crate::server::repo_events::{RepoEvent, Told};
 use crate::server::Core;
 use crate::tasks::config::ProjectCheck;
+use crate::text::clipped;
 
 /// How the owner of a slice whose work made no commit closes it.
 const CLOSE_WITH_RESULT: &str = "If its work makes no commit, such as a deploy, mark it done with result saying what you did and what showed it worked, and it closes without the person";
@@ -55,6 +58,7 @@ const MAX_EVIDENCE: usize = 24;
 const MAX_NOTES: usize = 32;
 pub(super) const MAX_PROMISE_CHARS: usize = 200;
 const MAX_NOTE_CHARS: usize = 4000;
+const MAX_PROOF_CHARS: usize = 2000;
 const DIFF_FILES: usize = 8;
 /// Check runs kept per project for commits the board hears of after them.
 const MAX_HEARD_RUNS: usize = 32;
@@ -134,7 +138,9 @@ pub(super) struct Slice {
     #[serde(default)]
     next_evidence: u64,
     #[serde(default)]
-    notes: Vec<Note>,
+    pub(super) notes: Vec<Note>,
+    #[serde(default)]
+    next_note: u64,
     #[serde(default)]
     work: Option<Work>,
     /// Its owner said it is done since its latest work, so the owner's gate
@@ -303,6 +309,7 @@ impl Slice {
             evidence: Vec::new(),
             next_evidence: 1,
             notes: Vec::new(),
+            next_note: 1,
             work: None,
             done_said: false,
             asserts: Vec::new(),
@@ -465,17 +472,22 @@ impl Slice {
     }
 
     fn met(&self, need: Need) -> bool {
-        let Some(work) = &self.work else {
-            return need == Need::Assertions && self.asserts.is_empty();
-        };
-        match need {
-            Need::PassingCheck => work
+        match (need, &self.work) {
+            (Need::Changes, _) => self.open_changes().next().is_none(),
+            (Need::Assertions, None) => self.asserts.is_empty(),
+            (_, None) => false,
+            (Need::PassingCheck, Some(work)) => work
                 .check
                 .as_ref()
                 .is_some_and(|check| check.verdict == Some(Verdict::Passed)),
-            Need::OnBranch => work.on_branch,
-            Need::Assertions => self.asserts.iter().all(|named| self.asserted(named)),
+            (Need::OnBranch, Some(work)) => work.on_branch,
+            (Need::Assertions, Some(_)) => self.asserts.iter().all(|named| self.asserted(named)),
         }
+    }
+
+    /// The changes the person asked for that nobody ticked off yet.
+    pub(super) fn open_changes(&self) -> impl Iterator<Item = &Note> {
+        (self.notes.iter()).filter(|note| note.by.is_none() && note.ticked.is_none())
     }
 
     pub(super) fn asserts(&self) -> impl Iterator<Item = u64> + '_ {
@@ -1171,6 +1183,12 @@ impl Slice {
             .into());
         }
         let words = gate_words(&gate);
+        if let Some(open) = self.open_words() {
+            return Err(format!(
+                "Not {words}: the person asked for changes on {label} that are not ticked off: {open}. Make each one, then tick it with board_update ticks, saying what you did and naming the evidence that shows it"
+            )
+            .into());
+        }
         let Some(work) = &self.work else {
             let said = result.is_some_and(|result| !result.trim().is_empty());
             return match (said, self.asserts.is_empty()) {
@@ -1276,13 +1294,22 @@ impl Slice {
         ))
     }
 
-    /// The person writes on it, on a piece of its evidence when given. The
-    /// agent whose work that evidence shows, and what the note is about.
+    /// The changes not ticked off yet, each with its number, in a line.
+    fn open_words(&self) -> Option<String> {
+        let open: Vec<String> = (self.open_changes())
+            .map(|note| format!("#{} \"{}\"", note.id, clipped(&note.text, 120)))
+            .collect();
+        (!open.is_empty()).then(|| open.join(", "))
+    }
+
+    /// The person asks for a change on it, pinned to a piece of its evidence when given, at
+    /// `spot` on it. Its number, the agent whose work that evidence shows, and what it is about.
     fn note(
         &mut self,
         text: String,
         evidence: Option<u64>,
-    ) -> Result<(Option<String>, String), String> {
+        spot: Option<Spot>,
+    ) -> Result<(u64, Option<String>, String), String> {
         let on = match evidence {
             Some(id) => Some(
                 self.evidence(id)
@@ -1291,19 +1318,22 @@ impl Slice {
             ),
             None => None,
         };
+        let spot = match (&on, spot) {
+            (None, Some(_)) => return Err("a spot needs the evidence it is on".to_owned()),
+            (Some(on), Some(spot)) => Some(spot_on(&on.proof, spot)?),
+            (_, None) => None,
+        };
         if self.notes.len() >= MAX_NOTES {
-            self.notes.remove(0);
+            let settled = self.notes.iter().position(|note| note.ticked.is_some());
+            self.notes.remove(settled.unwrap_or(0));
         }
-        self.notes.push(Note {
-            text,
-            by: None,
-            evidence,
-            at: epoch_ms(),
-        });
+        let id = self.next_note.max(1);
+        self.next_note = id + 1;
         let about = match &on {
             Some(on) => format!(
-                "the {} it holds toward {}",
+                "the {}{} it holds toward {}",
                 proof_words(&on.proof),
+                spot.as_ref().map(spot_words).unwrap_or_default(),
                 gate_words(&toward(on))
             ),
             None => match self.waiting() {
@@ -1311,7 +1341,84 @@ impl Slice {
                 None => "it".to_owned(),
             },
         };
-        Ok((on.and_then(|on| on.agent), about))
+        self.notes.push(Note {
+            id,
+            text,
+            by: None,
+            evidence,
+            spot,
+            at: epoch_ms(),
+            to: None,
+            ticked: None,
+        });
+        Ok((id, on.and_then(|on| on.agent), about))
+    }
+
+    /// `agent` ticks change `id` off, with `proof` saying what it did and `evidence` the piece
+    /// that shows it. A change pinned to a picture needs a picture made since it was asked for.
+    pub(super) fn tick(
+        &mut self,
+        agent: &str,
+        owner: Option<&str>,
+        id: u64,
+        proof: &str,
+        evidence: Option<u64>,
+    ) -> Result<(), String> {
+        let proof = proof.trim();
+        if proof.is_empty() || proof.chars().count() > MAX_PROOF_CHARS {
+            return Err(format!(
+                "change #{id} needs proof: what you did and what shows it, at most {MAX_PROOF_CHARS} characters"
+            ));
+        }
+        let note = (self.notes.iter())
+            .find(|note| note.id == id && note.by.is_none())
+            .ok_or_else(|| format!("it has no change #{id}"))?;
+        if note.to.as_deref() != Some(agent) && owner != Some(agent) {
+            return Err(format!(
+                "change #{id} went to another agent, which ticks it off"
+            ));
+        }
+        let pinned_on_picture = (note.evidence)
+            .and_then(|on| self.evidence(on))
+            .is_some_and(|on| matches!(on.proof, Proof::Picture { .. }));
+        let shown = evidence.map(|shown| self.evidence(shown).ok_or(shown));
+        match (pinned_on_picture, shown) {
+            (_, Some(Err(shown))) => return Err(format!("it has no evidence {shown}")),
+            (true, None) => {
+                return Err(format!(
+                    "change #{id} is pinned to a picture, so name in evidence a screenshot or recording made since, which shows it done"
+                ))
+            }
+            (true, Some(Ok(shown)))
+                if !matches!(shown.proof, Proof::Picture { .. }) || shown.at < note.at =>
+            {
+                return Err(format!(
+                    "change #{id} is pinned to a picture, so evidence must be a screenshot or recording made after it was asked for"
+                ))
+            }
+            _ => {}
+        }
+        let note = (self.notes.iter_mut())
+            .find(|note| note.id == id)
+            .expect("found above");
+        note.ticked = Some(Tick {
+            by: agent.to_owned(),
+            at: epoch_ms(),
+            proof: proof.to_owned(),
+            evidence,
+        });
+        Ok(())
+    }
+
+    /// The person says change `id` is not done after all, with why when they say.
+    fn untick(&mut self, id: u64) -> Result<&Note, String> {
+        let note = (self.notes.iter_mut())
+            .find(|note| note.id == id && note.by.is_none())
+            .ok_or_else(|| format!("it has no change #{id}"))?;
+        note.ticked
+            .take()
+            .ok_or(format!("change #{id} is not ticked off"))?;
+        Ok(note)
     }
 
     pub(super) fn screenshot_files(&self) -> impl Iterator<Item = &str> {
@@ -2151,14 +2258,20 @@ pub struct BoardPassParams {
     pub environment: Option<String>,
 }
 
-/// What the person writes on a slice, on a piece of its evidence when given.
+/// A change the person asks for on a slice, on a piece of its evidence when given, at `spot`
+/// on it. With `reopens`, they say that change, ticked off, is not done, and `text` may say why.
 #[derive(Serialize, Deserialize)]
 pub struct BoardNoteParams {
     pub project: String,
     pub card: u64,
+    #[serde(default)]
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evidence: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spot: Option<Spot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reopens: Option<u64>,
 }
 
 /// The person passes the gate a slice waits at, when it is theirs to pass.
@@ -2242,7 +2355,8 @@ pub(crate) async fn person_note(
         let project = project_at(&core, &params.project)?;
         let id = params.card;
         let text = params.text.trim().to_owned();
-        if text.is_empty() || text.chars().count() > MAX_NOTE_CHARS {
+        let empty = text.is_empty() && params.reopens.is_none();
+        if empty || text.chars().count() > MAX_NOTE_CHARS {
             return Err(
                 format!("text must be a note of at most {MAX_NOTE_CHARS} characters").into(),
             );
@@ -2253,9 +2367,12 @@ pub(crate) async fn person_note(
                 .boards
                 .get_mut(&project)
                 .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
-            let told = match answers_look(board, id) {
-                true => needs_work(board, id, &text, params.evidence)?,
-                false => note_slice(board, id, text, params.evidence)?
+            let told = match (params.reopens, answers_look(board, id)) {
+                (Some(change), _) => reopen_change(board, id, change, &text)?
+                    .into_iter()
+                    .collect(),
+                (None, true) => needs_work(board, id, &text, params.evidence, params.spot)?,
+                (None, false) => note_slice(board, id, text, params.evidence, params.spot)?
                     .into_iter()
                     .collect(),
             };
@@ -2271,13 +2388,14 @@ pub(crate) async fn person_note(
     .map_err(|error| error.to_string())
 }
 
-/// The person writes `text` on the slice on card `id`, on its piece of evidence `evidence` when
-/// given. Who hears it, and what.
+/// The person asks for change `text` on the slice on card `id`, on its piece of evidence
+/// `evidence` at `spot` when given. Who hears it, and what.
 fn note_slice(
     board: &mut Board,
     id: u64,
     text: String,
     evidence: Option<u64>,
+    spot: Option<Spot>,
 ) -> Result<Option<(String, String)>, String> {
     let settings = board.settings.clone();
     let card = board.card_mut(id)?;
@@ -2288,16 +2406,58 @@ fn note_slice(
         .as_mut()
         .ok_or_else(|| format!("{label} is not a slice, so it takes no notes"))?;
     let needs_work = slice.waits_on_person(&settings).is_some();
-    let (agent, about) = slice
-        .note(text.clone(), evidence)
+    let (change, agent, about) = slice
+        .note(text.clone(), evidence, spot)
         .map_err(|error| format!("{label}: {error}"))?;
-    let mut message = format!("On card {label}, about {about}:\n\n{text}");
+    let to = agent.or(owner);
+    if let Some(note) = slice.notes.iter_mut().find(|note| note.id == change) {
+        note.to = to.clone();
+    }
+    let mut message = format!(
+        "On card {label}, the person asks for change #{change}, about {about}:\n\n{text}\n\nOnce it is made, tick it off with board_update ticks [{{ change: {change}, proof, evidence }}]: proof says what you did, and evidence names the piece of the slice's evidence that shows it. Built does not pass while a change is open."
+    );
     if needs_work {
         slice.back_to_work();
-        message.push_str("\n\nThe card is back with you: commit what the note asks, or answer it, then mark the card done again.");
+        message.push_str(" The card is back with you: commit the change, tick it, then mark the card done again.");
     }
     card.updated_at = epoch_ms();
-    Ok(agent.or(owner).map(|to| (to, message)))
+    Ok(to.map(|to| (to, message)))
+}
+
+/// The person says change `change` on the slice on card `id`, ticked off, is not done, with
+/// `why` when they say. It goes back to whoever ticked it, and the slice back to its owner.
+fn reopen_change(
+    board: &mut Board,
+    id: u64,
+    change: u64,
+    why: &str,
+) -> Result<Option<(String, String)>, String> {
+    let card = board.card_mut(id)?;
+    let label = card.label();
+    let owner = card.owner_id().map(str::to_owned);
+    let slice = card
+        .slice
+        .as_mut()
+        .ok_or_else(|| format!("{label} is not a slice, so it has no changes"))?;
+    let (to, text) = {
+        let note = slice
+            .untick(change)
+            .map_err(|error| format!("{label}: {error}"))?;
+        (note.to.clone(), note.text.clone())
+    };
+    if slice.waiting().is_some() {
+        slice.back_to_work();
+    }
+    card.updated_at = epoch_ms();
+    let mut message =
+        format!("On card {label}, the person says change #{change} is not done yet:\n\n{text}");
+    if !why.is_empty() {
+        message.push_str(&format!("\n\nThey say: {why}"));
+    }
+    message.push_str(&format!(
+        "\n\nMake it, then tick it off again with board_update ticks [{{ change: {change}, proof, evidence }}], and mark the card done again."
+    ));
+    Ok(to.or(owner).map(|to| (to, message)))
 }
 
 #[cfg(test)]

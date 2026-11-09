@@ -1,5 +1,6 @@
 //! One slice: what it promises, its ladder of gates, the evidence for the gate waiting large
-//! with the rest in a strip under it, its checks in a line, and what the person can say.
+//! with the rest in a strip under it, its checks in a line, what the person can say, and the
+//! changes they asked for.
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -9,12 +10,12 @@ use gpui_kit::{
 use sikemux_core::server::board::BoardCard;
 use sikemux_view::slice::{Evidence, GateState, GateView, Passer, Proof, SliceView, Verdict};
 
-use super::evidence;
 use super::goal::crumb;
+use super::{changes, evidence};
 use super::{need_words, passer_name, step_name, waiting, At, GoalsPane};
 use crate::theme::{
-    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, SPACE_5, TEXT_2XS,
-    TEXT_SM, TEXT_XL, TEXT_XS_H,
+    self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_4, SPACE_5, TEXT_SM,
+    TEXT_XL, TEXT_XS_H,
 };
 use crate::ui::{self, Button, Field, Variant};
 
@@ -80,7 +81,9 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
         .child(ladder(card, slice, cx))
         .children(goal.and_then(|goal| super::assertions::ticks(pane, goal, slice, cx)))
         .when_some(shown, |view, shown| {
-            view.child(div().pt(SPACE_4).child(evidence::large(shown, cx)))
+            let large = changes::picture(pane, shown, slice, cx)
+                .unwrap_or_else(|| evidence::large(shown, cx));
+            view.child(div().pt(SPACE_4).child(large))
         })
         .when(slice.evidence.len() > 1, |view| {
             view.child(div().pt(SPACE_2H).flex().flex_wrap().gap(SPACE_2).children(
@@ -101,9 +104,13 @@ pub(super) fn slice(pane: &GoalsPane, id: u64, cx: &mut Context<GoalsPane>) -> A
                 .pt(SPACE_2)
                 .child(Field::new(input).icon(crate::icons::Icon::Pencil))
         }))
-        .when(!slice.notes.is_empty(), |view| {
-            view.child(notes(card, slice, cx))
-        })
+        .child(changes::list(
+            pane,
+            card,
+            slice,
+            standing_rules(pane, goal),
+            cx,
+        ))
         .into_any_element()
 }
 
@@ -315,6 +322,7 @@ fn decide(
                 .on_click(cx.listener(|pane, _, window, cx| match pane.note {
                     Some(_) => {
                         pane.note = None;
+                        pane.spot = None;
                         cx.notify();
                     }
                     None => pane.write_note(window, cx),
@@ -333,53 +341,13 @@ fn pass_words(gate: &GateView) -> String {
     }
 }
 
-/// What was written about the slice, newest first, each with the evidence it is pinned to.
-fn notes(card: &BoardCard, slice: &SliceView, cx: &Context<GoalsPane>) -> AnyElement {
-    let t = Tokens::get(cx);
-    div()
-        .pt(SPACE_3)
-        .flex()
-        .flex_col()
-        .gap(SPACE_1H)
-        .children(slice.notes.iter().rev().map(|note| {
-            let by = match &note.by {
-                None => "you".to_owned(),
-                Some(agent) if card.owner.as_deref() == Some(agent) => card
-                    .owner_name
-                    .clone()
-                    .unwrap_or_else(|| "its owner".into()),
-                Some(_) => "an agent".to_owned(),
-            };
-            let on = note
-                .evidence
-                .and_then(|id| slice.evidence.iter().find(|evidence| evidence.id == id))
-                .map(|evidence| format!("on the {}", evidence::label(evidence).to_lowercase()));
-            div()
-                .px(SPACE_3)
-                .py(SPACE_2)
-                .flex()
-                .flex_col()
-                .gap(SPACE_1)
-                .rounded(theme::RADIUS_2)
-                .border_1()
-                .border_color(t.border)
-                .child(
-                    div()
-                        .flex()
-                        .gap(SPACE_1H)
-                        .child(
-                            ui::text(by, TEXT_2XS, FontWeight::MEDIUM).text_color(t.text_secondary),
-                        )
-                        .children(on.map(|on| ui::meta(on, cx)))
-                        .child(div().flex_1())
-                        .child(ui::meta(ui::time::age(note.at), cx)),
-                )
-                .child(
-                    div()
-                        .text_size(theme::ui_text(TEXT_SM))
-                        .text_color(t.text_primary)
-                        .child(note.text.clone()),
-                )
-        }))
-        .into_any_element()
+/// The rules every agent on the slice keeps: its goal's own, then the project's.
+fn standing_rules(pane: &GoalsPane, goal: Option<&BoardCard>) -> Vec<String> {
+    let own = (goal.into_iter().flat_map(|goal| goal.rules.iter()))
+        .filter(|rule| rule.retired.is_none())
+        .map(|rule| rule.text.clone());
+    let folders = pane.memory.iter().flat_map(|memory| memory.folders.iter());
+    let kept =
+        folders.flat_map(|folder| folder.rules.iter().map(|listed| listed.rule.text.clone()));
+    own.chain(kept).collect()
 }

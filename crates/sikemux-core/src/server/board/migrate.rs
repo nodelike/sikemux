@@ -8,6 +8,8 @@
 //! knows which chats are open, which a file can't say. Version 4: Looks
 //! right left every slice's ladder for one look at each goal, which counts
 //! as already taken of every slice built so far but those that waited for it.
+//! Version 5: a slice's notes became changes its owner ticks off; those
+//! written before were handled as messages, so they count as ticked.
 
 use serde_json::{json, Value};
 use sikemux_process::clock::epoch_ms;
@@ -23,7 +25,31 @@ pub(super) fn carry_over(mut board: Value) -> Value {
     if version < 4 {
         looks_right_to_goals(&mut board);
     }
+    if version < 5 {
+        notes_to_changes(&mut board);
+    }
     board
+}
+
+fn notes_to_changes(board: &mut Value) {
+    let Some(cards) = board.get_mut("cards").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for card in cards {
+        let Some(slice) = card.get_mut("slice").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        let Some(notes) = slice.get_mut("notes").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        let mut id = 0;
+        for note in notes.iter_mut() {
+            id += 1;
+            note["id"] = json!(id);
+            note["ticked"] = json!({ "by": "", "at": note["at"], "proof": "" });
+        }
+        slice.insert("nextNote".to_owned(), json!(id + 1));
+    }
 }
 
 fn looks_right_to_goals(board: &mut Value) {

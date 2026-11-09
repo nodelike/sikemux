@@ -2044,6 +2044,12 @@
           "description": "0 takes it out from under one",
           "type": "integer",
           "minimum": 0
+        },
+        "ticks": {
+          "description": "Changes the person asked for that you made, each with the evidence id showing it",
+          "type": "array",
+          "maxItems": 20,
+          "items": {"type": "object", "additionalProperties": false, "properties": {"change": {"type": "integer", "minimum": 1}, "proof": {"type": "string", "minLength": 1, "maxLength": 2000}, "evidence": {"type": "integer", "minimum": 1}}, "required": ["change", "proof"]}
         }
       },
       "required": [

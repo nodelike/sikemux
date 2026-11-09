@@ -178,7 +178,7 @@ pub(crate) fn looks_right(board: &mut Board, id: u64) -> Result<Option<Notice>, 
 }
 
 /// The person looked at what the goal above card `id` shows, and it needs work, as `text` says,
-/// about the piece `evidence` of that card's evidence when given. It goes to the goal's lead as
+/// about the piece `evidence` of that card's evidence at `spot` when given. It goes to the goal's lead as
 /// new work; a goal with no lead of its own sends the slices it covers back to their owners, or
 /// only the one the note is pinned to. Who hears it, and what.
 pub(crate) fn needs_work(
@@ -186,15 +186,25 @@ pub(crate) fn needs_work(
     id: u64,
     text: &str,
     evidence: Option<u64>,
+    spot: Option<Spot>,
 ) -> Result<Vec<(String, String)>, String> {
     let card = board.card_mut(id)?;
     let label = card.label();
+    let owner = card.owner_id().map(str::to_owned);
     let pinned = match (card.slice.as_mut(), evidence) {
         (Some(slice), _) => {
-            let (agent, about) = slice
-                .note(text.to_owned(), evidence)
+            let (change, agent, about) = slice
+                .note(text.to_owned(), evidence, spot)
                 .map_err(|error| format!("{label}: {error}"))?;
-            evidence.map(|_| (agent, format!(" The note is about {about} on {label}.")))
+            if let Some(note) = slice.notes.iter_mut().find(|note| note.id == change) {
+                note.to = agent.clone().or(owner);
+            }
+            evidence.map(|_| {
+                (
+                    agent,
+                    format!(" It is change #{change}, about {about} on {label}; tick it off with board_update ticks once made."),
+                )
+            })
         }
         (None, Some(_)) => return Err(format!("{label} holds no evidence of its own")),
         (None, None) => None,

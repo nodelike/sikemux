@@ -2860,18 +2860,54 @@ export type Passer = "owner" | "person" | "core";
 export type GateState = "passed" | "waiting" | "ahead";
 
 /** What a gate needs before it can pass, besides the gates before it. */
-export type Need = "passingCheck" | "onBranch" | "assertions";
+export type Need = "passingCheck" | "onBranch" | "assertions" | "changes";
 
 /**
- * What someone wrote about a slice, pinned to a piece of its evidence when
- * it was written on one, for the agent whose work that is.
+ * A change the person asked for on a slice, pinned to a piece of its evidence when it was
+ * written on one, for the agent whose work that is, which ticks it off with proof.
  */
 export interface Note {
+    /** The same for as long as the slice keeps it. */
+    id: number;
     text: string;
     /** The agent that wrote it; none for the person. */
     by: string | null;
     evidence: number | null;
+    /** Where on that evidence it is pinned. */
+    spot?: Spot;
     at: number;
+    /** The agent it went to, which ticks it off. */
+    to?: string;
+    ticked?: Tick;
+}
+
+/** Where a change is pinned on a piece of evidence. */
+export type Spot =
+    /**
+     * A point on a picture, as fractions of its width and height from its top left; on a
+     * recording, in the frame `seconds` in.
+     */
+    | {
+          kind: "point";
+          x: number;
+          y: number;
+          seconds?: number;
+      }
+    /** A line of a file in a diff, as the new side numbers it. */
+    | {
+          kind: "line";
+          file: string;
+          line: number;
+      };
+
+/** How the agent a change went to ticked it off. */
+export interface Tick {
+    by: string;
+    at: number;
+    /** What it did and what shows it. */
+    proof: string;
+    /** The piece of the slice's evidence that shows it. */
+    evidence?: number;
 }
 
 /** One of a goal's assertions a slice fulfils. */

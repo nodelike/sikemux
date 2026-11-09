@@ -257,7 +257,7 @@ struct Card {
 
 /// Bumped by a change to what a board file holds that an earlier file needs
 /// carried over to, which `migrate` does.
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 
 #[derive(Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1094,7 +1094,7 @@ fn promise_param(params: &Value) -> Result<Option<String>, String> {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Changes {
     title: Option<String>,
     details: Option<String>,
@@ -1107,6 +1107,17 @@ struct Changes {
     parent: Option<Option<u64>>,
     /// The step of its slice the person passes.
     pass: Option<Step>,
+    /// The changes the person asked for on its slice that its agent ticks off.
+    ticks: Option<Vec<TickParams>>,
+}
+
+/// A change the person asked for on a slice, ticked off by the agent it went to.
+#[derive(Clone, Deserialize)]
+struct TickParams {
+    change: u64,
+    proof: String,
+    #[serde(default)]
+    evidence: Option<u64>,
 }
 
 impl Changes {
@@ -1133,6 +1144,12 @@ impl Changes {
             },
             parent: optional_id(params.get("parent"), "parent")?,
             pass: None,
+            ticks: match params.get("ticks") {
+                None | Some(Value::Null) => None,
+                Some(ticks) => Some(serde_json::from_value(ticks.clone()).map_err(|_| {
+                    "ticks must be a list of { change, proof, evidence }".to_owned()
+                })?),
+            },
         })
     }
 
@@ -1148,6 +1165,7 @@ impl Changes {
             depends_on,
             parent,
             pass,
+            ticks,
         } = self;
         title.is_none()
             && details.is_none()
@@ -1159,6 +1177,7 @@ impl Changes {
             && depends_on.is_none()
             && parent.is_none()
             && pass.is_none()
+            && ticks.is_none()
     }
 }
 
@@ -2119,7 +2138,8 @@ fn change_card(
 ) -> Result<(Value, Vec<Notice>), String> {
     if changes.is_empty() {
         return Err(
-            "Say what changes: title, details, promise, status, result, dependsOn or parent".into(),
+            "Say what changes: title, details, promise, status, result, dependsOn, parent or ticks"
+                .into(),
         );
     }
     let seen = match (by, changes.status) {
@@ -2170,9 +2190,15 @@ fn change_in(
         .ok_or_else(|| format!("There is no card #{id} on this project's board"))?;
     let before = board.card(id)?.clone();
     let settings = board.settings.clone();
+    let only_ticks = changes.ticks.is_some()
+        && Changes {
+            ticks: None,
+            ..changes.clone()
+        }
+        .is_empty();
     if let By::Agent(agent) = by {
         let holder = holder(core, &before);
-        if !may_change(core, agent, holder) {
+        if !only_ticks && !may_change(core, agent, holder) {
             let owner = name_of(core, holder.unwrap_or_default());
             return Err(format!(
                 "#{id} is {owner}'s; message {owner} with agent_send to change it"
@@ -2228,6 +2254,26 @@ fn change_in(
     let mut pending = None;
     let mut later = slice::Later::default();
     let mut closed = Vec::new();
+    if let Some(ticks) = &changes.ticks {
+        let By::Agent(agent) = by else {
+            return Err("Only the agent a change went to ticks it off".into());
+        };
+        let owner = card.owner_id().map(str::to_owned);
+        let mut slice = (card.slice.clone())
+            .ok_or_else(|| format!("{label} is not a slice, so it has no changes to tick"))?;
+        for tick in ticks {
+            slice
+                .tick(
+                    agent,
+                    owner.as_deref(),
+                    tick.change,
+                    &tick.proof,
+                    tick.evidence,
+                )
+                .map_err(|error| format!("{label}: {error}"))?;
+        }
+        card.slice = Some(slice);
+    }
     if let (Some(CardStatus::Done), By::Agent(agent), Some(slice)) =
         (status, by, card.slice.as_mut())
     {
@@ -3234,6 +3280,7 @@ impl BoardUpdateParams {
                 .transpose()?,
             parent: self.parent.map(|id| (id > 0).then_some(id)),
             pass: None,
+            ticks: None,
         })
     }
 }
