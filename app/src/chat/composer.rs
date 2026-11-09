@@ -103,7 +103,6 @@ pub struct Composer {
     /// The chat's text size, as a share of its designed size.
     text_scale: f32,
     /// Stands one line tall until more is written, where it sits under a long list.
-    short: bool,
     on_send: Act,
     on_stop: Act,
 }
@@ -141,7 +140,6 @@ impl Composer {
             leading: None,
             send_label: None,
             text_scale: 1.,
-            short: false,
             on_send,
             on_stop,
         }
@@ -154,11 +152,6 @@ impl Composer {
 
     pub fn send_label(mut self, label: impl Into<SharedString>) -> Self {
         self.send_label = Some(label.into());
-        self
-    }
-
-    pub fn short(mut self) -> Self {
-        self.short = true;
         self
     }
 
@@ -466,10 +459,7 @@ impl RenderOnce for Composer {
                     .child(
                         div()
                             .py(SPACE_0)
-                            .min_h(px(14.5
-                                * self.text_scale
-                                * 1.75
-                                * if self.short { 1. } else { 2.5 }))
+                            .min_h(px(14.5 * self.text_scale * 1.75 * 2.5))
                             .child(
                                 Textarea::new(&self.draft)
                                     .appearance(false)
