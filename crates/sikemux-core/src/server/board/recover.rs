@@ -460,14 +460,8 @@ async fn attempt(core: &Arc<Core>, step: Step) {
     }
 }
 
-/// What the next agent is told of the work so far, from the branch and the last agent's words.
-fn handover(
-    tree: &std::path::Path,
-    start_sha: &str,
-    name: &str,
-    why: &str,
-    said: Option<String>,
-) -> String {
+/// The commits on a worktree's branch since it was cut, and the changes left uncommitted in it.
+fn so_far(tree: &Path, start_sha: &str) -> (String, String) {
     let range = format!("{start_sha}..HEAD");
     let commits = Git::quick(tree)
         .trimmed(&["log", "--oneline", &range])
@@ -475,20 +469,22 @@ fn handover(
     let status = Git::quick(tree)
         .trimmed(&["status", "--short"])
         .unwrap_or_default();
+    let commits = match commits.is_empty() {
+        true => "none yet".to_owned(),
+        false => clipped(&commits, MAX_LOG_CHARS),
+    };
+    (commits, clipped(&status, MAX_LOG_CHARS))
+}
+
+/// What the next agent is told of the work so far, from the branch and the last agent's words.
+fn handover(tree: &Path, start_sha: &str, name: &str, why: &str, said: Option<String>) -> String {
+    let (commits, status) = so_far(tree, start_sha);
     let mut text = format!(
         "\n\nYou take over from @{name}, an earlier agent on this card, which could not go on: {why}. Its work is yours to carry on, in this same worktree and branch, so do not start again."
     );
-    let commits = if commits.is_empty() {
-        "none yet".to_owned()
-    } else {
-        clipped(&commits, MAX_LOG_CHARS)
-    };
     text.push_str(&format!("\n\nCommits on the branch so far:\n{commits}"));
     if !status.is_empty() {
-        text.push_str(&format!(
-            "\n\nChanges it left uncommitted:\n{}",
-            clipped(&status, MAX_LOG_CHARS)
-        ));
+        text.push_str(&format!("\n\nChanges it left uncommitted:\n{status}"));
     }
     if let Some(said) = said.filter(|said| !said.trim().is_empty()) {
         text.push_str(&format!(
@@ -519,10 +515,7 @@ async fn fresh(core: &Arc<Core>, step: &Step, why: &str) {
         hold(core, step, format!("{why}. {error}"));
         return;
     }
-    let said = core
-        .chats
-        .get(&agent)
-        .and_then(|chat| chat.feed.last_answer());
+    let said = last_said(core, &agent);
     stop_agent(core, &agent);
     let (tree, remade) = match lost {
         false => (auto::tree_of(&step.run, &step.project), None),
@@ -620,15 +613,58 @@ async fn make_again(core: &Arc<Core>, step: &Step) -> Result<(Tree, Remade), Str
     Ok((tree, Remade { from_base, told }))
 }
 
-/// The handover for an agent taking a stalled slice on, from the branch its owner left.
-pub(super) fn takeover_note(tree: &std::path::Path, start_sha: &str, stalled: &Stalled) -> String {
+/// The handover for an agent taking a stalled slice on in the worktree its owner left.
+pub(super) fn takeover_note(
+    tree: &Path,
+    start_sha: &str,
+    stalled: &Stalled,
+    said: Option<String>,
+) -> String {
     handover(
         tree,
         start_sha,
         &stalled.name,
         &format!("it lost the slice. {}", stalled.why.words()),
-        None,
+        said,
     )
+}
+
+/// The handover for an agent taking a stalled slice on in a checkout other than the one its
+/// owner left: where that work is, so it is carried over rather than done again.
+pub(super) fn left_elsewhere(core: &Core, stalled: &Stalled, said: Option<String>) -> String {
+    let kept = core.workspaces.agent(&stalled.agent);
+    let mut text = format!(
+        "\n\n@{} held this slice before you and lost it: {}",
+        stalled.name,
+        stalled.why.words()
+    );
+    if let Some((cwd, tree)) = kept.and_then(|agent| Some((agent.cwd, agent.worktree?))) {
+        let (commits, status) = so_far(&cwd, &tree.start_sha);
+        text.push_str(&format!(
+            " Its work is on branch {} in {}; take what is good from there rather than starting again.\n\nCommits on that branch:\n{commits}",
+            tree.branch,
+            tree.path.display()
+        ));
+        if !status.is_empty() {
+            text.push_str(&format!("\n\nChanges it left uncommitted there:\n{status}"));
+        }
+    }
+    if let Some(said) = said.filter(|said| !said.trim().is_empty()) {
+        text.push_str(&format!(
+            "\n\nThe last thing it wrote:\n{}",
+            clipped(&said, MAX_ANSWER_CHARS)
+        ));
+    }
+    text.push_str(&format!(
+        "\n\nagent_read on @{} shows its whole conversation.",
+        stalled.name
+    ));
+    text
+}
+
+/// What an agent last wrote, while its chat is still open.
+pub(super) fn last_said(core: &Core, agent: &str) -> Option<String> {
+    (core.chats.get(agent)).and_then(|chat| chat.feed.last_answer())
 }
 
 /// The person overruled Auto taking a stalled slice on: its agent stops, and the slice waits for

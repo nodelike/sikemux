@@ -1,8 +1,8 @@
 //! What a new agent is handed at the end of its task, in the same letter:
-//! the project's rules, and once it holds a card, its goal's rules and
-//! decisions, with only the knowledge its task and card name. Stale knowledge
-//! stays out. A reviewer Auto started blind gets only what the person said,
-//! nothing an agent added.
+//! the project's rules, and once it holds a card or its lead does, where its
+//! goal stands and the goal's rules and decisions, with only the knowledge its
+//! task and card name. Stale knowledge stays out. A reviewer Auto started blind
+//! gets only what the person said, nothing an agent added.
 
 use std::path::Path;
 
@@ -54,7 +54,10 @@ fn names(text: &str, term: &str) -> bool {
 /// Knowledge is picked by the words of `task`, a lead's own, when given, and
 /// of the agent's card.
 pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<String> {
-    let goal = board::goal_of(core, agent_id);
+    let goal = board::briefing::goal_for(core, agent_id);
+    let on_board = (goal.as_ref())
+        .map(|goal| board::briefing::sections(core, agent_id, goal, core.names.is_blind(agent_id)))
+        .unwrap_or_default();
     let mut read = task.unwrap_or_default().to_lowercase();
     if let Some(goal) = &goal {
         read.push('\n');
@@ -65,6 +68,7 @@ pub(crate) fn brief(core: &Core, agent_id: &str, task: Option<&str>) -> Option<S
         goal,
         blind: core.names.is_blind(agent_id),
         read,
+        on_board,
     };
     Some(format!(
         "---\n\n**{HEADING}.** {NOTE}\n\n{}",
@@ -82,6 +86,7 @@ pub(crate) fn for_chat(core: &Core, cwd: &Path) -> Option<String> {
         goal: None,
         blind: false,
         read: String::new(),
+        on_board: Vec::new(),
     };
     Some(format!("{HEADING}\n\n{NOTE}\n\n{}", body(core, reader)?))
 }
@@ -95,6 +100,8 @@ struct Reader {
     blind: bool,
     /// The words knowledge is picked by, lowercase.
     read: String,
+    /// Where its goal and its own card stand, which lead the brief.
+    on_board: Vec<String>,
 }
 
 fn body(core: &Core, reader: Reader) -> Option<String> {
@@ -103,6 +110,7 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         goal,
         blind,
         read,
+        on_board,
     } = reader;
     let fresh_since = epoch_ms().saturating_sub(FRESH_MS);
     let (mut rules, mut knowledge, mut testing) = (Vec::new(), Vec::new(), Vec::new());
@@ -159,7 +167,7 @@ fn body(core: &Core, reader: Reader) -> Option<String> {
         }
     }
     want(core, testing);
-    let mut sections = Vec::new();
+    let mut sections = on_board;
     if !rules.is_empty() {
         sections.push(format!("Rules:\n{}", rules.join("\n")));
     }

@@ -21,7 +21,9 @@ When another agent or Auto starts an agent in a project, its task ends with what
 
 - every rule of the project and of the folders above it
 - only the knowledge its task names: knowledge that names paths or services goes to agents whose task or card names one of them as a whole word, and knowledge that names none goes to every agent. For Auto's agents only the card counts, not Auto's own instructions.
-- once the agent holds a card, the rules and decisions of the goal the card sits under. An agent started by another agent usually claims its card after it starts, so it reads those with `memory_list` then; Auto's agents hold their card from the start.
+- once the agent holds a card, the goal the card sits under: the goal's own title, details and what counts as done, its slices with who holds each, its rules and its decisions, and where the agent's own slice stands, with the gates it passed, the one it waits at and your notes on it, newest first. An agent started by another agent works toward its lead's goal, so it gets the goal's part before it claims a card of its own.
+
+Nobody writes a handoff by hand. A new agent handed a slice, by **Hand on**, by Auto taking over a stalled slice or by **Resume**, is told where the slice stands now, and, from the owner that lost it, the branch and checkout it worked in, its commits there, what it left uncommitted and the last thing it wrote, so it carries the work on rather than starting again.
 
 A chat you start yourself is handed what Sikemux keeps once, as it starts: every rule of the project and of the folders above it, and the knowledge that names nothing in particular. Claude Code and Codex take it among their instructions, after any developer instructions of your own in Codex's config; other agents get it with your first message that isn't a slash command, shown there as context rather than as your words. It holds what Sikemux kept when the chat began; what changes later, and a goal's rules and decisions once the agent holds a card, it reads with `memory_list`.
 

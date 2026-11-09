@@ -1184,12 +1184,20 @@ async fn start(
         return Ok(());
     }
     if let Some(stalled) = stalled {
-        let (cwd, start_sha, from) = (tree.cwd.clone(), tree.start_sha.clone(), stalled.clone());
-        text.push_str(
-            &blocking(move || Ok(recover::takeover_note(&cwd, &start_sha, &from)))
-                .await
-                .unwrap_or_default(),
+        let said = recover::last_said(core, &stalled.agent);
+        let (owner, cwd, start_sha, from) = (
+            core.clone(),
+            tree.cwd.clone(),
+            tree.start_sha.clone(),
+            stalled.clone(),
         );
+        let note = blocking(move || {
+            Ok(match reuses {
+                true => recover::takeover_note(&cwd, &start_sha, &from, said),
+                false => recover::left_elsewhere(&owner, &from, said),
+            })
+        });
+        text.push_str(&note.await.unwrap_or_default());
         note_takeover(core, project, id, agent, &card.label(), stalled, reuses);
     }
     if !reuses {

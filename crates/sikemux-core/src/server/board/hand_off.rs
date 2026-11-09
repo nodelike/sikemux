@@ -285,6 +285,12 @@ async fn hand_task(
             "\n\nWhen it is done, commit it with git_commit and land it on {base} with land true. This project names no check, so nothing Sikemux runs can show the work Built yet: ask me how it is to be checked before you mark the card done."
         ),
     });
+    if let Some(chat) = core.chats.get(agent) {
+        chat.take_brief();
+    }
+    if let Some(brief) = crate::server::memory::brief(core, agent, Some(&text)) {
+        message.push_str(&format!("\n\n{brief}"));
+    }
     let tracking = ChatContext {
         uri: format!("{FOR_AGENT_URI}card-{card}"),
         title: format!("Card #{card}"),

@@ -34,6 +34,7 @@ mod arrival;
 pub(crate) mod auto;
 pub(crate) mod backup;
 mod blind;
+pub(crate) mod briefing;
 pub mod chat_goal;
 mod commands;
 mod compare;

@@ -342,6 +342,13 @@ pub(super) fn back_at_work(core: &Core, project: &str, id: u64, agent: &str) {
     }
 }
 
+/// Where `agent`'s goal and card stand now, for an agent handed a slice it did not start with.
+fn standing_for(core: &Core, agent: &str) -> String {
+    (super::briefing::goal_for(core, agent))
+        .map(|goal| super::briefing::sections(core, agent, &goal, false).join("\n\n"))
+        .unwrap_or_default()
+}
+
 async fn tell(core: &Arc<Core>, agent: &str, text: String) -> Result<(), String> {
     let note = "Sent by Sikemux's board, because the person chose it.".to_owned();
     messages::from_board(core, agent.to_owned(), text, note)
@@ -408,8 +415,9 @@ pub(crate) async fn person_resume(
     let (project, stalled, label) = stalled_card(core, &params).await?;
     let agent = bring_back(core, &stalled).await?;
     give(core, &project, params.id, &agent)?;
+    let standing = standing_for(core, &agent);
     tell(core, &agent, format!(
-        "You lost your slice {label} because you stalled, and the person gave it back to you. board_list with card {} shows where it stands: carry on with it.",
+        "You lost your slice {label} because you stalled, and the person gave it back to you. board_list with card {} shows where it stands: carry on with it.\n\n{standing}",
         params.id
     ))
     .await?;
@@ -426,11 +434,14 @@ pub(crate) async fn person_hand_on(
     };
     let (project, stalled, label) = stalled_card(core, &card).await?;
     let id = card.id;
-    let from = format!(
-        "{label} was @{}'s until it stalled. {}",
-        stalled.name,
-        stalled.why.words()
-    );
+    let said = super::recover::last_said(core, &stalled.agent);
+    let left = {
+        let (core, stalled) = (core.clone(), stalled.clone());
+        blocking(move || Ok(super::recover::left_elsewhere(&core, &stalled, said)))
+            .await
+            .unwrap_or_default()
+    };
+    let from = format!("{label} was @{}'s until it stalled.{left}", stalled.name);
     let Some(agent) = params.to else {
         hand_off::hand_on(core, &project, id, params.launcher, from).await?;
         return Ok(project_view(core, &project));
@@ -439,8 +450,9 @@ pub(crate) async fn person_hand_on(
         return Err(format!("{} isn't open any more", name_of(core, &agent)));
     }
     give(core, &project, id, &agent)?;
+    let standing = standing_for(core, &agent);
     tell(core, &agent, format!(
-        "The person handed you a slice. {from} It is yours now: board_list with card {id} shows where it stands, so carry it on."
+        "The person handed you a slice, which is yours now: board_list with card {id} shows where it stands, so carry it on. {from}\n\n{standing}"
     ))
     .await?;
     Ok(project_view(core, &project))
