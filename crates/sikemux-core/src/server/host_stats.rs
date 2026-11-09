@@ -16,7 +16,7 @@ use sikemux_process::memory_pressure::{self, Pressure};
 use sikemux_process::procs::{self, Usage};
 use sikemux_process::sync::Locked;
 use sikemux_view::changed::Topic;
-use sikemux_view::device::HostLoad;
+use sikemux_view::device::{HostAlerted, HostLoad};
 use sikemux_view::host_stats::{
     AgentUse, AlertLevel, DiskPart, DiskPartKind, HostAbout, HostAlert, HostAlertKind, HostEvent,
     HostEventKind, HostMark, HostSample, HostStats, HostStatsParams, ProcessUse, RestUse,
@@ -191,16 +191,34 @@ pub(crate) fn shown_load(load: &HostLoad) -> (u32, Option<u64>) {
     (load.cpu, load.memory_used.map(tenths))
 }
 
-/// Every alert the inbox lists: this host's, then each linked host out of reach, with the host
-/// it is about (none for this one) and what to call that host.
+/// This host's alerts, then each linked host out of reach.
+pub(crate) fn alerts(core: &Core) -> Vec<HostAlerted> {
+    alerts_named(core)
+        .into_iter()
+        .map(|(alerted, _)| alerted)
+        .collect()
+}
+
+/// Every alert the inbox lists, as [`alerts`] has them, with what to call the host each is about.
 pub(crate) fn inbox_alerts(core: &Core) -> Vec<(Option<String>, String, HostAlert)> {
+    let here = super::host::info().name;
+    alerts_named(core)
+        .into_iter()
+        .map(|(alerted, name)| {
+            let name = name.unwrap_or_else(|| here.clone());
+            (alerted.host, name, alerted.alert)
+        })
+        .collect()
+}
+
+/// [`alerts`], each linked host's with its name.
+fn alerts_named(core: &Core) -> Vec<(HostAlerted, Option<String>)> {
     let (alerts, offline) = {
         let state = core.host_watch.state.locked();
         (state.alerts.clone(), state.offline.clone())
     };
-    let here = super::host::info().name;
     let mut listed: Vec<_> = (alerts.into_iter())
-        .map(|alert| (None, here.clone(), alert))
+        .map(|alert| (HostAlerted { host: None, alert }, None))
         .collect();
     if offline.is_empty() {
         return listed;
@@ -210,15 +228,18 @@ pub(crate) fn inbox_alerts(core: &Core) -> Vec<(Option<String>, String, HostAler
         let Some(link) = links.iter().find(|link| link.id == host) else {
             continue;
         };
+        let alert = HostAlert {
+            kind: HostAlertKind::Offline,
+            level: AlertLevel::Danger,
+            since,
+            percent: 0,
+        };
         listed.push((
-            Some(host),
-            link.name.clone(),
-            HostAlert {
-                kind: HostAlertKind::Offline,
-                level: AlertLevel::Danger,
-                since,
-                percent: 0,
+            HostAlerted {
+                host: Some(host),
+                alert,
             },
+            Some(link.name.clone()),
         ));
     }
     listed

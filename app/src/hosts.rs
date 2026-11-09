@@ -23,6 +23,7 @@ use sikemux_core::server::tasks::TrustQuestion;
 use sikemux_core::server::tasks::{RunView, TaskList};
 use sikemux_plugin_api::codehost::PullList;
 use sikemux_view::device::DeviceView;
+use sikemux_view::host_stats::{AlertLevel, HostAlert, HostAlertKind};
 
 use crate::chat::Question;
 use crate::core;
@@ -662,6 +663,70 @@ impl Copying {
         (self.from.path.file_name())
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_default()
+    }
+}
+
+/// What a host in trouble says of `alert`, alike on its rail row and its Hosts page card:
+/// "Memory 98%", "Disk 94%", "CPU 97%" or "Out of reach 14 min".
+pub fn alert_words(alert: &HostAlert) -> String {
+    match alert.kind {
+        HostAlertKind::Offline => format!("Out of reach {}", lasted(alert.since)),
+        kind => format!("{} {}%", alert_kind_word(kind), alert.percent),
+    }
+}
+
+pub fn alert_kind_word(kind: HostAlertKind) -> &'static str {
+    match kind {
+        HostAlertKind::Memory => "Memory",
+        HostAlertKind::Disk => "Disk",
+        HostAlertKind::Cpu => "CPU",
+        HostAlertKind::Offline => "Out of reach",
+        HostAlertKind::Unknown => "Load",
+    }
+}
+
+/// How long since `since` (Unix milliseconds): "just now", "14 min", "3 h" or "2 d".
+pub fn lasted(since: u64) -> String {
+    let minutes = crate::ui::time::now_ms().saturating_sub(since) / 60_000;
+    match minutes {
+        0 => "just now".to_owned(),
+        1..60 => format!("{minutes} min"),
+        60..1440 => format!("{} h", minutes / 60),
+        _ => format!("{} d", minutes / 1440),
+    }
+}
+
+pub fn alert_tint(level: AlertLevel, t: &crate::theme::Tokens) -> gpui_kit::Hsla {
+    match level {
+        AlertLevel::Warn => t.warn,
+        AlertLevel::Danger => t.danger,
+    }
+}
+
+/// The worst of `alerts`, serious ones first, then the longest standing.
+pub fn worst_alert<'a>(alerts: impl IntoIterator<Item = &'a HostAlert>) -> Option<&'a HostAlert> {
+    alerts.into_iter().max_by_key(|alert| {
+        (
+            alert.level == AlertLevel::Danger,
+            std::cmp::Reverse(alert.since),
+        )
+    })
+}
+
+impl Workbench {
+    /// The worst alert about the account host `key` names, this one when none: what this
+    /// host's core says, such as that host being out of reach, and, while it is `connected`,
+    /// what that host's own core says of itself.
+    pub fn host_alert(&self, key: Option<&str>, connected: bool) -> Option<&HostAlert> {
+        let here = (self.this_view().into_iter())
+            .flat_map(|view| &view.alerts)
+            .filter(|alerted| alerted.host.as_deref() == key);
+        let own = (key.filter(|_| connected))
+            .and_then(|key| self.feeds.host(key)?.view.as_ref())
+            .into_iter()
+            .flat_map(|view| &view.alerts)
+            .filter(|alerted| alerted.host.is_none());
+        worst_alert(here.chain(own).map(|alerted| &alerted.alert))
     }
 }
 

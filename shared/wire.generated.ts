@@ -77,6 +77,8 @@ export interface DeviceView {
     faceStyle: FaceStyle;
     /** How busy this host is, while a client that shows it is attached. */
     load?: HostLoad;
+    /** What about this host, or a linked host out of reach, needs the person now. */
+    alerts?: HostAlerted[];
     /** How this host keeps its core current, on a host that updates itself. */
     updates?: UpdateStatus;
 }
@@ -1260,6 +1262,12 @@ export interface HostLoad {
     cpu: number;
     /** Memory in use, in bytes, where the host says. */
     memoryUsed: number | null;
+}
+
+/** An alert about this host, or about the linked host `host` names. */
+export interface HostAlerted {
+    host?: string;
+    alert: HostAlert;
 }
 
 export interface UpdateStatus {

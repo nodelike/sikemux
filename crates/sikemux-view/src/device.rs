@@ -28,6 +28,9 @@ pub struct DeviceView {
     /// How busy this host is, while a client that shows it is attached.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load: Option<HostLoad>,
+    /// What about this host, or a linked host out of reach, needs the person now.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alerts: Vec<HostAlerted>,
     /// How this host keeps its core current, on a host that updates itself.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updates: Option<UpdateStatus>,
@@ -41,6 +44,15 @@ pub struct HostLoad {
     pub cpu: u32,
     /// Memory in use, in bytes, where the host says.
     pub memory_used: Option<u64>,
+}
+
+/// An alert about this host, or about the linked host `host` names.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostAlerted {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    pub alert: crate::host_stats::HostAlert,
 }
 
 /// The Sikemux account this host is signed in to, as clients show it.

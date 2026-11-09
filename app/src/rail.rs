@@ -17,6 +17,7 @@ use gpui_kit::{
 use sikemux_core::server::hosts::HostFound;
 use sikemux_core::server::hosts::HostReach;
 use sikemux_view::device::AccountInfo;
+use sikemux_view::host_stats::{AlertLevel, HostAlert};
 use sikemux_view::layout::PaneKind;
 use sikemux_view::prefs::{Preferences, ProjectSort, TabRailPage, TabRailScope};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
@@ -302,12 +303,50 @@ fn details_item(bench: WeakEntity<Workbench>, host: String) -> PopupMenuItem {
         })
 }
 
+/// Why a host is in trouble, under its name in its alert's colour, opening its Hosts page; the
+/// rest of its row still switches to it.
+fn trouble(
+    id: SharedString,
+    host: String,
+    name: &str,
+    alert: &HostAlert,
+    cx: &mut Context<Workbench>,
+) -> impl IntoElement {
+    let tint = crate::hosts::alert_tint(alert.level, Tokens::get(cx));
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(3.))
+        .min_w_0()
+        .text_size(crate::theme::ui_text(TEXT_2XS))
+        .line_height(crate::theme::ui_text(16.))
+        .text_color(tint)
+        .cursor_pointer()
+        .tooltip(ui::tooltip(format!("Open Hosts › {name}")))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .underline()
+                .child(crate::hosts::alert_words(alert)),
+        )
+        .child(ui::icon(Icon::Chevron, 10.).text_color(tint))
+        .on_click(cx.listener(move |bench, _, _, cx| {
+            cx.stop_propagation();
+            bench.show_workbench(cx);
+            bench.open_hosts(Some(host.clone()));
+        }))
+}
+
 /// The host this window runs on, where new work starts.
 fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let agents = bench
         .this_view()
         .map_or(0, |view| view.workspace.agents.len());
+    let alert = bench.host_alert(None, true).cloned();
+    let alert = alert.as_ref();
     let row = Row::new("this-host", "This host")
         .mark(
             16.,
@@ -329,7 +368,23 @@ fn this_host(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement
                 if agents == 1 { "agent" } else { "agents" }
             ))
         })
-        .status(Some(ui::dot(Tone::Ok, cx)));
+        .status(Some(ui::dot(
+            match alert.map(|alert| alert.level) {
+                Some(AlertLevel::Danger) => Tone::Failed,
+                _ => Tone::Ok,
+            },
+            cx,
+        )));
+    let row = match alert {
+        Some(alert) => row.subtitle(trouble(
+            "this-host-trouble".into(),
+            HostChoice::This.key().into(),
+            "This host",
+            alert,
+            cx,
+        )),
+        None => row,
+    };
     let (bench_entity, approval) = (cx.weak_entity(), bench.feeds.this.approval);
     with_menu(
         "this-host-menu".into(),
@@ -500,8 +555,25 @@ fn hosts(bench: &Workbench, cx: &mut Context<Workbench>) -> Vec<AnyElement> {
                         (!parts.is_empty()).then(|| parts.join(" · "))
                     },
                     |row, detail| row.detail(detail),
-                )
-                .status(Some(ui::dot(tone, cx)));
+                );
+            let alert = (host.id.as_deref())
+                .and_then(|key| bench.host_alert(Some(key), connected))
+                .cloned();
+            let tone = match alert.as_ref().map(|alert| alert.level) {
+                Some(AlertLevel::Danger) => Tone::Failed,
+                _ => tone,
+            };
+            let row = row.status(Some(ui::dot(tone, cx)));
+            let row = match (&alert, &host.id) {
+                (Some(alert), Some(key)) => row.subtitle(trouble(
+                    SharedString::from(format!("host-trouble-{name}")),
+                    key.clone(),
+                    &name,
+                    alert,
+                    cx,
+                )),
+                _ => row,
+            };
             let bench_entity = cx.weak_entity();
             let set_up_alias = host.ssh.clone();
             let set_up = set_up_alias

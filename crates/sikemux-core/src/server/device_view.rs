@@ -226,6 +226,7 @@ impl Core {
                 *self.device_view.shown_load.locked() = Some(host_stats::shown_load(&load));
                 load
             }),
+            alerts: host_stats::alerts(self),
             updates: updates::host_view(self),
         };
         let frame = encode_device_view(&view).ok()?;
