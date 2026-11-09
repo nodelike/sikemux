@@ -231,7 +231,6 @@ impl Workbench {
             Scrolled::Landed((shown, from, speed, target)) => {
                 if let Some(target) = target {
                     self.rails.page = target;
-                    self.accounts.limits.pointer_gone();
                 }
                 let moved = self.rails.slide.travel(shown, from, Some(speed));
                 settle(self, moved, |bench: &mut Self| &mut bench.rails.slide, cx);

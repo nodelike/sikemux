@@ -189,7 +189,7 @@ impl Strip {
 }
 
 /// How often the Limits panel reads the plan limits again while it shows, as the Mac app does.
-const LIMITS_EVERY: Duration = Duration::from_secs(5 * 60);
+pub(crate) const LIMITS_EVERY: Duration = Duration::from_secs(5 * 60);
 
 impl Workbench {
     pub fn new(link: Link, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -608,8 +608,9 @@ impl Workbench {
     /// The most of any window of its plan the launcher's account has used.
     pub fn usage_peak(&self, launcher: &str) -> Option<f64> {
         let usage = self.usage_of(launcher)?.usage.as_ref()?;
+        let now = crate::ui::time::now_ms();
         (usage.windows.iter())
-            .map(|window| window.used_percent.clamp(0., 100.))
+            .map(|window| window.used_at(now))
             .reduce(f64::max)
     }
 
@@ -745,7 +746,15 @@ impl Parts {
                 },
                 false,
             ),
-            tabs: part(|bench, _, cx| agents::tab_rail(bench, cx), false),
+            tabs: part(
+                |bench, _, cx| {
+                    bench.accounts.limits.drawing_rail();
+                    let rail = agents::tab_rail(bench, cx);
+                    bench.settle_limits();
+                    rail
+                },
+                false,
+            ),
             finder: part(
                 |bench, window, cx| {
                     crate::pickers::switcher::overlay(bench, cx)
@@ -794,6 +803,7 @@ impl Parts {
 impl Render for Workbench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use crate::keymap::SHELL;
+        self.settle_limits();
         let asked = self.asked(window, cx);
         #[cfg(feature = "drive")]
         if asked.is_some() {
