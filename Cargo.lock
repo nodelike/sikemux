@@ -9398,6 +9398,7 @@ dependencies = [
  "sikemux-plugin-database",
  "sikemux-plugin-github",
  "sikemux-plugin-gitlab",
+ "sikemux-plugin-googleplay",
  "sikemux-plugin-jira",
  "sikemux-plugin-linear",
  "sikemux-plugin-rundeck",
@@ -9587,6 +9588,22 @@ dependencies = [
  "futures",
  "reqwest",
  "rustls",
+ "serde",
+ "serde_json",
+ "sikemux-plugin-api",
+ "sikemux-process",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
+name = "sikemux-plugin-googleplay"
+version = "0.1.0"
+dependencies = [
+ "base64 0.23.1",
+ "futures",
+ "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "sikemux-plugin-api",

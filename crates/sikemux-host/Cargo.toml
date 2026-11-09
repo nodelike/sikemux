@@ -12,10 +12,11 @@ name = "sikemux-host"
 path = "src/main.rs"
 
 [features]
-default = ["aws", "bitbucket", "database", "github", "gitlab", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
+default = ["aws", "bitbucket", "database", "github", "gitlab", "googleplay", "jira", "linear", "rundeck", "signoz", "slack", "vercel"]
 aws = ["dep:sikemux-plugin-aws"]
 bitbucket = ["dep:sikemux-plugin-bitbucket"]
 gitlab = ["dep:sikemux-plugin-gitlab"]
+googleplay = ["dep:sikemux-plugin-googleplay"]
 database = ["dep:sikemux-plugin-database"]
 github = ["dep:sikemux-plugin-github"]
 jira = ["dep:sikemux-plugin-jira"]
@@ -52,6 +53,7 @@ sikemux-plugin-bitbucket = { path = "../../plugins/bitbucket", optional = true }
 sikemux-plugin-gitlab = { path = "../../plugins/gitlab", optional = true }
 sikemux-plugin-database = { path = "../../plugins/database", optional = true }
 sikemux-plugin-github = { path = "../../plugins/github", optional = true }
+sikemux-plugin-googleplay = { path = "../../plugins/googleplay", optional = true }
 sikemux-plugin-jira = { path = "../../plugins/jira", optional = true }
 sikemux-plugin-linear = { path = "../../plugins/linear", optional = true }
 sikemux-plugin-rundeck = { path = "../../plugins/rundeck", optional = true }
