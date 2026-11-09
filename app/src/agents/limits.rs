@@ -14,7 +14,7 @@ use gpui_kit::{
 };
 use sikemux_core::agent_accounts::usage::UsageWindow;
 use sikemux_core::agent_accounts::Profile;
-use sikemux_core::server::agent_accounts::{AccountUsage, MovedChat, Unpicking};
+use sikemux_core::server::agent_accounts::{AccountUsage, Unpicking};
 use sikemux_core::server::call;
 use sikemux_core::server::calls::NoParams;
 use sikemux_view::workspace::LauncherInfo;
@@ -72,10 +72,7 @@ pub struct Reveal {
 
 /// A pick, offered back for a few seconds with the chats it moved.
 struct Undo {
-    provider: String,
-    picked: String,
-    back_to: String,
-    moved: Vec<MovedChat>,
+    undoing: Unpicking,
     _expires: Task<()>,
 }
 
@@ -345,7 +342,10 @@ fn view(
         solo,
         compact,
         reading: reveal.reading.is_some(),
-        undo: reveal.undo.as_ref().map(|undo| undo.back_to.clone()),
+        undo: reveal
+            .undo
+            .as_ref()
+            .map(|undo| undo.undoing.back_to.clone()),
         room,
     }
 }
@@ -353,7 +353,11 @@ fn view(
 /// Whether the float would show anything the rows do not: another account, windows the rows
 /// have no room for, or, with every agent listed, each agent's add button.
 fn float_adds(agents: &[Agent], solo: bool) -> bool {
-    !solo || (agents.iter()).any(|agent| agent.others() > 0 || agent.current().windows().len() > 2)
+    !solo
+        || (agents.iter()).any(|agent| {
+            let shown = agent.current();
+            agent.others() > 0 || (!shown.signed_out && shown.windows().len() > 2)
+        })
 }
 
 /// How many rows the panel holds: a fixed number, so that no reading can resize it.
@@ -1025,19 +1029,9 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
 
 /// Puts the agent on `profile`, which moves its open chats, and offers the way back.
 fn pick(bench: &mut Workbench, profile: &Profile, cx: &mut Context<Workbench>) {
-    let Some(back_to) = (bench.accounts.current(&profile.provider))
-        .filter(|current| current.id != profile.id)
-        .map(|current| current.id.clone())
-    else {
-        return;
-    };
-    let (provider, picked) = (profile.provider.clone(), profile.id.clone());
-    crate::accounts::pick(bench, profile, cx, move |bench, moved, cx| {
+    crate::accounts::pick(bench, profile, cx, |bench, undoing, cx| {
         bench.accounts.limits.undo = Some(Undo {
-            provider,
-            picked,
-            back_to,
-            moved,
+            undoing,
             _expires: cx.spawn(async move |bench, cx| {
                 cx.background_executor().timer(UNDO_FOR).await;
                 let _ = bench.update(cx, |bench, cx| {
@@ -1054,13 +1048,7 @@ fn undo_pick(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     let Some(undo) = bench.accounts.limits.undo.take() else {
         return;
     };
-    let undoing = Unpicking {
-        provider: undo.provider,
-        picked: undo.picked,
-        back_to: undo.back_to,
-        moved: undo.moved,
-    };
-    crate::accounts::unpick(bench, undoing, cx);
+    crate::accounts::unpick(bench, undo.undoing, cx);
     redraw(bench, cx);
 }
 

@@ -1034,7 +1034,9 @@ impl<B: Backend> Running<'_, B> {
                 context,
                 reply,
             } => self.edit(message_id, text, paths, context, reply).await,
-            ChatCommand::SwitchAccount { account } => return self.switch_account(account).await,
+            ChatCommand::SwitchAccount { account, moved } => {
+                return self.switch_account(account, moved).await
+            }
             ChatCommand::SetPermissionMode { mode, reply } => {
                 self.set_permission_mode(mode, reply).await
             }
@@ -1209,13 +1211,24 @@ impl<B: Backend> Running<'_, B> {
         self.send(replay).await;
     }
 
-    /// Moves the chat to `account`, once the running turn has stopped.
-    async fn switch_account(&mut self, account: ChatAccount) -> ControlFlow<Outcome> {
+    /// Moves the chat to `account`, once the running turn has stopped. Asked for the account
+    /// it is still on while a move waits for that turn, it stays: the latest choice wins.
+    async fn switch_account(
+        &mut self,
+        account: ChatAccount,
+        moved: Option<tokio::sync::oneshot::Sender<bool>>,
+    ) -> ControlFlow<Outcome> {
+        let say = |going: bool| {
+            if let Some(moved) = moved {
+                let _ = moved.send(going);
+            }
+        };
         let chat = &self.chat;
         if !self.state.reloadable {
             chat.error(error_message(
                 "This agent cannot carry a chat to another account",
             ));
+            say(false);
             return ControlFlow::Continue(());
         }
         if chat.prompted() {
@@ -1229,10 +1242,12 @@ impl<B: Backend> Running<'_, B> {
                 let sent = self.backend.cancel().await;
                 chat.cancel_sent(sent, self.state.turn, &self.stalled);
             }
-            if moves {
+            let going = moves || self.state.switching.is_some();
+            if going {
                 let carry_on = self.state.switching.as_ref().is_none_or(|was| was.carry_on);
                 self.state.switching = Some(Switching { account, carry_on });
             }
+            say(going);
             return ControlFlow::Continue(());
         }
         let replay = self
@@ -1240,8 +1255,9 @@ impl<B: Backend> Running<'_, B> {
             .failed_prompt
             .take()
             .or_else(|| chat.unprompted().then(Switching::carry_on_prompt));
-        switch_to(chat, self.provider, self.launch, &account, replay)
-            .map_or(ControlFlow::Continue(()), ControlFlow::Break)
+        let outcome = switch_to(chat, self.provider, self.launch, &account, replay);
+        say(outcome.is_some());
+        outcome.map_or(ControlFlow::Continue(()), ControlFlow::Break)
     }
 
     async fn set_permission_mode(

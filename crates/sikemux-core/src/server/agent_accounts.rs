@@ -2,8 +2,9 @@
 //! settings and rail make.
 
 use crate::server::changed::What;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock, Once};
+use std::sync::{Arc, LazyLock, Mutex, Once};
 
 use serde::{Deserialize, Serialize};
 
@@ -15,6 +16,7 @@ use crate::agent_accounts::{chat_account, defaults, folders, status, usage, Book
 use crate::agent_catalog::{AgentEntry, AGENTS};
 use crate::flights::{shared, Flights};
 use crate::launch::discovery;
+use sikemux_process::sync::Locked;
 use sikemux_wire::protocol::ChatAccount;
 
 #[derive(Serialize, Deserialize)]
@@ -84,16 +86,17 @@ pub struct Choosing {
 
 /// A chat a pick moved, and the account it was on.
 #[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct MovedChat {
-    pub agent: String,
+    pub agent_id: String,
     pub from: String,
 }
 
-/// The accounts after a pick, and the chats it moved, for undoing it.
+/// The accounts after a pick, and what a client hands back to undo it.
 #[derive(Serialize, Deserialize)]
 pub struct Picked {
     pub book: Book,
-    pub moved: Vec<MovedChat>,
+    pub undo: Unpicking,
 }
 
 /// A pick to take back: the account picked, the one chosen before it, and the chats it moved.
@@ -142,21 +145,30 @@ async fn change(
 
 /// Moves `provider`'s chats onto the account `id` the person chose, where it
 /// keeps their chats too, with a turn at work carrying on there. Agents in a
-/// terminal stay where they are.
-fn move_chats(core: &Core, book: &Book, provider: &str, id: &str) -> Vec<MovedChat> {
+/// terminal stay where they are. A chat that names no account follows
+/// `chosen_before`, the choice this pick replaces.
+async fn move_chats(
+    core: &Core,
+    book: &Book,
+    provider: &str,
+    id: &str,
+    chosen_before: &str,
+) -> Vec<MovedChat> {
     let Some(target) = book
         .profile(id)
         .filter(|profile| profile.provider == provider)
     else {
         return Vec::new();
     };
-    let chosen = book.chosen(provider);
     let mut moved = Vec::new();
     for agent_id in core.workspaces.agent_ids() {
         let Some(agent) = core.workspaces.agent(&agent_id) else {
             continue;
         };
-        let on = agent.profile_id.clone().unwrap_or_else(|| chosen.clone());
+        let on = agent
+            .profile_id
+            .clone()
+            .unwrap_or_else(|| chosen_before.to_owned());
         if agent.provider != provider || agent.pty_id.is_some() || on == id {
             continue;
         }
@@ -172,15 +184,25 @@ fn move_chats(core: &Core, book: &Book, provider: &str, id: &str) -> Vec<MovedCh
             &target.name,
             target.config_path.as_deref(),
         );
-        match super::chat::switch_account(core, &agent_id, account) {
-            Ok(()) => moved.push(MovedChat {
-                agent: agent_id,
-                from: on,
-            }),
+        match super::chat::moved_to_account(core, &agent_id, account).await {
+            Ok(true) => moved.push(MovedChat { agent_id, from: on }),
+            Ok(false) => {}
             Err(error) => eprintln!("sikemux core: {agent_id} stayed on its account: {error}"),
         }
     }
     moved
+}
+
+/// One pick of an agent's account at a time, so that quick picks record each default and move
+/// the chats in the order they ran.
+fn pick_turn(provider: &str) -> Arc<tokio::sync::Mutex<()>> {
+    static TURNS: LazyLock<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>> =
+        LazyLock::new(Mutex::default);
+    TURNS
+        .locked()
+        .entry(provider.to_owned())
+        .or_default()
+        .clone()
 }
 
 pub(super) async fn set(core: &Arc<Core>, book: Book) -> CoreResult<()> {
@@ -206,34 +228,61 @@ pub(super) async fn select(core: &Arc<Core>, choosing: Choosing) -> CoreResult<B
 }
 
 pub(super) async fn pick(core: &Arc<Core>, choosing: Choosing) -> CoreResult<Picked> {
+    let turn = pick_turn(&choosing.provider);
+    let _turn = turn.lock().await;
+    let back_to = core
+        .workspaces
+        .accounts()
+        .unwrap_or_default()
+        .chosen(&choosing.provider);
     let (provider, id) = (choosing.provider.clone(), choosing.id.clone());
     let book = change(core, move |book| {
         book.selected.insert(provider, id);
         Ok(())
     })
     .await?;
-    let moved = move_chats(core, &book, &choosing.provider, &choosing.id);
-    Ok(Picked { book, moved })
+    let moved = move_chats(core, &book, &choosing.provider, &choosing.id, &back_to).await;
+    Ok(Picked {
+        book,
+        undo: Unpicking {
+            provider: choosing.provider,
+            picked: choosing.id,
+            back_to,
+            moved,
+        },
+    })
 }
 
 /// Puts each chat a pick moved back on the account it was on, unless it has since gone to a third
 /// account. A chat still on its way to the pick is sent back too, as its move is queued.
 pub(super) async fn unpick(core: &Arc<Core>, undoing: Unpicking) -> CoreResult<Book> {
+    let turn = pick_turn(&undoing.provider);
+    let _turn = turn.lock().await;
     let (provider, back_to) = (undoing.provider.clone(), undoing.back_to.clone());
     let book = change(core, move |book| {
+        let known = (book.clone().with_built_ins().profile(&back_to))
+            .is_some_and(|profile| profile.provider == provider);
+        if !known {
+            return Err(format!("{back_to} is not an account of {provider}"));
+        }
         book.selected.insert(provider, back_to);
         Ok(())
     })
     .await?;
     for moved in &undoing.moved {
-        let Some(agent) = core.workspaces.agent(&moved.agent) else {
+        let Some(agent) = core.workspaces.agent(&moved.agent_id) else {
             continue;
         };
         let on = agent.profile_id.as_deref();
-        if on.is_some_and(|on| on != undoing.picked && on != moved.from) {
+        if agent.provider != undoing.provider
+            || on.is_some_and(|on| on != undoing.picked && on != moved.from)
+        {
             continue;
         }
-        let Some(target) = book.profile(&moved.from) else {
+        let Some(target) = book
+            .profile(&moved.from)
+            .filter(|profile| profile.provider == undoing.provider)
+        else {
             continue;
         };
         let account = chat_account(
@@ -242,10 +291,10 @@ pub(super) async fn unpick(core: &Arc<Core>, undoing: Unpicking) -> CoreResult<B
             &target.name,
             target.config_path.as_deref(),
         );
-        if let Err(error) = super::chat::switch_account(core, &moved.agent, account) {
+        if let Err(error) = super::chat::switch_account(core, &moved.agent_id, account) {
             eprintln!(
                 "sikemux core: {} stayed on its account: {error}",
-                moved.agent
+                moved.agent_id
             );
         }
     }

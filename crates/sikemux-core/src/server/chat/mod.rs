@@ -136,6 +136,8 @@ pub(crate) enum ChatCommand {
     },
     SwitchAccount {
         account: ChatAccount,
+        /// Told whether the chat is really going to the account, for a caller keeping track.
+        moved: Option<oneshot::Sender<bool>>,
     },
     Edit {
         message_id: String,
