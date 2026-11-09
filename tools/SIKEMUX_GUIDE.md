@@ -65,7 +65,7 @@ Pass one of these as `topic`:
 - `browser-pages` — navigating, reloading, waiting, local files, viewports, tabs
 - `browser-evidence` — `browser_screenshot`, `browser_annotate`, `browser_record`
 - `browser-debugging` — network, console, `app_console`, `browser_evaluate`
-- `simulator` — driving an iOS simulator with `sim_*`
+- `simulator` — driving an iOS simulator or Android device with `sim_*`
 - `databases` — the `db_*` tools, SQL, and adding a database
 - `aws` — `aws_*` tools, profiles, expired sign-ins
 - `connectors` — PRs, CI and SigNoz logs
@@ -715,11 +715,12 @@ status. "Load failed" means the request never got an answer: the server is
 down, the address is wrong, or CORS or a blocked mixed-content request
 stopped it; `browser_network` shows which.
 
-## simulator: Driving the iOS Simulator
+## simulator: Driving the iOS Simulator and Android devices
 
-The `sim_*` tools drive the iOS simulators that Xcode installs on this Mac.
-They are listed only when this Mac can run them (macOS 15 or later and a full
-Xcode) and the person has not turned them off in Settings. `sim_attach` puts
+The `sim_*` tools drive the iOS simulators that Xcode installs on this Mac,
+and Android emulators and phones through the Android SDK. They are listed
+only when this computer can run one of them (macOS 15 or later with a full
+Xcode, or an Android SDK) and the person has not turned them off in Settings. `sim_attach` puts
 the device live on your desk in Sikemux, beside the person, who watches what
 you do and can tap it too, so there is nothing else to open to show it: do not
 look for Simulator.app or open screenshots in another app. Its absence does
@@ -816,9 +817,16 @@ a process (`expo start --dev-client` or `react-native start`, without `--ios`).
 An Expo development build then reaches it through `sim_open_url` with
 `<scheme>://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081`.
 
-Android devices take the same tools: `sim_attach` one, `sim_install` the
+Android devices take the same tools, in the same device points (Android's
+dp). `sim_attach` with `platform: "android"` picks one when you name none: the
+device your desk or project had, else one already running, else the virtual
+device on the newest Android, which starts with no window of its own and shows
+on your desk. Phones plugged in with USB debugging on are listed too. With no
+Android SDK on this computer, ask the person to set up the Android Emulator
+from the desk's device menu; do not install the SDK yourself. `sim_install` the
 `.apk` your build produced inside the project (`./gradlew assembleDebug` as a
-process) and `sim_launch` it by package name. Do not install or launch with
+process) and `sim_launch` it by package name; `sim_logs` takes the package
+name as `process`. `sim_button` has `back` and `appSwitch` on Android. Do not install or launch with
 `pnpm android`, `expo run:android`, `react-native run-android`, `flutter run`,
 `./gradlew installDebug` or `adb install`: they pick a device on their own,
 which may be one another agent holds or the person's phone. Start only the

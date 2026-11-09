@@ -37,18 +37,18 @@ Every agent Sikemux starts gets these tools through the `sikemux-tools` MCP serv
 
 | Tool | What it does |
 |---|---|
-| `sim_devices` | List the iOS simulators, the one you hold, and which other agents hold. |
-| `sim_attach` | Attach a simulator by name or udid, else your project's own; boots it if needed and reads its screen. |
+| `sim_devices` | List the iOS simulators and Android devices, emulators and phones, the one you hold, and which other agents hold. |
+| `sim_attach` | Attach a simulator or Android device by name or udid, else your project's own; boots it if needed and reads its screen. platform picks iOS or Android when you name none. |
 | `sim_state` | Read the attached simulator's screen: the frontmost app and numbered elements with their centre points. |
 | `sim_tap` | Tap an element by number or label, or a point in device points. A duration makes it a long press. |
 | `sim_swipe` | Swipe between two points in device points. Starting at a screen edge makes a system gesture. |
 | `sim_type` | Type text into the focused field on the attached simulator. |
-| `sim_button` | Press a hardware button on the attached simulator. |
+| `sim_button` | Press a hardware button on the attached device; back and appSwitch are Android's. |
 | `sim_rotate` | Turn the attached simulator to an orientation and read its screen. |
 | `sim_screenshot` | Capture the attached simulator's screen at its size in points. |
-| `sim_launch` | Launch an installed app by bundle id, relaunching it if it runs, and read the screen. |
+| `sim_launch` | Launch an installed app by bundle id, or package name on Android, relaunching it if it runs, and read the screen. |
 | `sim_terminate` | Quit an app on the attached simulator by bundle id. |
-| `sim_install` | Install a built .app from inside the project on the attached simulator. |
+| `sim_install` | Install a built .app, or an .apk on Android, from inside the project on the attached device. |
 | `sim_open_url` | Open a URL or deep link on the attached simulator. |
 | `sim_touch_path` | Drag one finger through points over a duration, as a long-press drag or drawing. |
 | `sim_touch2_path` | Move two fingers through points together, to pinch, spread or turn. |
