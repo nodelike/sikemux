@@ -473,6 +473,28 @@ impl World {
                     json!({ "agentId": chat, "patch": { "title": step.text(0)?, "renamed": true } }),
                 )?;
             }
+            "trigger" => {
+                let chat = self
+                    .chat
+                    .clone()
+                    .ok_or_else(|| anyhow!("open a chat first"))?;
+                let (_, path) = self.project()?.clone();
+                let title = step.text(0)?;
+                let every: u64 = step.text(1)?.parse()?;
+                let params = json!({ "title": title, "prompt": title, "every": every });
+                sikemux_core::cli::client::attempt(
+                    &self.work.join("cli.json"),
+                    &path.to_string_lossy(),
+                    Some(&chat),
+                    "trigger.add",
+                    &params,
+                    Duration::from_secs(10),
+                )
+                .map_err(|failure| match failure {
+                    sikemux_core::cli::client::Failure::NotSent(error)
+                    | sikemux_core::cli::client::Failure::Sent(error) => anyhow!(error),
+                })?;
+            }
             "prefer" => {
                 let key = step.text(0)?;
                 let value = match step.text(1) {
