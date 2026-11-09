@@ -565,8 +565,7 @@ fn percent_cell(window: &UsageWindow, now: u64, cx: &App) -> Div {
     let t = Tokens::get(cx);
     let used = window.used_at(now);
     ui::text(left(used), TEXT_2XS, FontWeight::NORMAL)
-        .min_w(px(48.))
-        .text_right()
+        .flex_none()
         .text_color(match used {
             used if used < 70. => t.text_primary,
             used => signal(used, t),
@@ -661,11 +660,9 @@ fn every_account(view: &View, agents: &[Agent], cx: &App) -> Stateful<Div> {
     let mut heights = Vec::new();
     let mut items: Vec<AnyElement> = Vec::new();
     for (at, agent) in agents.iter().enumerate() {
-        if !view.solo {
-            let gap = if at == 0 { 0. } else { AGENT_GAP };
-            heights.push(AGENT_HEAD + gap);
-            items.push(agent_head(view, agent, gap, cx).into_any_element());
-        }
+        let gap = if at == 0 { 0. } else { AGENT_GAP };
+        heights.push(AGENT_HEAD + gap);
+        items.push(agent_head(view, agent, gap, cx).into_any_element());
         for (index, shown) in agent.accounts.iter().enumerate() {
             heights.push(ACCOUNT_LINE);
             items.push(account_line(view, agent, shown, index == agent.in_use, cx));
@@ -798,7 +795,7 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
         .min_w_0()
         .flex()
         .items_center()
-        .gap(SPACE_2)
+        .gap(SPACE_1H)
         .font_features(theme::tabular())
         .child(
             ruler(window.map(|window| window.used_at(view.now)), t)
