@@ -11,7 +11,7 @@ use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
     actions, div, px, relative, AnyElement, App, AppContext, Context, Div, Entity, FocusHandle,
     Focusable, FontWeight, Hsla, InteractiveElement, IntoElement, KeyBinding, KeyDownEvent,
-    MouseButton, MouseDownEvent, ParentElement, PathPromptOptions, Pixels, Rgba, ScrollHandle,
+    MouseButton, MouseDownEvent, ParentElement, PathPromptOptions, Pixels, ScrollHandle,
     SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription, Window,
     WindowControlArea,
 };
@@ -42,14 +42,12 @@ const TILES_ACROSS: usize = 4;
 const TILE_GAP: f32 = 8.;
 const TILE_LEAST: f32 = 132.;
 const PILL_HEIGHT: f32 = 26.;
-const RING_WIDTH: f32 = 1.5;
-/// How far down a tile's dither starts, and a running tile's before it lifts.
-const TILE_DITHER_FROM: f32 = 0.8;
-const RUNNING_FROM: f32 = 0.94;
-const DENSITY_READY: f32 = 0.5;
-const DENSITY_RUNNING: f32 = 0.46;
-const DENSITY_INSTALLED: f32 = 0.36;
-const DENSITY_FAINT: f32 = 0.18;
+/// How far down a tile's dither starts, unless its words reach lower.
+const TILE_DITHER_FROM: f32 = 0.6;
+const DENSITY_READY: f32 = 0.55;
+const DENSITY_RUNNING: f32 = 0.5;
+const DENSITY_INSTALLED: f32 = 0.42;
+const DENSITY_FAINT: f32 = 0.26;
 const LIST_MOST: f32 = 420.;
 const LIST_LEAST: f32 = 96.;
 /// What the title, field and buttons around a list need, so they stay on the screen.
@@ -1136,35 +1134,6 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
     }
 }
 
-/// The brand colour halfway to white, for words on the brand's own tint.
-fn lighter(colour: Hsla) -> Hsla {
-    let colour = colour.to_rgb();
-    let half = |channel: f32| channel + (1. - channel) * 0.5;
-    Rgba {
-        r: half(colour.r),
-        g: half(colour.g),
-        b: half(colour.b),
-        a: 1.,
-    }
-    .into()
-}
-
-/// The chosen tile's edge, drawn over it so choosing moves nothing.
-fn ring(ink: Hsla) -> Div {
-    let mut ring = div()
-        .absolute()
-        .inset_0()
-        .rounded(theme::RADIUS_3)
-        .border_color(ink);
-    let widths = &mut ring.style().border_widths;
-    let width = || Some(px(RING_WIDTH).into());
-    widths.top = width();
-    widths.right = width();
-    widths.bottom = width();
-    widths.left = width();
-    ring
-}
-
 fn tile_size(window: &Window) -> (f32, f32) {
     let across = TILES_ACROSS as f32;
     let width = (f32::from(step_width(window)) - TILE_GAP * (across - 1.)) / across;
@@ -1189,12 +1158,16 @@ fn agent_tile(
     let mark = (height * 0.21).clamp(26., 40.);
     let gap = (height * 0.055).clamp(7., 10.);
     let words = 30.;
-    let pill = PILL_HEIGHT + gap;
-    let clear = (top + mark + gap + words + pill + 4.) / height;
-    let from = match state.running {
-        true => RUNNING_FROM,
-        false => clear.max(TILE_DITHER_FROM),
+    let from = ((top + mark + gap + words + 4.) / height).max(TILE_DITHER_FROM);
+    let rest = t.surface_raised;
+    let ground = if chosen {
+        rest.blend(t.surface_chosen)
+    } else {
+        rest
     };
+    let hovered = rest.blend(t.surface_hover);
+    let pill_ground = ground.blend(t.surface_chosen);
+    let pill_hovered = pill_ground.blend(t.surface_hover);
     let action = state.action.map(|(label, sheet)| {
         let this = this.clone();
         div()
@@ -1206,12 +1179,15 @@ fn agent_tile(
             .flex()
             .items_center()
             .rounded(theme::RADIUS_2)
-            .bg(brand.opacity(0.2))
+            .bg(pill_ground)
             .text_size(theme::ui_text(TEXT_2XS))
             .font_weight(FontWeight::SEMIBOLD)
-            .text_color(lighter(brand))
+            .text_color(t.text_primary)
             .when(busy, |pill| pill.opacity(0.5))
-            .when(!busy, |pill| pill.cursor_pointer())
+            .when(!busy, |pill| {
+                pill.cursor_pointer()
+                    .hover(move |pill| pill.bg(pill_hovered))
+            })
             .on_click(move |_, window, cx| {
                 let sheet = sheet.clone();
                 this.update(cx, |bench, cx| {
@@ -1232,7 +1208,8 @@ fn agent_tile(
         .h(px(height))
         .overflow_hidden()
         .rounded(theme::RADIUS_3)
-        .bg(t.surface_raised)
+        .bg(ground)
+        .when(!chosen, |tile| tile.hover(move |tile| tile.bg(hovered)))
         .cursor_pointer()
         .on_mouse_down(MouseButton::Left, keep_press)
         .on_click(move |_, window, cx| {
@@ -1267,7 +1244,6 @@ fn agent_tile(
                 )
                 .children(action),
         )
-        .when(chosen, |tile| tile.child(ring(t.text_primary)))
         .into_any_element()
 }
 

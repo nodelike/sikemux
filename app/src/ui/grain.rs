@@ -47,7 +47,7 @@ const RISING_REACH: [f32; 2] = [0.58, 1.];
 const TILE_SPEED: f32 = 1.2;
 const TILE_OPACITY: f32 = 0.72;
 /// How far up a running tile's dither reaches past where it starts, as a share of the tile.
-const TILE_LIFT: f32 = 0.26;
+const TILE_LIFT: f32 = 0.16;
 /// Where the clock stands for a person who asked for less motion, so everything holds still.
 const STILL: f32 = 2.5;
 /// High, because the grain's dots are the only paint and nothing is drawn between them.
@@ -431,8 +431,8 @@ pub fn rising(cx: &App) -> impl IntoElement + Styled {
     )
 }
 
-/// A first-run setup tile's dither in `colour`, starting `from` of the way down and thinning
-/// upward. Running, its top rises and falls; otherwise it holds still.
+/// A first-run setup tile's dither in `colour`, on the sky's clock, starting `from` of the way
+/// down and thickening to `density` at the bottom edge. Running, its top also rises and falls.
 pub fn tile(
     colour: Hsla,
     density: f32,
@@ -441,11 +441,10 @@ pub fn tile(
     cx: &App,
 ) -> impl IntoElement + Styled {
     let colour = colour.to_rgb();
-    let (start, speed) = clock(TILE_SPEED, cx);
-    let (speed, lift) = if running {
-        (speed, TILE_LIFT)
-    } else {
-        (0., 0.)
+    let (start, speed) = clock(SKY_SPEED, cx);
+    let (from, lift, rise) = match running {
+        true => (from + TILE_LIFT, TILE_LIFT, clock(TILE_SPEED, cx).1),
+        false => (from, 0., 0.),
     };
     canvas(
         |_, _, _| {},
@@ -453,7 +452,7 @@ pub fn tile(
             let mut params = [0.; gpui::SHADER_PARAMS];
             params[..4].copy_from_slice(&[start, speed, window.scale_factor(), density]);
             params[4..8].copy_from_slice(&[colour.r, colour.g, colour.b, colour.a * TILE_OPACITY]);
-            params[8..11].copy_from_slice(&[from, lift, f32::from(RADIUS_3)]);
+            params[8..12].copy_from_slice(&[from, lift, f32::from(RADIUS_3), rise]);
             let _ = window.paint_shader(bounds, &TILE, params, None);
         },
     )
