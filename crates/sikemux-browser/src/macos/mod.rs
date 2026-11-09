@@ -25,19 +25,17 @@ use objc2_app_kit::{
 };
 use objc2_core_graphics::{CGColor, CGMutablePath};
 use objc2_foundation::{
-    NSData, NSDictionary, NSError, NSJSONSerialization, NSJSONWritingOptions, NSKeyValueChangeKey,
-    NSKeyValueObservingOptions, NSNumber, NSObject, NSObjectNSKeyValueCoding,
-    NSObjectNSKeyValueObserverRegistration, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString,
-    NSURLRequest, NSURLResponse, NSURL,
+    NSData, NSDictionary, NSError, NSKeyValueChangeKey, NSKeyValueObservingOptions, NSNumber,
+    NSObject, NSObjectNSKeyValueCoding, NSObjectNSKeyValueObserverRegistration, NSObjectProtocol,
+    NSPoint, NSRect, NSSize, NSString, NSURLRequest, NSURLResponse, NSURL,
 };
 use objc2_quartz_core::{kCAFillRuleEvenOdd, CACornerMask, CALayer, CAShapeLayer, CATransaction};
 use objc2_web_kit::{
-    WKContentWorld, WKDownload, WKDownloadDelegate, WKFrameInfo, WKFullscreenState,
-    WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
-    WKNavigationDelegate, WKNavigationResponse, WKNavigationResponsePolicy, WKOpenPanelParameters,
-    WKPDFConfiguration, WKPermissionDecision, WKSecurityOrigin, WKSnapshotConfiguration,
-    WKUIDelegate, WKUserScript, WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration,
-    WKWindowFeatures,
+    WKDownload, WKDownloadDelegate, WKFrameInfo, WKFullscreenState, WKMediaCaptureType,
+    WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
+    WKNavigationResponse, WKNavigationResponsePolicy, WKOpenPanelParameters, WKPDFConfiguration,
+    WKPermissionDecision, WKSecurityOrigin, WKSnapshotConfiguration, WKUIDelegate, WKUserScript,
+    WKUserScriptInjectionTime, WKWebView, WKWebViewConfiguration, WKWindowFeatures,
 };
 use sikemux_process::sync::Locked;
 
@@ -45,6 +43,7 @@ mod activation;
 mod delegates;
 mod dialogs;
 mod frame;
+mod scripts;
 mod shortcuts;
 mod snapshot;
 
@@ -52,6 +51,7 @@ pub use activation::*;
 use delegates::*;
 pub use dialogs::*;
 pub use frame::*;
+pub use scripts::{call_async, evaluate};
 pub use shortcuts::*;
 pub use snapshot::*;
 
@@ -193,9 +193,6 @@ thread_local! {
     static PAGE_UNUSED_GESTURE: std::cell::Cell<Option<Imp>> = const { std::cell::Cell::new(None) };
     /// Whether the swipe under way belongs to the stage, once its first sideways move says so.
     static SWIPE_TO_STAGE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
-    /// WebKit tears a named world down once nothing holds it, and the element
-    /// numbers the agent was given go with it.
-    static HELPER_WORLD: RefCell<Option<Retained<WKContentWorld>>> = const { RefCell::new(None) };
 }
 
 /// A page dialog showing as a sheet, kept so the agent can answer it too.
@@ -327,6 +324,7 @@ fn tab_configuration(mtm: MainThreadMarker) -> Retained<WKWebViewConfiguration> 
             true,
         );
         configuration.userContentController().addUserScript(&script);
+        scripts::listen(&configuration, mtm);
         let preferences = configuration.preferences();
         preferences.setElementFullscreenEnabled(true);
         preferences.setValue_forKey(Some(&yes), &NSString::from_str("tabFocusesLinks"));
@@ -339,37 +337,6 @@ fn tab_configuration(mtm: MainThreadMarker) -> Retained<WKWebViewConfiguration> 
         }
     }
     configuration
-}
-
-/// Runs `script` in the page's own world and hands back its value as JSON, or
-/// nothing when it has none or throws.
-pub fn evaluate(webview: &WKWebView, script: &str, done: Box<dyn FnOnce(String) + Send>) {
-    let done = std::sync::Mutex::new(Some(done));
-    let block = RcBlock::new(move |value: *mut AnyObject, _error: *mut NSError| {
-        let Some(done) = done.locked().take() else {
-            return;
-        };
-        // SAFETY: WebKit passes a live result or nil, valid until the block returns.
-        let json = unsafe { value.as_ref() }
-            .and_then(|value| {
-                // SAFETY: WebKit only hands back values JSON can hold: strings, numbers,
-                // booleans, arrays, dictionaries and null.
-                unsafe {
-                    NSJSONSerialization::dataWithJSONObject_options_error(
-                        value,
-                        NSJSONWritingOptions::FragmentsAllowed,
-                    )
-                }
-                .ok()
-            })
-            .map(|data| String::from_utf8_lossy(&data.to_vec()).into_owned())
-            .unwrap_or_default();
-        done(json);
-    });
-    // SAFETY: main thread, where `Tab` runs every call; WebKit copies the block.
-    unsafe {
-        webview.evaluateJavaScript_completionHandler(&NSString::from_str(script), Some(&block));
-    }
 }
 
 pub fn load(webview: &WKWebView, url: &str) {
@@ -448,6 +415,7 @@ pub fn forget(tab_id: &str) {
     let _ = answer_dialog(tab_id, false, None);
     TABS.with(|tabs| {
         if let Some(tab) = tabs.borrow_mut().remove(tab_id) {
+            scripts::forget(view_key(&tab.webview));
             HOLES.with(|holes| holes.borrow_mut().remove(&view_key(&tab.webview)));
             SHADES.with(|shades| shades.borrow_mut().remove(&view_key(&tab.webview)));
             MASKS.with(|masks| masks.borrow_mut().remove(&view_key(&tab.webview)));
@@ -570,87 +538,6 @@ pub fn introduce_as(webview: &WKWebView, agent: &str) {
 pub fn history_state(webview: &WKWebView) -> (bool, bool) {
     // SAFETY: main thread, where `Tab` runs every call, and `webview` is alive.
     unsafe { (webview.canGoBack(), webview.canGoForward()) }
-}
-
-/// Runs `body` as the body of an async function in the page, awaiting any
-/// promise it returns. The body must return a string.
-pub fn call_async(
-    webview: &WKWebView,
-    body: &str,
-    world: World,
-    done: Box<dyn FnOnce(Result<String, String>) + Send>,
-) {
-    let webview = webview.retain();
-    let Some(mtm) = MainThreadMarker::new() else {
-        done(Err("the tab is gone".into()));
-        return;
-    };
-    let done = std::sync::Mutex::new(Some(done));
-    let block = RcBlock::new(move |value: *mut AnyObject, error: *mut NSError| {
-        let Some(done) = done.locked().take() else {
-            return;
-        };
-        // SAFETY: WebKit passes a live error or nil; `retain` takes our own reference.
-        if let Some(error) = unsafe { Retained::retain(error) } {
-            done(Err(script_error(&error)));
-            return;
-        }
-        // SAFETY: WebKit passes a live result or nil, valid until the block returns.
-        let answer = unsafe { value.as_ref() }
-            .and_then(|value| value.downcast_ref::<NSString>())
-            .map(|text| text.to_string())
-            .unwrap_or_default();
-        done(match answer.split_at_checked(1) {
-            Some(("o", text)) => Ok(text.to_owned()),
-            Some(("e", message)) => Err(message.to_owned()),
-            _ => Err("the script returned nothing readable".into()),
-        });
-    });
-    let world = match world {
-        // SAFETY: main thread, as `mtm` proves.
-        World::Page => unsafe { WKContentWorld::pageWorld(mtm) },
-        World::Helper => HELPER_WORLD.with(|slot| {
-            slot.borrow_mut()
-                // SAFETY: main thread, as `mtm` proves; HELPER_WORLD keeps the world alive.
-                .get_or_insert_with(|| unsafe {
-                    WKContentWorld::worldWithName(&NSString::from_str("sikemux"), mtm)
-                })
-                .clone()
-        }),
-    };
-    // SAFETY: main thread, `webview` and `world` are retained, and WebKit copies the block.
-    unsafe {
-        webview.callAsyncJavaScript_arguments_inFrame_inContentWorld_completionHandler(
-            &NSString::from_str(&never_throwing(body)),
-            None,
-            None,
-            &world,
-            Some(&block),
-        );
-    }
-}
-
-/// Wraps `body` so it answers with a string led by `o` and its value, `e` and what it
-/// threw, or `n` when its value is not a string. WebKit crashed on macOS 26 while
-/// describing a script's error, so a body never leaves it one to describe.
-fn never_throwing(body: &str) -> String {
-    format!(
-        "try {{ const value = await (async () => {{\n{body}\n}})(); \
-         return typeof value === \"string\" ? \"o\" + value : \"n\"; }} \
-         catch (error) {{ try {{ return \"e\" + String((error && error.message) || error); }} \
-         catch {{ return \"ethe script threw\"; }} }}"
-    )
-}
-
-/// WebKit's own description of a thrown exception is only "A JavaScript
-/// exception occurred"; the page's message sits in the error's details.
-fn script_error(error: &NSError) -> String {
-    let details = error.userInfo();
-    let message = details
-        .objectForKey(&NSString::from_str("WKJavaScriptExceptionMessage"))
-        .and_then(|value| value.downcast::<NSString>().ok())
-        .map(|text| text.to_string());
-    message.unwrap_or_else(|| error.localizedDescription().to_string())
 }
 
 #[cfg(test)]
