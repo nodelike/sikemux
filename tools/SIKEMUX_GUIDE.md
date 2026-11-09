@@ -1019,7 +1019,8 @@ uncommitted, `land: true` lands the commits you made already. With
 your own commits only, even when other agents' unpushed commits sit before
 them, and lists theirs as kept; with no `message` it only pushes. Push only
 when the person asked for it. In a checkout other agents work in, Sikemux refuses
-`git add -A`, `commit -a`, `stash`, `reset --hard` and the like, and
+`git add -A`, `commit -a`, `stash`, `reset --hard` and the like while it has
+uncommitted changes (`reset --keep` is always allowed), and
 `git checkout -- <path>` or `git restore` over another agent's uncommitted
 lines, naming that agent; in your own clone, a new repository or a git
 worktree of your own they are allowed.

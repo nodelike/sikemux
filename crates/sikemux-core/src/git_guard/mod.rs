@@ -15,7 +15,13 @@ use std::process::{Command, Stdio};
 /// cannot say.
 pub(crate) type Others<'a> = dyn Fn(&Path, &[String]) -> Option<Vec<String>> + 'a;
 
-const SWEEP_HELP: &str = "Commit with the git_commit tool: it takes the lines you wrote, and with `paths`, only those files or folders, with every change there no other agent wrote, such as files your own scripts made. In a clone or git worktree of your own these commands are allowed.";
+const COMMIT_INSTEAD: &str = "Commit with the git_commit tool: it takes the lines you wrote, and with `paths`, only those files or folders, with every change there no other agent wrote, such as files your own scripts made.";
+
+/// What a command does to a whole checkout, and what to run instead.
+struct Sweep {
+    does: &'static str,
+    instead: &'static str,
+}
 
 /// Why `command`, a shell command line run in `cwd`, may not run, if it may not.
 pub(crate) fn refusal(command: &str, cwd: &Path, others: &Others) -> Option<String> {
@@ -87,7 +93,12 @@ fn refused(
                 "Sikemux refused `{shown}`: it takes in uncommitted lines {names} wrote there along with yours. Commit with the git_commit tool and `paths`, which takes your lines there and changes no agent wrote, or ask {names} with agent_send."
             ))
         }
-        Touch::Everything(why) => {
+        Touch::Everything(sweep) => {
+            // `git status` does not list the ignored files `git clean -x` deletes.
+            let is_clean = subcommand.first().is_some_and(|sub| sub == "clean");
+            if !is_clean && nothing_uncommitted(git(), options) {
+                return None;
+            }
             let who = match checkout.and_then(|checkout| others(&checkout.dir, &[])) {
                 Some(names) if names.is_empty() => return None,
                 Some(names) => {
@@ -96,8 +107,9 @@ fn refused(
                 }
                 None => "Sikemux could not confirm in time that no other agent works in this checkout, as happens when the machine is very busy. Run it again in a moment".to_owned(),
             };
+            let Sweep { does, instead } = sweep;
             Some(format!(
-                "Sikemux refused `{shown}`: it {why}, and {who}. {SWEEP_HELP}"
+                "Sikemux refused `{shown}`: it {does}, and {who}. {instead} In a clone or git worktree of your own this command is allowed."
             ))
         }
         Touch::Paths { mut paths, named } => {
@@ -118,6 +130,17 @@ fn refused(
             ))
         }
     }
+}
+
+/// Whether git, given the global `options`, finds nothing uncommitted anywhere
+/// in the checkout.
+fn nothing_uncommitted(mut git: Command, options: &[String]) -> bool {
+    git.args(options)
+        .args(["--no-optional-locks", "status", "--porcelain"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .is_ok_and(|output| output.status.success() && output.stdout.is_empty())
 }
 
 /// Whether git, given the global `options`, reads `word` as a commit, as
@@ -168,7 +191,7 @@ fn checkout(mut git: Command, options: &[String]) -> Option<Checkout> {
 
 enum Touch {
     /// The whole checkout, and what the command does to it.
-    Everything(&'static str),
+    Everything(Sweep),
     /// Files whose uncommitted changes the command throws away. Unless
     /// `named`, they are `git checkout`'s words, the first of which may be a
     /// commit rather than a path.
@@ -178,8 +201,8 @@ enum Touch {
 }
 
 fn touches(args: &[String], private_index: bool) -> Option<Touch> {
-    if let Some(why) = sweeping(args, private_index) {
-        return Some(Touch::Everything(why));
+    if let Some(sweep) = sweeping(args, private_index) {
+        return Some(Touch::Everything(sweep));
     }
     let (sub, rest) = args.split_first()?;
     let valued: &[&str] = match sub.as_str() {
@@ -315,7 +338,12 @@ fn listed(names: &[String]) -> String {
     }
 }
 
-fn sweeping(args: &[String], private_index: bool) -> Option<&'static str> {
+fn sweeping(args: &[String], private_index: bool) -> Option<Sweep> {
+    const STAGES: Sweep = Sweep {
+        does: "stages every change in the checkout",
+        instead: COMMIT_INSTEAD,
+    };
+    const UNDOES: &str = "throws away uncommitted changes";
     let (sub, rest) = args.split_first()?;
     let everything = |paths: &[String]| {
         paths
@@ -338,20 +366,31 @@ fn sweeping(args: &[String], private_index: bool) -> Option<&'static str> {
     match sub.as_str() {
         "add" if private_index => None,
         "add" if short('A', "") || short('u', "") || long("--all") || long("--update") => {
-            Some("stages every change in the checkout")
+            Some(STAGES)
         }
-        "add" if everything(rest) => Some("stages every change in the checkout"),
-        "commit" if short('a', "mFCctS") || long("--all") => {
-            Some("commits every change in the checkout")
-        }
+        "add" if everything(rest) => Some(STAGES),
+        "commit" if short('a', "mFCctS") || long("--all") => Some(Sweep {
+            does: "commits every change in the checkout",
+            instead: COMMIT_INSTEAD,
+        }),
         "stash" if !matches!(rest.first().map(String::as_str), Some("list" | "show")) => {
-            Some("takes every uncommitted change out of the checkout")
+            Some(Sweep {
+                does: "takes every uncommitted change out of the checkout",
+                instead: COMMIT_INSTEAD,
+            })
         }
-        "reset" if long("--hard") || long("--merge") || long("--keep") => {
-            Some("throws away uncommitted changes")
-        }
-        "checkout" | "restore" if everything(rest) => Some("throws away uncommitted changes"),
-        "clean" if short('f', "eE") || long("--force") => Some("deletes files nobody committed"),
+        "reset" if long("--hard") || long("--merge") => Some(Sweep {
+            does: UNDOES,
+            instead: "To move the branch, `git reset --keep` leaves uncommitted changes alone and stops if one is in the way.",
+        }),
+        "checkout" | "restore" if everything(rest) => Some(Sweep {
+            does: UNDOES,
+            instead: "Undo only your own lines by editing them.",
+        }),
+        "clean" if short('f', "eE") || long("--force") => Some(Sweep {
+            does: "deletes files nobody committed",
+            instead: "Delete the files you made by name.",
+        }),
         _ => None,
     }
 }
@@ -444,6 +483,28 @@ pub(crate) fn segments(line: &str) -> Vec<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_shared_checkout_with_nothing_uncommitted_can_be_moved() {
+        let top = tempfile::tempdir().unwrap();
+        let top = top.path();
+        let git = |args: &[&str]| {
+            let mut git = sikemux_process::user_environment::command("git");
+            git.args(["-c", "user.name=t", "-c", "user.email=t@t"]);
+            assert!(git.args(args).current_dir(top).status().unwrap().success());
+        };
+        git(&["init", "-q"]);
+        std::fs::write(top.join("store.ts"), "x\n").unwrap();
+        git(&["add", "store.ts"]);
+        git(&["commit", "-qm", "store"]);
+        let others = |_: &Path, _: &[String]| Some(vec!["Cowslip".to_owned()]);
+        let refused = |command: &str| refusal(command, top, &others).is_some();
+        assert!(!refused("git reset --hard HEAD"));
+        assert!(refused("git clean -fdx"));
+        std::fs::write(top.join("store.ts"), "y\n").unwrap();
+        assert!(refused("git reset --hard HEAD"));
+        assert!(!refused("git reset --keep HEAD"));
+    }
 
     #[test]
     fn staging_or_undoing_a_file_with_another_agents_lines_is_refused() {
