@@ -4,7 +4,7 @@ Thanks for taking the time to contribute. Sikemux is a Rust desktop app drawn wi
 
 ## Getting started
 
-**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the packages in `packaging/linux/build-packages.txt`, and `pnpm build:linux` also needs those in `pack-packages.txt` beside it to make a `.deb`, an `.rpm` and an AppImage. Published releases ship an Apple Silicon DMG and x86_64 Linux packages. Windows is a target too: no release ships for it yet, and its `cfg(windows)` code stays.
+**Prerequisites:** [rustup](https://www.rust-lang.org/tools/install), which installs the Rust version `rust-toolchain.toml` pins, the same one CI uses (Homebrew Rust ignores that file), Node.js 22+, and pnpm 10.33.0 (the version pinned in `package.json`). macOS bundles require Xcode; Linux builds require the packages in `packaging/linux/build-packages.txt`, and `pnpm build:linux` also needs those in `pack-packages.txt` beside it to make a `.deb`, an `.rpm` and an AppImage. Published releases ship an Apple Silicon DMG and x86_64 and arm64 Linux packages. Windows is a target too: no release ships for it yet, and its `cfg(windows)` code stays.
 
 ```bash
 git clone git@github.com:nodelike/sikemux.git

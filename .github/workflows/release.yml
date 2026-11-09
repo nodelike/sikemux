@@ -535,11 +535,18 @@ jobs:
             latest.json
 
   build-linux:
-    name: Build Linux packages
+    name: Build Linux packages (${{ matrix.arch }})
     needs: approve
     if: &approved ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
-    # The oldest runner GitHub still supports; its glibc decides the oldest distribution the packages run on.
-    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    # The oldest runners GitHub still supports; their glibc decides the oldest distribution the packages run on.
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
     permissions:
       contents: read
@@ -576,7 +583,7 @@ jobs:
       - name: Keep the built packages on the run
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sikemux-linux-${{ github.ref_name }}
+          name: sikemux-linux-${{ matrix.arch }}-${{ github.ref_name }}
           if-no-files-found: error
           path: |
             target/release/bundle/deb/*.deb
@@ -607,7 +614,7 @@ jobs:
       - name: Fetch the Linux packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: sikemux-linux-${{ github.ref_name }}
+          name: sikemux-linux-x86_64-${{ github.ref_name }}
           path: target/release/bundle
 
       - name: Build, install and upgrade the package
@@ -666,7 +673,7 @@ jobs:
           path: target/host/*.tar.gz
 
   sign-host:
-    name: Sign the Linux host cores and the AppImage
+    name: Sign the Linux host cores and the AppImages
     needs: [plan, build-host, build-linux]
     if: ${{ !cancelled() && needs.build-host.result == 'success' && needs.build-linux.result == 'success' }}
     runs-on: ubuntu-24.04
@@ -695,7 +702,8 @@ jobs:
       - name: Fetch the Linux packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: sikemux-linux-${{ github.ref_name }}
+          pattern: sikemux-linux-*-${{ github.ref_name }}
+          merge-multiple: true
           path: target/release/bundle
 
       - name: Sign them
@@ -760,7 +768,8 @@ jobs:
       - name: Fetch the Linux packages
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: sikemux-linux-${{ github.ref_name }}
+          pattern: sikemux-linux-*-${{ github.ref_name }}
+          merge-multiple: true
           path: target/release/bundle
 
       - name: Fetch the Arch package

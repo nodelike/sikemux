@@ -70,27 +70,27 @@ if (!macBuild.includes('--entitlements "$ROOT/packaging/Entitlements.plist"')) f
 if (pkg.scripts?.["build:linux"] !== "scripts/build-linux.sh") fail("pnpm build:linux does not run scripts/build-linux.sh");
 if (!linuxBuild.includes("node scripts/build-core.mjs")) fail("Linux build does not build the core");
 if (!linuxBuild.includes("cargo build --release --locked --bin sikemux")) fail("Linux build does not build the GPUI app");
-for (const name of ["Sikemux_${VERSION}_amd64.deb", "Sikemux-${VERSION}-1.x86_64.rpm", "Sikemux_${VERSION}_amd64.AppImage"]) {
+for (const name of ["Sikemux_${VERSION}_${DEB_ARCH}.deb", "Sikemux-${VERSION}-1.${ARCH}.rpm", "Sikemux_${VERSION}_${DEB_ARCH}.AppImage"]) {
   if (!linuxBuild.includes(name)) fail(`Linux build does not make ${name}`);
   if (!installer.includes(name)) fail(`the installer does not download ${name}`);
 }
 if (!linuxBuild.includes("sha256sum -c")) fail("Linux build runs packaging tools it has not checked");
-if (!linuxBuild.includes('"$BUNDLE/tar/Sikemux_${VERSION}_amd64.tar.gz"')) fail("Linux build does not make the tarball the Arch package is made from");
+if (!linuxBuild.includes('"$BUNDLE/tar/Sikemux_${VERSION}_${DEB_ARCH}.tar.gz"')) fail("Linux build does not make the tarball the Arch package is made from");
 if (!pkgbuild.includes("/Sikemux_${_version}_amd64.tar.gz")) fail("the PKGBUILD does not download the tarball the Linux build makes");
 if (!installer.includes("pacman -U --noconfirm") || !installer.includes("-1-x86_64.pkg.tar.zst")) fail("the installer does not install the Arch package with pacman");
 if (!releaseWorkflow.includes("packaging/arch/build-release.sh")) fail("the Release workflow does not build and install the Arch package");
-if (!publish.includes('"${SYMBOLS[@]}" "$TARBALL" "$PACMAN_PACKAGE")')) fail("releases do not publish the Linux tarball and the Arch package");
+if (!publish.includes('"${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")')) fail("releases do not publish the Linux tarball and the Arch package");
 if (/TAURI_SIGNING|signer sign/.test(linuxBuild)) fail("Linux builds must not require updater credentials");
 if (!releaseWorkflow.includes("run: pnpm build:linux")) fail("the Release workflow does not build the Linux packages");
-if (!publish.includes('"$DEB" "$RPM" "$APPIMAGE"')) fail("releases do not publish the Linux packages");
+if (!publish.includes('"${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}"')) fail("releases do not publish the Linux packages");
 if (!releaseWorkflow.includes("scripts/package-host.sh")) fail("the Release workflow does not build the Linux host core");
-if (!publish.includes('"$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}"')) fail("releases do not publish the Linux host core and its signatures");
+if (!publish.includes('"${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}"')) fail("releases do not publish the Linux host core and its signatures");
 if (!publish.includes('"${HOST_SIGS[@]}" "$INSTALLER"')) fail("releases do not publish the installer made for their files");
 if (!releaseWorkflow.includes("scripts/sign-host.sh")) fail("the Release workflow does not sign the Linux host core");
-if (!signHost.includes('"${HOSTS[@]}" "$APPIMAGE"')) fail("releases do not sign the AppImage with the updater key");
-if (!publish.includes('"$INSTALLER" "$APPIMAGE_SIG"')) fail("releases do not publish the AppImage's update signature");
-if (!publish.includes('"$APPIMAGE_SIG" "${SYMBOLS[@]}"')) fail("releases do not publish the Mac dSYMs that name a crash's frames");
-if (!publish.includes('manifest["platforms"]["linux-x86_64"]')) fail("the update feed does not offer the AppImage");
+if (!signHost.includes('"${HOSTS[@]}" "${APPIMAGES[@]}"')) fail("releases do not sign the AppImages with the updater key");
+if (!publish.includes('"$INSTALLER" "${APPIMAGE_SIGS[@]}"')) fail("releases do not publish the AppImage's update signature");
+if (!publish.includes('"${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}"')) fail("releases do not publish the Mac dSYMs that name a crash's frames");
+if (!publish.includes('manifest["platforms"][f"linux-{arch}"]')) fail("the update feed does not offer the AppImage");
 if (!publish.includes('manifest["platforms"][f"host-linux-{arch}"]')) fail("the update feed does not offer the host cores");
 if (!releaseWorkflow.includes("scripts/smoke-host-install.sh")) fail("the Release workflow does not install the host core with its own installer");
 const helpers = fs.readFileSync("scripts/release-shape.sh", "utf8").match(/^PUBLISHED_HELPERS=\((.*)\)$/m)?.[1].split(" ") ?? [];
@@ -101,7 +101,7 @@ for (const helper of helpers) {
 if (!macBuild.includes('build-${helper#sikemux-}-helper.mjs')) fail("macOS build does not build the published helpers");
 if (!macBuild.includes("build-notch-helper.mjs")) fail("macOS build does not build the notch helper");
 if (!macBuild.includes('"$ROOT/packaging/binaries/notch/Sikemux Notch.app" "$APP_PATH/Contents/Helpers/Sikemux Notch.app"')) fail("the macOS bundle must carry the notch helper app");
-if (!publish.includes('"$SIG" "${HELPERS[@]}" "$DEB"')) fail("releases do not publish the helpers the app downloads");
+if (!publish.includes('"$SIG" "${HELPERS[@]}" "${DEBS[@]}"')) fail("releases do not publish the helpers the app downloads");
 if (!linuxBuild.includes('"$PI_TOOLS" "$PACKAGE/usr/lib/sikemux/sikemux_pi_tools.ts"')) fail("Linux packages do not carry the Pi browser extension");
 if (!macBuild.includes("build-core.mjs")) fail("macOS build does not build the core");
 if (!macBuild.includes('"$ROOT/packaging/binaries/core/Helpers/Sikemux Core.app" "$APP_PATH/Contents/Helpers/Sikemux Core.app"')) fail("the macOS bundle must carry the core app");

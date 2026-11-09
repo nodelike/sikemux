@@ -9,7 +9,7 @@ description: "Install Sikemux on a Mac or on Linux, or just its core on a server
 curl -fsSL https://sikemux.com/install | sh
 ```
 
-On a Mac this puts Sikemux in `/Applications`. On Linux it asks whether you want the desktop app or just the core, and suggests the core on a machine with no desktop. The app comes as the `.deb` or `.rpm`, as a pacman package on Arch and Omarchy, or else as the AppImage in `~/Applications`, on x86_64 only.
+On a Mac this puts Sikemux in `/Applications`. On Linux it asks whether you want the desktop app or just the core, and suggests the core on a machine with no desktop. The app comes as the `.deb` or `.rpm`, as a pacman package on x86_64 Arch and Omarchy, or else as the AppImage in `~/Applications`, on x86_64 and arm64.
 
 For the nightly build, set the channel before `sh`:
 
@@ -50,7 +50,7 @@ Later:
 
 The latest `.dmg` is on [sikemux.com](https://sikemux.com) and on [GitHub Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 25 MB and needs macOS 11 or later on Apple Silicon.
 
-On x86_64 Linux the same release has a `.deb`, an `.rpm`, an Arch package and an `.AppImage`:
+On Linux the same release has a `.deb`, an `.rpm`, an Arch package and an `.AppImage`. These are the x86_64 names; arm64 has `_arm64` and `.aarch64` in their place, and no Arch package, so Arch on arm64 takes the AppImage:
 
 ```bash
 sudo apt install ./Sikemux_<version>_amd64.deb                 # Debian, Ubuntu

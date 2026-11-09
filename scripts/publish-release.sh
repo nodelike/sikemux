@@ -39,34 +39,30 @@ HOSTS=("$ROOT"/target/host/sikemux-host-"$VERSION"-linux-*.tar.gz)
 SYMBOLS=("$ROOT"/target/symbols/Sikemux_"$VERSION"_*.dSYM.zip)
 shopt -u nullglob
 [[ ${#DMGS[@]} -eq 1 ]] || fail "expected exactly one DMG, found ${#DMGS[@]}"
-[[ ${#DEBS[@]} -eq 1 ]] || fail "expected exactly one deb, found ${#DEBS[@]}"
-[[ ${#RPMS[@]} -eq 1 ]] || fail "expected exactly one rpm, found ${#RPMS[@]}"
-[[ ${#APPIMAGES[@]} -eq 1 ]] || fail "expected exactly one AppImage, found ${#APPIMAGES[@]}"
-[[ ${#TARBALLS[@]} -eq 1 ]] || fail "expected exactly one Linux tarball, found ${#TARBALLS[@]}"
+[[ ${#DEBS[@]} -eq 2 ]] || fail "expected the amd64 and arm64 debs, found ${#DEBS[@]}"
+[[ ${#RPMS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 rpms, found ${#RPMS[@]}"
+[[ ${#APPIMAGES[@]} -eq 2 ]] || fail "expected the amd64 and arm64 AppImages, found ${#APPIMAGES[@]}"
+[[ ${#TARBALLS[@]} -eq 2 ]] || fail "expected the amd64 and arm64 Linux tarballs, found ${#TARBALLS[@]}"
 [[ ${#PACMAN_PACKAGES[@]} -eq 1 ]] || fail "expected exactly one Arch package, found ${#PACMAN_PACKAGES[@]}"
 [[ ${#HOSTS[@]} -eq 2 ]] || fail "expected the x86_64 and aarch64 host cores, found ${#HOSTS[@]}"
 [[ ${#SYMBOLS[@]} -eq 2 ]] || fail "expected the Mac app's and core's symbols, found ${#SYMBOLS[@]}"
 HOST_SIGS=("${HOSTS[@]/%/.sig}")
 DMG="${DMGS[0]}"
 HELPERS=("${PUBLISHED_HELPER_FILES[@]/#/$ROOT/packaging/binaries/}")
-DEB="${DEBS[0]}"
-RPM="${RPMS[0]}"
-APPIMAGE="${APPIMAGES[0]}"
-APPIMAGE_SIG="$APPIMAGE.sig"
-TARBALL="${TARBALLS[0]}"
+APPIMAGE_SIGS=("${APPIMAGES[@]/%/.sig}")
 PACMAN_PACKAGE="${PACMAN_PACKAGES[0]}"
 INSTALLER="$ROOT/scripts/install.sh"
-for file in "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}" "$TARBALL" "$PACMAN_PACKAGE" "$MANIFEST"; do
+for file in "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE" "$MANIFEST"; do
   [[ -s "$file" ]] || fail "$file is missing or empty"
 done
 [[ "$(node -p "require('$MANIFEST').version")" == "$VERSION" ]] || fail "$MANIFEST is not for v$VERSION"
-for signed in "${HOSTS[@]}" "$APPIMAGE"; do
+for signed in "${HOSTS[@]}" "${APPIMAGES[@]}"; do
   node scripts/verify-updater-signature.mjs "$signed" "$signed.sig" || fail "$signed is not signed by the updater key"
 done
-# The Linux app updates itself only as an AppImage, so only the AppImage joins the
+# The Linux app updates itself only as an AppImage, so only the AppImages join the
 # feed the macOS build wrote, beside each host core, which root installs on a host.
 RELEASE_URL="https://github.com/nodelike/sikemux/releases/download/v$VERSION" \
-  APPIMAGE="$APPIMAGE" MANIFEST="$MANIFEST" python3 - "${HOSTS[@]}" <<'PY'
+  MANIFEST="$MANIFEST" python3 - "${APPIMAGES[@]}" "${HOSTS[@]}" <<'PY'
 import json, os, pathlib, re, sys
 path = pathlib.Path(os.environ["MANIFEST"])
 manifest = json.loads(path.read_text())
@@ -78,14 +74,17 @@ def entry(file):
         "url": f'{os.environ["RELEASE_URL"]}/{file.name}',
     }
 
-manifest["platforms"]["linux-x86_64"] = entry(os.environ["APPIMAGE"])
-for host in sys.argv[1:]:
-    arch = re.search(r"-linux-([a-z0-9_]+)\.tar\.gz$", host).group(1)
-    manifest["platforms"][f"host-linux-{arch}"] = entry(host)
+for file in sys.argv[1:]:
+    if file.endswith(".AppImage"):
+        arch = {"amd64": "x86_64", "arm64": "aarch64"}[re.search(r"_([a-z0-9]+)\.AppImage$", file).group(1)]
+        manifest["platforms"][f"linux-{arch}"] = entry(file)
+    else:
+        arch = re.search(r"-linux-([a-z0-9_]+)\.tar\.gz$", file).group(1)
+        manifest["platforms"][f"host-linux-{arch}"] = entry(file)
 path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
 
-RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "$DEB" "$RPM" "$APPIMAGE" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "$APPIMAGE_SIG" "${SYMBOLS[@]}" "$TARBALL" "$PACMAN_PACKAGE")
+RELEASE_CMD=(gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes "$NOTES" "$DMG" "$TAR" "$SIG" "${HELPERS[@]}" "${DEBS[@]}" "${RPMS[@]}" "${APPIMAGES[@]}" "${HOSTS[@]}" "${HOST_SIGS[@]}" "$INSTALLER" "${APPIMAGE_SIGS[@]}" "${SYMBOLS[@]}" "${TARBALLS[@]}" "$PACMAN_PACKAGE")
 POINTER_NOTES="Update feed for the nightly channel.
 
 The installable build for this feed is [v$VERSION](https://github.com/nodelike/sikemux/releases/tag/v$VERSION).

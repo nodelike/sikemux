@@ -103,12 +103,15 @@ looks_like_server() {
 
 choose_linux_mode() {
   [ "$MODE" = ask ] || return 0
-  if [ "$(uname -m)" != x86_64 ] && [ "$(uname -m)" != amd64 ]; then
-    note "The desktop app is x86_64 only, so this installs the core."
-    say ""
-    MODE=host
-    return 0
-  fi
+  case "$(uname -m)" in
+    x86_64 | amd64 | aarch64 | arm64) ;;
+    *)
+      note "The desktop app runs on x86_64 and arm64 only, so this installs the core."
+      say ""
+      MODE=host
+      return 0
+      ;;
+  esac
   if looks_like_server; then guess=host; else guess=app; fi
   if ! interactive; then
     MODE=$guess
@@ -224,22 +227,27 @@ install_mac() {
 }
 
 install_linux() {
-  [ "$(uname -m)" = x86_64 ] || fail "the desktop app needs an x86_64 machine; add --host for the core"
+  case "$(uname -m)" in
+    x86_64 | amd64) ARCH=x86_64 DEB_ARCH=amd64 ;;
+    aarch64 | arm64) ARCH=aarch64 DEB_ARCH=arm64 ;;
+    *) fail "the desktop app needs an x86_64 or arm64 machine; add --host for the core" ;;
+  esac
   # sudo asks for a password here, if it needs one, before a spinner holds the line.
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then sudo -n true 2>/dev/null || sudo -v; fi
   if command -v apt-get >/dev/null 2>&1; then
-    download "Sikemux_${VERSION}_amd64.deb" "the app"
-    step "Installing with apt" as_root apt-get install -y "$TMP/Sikemux_${VERSION}_amd64.deb"
+    download "Sikemux_${VERSION}_${DEB_ARCH}.deb" "the app"
+    step "Installing with apt" as_root apt-get install -y "$TMP/Sikemux_${VERSION}_${DEB_ARCH}.deb"
     done_step "Installed Sikemux" "with apt"
   elif command -v dnf >/dev/null 2>&1; then
-    download "Sikemux-${VERSION}-1.x86_64.rpm" "the app"
-    step "Installing with dnf" as_root dnf install -y "$TMP/Sikemux-${VERSION}-1.x86_64.rpm"
+    download "Sikemux-${VERSION}-1.${ARCH}.rpm" "the app"
+    step "Installing with dnf" as_root dnf install -y "$TMP/Sikemux-${VERSION}-1.${ARCH}.rpm"
     done_step "Installed Sikemux" "with dnf"
   elif command -v zypper >/dev/null 2>&1; then
-    download "Sikemux-${VERSION}-1.x86_64.rpm" "the app"
-    step "Installing with zypper" as_root zypper --non-interactive install --allow-unsigned-rpm "$TMP/Sikemux-${VERSION}-1.x86_64.rpm"
+    download "Sikemux-${VERSION}-1.${ARCH}.rpm" "the app"
+    step "Installing with zypper" as_root zypper --non-interactive install --allow-unsigned-rpm "$TMP/Sikemux-${VERSION}-1.${ARCH}.rpm"
     done_step "Installed Sikemux" "with zypper"
-  elif command -v pacman >/dev/null 2>&1; then
+  # Arch publishes no arm64 image to build the pacman package in, so arm64 takes the AppImage.
+  elif [ "$ARCH" = x86_64 ] && command -v pacman >/dev/null 2>&1; then
     # packaging/arch/PKGBUILD names it: pacman sorts 0.6.1nightly.6 below 0.6.1.
     case "$VERSION" in
       *-*) name=sikemux-nightly-bin ;;
@@ -255,9 +263,9 @@ install_linux() {
     step "Installing with pacman" as_root pacman -U --noconfirm "$TMP/$package"
     done_step "Installed Sikemux" "with pacman"
   else
-    download "Sikemux_${VERSION}_amd64.AppImage" "the app"
+    download "Sikemux_${VERSION}_${DEB_ARCH}.AppImage" "the app"
     mkdir -p "$HOME/Applications"
-    mv "$TMP/Sikemux_${VERSION}_amd64.AppImage" "$HOME/Applications/Sikemux.AppImage"
+    mv "$TMP/Sikemux_${VERSION}_${DEB_ARCH}.AppImage" "$HOME/Applications/Sikemux.AppImage"
     chmod +x "$HOME/Applications/Sikemux.AppImage"
     done_step "Installed Sikemux" "$(home_path "$HOME/Applications/Sikemux.AppImage")"
   fi

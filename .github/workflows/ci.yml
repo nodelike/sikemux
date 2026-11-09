@@ -400,10 +400,18 @@ jobs:
   # Every release also ships Linux packages, so main must keep compiling there,
   # and the core must keep working as a Linux host.
   linux:
-    name: Linux compile check and core tests
+    name: Linux compile check and core tests (${{ matrix.arch }})
     needs: changes
     if: needs.changes.outputs.rust == 'true' || needs.changes.outputs.packaging == 'true'
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -456,7 +464,7 @@ jobs:
         if: needs.changes.outputs.packaging == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: sikemux-linux-packages
+          name: sikemux-linux-packages-${{ matrix.arch }}
           if-no-files-found: error
           path: |
             target/release/bundle/deb/*.deb

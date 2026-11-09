@@ -15,7 +15,7 @@ runs:
         PACKAGES: ${{ inputs.packages }}
       run: |
         list="$(cat packaging/linux/build-packages.txt - <<<"$PACKAGES" | tr -s ' \n' '\n' | sort | shasum -a 256 | cut -c1-16)"
-        echo "prefix=apt-$ImageOS-$list-" >>"$GITHUB_OUTPUT"
+        echo "prefix=apt-$ImageOS-$RUNNER_ARCH-$list-" >>"$GITHUB_OUTPUT"
         echo "week=$(date +%G-%V)" >>"$GITHUB_OUTPUT"
 
     # A new key each week picks up updated packages; last week's .debs still cover most of them.
