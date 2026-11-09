@@ -600,7 +600,8 @@ pub(crate) fn of_tool(name: &str) -> Option<ToolShip> {
         | "bitbucket_edit_pull"
         | "bitbucket_review"
         | "bitbucket_decline"
-        | "bitbucket_issue_state" => ToolShip::Always(ShipKind::Publish),
+        | "bitbucket_issue_state"
+        | "play_upload" => ToolShip::Always(ShipKind::Publish),
         "bitbucket_merge" => ToolShip::Always(ShipKind::Merge),
         "db_query" => ToolShip::ProductionDatabase,
         _ => return None,
