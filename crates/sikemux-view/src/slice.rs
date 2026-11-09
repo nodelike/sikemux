@@ -255,6 +255,9 @@ pub struct SliceView {
     /// nothing is under way.
     #[serde(default)]
     pub wait: Option<Wait>,
+    /// The address of the pull request its work is reviewed in, once the core found it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull: Option<String>,
 }
 
 /// What a slice waits on now, since when, and roughly how long it takes.

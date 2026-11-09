@@ -791,6 +791,46 @@ pub(crate) async fn answer(
     Ok(repo.call("answerReview", answered).await.map(drop)?)
 }
 
+/// The open pull request whose latest commit is `head`.
+pub(crate) async fn pull_at(repo: &Repo, head: &str) -> Result<Option<AutoPull>, String> {
+    let open = repo.call("pulls", json!({ "state": "open" })).await?;
+    open.as_array()
+        .into_iter()
+        .flatten()
+        .find(|pull| text(pull, "headSha").as_deref() == Some(head))
+        .map(|found| pull_of(repo, found))
+        .transpose()
+}
+
+/// The pull request's description, while it is still open.
+pub(crate) async fn open_body(core: &Core, pull: &AutoPull) -> Result<Option<String>, String> {
+    let repo = pull.repo(core)?;
+    let found = repo.call("pull", json!({ "number": pull.number })).await?;
+    let open = text(&found, "state").is_none_or(|state| state == "open");
+    Ok(open.then(|| text(&found, "body").unwrap_or_default()))
+}
+
+pub(crate) async fn describe(core: &Core, pull: &AutoPull, body: &str) -> Result<(), String> {
+    let repo = pull.repo(core)?;
+    let edit = json!({ "number": pull.number, "body": body });
+    Ok(repo.call("editPull", edit).await.map(drop)?)
+}
+
+/// Hands the picture at `path` to the pull request's code host under `name`, and answers
+/// where a description shows it from.
+pub(crate) async fn attach(
+    core: &Core,
+    pull: &AutoPull,
+    path: &str,
+    name: &str,
+) -> Result<String, String> {
+    let repo = pull.repo(core)?;
+    let kept = repo
+        .call("attachPicture", json!({ "path": path, "name": name }))
+        .await?;
+    text(&kept, "url").ok_or_else(|| "the code host kept the picture without saying where".into())
+}
+
 pub(crate) async fn close(core: &Core, pull: &AutoPull) -> Result<(), String> {
     let repo = pull.repo(core)?;
     let closed = json!({ "number": pull.number, "state": "closed" });

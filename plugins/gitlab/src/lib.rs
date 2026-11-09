@@ -9,6 +9,7 @@ mod error;
 mod images;
 mod issues;
 mod notes;
+mod pictures;
 mod pipelines;
 mod pulls;
 mod repo;
@@ -21,9 +22,9 @@ use sikemux_plugin_api::account::as_account;
 use sikemux_plugin_api::codehost::asks::*;
 use sikemux_plugin_api::codehost::{self, CodeHost};
 use sikemux_plugin_api::codehost::{
-    ChangedFile, Comment, Issue, IssuePage, JobLog, LogExcerpt, Notification, Pull, PullCommit,
-    Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming,
-    TimelineItem, Workflow, WorkflowFile,
+    Attached, ChangedFile, Comment, Issue, IssuePage, JobLog, LogExcerpt, Notification, Pull,
+    PullCommit, Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage,
+    RunTiming, TimelineItem, Workflow, WorkflowFile,
 };
 use sikemux_plugin_api::host_work;
 use sikemux_plugin_api::store;
@@ -158,6 +159,8 @@ impl CodeHost for Gitlab {
         pull_reviews(dir, ask: PullRef) -> Vec<Review> = pulls::reviews(dir, ask);
         merge_pull(dir, ask: Merge) -> () = pulls::merge(dir, ask);
         create_pull(dir, ask: NewPull) -> Pull = pulls::create(dir, ask);
+        edit_pull(dir, ask: PullEdit) -> Pull = pulls::edit(dir, ask);
+        attach_picture(dir, ask: PictureFile) -> Attached = pictures::attach(dir, ask);
         set_pull_state(dir, ask: SetPullState) -> () = pulls::set_state(dir, ask);
         review_pull(dir, ask: NewReview) -> () = pulls::review(dir, ask);
         timeline(dir, ask: ThreadRef) -> Vec<TimelineItem> = notes::timeline(dir, ask);

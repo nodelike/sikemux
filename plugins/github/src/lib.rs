@@ -14,6 +14,7 @@ mod images;
 mod inbox;
 mod issues;
 mod logs;
+mod pictures;
 mod pulls;
 mod releases;
 mod repo;
@@ -28,10 +29,10 @@ use sikemux_plugin_api::account::{as_account, named_in};
 use sikemux_plugin_api::codehost::asks::*;
 use sikemux_plugin_api::codehost::{self, CodeHost};
 use sikemux_plugin_api::codehost::{
-    Annotation, Artifact, ChangedFile, Check, Comment, CommitAuthor, Issue, IssuePage, JobLog,
-    JobSummary, LogExcerpt, Notification, PendingApproval, Pull, PullCommit, PullCounts, Release,
-    RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming, TimelineItem,
-    Workflow, WorkflowFile,
+    Annotation, Artifact, Attached, ChangedFile, Check, Comment, CommitAuthor, Issue, IssuePage,
+    JobLog, JobSummary, LogExcerpt, Notification, PendingApproval, Pull, PullCommit, PullCounts,
+    Release, RepoListing, Resolved, Review, ReviewFeedback, RunDetail, RunPage, RunTiming,
+    TimelineItem, Workflow, WorkflowFile,
 };
 use sikemux_plugin_api::host_work;
 use sikemux_plugin_api::store;
@@ -139,6 +140,8 @@ impl CodeHost for Github {
         commit_authors(dir, ask: CommitsQuery) -> Vec<CommitAuthor> = pulls::commit_authors(dir, ask);
         merge_pull(dir, ask: Merge) -> () = pulls::merge(dir, ask);
         create_pull(dir, ask: NewPull) -> Pull = pulls::create(dir, ask);
+        edit_pull(dir, ask: PullEdit) -> Pull = pulls::edit(dir, ask);
+        attach_picture(dir, ask: PictureFile) -> Attached = pictures::attach(dir, ask);
         set_pull_state(dir, ask: SetPullState) -> () = pulls::set_state(dir, ask);
         review_pull(dir, ask: NewReview) -> () = pulls::review(dir, ask);
         review_feedback(dir, ask: FeedbackQuery) -> Vec<ReviewFeedback> = review::feedback(dir, ask);

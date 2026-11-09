@@ -348,6 +348,16 @@ pub struct NewPull {
     pub close_branch: bool,
 }
 
+/// A picture or recording on this machine for the host to keep beside a repository's pull
+/// requests, under `name`, so a description can show it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PictureFile {
+    #[serde(flatten)]
+    pub repo: RepoRef,
+    pub path: String,
+    pub name: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PullEdit {
     #[serde(flatten)]

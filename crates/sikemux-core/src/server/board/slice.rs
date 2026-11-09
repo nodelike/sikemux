@@ -172,6 +172,25 @@ pub(super) struct Slice {
     /// Its latest change touches files a browser draws a page from.
     #[serde(default)]
     pages: bool,
+    /// The pull request its work is reviewed in, once the core found it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) pull: Option<SlicePull>,
+}
+
+/// A slice's pull request, and the picture its description shows as the code host keeps it.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SlicePull {
+    pub at: super::AutoPull,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<KeptPicture>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct KeptPicture {
+    pub evidence: u64,
+    pub url: String,
 }
 
 /// An assertion of its goal a slice fulfils.
@@ -320,6 +339,7 @@ impl Slice {
             stalled: None,
             built_in: false,
             pages: false,
+            pull: None,
         };
         for recording in &recordings {
             slice.picture(owner, recording);
@@ -1544,6 +1564,7 @@ impl Slice {
                 .collect(),
             detached: self.detached.iter().map(|named| named.id).collect(),
             wait,
+            pull: self.pull.as_ref().map(|pull| pull.at.url.clone()),
         }
     }
 

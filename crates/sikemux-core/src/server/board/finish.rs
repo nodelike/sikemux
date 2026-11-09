@@ -376,7 +376,7 @@ fn commit_message(card: &Card) -> String {
     message
 }
 
-fn pull_body(core: &Core, step: &Step) -> String {
+fn pull_body(core: &Core, step: &Step, repo: &str) -> String {
     let card = &step.card;
     let mut body = String::new();
     if !card.details.is_empty() {
@@ -393,24 +393,24 @@ fn pull_body(core: &Core, step: &Step) -> String {
             None => body.push_str(&format!("Ticket: {}\n\n", ticket.key)),
         }
     }
-    if let Some(evidence) = current_evidence(core, step) {
-        body.push_str(&evidence);
-        body.push('\n');
-    }
     body.push_str(&format!(
         "Done by {} for card #{} of the board, opened by Sikemux's Auto.",
         step.name(core),
         card.id
     ));
+    if let Some(proof) = current_proof(core, step, repo) {
+        body.push_str("\n\n");
+        body.push_str(&proof);
+    }
     body
 }
 
-/// The evidence the card's slice holds now, as its pull request's description lists it.
-fn current_evidence(core: &Core, step: &Step) -> Option<String> {
-    let host = core.notify.host_name();
+/// What the card's slice shows now, as its pull request's description says it before the
+/// picture it leads with is kept on the code host.
+fn current_proof(core: &Core, step: &Step, repo: &str) -> Option<String> {
     let state = core.boards.state.locked();
     let card = state.boards.get(&step.project)?.card(step.id).ok()?;
-    card.slice.as_ref()?.pull_evidence(&host)
+    Some(card.slice.as_ref()?.proof_block(card.id, repo, None))
 }
 
 fn current_result(core: &Core, step: &Step) -> Option<String> {
@@ -471,7 +471,7 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
             &step.card.title,
             &step.run.branch,
             &step.run.base,
-            &pull_body(core, step),
+            &pull_body(core, step, &host.slug()),
         )
         .await
         .map_err(|error| format!("the pull request did not open: {error}"))?,

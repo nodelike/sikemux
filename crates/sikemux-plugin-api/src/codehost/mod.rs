@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 pub mod answers;
 pub mod asks;
 mod host;
+pub mod pictures;
 
 pub use host::{dispatch, reads, work, writes, CodeHost};
 
@@ -531,6 +532,12 @@ pub struct ReleaseAsset {
     pub name: String,
     pub size_bytes: u64,
     pub downloads: u64,
+}
+
+/// Where a host keeps a picture it was given, as a description links to it.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Attached {
+    pub url: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

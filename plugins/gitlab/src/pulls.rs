@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::{
-    CommitRef, FilesQuery, Merge, NewPull, NewReview, PullQuery, PullRef, SetPullState,
+    CommitRef, FilesQuery, Merge, NewPull, NewReview, PullEdit, PullQuery, PullRef, SetPullState,
 };
 use sikemux_plugin_api::codehost::{ChangedFile, Label, Pull, PullCommit, PullStage, Review};
 
@@ -389,6 +389,28 @@ pub async fn create(data_dir: &Path, input: NewPull) -> GitlabResult<Pull> {
             Method::POST,
             &input.repo.path("/merge_requests")?,
             &body,
+        )
+        .await?;
+    Ok(pull_of(row))
+}
+
+pub async fn edit(data_dir: &Path, input: PullEdit) -> GitlabResult<Pull> {
+    let mut body = serde_json::Map::new();
+    if let Some(title) = input.title.filter(|title| !title.trim().is_empty()) {
+        body.insert("title".into(), title.trim().into());
+    }
+    if let Some(text) = input.body {
+        body.insert("description".into(), text.into());
+    }
+    if let Some(base) = input.base {
+        body.insert("target_branch".into(), base.into());
+    }
+    let row: MergeRequestRow = client::API
+        .send_json(
+            data_dir,
+            Method::PUT,
+            &input.pull.path("")?,
+            &Value::Object(body),
         )
         .await?;
     Ok(pull_of(row))

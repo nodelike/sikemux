@@ -8,8 +8,8 @@ use serde::Deserialize;
 use serde_json::json;
 use sikemux_plugin_api::codehost::answers;
 use sikemux_plugin_api::codehost::asks::{
-    CommitRef, CommitsQuery, FilesQuery, Merge, NewPull, NewReview, PullQuery, PullRef, RepoRef,
-    SetPullState,
+    CommitRef, CommitsQuery, FilesQuery, Merge, NewPull, NewReview, PullEdit, PullQuery, PullRef,
+    RepoRef, SetPullState,
 };
 use sikemux_plugin_api::codehost::{
     ChangedFile, CommitAuthor, Label, Pull, PullCommit, PullCounts, PullStage, Review,
@@ -478,6 +478,32 @@ pub async fn create(data_dir: &Path, input: NewPull) -> GithubResult<Pull> {
             reqwest::Method::POST,
             &input.repo.path("/pulls")?,
             &body,
+        )
+        .await?;
+    Ok(Pull::from(row))
+}
+
+pub async fn edit(data_dir: &Path, input: PullEdit) -> GithubResult<Pull> {
+    let mut body = serde_json::Map::new();
+    if let Some(title) = input.title.filter(|title| !title.trim().is_empty()) {
+        body.insert("title".into(), title.trim().into());
+    }
+    if let Some(text) = input.body {
+        body.insert("body".into(), text.into());
+    }
+    if let Some(base) = input.base {
+        body.insert("base".into(), base.into());
+    }
+    let path = input
+        .pull
+        .repo
+        .path(&format!("/pulls/{}", input.pull.number))?;
+    let row: PullRow = client::API
+        .send_json(
+            data_dir,
+            reqwest::Method::PATCH,
+            &path,
+            &serde_json::Value::Object(body),
         )
         .await?;
     Ok(Pull::from(row))

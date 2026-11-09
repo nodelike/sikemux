@@ -54,6 +54,7 @@ pub(crate) mod lease;
 mod migrate;
 pub(crate) mod offers;
 mod page;
+pub(crate) mod proof;
 mod queue;
 mod record;
 pub(crate) mod recover;
@@ -629,6 +630,7 @@ struct State {
     runs: HashMap<String, slice::HeardRuns>,
     /// Projects whose slices wait on a CI workflow's verdict.
     workflows: workflows::Watches,
+    proofs: proof::Proofs,
     commands: commands::Runs,
     reservoirs: reservoir::Runs,
     roles: roles::Runs,
@@ -1812,6 +1814,9 @@ fn agent_view(core: &Core, board: &Board, card: &Card, full: bool) -> Value {
     }
     if let Some(slice) = &card.slice {
         slice.list_into(fields, &board.settings);
+        if full && slice.head().is_some() {
+            fields.insert("pullRequest".into(), slice.pull_view(card));
+        }
     }
     let assertions: Vec<Value> = (card.goal.assertions().iter())
         .filter(|assertion| assertion.retired.is_none())
@@ -3699,6 +3704,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
     next = sooner(next, tickets::due(core));
     next = sooner(next, workflows::due(core));
     commands::due(core);
+    proof::due(core);
     reservoir::due(core);
     roles::due(core);
     next = sooner(next, audit::due(core));

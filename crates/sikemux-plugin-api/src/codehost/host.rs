@@ -123,6 +123,8 @@ code_host! {
     merge_pull "mergePull" (Merge) -> ();
     create_pull "createPull" (NewPull) -> Pull;
     edit_pull "editPull" (PullEdit) -> Pull;
+    /// Keeps a picture beside the repository's pull requests, for a description to show.
+    attach_picture "attachPicture" (PictureFile) -> Attached;
     set_pull_state "setPullState" (SetPullState) -> ();
     review_pull "reviewPull" (NewReview) -> ();
     review_feedback "reviewFeedback" read (FeedbackQuery) -> Vec<ReviewFeedback>;

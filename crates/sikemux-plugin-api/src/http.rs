@@ -513,6 +513,28 @@ impl<A: Api> Calls<A> {
         self.fetch(data_dir, method, path, &[], body).await?;
         Ok(())
     }
+
+    /// A write of a file rather than JSON, such as a form holding a picture.
+    pub async fn upload<T: DeserializeOwned>(
+        &self,
+        data_dir: &Path,
+        path: &str,
+        kind: &str,
+        bytes: Vec<u8>,
+    ) -> Result<T, ServiceError<A>> {
+        let session = A::session(data_dir).await?;
+        let http = A::http();
+        let request = A::request(&session, http.client()?, Method::POST, path)
+            .header(reqwest::header::CONTENT_TYPE, kind)
+            .body(bytes);
+        let answer = http
+            .exchange(A::account(&session), request, Read::ALL)
+            .await?;
+        if answer.status == StatusCode::UNAUTHORIZED {
+            A::turned_down(&session).await;
+        }
+        answer.succeeded()?.parsed()
+    }
 }
 
 #[derive(Debug)]
