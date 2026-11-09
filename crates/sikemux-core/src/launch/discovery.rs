@@ -242,18 +242,22 @@ async fn probe_agent_executable(
     ask(def, executable, stamp, AGENT_PROBE_TIMEOUT).await
 }
 
+/// The first of `candidates` that works, and why each one before it failed. With none
+/// known to work, one whose check timed out is taken anyway, since a slow answer says
+/// nothing against it and its background retry reports a real failure if there is one.
 pub async fn first_healthy(
     def: &'static AgentEntry,
     candidates: Vec<PathBuf>,
 ) -> (Option<PathBuf>, Vec<String>) {
     let mut failures = Vec::new();
-    for candidate in candidates {
-        match probe_agent_executable(def, &candidate).await {
-            Ok(_) => return (Some(candidate), failures),
+    for candidate in &candidates {
+        match probe_agent_executable(def, candidate).await {
+            Ok(_) => return (Some(candidate.clone()), failures),
             Err(error) => failures.push(format!("{}: {error}", candidate.display())),
         }
     }
-    (None, failures)
+    let slow = candidates.into_iter().find(|program| timed_out(program));
+    (slow, failures)
 }
 
 /// Where to look for `def`'s program: the path or name `explicit` gives, else
@@ -265,24 +269,20 @@ pub fn candidates(def: &AgentEntry, explicit: Option<&str>) -> Vec<PathBuf> {
 }
 
 /// The program to run as `agent`: the one `explicit` names, else the first found where its
-/// installers put it that works. With none known to work, one whose check timed out is run
-/// anyway, since that says nothing against it and running it finds out.
+/// installers put it that works.
 pub async fn resolve(agent: &str, explicit: Option<&str>) -> Result<PathBuf, String> {
     let def = AGENTS
         .iter()
         .find(|def| def.kind == agent)
         .ok_or("Unknown agent provider")?;
-    let candidates = candidates(def, explicit);
-    let (resolved, failures) = first_healthy(def, candidates.clone()).await;
-    resolved
-        .or_else(|| candidates.into_iter().find(|program| timed_out(program)))
-        .ok_or_else(|| {
-            if failures.is_empty() {
-                format!("{} executable was not found", def.label)
-            } else {
-                failures.join("; ")
-            }
-        })
+    let (resolved, failures) = first_healthy(def, candidates(def, explicit)).await;
+    resolved.ok_or_else(|| {
+        if failures.is_empty() {
+            format!("{} executable was not found", def.label)
+        } else {
+            failures.join("; ")
+        }
+    })
 }
 
 fn timed_out(program: &Path) -> bool {
