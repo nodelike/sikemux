@@ -80,6 +80,7 @@ const BUILTIN_LSP: &[(&str, &str, &[&str])] = &[
     ("rust", "rust-analyzer", &[]),
     ("python", "pyright-langserver", &["--stdio"]),
     ("java", "jdtls", &[]),
+    ("kotlin", "kotlin-lsp", &["--stdio"]),
 ];
 
 const OVERRIDE_PREFIX: &str = "SIKEMUX_LSP_";
@@ -90,6 +91,7 @@ pub(super) fn install_of(bin: &str) -> Option<serde_json::Value> {
     let (label, by_brew) = match bin {
         "gopls" => ("Go LSP", false),
         "jdtls" => ("Java LSP", true),
+        "kotlin-lsp" if cfg!(target_os = "macos") => ("Kotlin LSP", true),
         _ => return None,
     };
     Some(serde_json::json!({ "label": label, "byBrew": by_brew }))
@@ -204,9 +206,12 @@ pub(super) fn install_gopls() -> LspResult<String> {
     })
 }
 
-pub(super) fn install_jdtls() -> LspResult<String> {
-    crate::tasks::tools::brew_install("jdtls").map_err(LspError::new)?;
-    executable_in_path("jdtls").map(path_string).ok_or_else(|| {
-        LspError::new("jdtls installed, but Sikemux could not locate it in PATH".into())
+/// Installs a server's Homebrew formula; returns where its program now is.
+pub(super) fn install_by_brew(formula: &str, bin: &str) -> LspResult<String> {
+    crate::tasks::tools::brew_install(formula).map_err(LspError::new)?;
+    executable_in_path(bin).map(path_string).ok_or_else(|| {
+        LspError::new(format!(
+            "{bin} installed, but Sikemux could not locate it in PATH"
+        ))
     })
 }
