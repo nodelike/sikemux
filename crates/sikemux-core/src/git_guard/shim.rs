@@ -160,6 +160,7 @@ pub(crate) fn environment(path: Option<&str>) -> Vec<(String, String)> {
         None => folder.into_owned(),
     };
     let mut env = vec![("PATH".to_owned(), path)];
+    crate::android_sdk::extend(&mut env);
     env.extend(crate::agent_shell::environment());
     env.extend(
         super::builds::rustc_cache()

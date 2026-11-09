@@ -816,6 +816,14 @@ a process (`expo start --dev-client` or `react-native start`, without `--ios`).
 An Expo development build then reaches it through `sim_open_url` with
 `<scheme>://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081`.
 
+Android devices take the same tools: `sim_attach` one, `sim_install` the
+`.apk` your build produced inside the project (`./gradlew assembleDebug` as a
+process) and `sim_launch` it by package name. Do not install or launch with
+`pnpm android`, `expo run:android`, `react-native run-android`, `flutter run`,
+`./gradlew installDebug` or `adb install`: they pick a device on their own,
+which may be one another agent holds or the person's phone. Start only the
+bundler as a process, as for iOS.
+
 `sim_logs` reads the device's log, kept from when you attached it, by
 `cursor`: start at `0` and pass back the `cursor` and `generation` it
 returns, as with `process_read`. It holds what apps log through `Logger`, `os_log` or `NSLog` at
