@@ -124,6 +124,7 @@ pub(super) fn health(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElemen
                 .pb(SPACE_2)
                 .child(ui::meta("Drift audits", cx))
                 .child(schedule)
+                .children(runs_on(pane, cx).map(|runs_on| ui::meta(runs_on, cx)))
                 .child(div().flex_1())
                 .when(!running, |line| {
                     line.child(
@@ -134,6 +135,31 @@ pub(super) fn health(pane: &GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElemen
         )
         .children(latest.map(|latest| digest(&latest, cx)))
         .into_any_element()
+}
+
+/// Who an audit runs on, as the board sets Auto's agent, since each audit spends on that model.
+fn runs_on(pane: &GoalsPane, cx: &Context<GoalsPane>) -> Option<String> {
+    let settings = &pane.board()?.settings;
+    let bench = pane.bench.upgrade()?;
+    let launchers = bench.read(cx).launchers();
+    let shown = (settings.launcher.as_deref())
+        .and_then(|id| launchers.iter().find(|known| known.id == id))
+        .or(launchers.first())?;
+    let model = (shown.model.as_ref()).and_then(|models| {
+        let current = settings.model.as_deref().unwrap_or(&models.current);
+        (models.choices.iter())
+            .find(|choice| choice.value == current)
+            .map(|choice| choice.label.clone())
+    });
+    let mut on = match model {
+        Some(model) => format!("on {} · {model}", shown.label),
+        None => format!("on {}", shown.label),
+    };
+    if let Some(provider) = &settings.provider {
+        on.push_str(&format!(", paid by {provider}"));
+    }
+    on.push_str(", as Auto's agent is set on the board");
+    Some(on)
 }
 
 fn digest(latest: &AuditDigest, cx: &mut Context<GoalsPane>) -> AnyElement {
