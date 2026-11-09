@@ -894,7 +894,7 @@ pub(super) fn inside_project(project: &str, path: &str) -> Result<PathBuf, Strin
         }
     })?;
     confined.ok_or_else(|| {
-        "the app must be inside the project; build it into the project's folder, such as with xcodebuild -derivedDataPath build".into()
+        "the app must be inside the project; build it into the project's folder, such as with xcodebuild -derivedDataPath build, or ./gradlew assembleDebug for Android".into()
     })
 }
 
