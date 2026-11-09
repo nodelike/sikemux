@@ -92,7 +92,7 @@ mod worktree;
 pub use attach::{drop_hint, lasting, takes_drops};
 pub use composing::{
     dictate, drafting, mounted, step_prompts, with_stash, ComposeStage, ComposerView, Composing,
-    Sent, SETUP, START,
+    Sent, START,
 };
 pub(crate) use mention::{AGENT, FILE, TRACKED};
 pub use questions::{question_keys, Answering, Question};
@@ -497,8 +497,6 @@ pub struct Chats {
     pub open: HashMap<String, Chat>,
     /// The goals' Home composer, made the first time they show.
     pub start: Option<Composing>,
-    /// The first-run setup's composer, while it is up.
-    pub setup: Option<Composing>,
     /// The chat in front and whether its session was ready when its draft last took the keys.
     pub(crate) focused: Option<(String, bool)>,
     /// Text handed to agents whose composer is not made yet, put in once it is.

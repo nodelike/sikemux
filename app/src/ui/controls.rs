@@ -224,6 +224,8 @@ pub enum Variant {
 }
 
 /// A labelled button, optionally with a leading icon and a trailing shortcut.
+const SIZED_ROUNDING: f32 = 0.2;
+
 #[derive(IntoElement)]
 pub struct Button {
     solid: Option<(Hsla, Hsla)>,
@@ -416,21 +418,22 @@ impl RenderOnce for Button {
                 .text_color(t.text_primary)
                 .hover(move |button| button.bg(hovered))
         });
-        let base = base.when_some(self.sized, |button, (height, padding, text)| {
-            button
-                .h(px(height))
-                .px(px(padding))
-                .text_size(crate::theme::ui_text(text))
-                .when(self.variant == Variant::Primary, |button| {
-                    button.font_weight(FontWeight::SEMIBOLD).gap(SPACE_3)
-                })
-        });
         let base = base.when(self.wide, |button| {
             button
                 .w_full()
                 .h(px(34.))
                 .justify_center()
                 .text_size(crate::theme::ui_text(TEXT_SM))
+        });
+        let base = base.when_some(self.sized, |button, (height, padding, text)| {
+            button
+                .h(px(height))
+                .px(px(padding))
+                .rounded(px(height * SIZED_ROUNDING))
+                .text_size(crate::theme::ui_text(text))
+                .when(self.variant == Variant::Primary, |button| {
+                    button.font_weight(FontWeight::SEMIBOLD).gap(SPACE_3)
+                })
         });
         let (glyph, rest) = match self.variant {
             Variant::Primary => (13., t.on_accent),

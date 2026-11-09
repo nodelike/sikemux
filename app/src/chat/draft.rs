@@ -209,9 +209,6 @@ impl Workbench {
     }
 
     pub fn keep_draft(&mut self, agent: &str, cx: &mut Context<Self>) {
-        if agent == super::SETUP {
-            return;
-        }
         let Some(composing) = self.composing_mut(agent) else {
             return;
         };

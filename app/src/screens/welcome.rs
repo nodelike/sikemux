@@ -1,24 +1,22 @@
-//! The first-run setup over the whole window: an agent that works, the projects to open, then
-//! the first thing to get done. On a real first run nothing leaves it but finishing, and only
-//! finishing counts it done.
+//! The first-run setup over the whole window: an agent that works, then the projects to open.
+//! On a real first run nothing leaves it but finishing, and only finishing counts it done.
 
 use std::cell::Cell;
 use std::f32::consts::FRAC_PI_2;
 use std::path::Path;
-use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use gpui_kit::base::{Button as BaseButton, ScrollbarMode, ScrollbarThumbStyle};
+use gpui_kit::base::{ScrollbarMode, ScrollbarThumbStyle};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::scroll::Scrollbar;
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::Role;
 use gpui_kit::{
-    actions, div, px, radians, relative, transparent_black, Anchor, AnyElement, App, AppContext,
-    Context, Div, Entity, FocusHandle, Focusable, FontWeight, Hsla, InteractiveElement,
-    IntoElement, KeyBinding, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement,
-    PathPromptOptions, Rgba, ScrollHandle, SharedString, Stateful, StatefulInteractiveElement,
-    Styled, Subscription, Transformation, Window, WindowControlArea,
+    actions, div, px, radians, relative, transparent_black, AnyElement, App, AppContext, Context,
+    Div, Entity, FocusHandle, FontFeatures, FontWeight, Hsla, InteractiveElement, IntoElement,
+    KeyBinding, KeyDownEvent, MouseButton, MouseDownEvent, ParentElement, PathPromptOptions, Rgba,
+    ScrollHandle, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription,
+    Transformation, Window, WindowControlArea,
 };
 use sikemux_core::agent_accounts::status::AgentStatus;
 use sikemux_core::server::call;
@@ -31,12 +29,10 @@ use sikemux_view::prefs::PreferenceChange;
 use tokio::sync::oneshot;
 
 use crate::agents::setup::{self, Doing, Found, Sheet};
-use crate::chat::composer::Act;
-use crate::chat::SETUP;
-use crate::core::{ChatAsk, Target};
+use crate::core::Target;
 use crate::icons::Icon;
 use crate::screens::experience::{self, Experience};
-use crate::theme::{self, Tokens, TEXT_2XS};
+use crate::theme::{self, Tokens};
 use crate::ui;
 use crate::ui::path::{this_home, tilde};
 use crate::workbench::Workbench;
@@ -47,19 +43,16 @@ const TERMINAL_HEIGHT_COMPACT: f32 = 104.;
 const TERMINAL_WAIT: Duration = Duration::from_millis(50);
 const COMPACT_HEIGHT: f32 = 700.;
 const COMPACT_WIDTH: f32 = 1100.;
-const ROW_HEIGHT: f32 = 40.;
+const ROW_HEIGHT: f32 = 46.;
 const ROW_HEIGHT_COMPACT: f32 = 32.;
-const FIELD_HEIGHT: f32 = 52.;
-const FIELD_HEIGHT_COMPACT: f32 = 40.;
-const TILES_ACROSS: usize = 4;
-const LONG_DRAFT: usize = 80;
-/// Below this window width the band's segments narrow so its sentence still fits.
-const WIDE_BAND: f32 = 1500.;
+/// Across and down the window's grid of cells.
+const GRID: usize = 3;
+const STEPS: usize = 2;
+/// The longest primary label that leaves a small window's foot room for the dots.
+const LONGEST_BESIDE_DOTS: usize = 14;
+const ANSWER_SEED: f32 = 4.;
 const LABEL_LINE: f32 = 1.4;
-const COMPACT_REASON_HEIGHT: f32 = 28.;
-const FIELD_LEAST_WIDTH: f32 = 140.;
 const LOGO_FILL: f32 = 1.55;
-const PLACEHOLDER_CHARS: usize = 28;
 /// How much dither a tile gets for its state, in a roomy window and a small one.
 #[derive(Clone, Copy)]
 struct Density {
@@ -91,6 +84,10 @@ const DENSITY_RUNNING: Density = Density {
     roomy: 0.15,
     compact: 0.105,
 };
+const ANSWER_DENSITY: Density = Density {
+    roomy: 0.16,
+    compact: 0.182,
+};
 const RISE_MILLIS: u64 = 900;
 const FOLD_MILLIS: u64 = 280;
 const STEP_MILLIS: u64 = 200;
@@ -111,7 +108,6 @@ enum Beat {
 enum Stage {
     Agents,
     Projects,
-    Start,
 }
 
 /// A place the keyboard can stand on.
@@ -125,10 +121,6 @@ enum Stop {
     Terminal,
     SheetClose,
     Recheck,
-    Composer,
-    ProjectChip,
-    AgentChip,
-    JustOpen,
 }
 
 struct Candidate {
@@ -167,7 +159,7 @@ impl Candidate {
 }
 
 pub struct Welcome {
-    /// Holds the keys whenever the path field, the composer or a terminal does not.
+    /// Holds the keys whenever the path field or a terminal does not.
     root: FocusHandle,
     /// A real first run, which has no way out but finishing.
     required: bool,
@@ -178,12 +170,12 @@ pub struct Welcome {
     looking: bool,
     partial: bool,
     path: Option<Entity<InputState>>,
+    /// What is wrong with the typed path.
     error: Option<String>,
-    project: Option<String>,
+    /// Why Sikemux couldn't be opened on what was ticked.
+    open_error: Option<String>,
     agent: Option<String>,
     opening: bool,
-    /// The composer takes the keys on its first frame, before which it cannot be focused.
-    composer_due: bool,
     /// The terminal of a command just started takes the keys once it has been drawn.
     terminal_due: bool,
     /// A command was running as the last frame drew, so its ending can take the keys back.
@@ -193,8 +185,6 @@ pub struct Welcome {
     filter: String,
     beat: Beat,
     stage_at: Instant,
-    /// The window's room as last drawn, for the composer, which draws apart from the screen.
-    room: Cell<Room>,
     /// How far the step has faded in. Dither paints apart from element opacity, so it is told.
     fade: Cell<f32>,
     scroll: ScrollHandle,
@@ -215,17 +205,15 @@ impl Welcome {
             partial: false,
             path: None,
             error: None,
-            project: None,
+            open_error: None,
             agent: None,
             opening: false,
-            composer_due: false,
             terminal_due: false,
             was_busy: false,
             scan_failed: false,
             filter: String::new(),
             beat: Beat::Holding(Instant::now()),
             stage_at: Instant::now(),
-            room: Cell::new(ROOMY),
             fade: Cell::new(1.),
             scroll: ScrollHandle::new(),
             _typing: None,
@@ -235,14 +223,6 @@ impl Welcome {
 
     fn ticked(&self) -> impl Iterator<Item = &Candidate> {
         self.rows.iter().filter(|row| row.ticked)
-    }
-
-    /// The project the first chat starts in: the one picked while it stays ticked, else the first.
-    fn start_project(&self) -> Option<&Candidate> {
-        let picked = self.project.as_deref();
-        self.ticked()
-            .find(|row| Some(row.path.as_str()) == picked)
-            .or_else(|| self.ticked().next())
     }
 
     /// Ticks the folder chosen by hand, adding it to the top when it was not listed.
@@ -280,7 +260,6 @@ fn welcome_in(bench: &Workbench) -> Option<&Welcome> {
     }
 }
 
-/// Draws the screen again, and the composer, which is a view of its own that follows the bench.
 fn redraw(bench: &Workbench, cx: &mut Context<Workbench>) {
     bench.parts.redraw(&bench.parts.over, cx);
     cx.notify();
@@ -380,19 +359,11 @@ fn visible_rows(welcome: &Welcome) -> Vec<usize> {
         .collect()
 }
 
-/// Makes the path field and the composer once a window can hold them, and keeps the keys here.
+/// Makes the path field once a window can hold it, and keeps the keys here.
 pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     if welcome_in(bench).is_none() {
         return;
     }
-    if bench.chats.setup.is_none() {
-        let composing = bench.new_composing(SETUP, window, cx);
-        composing.draft.update(cx, |draft, cx| {
-            draft.set_placeholder("Fix the flaky checkout test…", window, cx)
-        });
-        bench.chats.setup = Some(composing);
-    }
-    let composer = composer_focus(bench, cx);
     let terminal = setup::terminal_focus(bench);
     let busy = bench.agent_setup.busy();
     let tile = welcome_in(bench).map_or(0, |welcome| chosen_index(bench, welcome));
@@ -462,10 +433,8 @@ pub fn take_keys(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Wo
             None => welcome.terminal_due = false,
         }
     }
-    match (std::mem::take(&mut welcome.composer_due), composer) {
-        (true, Some(composer)) => composer.focus(window, cx),
-        _ if !welcome.root.contains_focused(window, cx) => welcome.root.focus(window, cx),
-        _ => {}
+    if !welcome.root.contains_focused(window, cx) {
+        welcome.root.focus(window, cx);
     }
 }
 
@@ -492,11 +461,6 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("down", Next, field),
         KeyBinding::new("shift-tab", Previous, field),
         KeyBinding::new("up", Previous, field),
-    ]);
-    let composer = Some("Onboarding > ChatComposer > Input");
-    cx.bind_keys([
-        KeyBinding::new("tab", Next, composer),
-        KeyBinding::new("shift-tab", Previous, composer),
     ]);
 }
 
@@ -553,7 +517,7 @@ fn listed_agents(bench: &Workbench) -> Vec<&Found> {
     listed
 }
 
-/// The agents the first chat can start on: those ready, the one chosen on the first step, or
+/// The agents the first chat can open on: those ready, the one chosen on the first step, or
 /// all that were found when none is ready.
 fn startable_agents(bench: &Workbench) -> Vec<&Found> {
     let found = found_agents(bench);
@@ -627,18 +591,7 @@ fn stops(bench: &Workbench, welcome: &Welcome) -> Vec<Stop> {
             .chain(visible_rows(welcome).into_iter().map(Stop::Row))
             .chain([Stop::Back])
             .collect(),
-        Stage::Start if startable_agents(bench).is_empty() => vec![Stop::JustOpen],
-        Stage::Start => vec![
-            Stop::Composer,
-            Stop::AgentChip,
-            Stop::ProjectChip,
-            Stop::JustOpen,
-        ],
     }
-}
-
-fn composer_focus(bench: &Workbench, cx: &App) -> Option<FocusHandle> {
-    Some(bench.composing(SETUP)?.draft.read(cx).focus_handle(cx))
 }
 
 fn go(bench: &mut Workbench, stop: Stop, window: &mut Window, cx: &mut Context<Workbench>) {
@@ -657,7 +610,6 @@ fn go(bench: &mut Workbench, stop: Stop, window: &mut Window, cx: &mut Context<W
     }
     match (stop, &welcome.path) {
         (Stop::Field, Some(path)) => path.update(cx, |path, cx| path.focus(window, cx)),
-        (Stop::Composer, _) => welcome.composer_due = true,
         (Stop::Terminal, _) => welcome.terminal_due = true,
         _ => welcome.root.focus(window, cx),
     }
@@ -681,13 +633,11 @@ fn step(bench: &mut Workbench, forward: bool, window: &mut Window, cx: &mut Cont
         return;
     };
     let focused = |focus: Option<FocusHandle>| focus.is_some_and(|focus| focus.is_focused(window));
-    let in_composer = focused(composer_focus(bench, cx));
     let in_terminal = focused(setup::terminal_focus(bench));
-    let here = match (in_composer, welcome.stage, welcome.at) {
-        (true, ..) => Some(Stop::Composer),
+    let here = match (welcome.stage, welcome.at) {
         _ if in_terminal => Some(Stop::Terminal),
-        (_, Stage::Agents, Some(Stop::Row(_))) => Some(Stop::Row(chosen_index(bench, welcome))),
-        (_, _, at) => at,
+        (Stage::Agents, Some(Stop::Row(_))) => Some(Stop::Row(chosen_index(bench, welcome))),
+        (_, at) => at,
     };
     let stops = stops(bench, welcome);
     let Some(last) = stops.len().checked_sub(1) else {
@@ -717,8 +667,8 @@ fn step_row(bench: &mut Workbench, down: bool, window: &mut Window, cx: &mut Con
     };
     let last = listed_agents(bench).len().saturating_sub(1);
     let to = match down {
-        true => (at + TILES_ACROSS).min(last),
-        false => at.saturating_sub(TILES_ACROSS),
+        true => (at + GRID).min(last),
+        false => at.checked_sub(GRID).unwrap_or(at),
     };
     go(bench, Stop::Row(to), window, cx);
 }
@@ -729,7 +679,6 @@ fn show_stage(
     window: &mut Window,
     cx: &mut Context<Workbench>,
 ) {
-    let startable = !startable_agents(bench).is_empty();
     let tile = welcome_in(bench).map_or(0, |welcome| chosen_index(bench, welcome));
     let Some(welcome) = welcome_of(bench) else {
         return;
@@ -737,14 +686,13 @@ fn show_stage(
     welcome.stage = stage;
     welcome.stage_at = Instant::now();
     welcome.error = None;
+    welcome.open_error = None;
     welcome.scroll = ScrollHandle::new();
     let first = match stage {
         Stage::Agents => Stop::Row(tile),
         Stage::Projects => visible_rows(welcome)
             .first()
             .map_or(Stop::Field, |&at| Stop::Row(at)),
-        Stage::Start if startable => Stop::Composer,
-        Stage::Start => Stop::JustOpen,
     };
     go(bench, first, window, cx);
 }
@@ -783,37 +731,6 @@ fn toggle(bench: &mut Workbench, row: usize, cx: &mut Context<Workbench>) {
     redraw(bench, cx);
 }
 
-/// Moves a chip on to its next choice, round its end.
-fn cycle(bench: &mut Workbench, stop: Stop, cx: &mut Context<Workbench>) {
-    let Some(welcome) = welcome_in(bench) else {
-        return;
-    };
-    let next = |all: Vec<String>, current: Option<String>| {
-        let at = all.iter().position(|each| Some(each) == current.as_ref());
-        all.get(at.map_or(0, |at| (at + 1) % all.len())).cloned()
-    };
-    if stop == Stop::ProjectChip {
-        let all = welcome.ticked().map(|row| row.path.clone()).collect();
-        let chosen = next(all, welcome.start_project().map(|row| row.path.clone()));
-        if let Some(welcome) = welcome_of(bench) {
-            welcome.project = chosen;
-        }
-    } else {
-        let all = startable_agents(bench)
-            .iter()
-            .map(|agent| agent.kind.clone())
-            .collect();
-        let chosen = next(
-            all,
-            start_agent(bench, welcome).map(|agent| agent.kind.clone()),
-        );
-        if let Some(welcome) = welcome_of(bench) {
-            welcome.agent = chosen;
-        }
-    }
-    redraw(bench, cx);
-}
-
 fn primary(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(welcome) = welcome_in(bench) else {
         return;
@@ -830,16 +747,12 @@ fn primary(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbenc
             }
             show_stage(bench, Stage::Projects, window, cx)
         }
-        Stage::Projects if can_continue_projects(welcome) => {
-            show_stage(bench, Stage::Start, window, cx)
-        }
-        Stage::Start if startable_agents(bench).is_empty() => finish(bench, false, window, cx),
-        Stage::Start => finish(bench, true, window, cx),
-        _ => {}
+        Stage::Projects if can_continue_projects(welcome) => finish(bench, window, cx),
+        Stage::Projects => {}
     }
 }
 
-/// Space does what a row or chip offers; Return presses a button or moves the setup on.
+/// Space does what a row offers; Return presses a button or moves the setup on.
 fn activate(bench: &mut Workbench, space: bool, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(welcome) = welcome_in(bench) else {
         return;
@@ -854,10 +767,6 @@ fn activate(bench: &mut Workbench, space: bool, window: &mut Window, cx: &mut Co
         }
         (_, Some(Stop::Browse)) => browse(window, cx),
         (_, Some(Stop::Back)) => back(bench, window, cx),
-        (_, Some(Stop::JustOpen)) => finish(bench, false, window, cx),
-        (_, Some(stop @ (Stop::ProjectChip | Stop::AgentChip))) if space => cycle(bench, stop, cx),
-        (_, Some(Stop::ProjectChip)) => show_stage(bench, Stage::Projects, window, cx),
-        (_, Some(Stop::AgentChip)) => show_stage(bench, Stage::Agents, window, cx),
         (Stage::Agents, Some(Stop::Row(_))) => {
             let chosen = chosen_agent(bench, welcome).filter(|agent| setup::usable(&agent.status));
             match (space, chosen) {
@@ -909,7 +818,6 @@ fn key_down(
 
 fn leave(bench: &mut Workbench, cx: &mut Context<Workbench>) {
     bench.agent_setup.drop_finished();
-    bench.chats.setup = None;
     experience::close(bench, cx);
 }
 
@@ -922,7 +830,7 @@ fn path_problem(typed: &str, resolved: &Resolved) -> Option<String> {
         Some("denied") => Some(format!("Sikemux isn't allowed to read {typed}")),
         Some(_) => Some(format!("{typed} is a file, not a folder")),
         None => Some(format!(
-            "Nothing at {typed}. Check the path or use Add folder…"
+            "Nothing at {typed}. Check the path or use Choose folder…"
         )),
     }
 }
@@ -1000,22 +908,17 @@ fn browse(window: &mut Window, cx: &mut Context<Workbench>) {
     .detach();
 }
 
-/// The composer's Return, or its Start.
-pub fn send(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
-    finish(bench, true, window, cx);
-}
-
-fn failed(bench: &mut Workbench, why: &str, cx: &mut Context<Workbench>) {
+fn failed(bench: &mut Workbench, why: String, cx: &mut Context<Workbench>) {
     if let Some(welcome) = welcome_of(bench) {
         welcome.opening = false;
-        welcome.error = Some(why.to_owned());
+        welcome.open_error = Some(why);
     }
     redraw(bench, cx);
 }
 
-/// Adds what is ticked and counts the setup done, then with `start` sends what was written to a
-/// new chat on the agent and in the project the chips name.
-fn finish(bench: &mut Workbench, start: bool, window: &mut Window, cx: &mut Context<Workbench>) {
+/// Adds what is ticked and counts the setup done, then opens a new chat on the chosen agent in
+/// the first project, or just the app when no agent works.
+fn finish(bench: &mut Workbench, window: &mut Window, cx: &mut Context<Workbench>) {
     let Some(welcome) = welcome_in(bench) else {
         return;
     };
@@ -1024,63 +927,47 @@ fn finish(bench: &mut Workbench, start: bool, window: &mut Window, cx: &mut Cont
     let launcher = agent
         .and_then(|agent| bench.launcher_of_kind(&agent.kind))
         .map(|launcher| launcher.id.clone());
-    let written = bench.composing(SETUP).map(|setup| {
-        (
-            setup.draft.read(cx).value().trim().to_owned(),
-            setup.outgoing(cx),
-        )
-    });
-    let chosen = welcome.start_project();
-    let chosen_name = chosen.map_or_else(String::new, |row| row.name.clone());
-    let chosen = chosen.map(|row| row.path.clone());
-    let paths: Vec<String> = welcome.ticked().map(|row| row.path.clone()).collect();
-    if welcome.opening || paths.is_empty() {
+    let ticked: Vec<(String, String)> = welcome
+        .ticked()
+        .map(|row| (row.path.clone(), row.name.clone()))
+        .collect();
+    if welcome.opening || ticked.is_empty() {
         return;
     }
-    let chat = match (start, launcher, written) {
-        (true, Some(launcher), Some((text, outgoing))) if !text.is_empty() => {
-            Some((launcher, Some((text, outgoing))))
-        }
-        (true, ..) => return,
-        (false, launcher, _) => launcher.map(|launcher| (launcher, None)),
-    };
-    let adding: Vec<_> = paths
-        .iter()
-        .map(|path| (path.clone(), bench.add_project(path, cx)))
+    let adding: Vec<_> = ticked
+        .into_iter()
+        .map(|(path, name)| (name, bench.add_project(&path, cx)))
         .collect();
     if let Some(welcome) = welcome_of(bench) {
         welcome.opening = true;
-        welcome.error = None;
+        welcome.open_error = None;
     }
     redraw(bench, cx);
     let here = Target::here(&bench.asks);
     cx.spawn_in(window, async move |bench, cx| {
         let mut first = None;
-        let mut picked = None;
-        for (path, added) in adding {
-            let added = added.await;
-            if Some(&path) == chosen.as_ref() {
-                picked = added.clone();
-            }
-            first = first.or(added);
+        for (name, added) in adding {
+            let Some(added) = added.await else {
+                let why = format!("{name} couldn't be added as a project.");
+                let _ = bench.update(cx, |bench, cx| failed(bench, why, cx));
+                return;
+            };
+            first.get_or_insert(added);
         }
-        let project = if start { picked } else { picked.or(first) };
-        let Some(project) = project else {
-            let why = format!("{chosen_name} couldn't be added as a project.");
-            let _ = bench.update(cx, |bench, cx| failed(bench, &why, cx));
+        let Some(project) = first else {
             return;
         };
         let mut opened = None;
-        if let Some((launcher, prompt)) = chat {
+        if let Some(launcher) = launcher {
             let (started, agent) = oneshot::channel();
             here.start_chat(launcher, project.clone(), None, Some(started));
             let Ok(agent) = agent.await else {
                 let _ = bench.update(cx, |bench, cx| {
-                    failed(bench, "The agent did not start.", cx)
+                    failed(bench, "The agent did not start.".to_owned(), cx)
                 });
                 return;
             };
-            opened = Some((agent, prompt));
+            opened = Some(agent);
         }
         let _ = bench.update(cx, |bench, cx| {
             if opened.is_some() {
@@ -1089,21 +976,8 @@ fn finish(bench: &mut Workbench, start: bool, window: &mut Window, cx: &mut Cont
             leave(bench, cx);
             bench.show_workbench(cx);
             bench.activate_project(&project);
-            if let Some((agent, prompt)) = opened {
-                bench.open_here(OpenTab::new(
-                    At::project(&project),
-                    PaneKind::Agent,
-                    agent.clone(),
-                ));
-                if let Some((text, (paths, context))) = prompt {
-                    bench.ask_chat(ChatAsk::Prompt {
-                        agent,
-                        text,
-                        paths,
-                        context,
-                        attach: false,
-                    });
-                }
+            if let Some(agent) = opened {
+                bench.open_here(OpenTab::new(At::project(&project), PaneKind::Agent, agent));
             }
         });
     })
@@ -1113,12 +987,6 @@ fn finish(bench: &mut Workbench, start: bool, window: &mut Window, cx: &mut Cont
 fn keep_press(_: &MouseDownEvent, _: &mut Window, cx: &mut App) {
     cx.stop_propagation();
 }
-
-const ROOMY: Room = Room {
-    compact: false,
-    width: 1340.,
-    height: 880.,
-};
 
 /// What differs between a roomy window and a small one.
 #[derive(Clone, Copy)]
@@ -1151,17 +1019,16 @@ impl Room {
         self.pick(48., 22.)
     }
 
-    fn bar(self) -> f32 {
-        self.pick(52., 38.)
+    fn column(self) -> f32 {
+        ((self.width - (GRID - 1) as f32) / GRID as f32).floor()
     }
 
-    fn band(self) -> f32 {
-        self.pick(64., 48.)
+    fn row_height(self) -> f32 {
+        self.pick(ROW_HEIGHT, ROW_HEIGHT_COMPACT)
     }
 
-    /// The heading's height, for placing what is measured from the top of the window.
-    fn heading(self) -> f32 {
-        self.pick(135., 62.)
+    fn list_inset(self) -> f32 {
+        self.pick(18., 6.)
     }
 }
 
@@ -1177,78 +1044,6 @@ fn logo(size: f32, ink: Hsla) -> Div {
             .child(ui::icon(Icon::Logo, drawn).text_color(ink)),
     )
 }
-
-fn title_line(welcome: &Welcome, room: Room, this: &Entity<Workbench>, cx: &App) -> Div {
-    let t = Tokens::get(cx).clone();
-    let close = (!welcome.required).then(|| {
-        let this = this.clone();
-        div()
-            .id("welcome-close")
-            .cursor_pointer()
-            .text_size(theme::ui_text(TEXT_2XS))
-            .font_weight(FontWeight::NORMAL)
-            .text_color(t.text_tertiary)
-            .hover(|close| close.text_color(t.text_primary))
-            .on_mouse_down(MouseButton::Left, keep_press)
-            .on_click(move |_, _, cx| this.update(cx, leave))
-            .child("esc to close")
-    });
-    let git = welcome.git_missing.then(|| {
-        div()
-            .text_size(theme::ui_text(TEXT_2XS))
-            .font_weight(FontWeight::NORMAL)
-            .text_color(t.warn)
-            .child(if cfg!(target_os = "macos") {
-                "Git isn't set up. Run xcode-select --install."
-            } else {
-                "Git isn't installed. The Git view needs it."
-            })
-    });
-    div()
-        .flex_none()
-        .h(px(room.bar()))
-        .pl(px(room.pick(92., 84.)))
-        .pr(px(room.pad()))
-        .flex()
-        .items_center()
-        .gap(px(9.))
-        .text_size(theme::ui_text(room.pick(15., 13.)))
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(t.text_primary)
-        .child(logo(room.pick(17., 14.), t.text_primary))
-        .child("Welcome to")
-        .child(div().ml(px(-5.)).text_color(t.accent).child("Sikemux"))
-        .child(div().flex_1())
-        .children(git)
-        .children(close)
-}
-
-fn heading(title: &'static str, sub: String, room: Room, t: &Tokens) -> Div {
-    div()
-        .flex_none()
-        .pt(px(room.pick(14., 2.)))
-        .px(px(room.pad()))
-        .pb(px(room.pick(26., 12.)))
-        .border_b_1()
-        .border_color(t.border)
-        .child(
-            div()
-                .text_size(theme::ui_text(room.pick(60., 27.)))
-                .font_weight(FontWeight::SEMIBOLD)
-                .letter_spacing(-0.03)
-                .line_height(relative(1.06))
-                .text_color(t.text_primary)
-                .child(title),
-        )
-        .child(
-            div()
-                .mt(px(room.pick(8., 2.)))
-                .text_size(theme::ui_text(room.pick(18., 13.)))
-                .text_color(t.text_secondary)
-                .child(sub),
-        )
-}
-
 /// How an agent's mark sits in its box: the edges of what is drawn, as shares of the box, and
 /// how much of that is ink. Equal targets then read as equal sizes.
 fn mark_ink(kind: &str) -> [f32; 5] {
@@ -1264,7 +1059,6 @@ fn mark_ink(kind: &str) -> [f32; 5] {
         _ => [0.125, 0.125, 0.875, 0.875, 0.3],
     }
 }
-
 /// Where each agent's dither gathers in its tile: its centre and reach, as shares of the tile.
 fn dots_anchor(kind: &str) -> [f32; 4] {
     match kind {
@@ -1279,7 +1073,6 @@ fn dots_anchor(kind: &str) -> [f32; 4] {
         _ => [0.66, 0.5, 0.5, 0.5],
     }
 }
-
 /// How bright `colour` reads next to Claude's orange, so every agent's dots weigh the same.
 fn luminance_fit(colour: Hsla) -> f32 {
     let lum = |colour: Rgba| {
@@ -1300,7 +1093,6 @@ fn luminance_fit(colour: Hsla) -> f32 {
     };
     (lum(reference) / lum(colour.to_rgb()).max(0.001)).sqrt()
 }
-
 /// An agent's mark at the size that reads as `target`, its ink flush with the left of a box.
 fn sized_mark(kind: &str, target: f32) -> (Div, f32, f32) {
     let [left, top, right, bottom, area] = mark_ink(kind);
@@ -1323,6 +1115,153 @@ fn sized_mark(kind: &str, target: f32) -> (Div, f32, f32) {
                 .child(ui::mark(kind, size)),
         );
     (slot, box_width, box_height)
+}
+
+/// What the question cell asks, says and offers on a step.
+struct Question {
+    title: &'static str,
+    lines: Vec<AnyElement>,
+    extras: Vec<AnyElement>,
+    primary: AnyElement,
+    step: usize,
+    /// In a small window the dots give way when the foot has too much else to hold.
+    crowded: bool,
+}
+
+fn said(text: impl Into<SharedString>, ink: Hsla, room: Room) -> AnyElement {
+    div()
+        .text_size(theme::ui_text(room.pick(18., 13.)))
+        .line_height(relative(1.4))
+        .text_color(ink)
+        .child(text.into())
+        .into_any_element()
+}
+
+fn said_mono(text: String, room: Room, t: &Tokens) -> AnyElement {
+    div()
+        .font_family(theme::MONO)
+        .font_features(FontFeatures::disable_ligatures())
+        .text_size(theme::ui_text(room.pick(13., 11.)))
+        .line_height(relative(1.35))
+        .text_color(t.text_tertiary)
+        .child(text)
+        .into_any_element()
+}
+
+fn progress_dots(step: usize, room: Room, t: &Tokens) -> Div {
+    let size = room.pick(9., 7.);
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap(px(room.pick(8., 6.)))
+        .children((0..STEPS).map(|at| {
+            let on = at == step;
+            div()
+                .h(px(size))
+                .w(px(if on { size * 3.1 } else { size }))
+                .rounded(px(size))
+                .bg(if on { t.text_primary } else { t.border_strong })
+        }))
+}
+
+/// The top-left cell of every step: the question, what is true of it, and how to go on.
+fn question_cell(
+    question: Question,
+    welcome: &Welcome,
+    room: Room,
+    this: &Entity<Workbench>,
+    t: &Tokens,
+) -> Div {
+    let Question {
+        title,
+        mut lines,
+        extras,
+        primary,
+        step,
+        crowded,
+    } = question;
+    if welcome.git_missing {
+        let warning = if cfg!(target_os = "macos") {
+            "Git isn't set up. Run xcode-select --install."
+        } else {
+            "Git isn't installed. The Git view needs it."
+        };
+        lines.push(said(warning, t.warn, room));
+    }
+    let dots = (!(room.compact && crowded)).then(|| progress_dots(step, room, t));
+    let closes = (!welcome.required).then(|| {
+        let this = this.clone();
+        let ink = t.text_primary;
+        div()
+            .id("welcome-close")
+            .flex_none()
+            .cursor_pointer()
+            .text_size(theme::ui_text(room.pick(14., 12.)))
+            .text_color(t.text_tertiary)
+            .hover(move |close| close.text_color(ink))
+            .on_mouse_down(MouseButton::Left, keep_press)
+            .on_click(move |_, _, cx| this.update(cx, leave))
+            .child("Esc closes")
+    });
+    div()
+        .bg(t.surface_sunken)
+        .pt(px(room.pick(64., 34.)))
+        .px(px(room.pad()))
+        .pb(px(room.pick(44., 12.)))
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .text_size(theme::ui_text(room.pick(62., 30.)))
+                .font_weight(FontWeight::SEMIBOLD)
+                .letter_spacing(-0.035)
+                .line_height(relative(1.04))
+                .text_color(t.text_primary)
+                .child(title),
+        )
+        .when(!lines.is_empty(), |cell| {
+            cell.child(
+                div()
+                    .mt(px(room.pick(16., 3.)))
+                    .flex()
+                    .flex_col()
+                    .gap(px(room.pick(6., 2.)))
+                    .children(lines),
+            )
+        })
+        .child(
+            div()
+                .mt_auto()
+                .pt(px(room.pick(16., 6.)))
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap_y(px(6.))
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap(px(room.pick(14., 10.)))
+                        .children(dots)
+                        .children(closes),
+                )
+                .child(
+                    div()
+                        .ml_auto()
+                        .max_w_full()
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .justify_end()
+                        .gap_x(px(room.pick(14., 8.)))
+                        .gap_y(px(6.))
+                        .children(extras)
+                        .child(primary),
+                ),
+        )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1469,9 +1408,10 @@ fn agent_tile(
         .into_any_element()
 }
 
-fn agents_wall(
+fn agents_grid(
     bench: &Workbench,
     welcome: &Welcome,
+    lit: Option<Stop>,
     room: Room,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
@@ -1479,31 +1419,25 @@ fn agents_wall(
     let t = Tokens::get(cx).clone();
     let listed = listed_agents(bench);
     let chosen = chosen_agent(bench, welcome).map(|agent| agent.kind.clone());
-    let rows = listed.len().div_ceil(TILES_ACROSS).max(1);
-    let terminal = bench.agent_setup.shown();
-    let wall_height = room.height
-        - room.bar()
-        - room.heading()
-        - room.band()
-        - if terminal {
-            room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT)
-        } else {
-            0.
-        };
-    let tile_height = wall_height / rows as f32;
-    let bright = (
-        1. / (TILES_ACROSS as f32 * 2.),
-        (room.bar() + room.heading() + tile_height / 2.) / room.width,
-    );
-    let mut wall = div()
-        .flex_1()
-        .min_h_0()
-        .flex()
-        .flex_col()
-        .gap(px(1.))
-        .bg(t.border);
-    if bench.agent_setup.found.is_none() {
-        return wall.child(
+    let row_count = (listed.len() + 1).div_ceil(GRID).max(1);
+    let below = match bench.agent_setup.shown() {
+        true => room.pick(TERMINAL_HEIGHT, TERMINAL_HEIGHT_COMPACT),
+        false => 0.,
+    };
+    let tile_height = (room.height - below) / row_count as f32;
+    let bright = (0.5, tile_height / 2. / room.width);
+    let question = agents_question(bench, welcome, lit, room, this, cx);
+    let question = question_cell(question, welcome, room, this, &t)
+        .flex_none()
+        .w(px(room.column()));
+    let mut rows: Vec<Vec<AnyElement>> = vec![vec![question.into_any_element()]];
+    if listed.is_empty() {
+        let looking = bench
+            .agent_setup
+            .found
+            .is_none()
+            .then(|| ui::shimmer::shimmer("welcome-agents-looking", "Looking on your PATH…"));
+        rows[0].push(
             div()
                 .flex_1()
                 .bg(t.surface_sunken)
@@ -1511,56 +1445,59 @@ fn agents_wall(
                 .items_center()
                 .pl(px(room.pad()))
                 .text_size(theme::ui_text(room.pick(16., 13.)))
-                .child(ui::shimmer::shimmer(
-                    "welcome-agents-looking",
-                    "Looking on your PATH…",
-                )),
+                .children(looking)
+                .into_any_element(),
         );
     }
-    for (row, agents) in listed.chunks(TILES_ACROSS).enumerate() {
-        let last = agents.len() - 1;
-        let spans = agents.len() < TILES_ACROSS;
-        let column_width = (room.width - (TILES_ACROSS - 1) as f32) / TILES_ACROSS as f32;
-        let tiles: Vec<AnyElement> = agents
-            .iter()
-            .enumerate()
-            .map(|(column, agent)| {
-                let is_chosen = chosen.as_deref() == Some(agent.kind.as_str());
-                let at = row * TILES_ACROSS + column;
-                let width = (spans && column != last).then_some(column_width);
-                agent_tile(bench, agent, at, is_chosen, room, bright, width, this, cx)
-            })
-            .collect();
-        wall = wall.child(div().flex_1().min_h_0().flex().gap(px(1.)).children(tiles));
+    for (at, agent) in listed.iter().enumerate() {
+        let place = at + 1;
+        if place % GRID == 0 {
+            rows.push(Vec::new());
+        }
+        let ends_row = place % GRID == GRID - 1 || place == listed.len();
+        let width = (!ends_row).then_some(room.column());
+        let is_chosen = chosen.as_deref() == Some(agent.kind.as_str());
+        let tile = agent_tile(bench, agent, at, is_chosen, room, bright, width, this, cx);
+        if let Some(row) = rows.last_mut() {
+            row.push(tile);
+        }
     }
-    wall
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .flex_col()
+        .gap(px(1.))
+        .bg(t.border)
+        .children(rows.into_iter().enumerate().map(|(at, cells)| {
+            div()
+                .flex_1()
+                .when(at > 0, |row| row.min_h_0())
+                .flex()
+                .gap(px(1.))
+                .children(cells)
+        }))
 }
 
 fn agents_screen(
     bench: &Workbench,
     welcome: &Welcome,
+    lit: Option<Stop>,
     room: Room,
     this: &Entity<Workbench>,
     cx: &mut Context<Workbench>,
 ) -> Div {
     let t = Tokens::get(cx).clone();
-    let wall = agents_wall(bench, welcome, room, this, cx);
+    let grid = agents_grid(bench, welcome, lit, room, this, cx);
     let terminal = setup::terminal_pane(bench, this, cx);
     let shown = bench.agent_setup.shown();
-    let reason = compact_reason(bench, welcome, room, &t);
     let broken = broken_reason(bench, welcome, room, &t);
     div()
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
-        .child(heading(
-            "Choose who does the work",
-            "Arrows choose. Return installs, signs in or continues.".to_owned(),
-            room,
-            &t,
-        ))
-        .child(wall)
+        .child(grid)
         .when(shown, |main| {
             main.child(
                 div()
@@ -1582,7 +1519,6 @@ fn agents_screen(
             )
         })
         .children(broken)
-        .children(reason)
 }
 
 fn tick(on: bool, t: &Tokens) -> Div {
@@ -1625,18 +1561,17 @@ fn project_row(
             .flex()
             .justify_end()
             .whitespace_nowrap()
-            .text_size(theme::ui_text(room.pick(13.5, 12.5)))
+            .text_size(theme::ui_text(room.pick(14., 12.5)))
             .text_color(ink)
             .child(text)
     };
     div()
         .id(SharedString::from(format!("welcome-project-{at}")))
         .flex_none()
-        .h(px(room.pick(ROW_HEIGHT, ROW_HEIGHT_COMPACT)))
-        .px(px(room.pad()))
+        .h(px(room.row_height()))
+        .px(px(room.pick(44., 14.)))
         .flex()
         .items_center()
-        .gap(px(room.pick(18., 10.)))
         .cursor_pointer()
         .map(|row| match lit {
             true => row.bg(lift),
@@ -1649,13 +1584,19 @@ fn project_row(
                 toggle(bench, at, cx);
             })
         })
-        .child(tick(candidate.ticked, &t))
         .child(
             div()
                 .flex_none()
-                .w(px(room.pick(360., 190.)))
+                .w(px(room.pick(26., 24.)))
+                .child(tick(candidate.ticked, &t)),
+        )
+        .child(
+            div()
+                .flex_none()
+                .w(px(room.pick(300., 150.)))
+                .pr(px(12.))
                 .truncate()
-                .text_size(theme::ui_text(room.pick(15., 13.5)))
+                .text_size(theme::ui_text(room.pick(16., 13.5)))
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(t.text_primary)
                 .child(candidate.name.clone()),
@@ -1666,20 +1607,198 @@ fn project_row(
                 .min_w_0()
                 .truncate()
                 .font_family(theme::MONO)
-                .text_size(theme::ui_text(room.pick(12.5, 11.5)))
+                .text_size(theme::ui_text(room.pick(13., 11.5)))
                 .text_color(t.text_tertiary)
                 .child(candidate.shown.clone()),
         )
-        .child(right(room.pick(110., 66.), chats, t.text_secondary))
+        .child(right(room.pick(90., 60.), chats, t.text_secondary))
         .child(right(
-            room.pick(100., 58.),
+            room.pick(90., 62.),
             candidate.ago.clone().unwrap_or_default(),
             t.text_tertiary,
         ))
         .into_any_element()
 }
 
-fn projects_screen(
+/// The agent already chosen, under the question; it leads back to the step that chose it.
+fn agent_answer_cell(
+    bench: &Workbench,
+    welcome: &Welcome,
+    lit: bool,
+    room: Room,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> Stateful<Div> {
+    let t = Tokens::get(cx).clone();
+    let agent = start_agent(bench, welcome);
+    let (edge, left) = (room.pick(44., 14.), room.pad());
+    let (name_size, note_size) = (room.pick(30., 16.), room.pick(17., 13.));
+    let slot = agent.map(|agent| sized_mark(&agent.kind, room.pick(44., 28.)));
+    let (name, note) = match agent {
+        Some(agent) => (agent.label.clone(), "Does the work"),
+        None => ("No agent".to_owned(), "Set one up later in Settings"),
+    };
+    let dots = agent
+        .zip(slot.as_ref())
+        .map(|(agent, (_, slot_width, slot_height))| {
+            let brand = theme::brand(&agent.kind);
+            let fit = luminance_fit(brand);
+            let widest = (name.chars().count() as f32 * name_size)
+                .max(note.chars().count() as f32 * note_size)
+                * 0.56;
+            ui::grain::WallDots {
+                colour: brand,
+                density: room.pick(ANSWER_DENSITY.roomy, ANSWER_DENSITY.compact) * fit.min(1.25),
+                opacity: 0.56 * fit.min(1.) * welcome.fade.get(),
+                seed: ANSWER_SEED,
+                feather: room.pick(240., 80.),
+                anchor: dots_anchor(&agent.kind),
+                mark_right: left + slot_width,
+                mark_bottom: edge + slot_height,
+                label_right: left + widest,
+                label_height: edge + (name_size + note_size) * LABEL_LINE,
+                pill_width: edge + 20.,
+                pill_bottom: edge + 16.,
+                bright: (1. / (GRID as f32 * 2.), room.height / 2. / room.width),
+                running: false,
+            }
+        });
+    let ground = t.surface_sunken;
+    let (lift, hovered) = (
+        ground.blend(t.surface_chosen),
+        ground.blend(t.surface_hover),
+    );
+    let this = this.clone();
+    div()
+        .id("welcome-answer-agent")
+        .role(Role::Button)
+        .aria_label(SharedString::from(format!("{name}. Back to Agents")))
+        .relative()
+        .overflow_hidden()
+        .flex()
+        .flex_col()
+        .justify_end()
+        .py(px(edge))
+        .pl(px(left))
+        .pr(px(edge))
+        .cursor_pointer()
+        .map(|cell| match lit {
+            true => cell.bg(lift),
+            false => cell.bg(ground).hover(move |cell| cell.bg(hovered)),
+        })
+        .on_mouse_down(MouseButton::Left, keep_press)
+        .on_click(move |_, window, cx| {
+            this.update(cx, |bench, cx| show_stage(bench, Stage::Agents, window, cx))
+        })
+        .children(dots.map(|dots| {
+            ui::grain::wall_dots(dots, cx)
+                .absolute()
+                .inset_0()
+                .size_full()
+        }))
+        .children(slot.map(|(slot, ..)| div().absolute().top(px(edge)).left(px(left)).child(slot)))
+        .child(
+            div().absolute().top(px(edge)).right(px(edge)).child(
+                ui::icon(Icon::Chevron, room.pick(12., 10.))
+                    .with_transformation(Transformation::rotate(radians(FRAC_PI_2)))
+                    .text_color(t.text_tertiary),
+            ),
+        )
+        .child(
+            div()
+                .text_size(theme::ui_text(name_size))
+                .font_weight(FontWeight::SEMIBOLD)
+                .letter_spacing(-0.02)
+                .line_height(relative(LABEL_LINE))
+                .whitespace_nowrap()
+                .text_color(match agent {
+                    Some(_) => t.text_primary,
+                    None => t.text_tertiary,
+                })
+                .child(name),
+        )
+        .child(
+            div()
+                .text_size(theme::ui_text(note_size))
+                .line_height(relative(LABEL_LINE))
+                .text_color(t.text_secondary)
+                .child(note),
+        )
+}
+
+fn add_folder_cell(
+    welcome: &Welcome,
+    lit: Option<Stop>,
+    room: Room,
+    this: &Entity<Workbench>,
+    t: &Tokens,
+) -> Div {
+    let this = this.clone();
+    let browse = ui::Button::new("welcome-browse", "Choose folder…", ui::Variant::Outline)
+        .solid(t.text_primary.opacity(0.09), t.text_primary.opacity(0.14))
+        .wide()
+        .sized(room.pick(42., 30.), 14., room.pick(15., 12.5))
+        .pressed(lit == Some(Stop::Browse))
+        .on_click(move |_, window, cx| {
+            this.update(cx, |bench, cx| {
+                go(bench, Stop::Browse, window, cx);
+                activate(bench, false, window, cx);
+            })
+        });
+    let edge = room.pick(44., 14.);
+    div()
+        .overflow_hidden()
+        .bg(t.surface_sunken)
+        .py(px(edge))
+        .px(px(room.pad()))
+        .flex()
+        .flex_col()
+        .child(
+            div()
+                .text_size(theme::ui_text(room.pick(30., 16.)))
+                .font_weight(FontWeight::SEMIBOLD)
+                .letter_spacing(-0.02)
+                .line_height(relative(1.15))
+                .text_color(t.text_primary)
+                .child("Add a folder"),
+        )
+        .child(
+            div()
+                .mt_auto()
+                .flex()
+                .flex_col()
+                .on_mouse_down(MouseButton::Left, keep_press)
+                .children(welcome.error.as_ref().map(|error| {
+                    div()
+                        .mb(px(room.pick(10., 4.)))
+                        .text_size(theme::ui_text(room.pick(14., 12.)))
+                        .line_height(relative(1.3))
+                        .text_color(t.warn)
+                        .child(error.clone())
+                }))
+                .child(
+                    div()
+                        .flex_none()
+                        .h(px(room.pick(46., 32.)))
+                        .px(px(room.pick(14., 10.)))
+                        .flex()
+                        .items_center()
+                        .rounded(px(room.pick(9., 6.)))
+                        .bg(t.surface_raised)
+                        .font_family(theme::MONO)
+                        .text_size(theme::ui_text(room.pick(14., 12.5)))
+                        .children(welcome.path.as_ref().map(|path| {
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .child(Input::new(path).appearance(false).bordered(false).px_0())
+                        })),
+                )
+                .child(div().mt(px(room.pick(10., 6.))).child(browse)),
+        )
+}
+
+fn project_list(
     welcome: &Welcome,
     lit: Option<Stop>,
     room: Room,
@@ -1704,8 +1823,8 @@ fn projects_screen(
     let note = |note: AnyElement| {
         div()
             .flex_none()
-            .h(px(room.pick(ROW_HEIGHT, ROW_HEIGHT_COMPACT)))
-            .px(px(room.pad()))
+            .h(px(room.row_height()))
+            .px(px(room.pick(44., 14.)))
             .flex()
             .items_center()
             .text_size(theme::ui_text(room.pick(14., 12.5)))
@@ -1721,19 +1840,14 @@ fn projects_screen(
     } else if rows.is_empty() {
         let words = match (welcome.filter.is_empty(), welcome.scan_failed) {
             (false, _) => Some("Nothing here matches. Type a whole path to add it."),
-            (true, true) => Some("Couldn't read your agents' history. Add a folder above."),
+            (true, true) => Some("Couldn't read your agents' history. Add a folder."),
             (true, false) => None,
         };
         rows.extend(words.map(|words| note(words.into_any_element())));
     }
-    let row_height = room.pick(ROW_HEIGHT, ROW_HEIGHT_COMPACT);
-    let area = room.height
-        - room.bar()
-        - room.heading()
-        - room.pick(FIELD_HEIGHT, FIELD_HEIGHT_COMPACT)
-        - room.band();
-    let free = area - rows.len() as f32 * row_height;
-    let sky = (free > row_height).then(|| {
+    let inset = room.list_inset();
+    let free = room.height - inset * 2. - rows.len() as f32 * room.row_height();
+    let sky = (free > room.row_height()).then(|| {
         div()
             .absolute()
             .left_0()
@@ -1757,387 +1871,128 @@ fn projects_screen(
             )
     });
     let thumb_ink = t.border_strong;
-    let count = welcome.rows.len();
-    let more = if welcome.partial {
+    div()
+        .relative()
+        .flex_1()
+        .min_w_0()
+        .bg(t.surface_sunken)
+        .children(sky)
+        .child(
+            div()
+                .id("welcome-rows")
+                .track_scroll(&welcome.scroll)
+                .relative()
+                .size_full()
+                .py(px(inset))
+                .flex()
+                .flex_col()
+                .overflow_y_scroll()
+                .children(rows),
+        )
+        .child(
+            Scrollbar::vertical(&welcome.scroll)
+                .mode(ScrollbarMode::Always)
+                .styles(|styles| {
+                    let thumb = |style: ScrollbarThumbStyle| {
+                        style
+                            .width(px(4.))
+                            .inset(px(4.))
+                            .radius(px(2.))
+                            .bg(thumb_ink)
+                    };
+                    styles
+                        .track(|track| track.bg(transparent_black()))
+                        .thumb(thumb)
+                        .thumb_hover(thumb)
+                        .thumb_active(thumb)
+                }),
+        )
+}
+
+fn projects_question(
+    welcome: &Welcome,
+    room: Room,
+    this: &Entity<Workbench>,
+    t: &Tokens,
+) -> Question {
+    let ticked = welcome.ticked().count();
+    let empty = welcome.rows.is_empty() && !welcome.looking;
+    let older = if welcome.partial {
         " Older ones may be missing."
     } else {
         ""
     };
-    let sub = match count {
-        0 => "Add the folders you work in.".to_owned(),
-        1 => format!("1 folder your agents have worked in.{more}"),
-        count => format!("{count} folders your agents have worked in.{more}"),
+    let mut lines = vec![match (ticked > MAX_PROJECTS, empty) {
+        (true, _) => said(
+            format!("{ticked} selected. At most {MAX_PROJECTS} can come with you."),
+            t.warn,
+            room,
+        ),
+        (false, true) => said("Add a folder to continue.", t.text_secondary, room),
+        (false, false) => said(
+            format!("{}{older}", comes_with_you(welcome)),
+            t.text_secondary,
+            room,
+        ),
+    }];
+    lines.extend(
+        welcome
+            .open_error
+            .as_ref()
+            .map(|error| said(error.clone(), t.danger, room)),
+    );
+    let label = if welcome.opening {
+        "Opening…"
+    } else {
+        "Open Sikemux"
     };
-    let browse = {
-        let this = this.clone();
-        ui::Button::new("welcome-browse", "Add folder…", ui::Variant::Outline)
-            .solid(t.text_primary.opacity(0.09), t.text_primary.opacity(0.14))
-            .sized(
-                room.pick(34., 28.),
-                room.pick(13., 9.),
-                room.pick(14., 12.5),
-            )
-            .pressed(lit == Some(Stop::Browse))
-            .on_click(move |_, window, cx| {
-                this.update(cx, |bench, cx| {
-                    go(bench, Stop::Browse, window, cx);
-                    activate(bench, false, window, cx);
-                })
-            })
-    };
-    div()
-        .flex_1()
-        .min_h_0()
-        .flex()
-        .flex_col()
-        .child(heading("Bring your projects", sub, room, &t))
-        .child(
-            div()
-                .flex_none()
-                .h(px(room.pick(FIELD_HEIGHT, FIELD_HEIGHT_COMPACT)))
-                .pl(px(room.pad()))
-                .pr(px(room.pick(32., 12.)))
-                .flex()
-                .items_center()
-                .justify_between()
-                .border_b_1()
-                .border_color(t.border)
-                .font_family(theme::MONO)
-                .text_size(theme::ui_text(room.pick(14., 12.5)))
-                .on_mouse_down(MouseButton::Left, keep_press)
-                .children(welcome.path.as_ref().map(|path| {
-                    div()
-                        .flex_1()
-                        .min_w(px(FIELD_LEAST_WIDTH))
-                        .child(Input::new(path).appearance(false).bordered(false).px_0())
-                }))
-                .children(welcome.error.as_ref().map(|error| {
-                    div()
-                        .min_w_0()
-                        .mr(px(16.))
-                        .truncate()
-                        .font_family(theme::UI)
-                        .text_size(theme::ui_text(room.pick(13.5, 12.)))
-                        .text_color(t.warn)
-                        .child(error.clone())
-                }))
-                .child(div().font_family(theme::UI).child(browse)),
-        )
-        .child(
-            div()
-                .relative()
-                .flex_1()
-                .min_h_0()
-                .children(sky)
-                .child(
-                    div()
-                        .id("welcome-rows")
-                        .track_scroll(&welcome.scroll)
-                        .relative()
-                        .size_full()
-                        .flex()
-                        .flex_col()
-                        .overflow_y_scroll()
-                        .children(rows),
-                )
-                .child(
-                    Scrollbar::vertical(&welcome.scroll)
-                        .mode(ScrollbarMode::Always)
-                        .styles(|styles| {
-                            let thumb = |style: ScrollbarThumbStyle| {
-                                style
-                                    .width(px(4.))
-                                    .inset(px(4.))
-                                    .radius(px(2.))
-                                    .bg(thumb_ink)
-                            };
-                            styles
-                                .track(|track| track.bg(transparent_black()))
-                                .thumb(thumb)
-                                .thumb_hover(thumb)
-                                .thumb_active(thumb)
-                        }),
-                ),
-        )
-}
-
-fn start_screen(
-    bench: &Workbench,
-    welcome: &Welcome,
-    room: Room,
-    cx: &mut Context<Workbench>,
-) -> Div {
-    let t = Tokens::get(cx).clone();
-    let agent = start_agent(bench, welcome);
-    let composer = (!startable_agents(bench).is_empty())
-        .then(|| bench.composing(SETUP).map(|setup| setup.view.clone()))
-        .flatten();
-    let sub = match agent.filter(|_| composer.is_some()) {
-        Some(agent) => format!("{} starts on it the moment you press Return.", agent.label),
-        None => "Set one up in Settings, or go back to Agents.".to_owned(),
-    };
-    let title = match composer {
-        Some(_) => "What should get done first?",
-        None => "No agent yet",
-    };
-    let top = room.pick(40., 16.);
-    let chars = bench
-        .composing(SETUP)
-        .map_or(0, |setup| setup.draft.read(cx).value().chars().count());
-    let size = draft_size(chars, room);
-    let text_width =
-        (chars.max(PLACEHOLDER_CHARS) as f32 * size * 0.52).min(room.width - room.pad() * 2.);
-    let lines = (chars as f32 * size * 0.52 / (room.width - room.pad() * 2.))
-        .ceil()
-        .max(1.);
-    let sky = ui::grain::SetupSky {
-        level: 0.68,
-        densest: 0.2,
-        seed: 2.,
-        opacity: 0.42 * welcome.fade.get(),
-        clear: [
-            room.pad(),
-            top,
-            room.pad() + text_width,
-            top + lines * size * 1.14,
-        ],
-        margin: room.pick(18., 8.),
-        feather: room.pick(160., 60.),
-    };
-    div()
-        .flex_1()
-        .min_h_0()
-        .flex()
-        .flex_col()
-        .child(heading(title, sub, room, &t))
-        .child(
-            div()
-                .relative()
-                .flex_1()
-                .min_h_0()
-                .pt(px(top))
-                .px(px(room.pad()))
-                .pb(px(room.pick(34., 14.)))
-                .child(
-                    ui::grain::setup_sky(sky, cx)
-                        .absolute()
-                        .inset_0()
-                        .size_full(),
-                )
-                .children(composer.map(|view| {
-                    div()
-                        .relative()
-                        .on_mouse_down(MouseButton::Left, keep_press)
-                        .child(view)
-                })),
-        )
-}
-
-fn draft_size(chars: usize, room: Room) -> f32 {
-    match chars > LONG_DRAFT {
-        true => room.pick(32., 20.),
-        false => room.pick(56., 30.),
+    let enabled = can_continue_projects(welcome) && !welcome.opening;
+    Question {
+        title: "Bring your projects",
+        lines,
+        extras: Vec::new(),
+        primary: primary_button(label, enabled, room, this, t),
+        step: 1,
+        crowded: false,
     }
 }
 
-/// One of the band's three segments, wherever it is on the way.
-fn segment(index: usize, now: usize, lit: bool, room: Room, t: &Tokens) -> Stateful<Div> {
-    let lift = t.surface_sunken.blend(t.surface_chosen);
-    let widths = match (room.compact, room.width < WIDE_BAND) {
-        (true, _) => [124., 176., 74.],
-        (false, true) => [180., 240., 110.],
-        (false, false) => [244., 380., 160.],
-    };
-    let left = if index == 0 {
-        room.pad()
-    } else {
-        room.pick(28., 14.)
-    };
-    div()
-        .id(SharedString::from(format!("welcome-segment-{index}")))
-        .flex_none()
-        .w(px(widths[index]))
-        .h_full()
-        .pl(px(left))
-        .pr(px(room.pick(16., 8.)))
-        .flex()
-        .items_center()
-        .gap(px(10.))
-        .overflow_hidden()
-        .whitespace_nowrap()
-        .border_r_1()
-        .border_color(t.border)
-        .text_size(theme::ui_text(room.pick(17., 13.5)))
-        .font_weight(if index <= now {
-            FontWeight::SEMIBOLD
-        } else {
-            FontWeight::MEDIUM
-        })
-        .text_color(if index <= now {
-            t.text_primary
-        } else {
-            t.text_tertiary
-        })
-        .when(index == now || lit, |segment| segment.bg(lift))
-}
-
-fn agent_answer(bench: &Workbench, welcome: &Welcome, room: Room) -> Vec<AnyElement> {
-    start_agent(bench, welcome)
-        .or_else(|| chosen_agent(bench, welcome))
-        .map(|agent| {
-            vec![
-                ui::mark(&agent.kind, room.pick(20., 16.)),
-                div()
-                    .truncate()
-                    .child(agent.label.clone())
-                    .into_any_element(),
-            ]
-        })
-        .unwrap_or_default()
-}
-
-fn project_answer(welcome: &Welcome, room: Room, t: &Tokens) -> Vec<AnyElement> {
-    let others = welcome.ticked().count().saturating_sub(1);
-    let more = (others > 0).then(|| match room.compact {
-        true => format!("+{others}"),
-        false => format!("and {others} more"),
-    });
-    let name = welcome
-        .start_project()
-        .map_or_else(String::new, |row| row.name.clone());
-    vec![div()
-        .min_w_0()
-        .flex()
-        .items_baseline()
-        .gap(px(4.))
-        .child(div().min_w_0().truncate().child(name))
-        .children(more.map(|more| {
-            div()
-                .flex_none()
-                .text_size(theme::ui_text(room.pick(13., 11.5)))
-                .font_weight(FontWeight::NORMAL)
-                .text_color(t.text_secondary)
-                .child(more)
-        }))
-        .into_any_element()]
-}
-
-/// A finished step on the Start screen: its answer, opening a menu of the other choices and a
-/// way back to that step.
-#[allow(clippy::too_many_arguments)]
-fn answer_menu(
-    index: usize,
-    lit: bool,
-    answer: Vec<AnyElement>,
-    picks: Vec<ui::Pick>,
-    chosen: Option<SharedString>,
-    back: (&'static str, Stage),
-    on_pick: impl Fn(&mut Welcome, &str) + 'static,
-    tools: Vec<AnyElement>,
-    room: Room,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> AnyElement {
-    let t = Tokens::get(cx).clone();
-    let trigger = BaseButton::new(SharedString::from(format!("welcome-answer-{index}")))
-        .size_full()
-        .flex()
-        .items_center()
-        .gap(px(10.))
-        .children(answer)
-        .child(
-            ui::icon(Icon::Chevron, 10.)
-                .flex_none()
-                .with_transformation(Transformation::rotate(radians(FRAC_PI_2)))
-                .text_color(t.text_secondary),
-        );
-    let this = this.clone();
-    let on_pick = Rc::new(on_pick);
-    let menu = ui::menu_button(
-        SharedString::from(format!("welcome-answer-menu-{index}")),
-        Anchor::BottomLeft,
-        trigger,
-        move |mut popup, _, cx| {
-            popup = popup.min_w(px(260.));
-            for pick in &picks {
-                let (this, on_pick, key) = (this.clone(), on_pick.clone(), pick.key.clone());
-                popup = popup.item(
-                    ui::MenuRow::new(pick.label.clone())
-                        .item(cx)
-                        .checked(chosen.as_ref() == Some(&pick.key))
-                        .on_click(move |_, _, cx| {
-                            this.update(cx, |bench, cx| {
-                                if let Some(welcome) = welcome_of(bench) {
-                                    on_pick(welcome, &key);
-                                }
-                                redraw(bench, cx);
-                            })
-                        }),
-                );
-            }
-            let this = this.clone();
-            popup
-                .separator()
-                .item(
-                    ui::MenuRow::new(back.0)
-                        .item(cx)
-                        .on_click(move |_, window, cx| {
-                            this.update(cx, |bench, cx| show_stage(bench, back.1, window, cx))
-                        }),
-                )
-        },
-    );
-    segment(index, 2, lit, room, &t)
-        .on_mouse_down(MouseButton::Left, keep_press)
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .h_full()
-                .flex()
-                .items_center()
-                .child(menu),
-        )
-        .children(tools)
-        .into_any_element()
-}
-
-/// Attaching files and dictating, for the first task.
-fn start_tools(
+fn projects_screen(
     bench: &Workbench,
+    welcome: &Welcome,
+    lit: Option<Stop>,
     room: Room,
     this: &Entity<Workbench>,
-    t: &Tokens,
-) -> Vec<AnyElement> {
-    let square = room.pick(36., 30.);
-    let raised = |tool: AnyElement| {
-        div()
-            .flex_none()
-            .size(px(square))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(6.))
-            .bg(t.surface_raised)
-            .child(tool)
-            .into_any_element()
-    };
-    let add = {
-        let this = this.clone();
-        raised(
-            ui::IconButton::new("welcome-add-files", Icon::Plus, "Add files")
-                .width(square)
-                .height(square)
-                .on_click(move |_, window, cx| {
-                    this.update(cx, |bench, cx| bench.add_files(SETUP, window, cx))
-                })
-                .into_any_element(),
+    cx: &mut Context<Workbench>,
+) -> Div {
+    let t = Tokens::get(cx).clone();
+    let question = projects_question(welcome, room, this, &t);
+    div()
+        .flex_1()
+        .min_h_0()
+        .flex()
+        .gap(px(1.))
+        .bg(t.border)
+        .child(
+            div()
+                .flex_none()
+                .w(px(room.column()))
+                .flex()
+                .flex_col()
+                .gap(px(1.))
+                .child(question_cell(question, welcome, room, this, &t).flex_1())
+                .child(
+                    agent_answer_cell(bench, welcome, lit == Some(Stop::Back), room, this, cx)
+                        .flex_1()
+                        .min_h_0(),
+                )
+                .child(
+                    add_folder_cell(welcome, lit, room, this, &t)
+                        .flex_1()
+                        .min_h_0(),
+                ),
         )
-    };
-    let mic = bench
-        .composing(SETUP)
-        .map(|setup| raised(div().child(setup.mic.clone()).into_any_element()));
-    std::iter::once(add).chain(mic).collect()
+        .child(project_list(welcome, lit, room, this, cx))
 }
 
 /// A word in the band that acts, quiet until it is under the keys or the pointer.
@@ -2183,11 +2038,6 @@ fn primary_button(
     t: &Tokens,
 ) -> AnyElement {
     let this = this.clone();
-    let (height, padding, text) = (
-        room.pick(44., 34.),
-        room.pick(16., 13.),
-        room.pick(16., 13.5),
-    );
     let button = ui::Button::new(
         "welcome-primary",
         label,
@@ -2196,7 +2046,11 @@ fn primary_button(
             false => ui::Variant::Outline,
         },
     )
-    .sized(height, padding, text)
+    .sized(
+        room.pick(46., 34.),
+        room.pick(20., 14.),
+        room.pick(17., 13.5),
+    )
     .when(!enabled, |button| {
         button.solid(t.surface_raised, t.surface_raised)
     })
@@ -2207,56 +2061,36 @@ fn primary_button(
 }
 
 /// What is said about the chosen agent, and the command Return would run.
-fn agents_say(bench: &Workbench, welcome: &Welcome, t: &Tokens) -> (String, Option<String>) {
+fn agents_say(
+    bench: &Workbench,
+    welcome: &Welcome,
+    room: Room,
+    t: &Tokens,
+) -> (String, Option<String>) {
     let progress = &bench.agent_setup;
     let chosen = chosen_agent(bench, welcome);
-    let state = chosen.map(|agent| tile_state(bench, agent, t));
+    let state = chosen.map(|agent| (agent, tile_state(bench, agent, t)));
     let failure = chosen
         .and_then(|agent| progress.failure(&agent.kind))
         .is_some();
     let sentence = match (progress.busy() || (progress.shown() && !failure), &state) {
         (true, _) => progress.sheet_state().unwrap_or_default(),
-        (false, Some(state)) => state.sentence.clone(),
+        (false, Some((agent, state))) if state.works && !room.compact => {
+            match agent.about.is_empty() {
+                true => format!("{} Arrows choose, Return continues.", state.sentence),
+                false => format!(
+                    "{}. {} Arrows choose, Return continues.",
+                    agent.about, state.sentence
+                ),
+            }
+        }
+        (false, Some((_, state))) => state.sentence.clone(),
         (false, None) => String::new(),
     };
     let command = state
         .filter(|_| !progress.busy())
-        .and_then(|state| Some(format!("Return runs: {}", state.action?.1.shown_command())));
+        .and_then(|(_, state)| Some(format!("Return runs: {}", state.action?.1.shown_command())));
     (sentence, command)
-}
-
-/// The line a small window has room for, instead of the band's sentence, when the chosen agent
-/// isn't ready.
-fn compact_reason(bench: &Workbench, welcome: &Welcome, room: Room, t: &Tokens) -> Option<Div> {
-    let agent = chosen_agent(bench, welcome)?;
-    if !room.compact || tile_state(bench, agent, t).works {
-        return None;
-    }
-    let (sentence, command) = agents_say(bench, welcome, t);
-    Some(
-        div()
-            .flex_none()
-            .h(px(COMPACT_REASON_HEIGHT))
-            .px(px(room.pad()))
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(16.))
-            .border_t_1()
-            .border_color(t.border)
-            .text_size(theme::ui_text(13.))
-            .text_color(t.text_secondary)
-            .child(div().flex_none().child(sentence))
-            .children(command.map(|command| {
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .font_family(theme::MONO)
-                    .text_size(theme::ui_text(11.5))
-                    .text_color(t.text_tertiary)
-                    .child(command)
-            })),
-    )
 }
 
 /// Why the chosen agent won't start, in full, where a terminal would otherwise be.
@@ -2289,21 +2123,20 @@ fn broken_reason(
     )
 }
 
-/// What the band says and offers on the Agents step.
-fn agents_band(
+fn agents_question(
     bench: &Workbench,
     welcome: &Welcome,
     lit: Option<Stop>,
     room: Room,
     this: &Entity<Workbench>,
     cx: &App,
-) -> (Option<AnyElement>, Vec<AnyElement>, AnyElement) {
+) -> Question {
     let t = Tokens::get(cx).clone();
     let progress = &bench.agent_setup;
     let chosen = chosen_agent(bench, welcome);
     let chosen_state = chosen.map(|agent| (agent, tile_state(bench, agent, &t)));
     let busy = progress.busy();
-    let (sentence, command) = agents_say(bench, welcome, &t);
+    let (sentence, command) = agents_say(bench, welcome, room, &t);
     let (action, enabled) = match &chosen_state {
         Some((agent, state)) if state.works => (format!("Continue with {}", agent.label), true),
         Some((agent, state)) => match &state.action {
@@ -2312,32 +2145,8 @@ fn agents_band(
         },
         None => ("Continue".to_owned(), false),
     };
-    let say = (!room.compact).then(|| {
-        div()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(2.))
-            .child(
-                div()
-                    .max_w_full()
-                    .truncate()
-                    .text_size(theme::ui_text(16.))
-                    .text_color(t.text_secondary)
-                    .child(sentence),
-            )
-            .children(command.map(|command| {
-                div()
-                    .max_w_full()
-                    .truncate()
-                    .font_family(theme::MONO)
-                    .text_size(theme::ui_text(11.5))
-                    .text_color(t.text_tertiary)
-                    .child(command)
-            }))
-            .into_any_element()
-    });
+    let mut lines = vec![said(sentence, t.text_secondary, room)];
+    lines.extend(command.map(|command| said_mono(command, room, &t)));
     let mut extras = Vec::new();
     if recheck_offered(bench, welcome) {
         extras.push(quiet(
@@ -2376,228 +2185,14 @@ fn agents_band(
             &t,
         ));
     }
-    (say, extras, primary_button(action, enabled, room, this, &t))
-}
-
-/// The bottom band, in the same place on every step: where the setup has got to, what it
-/// says, and what comes next.
-fn band(
-    bench: &Workbench,
-    welcome: &Welcome,
-    lit: Option<Stop>,
-    room: Room,
-    this: &Entity<Workbench>,
-    cx: &App,
-) -> Div {
-    let t = Tokens::get(cx).clone();
-    let now = match welcome.stage {
-        Stage::Agents => 0,
-        Stage::Projects => 1,
-        Stage::Start => 2,
-    };
-    let back = |segment: Stateful<Div>, stage: Stage| {
-        let this = this.clone();
-        segment
-            .cursor_pointer()
-            .on_mouse_down(MouseButton::Left, keep_press)
-            .on_click(move |_, window, cx| {
-                this.update(cx, |bench, cx| show_stage(bench, stage, window, cx))
-            })
-    };
-    let ticked = welcome.ticked().count();
-    let (say, extras, primary): (Option<AnyElement>, Vec<AnyElement>, AnyElement) =
-        match welcome.stage {
-            Stage::Agents => agents_band(bench, welcome, lit, room, this, cx),
-            Stage::Projects => {
-                let empty = welcome.rows.is_empty() && !welcome.looking;
-                let too_many = ticked > MAX_PROJECTS;
-                let line = match (too_many, empty) {
-                    (true, _) => div().text_color(t.warn).child(format!(
-                        "{ticked} selected. At most {MAX_PROJECTS} can come with you."
-                    )),
-                    (false, true) => div()
-                        .text_color(t.text_secondary)
-                        .child("Add a folder to continue."),
-                    (false, false) => div()
-                        .text_color(t.text_secondary)
-                        .child(comes_with_you(welcome)),
-                };
-                (
-                    (!room.compact || too_many || empty).then(|| {
-                        line.truncate()
-                            .text_size(theme::ui_text(room.pick(16., 13.)))
-                            .into_any_element()
-                    }),
-                    Vec::new(),
-                    primary_button("Continue", can_continue_projects(welcome), room, this, &t),
-                )
-            }
-            Stage::Start => {
-                let startable = !startable_agents(bench).is_empty();
-                let chars = bench.composing(SETUP).map_or(0, |setup| {
-                    setup.draft.read(cx).value().trim().chars().count()
-                });
-                let wanted = welcome.error.is_some() || (chars > 0 && !room.compact);
-                let say = (startable && wanted).then(|| {
-                    let project = welcome
-                        .start_project()
-                        .map_or_else(String::new, |row| row.name.clone());
-                    div()
-                        .truncate()
-                        .text_size(theme::ui_text(16.))
-                        .text_color(t.text_secondary)
-                        .child(match &welcome.error {
-                            Some(error) => error.clone(),
-                            None => format!("Starts a new chat in {project}."),
-                        })
-                        .into_any_element()
-                });
-                match startable {
-                    true => (
-                        say,
-                        vec![quiet(
-                            "welcome-just-open",
-                            if welcome.opening {
-                                "Opening…".to_owned()
-                            } else {
-                                "Just open Sikemux".to_owned()
-                            },
-                            Stop::JustOpen,
-                            lit,
-                            room,
-                            this,
-                            &t,
-                        )],
-                        primary_button(
-                            if welcome.opening {
-                                "Starting…"
-                            } else {
-                                "Start chat"
-                            },
-                            chars > 0 && !welcome.opening,
-                            room,
-                            this,
-                            &t,
-                        ),
-                    ),
-                    false => (
-                        None,
-                        Vec::new(),
-                        primary_button("Just open Sikemux", !welcome.opening, room, this, &t),
-                    ),
-                }
-            }
-        };
-    let first = match now {
-        0 => segment(0, 0, false, room, &t)
-            .child(div().truncate().child("Agents"))
-            .into_any_element(),
-        1 => back(
-            segment(0, 1, lit == Some(Stop::Back), room, &t),
-            Stage::Agents,
-        )
-        .children(agent_answer(bench, welcome, room))
-        .into_any_element(),
-        _ if startable_agents(bench).is_empty() => {
-            back(segment(0, 2, false, room, &t), Stage::Agents)
-                .text_color(t.text_tertiary)
-                .font_weight(FontWeight::MEDIUM)
-                .child("No agent")
-                .child(
-                    ui::icon(Icon::Chevron, 10.)
-                        .flex_none()
-                        .with_transformation(Transformation::rotate(radians(FRAC_PI_2)))
-                        .text_color(t.text_secondary),
-                )
-                .into_any_element()
-        }
-        _ => {
-            let agents: Vec<ui::Pick> = startable_agents(bench)
-                .iter()
-                .map(|agent| ui::Pick::new(agent.kind.clone(), agent.label.clone()))
-                .collect();
-            let chosen =
-                start_agent(bench, welcome).map(|agent| SharedString::from(agent.kind.clone()));
-            answer_menu(
-                0,
-                lit == Some(Stop::AgentChip),
-                agent_answer(bench, welcome, room),
-                agents,
-                chosen,
-                ("Back to Agents", Stage::Agents),
-                |welcome, key| welcome.agent = Some(key.to_owned()),
-                Vec::new(),
-                room,
-                this,
-                cx,
-            )
-        }
-    };
-    let second = match now {
-        0 => segment(1, 0, false, room, &t)
-            .child(div().truncate().child("Projects"))
-            .into_any_element(),
-        1 => segment(1, 1, false, room, &t)
-            .child(div().truncate().child("Projects"))
-            .into_any_element(),
-        _ => {
-            let projects: Vec<ui::Pick> = welcome
-                .ticked()
-                .map(|row| ui::Pick::new(row.path.clone(), row.name.clone()))
-                .collect();
-            let chosen = welcome
-                .start_project()
-                .map(|row| SharedString::from(row.path.clone()));
-            answer_menu(
-                1,
-                lit == Some(Stop::ProjectChip),
-                project_answer(welcome, room, &t),
-                projects,
-                chosen,
-                ("Back to Projects", Stage::Projects),
-                |welcome, key| welcome.project = Some(key.to_owned()),
-                if startable_agents(bench).is_empty() {
-                    Vec::new()
-                } else {
-                    start_tools(bench, room, this, &t)
-                },
-                room,
-                this,
-                cx,
-            )
-        }
-    };
-    div()
-        .flex_none()
-        .h(px(room.band()))
-        .flex()
-        .border_t_1()
-        .border_color(t.border)
-        .bg(t.surface_sunken)
-        .child(first)
-        .child(second)
-        .child(segment(2, now, false, room, &t).child(div().truncate().child("Start")))
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .px(px(room.pick(24., 8.)))
-                .flex()
-                .items_center()
-                .justify_center()
-                .overflow_hidden()
-                .children(say),
-        )
-        .child(
-            div()
-                .flex_none()
-                .flex()
-                .items_center()
-                .pr(px(room.pad()))
-                .gap(px(room.pick(14., 8.)))
-                .children(extras)
-                .child(primary),
-        )
+    Question {
+        title: "Choose who does the work",
+        lines,
+        crowded: !extras.is_empty() || action.chars().count() > LONGEST_BESIDE_DOTS,
+        extras,
+        primary: primary_button(action, enabled, room, this, &t),
+        step: 0,
+    }
 }
 
 /// How far a step of `millis` has come since `since`, from 0 to 1, asking for the next frame
@@ -2612,18 +2207,17 @@ fn progress(since: Instant, millis: u64, window: &mut Window, cx: &App) -> f32 {
     }
     share.min(1.)
 }
-
 fn ease_out(share: f32) -> f32 {
     1. - (1. - share) * (1. - share)
 }
 
-/// The first beat: the name, large, over the rising sky. When it ends it shrinks and fades
-/// towards the title line.
+/// The first beat: the name, large, over the rising sky. When it ends it settles where the
+/// question will be asked and fades into it.
 fn opening(rise: f32, fold: f32, room: Room, cx: &App) -> Div {
     let t = Tokens::get(cx).clone();
-    let (size, logo) = (room.pick(176., 72.), room.pick(72., 36.));
+    let (size, logo_size) = (room.pick(176., 72.), room.pick(72., 36.));
     let gap = room.pick(34., 14.);
-    let block = logo + gap + size * 1.02 * 2.;
+    let block = logo_size + gap + size * 1.02 * 2.;
     let bottom = room.pick(290., 120.);
     let top = room.height - bottom - block;
     let eased = ease_out(fold);
@@ -2650,19 +2244,16 @@ fn opening(rise: f32, fold: f32, room: Room, cx: &App) -> Div {
         .child(
             div()
                 .absolute()
-                .left(px(settle(room.pad(), room.pick(92., 84.))))
-                .top(px(settle(top, room.pick(14., 10.))))
+                .left(px(room.pad()))
+                .top(px(settle(top, room.pick(64., 34.))))
                 .flex()
                 .flex_col()
                 .opacity(1. - eased)
-                .child(self::logo(
-                    settle(logo, room.pick(17., 14.)),
-                    t.text_primary,
-                ))
+                .child(logo(settle(logo_size, 0.), t.text_primary))
                 .child(
                     div()
-                        .mt(px(settle(gap, 4.)))
-                        .text_size(theme::ui_text(settle(size, room.pick(15., 13.))))
+                        .mt(px(settle(gap, 0.)))
+                        .text_size(theme::ui_text(settle(size, room.pick(62., 30.))))
                         .font_weight(FontWeight::SEMIBOLD)
                         .letter_spacing(-0.045)
                         .line_height(relative(1.02))
@@ -2671,40 +2262,6 @@ fn opening(rise: f32, fold: f32, room: Room, cx: &App) -> Div {
                         .child(div().text_color(t.accent).child("Sikemux")),
                 ),
         )
-}
-
-/// The composer that writes the first task: the chat's own, at the size of a headline.
-pub fn composer(bench: &mut Workbench, cx: &mut Context<Workbench>) -> AnyElement {
-    let Some(welcome) = welcome_in(bench) else {
-        return div().into_any_element();
-    };
-    let agent = start_agent(bench, welcome);
-    let (provider, label) = agent.map_or((String::new(), String::new()), |agent| {
-        (agent.kind.clone(), agent.label.clone())
-    });
-    let chars = bench
-        .composing(SETUP)
-        .map_or(0, |setup| setup.draft.read(cx).value().chars().count());
-    let room = welcome_in(bench).map_or(ROOMY, |welcome| welcome.room.get());
-    let size = draft_size(chars, room);
-    let on_send: Act = {
-        let this = cx.weak_entity();
-        Rc::new(move |window, cx| {
-            this.update(cx, |bench, cx| bench.send(SETUP, false, window, cx))
-                .ok();
-        })
-    };
-    let Some((composer, offering)) = crate::chat::drafting(
-        bench,
-        SETUP,
-        &provider,
-        label,
-        (on_send, Rc::new(|_, _| {})),
-        cx,
-    ) else {
-        return div().into_any_element();
-    };
-    crate::chat::mounted(SETUP, composer.display(size), offering, cx).into_any_element()
 }
 
 pub fn render(
@@ -2718,7 +2275,6 @@ pub fn render(
     };
     let t = Tokens::get(cx).clone();
     let room = Room::of(window);
-    welcome.room.set(room);
     let lit = welcome
         .root
         .is_focused(window)
@@ -2732,9 +2288,8 @@ pub fn render(
     let step_fade = progress(welcome.stage_at, STEP_MILLIS, window, cx).min(ease_out(fold));
     welcome.fade.set(step_fade);
     let screen = match welcome.stage {
-        Stage::Agents => agents_screen(bench, welcome, room, this, cx),
-        Stage::Projects => projects_screen(welcome, lit, room, this, cx),
-        Stage::Start => start_screen(bench, welcome, room, cx),
+        Stage::Agents => agents_screen(bench, welcome, lit, room, this, cx),
+        Stage::Projects => projects_screen(bench, welcome, lit, room, this, cx),
     };
     let keys = this.clone();
     let next = this.clone();
@@ -2772,24 +2327,12 @@ pub fn render(
         .when(fold > 0., |page| {
             page.child(
                 div()
-                    .flex_none()
-                    .opacity(ease_out(fold))
-                    .child(title_line(welcome, room, this, cx)),
-            )
-            .child(
-                div()
                     .flex_1()
                     .min_h_0()
                     .flex()
                     .flex_col()
                     .opacity(step_fade)
                     .child(screen),
-            )
-            .child(
-                div()
-                    .flex_none()
-                    .opacity(ease_out(fold))
-                    .child(band(bench, welcome, lit, room, this, cx)),
             )
         })
         .when(fold < 1., |page| page.child(opening(rise, fold, room, cx)))
@@ -2907,10 +2450,6 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
             },
         ),
     };
-    let sentence = match (works, agent.about.is_empty()) {
-        (true, false) => format!("{}. {state}", agent.about),
-        _ => state,
-    };
     TileState {
         word,
         ink: match &agent.status {
@@ -2922,7 +2461,7 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
         density,
         running: false,
         works,
-        sentence,
+        sentence: state,
     }
 }
 

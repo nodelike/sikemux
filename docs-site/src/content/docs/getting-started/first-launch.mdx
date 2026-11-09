@@ -1,17 +1,19 @@
 ---
 title: First launch
-description: "The three-step setup: a working agent, your projects, and the first thing to get done."
+description: "The two-step setup: a working agent, then your projects."
 ---
 
-The first time Sikemux opens it shows its name for a moment while it looks for your agents, and any key skips that. Then it walks you through a short setup: **Agents**, **Projects**, then **Start**. The bar along the bottom shows where you are, and a finished step there folds to your answer and takes you back when clicked. The steps are required, and quitting midway brings the setup back next launch.
+The first time Sikemux opens it shows its name for a moment while it looks for your agents, and any key skips that. Then it walks you through a short setup: **Agents**, then **Projects**. The steps are required, and quitting midway brings the setup back next launch.
 
-Tab and the arrows move between rows, Space ticks a project or runs an agent's action, and Return continues. If `git` is not installed, the setup says so, since the Git view needs it.
+The window is a grid. The top-left cell asks the question, says where you stand and holds the button that moves on.
+
+Tab and the arrows move between tiles and rows, Space ticks a project or runs an agent's action, and Return continues. If `git` is not installed, the setup says so, since the Git view needs it.
 
 ## Agents
 
 Each agent Sikemux can set up gets a tile saying where it stands: **Ready**, **Installed**, **Signed out**, **Not installed** or **Won't start**. Pick the one that should start your first chat, with a click, Tab or the arrows.
 
-A tile that needs something offers it: **Install** and **Reinstall** run the agent's own installer, and **Sign in** runs its own sign-in, in a terminal under the tiles where you can watch it. The bar along the bottom shows the exact command before it runs. If one fails, **Try again** appears on the tile. Return on a tile with an action runs it; Return on one that works continues with that agent. **Check again**, offered while the chosen agent isn't working, reads every agent's status afresh, which also happens when you come back to the window.
+A tile that needs something offers it: **Install** and **Reinstall** run the agent's own installer, and **Sign in** runs its own sign-in, in a terminal under the grid where you can watch it. The question cell shows the exact command before it runs. If one fails, **Try again** appears on the tile. Return on a tile with an action runs it; Return on one that works continues with that agent. **Check again**, offered while the chosen agent isn't working, reads every agent's status afresh, which also happens when you come back to the window.
 
 If an install or sign-in ends and still no agent works, for example on a machine with no network, **Continue anyway** appears so you are never locked out.
 
@@ -23,12 +25,10 @@ See [Supported agents](/agents/supported/) for the list.
 
 Sikemux offers the folders your agents have worked in, read from their saved chats. Repositories come first, newest activity on top, with clones of one remote side by side and folders outside git last. A repository with at least three chats in the last 30 days starts ticked. Folders that no longer exist, linked worktrees, temporary folders and anything under `Downloads` are left out.
 
-The field at the top narrows the list as you type, and Return ticks the first match. To add a folder that isn't listed, use **Add folder…**, or type or paste its path (starting with `/`, `~` or `.`) and press Return. At least one project has to be ticked to continue.
+The field under **Add a folder** narrows the list as you type, and Return ticks the first match. To add a folder that isn't listed, use **Choose folder…**, or type or paste its path (starting with `/`, `~` or `.`) and press Return. At least one project has to be ticked to continue.
 
-## Start
+The agent you chose sits under the question. Click it, or Tab to it and press Return, to go back and change it.
 
-Say what should get done first, pick the agent and the project from the bar along the bottom, and press Return or **Start chat**. Sikemux adds your projects and opens a chat in that project with your message sent.
-
-**Just open Sikemux** adds your projects and opens an empty chat on that agent, with nothing sent. If no agent is ready because setup failed, it opens your projects without a chat, and it is the only way forward.
+**Open Sikemux** adds your projects, finishes the setup and opens a new chat on your agent in the first ticked project, ready to type in. If a project can't be added, the setup stays open and says which one. If you used **Continue anyway** and no agent works, it opens the app without a chat.
 
 You can look at the setup again from the command deck (`⌘⇧P`, then **Show welcome**) or from **Settings → About**. Once you've finished it the first time, `esc` closes it.
