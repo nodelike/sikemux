@@ -462,7 +462,7 @@ impl RenderOnce for Button {
             kbd(keys, cx)
                 .font_family(crate::theme::MONO)
                 .when(self.variant == Variant::Primary, |keys| {
-                    keys.text_color(t.on_accent.opacity(0.6))
+                    keys.text_color(t.on_accent.opacity(0.8))
                 })
                 .when_some(self.sized, |keys, (_, _, text)| {
                     keys.text_size(crate::theme::ui_text(text))

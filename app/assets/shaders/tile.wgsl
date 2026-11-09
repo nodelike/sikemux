@@ -10,6 +10,9 @@
 
 const CELL: f32 = 2.0;
 const POINTS_PER_UNIT: f32 = 4.0;
+const EDGE_FADE_ROOMY: f32 = 96.0;
+const EDGE_FADE_COMPACT: f32 = 40.0;
+const COMPACT_FEATHER: f32 = 100.0;
 
 fn bytes(packed: f32) -> vec3<f32> {
     return vec3<f32>(floor(packed / 65536.0), floor(packed / 256.0) % 256.0, packed % 256.0);
@@ -46,7 +49,8 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
             clear_of(at, vec4<f32>(size.x - others.y, 0.0, size.x, others.z), margin, feather),
         );
     }
-    let edge = clamp(min(min(at.x, at.y), min(size.x - at.x, size.y - at.y)) / (feather * 0.2), 0.0, 1.0);
+    let edge_fade = select(EDGE_FADE_COMPACT, EDGE_FADE_ROOMY, feather > COMPACT_FEATHER);
+    let edge = clamp(min(min(at.x, at.y), min(size.x - at.x, size.y - at.y)) / edge_fade, 0.0, 1.0);
     let fade = clear * smoothstep(0.0, 1.0, edge);
     if (fade <= 0.0) {
         discard;
