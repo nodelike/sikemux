@@ -19,6 +19,10 @@ const POINTS_PER_UNIT: f32 = 4.0;
 const EDGE_FADE: f32 = 0.26;
 // A tile shorter than this has its dots closer together.
 const SMALL_TILE: f32 = 150.0;
+// The room kept around a tile's words rounds and wanders, so a field has no straight edge.
+const CUTOUT_BLEND: f32 = 40.0;
+const CUTOUT_WOBBLE: f32 = 30.0;
+const CUTOUT_WOBBLE_SIZE: f32 = 46.0;
 
 fn bytes(packed: f32) -> vec3<f32> {
     return vec3<f32>(floor(packed / 65536.0), floor(packed / 256.0) % 256.0, packed % 256.0);
@@ -42,20 +46,19 @@ fn fs_main(input: Varying) -> @location(0) vec4<f32> {
     let cell = floor((device - shader.bounds.xy) / scale / pitch);
     let at = (cell + 0.5) * pitch;
 
-    let margin = feather * 0.06;
+    let margin = feather * 0.29;
     let mark = bytes(placed.x) * POINTS_PER_UNIT;
     let others = bytes(placed.y) * POINTS_PER_UNIT;
-    var clear = clear_of(at, vec4<f32>(0.0, 0.0, mark.x, mark.y), margin, feather);
-    clear = min(
-        clear,
-        clear_of(at, vec4<f32>(0.0, size.y - others.x, mark.z, size.y), margin, feather),
+    var nearest = blended_nearest(
+        rect_distance(at, vec4<f32>(0.0, 0.0, mark.x, mark.y)),
+        rect_distance(at, vec4<f32>(0.0, size.y - others.x, mark.z, size.y)),
+        CUTOUT_BLEND,
     );
     if (others.z > 0.0) {
-        clear = min(
-            clear,
-            clear_of(at, vec4<f32>(size.x - others.y, 0.0, size.x, others.z), margin, feather),
-        );
+        nearest = min(nearest, rect_distance(at, vec4<f32>(size.x - others.y, 0.0, size.x, others.z)));
     }
+    nearest += (layered_noise(at / CUTOUT_WOBBLE_SIZE, look.z + 5.0) - 0.5) * CUTOUT_WOBBLE;
+    let clear = smoothstep(0.0, 1.0, clamp((nearest - margin) / feather, 0.0, 1.0));
     let edge = clamp(
         min(min(at.x, at.y), min(size.x - at.x, size.y - at.y)) / (min(size.x, size.y) * EDGE_FADE),
         0.0,

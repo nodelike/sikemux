@@ -39,6 +39,8 @@ static MARK_PNG: &[u8] = include_bytes!("../../../brand/mark/mark-white-256.png"
 /// How much of the distance between dots each dot fills, and how solid they are.
 const MARK_DOT: f32 = 2. / 3.;
 const MARK_OPACITY: f32 = 0.9;
+/// At this spacing in device pixels a dot takes less of it, or the mark reads as solid.
+const MARK_FINE_PITCH: f32 = 4.;
 
 const FRAMES_PER_SECOND: u64 = 30;
 /// Slower on battery, where every frame is paid for out of the charge.
@@ -430,8 +432,14 @@ pub fn poster_mark(resolved: f32, spacing: f32, cx: &App) -> Option<impl IntoEle
         |_, _, _| {},
         move |bounds, (), window, _| {
             let pitch = (spacing * window.scale_factor()).round().max(2.);
+            let fill = if pitch <= MARK_FINE_PITCH {
+                0.5
+            } else {
+                MARK_DOT
+            };
+            let dot = (pitch * fill).round().max(1.);
             let mut params = [0.; gpui::SHADER_PARAMS];
-            params[..4].copy_from_slice(&[resolved, pitch, (pitch * MARK_DOT).round().max(1.), 0.]);
+            params[..4].copy_from_slice(&[resolved, pitch, dot, 0.]);
             params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, MARK_OPACITY]);
             if let Err(error) = window.paint_shader(bounds, &POSTER_MARK, params, Some(&shape)) {
                 eprintln!("sikemux: the mark does not draw: {error}");

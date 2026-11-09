@@ -60,7 +60,7 @@ const DENSITY_READY: Density = Density {
 };
 const DENSITY_INSTALLED: Density = Density {
     roomy: 0.22,
-    compact: 0.32,
+    compact: 0.,
 };
 const DENSITY_SIGNED_OUT: Density = Density {
     roomy: 0.19,
@@ -81,13 +81,21 @@ const DENSITY_RUNNING: Density = Density {
 /// A bright colour is dimmed by its opacity; thinning its dots as far would leave only specks.
 const LEAST_DENSITY_FIT: f32 = 0.85;
 const STEP_MILLIS: u64 = 200;
+/// A roomy tile's field thinner than this reads as dust, not as a cloud.
+const LEAST_FIELD: f32 = 0.24;
 const RESOLVE_MILLIS: u64 = 700;
 const APPEAR_MILLIS: u64 = 260;
 /// The window sizes the poster's measures run between.
 const SMALLEST_WINDOW: (f32, f32) = (860., 540.);
 const ROOMIEST_WINDOW: (f32, f32) = (1768., 1099.);
 /// Below this much room for text, the poster's quiet actions get a line of their own.
-const EXTRAS_INLINE_WIDTH: f32 = 620.;
+const EXTRAS_INLINE_WIDTH: f32 = 440.;
+/// The progress dots and the gap after them.
+const DOTS_WIDTH: f32 = 60.;
+/// A character's average width, as a share of the text's size.
+const SAID_CHAR: f32 = 0.5;
+const MONO_CHAR: f32 = 0.6;
+const BACK_LINE: f32 = 1.2;
 /// The most of a row a project's name takes before its path.
 const NAME_SHARE: f32 = 0.62;
 /// An agent's mark sits in a box this much taller than it, and at least this far above its name.
@@ -1022,15 +1030,75 @@ impl Room {
     }
 
     fn mark_top(self) -> f32 {
-        self.fit(90., 30.)
+        self.fit(70., 30.)
     }
 
-    /// As large as the poster can hold with room left for its longest text.
-    fn mark_size(self) -> f32 {
+    fn title_size(self) -> f32 {
+        self.fit(88., 40.)
+    }
+
+    fn primary_height(self) -> f32 {
+        self.fit(50., 32.)
+    }
+
+    fn poster_bottom(self) -> f32 {
+        self.fit(56., 14.)
+    }
+
+    fn copy_top(self) -> f32 {
+        self.fit(16., 4.)
+    }
+
+    fn foot_top(self) -> f32 {
+        self.fit(30., 8.)
+    }
+
+    /// The room kept for what the poster says, so the welcome above it never moves.
+    fn copy_height(self, git_missing: bool) -> f32 {
+        let warning = if git_missing {
+            self.said_size() * self.said_line() + self.line_gap()
+        } else {
+            0.
+        };
+        self.fit(96., 66.) + warning
+    }
+
+    /// The welcome, what it says and the row with the button: always this tall.
+    fn words_height(self, git_missing: bool) -> f32 {
+        self.title_size() * 2.
+            + self.copy_top()
+            + self.copy_height(git_missing)
+            + self.foot_top()
+            + self.primary_height()
+    }
+
+    fn back_gap(self) -> f32 {
+        self.fit(22., 6.)
+    }
+
+    fn back_size(self) -> f32 {
+        self.fit(17., 13.)
+    }
+
+    /// As large as the poster can hold above its words and the way back.
+    fn mark_size(self, git_missing: bool) -> f32 {
+        let words = self.poster_bottom()
+            + self.words_height(git_missing)
+            + self.back_gap()
+            + self.back_size() * BACK_LINE;
         self.fit(580., 230.)
             .min(self.text_width())
-            .min(self.height - self.mark_top() - self.fit(428., 262.))
+            .min(self.height - self.mark_top() - words)
             .floor()
+    }
+
+    fn said_line(self) -> f32 {
+        self.fit(1.4, 1.25)
+    }
+
+    /// Whether a sentence stays on one line of the poster.
+    fn fits_a_line(self, sentence: &str) -> bool {
+        sentence.chars().count() as f32 * self.said_size() * SAID_CHAR <= self.text_width()
     }
 
     fn said_size(self) -> f32 {
@@ -1084,13 +1152,19 @@ fn dots_anchor(kind: &str) -> [f32; 4] {
         "hermes" => [0.6, 0.34, 0.46, 0.5],
         "grok" => [0.82, 0.62, 0.38, 0.56],
         "pi" => [0.64, 0.56, 0.5, 0.34],
-        "codex" => [0.86, 0.3, 0.3, 0.56],
+        "codex" => [0.74, 0.42, 0.42, 0.56],
         "muse" => [0.56, 0.5, 0.56, 0.32],
         "omp" => [0.76, 0.72, 0.42, 0.46],
         "opencode" => [0.68, 0.36, 0.5, 0.58],
         _ => [0.66, 0.5, 0.5, 0.5],
     }
 }
+/// A number of the agent's own, so its field keeps its shape wherever its tile lands.
+fn dots_seed(kind: &str) -> f32 {
+    kind.bytes()
+        .fold(7_u32, |seed, byte| (seed * 31 + u32::from(byte)) % 997) as f32
+}
+
 /// How bright `colour` reads next to Claude's orange, so every agent's dots weigh the same.
 fn luminance_fit(colour: Hsla) -> f32 {
     let lum = |colour: Rgba| {
@@ -1140,6 +1214,8 @@ struct Poster {
     back: Option<AnyElement>,
     lines: Vec<AnyElement>,
     extras: Vec<AnyElement>,
+    /// The quiet actions fit beside the button rather than on a line of their own.
+    extras_inline: bool,
     primary: AnyElement,
     step: usize,
     /// In a small window the dots give way to a long button.
@@ -1149,7 +1225,7 @@ struct Poster {
 fn said(text: impl Into<SharedString>, ink: Hsla, room: Room) -> AnyElement {
     div()
         .text_size(theme::ui_text(room.said_size()))
-        .line_height(relative(room.fit(1.4, 1.25)))
+        .line_height(relative(room.said_line()))
         .text_color(ink)
         .child(text.into())
         .into_any_element()
@@ -1168,18 +1244,6 @@ fn said_mono(text: String, room: Room, t: &Tokens) -> AnyElement {
         .into_any_element()
 }
 
-/// A command as it can be shown in `fits` characters: whole when it fits, else broken before
-/// its longest word so a URL stays in one piece.
-fn command_lines(command: &str, fits: usize) -> Vec<String> {
-    let longest = command.split(' ').max_by_key(|word| word.len());
-    match longest.and_then(|word| command.find(word)) {
-        Some(at) if at > 0 && command.chars().count() > fits => vec![
-            command[..at].trim_end().to_owned(),
-            command[at..].to_owned(),
-        ],
-        _ => vec![command.to_owned()],
-    }
-}
 /// A failure in one short line: its first line, with paths cut to their last part and the
 /// agent named as people know it.
 fn short_reason(reason: &str, agent: &Found) -> String {
@@ -1237,6 +1301,7 @@ fn poster(
         back,
         mut lines,
         extras,
+        extras_inline,
         primary,
         step,
         dots,
@@ -1249,10 +1314,9 @@ fn poster(
         };
         lines.push(said(warning, t.warn, room));
     }
-    let extras_above = room.text_width() < EXTRAS_INLINE_WIDTH && !extras.is_empty();
-    let (above, inline) = match extras_above {
-        true => (extras, Vec::new()),
-        false => (Vec::new(), extras),
+    let (above, inline) = match extras_inline {
+        true => (Vec::new(), extras),
+        false => (extras, Vec::new()),
     };
     let dots = dots.then(|| progress_dots(step, room, &t));
     let closes = (!welcome.required).then(|| {
@@ -1269,7 +1333,8 @@ fn poster(
             .on_click(move |_, _, cx| this.update(cx, leave))
             .child("Esc closes")
     });
-    let size = room.mark_size();
+    let size = room.mark_size(welcome.git_missing);
+    let words = room.words_height(welcome.git_missing);
     let mark = ui::grain::poster_mark(resolved, room.fit(3., 2.), cx).map(|mark| {
         mark.absolute()
             .left(px(((room.poster_width() - size) / 2.).floor()))
@@ -1286,18 +1351,26 @@ fn poster(
         .border_color(t.border)
         .bg(t.surface_sunken)
         .children(mark)
+        .children(back.map(|back| {
+            div()
+                .absolute()
+                .left(px(room.pad()))
+                .bottom(px(room.poster_bottom() + words + room.back_gap()))
+                .child(back)
+        }))
         .child(
             div()
                 .absolute()
                 .left(px(room.pad()))
                 .right(px(room.pad()))
-                .bottom(px(room.fit(56., 14.)))
+                .bottom(px(room.poster_bottom()))
+                .h(px(words))
                 .flex()
                 .flex_col()
-                .children(back)
                 .child(
                     div()
-                        .text_size(theme::ui_text(room.fit(88., 40.)))
+                        .flex_none()
+                        .text_size(theme::ui_text(room.title_size()))
                         .font_weight(FontWeight(650.))
                         .letter_spacing(-0.04)
                         .line_height(relative(1.))
@@ -1307,25 +1380,21 @@ fn poster(
                 )
                 .child(
                     div()
-                        .mt(px(room.fit(16., 4.)))
+                        .flex_none()
+                        .mt(px(room.copy_top()))
+                        .h(px(room.copy_height(welcome.git_missing)))
                         .flex()
                         .flex_col()
                         .gap(px(room.line_gap()))
-                        .children(lines),
+                        .children(lines)
+                        .when(!above.is_empty(), |copy| {
+                            copy.child(div().flex().gap(px(room.fit(14., 10.))).children(above))
+                        }),
                 )
-                .when(!above.is_empty(), |text| {
-                    text.child(
-                        div()
-                            .mt(px(room.fit(10., 4.)))
-                            .flex()
-                            .justify_end()
-                            .gap(px(room.fit(14., 10.)))
-                            .children(above),
-                    )
-                })
                 .child(
                     div()
-                        .mt(px(room.fit(30., 8.)))
+                        .flex_none()
+                        .mt(px(room.foot_top()))
                         .flex()
                         .items_center()
                         .justify_between()
@@ -1360,6 +1429,7 @@ fn agent_tile(
     chosen: bool,
     room: Room,
     size: (f32, f32),
+    spans: bool,
     bright: (f32, f32),
     this: &Entity<Workbench>,
     cx: &App,
@@ -1383,23 +1453,30 @@ fn agent_tile(
     let pill_label = state.action.as_ref().map(|(label, _)| *label);
     let fit = luminance_fit(brand);
     let density = room.pick(state.density.roomy, state.density.compact);
+    let fitted = density * fit.clamp(LEAST_DENSITY_FIT, 1.25);
+    let field = if room.compact || fitted <= 0. {
+        fitted
+    } else {
+        fitted.max(LEAST_FIELD)
+    };
     let dots = ui::grain::WallDots {
         colour: brand,
-        density: density * fit.clamp(LEAST_DENSITY_FIT, 1.25),
-        opacity: if matches!(agent.status, AgentStatus::Ready { .. }) {
-            0.74
-        } else {
-            0.56
+        density: field,
+        opacity: match agent.status {
+            AgentStatus::Ready { .. } => 0.74,
+            AgentStatus::Unknown => 0.6,
+            AgentStatus::SignedOut => 0.5,
+            _ => 0.44,
         } * fit.min(1.)
             * welcome_fade,
-        seed: at as f32 * 13. + 5.,
-        feather: size.0.min(size.1) * room.fit(0.36, 0.4),
+        seed: dots_seed(&agent.kind),
+        feather: room.fit(48., 30.),
         anchor: dots_anchor(&agent.kind),
         mark_right: left + slot_width,
         mark_bottom: edge + slot_height,
         label_right: left + widest,
         label_height: edge + labels,
-        pill_width: pill_label.map_or(0., |label| {
+        pill_width: pill_label.filter(|_| !spans).map_or(0., |label| {
             room.fit(36., 10.) + label.len() as f32 * pill_size * 0.6 + room.fit(28., 20.)
         }),
         pill_bottom: pill_label.map_or(0., |_| room.fit(36., 8.) + room.fit(34., 26.)),
@@ -1463,11 +1540,13 @@ fn agent_tile(
         .on_click(move |_, window, cx| {
             picked.update(cx, |bench, cx| go(bench, Stop::Row(at), window, cx))
         })
-        .children((density > 0.).then(|| {
+        .children((field > 0.).then(|| {
             ui::grain::wall_dots(dots, cx)
                 .absolute()
-                .inset_0()
-                .size_full()
+                .top_0()
+                .left_0()
+                .w(px(size.0))
+                .h_full()
         }))
         .child(slot)
         .child(
@@ -1545,13 +1624,16 @@ fn agents_grid(
         );
     }
     for (row, agents) in listed.chunks(TILES_ACROSS).enumerate() {
+        let spans = agents.len() < TILES_ACROSS;
         let tiles: Vec<AnyElement> = agents
             .iter()
             .enumerate()
             .map(|(column, agent)| {
                 let is_chosen = chosen.as_deref() == Some(agent.kind.as_str());
                 let at = row * TILES_ACROSS + column;
-                agent_tile(bench, agent, at, is_chosen, room, size, bright, this, cx)
+                agent_tile(
+                    bench, agent, at, is_chosen, room, size, spans, bright, this, cx,
+                )
             })
             .collect();
         grid = grid.child(div().flex_1().min_h_0().flex().gap(px(1.)).children(tiles));
@@ -1734,7 +1816,7 @@ fn project_list(
             .px(px(room.list_edge()))
             .flex()
             .items_center()
-            .text_size(theme::ui_text(room.fit(14., 12.5)))
+            .text_size(theme::ui_text(room.fit(15., 12.5)))
             .text_color(t.text_tertiary)
             .child(note)
             .into_any_element()
@@ -1748,7 +1830,7 @@ fn project_list(
         let words = match (welcome.filter.is_empty(), welcome.scan_failed) {
             (false, _) => Some("Nothing here matches. Type a whole path to add it."),
             (true, true) => Some("Couldn't read your agents' history. Add a folder."),
-            (true, false) => None,
+            (true, false) => Some("No projects found. Type a path above or choose a folder."),
         };
         rows.extend(words.map(|words| note(words.into_any_element())));
     }
@@ -1815,6 +1897,10 @@ fn projects_pane(
                 })
             })
     };
+    let typing = welcome
+        .path
+        .as_ref()
+        .is_some_and(|path| !path.read(cx).value().is_empty());
     let list = project_list(welcome, lit, room, this, cx);
     div()
         .size_full()
@@ -1846,8 +1932,14 @@ fn projects_pane(
                                 .items_center()
                                 .rounded(px(room.fit(9., 6.)))
                                 .bg(t.surface_raised)
-                                .font_family(theme::MONO)
-                                .text_size(theme::ui_text(room.fit(15., 12.5)))
+                                .map(|field| match typing {
+                                    true => field
+                                        .font_family(theme::MONO)
+                                        .text_size(theme::ui_text(room.fit(15., 12.5))),
+                                    false => field
+                                        .font_family(theme::UI)
+                                        .text_size(theme::ui_text(room.fit(15., 13.))),
+                                })
                                 .children(welcome.path.as_ref().map(|path| {
                                     div().flex_1().min_w_0().child(
                                         Input::new(path).appearance(false).bordered(false).px_0(),
@@ -1883,13 +1975,12 @@ fn back_link(
         .id("welcome-back")
         .role(Role::Button)
         .aria_label(SharedString::from("Back to Agents"))
-        .mb(px(room.fit(22., 6.)))
         .flex()
         .items_center()
-        .self_start()
         .gap(px(room.fit(9., 6.)))
         .cursor_pointer()
-        .text_size(theme::ui_text(room.fit(17., 13.)))
+        .text_size(theme::ui_text(room.back_size()))
+        .line_height(relative(BACK_LINE))
         .text_color(if lit == Some(Stop::Back) {
             t.text_primary
         } else {
@@ -1953,6 +2044,7 @@ fn projects_poster(
         back: Some(back_link(bench, welcome, lit, room, this, t)),
         lines,
         extras: Vec::new(),
+        extras_inline: true,
         primary: primary_button(label, enabled, room, this, t),
         step: 1,
         dots: dots_fit(label, !welcome.required, room),
@@ -2010,7 +2102,11 @@ fn primary_button(
             false => ui::Variant::Outline,
         },
     )
-    .sized(room.fit(50., 32.), room.fit(22., 14.), room.fit(18., 13.5))
+    .sized(
+        room.primary_height(),
+        room.fit(22., 14.),
+        room.fit(18., 13.5),
+    )
     .when(!enabled, |button| {
         button.solid(t.surface_raised, t.surface_raised)
     })
@@ -2018,6 +2114,11 @@ fn primary_button(
     .disabled(!enabled)
     .on_click(move |_, window, cx| this.update(cx, |bench, cx| primary(bench, window, cx)));
     button.into_any_element()
+}
+
+/// Someone choosing an agent they don't have yet may not know what it is.
+fn needs_explaining(agent: &Found) -> bool {
+    !agent.about.is_empty() && matches!(agent.status, AgentStatus::Missing | AgentStatus::SignedOut)
 }
 
 /// What is said about the chosen agent, and the command Return would run.
@@ -2035,13 +2136,14 @@ fn agents_say(
         .is_some();
     let sentence = match (progress.busy() || (progress.shown() && !failure), &state) {
         (true, _) => progress.sheet_state().unwrap_or_default(),
-        (false, Some((agent, state))) if state.works => {
-            match room.compact || agent.about.is_empty() {
-                true => format!("Choose who does the work. {}", state.sentence),
-                false => format!(
-                    "Choose who does the work. {}. {}",
-                    agent.about, state.sentence
-                ),
+        (false, Some((_, state))) if state.works => {
+            format!("Choose who does the work. {}", state.sentence)
+        }
+        (false, Some((agent, state))) if needs_explaining(agent) && !failure => {
+            let explained = format!("{}. {}", agent.about, state.sentence);
+            match room.fits_a_line(&explained) {
+                true => explained,
+                false => state.sentence.clone(),
             }
         }
         (false, Some((_, state))) => state.sentence.clone(),
@@ -2081,15 +2183,19 @@ fn agents_poster(
             AgentStatus::Broken { reason } => Some(short_reason(reason, agent)),
             _ => None,
         });
+    let check_words = if progress.checking {
+        "Checking…"
+    } else {
+        "Check again"
+    };
+    let close_words = if busy { "Cancel" } else { "Close" };
+    let mut quiet_lengths = Vec::new();
     let mut extras = Vec::new();
     if recheck_offered(bench, welcome) {
+        quiet_lengths.push(check_words.chars().count());
         extras.push(quiet(
             "welcome-check",
-            if progress.checking {
-                "Checking…".to_owned()
-            } else {
-                "Check again".to_owned()
-            },
+            check_words.to_owned(),
             Stop::Recheck,
             lit,
             room,
@@ -2098,9 +2204,10 @@ fn agents_poster(
         ));
     }
     if progress.shown() {
+        quiet_lengths.push(close_words.chars().count());
         extras.push(quiet(
             "welcome-sheet-close",
-            if busy { "Cancel" } else { "Close" }.to_owned(),
+            close_words.to_owned(),
             Stop::SheetClose,
             lit,
             room,
@@ -2109,6 +2216,7 @@ fn agents_poster(
         ));
     }
     if anyway_offered(bench) {
+        quiet_lengths.push("Continue anyway".len());
         extras.push(quiet(
             "welcome-anyway",
             "Continue anyway".to_owned(),
@@ -2131,19 +2239,28 @@ fn agents_poster(
                 .into_any_element(),
         );
     }
-    if let Some(command) = command {
-        let fits = (room.text_width() / (room.mono_size() * 0.6)) as usize;
-        lines.extend(
-            command_lines(&command, fits)
-                .into_iter()
-                .map(|line| said_mono(line, room, &t)),
-        );
-    }
+    let command_fits = |command: &String| {
+        command.chars().count() as f32 * room.mono_size() * MONO_CHAR <= room.text_width()
+    };
+    lines.extend(
+        command
+            .filter(command_fits)
+            .map(|command| said_mono(command, room, &t)),
+    );
+    let quiet_words: usize = quiet_lengths.iter().sum();
+    let beside_button = quiet_words as f32 * room.fit(16., 13.) * SAID_CHAR
+        + quiet_lengths.len() as f32 * room.fit(14., 8.)
+        + action.chars().count() as f32 * room.fit(18., 13.5) * SAID_CHAR
+        + room.fit(68., 50.)
+        + DOTS_WIDTH;
+    let extras_inline =
+        room.text_width() >= EXTRAS_INLINE_WIDTH && beside_button <= room.text_width();
     Poster {
         back: None,
         lines,
         dots: dots_fit(&action, !welcome.required, room),
         extras,
+        extras_inline,
         primary: primary_button(action, enabled, room, this, &t),
         step: 0,
     }
@@ -2295,11 +2412,11 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
         let (word, sentence) = match doing {
             Doing::Installing => (
                 "Install failed",
-                "The installer stopped. Its output below says why.".to_owned(),
+                "The installer stopped. Its output is on the right.".to_owned(),
             ),
             Doing::SigningIn => (
                 "Signed out",
-                "Sign-in stopped. Its output below says why.".to_owned(),
+                "Sign-in stopped. Its output is on the right.".to_owned(),
             ),
         };
         return TileState {
@@ -2313,21 +2430,12 @@ fn tile_state(bench: &Workbench, agent: &Found, t: &Tokens) -> TileState {
         };
     }
     let (word, density, works, state) = match &agent.status {
-        AgentStatus::Ready { account } => (
-            "Ready",
-            DENSITY_READY,
-            true,
-            match account.as_deref() {
-                Some("subscription") => "Signed in with your subscription.".to_owned(),
-                Some("apiKey") => "Signed in with an API key.".to_owned(),
-                _ => "Signed in and ready.".to_owned(),
-            },
-        ),
+        AgentStatus::Ready { .. } => ("Ready", DENSITY_READY, true, format!("{label} is ready.")),
         AgentStatus::Unknown => (
             "Installed",
             DENSITY_INSTALLED,
             true,
-            "Installed. Sikemux can't tell if it's signed in.".to_owned(),
+            format!("{label} is installed."),
         ),
         AgentStatus::Broken { .. } => (
             "Won't start",

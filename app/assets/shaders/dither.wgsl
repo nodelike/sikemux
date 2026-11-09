@@ -103,9 +103,15 @@ fn layered_noise(at: vec2<f32>, seed: f32) -> f32 {
         + value_noise(at * 4.1, seed + 2.0) * 0.14;
 }
 
-// 0 inside `rect` and `margin` around it, easing to 1 over `feather` points beyond.
-fn clear_of(at: vec2<f32>, rect: vec4<f32>, margin: f32, feather: f32) -> f32 {
+// How far `at` is from `rect`, 0 inside it.
+fn rect_distance(at: vec2<f32>, rect: vec4<f32>) -> f32 {
     let dx = max(max(rect.x - at.x, 0.0), at.x - rect.z);
     let dy = max(max(rect.y - at.y, 0.0), at.y - rect.w);
-    return smoothstep(0.0, 1.0, clamp((length(vec2<f32>(dx, dy)) - margin) / feather, 0.0, 1.0));
+    return length(vec2<f32>(dx, dy));
+}
+
+// The nearer of two distances, rounding off the corner where the two shapes meet.
+fn blended_nearest(a: f32, b: f32, blend: f32) -> f32 {
+    let share = clamp(0.5 + 0.5 * (b - a) / blend, 0.0, 1.0);
+    return mix(b, a, share) - blend * share * (1.0 - share);
 }
