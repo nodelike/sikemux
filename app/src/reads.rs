@@ -467,6 +467,7 @@ impl Workbench {
                 }
             }
             Read::Usage => {
+                crate::agents::limits::usage_read(self, cx);
                 if !keep_decoded(&mut self.reads.usage, value, "plan usage") {
                     return;
                 }

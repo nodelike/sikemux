@@ -7,7 +7,7 @@ Claude Code and Codex can keep several accounts, such as one for work and one fo
 
 ## Add an account
 
-In **Settings → Accounts**, under Claude or Codex, choose **Add account**, give it a name, then sign in in your browser. Once it is signed in, **Switch to** it, or **Keep using** the account you had. Each account in the list has **Use** to start new chats on it, and its **⋯** menu signs it out or removes it.
+In **Settings → Accounts**, under Claude or Codex, choose **Add account**, give it a name, then sign in in your browser. Once it is signed in, **Switch to** it, or **Keep using** the account you had. Each account in the list has **Use** to switch to it, which moves your open chats there too, and its **⋯** menu signs it out or removes it.
 
 With two or more accounts, **Auto-rotate at limits** lets a chat that hits a usage limit carry on with your next signed-in account. It is off by default: each provider's terms expect one person's ordinary use per plan.
 
@@ -17,7 +17,11 @@ With two or more signed-in accounts, the strip above a chat's composer shows the
 
 ## Limits
 
-The tab rail shows how much of the selected account's plan is used, with a countdown to each reset. Sikemux reads it when it starts and every five minutes while **Limits** is in view, and the last reading shows at once after a restart; the refresh button beside it reads it again now. It shows the account new chats start on; with more than one account, rest the pointer on it and your other accounts open below, each with every window of its plan. Click one to start new chats on it, without moving any chat that is already running. The **+** beside the refresh button adds an account, and a signed-out account offers **Sign in**.
+The foot of the tab rail's agents page shows how much of each plan is used, for Claude and Codex together, or for the one agent the rail is showing. Each agent is a ruler with the window closest to its limit, how much of it is used, and the countdown to its reset; `+1` says how many other accounts it has. The small mark under a ruler is how far through the window you are, and a used-up window turns into a flat line that says when it is back.
+
+Rest the pointer on the rows and a float opens with every account, the one in use with all its windows. **Move chats here** on another account puts the agent on it and moves your open chats there too, and **Undo** takes it back for a few seconds. Chats running in a terminal stay where they are. Each agent has a **+** to add an account, and a signed-out one offers **Sign in**.
+
+The chip beside the Goals button in the top bar shows the last reading for every agent; click it for the same rows and accounts in a popover, without having to hover. Sikemux reads your limits when it starts and every five minutes while the panel or the popover is on screen, and the refresh button reads them again now. A failed read keeps the last numbers and says how old they are.
 
 An account you signed out of waits under **Add account**, where you can sign in to it again or remove it.
 

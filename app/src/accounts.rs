@@ -61,8 +61,8 @@ pub struct Accounts {
     /// The chats that failed for want of an account's sign-in, by that account, to move onto
     /// it once it signs in.
     pub waiting_chats: HashMap<String, Vec<String>>,
-    /// Whether the Limits panel is open onto every account, while the pointer rests on it.
-    pub limits_open: bool,
+    /// What the Limits panel and popover are holding open.
+    pub limits: crate::agents::limits::Reveal,
     /// When coming back to the app last had the core check every agent's sign-in.
     checked_on_return: Option<Instant>,
 }
@@ -169,6 +169,7 @@ fn key(profile: &Profile) -> (String, Option<String>) {
 
 fn redraw(bench: &Workbench, cx: &mut Context<Workbench>) {
     bench.parts.redraw_stage(cx);
+    crate::agents::limits::redraw(bench, cx);
 }
 
 impl Accounts {

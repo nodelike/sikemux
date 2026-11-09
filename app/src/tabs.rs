@@ -124,6 +124,7 @@ pub fn top_bar(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoEleme
                     div()
                         .flex()
                         .gap(SPACE_0)
+                        .children(crate::agents::limits::chip(bench, cx))
                         .child(goals_toggle(bench, cx))
                         .child(
                             IconButton::new(
