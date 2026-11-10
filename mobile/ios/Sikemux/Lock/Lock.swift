@@ -123,10 +123,12 @@ final class Lock {
             if !locked { set(.covered) }
             return
         }
+        let returned = leftAt != nil
         if signedIn == true, let leftAt, Date().timeIntervalSince(leftAt) >= Self.away { locked = true }
         leftAt = nil
         guard locked else { return set(.open) }
         set(.locked)
-        Task { await unlock() }
+        // Coming back from the system's own prompt or a pulled-down notification centre is not a return to the app.
+        if returned { Task { await unlock() } }
     }
 }
