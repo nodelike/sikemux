@@ -78,6 +78,17 @@ parallel_generate() {
   return "$status"
 }
 
+# The browser and the GPUI app need GTK's Linux libraries, so only CI checks them on Linux.
+# The compiler cache is left out because it slowed each C file it wrapped to many seconds.
+linux_clippy() {
+  RUSTC_WRAPPER='' \
+    CC_aarch64_unknown_linux_gnu="$PWD/scripts/lib/zig-linux-cc" \
+    AR_aarch64_unknown_linux_gnu="$PWD/scripts/lib/zig-linux-ar" \
+    cargo clippy --target aarch64-unknown-linux-gnu --all-targets --all-features \
+    -p sikemux-core -p sikemux-host -p sikemux-wire -p sikemux-client -p sikemux-pty -p sikemux-process -p sikemux-keychain \
+    -- -D warnings
+}
+
 rust='^(app/|crates/|plugins/|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|rust-toolchain\.toml$)'
 helpers='^(helpers/(notch|voice)/|scripts/build-(notch|voice)-helper\.mjs$|scripts/generate-notch-(icons|sources)\.mjs$|scripts/lib/build\.mjs$|scripts/app-metadata\.mjs$)'
 
@@ -113,6 +124,11 @@ if touches "$rust"; then
   step "check clippy" scripts/check-rust.sh clippy
   step "check clippy GPUI" scripts/check-rust.sh gpui-clippy
   step "check clippy no plugins" scripts/check-rust.sh no-plugins
+  if command -v zig >/dev/null; then
+    step "check clippy Linux" linux_clippy
+  else
+    echo "  skip  check clippy Linux           needs zig: brew install zig"
+  fi
 fi
 fixed="$(diff <(printf '%s\n' "$before") <(fingerprint) | sed -n 's/^> \([^ ]*\) .*/\1/p' | sort -u)"
 if touches "$helpers" || printf '%s\n' "$fixed" | grep -qE '\.swift$|^helpers/'; then

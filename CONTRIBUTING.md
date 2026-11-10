@@ -90,7 +90,7 @@ make autofix          # applies the fixes CI's gates want, then runs the quick g
 make check            # CI's gates, apart from those listed below
 ```
 
-`make autofix` (`pnpm autofix`) regenerates every generated file, runs Prettier, `eslint --fix`, `cargo fmt` and `clippy --fix`, then runs the frontend checks and, when Rust changed since `origin/main`, Clippy for the Mac, the GPUI app and no plugins. `--since <commit>` compares with another commit and `--all` runs everything. It never commits; it exits non-zero when something it could not fix still fails, and prints what.
+`make autofix` (`pnpm autofix`) regenerates every generated file, runs Prettier, `eslint --fix`, `cargo fmt` and `clippy --fix`, then runs the frontend checks and, when Rust changed since `origin/main`, Clippy for the Mac, the GPUI app and no plugins, and, with `zig` installed (`brew install zig`), Clippy for Linux over the core and the crates under it, whose Linux code is the most common reason CI fails. `--since <commit>` compares with another commit and `--all` runs everything. It never commits; it exits non-zero when something it could not fix still fails, and prints what.
 
 `make check` runs Prettier in check mode, ShellCheck, ESLint and TypeScript over `shared/`, the dependency audit, `cargo fmt --check`, the `workspace-hack` check, Clippy with warnings denied, Rust tests, the core built with no plugins, Clippy and tests for the GPUI app, a build of the notch and voice helpers, and credential-free release-tooling checks. It also checks that generated files (wire types, agent tools, grammars, icons) match their sources. It takes as long as a full build of the app.
 
