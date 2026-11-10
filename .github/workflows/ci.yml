@@ -146,7 +146,7 @@ jobs:
   frontend:
     name: Frontend quality, build, and tests
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -169,13 +169,51 @@ jobs:
         run: pnpm check:generated
 
       - name: Install shellcheck
-        run: brew install shellcheck
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/shellcheck.tar.xz" https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          echo "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198  $RUNNER_TEMP/shellcheck.tar.xz" | shasum -a 256 -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xJf "$RUNNER_TEMP/shellcheck.tar.xz" -C "$RUNNER_TEMP/bin" --strip-components 1 shellcheck-v0.11.0/shellcheck
+          echo "$RUNNER_TEMP/bin" >>"$GITHUB_PATH"
 
       - name: Check formatting, lint, types and release tooling
         run: pnpm check:code
 
+  # Neither needs a build or a Mac: hakari.toml names the platforms workspace-hack is made for.
+  rust-format:
+    name: Rust formatting and workspace-hack
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          components: rustfmt
+
+      - name: Check Rust formatting
+        run: scripts/check-rust.sh fmt
+
+      - name: Install cargo-hakari
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/hakari.tar.gz" https://github.com/guppy-rs/guppy/releases/download/cargo-hakari-0.9.39/cargo-hakari-0.9.39-x86_64-unknown-linux-gnu.tar.gz
+          echo "699a3193a9bd1a8d914b970d3f50f3385f24fbd8b1294d0c0ff31fbe7c2c9f48  $RUNNER_TEMP/hakari.tar.gz" | shasum -a 256 -c -
+          bin="${CARGO_HOME:-$HOME/.cargo}/bin"
+          mkdir -p "$bin"
+          tar -xzf "$RUNNER_TEMP/hakari.tar.gz" -C "$bin"
+          echo "$bin" >>"$GITHUB_PATH"
+
+      - name: Check workspace-hack is up to date
+        run: scripts/check-rust.sh hakari
+
+  # The core's and the GPUI app's macOS-only code is linted only here; the build without plugins
+  # changes no macOS code, so the Linux job lints it.
   rust-lint:
-    name: Rust formatting and lint
+    name: Rust lint
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: macos-latest
@@ -187,28 +225,10 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           cache: "true"
-          components: clippy rustfmt
-
-      - name: Check Rust formatting
-        run: scripts/check-rust.sh fmt
-
-      - name: Install cargo-hakari
-        run: |
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/hakari.tar.gz" https://github.com/guppy-rs/guppy/releases/download/cargo-hakari-0.9.39/cargo-hakari-0.9.39-universal-apple-darwin.tar.gz
-          echo "c1f84026b805cc7fb31c271e8b0720abadb8d9416d126c76d6fc50a2a147d7f9  $RUNNER_TEMP/hakari.tar.gz" | shasum -a 256 -c -
-          bin="${CARGO_HOME:-$HOME/.cargo}/bin"
-          mkdir -p "$bin"
-          tar -xzf "$RUNNER_TEMP/hakari.tar.gz" -C "$bin"
-          echo "$bin" >>"$GITHUB_PATH"
-
-      - name: Check workspace-hack is up to date
-        run: scripts/check-rust.sh hakari
+          components: clippy
 
       - name: Run Clippy
         run: scripts/check-rust.sh clippy
-
-      - name: Build without any plugins
-        run: scripts/check-rust.sh no-plugins
 
       - name: Run Clippy on the GPUI app
         run: scripts/check-rust.sh gpui-clippy
@@ -261,7 +281,7 @@ jobs:
   # Branch protection requires a check of this name, which was one job before its work was split.
   rust:
     name: Rust formatting, lint, and tests
-    needs: [changes, rust-lint, rust-core-tests, rust-tests]
+    needs: [changes, rust-format, rust-lint, rust-core-tests, rust-tests, linux]
     if: always() && needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -480,6 +500,10 @@ jobs:
 
       - name: Check the GPUI app on Linux
         run: scripts/check-rust.sh gpui-clippy
+
+      - name: Build without any plugins
+        if: matrix.arch == 'x86_64'
+        run: scripts/check-rust.sh no-plugins
 
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest

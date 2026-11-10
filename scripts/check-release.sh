@@ -17,7 +17,7 @@ node --check scripts/build-voice-helper.mjs
 node --check scripts/build-notch-helper.mjs
 node scripts/generate-notch-icons.mjs --check
 node --check scripts/build-sim-helper.mjs
-/usr/bin/plutil -lint packaging/Info.plist >/dev/null
+python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' packaging/Info.plist
 
 if scripts/release.sh 0.2.0 fixture --nightly >/dev/null 2>&1; then
   echo "release tooling accepted a stable semver for the nightly channel" >&2
