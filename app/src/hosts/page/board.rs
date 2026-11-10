@@ -13,8 +13,9 @@ use super::{hair, ink};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::theme::{
-    Tokens, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4, SPACE_5,
-    SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_XL, TEXT_XS, TEXT_XS_H,
+    self, Tokens, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4,
+    SPACE_5, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_XL, TEXT_XS,
+    TEXT_XS_H,
 };
 use crate::ui::{self, Button, Field, Segmented, Toggle, Variant};
 use crate::workbench::actions;
@@ -236,6 +237,11 @@ fn cards(
         .into_any_element()
 }
 
+/// The ground of a host's card or table, `share` of the ink mixed in for hover and choice.
+fn lifted(t: &Tokens, share: f32) -> Hsla {
+    theme::mix(t.text_primary, t.surface_sunken, share).opacity(0.85)
+}
+
 fn state_mark(host: &Listed, tint: Hsla) -> AnyElement {
     match host.state.icon() {
         Some(glyph) => ui::icon(glyph, 13.).text_color(tint).into_any_element(),
@@ -257,7 +263,7 @@ fn chooses(key: &str, cx: &mut Context<Workbench>) -> Box<Clicked> {
 }
 
 fn host_card(host: &Listed, chosen: bool, t: &Tokens, cx: &mut Context<Workbench>) -> AnyElement {
-    let ground = t.surface_sunken.opacity(0.85);
+    let ground = lifted(t, 0.);
     div()
         .id(SharedString::from(format!("host-card-{}", host.key)))
         .flex_1()
@@ -270,8 +276,11 @@ fn host_card(host: &Listed, chosen: bool, t: &Tokens, cx: &mut Context<Workbench
         .overflow_hidden()
         .cursor_pointer()
         .bg(ground)
-        .when(chosen, |card| card.bg(t.surface_chosen))
-        .when(!chosen, |card| card.hover(|card| card.bg(t.surface_hover)))
+        .when(chosen, |card| {
+            card.bg(lifted(t, 0.05))
+                .border_color(t.accent.opacity(0.35))
+        })
+        .when(!chosen, |card| card.hover(|card| card.bg(lifted(t, 0.03))))
         .on_click(chooses(&host.key, cx))
         .child(
             div()
@@ -593,7 +602,7 @@ fn table(
         .rounded(RADIUS_4)
         .border_1()
         .border_color(hair(t))
-        .bg(t.surface_sunken.opacity(0.85))
+        .bg(lifted(t, 0.))
         .overflow_hidden()
         .child(
             div()
@@ -634,8 +643,8 @@ fn table(
                 .items_center()
                 .cursor_pointer()
                 .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
-                .when(picked, |row| row.bg(t.surface_chosen))
-                .when(!picked, |row| row.hover(|row| row.bg(t.surface_hover)))
+                .when(picked, |row| row.bg(ink(t, 0.05)))
+                .when(!picked, |row| row.hover(|row| row.bg(ink(t, 0.03))))
                 .on_click(chooses(&host.key, cx))
                 .child(
                     column(0).child(
