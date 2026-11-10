@@ -505,7 +505,7 @@ pub fn overlay(
                     .bottom(px(24.))
                     .text_size(crate::theme::ui_text(TEXT_2XS_H))
                     .text_color(t.text_tertiary)
-                    .child("Only allow phones you own. Remove one any time in Settings › Devices."),
+                    .child("Only allow phones you own. Remove one any time on the Devices page."),
             )
             .into_any_element(),
     )

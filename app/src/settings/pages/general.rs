@@ -457,7 +457,7 @@ fn transfer(
         .collect();
     if hosts.is_empty() {
         return rows::note(
-            "Link another Sikemux host under Devices, then send projects there.",
+            "Sign in to your account on another Sikemux host to link it, then send projects there.",
             cx,
         );
     }

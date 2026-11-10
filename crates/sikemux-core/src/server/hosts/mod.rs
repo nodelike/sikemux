@@ -262,7 +262,7 @@ pub(crate) fn find(core: &Core, wanted: &str) -> Result<StoredLink, String> {
     match matching.as_slice() {
         [link] => Ok((*link).clone()),
         [] if links.is_empty() => Err(
-            "This host is linked with no other; the person links hosts in Sikemux's Settings, under Devices".into(),
+            "This host is linked with no other; the person links a host by signing it in to their Sikemux account, and finds it on the Devices page".into(),
         ),
         [] => Err(format!(
             "No linked host is called {wanted}; the linked hosts are {}",
