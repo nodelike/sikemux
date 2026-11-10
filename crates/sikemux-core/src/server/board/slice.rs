@@ -1972,22 +1972,13 @@ fn owner_latest(core: &Core, project: &str, agent: &str, base: &str) -> Result<S
         return Git::quick(&worktree.path).trimmed(&["rev-parse", "HEAD"]);
     }
     let dir = Path::new(project);
-    Git::quick(dir)
-        .trimmed(&["merge-base", "--is-ancestor", base, "HEAD"])
-        .map_err(|_| {
-            format!(
-                "{}, where your work starts, is not on the project's branch any more",
-                short(base)
-            )
-        })?;
+    // A push that rebases main drops `base` from the branch; the newest commits still hold the work.
+    let range = match Git::quick(dir).trimmed(&["merge-base", "--is-ancestor", base, "HEAD"]) {
+        Ok(_) => format!("{base}..HEAD"),
+        Err(_) => "HEAD".to_owned(),
+    };
     let read = (OWNER_COMMITS_READ + 1).to_string();
-    let log = Git::quick(dir).trimmed(&[
-        "log",
-        "-n",
-        &read,
-        "--format=%H%x00%s",
-        &format!("{base}..HEAD"),
-    ])?;
+    let log = Git::quick(dir).trimmed(&["log", "-n", &read, "--format=%H%x00%s", &range])?;
     let generated = crate::server::edits::generate::GENERATED_SUBJECT;
     let latest = log
         .lines()
