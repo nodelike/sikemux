@@ -94,8 +94,6 @@ enum ChatWords {
     static func toolKind(_ tool: ToolCall) -> String {
         tool.row.verb ?? tool.row.server ?? actionWords[tool.row.action] ?? "tool"
     }
-
-    static func counted(_ word: String, _ count: Int) -> String { count == 1 ? word : "\(word)s" }
 }
 
 extension ToolCall {

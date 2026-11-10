@@ -39,9 +39,9 @@ struct LiveWork: Equatable {
 
     var pieces: [Piece] {
         var pieces: [Piece] = []
-        if !subagents.isEmpty { pieces.append(Piece(key: "subagents", count: "\(subagents.count)", word: ChatWords.counted("subagent", subagents.count))) }
+        if !subagents.isEmpty { pieces.append(Piece(key: "subagents", count: "\(subagents.count)", word: Format.counted("subagent", subagents.count))) }
         for (kind, tasks) in tasks {
-            pieces.append(Piece(key: "task-\(kind)", task: kind, count: "\(tasks.count)", word: ChatWords.counted(kind, tasks.count)))
+            pieces.append(Piece(key: "task-\(kind)", task: kind, count: "\(tasks.count)", word: Format.counted(kind, tasks.count)))
         }
         if !queued.isEmpty { pieces.append(Piece(key: "queued", count: "\(queued.count)", word: "queued")) }
         if planOpen {
@@ -191,7 +191,7 @@ struct LiveSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !work.subagents.isEmpty {
-                SectionLabel(ChatWords.counted("subagent", work.subagents.count), count: work.subagents.count)
+                SectionLabel(Format.counted("subagent", work.subagents.count), count: work.subagents.count)
                 ForEach(work.subagents, id: \.sessionId) { subagent in
                     Line(title: subagent.name, detail: LiveWork.activity(subagent), cost: SubagentRow.cost(subagent)) {
                         AgentMark(provider: provider, size: 16)
@@ -201,7 +201,7 @@ struct LiveSheet: View {
                 }
             }
             ForEach(work.tasks, id: \.kind) { kind, tasks in
-                SectionLabel(ChatWords.counted(kind, tasks.count), count: tasks.count)
+                SectionLabel(Format.counted(kind, tasks.count), count: tasks.count)
                 ForEach(tasks, id: \.asyncTaskId) { task in
                     Line(title: task.name, detail: task.state == .paused ? "paused" : LiveWork.detail(task), cost: task.agents.map(LiveWork.agentCount)) {
                         IconView(icon: taskIcon(kind), size: 15).foregroundStyle(task.state == .paused ? palette.warn : palette.inkDim)
@@ -236,7 +236,7 @@ struct LiveSheet: View {
                 ForEach(work.queued, id: \.id) { held in
                     let label = LiveWork.queuedLabel(held)
                     let files = held.paths.count
-                    Line(title: label, detail: !held.text.isEmpty && files > 0 ? "\(files) \(ChatWords.counted("file", files))" : nil) {
+                    Line(title: label, detail: !held.text.isEmpty && files > 0 ? "\(files) \(Format.counted("file", files))" : nil) {
                         IconView(icon: Icons.clock, size: 15).foregroundStyle(palette.inkDim)
                     } end: {
                         if steerable {
