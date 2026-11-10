@@ -1,0 +1,181 @@
+#!/usr/bin/env python3
+import fcntl
+import os
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import time
+
+JOBS_PER_RUN = 6
+BYTES_PER_RUN = 3 << 30
+LIMIT_VARIABLE = "SIKEMUX_CARGO_RUNS"
+SLOTS = os.path.expanduser("~/.cache/sikemux-cargo")
+COMPILING = {"b", "build", "c", "check", "clippy", "d", "doc", "fix", "rustc", "rustdoc"}
+COMPILING_THEN_RUNNING = {"bench", "r", "run", "t", "test"}
+GLOBAL_OPTIONS_WITH_VALUE = {"--color", "--config", "--explain", "-C", "-Z"}
+COMPILER_CACHES = ("kache", "sccache")
+BUILD_STEPS = {"bash", "clippy-driver", "git", "kache", "rustc", "rustdoc", "sccache", "sh"}
+
+
+def subcommand(args):
+    words = iter(args)
+    for word in words:
+        if word in GLOBAL_OPTIONS_WITH_VALUE:
+            next(words, None)
+        elif not word.startswith(("-", "+")):
+            return word
+    return None
+
+
+def path_without_this_folder():
+    here = os.path.dirname(os.path.realpath(__file__))
+    folders = os.environ.get("PATH", "").split(os.pathsep)
+    return os.pathsep.join(f for f in folders if f and os.path.realpath(f) != here)
+
+
+def real_cargo(path):
+    home = os.environ.get("CARGO_HOME") or os.path.expanduser("~/.cargo")
+    rustup = os.path.join(home, "bin", "cargo")
+    if os.access(rustup, os.X_OK):
+        return rustup
+    return shutil.which("cargo", path=path)
+
+
+def limit_override():
+    try:
+        return max(1, int(os.environ[LIMIT_VARIABLE]))
+    except (KeyError, ValueError):
+        return None
+
+
+def available_memory():
+    try:
+        if sys.platform == "darwin":
+            report = subprocess.run(["vm_stat"], capture_output=True, text=True).stdout
+            page = int(re.search(r"page size of (\d+)", report).group(1))
+            kinds = ("free", "inactive", "speculative", "purgeable")
+            pages = sum(int(re.search(rf"Pages {kind}:\s+(\d+)", report).group(1)) for kind in kinds)
+            return pages * page
+        with open("/proc/meminfo") as meminfo:
+            for line in meminfo:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1]) * 1024
+    except (OSError, AttributeError):
+        pass
+    return None
+
+
+def runs_allowed(running):
+    override = limit_override()
+    if override:
+        return override
+    by_cores = round((os.cpu_count() or 1) / JOBS_PER_RUN)
+    memory = available_memory()
+    by_memory = by_cores if memory is None else running + memory // BYTES_PER_RUN
+    return max(1, min(by_cores, by_memory))
+
+
+def take_slot():
+    os.makedirs(SLOTS, exist_ok=True)
+    queue = open(os.path.join(SLOTS, "queue"), "a")
+    since = time.monotonic()
+    told = False
+    try:
+        try:
+            fcntl.flock(queue, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("cargo: queued behind other cargo runs on this machine; it starts by itself when they finish.", file=sys.stderr)
+            told = True
+            fcntl.flock(queue, fcntl.LOCK_EX)
+        while True:
+            free, running = [], 0
+            for index in range(max(os.cpu_count() or 1, limit_override() or 0)):
+                slot = open(os.path.join(SLOTS, f"slot-{index}"), "a")
+                try:
+                    fcntl.flock(slot, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    free.append(slot)
+                except BlockingIOError:
+                    slot.close()
+                    running += 1
+            allowed = runs_allowed(running)
+            if running < allowed and free:
+                mine = free.pop(0)
+                for slot in free:
+                    slot.close()
+                if told:
+                    print(f"cargo: started after {time.monotonic() - since:.0f}s in the queue.", file=sys.stderr)
+                return mine
+            for slot in free:
+                slot.close()
+            if not told:
+                print(
+                    f"cargo: queued: {running} cargo runs are building and this machine takes {allowed} at once."
+                    f" It starts by itself when one finishes; {LIMIT_VARIABLE} sets the limit.",
+                    file=sys.stderr,
+                )
+                told = True
+            time.sleep(1)
+    finally:
+        queue.close()
+
+
+def program_started(root):
+    table = subprocess.run(["ps", "-A", "-o", "pid=,ppid=,comm="], capture_output=True, text=True).stdout
+    children = {}
+    for line in table.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) == 3:
+            children.setdefault(int(fields[1]), []).append((int(fields[0]), os.path.basename(fields[2])))
+    cargos = [root]
+    while cargos:
+        for pid, name in children.get(cargos.pop(), []):
+            if name.startswith("cargo"):
+                cargos.append(pid)
+            elif name not in BUILD_STEPS and not name.startswith("build-script"):
+                return True
+    return False
+
+
+def run(command, env, slot, runs_programs):
+    child = subprocess.Popen(command, env=env)
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, lambda signum, _: child.send_signal(signum))
+    while True:
+        try:
+            code = child.wait(timeout=1)
+            break
+        except subprocess.TimeoutExpired:
+            if slot and runs_programs and program_started(child.pid):
+                slot.close()
+                slot = None
+    return 128 - code if code < 0 else code
+
+
+def main():
+    args = sys.argv[1:]
+    path = path_without_this_folder()
+    cargo = real_cargo(path)
+    if not cargo:
+        print("cargo: no cargo found; install rustup from https://rustup.rs", file=sys.stderr)
+        return 127
+    command = [cargo, *args]
+    if os.environ.get("CI"):
+        os.execve(cargo, command, dict(os.environ, PATH=path))
+    env = dict(os.environ, PATH=path)
+    cache = next(filter(None, (shutil.which(name, path=path) for name in COMPILER_CACHES)), None)
+    if cache and "RUSTC_WRAPPER" not in env:
+        env["RUSTC_WRAPPER"] = cache
+    name = subcommand(args)
+    if "-h" in args or "--help" in args or name not in COMPILING | COMPILING_THEN_RUNNING:
+        os.execve(cargo, command, env)
+    try:
+        slot = take_slot()
+    except KeyboardInterrupt:
+        return 130
+    return run(command, env, slot, name in COMPILING_THEN_RUNNING)
+
+
+sys.exit(main())

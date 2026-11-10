@@ -36,9 +36,14 @@
   and the end-to-end runs. Do not weaken or delete them to get a change through.
 - When a change breaks an existing test, decide whether the behaviour it pins was meant
   to change. Update the test only if so; otherwise fix the code.
-- Run every Rust build and check with rustup's Rust first on `PATH` (`cargo --version`
-  shows the version in `rust-toolchain.toml`). Homebrew's older Rust ignores that file,
-  so clippy there can pass code CI rejects.
+- Run every Rust build and check with the checkout's `scripts/bin` first on `PATH`
+  (`export PATH="$PWD/scripts/bin:$PATH"` from its root; the Makefile does it). Its
+  `cargo` runs rustup's Rust, the version in `rust-toolchain.toml` (Homebrew's older
+  Rust ignores that file, so clippy there can pass code CI rejects), and shares compiled
+  crates across checkouts through kache, or sccache, when one is installed. It runs only
+  as many builds at once as the machine's cores and memory take: a run over that says
+  it is queued and starts by itself, so never wait for other agents' cargo with `sleep`
+  or `pgrep`. `SIKEMUX_CARGO_RUNS` sets the limit.
 
 ## Speed and size
 
