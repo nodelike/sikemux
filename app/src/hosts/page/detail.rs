@@ -22,9 +22,9 @@ use super::{card, hair, ink, wash};
 use crate::hosts::{HostChoice, Place, Sending};
 use crate::icons::Icon;
 use crate::theme::{
-    Tokens, RADIUS_1, RADIUS_2, RADIUS_3, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
-    SPACE_4, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM, TEXT_XL,
-    TEXT_XS,
+    Tokens, RADIUS_1, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
+    SPACE_3H, SPACE_4, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM,
+    TEXT_XL, TEXT_XS,
 };
 use crate::ui::{self, Button, IconButton, Segmented, Variant};
 use crate::workbench::Workbench;
@@ -636,10 +636,11 @@ fn resources(
         total => used as f32 / total as f32,
     };
     let (memory_total, disk_total) = (about.memory_total, about.disk_total);
-    let swap = match now.swap_used {
-        0 => String::new(),
-        swap => format!(" · {} GB swap", model::gb(swap)),
-    };
+    let cores_used = model::cores_used(now.cpu, about.cores);
+    let cores_idle = format!(
+        "{:.1}",
+        (about.cores as f64 - now.cpu as f64 * about.cores as f64 / 1000.).max(0.)
+    );
     let (memory_used, memory_of) = model::used_of(now.memory_used, memory_total);
     let (disk_used, disk_of) = model::used_of(now.disk_used, disk_total);
     let rows = [
@@ -647,18 +648,19 @@ fn resources(
             HostAlertKind::Cpu,
             "CPU",
             Icon::Activity,
-            format!(
-                "{} cores · {} in use",
-                about.cores,
-                model::cores_used(now.cpu, about.cores)
-            ),
+            format!("{cores_used} / {} cores", about.cores),
+            format!("{cores_idle} cores idle"),
             series(HostAlertKind::Cpu, &|sample| sample.cpu as f32 / 1000.),
         ),
         (
             HostAlertKind::Memory,
             "Memory",
             Icon::Stack,
-            format!("{memory_used} / {memory_of}{swap}"),
+            format!("{memory_used} / {memory_of}"),
+            match now.swap_used {
+                0 => "No swap".to_owned(),
+                swap => format!("{} GB swap", model::gb(swap)),
+            },
             series(HostAlertKind::Memory, &|sample| {
                 share_of(sample.memory_used, memory_total)
             }),
@@ -668,55 +670,95 @@ fn resources(
             "Disk",
             Icon::Database,
             format!("{disk_used} / {disk_of}"),
+            format!(
+                "{} free",
+                model::size(disk_total.saturating_sub(now.disk_used))
+            ),
             series(HostAlertKind::Disk, &|sample| {
                 share_of(sample.disk_used, disk_total)
             }),
         ),
     ];
-    let boxes: Vec<Div> = rows
-        .into_iter()
-        .enumerate()
-        .map(|(at, (kind, label, icon, sub, series))| {
-            let percent = host
-                .percent(kind)
-                .map_or_else(|| "—".to_owned(), |percent| format!("{percent:.0}%"));
-            let level = host
-                .level(kind)
-                .map(|level| crate::hosts::alert_tint(level, t));
+    let mut charts: Vec<Div> = Vec::new();
+    let mut gauges: Vec<Div> = Vec::new();
+    for (at, (kind, label, icon, amount, extra, series)) in rows.into_iter().enumerate() {
+        let share = host.percent(kind).map(|percent| percent / 100.);
+        let level = host
+            .level(kind)
+            .map(|level| crate::hosts::alert_tint(level, t));
+        gauges.push(
             div()
-                .px(SPACE_4)
-                .pt(SPACE_3H)
-                .pb(SPACE_3)
-                .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                .flex_1()
+                .min_w_0()
+                .px(SPACE_3H)
+                .pt(SPACE_3)
+                .pb(SPACE_3H)
+                .flex()
+                .flex_col()
+                .rounded(RADIUS_3)
+                .border_1()
+                .border_color(hair(t))
+                .bg(card(t))
                 .child(
                     div()
                         .flex()
                         .items_center()
-                        .gap(SPACE_2)
-                        .min_w_0()
-                        .child(
-                            div()
-                                .flex_none()
-                                .flex()
-                                .items_center()
-                                .gap(SPACE_1H)
-                                .child(ui::icon(icon, 12.).text_color(t.text_tertiary))
-                                .child(
-                                    ui::text(label, TEXT_XS, FontWeight::NORMAL)
-                                        .text_color(t.text_tertiary),
-                                ),
-                        )
-                        .child(ui::mono(sub, TEXT_2XS, cx).truncate().min_w_0())
-                        .child(
-                            ui::mono(percent, TEXT_XS, cx)
-                                .ml_auto()
-                                .flex_none()
-                                .text_color(level.unwrap_or(t.text_primary)),
-                        ),
+                        .gap(SPACE_1H)
+                        .child(ui::icon(icon, 12.).text_color(t.text_tertiary))
+                        .child(ui::caps(label, cx)),
                 )
                 .child(
-                    div().mt(SPACE_3).child(match open {
-                        true => match series.points.len() {
+                    ui::text(
+                        share.map_or_else(
+                            || "—".to_owned(),
+                            |share| format!("{:.0}%", share * 100.),
+                        ),
+                        TEXT_XL,
+                        FontWeight::MEDIUM,
+                    )
+                    .mt(SPACE_2)
+                    .letter_spacing(-0.02)
+                    .text_color(level.unwrap_or(t.text_primary)),
+                )
+                .child(div().mt(SPACE_2H).child(super::chart::ticks(
+                    share.unwrap_or(0.),
+                    level.unwrap_or(ink(t, 0.62)),
+                    ink(t, 0.1),
+                    7.,
+                )))
+                .child(
+                    ui::mono(amount, TEXT_2XS, cx)
+                        .mt(SPACE_2H)
+                        .truncate()
+                        .text_color(t.text_secondary),
+                )
+                .child(
+                    ui::mono(extra, TEXT_3XS_H, cx)
+                        .mt(SPACE_0)
+                        .truncate()
+                        .text_color(t.text_tertiary),
+                ),
+        );
+        if open {
+            charts.push(
+                div()
+                    .px(SPACE_4)
+                    .pt(SPACE_3H)
+                    .pb(SPACE_3)
+                    .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(SPACE_1H)
+                            .child(ui::icon(icon, 12.).text_color(t.text_tertiary))
+                            .child(
+                                ui::text(label, TEXT_XS, FontWeight::NORMAL)
+                                    .text_color(t.text_tertiary),
+                            ),
+                    )
+                    .child(
+                        div().mt(SPACE_3).child(match series.points.len() {
                             0 | 1 => div()
                                 .h(px(CHART_HEIGHT))
                                 .flex()
@@ -728,35 +770,24 @@ fn resources(
                                 )
                                 .into_any_element(),
                             _ => history(series, CHART_HEIGHT, t),
-                        },
-                        false => super::chart::ticks(
-                            host.percent(kind).map_or(0., |percent| percent / 100.),
-                            level.unwrap_or(ink(t, 0.62)),
-                            ink(t, 0.1),
-                            8.,
-                        )
-                        .into_any_element(),
+                        }),
+                    )
+                    .when(kind == HostAlertKind::Disk, |row| {
+                        row.child(axis(start, end, t, cx))
                     }),
-                )
-                .when(open && kind == HostAlertKind::Disk, |row| {
-                    row.child(axis(start, end, t, cx))
-                })
-                .when(kind == HostAlertKind::Disk, |row| {
-                    row.children(disk_parts(stats, t, cx))
-                })
-        })
-        .collect();
+            );
+        }
+    }
     let fold = div()
         .id("hosts-history-fold")
-        .px(SPACE_4)
-        .h(px(32.))
+        .mt(SPACE_2)
+        .h(px(24.))
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .border_t_1()
-        .border_color(hair(t))
         .cursor_pointer()
-        .hover(|row| row.bg(ink(t, 0.03)))
+        .text_color(t.text_tertiary)
+        .hover(|row| row.text_color(t.text_secondary))
         .on_click(cx.listener(|bench, _, _, cx| {
             bench.hosts_page.history_open = !bench.hosts_page.history_open;
             bench.parts.redraw_stage(cx);
@@ -770,28 +801,27 @@ fn resources(
                     ))
                 }),
         )
-        .child(ui::text("History", TEXT_XS, FontWeight::NORMAL).text_color(t.text_tertiary));
+        .child(ui::text("History", TEXT_XS, FontWeight::NORMAL))
+        .children(open.then(|| div().ml_auto().child(switch)));
     div()
         .flex()
         .flex_col()
-        .child(section(
-            Icon::Gauge,
-            "Resources",
-            None,
-            open.then(|| switch.into_any_element()),
-            t,
-            cx,
-        ))
-        .child(
-            div()
-                .rounded(RADIUS_3)
-                .border_1()
-                .border_color(hair(t))
-                .bg(card(t))
-                .overflow_hidden()
-                .children(boxes)
-                .child(fold),
-        )
+        .child(section(Icon::Gauge, "Resources", None, None, t, cx))
+        .child(div().flex().gap(SPACE_2H).children(gauges))
+        .child(fold)
+        .when(open, |section| {
+            section.child(
+                div()
+                    .mt(SPACE_2)
+                    .rounded(RADIUS_3)
+                    .border_1()
+                    .border_color(hair(t))
+                    .bg(card(t))
+                    .overflow_hidden()
+                    .children(charts),
+            )
+        })
+        .children(disk_parts(stats, t, cx))
 }
 
 fn span_ms(span: StatsSpan) -> u64 {
@@ -835,27 +865,36 @@ fn disk_parts(stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Opt
     }
     Some(
         div()
-            .mt(SPACE_2H)
             .flex()
             .flex_col()
-            .children(stats.disk_parts.iter().enumerate().map(|(at, part)| {
+            .child(section(Icon::Database, "Disk use", None, None, t, cx))
+            .child(
                 div()
-                    .h(px(32.))
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_3)
-                    .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
-                    .child(
-                        ui::text(part_words(part.kind), TEXT_XS, FontWeight::NORMAL)
-                            .flex_1()
-                            .truncate()
-                            .text_color(t.text_tertiary),
-                    )
-                    .child(
-                        ui::mono(model::size(part.bytes), TEXT_2XS_H, cx)
-                            .text_color(t.text_primary),
-                    )
-            })),
+                    .px(SPACE_4)
+                    .py(SPACE_1)
+                    .rounded(RADIUS_3)
+                    .border_1()
+                    .border_color(hair(t))
+                    .bg(card(t))
+                    .children(stats.disk_parts.iter().enumerate().map(|(at, part)| {
+                        div()
+                            .h(px(32.))
+                            .flex()
+                            .items_center()
+                            .gap(SPACE_3)
+                            .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                            .child(
+                                ui::text(part_words(part.kind), TEXT_SM, FontWeight::NORMAL)
+                                    .flex_1()
+                                    .truncate()
+                                    .text_color(t.text_tertiary),
+                            )
+                            .child(
+                                ui::mono(model::size(part.bytes), TEXT_XS, cx)
+                                    .text_color(t.text_primary),
+                            )
+                    })),
+            ),
     )
 }
 
@@ -1510,24 +1549,6 @@ fn about(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbenc
             "System",
             about.system.clone(),
             false,
-        )),
-        Some((
-            glyph(Icon::Activity, t),
-            "Cores",
-            about.cores.to_string(),
-            true,
-        )),
-        Some((
-            glyph(Icon::Stack, t),
-            "Memory",
-            model::size(about.memory_total),
-            true,
-        )),
-        Some((
-            glyph(Icon::Database, t),
-            "Disk",
-            model::size(about.disk_total),
-            true,
         )),
         about
             .gpu
