@@ -31,6 +31,9 @@ const MAX_HEIGHT: f32 = sikemux_core::pages::MAX_HEIGHT as f32;
 /// How long Open in tab stays after the pointer leaves the page, so it can be reached.
 const CHIP_LINGER: Duration = Duration::from_millis(400);
 const FADE_HEIGHT: f32 = 72.;
+/// On X11 a page is a window of its own, and anything drawn over it reshapes that window on
+/// every frame, which froze the app; there Open in tab sits under the page instead.
+const DRAWS_OVER_PAGES: bool = cfg!(target_os = "macos");
 const THUMB_SIZE: (f32, f32) = (60., 40.);
 /// How wide the picture a card shows is kept.
 const THUMB_KEPT_WIDTH: u32 = 240;
@@ -97,7 +100,7 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
     }
     let t = Tokens::get(cx);
     let cut = height > MAX_HEIGHT;
-    let chip = pointer.shows_chip().then(|| {
+    let chip = (DRAWS_OVER_PAGES && pointer.shows_chip()).then(|| {
         let reader = looks.reader.clone();
         let over_chip = pointer.over_chip.clone();
         deferred(
@@ -113,7 +116,7 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
                 .child(open_in_tab(page, looks, "page-chip", cx)),
         )
     });
-    let fade = cut.then(|| {
+    let fade = (DRAWS_OVER_PAGES && cut).then(|| {
         let ground = theme::page_ground(t);
         deferred(
             div()
@@ -139,9 +142,19 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
         }))
         .children(fade)
         .children(chip);
-    if !cut {
+    if DRAWS_OVER_PAGES && !cut {
         return drawn.into_any_element();
     }
+    let shows = cut.then(|| {
+        ui::meta(
+            format!(
+                "Showing {} of {} px",
+                ui::numbers::whole(f64::from(MAX_HEIGHT)),
+                ui::numbers::whole(f64::from(height))
+            ),
+            cx,
+        )
+    });
     div()
         .flex()
         .flex_col()
@@ -152,15 +165,8 @@ pub(super) fn page(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut 
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(ui::meta(
-                    format!(
-                        "Showing {} of {} px",
-                        ui::numbers::whole(f64::from(MAX_HEIGHT)),
-                        ui::numbers::whole(f64::from(height))
-                    ),
-                    cx,
-                ))
-                .child(open_in_tab(page, looks, "page-cut", cx)),
+                .children(shows)
+                .child(open_in_tab(page, looks, "page-under", cx)),
         )
         .into_any_element()
 }
@@ -293,6 +299,7 @@ fn fetch(page: &PageRef, looks: &Looks, window: &mut Window, cx: &mut App) {
                         }
                         reader.update(cx, |_, cx| cx.notify());
                     }
+                    PageEvent::Pointer(_) if !DRAWS_OVER_PAGES => {}
                     PageEvent::Pointer(over) => {
                         if let Some(shown) = cx.global::<Pages>().shown.get(&id) {
                             shown.pointer.over_page.set(over);
