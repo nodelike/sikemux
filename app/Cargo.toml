@@ -32,6 +32,7 @@ counts = ["gpui-transcript/counts"]
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
+qrcodegen = "1.8"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "bmp", "webp", "gif"] }
 jpeg-decoder = { version = "0.3", default-features = false }
 tempfile = "3"

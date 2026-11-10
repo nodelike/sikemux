@@ -41,6 +41,7 @@ icons!(
     Agent => "agent",
     Agents => "agents",
     ArrowDown => "arrow-down",
+    ArrowLeft => "arrow-left",
     ArrowUp => "arrow-up",
     Aws => "aws",
     BatteryBolt => "battery-bolt",

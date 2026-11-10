@@ -1,4 +1,4 @@
-//! The desk's iOS Simulator: the device an agent works on, live, which the
+//! The desk's devices, iOS simulators and Android emulators and phones: the one an agent works on, live, which the
 //! person can tap, scroll and type into too. The engine in `sikemux-simulator`
 //! drives devices; this window watches the screen and sends the person's input.
 
@@ -22,12 +22,13 @@ use gpui_kit::{
 use serde_json::{json, Map, Value};
 #[cfg(target_os = "macos")]
 use sikemux_process::sync::Locked;
-use sikemux_simulator::{tools, Host, SimulatorManager, WATCH_ENDED_EVENT};
+use sikemux_simulator::android::{install, is_android, is_phone};
+use sikemux_simulator::{tools, Host, SimulatorManager, ANDROID_SETUP_EVENT, WATCH_ENDED_EVENT};
 use tokio::sync::mpsc;
 
 use crate::icons::Icon;
 use crate::sim::frame::{self, Chrome, Rect};
-use crate::sim::screen::{Decoder, Picture, Turn};
+use crate::sim::screen::{Decoder, Picture, RgbFrames, Turn};
 use crate::theme::{SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, SPACE_4, TEXT_XS, TEXT_XS_H};
 use crate::ui::{self, IconButton};
 use crate::workbench::Workbench;
@@ -64,6 +65,14 @@ pub struct Simulators {
     acting: HashSet<String>,
     /// How far the helper's first download has come.
     pub progress: Option<f64>,
+    /// How many bytes setting up the Android Emulator would download, when it is not set up.
+    android_offer: Option<u64>,
+    /// Whether the offer was looked for already this run.
+    android_asked: bool,
+    /// The step setting up the Android Emulator is on, and how far it has come.
+    android_setup: Option<(String, f64)>,
+    /// A desk waiting to show a device by name once the device list next has it, as after setup or pairing.
+    showing_next: Option<(String, String)>,
     screens: HashMap<String, Screen>,
     /// Where a decoded frame says the screen should draw again.
     heard: mpsc::UnboundedSender<Heard>,
@@ -101,6 +110,9 @@ struct Screen {
     fresh: Arc<AtomicBool>,
 }
 
+/// What turns one streamed frame into the picture on screen.
+type Shows = Box<dyn FnMut(&[u8]) -> Result<(), String> + Send>;
+
 enum Input {
     Request(Map<String, Value>),
     Move(f32, f32),
@@ -111,6 +123,8 @@ enum Heard {
     Detached(String),
     Acting(String, bool),
     Progress(f64),
+    AndroidSetup(String, f64),
+    AndroidReady(Option<String>),
     Frame,
     Ended(u64),
 }
@@ -143,6 +157,13 @@ impl Host for WindowHost {
                 agent().map(|agent| Heard::Acting(agent, payload["acting"] == true))
             }
             sikemux_simulator::SIM_EVENT => payload["fraction"].as_f64().map(Heard::Progress),
+            ANDROID_SETUP_EVENT if payload["done"] == true => Some(Heard::AndroidReady(
+                payload["error"].as_str().map(str::to_owned),
+            )),
+            ANDROID_SETUP_EVENT => Some(Heard::AndroidSetup(
+                payload["step"].as_str().unwrap_or_default().to_owned(),
+                payload["fraction"].as_f64().unwrap_or(0.),
+            )),
             WATCH_ENDED_EVENT => payload["id"].as_u64().map(Heard::Ended),
             _ => None,
         };
@@ -178,6 +199,10 @@ impl Simulators {
             problem: None,
             acting: HashSet::new(),
             progress: None,
+            android_offer: None,
+            android_asked: false,
+            android_setup: None,
+            showing_next: None,
             screens: HashMap::new(),
             heard,
             _hearing: task,
@@ -244,6 +269,17 @@ impl Simulators {
         crate::desk::run(async move { engine.setup().await })
     }
 
+    /// What Settings shows about Android, as [`SimulatorManager::android_info`] reads it.
+    pub fn android_info(&self) -> impl std::future::Future<Output = Option<Value>> {
+        let engine = Arc::clone(&self.engine);
+        crate::desk::run(async move { engine.android_info().await })
+    }
+
+    /// The step setting up the Android Emulator is on and how far it has come, while it runs.
+    pub fn android_setup(&self) -> Option<&(String, f64)> {
+        self.android_setup.as_ref()
+    }
+
     /// Whether agents started from now on get the `sim_*` tools.
     pub fn offer_to_agents(&self, offered: bool) {
         self.engine.set_enabled(offered);
@@ -272,6 +308,25 @@ impl Simulators {
             }
             Heard::Progress(fraction) => {
                 self.progress = (fraction < 1.).then_some(fraction);
+            }
+            Heard::AndroidSetup(step, fraction) => {
+                self.android_setup = Some((step, fraction));
+            }
+            Heard::AndroidReady(error) => {
+                self.android_setup = None;
+                self.android_offer = None;
+                match error {
+                    Some(error) => {
+                        self.showing_next = None;
+                        cx.emit(SimNews::Failed(
+                            format!("The Android Emulator was not set up: {error}").into(),
+                        ));
+                    }
+                    None => {
+                        cx.emit(SimNews::AndroidReady);
+                        self.list_devices(cx);
+                    }
+                }
             }
             Heard::Frame => {
                 for screen in self.screens.values() {
@@ -322,6 +377,7 @@ impl Simulators {
                     .iter()
                     .find(|device| device.name.starts_with("iPhone"))
             })
+            .or_else(|| devices.iter().find(|device| is_android(&device.udid)))
             .cloned();
         if let Some(device) = pick {
             self.choose_device(agent, device, cx);
@@ -343,7 +399,25 @@ impl Simulators {
                 match answer {
                     Some(Ok(answer)) => {
                         sims.problem = None;
-                        sims.devices = Some(ios_devices(&answer));
+                        let devices = listed_devices(&answer);
+                        let android = devices.iter().any(|device| is_android(&device.udid));
+                        if let Some((agent, name)) = sims.showing_next.take() {
+                            let named = devices
+                                .iter()
+                                .find(|device| is_android(&device.udid) && device.name == name)
+                                .cloned();
+                            if let Some(device) = named {
+                                let off = !device.booted;
+                                sims.choose_device(&agent, device, cx);
+                                if off {
+                                    sims.boot_device(&agent, cx);
+                                }
+                            }
+                        }
+                        sims.devices = Some(devices);
+                        if !android {
+                            sims.look_for_android_offer(cx);
+                        }
                     }
                     Some(Err(error)) => sims.problem = Some(error.into()),
                     None => {}
@@ -352,6 +426,46 @@ impl Simulators {
             });
         })
         .detach();
+    }
+
+    /// Asks once a run what setting up the Android Emulator would download, for the device menu to offer it.
+    fn look_for_android_offer(&mut self, cx: &mut Context<Self>) {
+        if self.android_asked || self.android_setup.is_some() {
+            return;
+        }
+        self.android_asked = true;
+        let engine = Arc::clone(&self.engine);
+        cx.spawn(async move |sims, cx| {
+            let plan = crate::desk::run(async move { engine.android_plan().await }).await;
+            let _ = sims.update(cx, |sims, cx| {
+                sims.android_offer = match plan {
+                    Some(Ok(Some(plan))) => Some(plan.size()),
+                    _ => None,
+                };
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Sets up the Android Emulator, showing how far it has come on the agent's desk, then its new device.
+    pub(crate) fn set_up_android(&mut self, agent: Option<&str>, cx: &mut Context<Self>) {
+        if self.android_setup.is_some() {
+            return;
+        }
+        self.android_setup = Some(("Starting".into(), 0.));
+        self.showing_next = agent.map(|agent| (agent.to_owned(), install::DEVICE_NAME.to_owned()));
+        let engine = Arc::clone(&self.engine);
+        crate::desk::spawn(async move {
+            let _ = engine.set_up_android().await;
+        });
+        cx.notify();
+    }
+
+    /// Shows the Android device named `name` on the agent's desk once the device list has it.
+    pub(crate) fn show_when_listed(&mut self, agent: &str, name: &str, cx: &mut Context<Self>) {
+        self.showing_next = Some((agent.to_owned(), name.to_owned()));
+        self.list_devices(cx);
     }
 
     /// Shows `device` on the agent's desk. An agent that attached one moves to it; one that has
@@ -542,7 +656,35 @@ impl Simulators {
                 device.udid.clone(),
             );
             let (fresh, heard) = (Arc::clone(&fresh), self.heard.clone());
+            let android = is_android(&udid);
             crate::desk::spawn(async move {
+                if android {
+                    let mut show: Shows = if is_phone(&udid) {
+                        let mut decoder = Decoder::new(picture, turning);
+                        Box::new(move |frame| decoder.decode(frame))
+                    } else {
+                        let mut pixels = RgbFrames::new(picture);
+                        Box::new(move |frame| pixels.show(frame))
+                    };
+                    let started = engine.watch_android(udid, move |frame| {
+                        if let Err(error) = show(&frame) {
+                            eprintln!("sikemux: {error}");
+                        }
+                        if !fresh.swap(true, Ordering::SeqCst) {
+                            let _ = heard.send(Heard::Frame);
+                        }
+                        true
+                    });
+                    match started {
+                        Ok(id) => watch.store(id, Ordering::SeqCst),
+                        Err(error) => {
+                            eprintln!(
+                                "sikemux: the Android device's screen did not stream: {error}"
+                            )
+                        }
+                    }
+                    return;
+                }
                 let host = Arc::clone(engine.host());
                 let sim = engine.sim().clone();
                 let mut decoder = Decoder::new(picture, turning);
@@ -637,12 +779,19 @@ impl Simulators {
                 .unwrap_or_default()
                 .to_owned();
             let _ = sims.update(cx, |sims, cx| {
+                let upright = sims
+                    .attached
+                    .get(&agent)
+                    .is_some_and(|device| is_android(&device.udid));
                 if let Some(screen) = sims.screens.get_mut(&agent) {
                     screen.size =
                         Some(measured).filter(|(width, height)| *width > 0. && *height > 0.);
-                    screen
-                        .turn
-                        .store(frame::turn_degrees(&orientation), Ordering::Relaxed);
+                    let turn = if upright {
+                        0
+                    } else {
+                        frame::turn_degrees(&orientation)
+                    };
+                    screen.turn.store(turn, Ordering::Relaxed);
                     screen.orientation = orientation;
                 }
                 cx.notify();
@@ -887,6 +1036,8 @@ pub enum SimNews {
     Attached(String),
     /// A screenshot was saved to the Desktop.
     Shot,
+    /// The Android Emulator finished setting up.
+    AndroidReady,
     Failed(SharedString),
 }
 
@@ -903,6 +1054,10 @@ impl Workbench {
             SimNews::Attached(agent) => self.show_simulator(agent, cx),
             SimNews::Shot => {
                 self.notify(crate::toast::success("Screenshot saved to the Desktop"), cx)
+            }
+            SimNews::AndroidReady => {
+                crate::settings::devices_changed(self, cx);
+                self.notify(crate::toast::success("The Android Emulator is set up"), cx)
             }
             SimNews::Failed(error) => self.notify(crate::toast::error(error.clone()), cx),
         }
@@ -944,16 +1099,18 @@ impl Workbench {
     }
 }
 
-/// The iPhones and iPads in the helper's list, those running first.
-fn ios_devices(answer: &Value) -> Vec<Device> {
+/// The iPhones, iPads and Android devices listed, those running first.
+fn listed_devices(answer: &Value) -> Vec<Device> {
     let mut devices: Vec<Device> = answer["devices"]
         .as_array()
         .into_iter()
         .flatten()
         .filter(|device| {
-            device["runtime"]
-                .as_str()
-                .is_some_and(|runtime| runtime.starts_with("iOS") || runtime.starts_with("iPadOS"))
+            device["runtime"].as_str().is_some_and(|runtime| {
+                runtime.starts_with("iOS")
+                    || runtime.starts_with("iPadOS")
+                    || runtime.starts_with("Android")
+            })
         })
         .filter_map(|device| {
             Some(Device {
@@ -972,11 +1129,14 @@ enum Group {
     Running,
     IPhone,
     IPad,
+    Android,
 }
 
 fn device_group(device: &Device) -> Group {
     if device.booted {
         Group::Running
+    } else if is_android(&device.udid) {
+        Group::Android
     } else if device.name.starts_with("iPad") {
         Group::IPad
     } else {
@@ -1002,6 +1162,9 @@ pub fn picker(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
     };
     let (this, agent) = (bench.sims.downgrade(), agent.to_owned());
     let current = sims.attached.get(&agent).map(|device| device.udid.clone());
+    let offer = sims.android_offer.filter(|_| sims.android_setup.is_none());
+    let pairable = offer.is_none() && sims.engine.android().sdk().is_some();
+    let bench_entity = cx.entity();
     Some(
         trigger
             .dropdown_menu_with_anchor(
@@ -1016,6 +1179,7 @@ pub fn picker(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
                                 Group::Running => "Running",
                                 Group::IPhone => "iPhone",
                                 Group::IPad => "iPad",
+                                Group::Android => "Android",
                             });
                         }
                         let (this, agent, chosen) = (this.clone(), agent.clone(), device.clone());
@@ -1030,11 +1194,46 @@ pub fn picker(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Op
                                 }),
                         );
                     }
+                    if pairable {
+                        let (bench, agent) = (bench_entity.clone(), agent.clone());
+                        popup = popup.item(
+                            PopupMenuItem::new("Pair a phone over Wi-Fi…")
+                                .icon(Icon::Phone)
+                                .on_click(move |_, window, cx| {
+                                    bench.update(cx, |bench, cx| {
+                                        crate::sim::pair::open(
+                                            bench,
+                                            Some(agent.clone()),
+                                            window,
+                                            cx,
+                                        )
+                                    })
+                                }),
+                        );
+                    }
+                    if let Some(bytes) = offer {
+                        let (this, agent) = (this.clone(), agent.clone());
+                        popup = popup.label("Android").item(
+                            PopupMenuItem::new(format!(
+                                "Set up Android Emulator… {}",
+                                gigabytes(bytes)
+                            ))
+                            .icon(Icon::Phone)
+                            .on_click(move |_, _, cx| {
+                                let _ = this
+                                    .update(cx, |sims, cx| sims.set_up_android(Some(&agent), cx));
+                            }),
+                        );
+                    }
                     popup
                 }),
             )
             .into_any_element(),
     )
+}
+
+fn gigabytes(bytes: u64) -> String {
+    format!("{:.1} GB", bytes as f64 / 1e9)
 }
 
 /// Where a screenshot of `device` goes: the Desktop, named by the device and the time.
@@ -1077,6 +1276,10 @@ fn touch(udid: &str, phase: &str, x: f32, y: f32) -> Map<String, Value> {
 pub fn tools(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyElement {
     let sims = bench.sims.read(cx);
     let acting = sims.acting(agent) || !sims.live(agent);
+    let android = sims
+        .attached
+        .get(agent)
+        .is_some_and(|device| is_android(&device.udid));
     let button = |id: &'static str,
                   icon: Icon,
                   label: &'static str,
@@ -1098,6 +1301,16 @@ pub fn tools(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> Any
         .flex()
         .items_center()
         .gap(SPACE_0)
+        .when(android, |bar| {
+            bar.child(button(
+                "sim-back",
+                Icon::ArrowLeft,
+                "Back",
+                "button",
+                fields([("button", "back".into())]),
+                cx,
+            ))
+        })
         .child(button(
             "sim-home",
             Icon::HomeButton,
@@ -1183,16 +1396,35 @@ pub fn body(bench: &Workbench, agent: &str, cx: &mut Context<Workbench>) -> AnyE
         let percent = (fraction * 100.).round();
         return says(format!("Getting the simulator ready… {percent}%")).into_any_element();
     }
+    if let Some((step, fraction)) = &sims.android_setup {
+        let percent = (fraction * 100.).round();
+        return says(format!("Setting up the Android Emulator… {percent}%"))
+            .child(ui::text(step.clone(), TEXT_XS, FontWeight::NORMAL))
+            .into_any_element();
+    }
     let Some(device) = sims.attached.get(agent) else {
         let message = match (&sims.problem, &sims.devices) {
             (Some(problem), _) => problem.to_string(),
             (None, Some(devices)) if devices.is_empty() => {
-                "No iPhone or iPad simulators are installed. Add one in Xcode.".into()
+                "No simulators or Android devices yet. Add an iPhone in Xcode, or an Android device with the Android Emulator.".into()
             }
             _ => "Finding devices…".into(),
         };
         let failed = sims.problem.is_some();
+        let offer = sims.android_offer.filter(|_| !failed);
+        let setting_up = agent.to_owned();
         return says(message)
+            .when_some(offer, |column, bytes| {
+                column.child(
+                    Button::new("sim-set-up-android")
+                        .label(format!("Set up Android Emulator · {}", gigabytes(bytes)))
+                        .on_click(cx.listener(move |bench, _, _, cx| {
+                            bench
+                                .sims
+                                .update(cx, |sims, cx| sims.set_up_android(Some(&setting_up), cx))
+                        })),
+                )
+            })
             .when(failed, |column| {
                 column.child(Button::new("sim-list-again").label("Try again").on_click(
                     cx.listener(|bench, _, _, cx| {

@@ -19,3 +19,15 @@ impl Decoder {
         Err("the simulator's screen needs macOS".into())
     }
 }
+
+pub struct RgbFrames;
+
+impl RgbFrames {
+    pub fn new(_: Picture) -> Self {
+        Self
+    }
+
+    pub fn show(&mut self, _: &[u8]) -> Result<(), String> {
+        Err("the emulator's screen needs macOS".into())
+    }
+}

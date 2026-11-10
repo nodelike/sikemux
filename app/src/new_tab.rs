@@ -59,8 +59,8 @@ fn choices() -> [Choice; 10] {
         },
         Choice {
             command: actions::NewSimulator::ID,
-            label: "iOS Simulator",
-            detail: "Drive an iPhone on the agent's desk",
+            label: "Devices",
+            detail: "Drive an iPhone or an Android phone on the agent's desk",
             icon: Icon::Phone,
             in_project: true,
         },

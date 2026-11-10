@@ -2,6 +2,7 @@
 //! units after start codes, decoded by VideoToolbox into pictures GPUI draws
 //! with `surface`, on the GPU and without copying them. The helper always sends
 //! the screen upright, so a turned device's pictures are turned here, on the GPU too.
+//! An Android emulator sends whole pictures instead, which are converted to the same format.
 
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
@@ -127,6 +128,13 @@ extern "C" {
         destination: *mut c_void,
     ) -> OsStatus;
     fn VTPixelRotationSessionInvalidate(session: *mut c_void);
+    fn VTPixelTransferSessionCreate(allocator: *const c_void, out: *mut *mut c_void) -> OsStatus;
+    fn VTPixelTransferSessionTransferImage(
+        session: *mut c_void,
+        source: *mut c_void,
+        destination: *mut c_void,
+    ) -> OsStatus;
+    fn VTPixelTransferSessionInvalidate(session: *mut c_void);
     fn VTSessionSetProperty(
         session: *mut c_void,
         key: CFStringRef,
@@ -143,6 +151,18 @@ extern "C" {
     static kCVPixelBufferHeightKey: CFStringRef;
     fn CVPixelBufferGetWidth(buffer: *const c_void) -> usize;
     fn CVPixelBufferGetHeight(buffer: *const c_void) -> usize;
+    fn CVPixelBufferCreateWithBytes(
+        allocator: *const c_void,
+        width: usize,
+        height: usize,
+        format: u32,
+        base: *mut c_void,
+        bytes_per_row: usize,
+        release: *const c_void,
+        release_refcon: *mut c_void,
+        attributes: *const c_void,
+        out: *mut *mut c_void,
+    ) -> i32;
     fn CVPixelBufferPoolCreate(
         allocator: *const c_void,
         pool_attributes: *const c_void,
@@ -580,6 +600,115 @@ fn pool(size: (usize, usize)) -> Option<*mut c_void> {
         )
     };
     (status == 0 && !pool.is_null()).then_some(pool)
+}
+
+/// Pictures that arrive whole, three bytes a pixel, as an Android emulator streams its screen
+/// upright, copied into the format GPUI's surfaces draw.
+pub struct RgbFrames {
+    picture: Picture,
+    session: *mut c_void,
+    pool: Option<(usize, usize, *mut c_void)>,
+}
+
+// SAFETY: the session and pool are used by one thread at a time, as `RgbFrames` is moved, never shared.
+unsafe impl Send for RgbFrames {}
+
+const RGB: u32 = 24;
+
+impl RgbFrames {
+    pub fn new(picture: Picture) -> Self {
+        let mut session = ptr::null_mut();
+        // SAFETY: the session is made fresh and released once, in `drop`.
+        unsafe { VTPixelTransferSessionCreate(ptr::null(), &mut session) };
+        Self {
+            picture,
+            session,
+            pool: None,
+        }
+    }
+
+    /// Shows one picture: its width and height, little-endian, then its pixels.
+    pub fn show(&mut self, frame: &[u8]) -> Result<(), String> {
+        if self.session.is_null() {
+            return Err("the screen's pictures cannot be converted here".into());
+        }
+        let side = |at: usize| {
+            frame
+                .get(at..at + 4)
+                .map(|bytes| u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize)
+        };
+        let (Some(width), Some(height)) = (side(0), side(4)) else {
+            return Err("the screen's picture is cut short".into());
+        };
+        let pixels = &frame[8..];
+        if width == 0 || height == 0 || pixels.len() < width * height * 3 {
+            return Err("the screen's picture is cut short".into());
+        }
+        if self.pool.is_none_or(|(w, h, _)| (w, h) != (width, height)) {
+            self.release_pool();
+            let made = pool((width, height)).ok_or("no buffers for the screen's pictures")?;
+            self.pool = Some((width, height, made));
+        }
+        let (_, _, pool) = self.pool.ok_or("no buffers for the screen's pictures")?;
+        let mut source = ptr::null_mut();
+        let mut shown = ptr::null_mut();
+        // SAFETY: the source buffer borrows `pixels` only until it is released below, after a
+        // synchronous transfer; the shown buffer comes from this converter's live pool and is
+        // owned by the frame that takes it, or released when the transfer fails.
+        unsafe {
+            if CVPixelBufferCreateWithBytes(
+                ptr::null(),
+                width,
+                height,
+                RGB,
+                pixels.as_ptr().cast_mut().cast(),
+                width * 3,
+                ptr::null(),
+                ptr::null_mut(),
+                ptr::null(),
+                &mut source,
+            ) != 0
+                || source.is_null()
+            {
+                return Err("the screen's picture could not be wrapped".into());
+            }
+            let made = CVPixelBufferPoolCreatePixelBuffer(ptr::null(), pool, &mut shown);
+            if made != 0 || shown.is_null() {
+                CFRelease(source.cast_const());
+                return Err("no buffer for the screen's picture".into());
+            }
+            let status = VTPixelTransferSessionTransferImage(self.session, source, shown);
+            CFRelease(source.cast_const());
+            if status != 0 {
+                CFRelease(shown.cast_const());
+                return Err(format!(
+                    "the screen's picture could not be converted ({status})"
+                ));
+            }
+        }
+        *self.picture.locked() = NonNull::new(shown.cast::<CVPixelBuffer>()).map(Frame);
+        Ok(())
+    }
+
+    fn release_pool(&mut self) {
+        if let Some((_, _, pool)) = self.pool.take() {
+            // SAFETY: the pool was made by `pool` and is released once.
+            unsafe { CFRelease(pool.cast_const()) };
+        }
+    }
+}
+
+impl Drop for RgbFrames {
+    fn drop(&mut self) {
+        self.release_pool();
+        if !self.session.is_null() {
+            // SAFETY: made by `RgbFrames::new` and released once, here.
+            unsafe {
+                VTPixelTransferSessionInvalidate(self.session);
+                CFRelease(self.session.cast_const());
+            }
+        }
+    }
 }
 
 /// The units of one frame, each after a 00 00 01 or 00 00 00 01 start code.
