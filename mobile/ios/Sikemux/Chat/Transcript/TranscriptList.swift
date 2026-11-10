@@ -37,6 +37,9 @@ final class TranscriptActions {
     var tap: (ChatMessage) -> Void = { _ in }
     var retry: (String) -> Void = { _ in }
     var edit: (ChatMessage) -> Void = { _ in }
+    var cancelEdit: () -> Void = {}
+    /// Sends the person's message `row` again as these words.
+    var sendEdit: (String, String) -> Void = { _, _ in }
     var toggleWork: (String) -> Void = { _ in }
     var toggleRun: (String) -> Void = { _ in }
     var showRunEarlier: (String) -> Void = { _ in }
