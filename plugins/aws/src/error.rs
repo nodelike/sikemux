@@ -26,14 +26,12 @@ impl fmt::Display for AwsError {
                 formatter,
                 "The AWS CLI is not installed ({bin} is not on PATH). Ask the person to install it."
             ),
-            Self::TokenExpired(profile) => write!(
-                formatter,
-                "AWS sign-in expired for profile {profile}. Ask the person to sign in from Settings › Connectors in Sikemux; it needs their browser, so you cannot do it."
-            ),
-            Self::NoCredentials(profile) => write!(
-                formatter,
-                "Profile {profile} has no AWS credentials. Ask the person to sign in from Settings › Connectors in Sikemux, or to fix the profile."
-            ),
+            Self::TokenExpired(profile) => {
+                write!(formatter, "the sign-in for profile {profile} expired")
+            }
+            Self::NoCredentials(profile) => {
+                write!(formatter, "profile {profile} has no credentials")
+            }
             Self::NoProfiles => formatter.write_str(
                 "No AWS profile is set up. Ask the person to set one up in ~/.aws/config.",
             ),
@@ -89,9 +87,8 @@ impl From<AwsError> for PluginError {
             | AwsError::Io(_)
             | AwsError::Json(_)
             | AwsError::CliMissing(_)
-            | AwsError::TokenExpired(_)
-            | AwsError::NoCredentials(_)
             | AwsError::NoProfiles => FailureCategory::own("aws"),
+            AwsError::TokenExpired(_) | AwsError::NoCredentials(_) => FailureCategory::Auth,
             AwsError::NotFound(_) => FailureCategory::NotFound,
             AwsError::ChooseProfile(_) | AwsError::UnknownProfile(..) | AwsError::BadArg(_) => {
                 FailureCategory::BadParams
