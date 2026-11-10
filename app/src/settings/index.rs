@@ -140,8 +140,8 @@ impl Page {
             Notch => ("Notch", "The island over the MacBook notch", Icon::Laptop),
             Voice => ("Voice", "Dictation into agents and terminals", Icon::Mic),
             Simulator => (
-                "iOS Simulator",
-                "Letting agents drive the iOS Simulator",
+                "Simulators",
+                "Letting agents drive iOS simulators and Android devices",
                 Icon::Tap,
             ),
             Connectors => (
