@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState, type ReactNode } from 'react';
-import { Keyboard, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Keyboard, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Backdrop, BackdropContext, backdropUnderStack } from './Backdrop';
@@ -16,8 +16,8 @@ export function useBottomGap(): number {
 export function useKeyboardShown(): boolean {
   const [shown, setShown] = useState(Keyboard.isVisible());
   useEffect(() => {
-    const show = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', () => setShown(true));
-    const hide = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setShown(false));
+    const show = Keyboard.addListener('keyboardDidShow', () => setShown(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setShown(false));
     return () => {
       show.remove();
       hide.remove();

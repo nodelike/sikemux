@@ -49,13 +49,6 @@ const ndkTool = run('cargo', ['ndk', '--version'], rustupEnv);
 if (ndkTool) ok(ndkTool);
 else warn('cargo-ndk is missing (Android only): run `cargo install cargo-ndk`');
 
-console.log('\niOS');
-const xcode = run('xcodebuild', ['-version']);
-if (xcode) ok(xcode.split('\n')[0]);
-else fail('Xcode is missing, or xcode-select points at the Command Line Tools: run `sudo xcode-select -s /Applications/Xcode.app`');
-if (run('xcrun', ['simctl', 'help']) !== null) ok('xcrun simctl');
-else fail('xcrun simctl does not run');
-
 console.log('\nAndroid');
 const sdk = process.env.ANDROID_HOME ?? [join(homedir(), 'Library/Android/sdk')].find(existsSync);
 if (!sdk || !existsSync(sdk)) {
@@ -71,16 +64,13 @@ if (!sdk || !existsSync(sdk)) {
 
 console.log('\nBuilt');
 if (bindingsExist()) ok('native bindings in native/src');
-else warn(`no native bindings: run \`${buildCommand.ios}\``);
-for (const platform of ['ios', 'android']) {
-  const built = libraries(platform);
-  const record = readBuild(platform);
-  if (!built.length) {
-    warn(`no ${platform} library: run \`${buildCommand[platform]}\``);
-    continue;
-  }
-  const how = record ? `${record.profile} profile${record.simOnly ? ', simulator only' : ''}` : 'built outside pnpm native:*';
-  ok(`${platform} library, ${built.length} slice${built.length > 1 ? 's' : ''} (${how})`);
+else warn(`no native bindings: run \`${buildCommand.android}\``);
+const built = libraries('android');
+const record = readBuild('android');
+if (!built.length) warn(`no android library: run \`${buildCommand.android}\``);
+else {
+  const how = record ? `${record.profile} profile` : 'built outside pnpm native:*';
+  ok(`android library, ${built.length} slice${built.length > 1 ? 's' : ''} (${how})`);
 }
 
 process.exit(failed ? 1 : 0);

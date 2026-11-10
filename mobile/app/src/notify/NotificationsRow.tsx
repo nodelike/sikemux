@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Linking, Platform, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Switch, Text, View } from 'react-native';
 import { useAuth } from '@clerk/expo';
 
 import { Icon } from '@/ui/Icon';
@@ -37,9 +37,7 @@ export function NotificationsRow() {
         <Text style={styles.title}>Notifications</Text>
         {blocked ? (
           <Pressable onPress={() => void Linking.openSettings()} accessibilityRole="link" hitSlop={8}>
-            <Text style={[type.meta, styles.link]}>
-              {Platform.OS === 'ios' ? 'Allow them in Settings' : 'Allow them in Android settings'}
-            </Text>
+            <Text style={[type.meta, styles.link]}>Allow them in Android settings</Text>
           </Pressable>
         ) : null}
       </View>

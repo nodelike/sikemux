@@ -37,6 +37,5 @@ export const useReverification = <T,>(action: T) => action;
 export const useSSO = () => ({ startSSOFlow: async () => ({ createdSessionId: null }) });
 export const useSignIn = () => ({ isLoaded: true, signIn: null, setActive: async () => {} });
 export const useSignUp = () => ({ isLoaded: true, signUp: null, setActive: async () => {} });
-export const useSignInWithApple = () => ({ startAppleAuthenticationFlow: async () => ({ createdSessionId: null }) });
 export const useSignInWithGoogle = () => ({ startGoogleAuthenticationFlow: async () => ({ createdSessionId: null }) });
 export const resourceCache = undefined;

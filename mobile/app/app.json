@@ -7,16 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "sikemux",
     "userInterfaceStyle": "dark",
-    "ios": {
-      "bundleIdentifier": "com.nodelike.sikemux.mobile",
-      "appleTeamId": "D577WD6Z5U",
-      "supportsTablet": false,
-      "infoPlist": {
-        "NSLocalNetworkUsageDescription": "Sikemux reaches your hosts directly when they are on the same network.",
-        "ITSAppUsesNonExemptEncryption": false
-      },
-      "icon": "../../packaging/icons/sikemux.icon"
-    },
     "android": {
       "package": "com.nodelike.sikemux.mobile",
       "adaptiveIcon": {
@@ -35,39 +25,28 @@
     },
     "plugins": [
       "expo-router",
-      ["expo-secure-store", { "configureAndroidBackup": false }],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": false
+        }
+      ],
       "expo-web-browser",
       [
         "expo-image-picker",
         {
-          "photosPermission": "Sikemux shows your recent photos so you can attach them to a chat.",
-          "cameraPermission": "Sikemux uses the camera to take a photo you attach to a chat.",
           "microphonePermission": false
         }
       ],
-      [
-        "expo-media-library",
-        {
-          "photosPermission": "Sikemux shows your recent photos so you can attach them to a chat.",
-          "savePhotosPermission": false,
-          "granularPermissions": ["photo"],
-          "preventAutomaticLimitedAccessAlert": true
-        }
-      ],
       "@clerk/expo",
-      ["expo-local-authentication", { "faceIDPermission": "Sikemux asks for Face ID before it shows your hosts and chats." }],
+      "expo-local-authentication",
       "@clerk/expo-google-signin",
-      "expo-apple-authentication",
-      "./plugins/link-system-configuration",
       "./plugins/rustls-platform-verifier",
       "./plugins/small-apk",
       "./plugins/release-signing",
       "./plugins/notifications",
       "./plugins/stash",
       "./plugins/backup-rules",
-      "./plugins/scene-lifecycle",
-      "./plugins/photo-thumbnails",
-      "./plugins/spm-ids",
       [
         "expo-splash-screen",
         {

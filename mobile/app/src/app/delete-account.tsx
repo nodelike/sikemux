@@ -5,7 +5,6 @@ import { useAuth, useUser } from '@clerk/expo';
 import { CONFIRM_WORD, explain } from '@shared/account/account';
 
 import { deleteAccount } from '@/account/api';
-import { appleConsent } from '@/account/apple';
 import { ConfirmItsYou, ReverifyCancelled, useRecentSignIn } from '@/account/ConfirmItsYou';
 import { confirmed, deletion, START } from '@/account/deletion';
 import { signOutHere } from '@/account/leave';
@@ -34,13 +33,8 @@ export default function DeleteAccount() {
   const start = async () => {
     if (!confirmed(state) || state.phase.name !== 'confirm') return;
     dispatch({ type: 'delete' });
-    const apple = await appleConsent(user?.externalAccounts);
-    if (apple.cancelled) {
-      dispatch({ type: 'cancelled' });
-      return;
-    }
     try {
-      await recent.run(() => deleteAccount(() => getToken({ skipCache: true }), apple.code));
+      await recent.run(() => deleteAccount(() => getToken({ skipCache: true })));
     } catch (error) {
       if (error instanceof ReverifyCancelled) dispatch({ type: 'cancelled' });
       else dispatch({ type: 'failed', problem: explain(error) });

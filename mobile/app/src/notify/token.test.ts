@@ -12,7 +12,7 @@ const api = vi.hoisted(() => ({
 vi.mock('@/account/api', () => api);
 
 const native = vi.hoisted(() => ({
-  notifier: { setPhone: vi.fn(), removeAll: vi.fn(), apnsEnvironment: undefined as undefined | (() => 'sandbox' | 'production') },
+  notifier: { setPhone: vi.fn(), removeAll: vi.fn() },
 }));
 vi.mock('../../modules/notify', () => native);
 
@@ -30,7 +30,6 @@ describe('shouldSend', () => {
     expect(shouldSend(sent, { ...wanted, tokenSha256: 'other' }, 1_000)).toBe(true);
     expect(shouldSend(sent, { ...wanted, device: 'other' }, 1_000)).toBe(true);
     expect(shouldSend(sent, { ...wanted, app: 'dev' }, 1_000)).toBe(true);
-    expect(shouldSend(sent, { ...wanted, apnsEnvironment: 'sandbox' }, 1_000)).toBe(true);
   });
 
   it('leaves an unchanged token alone for thirty days, then sends it again', () => {
@@ -59,24 +58,6 @@ describe('syncPushToken', () => {
       app: 'dev',
     });
     expect(native.notifier.setPhone).toHaveBeenCalledWith('ab'.repeat(32));
-  });
-
-  it("sends an iPhone's token as Apple's, from the push server its build was signed for", async () => {
-    vi.spyOn(Notifications, 'getPermissionsAsync').mockResolvedValue({ granted: true } as never);
-    vi.spyOn(Notifications, 'getDevicePushTokenAsync').mockResolvedValue({ type: 'ios', data: 'apns-token' } as never);
-    native.notifier.apnsEnvironment = () => 'sandbox';
-    try {
-      await choose('on');
-      await syncPushToken(token);
-    } finally {
-      native.notifier.apnsEnvironment = undefined;
-    }
-    expect(api.setPushToken).toHaveBeenCalledWith(token, {
-      token: 'apns-token',
-      tokenSha256: expect.stringMatching(/^[0-9a-f]{64}$/),
-      app: 'dev',
-      apnsEnvironment: 'sandbox',
-    });
   });
 
   it('takes the token back once the system stops allowing notifications', async () => {

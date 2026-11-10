@@ -15,12 +15,9 @@
   "types": "./src/index.tsx",
   "react-native": "./src/index.tsx",
   "scripts": {
-    "ubrn:ios": "node scripts/ubrn.mjs build ios --and-generate",
-    "ubrn:ios:sim": "node scripts/ubrn.mjs build ios --and-generate --sim-only",
     "ubrn:android": "node scripts/ubrn.mjs build android --and-generate && node scripts/shrink-android-link.mjs",
-    "ubrn:ios:release": "node scripts/ubrn.mjs build ios --and-generate --profile mobile",
     "ubrn:android:release": "node scripts/ubrn.mjs build android --and-generate --profile mobile && node scripts/shrink-android-link.mjs",
-    "ubrn:clean": "rm -rf cpp/ ios/ android/ src/ build/ *.podspec *.xcframework",
+    "ubrn:clean": "rm -rf cpp/ android/ src/ build/",
     "typecheck": "node ../scripts/require-bindings.mjs && tsc"
   },
   "peerDependencies": {

@@ -2,7 +2,7 @@ import * as Application from 'expo-application';
 import * as Crypto from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
-import type { ApnsEnvironment, PushApp } from '@sikemux/protocol';
+import type { PushApp } from '@sikemux/protocol';
 
 import { notifier } from '../../modules/notify';
 import { clearPushToken, setPushToken, type TokenSource } from '@/account/api';
@@ -10,7 +10,7 @@ import { deviceIdentity } from '@/phone/identity';
 import { notificationsChoice } from './setting';
 
 /** What the server last took from this phone, so an unchanged token is not sent again. */
-type SentToken = { device: string; tokenSha256: string; app: PushApp; apnsEnvironment?: ApnsEnvironment; at: number };
+type SentToken = { device: string; tokenSha256: string; app: PushApp; at: number };
 
 const ITEM = 'sikemux.push-token';
 /** FCM tokens can go quiet without changing; sending one again now and then keeps the server's copy fresh. */
@@ -22,7 +22,6 @@ export function shouldSend(sent: SentToken | null, wanted: Omit<SentToken, 'at'>
     sent.device !== wanted.device ||
     sent.tokenSha256 !== wanted.tokenSha256 ||
     sent.app !== wanted.app ||
-    sent.apnsEnvironment !== wanted.apnsEnvironment ||
     now - sent.at > RESEND_MS
   );
 }
@@ -51,7 +50,6 @@ let syncing: Promise<void> | undefined;
 /**
  * Makes the server's copy of this phone's token match what the person chose and the system allows:
  * sends the token when it is new, changed or old, and takes it back when notifications are off.
- * Android's token is FCM's; an iPhone's is Apple's own, from the push server its build was signed for.
  */
 export function syncPushToken(token: TokenSource): Promise<void> {
   syncing ??= (async () => {
@@ -67,10 +65,9 @@ export function syncPushToken(token: TokenSource): Promise<void> {
     const { data } = await Notifications.getDevicePushTokenAsync();
     const pushToken = String(data);
     const tokenSha256 = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, pushToken);
-    const apnsEnvironment = notifier.apnsEnvironment?.();
-    const next = { device: device.id(), tokenSha256, app: pushApp(), ...(apnsEnvironment ? { apnsEnvironment } : {}) };
+    const next = { device: device.id(), tokenSha256, app: pushApp() };
     if (!shouldSend(sent, next, Date.now())) return;
-    await setPushToken(token, { token: pushToken, tokenSha256, app: next.app, ...(apnsEnvironment ? { apnsEnvironment } : {}) });
+    await setPushToken(token, { token: pushToken, tokenSha256, app: next.app });
     await SecureStore.setItemAsync(ITEM, JSON.stringify({ ...next, at: Date.now() }));
   })().finally(() => {
     syncing = undefined;

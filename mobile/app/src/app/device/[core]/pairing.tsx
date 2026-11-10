@@ -12,7 +12,6 @@ import { problem as problemOf } from '@/core/problem';
 import { connectionOf, useDevices, useLive } from '@/devices/hub';
 import { deviceName } from '@/devices/paired';
 import { counted } from '@/devices/words';
-import { useCardArrivals } from '@/notify/responses';
 import { haptics } from '@/ui/haptics';
 import { DeviceIcon, Icon } from '@/ui/Icon';
 import { Button, Chip, Track } from '@/ui/controls';
@@ -195,7 +194,6 @@ export default function HostPairing() {
   const [editing, setEditing] = useState<string>();
   const phone = useDeviceId();
   const hostName = device ? deviceName(device) : 'Host';
-  useCardArrivals(core, 'pairing', reread);
 
   const now = minute * 60_000;
   const pending = pairing?.pending.filter((request) => request.expiresAt > now) ?? [];

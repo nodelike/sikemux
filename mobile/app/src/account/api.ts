@@ -1,13 +1,4 @@
-import { Platform } from 'react-native';
-import type {
-  ApnsEnvironment,
-  Device,
-  DeviceRegistration,
-  JoinTicket,
-  PushApp,
-  PushTokenRegistration,
-  PushTokenState,
-} from '@sikemux/protocol';
+import type { Device, DeviceRegistration, JoinTicket, PushApp, PushTokenRegistration, PushTokenState } from '@sikemux/protocol';
 import { ApiProblem, connectApi } from '@shared/account/api';
 
 import { deviceIdentity } from '@/phone/identity';
@@ -53,7 +44,7 @@ async function addPhone(token: TokenSource, userId: string): Promise<Device> {
     key: device.id(),
     role: 'client',
     name: phoneName().slice(0, 64),
-    platform: Platform.OS === 'ios' ? 'ios' : 'android',
+    platform: 'android',
     nonce: challenge.nonce,
     signature: device.signRegistration(challenge.nonce, userId),
   };
@@ -71,15 +62,15 @@ export async function removePhone(token: TokenSource): Promise<void> {
   }
 }
 
-/** Sends this phone's notifications to its FCM or APNs token, proving the phone holds its key. */
+/** Sends this phone's notifications to its FCM token, proving the phone holds its key. */
 export async function setPushToken(
   token: TokenSource,
-  push: { token: string; tokenSha256: string; app: PushApp; apnsEnvironment?: ApnsEnvironment },
+  push: { token: string; tokenSha256: string; app: PushApp },
 ): Promise<PushTokenState> {
   const challenge = await api(token).createChallenge();
   const device = await deviceIdentity();
   const registration: PushTokenRegistration = {
-    ...(push.apnsEnvironment ? { platform: 'apns', apnsEnvironment: push.apnsEnvironment } : { platform: 'fcm' }),
+    platform: 'fcm',
     token: push.token,
     app: push.app,
     nonce: challenge.nonce,
@@ -119,7 +110,7 @@ export async function joinTicket(token: TokenSource, host: string): Promise<Join
   return api(token).createJoinTicket(device.id(), { host });
 }
 
-/** Deletes the account and every device on it, with Apple's code for the server to revoke when it signs in with Apple. */
-export async function deleteAccount(token: TokenSource, appleAuthorizationCode?: string) {
-  return api(token).deleteAccount(appleAuthorizationCode ? { appleAuthorizationCode } : undefined);
+/** Deletes the account and every device on it. */
+export async function deleteAccount(token: TokenSource) {
+  return api(token).deleteAccount();
 }

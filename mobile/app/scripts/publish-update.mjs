@@ -276,9 +276,9 @@ function rollBack(id) {
 
 function usage() {
   stop(
-    'usage: publish-update.mjs prepare <android|ios> <nightly|stable> <dir>\n' +
+    'usage: publish-update.mjs prepare android <nightly|stable> <dir>\n' +
       '       publish-update.mjs publish <dir> [--dry-run]\n' +
-      '       publish-update.mjs <android|ios> <nightly|stable> [--dry-run]\n' +
+      '       publish-update.mjs android <nightly|stable> [--dry-run]\n' +
       '       publish-update.mjs promote <update id>\n' +
       '       publish-update.mjs withdraw <update id>\n' +
       '       publish-update.mjs roll-back <update id>',

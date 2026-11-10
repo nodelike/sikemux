@@ -87,7 +87,7 @@ export async function answerFromCard(answer: CardAnswer): Promise<AnswerOutcome>
   }
 }
 
-/** Answers from a card's Allow or Reject: Android runs it without a screen, iOS once the button has opened the app. */
+/** Answers from a card's Allow or Reject, which Android runs without a screen. */
 export async function answerTask(data: CardAnswer) {
   const outcome = await answerFromCard(data);
   notifier?.settle(data.tag, outcome);

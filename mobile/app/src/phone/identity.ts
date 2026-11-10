@@ -3,11 +3,8 @@ import * as SecureStore from 'expo-secure-store';
 import { Device, DeviceIdentity, newDeviceKey, type DeviceLike } from '@sikemux/native';
 
 import { currentRelays, relaySettings, updateRequired } from '@/network/network';
-import { stashNative } from '../../modules/stash';
 
 const KEY_ITEM = 'sikemux.device-key';
-/** The key stays on this phone: a backup restored onto another must not make it the same device. */
-const KEY_OPTIONS = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
 
 function hex(bytes: ArrayBuffer): string {
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, '0')).join('');
@@ -19,21 +16,16 @@ function bytes(text: string): ArrayBuffer {
   return out.buffer;
 }
 
-/** This phone's key, made once and kept in the Keychain or Keystore. */
+/** This phone's key, made once and kept in the Keystore. */
 async function deviceKey(): Promise<ArrayBuffer> {
-  const stored = await SecureStore.getItemAsync(KEY_ITEM, KEY_OPTIONS);
+  const stored = await SecureStore.getItemAsync(KEY_ITEM);
   if (stored) {
     if (!/^[0-9a-f]{64}$/.test(stored)) throw new Error("This phone's key is damaged; reinstall the app to connect again.");
     return bytes(stored);
   }
   const key = newDeviceKey();
-  await SecureStore.setItemAsync(KEY_ITEM, hex(key), KEY_OPTIONS);
+  await SecureStore.setItemAsync(KEY_ITEM, hex(key));
   return key;
-}
-
-/** This phone's key in hex, for the share extension, which signs its requests to the accounts server with it. */
-export async function deviceKeyHex(): Promise<string> {
-  return hex(await deviceKey());
 }
 
 let identity: Promise<DeviceIdentity> | undefined;
@@ -91,8 +83,7 @@ export async function goOffline() {
  * that account must not follow the phone into another one.
  */
 export async function rotateDeviceKey(): Promise<void> {
-  await SecureStore.deleteItemAsync(KEY_ITEM, KEY_OPTIONS);
-  stashNative?.setDeviceKey?.(null);
+  await SecureStore.deleteItemAsync(KEY_ITEM);
   identity = undefined;
   await goOffline();
 }
