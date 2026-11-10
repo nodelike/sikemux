@@ -370,7 +370,7 @@ async fn read_run(repo: &Repo, id: &Value, job: Option<Value>) -> Result<(Failin
     let detail = timed(ASK_BUDGET, codehost::run(repo, id)).await?;
     let run = &detail["run"];
     match conclusion(run) {
-        None => return Err("that run has not finished; ask again once it has".into()),
+        None => return Err("that run has not finished; trigger_add with ci set to its address prompts you once it has, so end your turn rather than polling".into()),
         Some(found) if Conclusion::of(found) != Conclusion::Failed => {
             return Err(format!(
                 "that run ended {found}, not failed; name a failing run, or ci for the latest one"

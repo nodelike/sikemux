@@ -1,5 +1,5 @@
-//! Checks the CI of every code-host repository an Auto card, a project's check
-//! or a pushed branch waits on, once however many wait, and tells them all when
+//! Checks the CI of every code-host repository an Auto card, a project's check,
+//! a pushed branch or a CI trigger waits on, once however many wait, and tells them all when
 //! its runs move.
 
 use std::collections::hash_map::DefaultHasher;
@@ -8,7 +8,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sikemux_process::sync::Locked;
 
@@ -22,7 +22,7 @@ const IDLE: Duration = Duration::from_secs(20);
 const RUNS_CHECKED: u32 = 20;
 
 /// A repository on a code host, as the core names it.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Shown {
     #[serde(flatten)]
@@ -63,6 +63,7 @@ async fn serve(core: Arc<Core>) {
                 .into_iter()
                 .chain(crate::server::git::pending_pulls(&core))
                 .chain(core.checks.waiting_on_ci())
+                .chain(crate::server::triggers::waiting_on_ci(&core))
                 .collect();
             let mut state = core.ci.0.locked();
             if shown.is_empty() {
@@ -125,5 +126,6 @@ async fn check(core: &Arc<Core>, repo: Shown) {
         crate::server::board::ci_moved(core, &repo);
         crate::server::git::ci_moved(core, &repo);
         core.checks.ci_moved(&repo);
+        crate::server::triggers::ci_moved(core, &repo);
     }
 }

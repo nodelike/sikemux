@@ -25,6 +25,11 @@ use super::workspace::{Held, HeldChat};
 use super::Core;
 use crate::cli::protocol::HarnessRequest;
 
+mod check;
+mod ci;
+
+pub(crate) use ci::{ci_moved, waiting_on_ci};
+
 const FILE: &str = "triggers.json";
 const MAX_PER_AGENT: usize = 20;
 const MAX_PER_BOARD: usize = 20;
@@ -61,6 +66,12 @@ struct Trigger {
     /// The closed chat it waits for, to go on in whichever agent takes that chat up again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     paused: Option<HeldChat>,
+    /// The CI it fires once it ends; its `next_at` is only when it looks again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ci: Option<ci::CiWatch>,
+    /// The command whose output, when it changes, is what makes a repeating trigger fire.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    check: Option<check::Check>,
 }
 
 impl Trigger {
@@ -74,7 +85,7 @@ impl Trigger {
             id: self.id,
             title: self.title.clone(),
             when: self.when.clone(),
-            next_at: self.next_at,
+            next_at: self.next_at.filter(|_| self.ci.is_none()),
         }
     }
 }
@@ -214,10 +225,12 @@ impl Triggers {
     }
 
     /// Takes out the triggers whose time has come, moving repeating ones on
-    /// to their next time, and says when the next one left is due.
-    fn take_due(&self, now: u64) -> (Vec<Firing>, Option<u64>) {
+    /// to their next time, and says which triggers look at what they wait on
+    /// before firing and when the next one left is due.
+    fn take_due(&self, now: u64) -> (Vec<Firing>, Vec<u64>, Option<u64>) {
         let mut state = self.state.locked();
         let mut firing = Vec::new();
+        let mut looking = Vec::new();
         let mut changed = false;
         state.triggers.retain_mut(|trigger| {
             let Some(due) = trigger.next_at.filter(|due| *due <= now) else {
@@ -227,10 +240,17 @@ impl Triggers {
                 return true;
             }
             changed = true;
+            if trigger.ci.is_some() {
+                looking.push(trigger.id);
+                trigger.next_at = Some(now + ci::LOOK_AGAIN_MS);
+                return true;
+            }
             let late = now.saturating_sub(due) > LATE_GRACE_MS;
             let next = next_after(&trigger.when, due, now);
             let last = next.is_none();
-            if !late || last {
+            if trigger.check.is_some() {
+                looking.push(trigger.id);
+            } else if !late || last {
                 firing.push(Firing {
                     trigger: trigger.clone(),
                     late: late.then_some(Late::HostOff(due)),
@@ -250,7 +270,7 @@ impl Triggers {
             .filter(|trigger| trigger.paused.is_none())
             .filter_map(|trigger| trigger.next_at)
             .min();
-        (firing, next)
+        (firing, looking, next)
     }
 
     fn agents(&self) -> Vec<String> {
@@ -272,7 +292,7 @@ impl Triggers {
 /// only time.
 fn next_after(when: &TriggerWhen, due: u64, now: u64) -> Option<u64> {
     match when {
-        TriggerWhen::Once { .. } | TriggerWhen::Webhook { .. } => None,
+        TriggerWhen::Once { .. } | TriggerWhen::Webhook { .. } | TriggerWhen::Ci { .. } => None,
         TriggerWhen::Every { seconds } => {
             let step = seconds * 1000;
             let behind = now.saturating_sub(due) / step + 1;
@@ -344,6 +364,10 @@ pub(crate) fn resume(core: &Arc<Core>) {
             trigger.agent_id = holder.clone();
             trigger.paused = None;
             resumed.push(trigger.clone());
+            if trigger.ci.is_some() {
+                trigger.next_at = Some(now);
+                return true;
+            }
             let Some(due) = trigger.next_at.filter(|due| *due <= now) else {
                 return true;
             };
@@ -387,9 +411,12 @@ pub(crate) fn settle(core: &Arc<Core>) {
         });
         closed.iter().for_each(|trigger| unhook(core, trigger));
     }
-    let (firing, next) = core.triggers.take_due(epoch_ms());
+    let (firing, looking, next) = core.triggers.take_due(epoch_ms());
     if let Some(next) = next {
         core.triggers.wake.at(next);
+    }
+    for id in looking {
+        tokio::spawn(look(core.clone(), id));
     }
     for firing in &firing {
         show(core, &firing.trigger);
@@ -472,6 +499,19 @@ async fn fire(core: Arc<Core>, firing: Firing) {
     }
 }
 
+/// Has the trigger `id` look at what it waits on, and fire if that calls for it.
+async fn look(core: Arc<Core>, id: u64) {
+    let checks = {
+        let state = core.triggers.state.locked();
+        let trigger = state.triggers.iter().find(|trigger| trigger.id == id);
+        trigger.is_some_and(|trigger| trigger.check.is_some())
+    };
+    match checks {
+        true => check::look(core, id).await,
+        false => ci::look(core, id).await,
+    }
+}
+
 /// Tells the clients of the trigger's chat or board what triggers it has now, and every
 /// device's view when the chat's next one fires.
 fn show(core: &Core, trigger: &Trigger) {
@@ -496,7 +536,47 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         Some(_) => return Err("board must be a boolean".into()),
     };
     let now = epoch_ms();
+    let ci = match params.get("ci") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(on)) if !on.trim().is_empty() => {
+            if board.is_some()
+                || given(params, "webhook")
+                || TIMES.iter().any(|key| given(params, key))
+            {
+                return Err("A CI trigger prompts this chat once CI ends, so give it no time, webhook or board".into());
+            }
+            let (watch, shown) = ci::watch(core, &request.project, on.trim()).await?;
+            if let Some(said) = ci::ended(core, &watch).await? {
+                return Ok(
+                    json!({ "ended": said, "note": "It already ended, so no trigger was set." }),
+                );
+            }
+            Some((watch, shown))
+        }
+        Some(_) => return Err("ci must be a commit, a branch or a CI run's address or id".into()),
+    };
+    let check = match params.get("check") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(command)) if !command.trim().is_empty() => {
+            if !given(params, "every") && !given(params, "daily") {
+                return Err("A check runs each time a repeating trigger comes due, so give it every or daily".into());
+            }
+            Some(check::Check::first(command.trim().to_owned(), request.project.clone()).await?)
+        }
+        Some(_) => return Err("check must be a shell command".into()),
+    };
     let (rule, next_at, hook_id) = match params.get("webhook") {
+        _ if ci.is_some() => {
+            let shown = ci
+                .as_ref()
+                .map(|(_, shown)| shown.clone())
+                .unwrap_or_default();
+            (
+                TriggerWhen::Ci { on: shown },
+                Some(now + ci::LOOK_AGAIN_MS),
+                None,
+            )
+        }
         Some(Value::Bool(true)) => {
             if TIMES.iter().any(|key| given(params, key)) {
                 return Err("A webhook trigger fires on each request, so give it no time".into());
@@ -558,6 +638,8 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             next_at,
             hook_id: hook_id.clone(),
             paused: None,
+            ci: ci.map(|(watch, _)| watch),
+            check,
         };
         state.triggers.push(trigger.clone());
         Ok(trigger)
@@ -573,12 +655,21 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         }
     };
     show(core, &trigger);
+    if trigger.ci.is_some() {
+        super::codehost::ci::start(core);
+    }
     let what = match &trigger.board {
         Some(_) => "it adds a card to this project's board, titled as the trigger with its prompt as the details, which Auto carries when it is on. It stays after this chat closes.",
         None => "it sends this chat its prompt, as a message you read like any other.",
     };
     let mut answer = json!({ "trigger": trigger.id });
+    if let Some(check) = &trigger.check {
+        answer["check"] = check.said().into();
+    }
     match (&trigger.when, next_at) {
+        (TriggerWhen::Ci { on }, _) => {
+            answer["note"] = format!("Once CI on {on} ends, {what} It says how CI went, so end your turn now rather than waiting or polling.").into();
+        }
         (TriggerWhen::Webhook { url }, _) => {
             answer["url"] = url.clone().into();
             answer["note"] = format!("Each time something posts to url, {what} The request comes with it, marked as untrusted. Anyone with the url can fire it, so give it only to the service that needs it.").into();
@@ -586,7 +677,11 @@ pub(crate) async fn add(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         (_, Some(next)) => {
             answer["next"] = when(next).into();
             answer["nextAt"] = next.into();
-            answer["note"] = format!("When it fires, {what}").into();
+            answer["note"] = match &trigger.check {
+                Some(_) => format!("Each time it comes due its check runs, and only when the check says something other than the last time, {what} check holds what it says now."),
+                None => format!("When it fires, {what}"),
+            }
+            .into();
         }
         (_, None) => {}
     }
@@ -854,6 +949,9 @@ pub struct TriggerParams {
 
 impl super::part::Part for Triggers {
     fn start(&self, core: &Arc<Core>) -> Vec<tokio::task::JoinHandle<()>> {
+        if !waiting_on_ci(core).is_empty() {
+            super::codehost::ci::start(core);
+        }
         vec![super::part::on_wake(
             core,
             |core| &core.triggers.wake,
