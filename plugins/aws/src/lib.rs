@@ -8,6 +8,7 @@ mod agent;
 mod agent_profile;
 mod auth;
 mod common;
+mod cost;
 mod ec2;
 mod ecs;
 mod elb;

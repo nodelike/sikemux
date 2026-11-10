@@ -10,7 +10,10 @@
     "AWS_DEFAULT_REGION",
     "AWS_CA_BUNDLE"
   ],
-  "accountMethods": ["setDefaultAccount", "signIn"],
+  "accountMethods": [
+    "setDefaultAccount",
+    "signIn"
+  ],
   "tools": [
     {
       "name": "aws_profiles",
@@ -61,11 +64,12 @@
           "{cluster} {tasks} tasks",
           "{cluster}/{service}",
           "{cluster}",
+          "{service}",
           "clusters"
         ]
       },
       "method": "agentEcs",
-      "description": "ECS clusters; a cluster's services; a service's deployments and recent events; or tasks with health, image and why they stopped.",
+      "description": "ECS clusters; a cluster's services; a service's deployments and recent events; or tasks with health, image and why they stopped. A service without a cluster is looked for in every cluster.",
       "properties": {
         "profile": {
           "type": "string",
@@ -77,11 +81,11 @@
         },
         "cluster": {
           "type": "string",
-          "description": "Name or ARN; leave out to list clusters."
+          "description": "Name or ARN; leave out to list clusters, or to find service in all of them."
         },
         "service": {
           "type": "string",
-          "description": "Name; with no tasks, its deployments and events."
+          "description": "Name; with no tasks, its deployments and events. Without cluster, part of a name."
         },
         "tasks": {
           "type": "string",
@@ -268,11 +272,12 @@
         "icon": "window",
         "target": [
           "EC2 {name}",
+          "EC2 {state}",
           "EC2 instances"
         ]
       },
       "method": "agentEc2",
-      "description": "EC2 instances with name, state, type and addresses.",
+      "description": "EC2 instances with name, state, type, zone, VPC and addresses, at most 100.",
       "properties": {
         "profile": {
           "type": "string",
@@ -285,6 +290,92 @@
         "name": {
           "type": "string",
           "description": "Only instances whose name, id or IP contains this."
+        },
+        "state": {
+          "type": "string",
+          "description": "Like running or stopped."
+        },
+        "type": {
+          "type": "string",
+          "description": "Instance type, like t3.large."
+        },
+        "tag": {
+          "type": "string",
+          "description": "Key=Value, or a key alone."
+        },
+        "vpc": {
+          "type": "string",
+          "description": "VPC id."
+        }
+      }
+    },
+    {
+      "name": "aws_volumes",
+      "row": {
+        "verb": "list",
+        "kind": "read",
+        "icon": "folder",
+        "target": [
+          "volumes of {instance}",
+          "EBS {state} volumes",
+          "EBS volumes"
+        ]
+      },
+      "method": "agentVolumes",
+      "description": "EBS volumes, largest first, with size, type, state, IOPS and the instances they are attached to, at most 100.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Leave out for the default, or the only profile."
+        },
+        "region": {
+          "type": "string",
+          "description": "Leave out for the profile's region."
+        },
+        "instance": {
+          "type": "string",
+          "description": "Only those attached to this instance id."
+        },
+        "state": {
+          "type": "string",
+          "description": "Like available, for volumes attached to nothing, or in-use."
+        }
+      }
+    },
+    {
+      "name": "aws_cost",
+      "row": {
+        "verb": "cost",
+        "kind": "read",
+        "icon": "activity",
+        "target": [
+          "AWS cost of {service}",
+          "AWS cost by {groupBy}",
+          "AWS cost"
+        ]
+      },
+      "method": "agentCost",
+      "description": "What the account spent from Cost Explorer up to yesterday, per month or day, biggest groups first. Each call costs the account $0.01.",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "description": "Leave out for the default, or the only profile."
+        },
+        "days": {
+          "type": "integer",
+          "description": "How far back. Default 30, at most 365."
+        },
+        "daily": {
+          "type": "boolean",
+          "description": "Per day instead of per month."
+        },
+        "groupBy": {
+          "type": "string",
+          "description": "SERVICE (default), REGION, USAGE_TYPE, INSTANCE_TYPE, LINKED_ACCOUNT or another Cost Explorer dimension."
+        },
+        "service": {
+          "type": "string",
+          "description": "Only this service, named as a SERVICE grouping names it."
         }
       }
     }

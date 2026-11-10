@@ -11,9 +11,9 @@ use sikemux_plugin_api::{params, reply, PluginContext, PluginResult};
 use crate::auth;
 use crate::common::{aws_json, Target};
 use crate::error::AwsError;
-use crate::{ec2, ecs, elb, logs, metrics};
+use crate::{cost, ec2, ecs, elb, logs, metrics};
 
-const MAX_INSTANCES: usize = 100;
+const MAX_LISTED: usize = 100;
 
 #[derive(Deserialize)]
 struct Ecs {
@@ -36,6 +36,38 @@ struct Named {
     #[serde(flatten)]
     target: Target,
     name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Instances {
+    #[serde(flatten)]
+    target: Target,
+    name: Option<String>,
+    state: Option<String>,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    tag: Option<String>,
+    vpc: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct Volumes {
+    #[serde(flatten)]
+    target: Target,
+    instance: Option<String>,
+    state: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Cost {
+    #[serde(flatten)]
+    target: Target,
+    days: Option<i64>,
+    #[serde(default)]
+    daily: bool,
+    group_by: Option<String>,
+    service: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -86,6 +118,8 @@ pub(crate) async fn call(
         "agentLogs" => log_search(ctx, input).await,
         "agentMetrics" => metric_series(ctx, input).await,
         "agentEc2" => instances(ctx, input).await,
+        "agentVolumes" => volumes(ctx, input).await,
+        "agentCost" => spending(ctx, input).await,
         _ => return None,
     })
 }
@@ -127,6 +161,7 @@ async fn ecs_view(ctx: &PluginContext, input: Value) -> PluginResult<Value> {
     let target = auth::resolve(ctx, ask.target).await?;
     match (ask.cluster.as_deref(), ask.service.as_deref(), ask.tasks) {
         (None, None, None) => reply(ecs::clusters(&target).await?),
+        (None, Some(service), None) => reply(ecs::find_service(&target, service).await?),
         (None, ..) => Err(AwsError::BadArg("name the cluster too").into()),
         (Some(cluster), service, Some(state)) => {
             reply(ecs::tasks(&target, cluster, service, state == TaskState::Stopped).await?)
@@ -192,20 +227,73 @@ async fn metric_series(ctx: &PluginContext, input: Value) -> PluginResult<Value>
     )
 }
 
+/// The first `MAX_LISTED` of `found`, with a note when there were more.
+fn listed<T: serde::Serialize>(key: &str, mut found: Vec<T>) -> PluginResult<Value> {
+    let total = found.len();
+    found.truncate(MAX_LISTED);
+    reply(json!({
+        key: found,
+        "note": (total > MAX_LISTED)
+            .then(|| format!("{MAX_LISTED} of {total}; narrow them with the filters.")),
+    }))
+}
+
+fn tag_filter(tag: &str) -> (String, String) {
+    match tag.split_once('=') {
+        Some((key, value)) => (format!("tag:{key}"), value.to_owned()),
+        None => ("tag-key".to_owned(), tag.to_owned()),
+    }
+}
+
 async fn instances(ctx: &PluginContext, input: Value) -> PluginResult<Value> {
-    let ask: Named = params(input)?;
+    let ask: Instances = params(input)?;
     let target = auth::resolve(ctx, ask.target).await?;
+    let filters: ec2::Filters = [
+        ask.state
+            .map(|state| ("instance-state-name".to_owned(), state)),
+        ask.kind.map(|kind| ("instance-type".to_owned(), kind)),
+        ask.vpc.map(|vpc| ("vpc-id".to_owned(), vpc)),
+        ask.tag.as_deref().map(tag_filter),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     let wanted = ask.name.map(|name| name.to_lowercase());
-    let mut found: Vec<_> = ec2::instances(&target)
+    let found = ec2::instances(&target, &filters)
         .await?
         .into_iter()
         .filter(|instance| wanted.as_deref().is_none_or(|text| instance.matches(text)))
         .collect();
-    let total = found.len();
-    found.truncate(MAX_INSTANCES);
-    reply(json!({
-        "instances": found,
-        "note": (total > MAX_INSTANCES)
-            .then(|| format!("{MAX_INSTANCES} of {total} instances; pass name to narrow them.")),
-    }))
+    listed("instances", found)
+}
+
+async fn volumes(ctx: &PluginContext, input: Value) -> PluginResult<Value> {
+    let ask: Volumes = params(input)?;
+    let target = auth::resolve(ctx, ask.target).await?;
+    let filters: ec2::Filters = [
+        ask.instance
+            .map(|instance| ("attachment.instance-id".to_owned(), instance)),
+        ask.state.map(|state| ("status".to_owned(), state)),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    listed("volumes", ec2::volumes(&target, &filters).await?)
+}
+
+async fn spending(ctx: &PluginContext, input: Value) -> PluginResult<Value> {
+    let ask: Cost = params(input)?;
+    let target = auth::resolve(ctx, ask.target).await?;
+    reply(
+        cost::costs(
+            &target,
+            cost::CostQuery {
+                days: ask.days,
+                daily: ask.daily,
+                group_by: ask.group_by.as_deref(),
+                service: ask.service.as_deref(),
+            },
+        )
+        .await?,
+    )
 }
