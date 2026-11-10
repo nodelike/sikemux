@@ -37,7 +37,7 @@ final class ShareSession {
     private static let endedCode = 4410
     private static let overLimit = 4429
 
-    @ObservationIgnored private let link: ShareLink
+    @ObservationIgnored private let link: SharedChatLink
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
     @ObservationIgnored private var stopped = true
     @ObservationIgnored private var failures = 0
@@ -51,7 +51,7 @@ final class ShareSession {
     @ObservationIgnored private var asked = 0
     @ObservationIgnored private var answers: [Int: CheckedContinuation<ShareReply?, Never>] = [:]
 
-    init(link: ShareLink) {
+    init(link: SharedChatLink) {
         self.link = link
     }
 

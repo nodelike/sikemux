@@ -6,7 +6,7 @@ struct ShareScreen: View {
     let key: String?
 
     var body: some View {
-        if let link = ShareLink(id: id, key: key) {
+        if let link = SharedChatLink(id: id, key: key) {
             Watching(link: link).id(link.id)
         } else {
             Screen {
@@ -39,7 +39,7 @@ private struct Watching: View {
     @State private var scroll = TranscriptScroll()
     @State private var since = Date()
 
-    init(link: ShareLink) {
+    init(link: SharedChatLink) {
         let session = ShareSession(link: link)
         _session = State(initialValue: session)
         _context = State(initialValue: Self.context(session, provider: "agent"))
