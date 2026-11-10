@@ -92,7 +92,9 @@ export function Dock({
                 <Icon name="IconChevron" size={12} color={colors.secondary} />
               </View>
             </Pressable>
-            <Text style={styles.pageText} accessibilityLabel={`${pager.noun[0].toUpperCase()}${pager.noun.slice(1)} ${pager.index + 1} of ${pager.count}`}>
+            <Text
+              style={styles.pageText}
+              accessibilityLabel={`${pager.noun[0].toUpperCase()}${pager.noun.slice(1)} ${pager.index + 1} of ${pager.count}`}>
               {pager.index + 1} of {pager.count}
             </Text>
             <Pressable
@@ -114,8 +116,7 @@ export function Dock({
         </Text>
         {diff ? (
           <Text style={[styles.dockCmdText, { marginTop: 4 }]}>
-            <Text style={{ color: colors.gitAdded }}>+{diff.adds}</Text>{' '}
-            <Text style={{ color: colors.gitDeleted }}>−{diff.dels}</Text>
+            <Text style={{ color: colors.gitAdded }}>+{diff.adds}</Text> <Text style={{ color: colors.gitDeleted }}>−{diff.dels}</Text>
           </Text>
         ) : null}
       </ScrollView>

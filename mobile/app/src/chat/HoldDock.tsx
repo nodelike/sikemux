@@ -43,7 +43,15 @@ export function HoldDock({
       busy={answering.has(hold.id)}
       acts={[
         ...(hold.letGo
-          ? [{ key: 'always', label: `Always allow ${hold.letGo}${hold.letGoIn ? ` in ${hold.letGoIn}` : ''}`, go: true, wide: true, onPress: () => onAnswer(hold, 'letShipGo') }]
+          ? [
+              {
+                key: 'always',
+                label: `Always allow ${hold.letGo}${hold.letGoIn ? ` in ${hold.letGoIn}` : ''}`,
+                go: true,
+                wide: true,
+                onPress: () => onAnswer(hold, 'letShipGo'),
+              },
+            ]
           : []),
         { key: 'refuse', label: 'Refuse', quiet: true, onPress: () => onAnswer(hold, 'refuseShip') },
         { key: 'once', label: 'Allow once', go: !hold.letGo, onPress: () => onAnswer(hold, 'allowShip') },

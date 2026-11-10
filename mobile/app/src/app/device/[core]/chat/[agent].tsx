@@ -460,9 +460,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   onSent={scroll.toEnd}
                   attachments={chat.attachments}
                   chips={chat.chips}
-                  held={
-                    holds.length && !watchOnly ? <HoldDock items={holds} answering={holding} onAnswer={answerHold} /> : null
-                  }
+                  held={holds.length && !watchOnly ? <HoldDock items={holds} answering={holding} onAnswer={answerHold} /> : null}
                   strip={strip}
                   onRecent={recalls ? openRecent : undefined}
                   inputRef={input}
