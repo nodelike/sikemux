@@ -1430,7 +1430,20 @@ fn top(
                             .text_color(t.text_primary)
                     }))
                     .child(div().flex_1())
-                    .child(using(Some(process.cpu), Some(process.memory), false, t, cx))
+                    .child(
+                        ui::mono(format!("{} GB", model::gb(process.memory)), TEXT_3XS_H, cx)
+                            .flex_none()
+                            .w(px(56.))
+                            .text_right()
+                            .text_color(t.text_tertiary),
+                    )
+                    .child(
+                        ui::mono(model::percent(process.cpu), TEXT_XS, cx)
+                            .flex_none()
+                            .w(px(40.))
+                            .text_right()
+                            .text_color(t.text_primary),
+                    )
             })),
         )
     })
