@@ -872,6 +872,7 @@ async fn usages_read(core: &Arc<Core>, ask: bool) -> Vec<AccountUsage> {
                     Ok(program) => usage::usage(&account.provider, &program, config_path).await,
                     Err(error) => Err(error.to_string()),
                 };
+                note_sign_in(core, &account.provider, config_path, &lookup);
                 lookup.err()
             }
         };
@@ -890,6 +891,27 @@ async fn usages_read(core: &Arc<Core>, ask: bool) -> Vec<AccountUsage> {
     }
     mark_next(core, &mut found);
     found
+}
+
+/// Tells the launchers what a plan lookup showed of the account's sign-in, which nothing else
+/// asks for an agent the person added no accounts to.
+fn note_sign_in(
+    core: &Arc<Core>,
+    provider: &str,
+    config_path: Option<&str>,
+    lookup: &Result<usage::Usage, String>,
+) {
+    let was_out = status::cached(provider, config_path) == Some(status::AgentStatus::SignedOut);
+    match lookup {
+        Err(error) if error == usage::SIGNED_OUT && !was_out => {
+            signed_out(core, provider, config_path)
+        }
+        Ok(_) if was_out => {
+            status::forget(Some(provider), config_path);
+            tokio::spawn(refresh_launchers(core.clone()));
+        }
+        _ => {}
+    }
 }
 
 /// Marks the account each agent's next new chat goes to, and the one the person pinned.

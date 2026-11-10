@@ -126,6 +126,8 @@ impl Usage {
 pub(crate) const USAGE_TTL: Duration = Duration::from_secs(120);
 const FAILED_TTL: Duration = Duration::from_secs(60);
 const REFUSED_TTL: Duration = Duration::from_secs(600);
+/// What a lookup fails with when the agent says its account is signed out.
+pub(crate) const SIGNED_OUT: &str = "Not signed in";
 
 type Lookup = Result<Usage, String>;
 /// When a lookup was kept, for how long, and what it answered.
@@ -680,7 +682,11 @@ pub(crate) async fn codex_ask(
             if response_id != Some(CODEX_USAGE_REQUEST_ID) {
                 continue;
             }
-            if value.get("error").is_some() {
+            if let Some(error) = value.get("error") {
+                let message = error.get("message").and_then(Value::as_str);
+                if message.is_some_and(|message| message.contains("authentication required")) {
+                    return Err(SIGNED_OUT.to_owned());
+                }
                 return Err(format!("Codex rejected the {topic} lookup"));
             }
             return value
