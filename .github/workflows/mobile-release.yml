@@ -346,6 +346,10 @@ jobs:
           sudo xcode-select -s "$xcode"
           xcodebuild -version | head -n 1 >>"$GITHUB_STEP_SUMMARY"
 
+      # Xcode leaves out the compiler for the app's Metal shaders until asked for it.
+      - name: Install the Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain
+
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
