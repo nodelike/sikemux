@@ -160,7 +160,9 @@ pub(crate) fn fill(core: &Core, caller: &str, context: &mut Vec<ChatContext>) {
 }
 
 fn note(core: &Core, caller: &str, id: &str) -> Option<String> {
-    let mate = core.workspaces.agent(id)?;
+    let Some(mate) = core.workspaces.agent(id) else {
+        return note_elsewhere(core, id);
+    };
     let name = core.names.name(id)?;
     let elsewhere = core
         .workspaces
@@ -189,6 +191,26 @@ fn note(core: &Core, caller: &str, id: &str) -> Option<String> {
         "To read what it said, call agent_read with agent \"{to}\"."
     ));
     Some(lines.join("\n"))
+}
+
+/// The note for a teammate on a linked host, which messages and reads reach by its name and
+/// that host's.
+fn note_elsewhere(core: &Core, id: &str) -> Option<String> {
+    let mate = core.hosts.team.get(id)?;
+    let host = crate::server::hosts::name_of(core, &mate.host);
+    let to = format!("{} on {host}", mate.name);
+    let cli = crate::agent_catalog::agent(&mate.cli).map_or(mate.cli.as_str(), |entry| entry.label);
+    Some(
+        [
+            format!("@{to} is an agent of your team on another host, {host}, not the person."),
+            format!("Agent id: {id}"),
+            format!("CLI: {cli}"),
+            format!("Status: {}", display::status_label(mate.status)),
+            format!("To message it, call agent_send with to \"{to}\"."),
+            format!("To read what it said, call agent_read with agent \"{to}\"."),
+        ]
+        .join("\n"),
+    )
 }
 
 /// The word every client shows beside the agent, or Asleep while it is not running.

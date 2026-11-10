@@ -160,13 +160,17 @@ pub(crate) fn ghost(label: SharedString, cx: &mut App) -> Entity<Ghost> {
     cx.new(|_| Ghost { label })
 }
 
-/// A row of the agent rail that drags out as its chat. The ghost it trails is kept, so a
-/// composer can say whose chat it would take while the drag lasts.
+/// A row of the agent rail that drags out as its chat, when it names an agent this host's core
+/// can reach or a chat saved here. The ghost it trails is kept, so a composer can say whose chat
+/// it would take while the drag lasts.
 pub fn chat(
     row: Stateful<Div>,
     dragged: DraggedChat,
     this: WeakEntity<Workbench>,
 ) -> Stateful<Div> {
+    if dragged.agent.is_none() && dragged.recent.is_none() {
+        return row;
+    }
     row.on_drag(dragged, move |dragged: &DraggedChat, _, _, cx| {
         let ghost = ghost(dragged.label.clone(), cx);
         let (held, dragged) = (ghost.downgrade(), dragged.clone());

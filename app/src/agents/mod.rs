@@ -931,8 +931,17 @@ fn remote_row(worker: &RemoteAgent, cx: &mut Context<Workbench>) -> AnyElement {
     } else {
         format!("{host} is out of reach")
     };
-    div()
-        .id(SharedString::from(format!("remote-{}", worker.agent_id)))
+    let dragged = crate::drag::DraggedChat {
+        agent: Some((
+            worker.agent_id.clone(),
+            format!("{} on {host}", worker.name),
+        )),
+        recent: None,
+        pinned: false,
+        label: worker.name.clone().into(),
+    };
+    let wrap = div().id(SharedString::from(format!("remote-{}", worker.agent_id)));
+    crate::drag::chat(wrap, dragged, cx.weak_entity())
         .relative()
         .pl(px(18.))
         .tooltip(ui::tooltip(tip))
@@ -1115,8 +1124,10 @@ fn agent_row(
         });
     let chat = bench.chat_of(&agent.id);
     let dragged = crate::drag::DraggedChat {
-        agent: agent.name.clone().map(|name| (agent.id.clone(), name)),
-        recent: chat.map(|chat| chat.id.clone()),
+        agent: (agent.name.clone())
+            .filter(|_| !elsewhere)
+            .map(|name| (agent.id.clone(), name)),
+        recent: chat.filter(|_| !elsewhere).map(|chat| chat.id.clone()),
         pinned: chat.is_some_and(|chat| chat.pinned),
         label: agent.title.clone().into(),
     };
