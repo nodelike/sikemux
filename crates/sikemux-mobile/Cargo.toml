@@ -39,3 +39,12 @@ rustls-platform-verifier = "0.7"
 paranoid-android = "0.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["registry"] }
+
+[features]
+# Only for building the Swift bindings on the Mac; the phone never links it.
+bindgen = ["uniffi/cli"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "bindgen/main.rs"
+required-features = ["bindgen"]

@@ -1,0 +1,140 @@
+name: Sikemux
+options:
+  bundleIdPrefix: com.nodelike.sikemux
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  developmentLanguage: en
+configs:
+  Debug: debug
+  Release: release
+settings:
+  base:
+    DEVELOPMENT_TEAM: D577WD6Z5U
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    TARGETED_DEVICE_FAMILY: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: true
+    MARKETING_VERSION: 0.2.0
+    CURRENT_PROJECT_VERSION: "1"
+  configs:
+    Debug:
+      SIKEMUX_VARIANT: dev
+      SIKEMUX_BUNDLE_ID: com.nodelike.sikemux.mobile.dev
+      SIKEMUX_DISPLAY_NAME: Sikemux Dev
+      SIKEMUX_URL_SCHEME: sikemux-dev
+    Release:
+      SIKEMUX_VARIANT: production
+      SIKEMUX_BUNDLE_ID: com.nodelike.sikemux.mobile
+      SIKEMUX_DISPLAY_NAME: Sikemux
+      SIKEMUX_URL_SCHEME: sikemux
+      SWIFT_OPTIMIZATION_LEVEL: -Osize
+      DEAD_CODE_STRIPPING: true
+      STRIP_INSTALLED_PRODUCT: true
+      DEBUG_INFORMATION_FORMAT: dwarf-with-dsym
+
+targets:
+  SikemuxCore:
+    type: framework
+    platform: iOS
+    sources:
+      - path: build/bindings/sikemux_mobile.swift
+    dependencies:
+      - framework: build/SikemuxCore.xcframework
+        embed: false
+    settings:
+      base:
+        MACH_O_TYPE: staticlib
+        PRODUCT_BUNDLE_IDENTIFIER: com.nodelike.sikemux.core
+        GENERATE_INFOPLIST_FILE: true
+        SKIP_INSTALL: true
+        SWIFT_STRICT_CONCURRENCY: minimal
+        SWIFT_VERSION: "5.0"
+
+  Sikemux:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sikemux
+        excludes:
+          - Resources/Info.plist
+          - Resources/Sikemux.entitlements
+      - path: ../../packaging/icons/sikemux.icon
+        buildPhase: resources
+      - path: ../../server/protocol/src/release.json
+        group: Sikemux/Resources
+        buildPhase: resources
+      - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
+        group: Sikemux/UI/Notch
+      - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift
+        group: Sikemux/UI/Notch
+      - path: ../../helpers/notch/Fonts/Figtree_400Regular.ttf
+        group: Sikemux/Resources/Fonts
+        buildPhase: resources
+      - path: ../../helpers/notch/Fonts/Figtree_500Medium.ttf
+        group: Sikemux/Resources/Fonts
+        buildPhase: resources
+      - path: ../../helpers/notch/Fonts/Figtree_600SemiBold.ttf
+        group: Sikemux/Resources/Fonts
+        buildPhase: resources
+      - path: ../../shared/fonts/Figtree_400Regular_Italic.ttf
+        group: Sikemux/Resources/Fonts
+        buildPhase: resources
+      - path: ../../shared/fonts/JetBrainsMono_400Regular.ttf
+        group: Sikemux/Resources/Fonts
+        buildPhase: resources
+    dependencies:
+      - target: SikemuxCore
+      - sdk: SystemConfiguration.framework
+    info:
+      path: Sikemux/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: $(SIKEMUX_DISPLAY_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        SikemuxVariant: $(SIKEMUX_VARIANT)
+        LSRequiresIPhoneOS: true
+        ITSAppUsesNonExemptEncryption: false
+        NSLocalNetworkUsageDescription: Sikemux reaches your hosts directly when they are on the same network.
+        UIUserInterfaceStyle: Dark
+        UIStatusBarStyle: UIStatusBarStyleLightContent
+        UIViewControllerBasedStatusBarAppearance: false
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UILaunchScreen:
+          UIColorName: Ground
+        UIAppFonts:
+          - Figtree_400Regular.ttf
+          - Figtree_400Regular_Italic.ttf
+          - Figtree_500Medium.ttf
+          - Figtree_600SemiBold.ttf
+          - JetBrainsMono_400Regular.ttf
+        CFBundleURLTypes:
+          - CFBundleURLName: $(SIKEMUX_BUNDLE_ID)
+            CFBundleURLSchemes: [$(SIKEMUX_URL_SCHEME)]
+    entitlements:
+      path: Sikemux/Resources/Sikemux.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID)]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SIKEMUX_BUNDLE_ID)
+        PRODUCT_NAME: Sikemux
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: Accent
+      configs:
+        Debug:
+          ASSETCATALOG_COMPILER_APPICON_NAME: dev
+          EXCLUDED_SOURCE_FILE_NAMES: sikemux.icon
+        Release:
+          ASSETCATALOG_COMPILER_APPICON_NAME: sikemux
+          EXCLUDED_SOURCE_FILE_NAMES: dev.icon
+
+schemes:
+  Sikemux:
+    build:
+      targets:
+        Sikemux: all
+    run:
+      config: Debug
+    archive:
+      config: Release

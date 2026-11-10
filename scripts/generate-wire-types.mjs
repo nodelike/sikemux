@@ -100,6 +100,7 @@ const URIS = ["AGENT_URI", "EARLIER_URI", "STASH_URI", "CHAT_DRAFT"];
 
 const OUTPUTS = {
   ts: "shared/wire.generated.ts",
+  phone: "mobile/ios/Sikemux/Core/Wire.generated.swift",
   notch: "helpers/notch/Sources/NotchKit/Wire.generated.swift",
   cardSwift: "mobile/app/modules/notify/ios/Shared/Card.generated.swift",
   cardKotlin:
@@ -270,25 +271,26 @@ const texts = await Promise.all(
 );
 const sources = SOURCES.map((file, index) => items(file, texts[index]));
 
-const limits = (
-  await Promise.all(
-    LIMITS.map(async ([file, name]) => {
-      const text = await readFile(resolve(root, file), "utf8");
-      const value = new RegExp(
-        `^(?:pub )?const ${name}: (?:usize|u32|f64) = ([\\d_. *]+);$`,
-        "m",
-      ).exec(text)?.[1];
-      if (!value) fail(`${file} has no number constant ${name}`);
-      const product = value
-        .split("*")
-        .reduce(
-          (total, part) => total * Number(part.trim().replaceAll("_", "")),
-          1,
-        );
-      return `export const ${name} = ${product};`;
-    }),
-  )
-).join("\n");
+const limitValues = await Promise.all(
+  LIMITS.map(async ([file, name]) => {
+    const text = await readFile(resolve(root, file), "utf8");
+    const value = new RegExp(
+      `^(?:pub )?const ${name}: (?:usize|u32|f64) = ([\\d_. *]+);$`,
+      "m",
+    ).exec(text)?.[1];
+    if (!value) fail(`${file} has no number constant ${name}`);
+    const product = value
+      .split("*")
+      .reduce(
+        (total, part) => total * Number(part.trim().replaceAll("_", "")),
+        1,
+      );
+    return [name, product];
+  }),
+);
+const limits = limitValues
+  .map(([name, product]) => `export const ${name} = ${product};`)
+  .join("\n");
 
 const importsOf = new Map();
 
@@ -368,7 +370,8 @@ function byClientName(name) {
   return found[0];
 }
 
-async function uris() {
+/** Each of URIS with its value, as the Rust writes the string. */
+async function uriValues() {
   const text = await readFile(resolve(root, `${VIEW}/chat.rs`), "utf8");
   return URIS.map((name) => {
     const value = new RegExp(
@@ -376,18 +379,28 @@ async function uris() {
       "m",
     ).exec(text)?.[1];
     if (!value) fail(`${VIEW}/chat.rs has no text constant ${name}`);
-    return `export const ${name} = ${value};`;
-  }).join("\n");
+    return [name, value];
+  });
 }
 
-/** The bare names a project spells out in full, which are files without an extension. */
-async function extensionless() {
+async function uris() {
+  return (await uriValues())
+    .map(([name, value]) => `export const ${name} = ${value};`)
+    .join("\n");
+}
+
+/** The bare names a project spells out in full, which are files without an extension, as the Rust lists them. */
+async function extensionlessNames() {
   const text = await readFile(resolve(root, `${MARKDOWN}/paths.rs`), "utf8");
   const names = /pub const EXTENSIONLESS: \[&str; \d+\] = \[([^\]]*)\]/.exec(
     text,
   )?.[1];
   if (!names) fail(`${MARKDOWN}/paths.rs has no EXTENSIONLESS`);
-  return `export const EXTENSIONLESS: readonly string[] = [${names}];`;
+  return names;
+}
+
+async function extensionless() {
+  return `export const EXTENSIONLESS: readonly string[] = [${await extensionlessNames()}];`;
 }
 
 const PRIMITIVES = {
@@ -590,11 +603,18 @@ function parse(item, wanted) {
       kind: "untagged",
       variants: splitTop(item.body.slice(1, -1)).map((member) => {
         const { docs, rest } = readMember(member);
+        const variantName = /^\w+/.exec(rest)?.[0];
         const held = /^\w+\s*\((.*)\)$/s.exec(rest);
-        if (held) return { docs, type: parseType(held[1], item.file) };
+        if (held)
+          return {
+            name: variantName,
+            docs,
+            type: parseType(held[1], item.file),
+          };
         const fields = /^\w+\s*(\{[\s\S]*\})$/.exec(rest);
         if (!fields) fail(`${where}::${rest} holds nothing to tell it apart`);
         return {
+          name: variantName,
           docs,
           fields: parseFields(fields[1], item.file, undefined, where),
         };
@@ -1197,6 +1217,570 @@ ${declarations.map(declare).join("\n\n")}
 `;
 }
 
+/**
+ * Names Apple's frameworks, the app's own code and its Rust bridge (`SikemuxCore`) give their types, which a wire
+ * type of the same name would hide in the app.
+ */
+const APPLE_NAMES = new Set(
+  "Palette Theme Radius Screen Nav Row Rows Chip Track Field Sheet Router Route Hub Account Config Network Identity Keychain Format Haptics Device Connection DeviceIdentity ChatMark ChatAttachment CoreEvent CoreListener MobileError RelaySetting JoinAnswer Tab Layout Environment Text Image Color Font Data Date URL Group Section Label Event Link Menu Button Toggle Picker Path Shape Scene Window Alert Table List Form Grid Canvas State Binding Animation Transaction Namespace Edge Axis Angle Anchor Gradient Material Spacer Divider Notification Locale Calendar Decimal Bundle Timer Thread Progress Operation Measurement Unit Expression Predicate Result Never Task Error Duration Clock Range Set Character Optional Array Dictionary String Int Bool Double Float Mirror Unicode Process Host Stream Port Gauge Settings Badge".split(
+    " ",
+  ),
+);
+
+const SWIFT_KEYWORDS = new Set(
+  "associatedtype class deinit enum extension fileprivate func import init inout internal let open operator private protocol public rethrows static struct subscript typealias var break case continue default defer do else fallthrough for guard if in repeat return switch where while as Any catch false is nil super self Self throw throws true try Type some any".split(
+    " ",
+  ),
+);
+
+const swiftIdent = (name) => (SWIFT_KEYWORDS.has(name) ? `\`${name}\`` : name);
+
+const upperFirst = (name) => name[0].toUpperCase() + name.slice(1);
+
+/** `AGENT_URI` as `agentURI`, for a Rust constant's name in Swift. */
+const constantName = (name) =>
+  name
+    .toLowerCase()
+    .split("_")
+    .map((word, index) =>
+      index === 0 ? word : word === "uri" ? "URI" : upperFirst(word),
+    )
+    .join("");
+
+/**
+ * Swift for the phone app: every type the TypeScript declares, whole, so it decodes all the
+ * core sends and encodes all the phone sends. A field an older host may leave out is optional,
+ * and a value or variant the core added after this build reads as the type's unknown case.
+ */
+async function phoneSwift() {
+  const calls = coreCalls();
+  const declarations = closure([
+    ...TS_ROOTS,
+    ...calls.flatMap((call) => [...named(call.takes), ...named(call.gives)]),
+  ]);
+  const byName = new Map(declarations.map((d) => [d.name, d]));
+  const typeName = (name) => (APPLE_NAMES.has(name) ? `Wire${name}` : name);
+  // A variant's own struct is named inside its enum, so it must not hide a type the enum's code names.
+  const taken = new Set([
+    ...declarations.map((d) => typeName(d.name)),
+    ..."String Int Bool Double JSONValue WireNull WirePair WireKey TagKey CodingKeys CodingKey DecodingError Decoder Encoder Self Type Protocol".split(
+      " ",
+    ),
+  ]);
+
+  const typeOf = (type) => {
+    switch (type.kind) {
+      case "string":
+        return "String";
+      case "bool":
+        return "Bool";
+      case "int":
+        return "Int";
+      case "float":
+        return "Double";
+      case "json":
+        return "JSONValue";
+      case "null":
+        return "WireNull";
+      case "named":
+        return typeName(type.name);
+      case "list":
+        return `[${typeOf(type.of)}]`;
+      case "map":
+        return `[String: ${typeOf(type.of)}]`;
+      case "option":
+        if (type.of.kind === "option")
+          fail("Swift cannot tell null from absent in Option<Option<_>>");
+        return `${typeOf(type.of)}?`;
+      case "tuple":
+        if (type.of.length !== 2)
+          fail(`Swift reads pairs, not ${type.of.length}-tuples`);
+        return `WirePair<${type.of.map(typeOf).join(", ")}>`;
+    }
+  };
+
+  const swiftName = (key, where) => {
+    const name = /^[a-z][A-Za-z0-9]*$/.test(key)
+      ? key
+      : swiftCase(key.replace(/\(.*$/s, ""));
+    if (!/^[a-z][A-Za-z0-9]*$/.test(name))
+      fail(`${where}: ${key} is no Swift name`);
+    return name;
+  };
+  const spare = (names) =>
+    names.includes("unknown") ? "unrecognised" : "unknown";
+  const unique = (names, where) => {
+    const twice = names.find((name, index) => names.indexOf(name) !== index);
+    if (twice) fail(`${where} has two ${twice} in Swift`);
+  };
+
+  const property = (f, where, indent) => {
+    const type = typeOf(f.type);
+    const optional =
+      (f.mayBeAbsent || f.defaulted) && !type.endsWith("?") ? "?" : "";
+    return `${swiftDocs(f.docs, indent)}${indent}var ${swiftIdent(swiftName(f.name, where))}: ${type}${optional}`;
+  };
+  const struct = (name, docs, fields, where, indent = "") => {
+    unique(
+      fields.map((f) => swiftName(f.name, where)),
+      where,
+    );
+    const inner = `${indent}    `;
+    const keys = fields.some((f) => swiftName(f.name, where) !== f.name)
+      ? `\n\n${inner}private enum CodingKeys: String, CodingKey {\n${fields
+          .map((f) => {
+            const swift = swiftName(f.name, where);
+            return `${inner}    case ${swiftIdent(swift)}${swift === f.name ? "" : ` = ${JSON.stringify(f.name)}`}`;
+          })
+          .join("\n")}\n${inner}}`
+      : "";
+    return `${swiftDocs(docs, indent)}${indent}struct ${name}: Codable, Hashable, Sendable {${
+      fields.length
+        ? `\n${fields.map((f) => property(f, where, inner)).join("\n")}${keys}\n${indent}`
+        : ""
+    }}`;
+  };
+
+  const held = (d) => {
+    switch (d.kind) {
+      case "struct":
+        return d.fields.map((f) => f.type);
+      case "tagged":
+        return d.variants.flatMap((v) => v.fields.map((f) => f.type));
+      case "wrapped":
+        return d.variants.map((v) => v.type);
+      case "untagged":
+        return d.variants.flatMap((v) =>
+          v.fields ? v.fields.map((f) => f.type) : [v.type],
+        );
+      default:
+        return [];
+    }
+  };
+  // Lists and maps hold their values apart already; anything else held inline that holds its holder needs a box.
+  const inline = (type) =>
+    type.kind === "named"
+      ? [type.name]
+      : type.kind === "option"
+        ? inline(type.of)
+        : type.kind === "tuple"
+          ? type.of.flatMap(inline)
+          : [];
+  const reaches = (from, to, seen = new Set()) =>
+    held(byName.get(from))
+      .flatMap(inline)
+      .some((name) => {
+        if (name === to) return true;
+        if (seen.has(name)) return false;
+        seen.add(name);
+        return reaches(name, to, seen);
+      });
+  const cyclic = new Set(
+    declarations.filter((d) => reaches(d.name, d.name)).map((d) => d.name),
+  );
+  for (const name of cyclic)
+    if (
+      byName.get(name).kind === "struct" &&
+      ![...cyclic].some(
+        (other) =>
+          byName.get(other).kind !== "struct" &&
+          reaches(name, other) &&
+          reaches(other, name),
+      )
+    )
+      fail(`${name} holds itself with no enum between to box it`);
+  const indirect = (d) => (cyclic.has(d.name) ? "indirect " : "");
+
+  const payloadName = (variant, where) => {
+    const name = upperFirst(variant);
+    const free = taken.has(name) ? `${name}Payload` : name;
+    if (taken.has(free)) fail(`${where} has no free Swift name for ${variant}`);
+    return free;
+  };
+
+  const strings = (d) => {
+    const name = typeName(d.name);
+    const where = d.name;
+    const open = d.variants.find((v) => v.open);
+    const fallback = d.variants.find((v) => v.other && !v.open);
+    const known = d.variants
+      .filter((v) => !v.other)
+      .map((v) => ({ ...v, swift: swiftName(v.name, where) }));
+    const rest = open
+      ? swiftName(open.name, where)
+      : fallback
+        ? swiftName(fallback.name, where)
+        : spare(known.map((v) => v.swift));
+    unique([...known.map((v) => v.swift), rest], where);
+    const cases = known.map(
+      (v) =>
+        `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(v.swift)}${!open && v.swift !== v.name ? ` = ${JSON.stringify(v.name)}` : ""}`,
+    );
+    if (!open) {
+      const raw =
+        fallback && rest !== fallback.name
+          ? ` = ${JSON.stringify(fallback.name)}`
+          : "";
+      return `${swiftDocs(d.docs, "")}enum ${name}: String, Codable, Hashable, Sendable {
+${cases.join("\n")}
+    /// One added after this build.
+    case ${swiftIdent(rest)}${raw}
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .${swiftIdent(rest)}
+    }
+}`;
+    }
+    return `${swiftDocs(d.docs, "")}enum ${name}: Codable, Hashable, Sendable {
+${cases.join("\n")}
+${swiftDocs(open.docs, "    ")}    case ${swiftIdent(rest)}(String)
+
+    init(rawValue: String) {
+        switch rawValue {
+${known.map((v) => `        case ${JSON.stringify(v.name)}: self = .${swiftIdent(v.swift)}`).join("\n")}
+        default: self = .${swiftIdent(rest)}(rawValue)
+        }
+    }
+
+    var rawValue: String {
+        switch self {
+${known.map((v) => `        case .${swiftIdent(v.swift)}: return ${JSON.stringify(v.name)}`).join("\n")}
+        case .${swiftIdent(rest)}(let value): return value
+        }
+    }
+
+    init(from decoder: any Decoder) throws {
+        self.init(rawValue: try decoder.singleValueContainer().decode(String.self))
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
+}`;
+  };
+
+  const tagged = (d) => {
+    const name = typeName(d.name);
+    const variants = d.variants.map((v) => {
+      const swift = swiftName(v.name, d.name);
+      return {
+        ...v,
+        swift,
+        payload: v.fields.length ? payloadName(swift, d.name) : null,
+      };
+    });
+    const rest = spare(variants.map((v) => v.swift));
+    unique(
+      variants.filter((v) => v.payload).map((v) => v.payload),
+      d.name,
+    );
+    const payloads = variants
+      .filter((v) => v.payload)
+      .map((v) =>
+        struct(v.payload, [], v.fields, `${d.name}::${v.name}`, "    "),
+      );
+    return `${swiftDocs(d.docs, "")}${indirect(d)}enum ${name}: Codable, Hashable, Sendable {
+${variants.map((v) => `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(v.swift)}${v.payload ? `(${v.payload})` : ""}`).join("\n")}
+    /// One added after this build, by its \`${d.tag}\`.
+    case ${rest}(String)
+${payloads.length ? `\n${payloads.join("\n\n")}\n` : ""}
+    private enum TagKey: String, CodingKey {
+        case tag = ${JSON.stringify(d.tag)}
+    }
+
+    init(from decoder: any Decoder) throws {
+        let tag = try decoder.container(keyedBy: TagKey.self).decode(String.self, forKey: .tag)
+        switch tag {
+${variants
+  .map(
+    (v) =>
+      `        case ${JSON.stringify(v.name)}:\n            self = .${swiftIdent(v.swift)}${v.payload ? `(try ${v.payload}(from: decoder))` : ""}`,
+  )
+  .join("\n")}
+        default:
+            self = .${rest}(tag)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        let tag: String
+        switch self {
+${variants
+  .map((v) =>
+    v.payload
+      ? `        case .${swiftIdent(v.swift)}(let value):\n            try value.encode(to: encoder)\n            tag = ${JSON.stringify(v.name)}`
+      : `        case .${swiftIdent(v.swift)}:\n            tag = ${JSON.stringify(v.name)}`,
+  )
+  .join("\n")}
+        case .${rest}(let value):
+            tag = value
+        }
+        var container = encoder.container(keyedBy: TagKey.self)
+        try container.encode(tag, forKey: .tag)
+    }
+}`;
+  };
+
+  const wrapped = (d) => {
+    const name = typeName(d.name);
+    const variants = d.variants.map((v) => ({
+      ...v,
+      swift: swiftName(v.name, d.name),
+    }));
+    const rest = spare(variants.map((v) => v.swift));
+    return `${swiftDocs(d.docs, "")}${indirect(d)}enum ${name}: Codable, Hashable, Sendable {
+${variants.map((v) => `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(v.swift)}(${typeOf(v.type)})`).join("\n")}
+    /// One added after this build, by its key.
+    case ${rest}(String)
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: WireKey.self)
+        guard let key = container.allKeys.first else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "${d.name} names no variant"))
+        }
+        switch key.stringValue {
+${variants
+  .map(
+    (v) =>
+      `        case ${JSON.stringify(v.name)}:\n            self = .${swiftIdent(v.swift)}(try container.decode(${typeOf(v.type)}.self, forKey: key))`,
+  )
+  .join("\n")}
+        default:
+            self = .${rest}(key.stringValue)
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: WireKey.self)
+        switch self {
+${variants
+  .map(
+    (v) =>
+      `        case .${swiftIdent(v.swift)}(let value):\n            try container.encode(value, forKey: WireKey(${JSON.stringify(v.name)}))`,
+  )
+  .join("\n")}
+        case .${rest}(let key):
+            try container.encode(JSONValue.null, forKey: WireKey(key))
+        }
+    }
+}`;
+  };
+
+  const untagged = (d) => {
+    const name = typeName(d.name);
+    const variants = d.variants.map((v) => {
+      const swift = swiftName(v.name, d.name);
+      const payload = v.fields ? payloadName(swift, d.name) : null;
+      return { ...v, swift, payload, type: payload ?? typeOf(v.type) };
+    });
+    unique(
+      variants.map((v) => v.swift),
+      d.name,
+    );
+    const payloads = variants
+      .filter((v) => v.payload)
+      .map((v) =>
+        struct(v.payload, [], v.fields, `${d.name}::${v.name}`, "    "),
+      );
+    return `${swiftDocs(d.docs, "")}${indirect(d)}enum ${name}: Codable, Hashable, Sendable {
+${variants.map((v) => `${swiftDocs(v.docs, "    ")}    case ${swiftIdent(v.swift)}(${v.type})`).join("\n")}
+${payloads.length ? `\n${payloads.join("\n\n")}\n` : ""}
+    init(from decoder: any Decoder) throws {
+${variants
+  .map(
+    (v) =>
+      `        if let value = try? ${v.type}(from: decoder) {\n            self = .${swiftIdent(v.swift)}(value)\n            return\n        }`,
+  )
+  .join("\n")}
+        throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "${d.name} matches no variant"))
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        switch self {
+${variants.map((v) => `        case .${swiftIdent(v.swift)}(let value):\n            try value.encode(to: encoder)`).join("\n")}
+        }
+    }
+}`;
+  };
+
+  const declare = (d) =>
+    d.kind === "struct"
+      ? struct(typeName(d.name), d.docs, d.fields, d.name)
+      : d.kind === "strings"
+        ? strings(d)
+        : d.kind === "tagged"
+          ? tagged(d)
+          : d.kind === "wrapped"
+            ? wrapped(d)
+            : untagged(d);
+
+  const callNames = calls.map((call) => upperFirst(call.method));
+  unique(callNames, "PhoneCall");
+  const callTable = `/// A call the phone makes: the core's method, what it takes and what it answers.
+protocol PhoneCallable {
+    associatedtype Params: Encodable & Sendable
+    associatedtype Answer: Decodable & Sendable
+    static var method: String { get }
+}
+
+/// The core's calls the phone makes, as mobile/app/wire.json names them.
+enum PhoneCall {
+${callNames.map((name) => `    enum ${name} {}`).join("\n")}
+}
+
+${calls
+  .map(
+    (call, index) => `extension PhoneCall.${callNames[index]}: PhoneCallable {
+    static let method = ${JSON.stringify(call.method)}
+    typealias Params = ${typeOf(call.takes)}
+    typealias Answer = ${typeOf(call.gives)}
+}`,
+  )
+  .join("\n\n")}`;
+
+  const number = (name) =>
+    constant(`${WIRE}/protocol.rs`, name)
+      .split("*")
+      .reduce(
+        (total, part) => total * Number(part.trim().replaceAll("_", "")),
+        1,
+      );
+  const extensionless = [
+    ...(await extensionlessNames()).matchAll(/"[^"]*"/g),
+  ].map(([name]) => name);
+
+  const body = declarations.map(declare).join("\n\n");
+  return `// ${BANNER}
+
+import Foundation
+
+/// The core's protocol as this build speaks it, so a core that no longer serves this version turns it away at hello.
+enum WireProtocol {
+    static let name = ${constant(`${WIRE}/protocol.rs`, "PROTOCOL")}
+    static let version = ${number("PROTOCOL_VERSION")}
+    /// The largest payload the core sends in one frame.
+    static let maxFrameBytes = ${number("MAX_FRAME_BYTES")}
+}
+
+/// Limits the core enforces on what the phone sends, so the phone checks them first.
+enum WireLimits {
+${limitValues.map(([name, value]) => `    static let ${constantName(name)} = ${value}`).join("\n")}
+}
+
+/// Addresses the phone writes into what it sends, as the core reads them.
+enum WireURIs {
+${(await uriValues()).map(([name, value]) => `    static let ${constantName(name)} = ${value}`).join("\n")}
+}
+
+/// Paths as the core reads them in markdown.
+enum WirePaths {
+    /// The bare names a project spells out in full, which are files without an extension.
+    static let extensionless: [String] = [${extensionless.join(", ")}]
+}
+
+/// Any JSON, for what the core sends as it is.
+enum JSONValue: Codable, Hashable, Sendable {
+    case null
+    case bool(Bool)
+    case int(Int)
+    case double(Double)
+    case string(String)
+    case array([JSONValue])
+    case object([String: JSONValue])
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([JSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .object(try container.decode([String: JSONValue].self))
+        }
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .null: try container.encodeNil()
+        case .bool(let value): try container.encode(value)
+        case .int(let value): try container.encode(value)
+        case .double(let value): try container.encode(value)
+        case .string(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        }
+    }
+}
+
+/// What a call that answers nothing answers: JSON's null.
+struct WireNull: Codable, Hashable, Sendable {
+    init() {}
+
+    init(from decoder: any Decoder) throws {}
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encodeNil()
+    }
+}
+
+/// A Rust pair, which JSON holds as an array of two.
+struct WirePair<First: Codable & Hashable & Sendable, Second: Codable & Hashable & Sendable>: Codable, Hashable, Sendable {
+    var first: First
+    var second: Second
+
+    init(_ first: First, _ second: Second) {
+        self.first = first
+        self.second = second
+    }
+
+    init(from decoder: any Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        first = try container.decode(First.self)
+        second = try container.decode(Second.self)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.unkeyedContainer()
+        try container.encode(first)
+        try container.encode(second)
+    }
+}
+
+/// A key read from the JSON itself, for an enum keyed by its variant.
+struct WireKey: CodingKey {
+    let stringValue: String
+    var intValue: Int? { nil }
+
+    init(_ stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+    }
+
+    init?(intValue: Int) {
+        nil
+    }
+}
+
+${callTable}
+
+${body}
+`;
+}
+
 /** The kind of Response each request in the core's `ask` module is answered with, by request. */
 function askAnswers() {
   const text = texts[SOURCES.indexOf(`${WIRE}/protocol/ask.rs`)];
@@ -1267,6 +1851,7 @@ await emit(
   OUTPUTS.ts,
   `${typescript(TS_ROOTS, `${limits}\n${await uris()}\n${await extensionless()}\n\n`)}\n`,
 );
+await emit(OUTPUTS.phone, await phoneSwift());
 await emit(OUTPUTS.notch, swift());
 await emit(OUTPUTS.cardSwift, cardSwift());
 await emit(OUTPUTS.cardKotlin, cardKotlin());
