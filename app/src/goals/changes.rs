@@ -171,6 +171,7 @@ pub(super) fn picture(
     let size = pane.picture_size(path);
     let placed = pane.placed.clone();
     let told = placed.clone();
+    let redraw = cx.entity().downgrade();
     let drawn = placed
         .0
         .get()
@@ -263,11 +264,14 @@ pub(super) fn picture(
             .gap(SPACE_1)
             .child(
                 div()
-                    .on_children_prepainted(move |bounds, window, _| {
+                    .on_children_prepainted(move |bounds, _, cx| {
                         let laid = bounds.first().copied();
                         if told.0.get() != laid {
                             told.0.set(laid);
-                            window.refresh();
+                            let redraw = redraw.clone();
+                            cx.defer(move |cx| {
+                                let _ = redraw.update(cx, |_, cx| cx.notify());
+                            });
                         }
                     })
                     .child(frame),

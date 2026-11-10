@@ -231,11 +231,17 @@ fn split_attached(answer: &str) -> (String, Vec<String>) {
         .filter_map(|line| line.strip_prefix("- "))
         .map(str::to_owned)
         .collect();
-    let mut text = [&answer[..start], &listed[end..]].concat();
-    for number in 1..=paths.len() {
+    let text = [&answer[..start], &listed[end..]].concat();
+    (without_image_tags(&text, paths.len()), paths)
+}
+
+/// `text` without the `[Image #n]` tags that stood for its first `count` files.
+pub(super) fn without_image_tags(text: &str, count: usize) -> String {
+    let mut text = text.to_owned();
+    for number in 1..=count {
         text = text.replace(&format!("[Image #{number}]"), "");
     }
-    (text.trim().to_owned(), paths)
+    text.trim().to_owned()
 }
 
 /// The context items a message carries in its text, read back out of it: the
