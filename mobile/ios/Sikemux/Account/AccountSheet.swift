@@ -124,7 +124,7 @@ struct AccountSheet: View {
             IconView(icon: Icons.phone, size: 18).foregroundStyle(palette.secondary)
             VStack(alignment: .leading, spacing: 0) {
                 Text(UIDevice.current.name).font(Theme.ui(15, .medium)).tracking(-0.15).foregroundStyle(palette.ink)
-                (Text("This phone") + Text(id.map { " · \($0.prefix(8))" } ?? "").font(Theme.mono(12)))
+                (Text(id == nil ? "This phone" : "This phone · ") + Text(id.map { String($0.prefix(8)) } ?? "").font(Theme.mono(12)))
                     .metaStyle(palette)
                 if case .failed(let problem, _) = session.status {
                     Text("Not on your account yet: \(problem)").font(Theme.meta).foregroundStyle(palette.danger)
