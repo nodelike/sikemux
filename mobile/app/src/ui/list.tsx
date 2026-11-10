@@ -31,6 +31,7 @@ export function Row({
   place,
   end,
   onPress,
+  onLongPress,
   dim,
   detailLines = 1,
   under,
@@ -46,6 +47,7 @@ export function Row({
   place?: string | null;
   end?: ReactNode;
   onPress?: () => void;
+  onLongPress?: () => void;
   dim?: boolean;
   detailLines?: number;
   /** One more line below the detail. */
@@ -60,6 +62,7 @@ export function Row({
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
       accessibilityRole={onPress ? 'button' : undefined}
       style={({ pressed }) => [styles.row, pressed && onPress && styles.rowPressed]}>
       {mark ? <View style={styles.mark}>{mark}</View> : null}

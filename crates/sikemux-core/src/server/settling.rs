@@ -194,18 +194,25 @@ pub(crate) fn sections(
 #[serde(rename_all = "camelCase")]
 pub struct SnoozeParams {
     pub agent_ids: Vec<String>,
-    /// When it wakes, in Unix milliseconds; none wakes it now.
+    /// When it wakes, in Unix milliseconds; none wakes it now, unless `typed` names a time.
     #[serde(default)]
     pub until: Option<u64>,
+    /// A time in words this host reads on its own clock, such as "fri 2pm" or "in 90m".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typed: Option<String>,
 }
 
 pub(crate) fn snooze(core: &Core, params: SnoozeParams) -> CoreResult<()> {
     let now = epoch_ms();
-    if params.until.is_some_and(|until| until <= now) {
+    let until = match &params.typed {
+        Some(typed) => Some(parse_time(typed).ok_or("that is not a time to come")?),
+        None => params.until,
+    };
+    if until.is_some_and(|until| until <= now) {
         return Err("that time has already passed".into());
     }
     core.workspaces
-        .move_places(&params.agent_ids, |place| match params.until {
+        .move_places(&params.agent_ids, |place| match until {
             Some(until) => {
                 unsettle(place, now);
                 place.snooze = Some(Snooze { until, at: now });

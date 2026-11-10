@@ -13,6 +13,7 @@ import { askedText, lastAsked } from '@shared/chat/team';
 import { sentPrompts } from '@/chat/promptHistory';
 import type { ChatMessage, InboxItem, ShipHold } from '@shared/wire.generated';
 import { ChatMenu } from '@/chat/ChatMenu';
+import { AwaySheet } from '@/devices/AwaySheet';
 import { FindBar } from '@/chat/FindBar';
 import { FindingContext } from '@/chat/found';
 import { ChatTitle } from '@/chat/ChatTitle';
@@ -147,6 +148,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   );
   const [showLive, setShowLive] = useState(false);
   const [menu, setMenu] = useState(false);
+  const [away, setAway] = useState(false);
   const openLive = () => setShowLive(true);
   const openRecent = () => setRecent(true);
   useEffect(() => dismissCardsFor(core, agentId), [core, agentId]);
@@ -174,7 +176,8 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   };
   const editingRow = useEditingRow(editing, setEditing, session, scroll, rows);
   const activity = chat.stoppingTurn ? 'Stopping…' : chat.permissions.length > 0 ? null : activityText(state.activity);
-  const title = state.title ?? live.snapshot?.inbox.agents.find((shown) => shown.agentId === agentId)?.title ?? agentLabel(provider);
+  const listed = live.snapshot?.inbox.agents.find((shown) => shown.agentId === agentId);
+  const title = state.title ?? listed?.title ?? agentLabel(provider);
   const steerable = state.capabilities.steering === true && state.running && !watchOnly;
   // The person may change how sending mid-turn goes between turns, so each turn reads it afresh.
   const preferences = useHostCall(connection, 'preferences', {}, String(state.running)).data;
@@ -513,6 +516,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
         hostName={hostName}
         onFind={chat.attached === 'live' ? openFind : undefined}
         onRecent={recalls ? openRecent : undefined}
+        onAway={watchOnly || !listed ? undefined : () => setAway(true)}
         onStop={
           watchOnly || chat.attached !== 'live'
             ? undefined
@@ -523,6 +527,7 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
               }
         }
       />
+      <AwaySheet core={core} shown={away ? listed : undefined} onClose={() => setAway(false)} onDone={goBack} />
     </Screen>
   );
   return <FindingContext value={finding}>{screen}</FindingContext>;

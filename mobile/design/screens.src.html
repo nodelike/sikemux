@@ -173,6 +173,15 @@
   .trigger { display: inline-flex; align-items: center; gap: 3px; flex: none; margin-right: 6px; font: 500 12px var(--ui); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
   .trigger svg { width: 11px; height: 11px; color: var(--cmd); }
   .collided { display: inline-flex; align-items: center; flex: none; margin-right: 6px; color: var(--danger); }
+  .row.away .mark { opacity: .55; }
+  .row.away .t { color: var(--text-tertiary); }
+  .wake { display: inline-flex; align-items: center; gap: 3px; flex: none; margin-right: 6px; font: 500 12px var(--ui); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .wake svg { width: 11px; height: 11px; }
+  .glabel .fold { order: 3; display: inline-flex; color: var(--text-tertiary); }
+  .glabel .fold svg { width: 12px; height: 12px; }
+  .glabel .fold.open svg { transform: rotate(90deg); }
+  .restore { flex: none; margin-left: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-raised); display: inline-flex; align-items: center; font: 500 12.5px var(--ui); color: var(--text-primary); }
+  .menu-item .when { margin-left: auto; font-size: 13px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
   .collided.claim { color: var(--warn); }
   .collided svg { width: 11px; height: 11px; }
   .subagents { display: inline-flex; align-items: center; gap: 3px; flex: none; margin-right: 6px; font: 500 12px var(--ui); color: var(--text-secondary); font-variant-numeric: tabular-nums; }
@@ -1630,6 +1639,86 @@
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Agents</b><div class="note">The host's open agents in one list, with no labels, in the order its core ranks them for the Mac's rail: what wants you first, then what finished and you have not seen, then what is working, then the rest. The phone draws them as they come and never sorts them itself. A row reads as the Mac's rail does: the agent's mark, its title, the name Sikemux gave it small and dim at the row's end, and while all projects are shown a second line with the folder and the project's name. The list starts a little below the tabs. The end shows how many subagents and shells it still has running, and, while it is not working or waiting on you, how long until a trigger it set wakes it (⏱ 18m beside the pink timer, counting down each minute), then its state: the rail's squares while it works, an amber dot when it needs you, an accent dot when it finished and you have not looked, and nothing when it is idle. Nothing is answered on the row; tapping it opens the chat, where permissions and questions wait. Agents running in terminals sit in the same list and open Terminals. An agent that just changed lines another agent had uncommitted carries the Mac rail's red merge mark beside its counts, and so does the other; a lockfile, migration or generated file two agents edited at once marks both in amber instead. The mark says with whom and in which file to a screen reader, and goes after ten minutes or once the agent commits that file. Under the open agents, Recent lists the saved chats the host's rail lists as recent: the first ten, Show more for the rest; tapping one resumes it on the host and opens it, and a phone that can only watch is told so under the list. The tab's count is what needs you. The project picker and the agent filter narrow both lists. The header scrolls with the list: once the name passes under the top bar, the bar takes it as its title and the Agents / Terminals / Board row stays pinned beneath it, floating on the backdrop, and rows fade out as they slide under it and into the home bar.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><div class="where"><i class="live"></i>Online · 7 agents</div><h1>MacBook Pro</h1></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on">Agents <i class="count">1</i></span><span>Terminals</span><span>Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="pad grow">
+          <div class="rows">
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Remote pairing screen</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Otter</span><span class="status-slot"><span class="dot warn"></span></span></div>
+            <div class="row"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the flaky PTY replay test</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Flint</span><span class="status-slot"><span class="loader"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span></span></div>
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
+          </div>
+          <div class="glabel">Snoozed <span class="n">2</span><span class="fold open">{{IconChevron:12}}</span></div>
+          <div class="rows">
+            <div class="row away"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Release notes draft</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="wake">{{IconClock:11}}2h</span><span class="status-slot"></span></div>
+            <div class="row away"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Look into the DMG size</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="wake">{{IconClock:11}}Mon</span><span class="status-slot"></span></div>
+          </div>
+          <div class="glabel">Settled <span class="n">14</span><span class="fold">{{IconChevron:12}}</span></div>
+          <div class="glabel">Recent</div>
+          <div class="rows">
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Split the Rundeck matrix into jobs</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="ago">3h</span></div>
+          </div>
+        </div>
+        <div class="fab">{{IconPlus:18}}New chat</div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Snoozed and settled</b><div class="note">As on the Mac's rail, the host's core sends some agents out of the main list. Snoozed ones sit under Snoozed, faded, with the clock and how soon each wakes (minutes, hours, then the weekday); settled ones under Settled, folded until its label is tapped, as on the Mac. Either label folds and unfolds on a tap, and the phone keeps which are folded. A snoozed agent comes back to the main list at its time, or as soon as it asks you something; a settled one when you write to it or it asks you something. Holding any agent's row opens its snooze sheet; tapping it still opens the chat.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><div class="where"><i class="live"></i>Online · 7 agents</div><h1>MacBook Pro</h1></div>
+        <div class="pad grow">
+          <div class="rows">
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="sheet">
+          <div class="grabber"></div>
+          <h3>Snooze Tighten the rail spacing</h3>
+          <div class="menu-item">In 1 hour<span class="when">3:40 PM</span></div>
+          <div class="menu-item">In 3 hours<span class="when">5:40 PM</span></div>
+          <div class="menu-item">This evening<span class="when">6:00 PM</span></div>
+          <div class="menu-item">Tomorrow<span class="when">Wed 9:00 AM</span></div>
+          <div class="menu-item">Next week<span class="when">Mon 9:00 AM</span></div>
+          <div style="padding:8px 0 10px"><div class="field" style="height:44px;font-size:15px;color:var(--text-tertiary)">Or type a time: fri 2pm, in 90m</div></div>
+          <div class="sources"><span>{{IconCheck:19}}Settle</span></div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Snoozing</b><div class="note">Holding an agent's row, or Snooze in a chat's menu, opens this sheet: the host's own times, soonest first, each with when it is on this phone's clock, then a field that takes a time in words, read by the host (fri 2pm, tomorrow 8, in 90m; one it can't read says so under the field), then Settle. A tap snoozes or settles at once, closes the sheet and brings a small note over the list, Snoozed until 3:40 PM or Settled, with Undo. A snoozed agent's sheet offers Wake now in place of the times, and a settled one's Restore in place of Settle. A phone that can only watch never gets the sheet.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}Devices</span><span style="flex:1"></span><span class="icon-btn">{{IconMore:18}}</span></div>
+        <div class="host-head"><div class="where"><i class="live"></i>Online · 7 agents</div><h1>MacBook Pro</h1></div>
+        <div class="host-bar"><div class="host-tabs"><span class="on">Agents</span><span>Terminals</span><span>Board</span></div><span class="host-project"><span class="folder">{{IconFolder:14}}</span>All projects<span class="ch">{{IconChevron:12}}</span></span></div>
+        <div class="pad grow">
+          <div class="rows">
+            <div class="row"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Tighten the rail spacing</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux</div></div><span class="row-name">@Cedar</span><span class="status-slot"></span></div>
+          </div>
+          <div class="glabel">Snoozed <span class="n">2</span><span class="fold">{{IconChevron:12}}</span></div>
+          <div class="glabel">Settled <span class="n">14</span><span class="fold open">{{IconChevron:12}}</span></div>
+          <div class="rows">
+            <div class="row away"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Trim the wire protocol docs</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux · 2h ago</div></div><span class="restore">Restore</span></div>
+            <div class="row away"><span class="mark codex">{{IconCodex:20}}</span><div class="body"><div class="t">Fix the iOS share sheet crash</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux · yesterday</div></div><span class="restore">Restore</span></div>
+            <div class="row away"><span class="mark claude">{{IconClaude:20}}</span><div class="body"><div class="t">Hero copy pass</div><div class="s"><span class="place">{{IconFolder:11}}</span>sikemux-front · 5d ago</div></div><span class="restore">Restore</span></div>
+          </div>
+        </div>
+        <div class="fab">{{IconPlus:18}}New chat</div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>Settled, open</b><div class="note">Opening Settled lists every settled agent, most recently settled first, the line under each saying when, and Restore at its end, which puts it back in the main list. Tapping a settled row opens its chat as any row does; writing to it brings it back. A phone that can only watch shows the rows without Restore.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
@@ -3484,13 +3573,14 @@ expected 1 write, got 2</div>
           <div class="sources">
             <span>{{IconSearch:19}}Find in chat</span>
             <span>{{IconClock:19}}Recent prompts</span>
+            <span>{{IconClock:19}}Snooze</span>
             <span>{{IconCopy:19}}Copy link</span>
             <span class="danger">{{IconStop:19}}Stop chat</span>
           </div>
         </div>
       </div>
       <div class="home-bar"></div></div>
-      <figcaption><b>The chat's menu</b><div class="note">The ⋮ in the header: Find in chat, Recent prompts, Copy link, which opens this chat on any phone paired with the host, and Stop chat, which asks once more and then ends the agent on the host, with anything it still has running, closes it there and in every app, and goes back. A phone that can only watch has no Stop.</div></figcaption>
+      <figcaption><b>The chat's menu</b><div class="note">The ⋮ in the header: Find in chat, Recent prompts, Snooze, which opens the snooze sheet with Settle under its times (Wake now or Restore once the chat is out of the main list), Copy link, which opens this chat on any phone paired with the host, and Stop chat, which asks once more and then ends the agent on the host, with anything it still has running, closes it there and in every app, and goes back. A phone that can only watch has no Stop.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>

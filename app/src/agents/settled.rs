@@ -132,6 +132,7 @@ impl Workbench {
         Target::new(&self.asks, place.clone()).call_typed::<call::SnoozeAgents>(SnoozeParams {
             agent_ids: agent_ids.clone(),
             until,
+            typed: None,
         });
         if let Some(until) = until {
             let (handle, place) = (cx.entity().downgrade(), place.clone());

@@ -37,6 +37,9 @@
     "setDraft",
     "setRequireApproval",
     "setWorktreeDefault",
+    "settleAgents",
+    "snoozeAgents",
+    "snoozePresets",
     "stashPrompt",
     "steerQueued"
   ]

@@ -10,7 +10,7 @@ import type { IconName } from '@/ui/icons.generated';
 import { Sheet } from '@/ui/Sheet';
 import { fonts, type Palette, useColors, useStyles } from '@/ui/theme';
 
-function Item({ icon, label, danger, onPress }: { icon: IconName; label: string; danger?: boolean; onPress: () => void }) {
+export function MenuItem({ icon, label, danger, onPress }: { icon: IconName; label: string; danger?: boolean; onPress: () => void }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
   const color = danger ? colors.danger : colors.ink;
@@ -34,6 +34,7 @@ export function ChatMenu({
   hostName,
   onFind,
   onRecent,
+  onAway,
   onStop,
 }: {
   visible: boolean;
@@ -46,6 +47,8 @@ export function ChatMenu({
   onFind?: () => void;
   /** Absent while nothing was sent. */
   onRecent?: () => void;
+  /** Opens the snooze sheet; absent for a phone that can only watch. */
+  onAway?: () => void;
   /** Absent for a phone that can only watch. */
   onStop?: () => Promise<boolean>;
 }) {
@@ -81,7 +84,7 @@ export function ChatMenu({
       ) : (
         <View style={styles.items}>
           {onFind ? (
-            <Item
+            <MenuItem
               icon="IconSearch"
               label="Find in chat"
               onPress={() => {
@@ -91,7 +94,7 @@ export function ChatMenu({
             />
           ) : null}
           {onRecent ? (
-            <Item
+            <MenuItem
               icon="IconClock"
               label="Recent prompts"
               onPress={() => {
@@ -100,7 +103,17 @@ export function ChatMenu({
               }}
             />
           ) : null}
-          <Item
+          {onAway ? (
+            <MenuItem
+              icon="IconClock"
+              label="Snooze"
+              onPress={() => {
+                close();
+                onAway();
+              }}
+            />
+          ) : null}
+          <MenuItem
             icon="IconCopy"
             label="Copy link"
             onPress={() => {
@@ -109,7 +122,7 @@ export function ChatMenu({
               close();
             }}
           />
-          {onStop ? <Item icon="IconStop" label="Stop chat" danger onPress={() => setConfirming(true)} /> : null}
+          {onStop ? <MenuItem icon="IconStop" label="Stop chat" danger onPress={() => setConfirming(true)} /> : null}
         </View>
       )}
     </Sheet>

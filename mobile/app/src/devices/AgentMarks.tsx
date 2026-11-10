@@ -135,6 +135,26 @@ export function TriggerTime({ at, now }: { at: number; now: number }) {
   );
 }
 
+/** How soon a snoozed agent wakes, as the Mac rail says it: minutes, hours, then the weekday. */
+export function WakeTime({ at, now }: { at: number; now: number }) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const left = Math.max(0, at - now);
+  const hour = 3_600_000;
+  const words =
+    left < hour
+      ? `${Math.max(1, Math.ceil(left / 60_000))}m`
+      : left < 24 * hour
+        ? `${Math.max(1, Math.round(left / hour))}h`
+        : new Date(at).toLocaleDateString(undefined, { weekday: 'short' });
+  return (
+    <View style={styles.count} accessible accessibilityLabel={`Snoozed, wakes in ${words}`}>
+      <Icon name="IconClock" size={11} color={colors.tertiary} />
+      <Text style={[styles.countText, { color: colors.tertiary }]}>{words}</Text>
+    </View>
+  );
+}
+
 /** Where an agent's turn is, as the Mac rail marks it: squares while it works, a dot once something waits, nothing idle. */
 export function AgentState({ group }: { group: AgentGroup }) {
   const colors = useColors();

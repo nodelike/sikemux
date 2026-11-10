@@ -4237,6 +4237,25 @@ export interface WorktreeDefaultParams {
     on: boolean;
 }
 
+export interface SettleParams {
+    agentIds: string[];
+    settled: boolean;
+}
+
+export interface SnoozeParams {
+    agentIds: string[];
+    /** When it wakes, in Unix milliseconds; none wakes it now, unless `typed` names a time. */
+    until?: number | null;
+    /** A time in words this host reads on its own clock, such as "fri 2pm" or "in 90m". */
+    typed?: string;
+}
+
+/** A time the snooze menu offers, on this computer's clock. */
+export interface SnoozePreset {
+    label: string;
+    until: number;
+}
+
 export interface StashPromptParams {
     agentId: string;
 }
@@ -4284,6 +4303,9 @@ export interface CoreCalls {
     setDraft: { params: SetDraftParams; answer: null };
     setRequireApproval: { params: ApprovalSetting; answer: RemoteStatus };
     setWorktreeDefault: { params: WorktreeDefaultParams; answer: null };
+    settleAgents: { params: SettleParams; answer: null };
+    snoozeAgents: { params: SnoozeParams; answer: null };
+    snoozePresets: { params: NoParams; answer: SnoozePreset[] };
     stashPrompt: { params: StashPromptParams; answer: StashedPrompt };
     steerQueued: { params: QueuedParams; answer: null };
 }
