@@ -118,6 +118,13 @@ define_class!(
                 None => unsafe { msg_send![super(self), scrollWheel: event] },
             }
         }
+
+        /// A page in a reply is looked at, not typed into: a click on it leaves the keyboard
+        /// with the composer, where keys the page has no use for would otherwise beep.
+        #[unsafe(method(acceptsFirstResponder))]
+        fn accepts_first_responder(&self) -> bool {
+            self.ivars().fills
+        }
     }
 );
 
