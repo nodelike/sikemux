@@ -1869,16 +1869,17 @@ fn diff_of(repo: &Path, base: &str, head: &str) -> Result<(Proof, bool), String>
 /// The chat and session each commit's Sikemux footer names, kept as read so a
 /// commit is read once; past its bound it starts over.
 #[derive(Default)]
-pub(super) struct Footers(
-    std::sync::Mutex<std::collections::HashMap<String, Vec<(String, Option<String>)>>>,
-);
+pub(super) struct Footers(std::sync::Mutex<std::collections::HashMap<String, Vec<Signer>>>);
+
+/// A footer's chat, and the session it ran in when the footer says.
+type Signer = (String, Option<String>);
 
 impl Footers {
     /// Whether `sha`'s footer names `agent`, by its chat or by its session, which a chat
     /// reopened under a new id keeps.
     fn names(&self, core: &Core, dir: &Path, sha: &str, agent: &str) -> bool {
         let session = core.names.last_session(agent);
-        let named = |names: &[(String, Option<String>)]| {
+        let named = |names: &[Signer]| {
             names.iter().any(|(chat, signed)| {
                 chat == agent || (session.is_some() && signed.as_ref() == session.as_ref())
             })
@@ -1886,7 +1887,7 @@ impl Footers {
         if let Some(names) = self.0.locked().get(sha) {
             return named(names);
         }
-        let names: Vec<(String, Option<String>)> = footer::verified(core, dir, sha)
+        let names: Vec<Signer> = footer::verified(core, dir, sha)
             .unwrap_or_default()
             .into_iter()
             .map(|named| (named.chat, named.session))
