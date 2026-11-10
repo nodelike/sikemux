@@ -45,7 +45,7 @@ final class Notify {
 
     func checkAllowed() async {
         let status = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-        allowed = status == .authorized || status == .provisional
+        allowed = status == .notDetermined ? nil : status == .authorized || status == .provisional
     }
 
     private func choose(_ next: Choice?) {
