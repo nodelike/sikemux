@@ -186,7 +186,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -210,6 +210,16 @@ jobs:
 
       - name: Check workspace-hack is up to date
         run: scripts/check-rust.sh hakari
+
+      - name: TEMPORARY fail once Rust lint has run two minutes
+        timeout-minutes: 90
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          jobs="repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs?per_page=100"
+          until gh api "$jobs" --jq '.jobs[] | select(.name == "Rust lint") | .status' | grep -q in_progress; do sleep 15; done
+          sleep 120
+          exit 1
 
   # The core's and the GPUI app's macOS-only code is linted only here; the build without plugins
   # changes no macOS code, so the Linux job lints it.
