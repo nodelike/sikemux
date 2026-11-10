@@ -106,6 +106,7 @@ struct Field: View {
     var icon: IconDef?
     var secure = false
     var trailingRoom: CGFloat = 14
+    var autoFocus = false
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -135,6 +136,7 @@ struct Field: View {
             RoundedRectangle(cornerRadius: Radius.row, style: .continuous)
                 .strokeBorder(focused ? palette.borderSelected : palette.border, lineWidth: 1)
         )
+        .onAppear { if autoFocus { focused = true } }
     }
 
     private var prompt: Text {
@@ -146,10 +148,11 @@ struct PasswordField: View {
     @Environment(\.palette) private var palette
     let placeholder: String
     @Binding var text: String
+    var autoFocus = false
     @State private var shown = false
 
     var body: some View {
-        Field(placeholder: placeholder, text: $text, icon: Icons.lock, secure: !shown, trailingRoom: 48)
+        Field(placeholder: placeholder, text: $text, icon: Icons.lock, secure: !shown, trailingRoom: 48, autoFocus: autoFocus)
             .overlay(alignment: .trailing) {
                 Button { shown.toggle() } label: {
                     IconView(icon: shown ? Icons.eyeOff : Icons.eye, size: 18)
