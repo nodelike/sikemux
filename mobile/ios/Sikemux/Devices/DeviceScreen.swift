@@ -20,6 +20,7 @@ private struct DeviceContent: View {
     @State private var picking = false
     @State private var options = false
     @State private var filter = "all"
+    @State private var held: String?
     @State private var scrolled: CGFloat = 0
     @State private var headHeight: CGFloat = 0
     @State private var barHeight: CGFloat = 34
@@ -120,7 +121,8 @@ private struct DeviceContent: View {
                         case .board: BoardTab(core: core, live: live, view: view, scope: scope, onScope: scopeTo)
                         default:
                             DeviceAgents(core: core, view: view, scope: scope, provider: provider, full: device?.access == "full",
-                                         hostName: hostName) { tab = $0 }
+                                         hostName: hostName, onTab: { tab = $0 },
+                                         onHold: device?.access == "full" ? { held = $0 } : nil)
                         }
                     }
                     .padding(.horizontal, 16)
@@ -165,6 +167,11 @@ private struct DeviceContent: View {
                 .padding(.trailing, 16)
                 .padding(.bottom, bottomGap)
                 .accessibilityLabel("New chat")
+            }
+        }
+        .sheet(shown: Binding(get: { held != nil }, set: { if !$0 { held = nil } })) {
+            if let shown = view.inbox.agents.first(where: { $0.agentId == held }) {
+                AwaySheet(core: core, shown: shown) { held = nil }
             }
         }
         .sheet(shown: $picking, tall: view.workspace.projects.count > 6) {
