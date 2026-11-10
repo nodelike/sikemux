@@ -13,6 +13,7 @@ use gpui_kit::{
 };
 use sikemux_core::server::board::{BoardCard, BoardNoteParams};
 use sikemux_core::server::call;
+use sikemux_core::server::git::call as git_call;
 use sikemux_view::slice::{Evidence, Note, Proof, SliceView, Spot};
 
 use super::{evidence, GoalsPane};
@@ -76,21 +77,38 @@ pub(crate) fn ask_change(
 }
 
 impl GoalsPane {
-    /// Opens Git at commit `head`, the end of the change the slice open holds as evidence
+    /// Opens Git on the whole change from `base` to `head` that the slice open holds as evidence
     /// `evidence`, where a line takes a change for it.
-    pub(super) fn open_diff(&self, head: &str, evidence: u64, cx: &mut Context<Self>) {
+    pub(super) fn open_diff(&self, base: &str, head: &str, evidence: u64, cx: &mut Context<Self>) {
         let (Some(project), super::At::Slice(card)) = (self.here.clone(), self.at) else {
             return self.open_git(cx);
         };
+        let compared = crate::core::Target::here(&self.asks).request_typed::<git_call::Compare>(
+            git_call::Compare {
+                repo: project.clone(),
+                base: base.to_owned(),
+                head: head.to_owned(),
+            },
+        );
         let pinning = Pinning {
             project,
             card,
             evidence,
         };
         let head = head.to_owned();
-        self.on_workbench(cx, move |bench, cx| {
-            bench.open_commit_pinned(&head, pinning, cx)
-        });
+        cx.spawn(async move |pane, cx| {
+            let compared = compared.await;
+            let _ = pane.update(cx, |pane, cx| match compared {
+                Ok(compared) => {
+                    let files = compared.files.into_iter().map(|file| file.path).collect();
+                    pane.on_workbench(cx, move |bench, cx| {
+                        bench.open_change_pinned(compared.merge_base, &head, files, pinning, cx)
+                    })
+                }
+                Err(error) => pane.said(&error, cx),
+            });
+        })
+        .detach();
     }
 
     /// Opens a recording the slice open holds as evidence `evidence` in the viewer, which can

@@ -77,12 +77,14 @@ struct Wanted {
     sections: Vec<(Option<Side>, Compared)>,
 }
 
-/// The slice whose diff evidence ends at commit `head`, which a change pinned on a line of
-/// that commit goes to.
+/// The slice whose change runs from `base` to commit `head`, touching `files`, which the review
+/// shows whole in place of that commit, and which a change pinned on one of its lines goes to.
 #[derive(Clone)]
 pub struct DiffPin {
     pub pinning: crate::goals::Pinning,
+    pub base: String,
     pub head: String,
+    pub files: Vec<String>,
     pub bench: gpui_kit::WeakEntity<crate::workbench::Workbench>,
 }
 
@@ -137,9 +139,14 @@ impl Review {
         self.show(repo, None, wanted);
     }
 
-    /// Lists what commit `rev` changed in `paths`, every file folded at first.
+    /// Lists what commit `rev` changed in `paths`, every file folded at first; for the head of a
+    /// slice's change, the whole change instead.
     pub fn show_commit(&mut self, repo: &str, rev: &str, paths: &[String]) {
         let fresh = self.commit.as_deref() != Some(rev);
+        let (base, paths) = match self.pin.as_ref().filter(|pin| pin.head == rev) {
+            Some(pin) => (pin.base.clone(), pin.files.clone()),
+            None => (format!("{rev}~1"), paths.to_vec()),
+        };
         let wanted = paths
             .iter()
             .map(|path| Wanted {
@@ -150,7 +157,7 @@ impl Review {
                     Compared {
                         repo: repo.to_owned(),
                         path: path.clone(),
-                        base: format!("{rev}~1"),
+                        base: base.clone(),
                         head: Some(rev.to_owned()),
                     },
                 )],

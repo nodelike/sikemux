@@ -114,8 +114,8 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
                     .hover(move |row| row.bg(t.surface_hover))
                     .tooltip(ui::tooltip("Open in Git to pin changes on its lines"))
                     .on_click({
-                        let (head, id) = (head.clone(), evidence.id);
-                        cx.listener(move |pane, _, _, cx| pane.open_diff(&head, id, cx))
+                        let (base, head, id) = (base.clone(), head.clone(), evidence.id);
+                        cx.listener(move |pane, _, _, cx| pane.open_diff(&base, &head, id, cx))
                     })
                     .child(ui::mono(format!("+{added}"), TEXT_XS, cx).text_color(t.git_added))
                     .child(ui::mono(format!("−{removed}"), TEXT_XS, cx).text_color(t.git_deleted))

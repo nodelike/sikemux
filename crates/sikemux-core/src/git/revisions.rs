@@ -3,7 +3,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 
 use git2::{ErrorCode, Repository};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sikemux_process::sync::Locked;
 
 use super::log::{children_before_parents, describe_commits, GitCommit};
@@ -271,19 +271,19 @@ pub async fn git_commit_files(repo: String, rev: String) -> Result<Vec<String>, 
     .await
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GitCompare {
     /// Where the branch left its base; diffs are drawn from here.
-    merge_base: String,
-    files: Vec<GitCompareFile>,
-    commits: Vec<GitCommit>,
+    pub merge_base: String,
+    pub files: Vec<GitCompareFile>,
+    pub commits: Vec<GitCommit>,
 }
 
-#[derive(Serialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct GitCompareFile {
-    path: String,
+    pub path: String,
     /// `A`, `M`, `D` or `R`, as the status column shows it.
-    status: &'static str,
+    pub status: String,
 }
 
 /// Prefers the remote's copy of `branch`, since a local base is often behind.
@@ -330,7 +330,7 @@ fn read_compare(repo_path: &str, base: &str, head: &str) -> Result<GitCompare, S
             };
             Some(GitCompareFile {
                 path: path.to_string_lossy().into_owned(),
-                status,
+                status: status.to_owned(),
             })
         })
         .collect();

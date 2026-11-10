@@ -739,17 +739,21 @@ impl Workbench {
         }
     }
 
-    /// Opens the project's Git at commit `sha`, whose lines take a change for the slice
-    /// `pinning` names.
-    pub(crate) fn open_commit_pinned(
+    /// Opens the project's Git on the change from `base` to `sha` touching `files`, whose lines
+    /// take a change for the slice `pinning` names.
+    pub(crate) fn open_change_pinned(
         &mut self,
+        base: String,
         sha: &str,
+        files: Vec<String>,
         pinning: crate::goals::Pinning,
         cx: &mut Context<Self>,
     ) {
         let pin = review::DiffPin {
             pinning,
+            base,
             head: sha.to_owned(),
+            files,
             bench: cx.entity().downgrade(),
         };
         match self.git.pane.clone() {
