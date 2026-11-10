@@ -1,7 +1,6 @@
 .PHONY: dev dev-stop build run format hooks check clean clean-dev prune
 
-# Homebrew's Rust ignores rust-toolchain.toml, so rustup's proxies must come first.
-export PATH := $(HOME)/.cargo/bin:$(PATH)
+export PATH := $(CURDIR)/scripts/bin:$(PATH)
 
 dev:
 	@node scripts/prune-target.mjs --throttled >/dev/null 2>&1
