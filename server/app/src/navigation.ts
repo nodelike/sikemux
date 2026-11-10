@@ -48,16 +48,10 @@ export function isSharePath(path: string): boolean {
   return path.startsWith("/s/");
 }
 
-/** The shared chat a sign-in started from, taken once, wherever the sign-in came back to. */
-export function takeShareReturn(): string | null {
+/** Where a sign-in that left the page should go back to, taken once, or null when none is under way. */
+export function takeReturn(): string | null {
   const saved = sessionStorage.getItem(RETURN_KEY);
-  if (!saved || !isSharePath(saved)) return null;
-  sessionStorage.removeItem(RETURN_KEY);
-  return saved;
-}
-
-export function takeReturn(): string {
-  const saved = sessionStorage.getItem(RETURN_KEY) ?? "/";
+  if (saved === null) return null;
   sessionStorage.removeItem(RETURN_KEY);
   if (isSharePath(saved)) return saved;
   const [path = "/", query = ""] = saved.split("?", 2);

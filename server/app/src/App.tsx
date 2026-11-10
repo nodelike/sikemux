@@ -21,7 +21,6 @@ import {
   HOST,
   isSharePath,
   takeReturn,
-  takeShareReturn,
   usePath,
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
@@ -71,17 +70,18 @@ export function App() {
                 : "Sign in · Sikemux";
   }, [path, signedIn, showDeleted]);
 
-  useEffect(() => {
-    if (!signedIn || path === "/sso-callback") return;
-    const share = takeShareReturn();
-    if (share) location.replace(share);
-  }, [signedIn, path]);
-
-  const afterSignIn = () => {
-    const to = takeReturn();
+  const returnTo = (to: string) => {
     if (isSharePath(to)) location.replace(to);
     else go(to, { replace: true });
   };
+  const afterSignIn = () => returnTo(takeReturn() ?? "/");
+
+  /** Clerk skips the callback page when the provider signs the person in at once, landing here instead. */
+  useEffect(() => {
+    if (!signedIn || path === "/sso-callback") return;
+    const to = takeReturn();
+    if (to) returnTo(to);
+  }, [signedIn, path]);
   const appReturning = signedIn ? appReturn() : null;
 
   useEffect(() => {
