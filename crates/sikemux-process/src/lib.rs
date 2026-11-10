@@ -8,6 +8,7 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 pub mod android_sdk;
+pub mod cgroups;
 pub mod clock;
 pub mod files;
 pub mod jobs;
