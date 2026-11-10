@@ -90,12 +90,17 @@ impl GitPane {
             "1" => self.turn(Page::Changes, cx),
             "2" => self.turn(Page::History, cx),
             "3" => self.turn(Page::Branches, cx),
+            "4" => self.turn(Page::Pulls, cx),
             "F" => self.fetch(cx),
             "P" => self.push(cx),
             "p" => self.pull(cx),
             "r" if !history => self.refresh(cx),
             _ if self.page == Page::Branches && self.branch_key(typed, cx) => {}
             _ if self.page == Page::Branches => return,
+            "j" | "down" if self.page == Page::Pulls => self.step_pull(1, cx),
+            "k" | "up" if self.page == Page::Pulls => self.step_pull(-1, cx),
+            " " | "space" | "enter" if self.page == Page::Pulls => self.open_pull(cx),
+            _ if self.page == Page::Pulls => return,
             "h" if history => self.turn(Page::Changes, cx),
             "h" => self.turn(Page::History, cx),
             "j" | "down" if history => self.step_commit(1, cx),
@@ -134,11 +139,11 @@ impl GitPane {
 }
 
 /// The pane's keys, by page, as its cheatsheet lists them.
-pub(crate) const KEYS: [ui::Section; 4] = [
+pub(crate) const KEYS: [ui::Section; 5] = [
     (
         "Global",
         &[
-            ("1 2 3", "Changes, History, Branches"),
+            ("1 2 3 4", "Changes, History, Branches, Pull requests"),
             ("h", "switch between Changes and History"),
             ("?", "open this cheatsheet"),
             ("@", "toggle command log"),
@@ -189,6 +194,13 @@ pub(crate) const KEYS: [ui::Section; 4] = [
             ("u", "set remote branch as upstream"),
         ],
     ),
+    (
+        "Pull requests",
+        &[
+            ("enter / space", "open its slice, or start one"),
+            ("j / k", "move between pull requests"),
+        ],
+    ),
 ];
 
 /// How long typing rests before the commit message is kept as the draft.
@@ -199,4 +211,5 @@ pub(crate) enum Page {
     Changes,
     History,
     Branches,
+    Pulls,
 }

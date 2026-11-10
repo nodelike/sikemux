@@ -591,7 +591,7 @@ fn title(words: String, cx: &Context<GoalsPane>) -> AnyElement {
 
 impl GoalsPane {
     /// Opens slice `card` of the project at `folder`, bringing that project to the front.
-    pub(super) fn open_slice(&mut self, folder: &str, card: u64, cx: &mut Context<Self>) {
+    pub(crate) fn open_slice(&mut self, folder: &str, card: u64, cx: &mut Context<Self>) {
         if self.here.as_deref() != Some(folder) {
             self.bring(folder.to_owned(), cx);
         }

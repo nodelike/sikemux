@@ -51,7 +51,7 @@ use sikemux_core::server::workspace::SessionChoice;
 mod assertions;
 mod changes;
 mod environments;
-mod evidence;
+pub(crate) mod evidence;
 mod goal;
 mod happened;
 mod health;

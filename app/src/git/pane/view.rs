@@ -72,6 +72,7 @@ pub(crate) fn side_page(
         Page::Changes => body.child(changes(pane, filter, cx)),
         Page::History => body.children(filter).child(history_list(pane, cx)),
         Page::Branches => body.children(filter).child(branches_page(pane, cx)),
+        Page::Pulls => body.children(filter).child(pulls_page(pane, cx)),
     }
     .into_any_element()
 }
@@ -245,6 +246,12 @@ pub(crate) fn pages(pane: &GitPane, cx: &mut Context<GitPane>) -> impl IntoEleme
             Icon::Git,
             "Branches — 3",
             Page::Branches,
+        ))
+        .child(page(
+            "git-page-pulls",
+            Icon::PullRequest,
+            "Pull requests — 4",
+            Page::Pulls,
         ))
 }
 

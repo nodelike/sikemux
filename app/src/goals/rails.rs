@@ -165,6 +165,15 @@ impl Workbench {
             .update(cx, |goals, cx| goals.open_goal(goal, cx));
     }
 
+    /// Opens slice `card` of the project at `project` in the goals.
+    pub fn open_slice(&mut self, project: &str, card: u64, cx: &mut Context<Self>) {
+        if !self.showing_goals() {
+            self.toggle_goals_view(cx);
+        }
+        self.goals_view(cx)
+            .update(cx, |goals, cx| goals.open_slice(project, card, cx));
+    }
+
     /// Shows the environments of the project in front.
     pub fn open_environments(&mut self, cx: &mut Context<Self>) {
         if !self.showing_goals() {

@@ -30,6 +30,7 @@ use sikemux_view::workspace::ProjectCodeHost;
 
 use branches::{branch_card, branches_page, Branches};
 use history::{commit_card, commit_row, graph, Graph, Inks};
+use pulls::{pulls_page, Pulls};
 
 mod actions;
 mod branches;
@@ -37,6 +38,7 @@ mod history;
 mod keys;
 mod menus;
 mod owners;
+mod pulls;
 mod view;
 
 use super::review::{review, Review};
@@ -264,6 +266,7 @@ pub struct GitPane {
     reviewing_list: bool,
     branches: Branches,
     branch_rows: ListState,
+    pulls: Pulls,
     stashes: Vec<GitStash>,
     /// The agents that write commit messages: their kind, name and models, the
     /// default first, as the core's catalog lists them.
@@ -275,7 +278,7 @@ pub struct GitPane {
     /// The commit asked to be shown, until the history is read.
     wanted_commit: Option<String>,
     /// Each page's filter, by `Page`.
-    filters: [Filter; 3],
+    filters: [Filter; 4],
     draft: Entity<TextareaState>,
     /// A message written into the draft from outside the window's turn, set when it next draws.
     written: Option<String>,
@@ -379,6 +382,7 @@ impl GitPane {
             asked_commit: None,
             reviewing_list: false,
             branches: Branches::default(),
+            pulls: Pulls::default(),
             stashes: Vec::new(),
             writers: Vec::new(),
             writer: None,
@@ -418,6 +422,9 @@ impl GitPane {
         self.list_branches();
         if first || self.page == Page::Branches {
             self.read_remotes(cx);
+        }
+        if self.page == Page::Pulls {
+            self.read_pulls(cx);
         }
         self.read_stashes(cx);
         self.read_owners(cx);
@@ -532,6 +539,7 @@ impl GitPane {
             Page::Changes => "Filter files",
             Page::History => "Search commits",
             Page::Branches => "Filter branches",
+            Page::Pulls => "Filter pull requests",
         };
         let field = cx.new(|cx| InputState::new(window, cx).placeholder(placeholder));
         let typing = cx.subscribe_in(
@@ -571,6 +579,7 @@ impl GitPane {
                 self.list_branches();
                 self.follow(cx);
             }
+            Page::Pulls => self.pulls.chosen = 0,
         }
         cx.notify();
     }
@@ -674,7 +683,7 @@ impl GitPane {
     }
 
     fn page_order(&self) -> Vec<Page> {
-        vec![Page::Changes, Page::History, Page::Branches]
+        vec![Page::Changes, Page::History, Page::Branches, Page::Pulls]
     }
 
     /// Turns to another page, springing over to it.
@@ -692,6 +701,9 @@ impl GitPane {
     fn show_page(&mut self, page: Page, cx: &mut Context<Self>) -> bool {
         if page == Page::Branches && self.page != page {
             self.read_remotes(cx);
+        }
+        if page == Page::Pulls && self.page != page {
+            self.read_pulls(cx);
         }
         self.page = page;
         self.follow(cx);

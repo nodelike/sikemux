@@ -1,7 +1,8 @@
 //! Sikemux's own links, followed inside this app: `sikemux://agent/<agent>/<session>?project=`
 //! takes an agent's chat up again in its project on this host, as the Mac does. Any message
 //! can hold one, so a folder that is not already a project is opened only once the person
-//! agrees.
+//! agrees. `sikemux://slice/<card>?repo=<owner/name>`, which a pull request's description
+//! holds, opens that slice in the project whose code host repository it names.
 
 use std::path::PathBuf;
 
@@ -86,9 +87,47 @@ pub fn follow_opened(
     .detach();
 }
 
+/// A slice a pull request's link names: its card, and the repository on the code host.
+fn slice_of(link: &str) -> Option<(u64, String)> {
+    let url = Url::parse(link).ok()?;
+    if url.scheme() != "sikemux" || url.host_str() != Some("slice") {
+        return None;
+    }
+    let card = url.path().trim_matches('/').parse().ok()?;
+    let repo = (url.query_pairs())
+        .find(|(key, _)| key == "repo")
+        .map(|(_, value)| value.into_owned())?;
+    Some((card, repo))
+}
+
+/// Opens the slice in the first project whose repository is the one named.
+fn open_slice(bench: &mut Workbench, card: u64, repo: &str, cx: &mut Context<Workbench>) -> bool {
+    let project = bench.this_view().and_then(|view| {
+        (view.workspace.projects.iter())
+            .find(|project| {
+                project
+                    .code_host
+                    .as_ref()
+                    .is_some_and(|host| host.repo == repo)
+            })
+            .map(|project| project.path.to_string_lossy().into_owned())
+    });
+    let Some(project) = project else {
+        return false;
+    };
+    bench.open_slice(&project, card, cx);
+    true
+}
+
 /// Follows a `sikemux://` link. A link this app does not understand goes nowhere, rather
 /// than to whichever app the system would pick, and the window says so.
 pub fn follow(bench: &mut Workbench, link: &str, cx: &mut Context<Workbench>) {
+    if let Some((card, repo)) = slice_of(link) {
+        if !open_slice(bench, card, &repo, cx) {
+            bench.notify(toast::error(format!("No project here is {repo}")), cx);
+        }
+        return;
+    }
     let resume = parse(link).filter(|resume| {
         bench
             .launchers()
