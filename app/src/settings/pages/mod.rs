@@ -9,6 +9,7 @@ use super::{Open, Page, Settings};
 use crate::workbench::Workbench;
 
 pub(super) mod about;
+pub(super) mod account;
 pub(super) mod actions;
 pub(super) mod activity;
 pub(super) mod agents;
@@ -16,7 +17,6 @@ pub(super) mod appearance;
 pub(super) mod cli;
 pub(super) mod cloud;
 pub(super) mod connectors;
-pub(super) mod devices;
 pub(super) mod general;
 pub(crate) use general::sent as session_sent;
 pub(super) mod keybindings;
@@ -29,7 +29,6 @@ pub mod theme_editor;
 #[derive(Default)]
 pub struct State {
     pub agents: Option<agents::Fields>,
-    pub devices: Option<devices::Fields>,
     pub actions: Option<actions::Fields>,
     pub activity: Option<activity::Fields>,
     pub appearance: Option<appearance::Fields>,
@@ -90,9 +89,6 @@ pub fn prepare(bench: &Workbench, page: Page, window: &Window, cx: &mut Context<
         return;
     };
     match page {
-        Page::Account | Page::Devices | Page::Hosts if pages.devices.is_none() => {
-            cx.defer_in(window, devices::make)
-        }
         Page::General if pages.general.is_none() => cx.defer_in(window, general::make),
         Page::Keyboard if pages.keybindings.is_none() => cx.defer_in(window, keybindings::make),
         Page::Settled if pages.settled.is_none() => cx.defer_in(window, settled::make),
@@ -146,9 +142,7 @@ pub fn render(
     let pages = &settings.pages;
     let page = settings.page;
     match page {
-        Page::Account | Page::Devices | Page::Hosts => {
-            devices::render(bench, pages, page, &lit, this, cx)
-        }
+        Page::Account => account::render(bench, &lit, this, cx),
         Page::General => general::render(bench, pages, &lit, this, cx),
         Page::Keyboard => keybindings::render(bench, pages, &lit, this, cx),
         Page::Theme | Page::Interface | Page::Buddies => {
@@ -208,13 +202,4 @@ pub fn plugins_changed(bench: &Workbench, cx: &mut App) {
         |pages| pages.connectors.as_mut(),
         |fields, _| fields.stale = true,
     );
-}
-
-/// Lists the account's other hosts again while the Devices page shows them,
-/// since a change to remote access may have linked or dropped one.
-pub fn remote_moved(bench: &Workbench, cx: &mut Context<Workbench>) {
-    let shown = state(bench, cx).is_some_and(|pages| pages.devices.is_some());
-    if shown {
-        devices::read_links(bench, cx);
-    }
 }

@@ -512,9 +512,9 @@ impl Workbench {
         self.choose_host(HostChoice::Account(host.to_owned()), cx);
     }
 
-    /// Renames the account host `host` for every device and host on the account.
-    pub fn rename_host(&mut self, host: &str, name: &str, cx: &mut Context<Self>) {
-        let key = host.to_owned();
+    /// Renames the device or host `key` for every device and host on the account.
+    pub fn rename_on_account(&mut self, key: &str, name: &str, cx: &mut Context<Self>) {
+        let key = key.to_owned();
         self.prompt(
             format!("Rename {name}"),
             name.to_owned(),

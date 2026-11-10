@@ -16,6 +16,18 @@ pub(crate) fn set_access(core: &Core, id: &str, access: DeviceAccess) -> CoreRes
     Ok(announce(core))
 }
 
+/// Gives the device `id` paired here the name the account now has for it.
+pub(crate) fn rename_paired(core: &Core, id: &str, name: &str) -> CoreResult<()> {
+    let renamed = core.remote.change(|stored| {
+        let device = stored.devices.iter_mut().find(|device| device.id == id);
+        Ok(device.map(|device| device.name = name.to_owned()).is_some())
+    })?;
+    if renamed {
+        announce(core);
+    }
+    Ok(())
+}
+
 /// Who waits to join this host and who is paired, and the hosts linked with
 /// it or asking to be, for the owner's devices.
 #[derive(Serialize, Deserialize)]

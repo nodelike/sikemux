@@ -1,5 +1,5 @@
-//! The page's left side: how many hosts are up and agents running, a search, filters, and
-//! every host as a card or a table row.
+//! The page under its detail: how many hosts are up and agents running, a search, filters,
+//! every host as a card or a table row, then the devices.
 
 use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
@@ -14,8 +14,7 @@ use crate::icons::Icon;
 use crate::keymap;
 use crate::theme::{
     self, Tokens, RADIUS_4, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4,
-    SPACE_5, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_XL, TEXT_XS,
-    TEXT_XS_H,
+    SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_XL, TEXT_XS, TEXT_XS_H,
 };
 use crate::ui::{self, Button, Field, Segmented, Toggle, Variant};
 use crate::workbench::actions;
@@ -50,9 +49,21 @@ pub fn board(
         .pb(px(48.))
         .flex()
         .flex_col()
-        .child(head(listed, page, &t, cx))
+        .child(head(bench, listed, page, &t, cx))
+        .child(
+            div()
+                .mt(SPACE_6)
+                .flex()
+                .items_center()
+                .gap(SPACE_2)
+                .child(ui::caps("Hosts", cx))
+                .child(
+                    ui::mono(listed.len().to_string(), TEXT_2XS_H, cx).text_color(t.text_tertiary),
+                ),
+        )
         .child(filters(listed.len(), needing, page, &t, cx))
         .child(hosts)
+        .child(super::devices::devices(bench, &query, &t, cx))
         .into_any_element()
 }
 
@@ -71,7 +82,13 @@ fn matches(host: &Listed, query: &str) -> bool {
             .any(|agent| agent.person.as_deref().is_some_and(found))
 }
 
-fn head(listed: &[Listed], page: &super::Page, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
+fn head(
+    bench: &Workbench,
+    listed: &[Listed],
+    page: &super::Page,
+    t: &Tokens,
+    cx: &mut Context<Workbench>,
+) -> Div {
     let online = listed.iter().filter(|host| host.online()).count();
     let counts: Vec<Counts> = listed.iter().map(Listed::counts).collect();
     let running: usize = counts.iter().map(|counts| counts.running).sum();
@@ -99,7 +116,7 @@ fn head(listed: &[Listed], page: &super::Page, t: &Tokens, cx: &mut Context<Work
                 .gap(px(5.))
                 .min_w_0()
                 .child(
-                    ui::text("Hosts", TEXT_XL, FontWeight::SEMIBOLD)
+                    ui::text("Devices", TEXT_XL, FontWeight::SEMIBOLD)
                         .text_color(t.text_primary)
                         .letter_spacing(-0.02),
                 )
@@ -132,7 +149,8 @@ fn head(listed: &[Listed], page: &super::Page, t: &Tokens, cx: &mut Context<Work
                         .on_click(|_, window, cx| {
                             keymap::dispatch(actions::OpenHost::ID, window, cx)
                         }),
-                ),
+                )
+                .child(super::devices::pair_button(bench)),
         )
 }
 
@@ -148,7 +166,7 @@ fn filters(
         .flex()
         .items_center()
         .gap(SPACE_1H)
-        .mt(SPACE_5)
+        .mt(SPACE_2H)
         .mb(SPACE_3H)
         .child(
             Toggle::new("hosts-all", "All", !needs_you)
@@ -234,7 +252,7 @@ fn cards(
 }
 
 /// The ground of a host's card or table, `share` of the ink mixed in for hover and choice.
-fn lifted(t: &Tokens, share: f32) -> Hsla {
+pub(super) fn lifted(t: &Tokens, share: f32) -> Hsla {
     theme::mix(t.text_primary, t.surface_sunken, share).opacity(0.85)
 }
 

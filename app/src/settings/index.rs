@@ -29,8 +29,6 @@ pub enum Page {
     Notch,
     Voice,
     Simulator,
-    Devices,
-    Hosts,
     Connectors,
     Mods,
     SignOn,
@@ -53,10 +51,7 @@ pub const GROUPS: [(&str, &[Page]); 6] = [
     ),
     ("Models", &[Accounts, Plans, Providers, LocalModels]),
     ("This Mac", MAC_ONLY),
-    (
-        "Connect",
-        &[Devices, Hosts, Connectors, Mods, SignOn, Actions, Cli],
-    ),
+    ("Connect", &[Connectors, Mods, SignOn, Actions, Cli]),
 ];
 
 /// The pages below the groups, at the foot of the list.
@@ -149,12 +144,6 @@ impl Page {
                 "Letting agents drive the iOS Simulator",
                 Icon::Tap,
             ),
-            Devices => (
-                "Devices",
-                "Your phone, and reaching this host from it",
-                Icon::Phone,
-            ),
-            Hosts => ("Hosts", "Other hosts on your account", Icon::Server),
             Connectors => (
                 "Connectors",
                 "The services your agents reach for you",
@@ -269,7 +258,7 @@ pub(super) const fn row(
 /// Every place a search can find, each page's kept with the page, in the order they rank.
 fn entries() -> impl Iterator<Item = &'static Entry> {
     [
-        pages::devices::ACCOUNT,
+        pages::account::ENTRIES,
         pages::general::ENTRIES,
         pages::keybindings::ENTRIES,
         pages::agents::sessions::NOTIFICATIONS,
@@ -285,7 +274,6 @@ fn entries() -> impl Iterator<Item = &'static Entry> {
         pages::agents::accounts::ENTRIES,
         pages::agents::providers::MODELS,
         pages::agents::device::ENTRIES,
-        pages::devices::ENTRIES,
         pages::connectors::ENTRIES,
         pages::mods::ENTRIES,
         pages::cloud::ENTRIES,

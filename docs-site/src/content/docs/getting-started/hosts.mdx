@@ -1,15 +1,15 @@
 ---
-title: Hosts
-description: "Every host on your account at a glance: how busy each one is, what its agents use, and what needs you."
+title: Devices
+description: "Every host on your account at a glance, how busy each one is and what needs you, and the phones paired with this host."
 ---
 
-The **Hosts** page shows every host on your account that runs Sikemux: this one and the [hosts you've linked](/agents/linked-hosts/). For each one it shows whether your agents can still run there, and what is using up the machine.
+The **Devices** page shows every host on your account that runs Sikemux: this one and the [hosts you've linked](/agents/linked-hosts/). For each one it shows whether your agents can still run there, and what is using up the machine.
 
-Open it with the gauge beside **+** on the side rail's **Hosts** header, with **Hosts** in the command palette or under **New…**, or with ⌘⇧H (Ctrl+Shift+H on Linux). To open it on one host, pick **Host details** at the top of the **⋯** beside that host, or beside **This host**. Clicking a host's row in the rail still switches the window to that host.
+Open it with the gauge beside **+** on the side rail's **Hosts** header, with **Devices** in the account menu, with **Devices** in the command palette or under **New…**, or with ⌘⇧H (Ctrl+Shift+H on Linux). To open it on one host, pick **Host details** at the top of the **⋯** beside that host, or beside **This host**. Clicking a host's row in the rail still switches the window to that host.
 
 ## The hosts
 
-The top of the page counts how many hosts are online and how many agents are running across them. Search by a host's name or model, or by an agent's name. **Add host** finds another host to set up, the same as **+** in the rail's Hosts group.
+The top of the page counts how many hosts are online and how many agents are running across them. Search by a host's name or model, an agent's name, or a device's name. **Add host** finds another host to set up, the same as **+** in the rail's Hosts group. **Pair device** shows the code a phone scans to join, as [Your phone](/getting-started/phone/) describes.
 
 **All** shows every host and **Needs you** shows only those with an alert or out of reach. The hosts that need you come first.
 
@@ -24,9 +24,13 @@ The top of the page counts how many hosts are online and how many agents are run
 
 A host set up only for SSH, without Sikemux, isn't listed here. It stays in the rail.
 
+## Devices
+
+Under the hosts, **Devices** lists each phone or browser paired with this host: its platform, when it was last seen, and whether it has **Full access** or can only **Watch**. Its **⋯** changes that, renames it on your account, or removes it from this host. **Remote access** beside the heading turns this host's reach from your devices on or off.
+
 ## A host's detail
 
-Click a host to see its detail beside the hosts. Its header has **Terminal** for a new terminal there, **+** for a new chat in the project in front there, and **⋯** for the same menu its row has in the rail. Below come its cores, memory, disk and system.
+Click a host to see its detail over the hosts; **✕** or a second click closes it. Its header has **Terminal** for a new terminal there, **+** for a new chat in the project in front there, and **⋯** for the same menu its row has in the rail. Below come its cores, memory, disk and system.
 
 ### Needs you
 

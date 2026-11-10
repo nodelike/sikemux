@@ -141,7 +141,6 @@ impl Workbench {
                     cx.notify();
                 }
                 self.remote = Some(*status);
-                crate::settings::remote_moved(self, cx);
                 crate::pairing::remote_moved(self, cx);
                 return self.parts.redraw_stage(cx);
             }

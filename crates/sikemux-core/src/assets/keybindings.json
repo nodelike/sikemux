@@ -473,8 +473,8 @@
     },
     {
         "id": "window.hosts",
-        "label": "Hosts",
-        "detail": "Open the Hosts page: how busy each host is, what its agents use and what needs you",
+        "label": "Devices",
+        "detail": "Open the Devices page: how busy each host is, what needs you, and the phones paired here",
         "category": "Navigation",
         "mac": "Meta+Shift+KeyH",
         "other": "Ctrl+Shift+KeyH"

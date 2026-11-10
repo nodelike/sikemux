@@ -1,8 +1,10 @@
-//! The Hosts page: every host on the account at a glance, and one host's detail floating over them.
+//! The Devices page: every host on the account at a glance, one host's detail floating over
+//! them, and the phones and browsers paired here.
 
 mod board;
 mod chart;
 mod detail;
+mod devices;
 pub mod model;
 
 use std::collections::HashSet;
@@ -47,8 +49,8 @@ pub struct Page {
 
 impl Page {
     pub fn new(window: &mut Window, cx: &mut Context<Workbench>) -> Self {
-        let search =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search hosts and agents"));
+        let search = cx
+            .new(|cx| InputState::new(window, cx).placeholder("Search hosts, agents and devices"));
         let typing = cx.subscribe(&search, |bench, _, event: &InputEvent, cx| {
             if let InputEvent::Change = event {
                 bench.parts.redraw_stage(cx);

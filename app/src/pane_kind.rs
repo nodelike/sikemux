@@ -54,7 +54,7 @@ pub fn of(kind: PaneKind) -> Kind {
         PaneKind::ProjectSettings => kind_of(Icon::Settings, "Project settings", Never, true),
         PaneKind::InstallSikemux => kind_of(Icon::Download, "Install Sikemux", Never, true),
         PaneKind::Stash => kind_of(Icon::Stack, "Stash", Never, true),
-        PaneKind::Hosts => kind_of(Icon::Gauge, "Hosts", Never, true),
+        PaneKind::Hosts => kind_of(Icon::Gauge, "Devices", Never, true),
         PaneKind::Mod => kind_of(Icon::Dashboard, "Mod", Always, false),
         PaneKind::Unknown => kind_of(Icon::Window, "Needs a newer Sikemux", Never, true),
     }

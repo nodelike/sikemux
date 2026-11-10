@@ -324,7 +324,7 @@ fn trouble(
         .line_height(crate::theme::ui_text(16.))
         .text_color(tint)
         .cursor_pointer()
-        .tooltip(ui::tooltip(format!("Open Hosts › {name}")))
+        .tooltip(ui::tooltip(format!("Open Devices › {name}")))
         .child(
             div()
                 .min_w_0()
@@ -729,10 +729,11 @@ pub(crate) fn account_host_menu(
                 None => popup,
             };
             popup
-                .item(PopupMenuItem::new("Rename").icon(Icon::Pencil).on_click({
+                .item(PopupMenuItem::new("Rename…").icon(Icon::Pencil).on_click({
                     let (bench, key, named) = (bench.clone(), key.clone(), named.clone());
                     move |_, _, cx| {
-                        let _ = bench.update(cx, |bench, cx| bench.rename_host(&key, &named, cx));
+                        let _ =
+                            bench.update(cx, |bench, cx| bench.rename_on_account(&key, &named, cx));
                     }
                 }))
                 .item(
@@ -1560,7 +1561,13 @@ fn account(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
             "Devices",
             Icon::Laptop,
             None,
-            act(|bench, window, cx| bench.open_settings(Page::Devices, window, cx)),
+            act(|bench, window, cx| {
+                if bench.settings.read(cx).is_open() {
+                    crate::settings::close(bench, window, cx);
+                }
+                bench.show_workbench(cx);
+                bench.open_hosts(None);
+            }),
         ),
         (
             "Connectors",

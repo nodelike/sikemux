@@ -91,7 +91,7 @@ fn choices() -> [Choice; 10] {
         Choice::of(
             PaneKind::Hosts,
             actions::FocusHosts::ID,
-            "How busy each host is and what its agents use",
+            "Your hosts, how busy each is, and the phones paired here",
             false,
         ),
         Choice::of(

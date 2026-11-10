@@ -157,7 +157,7 @@ pub(crate) async fn rename_device(core: &Core, params: DeviceParams) -> CoreResu
         .ok_or_else(|| CoreError::from("a device needs a name"))?;
     let path = format!("{}/name", device_path(&params.key)?);
     host_request(core, Method::POST, &path, Some(json!({ "name": name }))).await?;
-    Ok(())
+    crate::server::remote::rename_paired(core, &params.key, &name)
 }
 
 /// Takes a device or host off the account, which revokes it on every host at once.
