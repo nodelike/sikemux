@@ -41,6 +41,7 @@ pub enum Asking {
         then: Typed,
     },
     Review(Entity<crate::agents::review::AgentReview>),
+    PairPhone(Entity<crate::sim::pair::PairPhone>),
 }
 
 impl Workbench {
@@ -122,6 +123,22 @@ impl Workbench {
         }
     }
 
+    pub(crate) fn show_pairing(
+        &mut self,
+        pairing: Entity<crate::sim::pair::PairPhone>,
+        cx: &mut Context<Self>,
+    ) {
+        self.overlays.asking = Some(Asking::PairPhone(pairing));
+        cx.notify();
+    }
+
+    pub(crate) fn close_pairing(&mut self, cx: &mut Context<Self>) {
+        if matches!(self.overlays.asking, Some(Asking::PairPhone(_))) {
+            self.take_asking(cx);
+            cx.notify();
+        }
+    }
+
     /// Takes the question being asked away, however it was answered; a trust question that
     /// came in behind it is asked next.
     pub(crate) fn take_asking(&mut self, cx: &mut Context<Self>) -> Option<Asking> {
@@ -150,33 +167,16 @@ impl Workbench {
         };
         Some(match self.overlays.asking.as_mut()? {
             Asking::Review(review) => {
-                let t = Tokens::get(cx).clone();
                 let leaving = cx.entity();
-                div()
-                    .id("agent-review-backdrop")
-                    .absolute()
-                    .inset_0()
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .bg(gpui_kit::black().opacity(0.4))
-                    .occlude()
-                    .on_click(move |_, _, cx| {
-                        leaving.update(cx, |bench, cx| bench.close_review(cx));
-                    })
-                    .child(
-                        div()
-                            .id("agent-review")
-                            .occlude()
-                            .on_click(|_, _, cx| cx.stop_propagation())
-                            .bg(t.surface_overlay)
-                            .border_1()
-                            .border_color(t.border)
-                            .rounded(crate::theme::RADIUS_3)
-                            .shadow(t.shadow_float())
-                            .child(review.clone()),
-                    )
-                    .into_any_element()
+                panel("agent-review", review.clone().into(), cx, move |cx| {
+                    leaving.update(cx, |bench, cx| bench.close_review(cx));
+                })
+            }
+            Asking::PairPhone(pairing) => {
+                let leaving = cx.entity();
+                panel("pair-phone", pairing.clone().into(), cx, move |cx| {
+                    leaving.update(cx, |bench, cx| bench.close_pairing(cx));
+                })
             }
             Asking::Confirm {
                 title,
@@ -233,4 +233,37 @@ impl Workbench {
             }
         })
     }
+}
+
+/// A panel floating over the dimmed window, which a click beside it closes.
+fn panel(
+    id: &'static str,
+    view: gpui_kit::AnyView,
+    cx: &App,
+    close: impl Fn(&mut App) + 'static,
+) -> AnyElement {
+    let t = Tokens::get(cx).clone();
+    div()
+        .id(SharedString::from(format!("{id}-backdrop")))
+        .absolute()
+        .inset_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(gpui_kit::black().opacity(0.4))
+        .occlude()
+        .on_click(move |_, _, cx| close(cx))
+        .child(
+            div()
+                .id(id)
+                .occlude()
+                .on_click(|_, _, cx| cx.stop_propagation())
+                .bg(t.surface_overlay)
+                .border_1()
+                .border_color(t.border)
+                .rounded(crate::theme::RADIUS_3)
+                .shadow(t.shadow_float())
+                .child(view),
+        )
+        .into_any_element()
 }

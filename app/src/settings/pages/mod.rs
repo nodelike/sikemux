@@ -193,6 +193,14 @@ pub fn providers_changed(bench: &Workbench, cx: &mut Context<Workbench>) {
     }
 }
 
+/// Reads the devices again while a page shows them, as after the Android Emulator is set up.
+pub fn devices_changed(bench: &Workbench, cx: &mut Context<Workbench>) {
+    let shown = state(bench, cx).is_some_and(|pages| pages.agents.is_some());
+    if shown {
+        agents::read_devices(bench, cx);
+    }
+}
+
 /// Reads the connectors' own settings again while the Connectors page shows them, as after a
 /// sign-in, once it next draws.
 pub fn plugins_changed(bench: &Workbench, cx: &mut App) {

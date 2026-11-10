@@ -20,15 +20,17 @@ pub struct Invitation {
     pub password: String,
 }
 
-impl Invitation {
-    pub fn new() -> Self {
+impl Default for Invitation {
+    fn default() -> Self {
         let random = |length: usize| uuid::Uuid::new_v4().simple().to_string()[..length].to_owned();
         Self {
             name: format!("sikemux-{}", random(8)),
             password: random(12),
         }
     }
+}
 
+impl Invitation {
     /// The text the QR code holds, in the form Wireless debugging scans.
     pub fn qr_text(&self) -> String {
         format!("WIFI:T:ADB;S:{};P:{};;", self.name, self.password)

@@ -41,6 +41,10 @@ pub(super) fn make(bench: &mut Workbench, window: &mut Window, cx: &mut Context<
     skills::read(bench, cx);
 }
 
+pub fn read_devices(bench: &Workbench, cx: &mut Context<Workbench>) {
+    device::read_simulator(bench, cx);
+}
+
 pub fn read_providers(bench: &Workbench, cx: &mut Context<Workbench>) {
     providers::read(bench, cx);
 }

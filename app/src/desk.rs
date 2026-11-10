@@ -2444,7 +2444,7 @@ fn kinds(
         (
             "desk-simulator",
             Icon::Phone,
-            "iOS Simulator",
+            "Devices",
             DeskKind::Simulator,
             0,
             false,

@@ -1,6 +1,7 @@
 //! What the agents may use on this Mac: dictation, the island over the notch,
 //! and the iOS Simulator.
 
+use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::Disableable;
 use gpui_kit::{div, AnyElement, App, Context, Div, Entity, ParentElement, SharedString, Window};
@@ -101,8 +102,8 @@ pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
     crate::settings::index::row(
         crate::settings::index::Page::Simulator,
         "iOS Simulator",
-        "Let agents drive the iOS Simulator",
-        "iphone tap swipe app test mobile",
+        "Let agents drive simulators and Android devices",
+        "iphone android tap swipe app test mobile",
     ),
     crate::settings::index::row(
         crate::settings::index::Page::Simulator,
@@ -122,6 +123,23 @@ pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
         "Simulator helper",
         "download idb",
     ),
+    crate::settings::index::section(
+        crate::settings::index::Page::Simulator,
+        "Android Emulator",
+        "android emulator avd pixel phone sdk adb",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Simulator,
+        "Android Emulator",
+        "Android SDK",
+        "sdk android_home set up install download",
+    ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Simulator,
+        "Android Emulator",
+        "Virtual devices",
+        "avd pixel emulator",
+    ),
 ];
 
 pub struct Fields {
@@ -133,10 +151,20 @@ pub struct Fields {
     sim_status: Option<SimStatus>,
     /// Xcode, its iOS runtimes and the helper, once read; none when they could not be.
     sim_setup: Option<Option<Value>>,
+    /// The Android SDK, its emulator and virtual devices, once read.
+    android: Option<Value>,
 }
 
 /// Asks whether the simulator can run here and, when it can, what it would run with.
 pub fn read_simulator(bench: &Workbench, cx: &mut Context<Workbench>) {
+    let android = bench.sims.read(cx).android_info();
+    cx.spawn(async move |bench, cx| {
+        let android = android.await;
+        let _ = bench.update(cx, |bench, cx| {
+            super::change_fields(bench, cx, |fields, _| fields.device.android = android);
+        });
+    })
+    .detach();
     let status = bench.sims.read(cx).status();
     cx.spawn(async move |bench, cx| {
         let status = status.await;
@@ -195,6 +223,7 @@ impl Fields {
         Self {
             sim_status: None,
             sim_setup: None,
+            android: None,
             displays: choice(
                 vec![
                     "Every display",
@@ -347,6 +376,86 @@ fn simulator_rows(fields: &Fields, cx: &App) -> Vec<Div> {
     found
 }
 
+/// The Android SDK in use and its devices, or the setup that would bring them.
+fn android_rows(
+    bench: &Workbench,
+    fields: &Fields,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> Vec<Div> {
+    let about = |text: String| -> Option<SharedString> { Some(text.into()) };
+    if let Some((step, fraction)) = bench.sims.read(cx).android_setup() {
+        let percent = (fraction * 100.).round();
+        return vec![rows::row_with(
+            None,
+            "Android SDK",
+            about(format!("Setting up… {percent}% · {step}")),
+            div(),
+            cx,
+        )];
+    }
+    let Some(android) = &fields.android else {
+        return vec![rows::row_with(
+            None,
+            "Android SDK",
+            about("Checking…".into()),
+            div(),
+            cx,
+        )];
+    };
+    let offer = android["offer"].as_u64();
+    let set_up = offer.map(|bytes| {
+        let this = this.clone();
+        Button::new("android-set-up")
+            .primary()
+            .compact()
+            .label(format!("Set up · {:.1} GB", bytes as f64 / 1e9))
+            .on_click(move |_, _, cx| {
+                this.update(cx, |bench, cx| {
+                    bench
+                        .sims
+                        .update(cx, |sims, cx| sims.set_up_android(None, cx))
+                })
+            })
+    });
+    let sdk = match android["sdk"].as_str() {
+        Some(path) => crate::ui::path::tilde(path, crate::ui::path::this_home().as_deref()),
+        None => "Not found. Sikemux can set up its own, with no Android Studio or Java.".into(),
+    };
+    let mut found = vec![rows::row_with(
+        None,
+        "Android SDK",
+        about(sdk),
+        div().children(set_up),
+        cx,
+    )];
+    if let Some(version) = android["emulator"].as_str() {
+        found.push(rows::row_with(
+            None,
+            "Emulator",
+            about(version.to_owned()),
+            div(),
+            cx,
+        ));
+    }
+    let devices: Vec<&str> = android["devices"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    if !devices.is_empty() {
+        found.push(rows::row_with(
+            None,
+            "Virtual devices",
+            about(devices.join(" · ")),
+            div(),
+            cx,
+        ));
+    }
+    found
+}
+
 pub fn render(
     bench: &Workbench,
     fields: &Fields,
@@ -442,8 +551,8 @@ pub fn render(
 
     let simulator = div()
         .child(rows::row(
-            "Let agents drive the iOS Simulator",
-            Some("Agents tap, type and read simulators without asking, as they do browser tabs, and their screenshots go to the agent's provider. Applies to agents started after a change."),
+            "Let agents drive simulators and Android devices",
+            Some("Agents tap, type and read iOS simulators, Android emulators and phones plugged in with USB debugging without asking, as they do browser tabs, and their screenshots go to the agent's provider. Applies to agents started after a change."),
             rows::switch("ios-simulator", PreferenceChange::IosSimulator, preferences.ios_simulator, this),
             cx,
         ))
@@ -458,14 +567,25 @@ pub fn render(
     let section = match page {
         Page::Voice => rows::section("Voice", None, None, lit("Voice"), voice, cx),
         Page::Notch => rows::section("Notch", None, None, lit("Notch"), island, cx),
-        _ => rows::section(
-            "iOS Simulator",
-            None,
-            None,
-            lit("iOS Simulator"),
-            simulator,
-            cx,
-        ),
+        _ => {
+            let android = rows::section(
+                "Android Emulator",
+                None,
+                None,
+                lit("Android Emulator"),
+                div().children(android_rows(bench, fields, this, cx)),
+                cx,
+            );
+            let ios = rows::section(
+                "iOS Simulator",
+                None,
+                None,
+                lit("iOS Simulator"),
+                simulator,
+                cx,
+            );
+            return vec![ios, android];
+        }
     };
     vec![section]
 }
