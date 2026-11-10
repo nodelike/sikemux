@@ -7,7 +7,7 @@ make build
 git tag v0.4.1 && git push origin v0.4.1
 ```
 
-Pushes run no checks locally; CI checks `main` one run at a time, and when pushes arrive faster than it runs only the newest waiting one runs. Tag a commit whose CI run is green or running: the release waits for that run, and runs the checks itself when the commit has none. `make build` builds the DMG against its size limit, which otherwise surfaces only in the Release run.
+Pushes run no checks locally; CI checks `main` one run at a time, and when pushes arrive faster than it runs only the newest waiting one runs. Tag a commit whose CI run is green or running: the release waits up to two hours for that run, and runs the checks itself when the commit has none, its run failed or it is still not done. `make build` builds the DMG against its size limit, which otherwise surfaces only in the Release run.
 
 A run is titled with its tag, so the approval names what it will publish, and it stops if the tag disagrees with `package.json` or the release already exists. The workflow reads the version from `package.json` and builds, signs and verifies the Mac release while the full CI suite runs. No job that runs the build's dependencies holds signing material, and no job that holds it runs them or anything they built:
 
