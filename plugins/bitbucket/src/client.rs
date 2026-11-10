@@ -109,8 +109,11 @@ struct ErrorBody {
 struct ErrorDetail {
     message: Option<String>,
     detail: Option<Value>,
+    #[serde(default)]
+    fields: serde_json::Map<String, Value>,
 }
 
+/// Bitbucket's message with its detail and what it says of each field it refused.
 pub fn error_message(bytes: &[u8]) -> Option<String> {
     let detail = serde_json::from_slice::<ErrorBody>(bytes).ok()?.error?;
     let message = detail.message?;
@@ -121,11 +124,27 @@ pub fn error_message(bytes: &[u8]) -> Option<String> {
             .find_map(|value| value.as_str().map(str::to_string)),
         _ => None,
     };
-    Some(match extra {
-        Some(extra) if !extra.is_empty() && !message.contains(&extra) => {
-            format!("{message}: {extra}")
-        }
-        _ => message,
+    let fields = detail.fields.iter().filter_map(|(field, said)| {
+        let said = match said {
+            Value::String(text) => text.clone(),
+            Value::Array(items) => items
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<Vec<_>>()
+                .join(", "),
+            _ => return None,
+        };
+        (!said.is_empty()).then(|| format!("{field}: {said}"))
+    });
+    let parts: Vec<String> = extra
+        .filter(|extra| !extra.is_empty() && !message.contains(extra.as_str()))
+        .into_iter()
+        .chain(fields)
+        .collect();
+    Some(if parts.is_empty() {
+        message
+    } else {
+        format!("{message}: {}", parts.join("; "))
     })
 }
 

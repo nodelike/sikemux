@@ -32,6 +32,31 @@ pub const MAX_ANSWER: usize = 16 * 1024 * 1024;
 /// Enough for who a token belongs to.
 pub const MAX_IDENTITY: usize = 1024 * 1024;
 
+fn reads(request: &RequestBuilder) -> bool {
+    request
+        .try_clone()
+        .and_then(|request| request.build().ok())
+        .is_some_and(|request| matches!(*request.method(), Method::GET | Method::HEAD))
+}
+
+/// Words in an error's causes that mean the connection went before an answer came.
+const DROPPED_CAUSES: [&str; 4] = [
+    "connection reset",
+    "connection closed before message completed",
+    "broken pipe",
+    "connection aborted",
+];
+
+fn dropped(error: &reqwest::Error) -> bool {
+    error.is_connect()
+        || std::iter::successors(std::error::Error::source(error), |cause| cause.source()).any(
+            |cause| {
+                let said = cause.to_string().to_lowercase();
+                DROPPED_CAUSES.iter().any(|words| said.contains(words))
+            },
+        )
+}
+
 #[derive(Clone, Copy)]
 pub enum Redirects {
     /// A redirect is the answer, such as a sign-in page in front of the service.
@@ -200,8 +225,17 @@ impl<S: Service> Http<S> {
         work.await
     }
 
+    /// Sends `request`, and a read once more when the connection failed or
+    /// dropped before any answer, as a pooled connection the server closed does.
     pub async fn send(&self, request: RequestBuilder) -> Result<Response, ServiceError<S>> {
-        Ok(self.limited(request.send()).await?)
+        let again = request.try_clone().filter(reads);
+        match self.limited(request.send()).await {
+            Err(error) if dropped(&error) => match again {
+                Some(again) => Ok(self.limited(again.send()).await?),
+                None => Err(error.into()),
+            },
+            answer => Ok(answer?),
+        }
     }
 
     /// Sends a request and reads its whole answer, with no rate limit in the way.

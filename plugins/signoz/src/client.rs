@@ -11,13 +11,26 @@ use crate::query;
 
 static HTTP: Http<Signoz> = Http::new(Redirects::Refuse, 16);
 
+/// SigNoz's message, with the reasons it lists under it, which name the field at fault.
 pub fn error_message(body: &Value) -> Option<String> {
     let error = body.get("error")?;
-    error
+    let message = error
         .get("message")
         .and_then(Value::as_str)
-        .or_else(|| error.as_str())
-        .map(str::to_string)
+        .or_else(|| error.as_str())?;
+    let reasons: Vec<&str> = error
+        .get("errors")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|reason| reason.get("message").and_then(Value::as_str))
+        .filter(|reason| !reason.is_empty() && !message.contains(reason))
+        .collect();
+    Some(if reasons.is_empty() {
+        message.to_string()
+    } else {
+        format!("{message}: {}", reasons.join("; "))
+    })
 }
 
 /// One request with exactly the credentials given.
