@@ -1637,8 +1637,12 @@ fn sign_in(bench: &Workbench, cx: &mut Context<Workbench>) -> impl IntoElement {
     let (copy, button) = if bench.signing_in {
         (
             "Finish signing in in your browser.",
-            Button::new("sign-in", "Cancel", Variant::Outline)
-                .on_click(cx.listener(|bench, _, _, _| bench.cancel_sign_in())),
+            Button::new("sign-in", "Cancel", Variant::Outline).on_click(cx.listener(
+                |bench, _, _, cx| {
+                    bench.cancel_sign_in();
+                    cx.notify();
+                },
+            )),
         )
     } else {
         (

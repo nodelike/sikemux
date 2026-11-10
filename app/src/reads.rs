@@ -592,7 +592,15 @@ impl Workbench {
     ) {
         eprintln!("sikemux: the core refused {read:?}: {error}");
         match read {
-            Read::SignIn | Read::SignInFinished => self.signing_in = false,
+            Read::SignIn | Read::SignInFinished => {
+                if std::mem::take(&mut self.signing_in) {
+                    self.notify(
+                        crate::toast::error(format!("Sikemux could not sign in: {error}"))
+                            .autohide(false),
+                        cx,
+                    );
+                }
+            }
             Read::FilesList => self.files_retry.refused(
                 cx,
                 |bench| &mut bench.files_retry,

@@ -77,6 +77,14 @@ fn unprotected() -> KeychainError {
     })
 }
 
+/// Whether this build may keep secrets here at all, saying why not when it may not.
+pub fn ready() -> KeychainResult<()> {
+    match store() {
+        Store::Unprotected => Err(unprotected()),
+        _ => Ok(()),
+    }
+}
+
 fn name_like(raw: &str, what: &str) -> KeychainResult<String> {
     let value = raw.trim();
     let allowed = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':' | '@');

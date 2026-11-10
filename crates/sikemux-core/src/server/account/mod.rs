@@ -289,6 +289,7 @@ fn authorize_url(redirect: &str, state: &str, challenge: &str) -> String {
 /// address the person signs in at, which the client opens in their browser.
 /// The browser must run on this host, since it hands back to a listener here.
 pub(crate) async fn sign_in(core: &Arc<Core>, peer: Peer) -> CoreResult<SignInPage> {
+    sikemux_keychain::ready().map_err(|error| CoreError::from(error.to_string()))?;
     let refused = |error: LoopbackError| CoreError::from(error.0);
     let signed_in = format!("{}/signed-in", crate::accounts::app_base());
     let callback = Callback::bind_any(

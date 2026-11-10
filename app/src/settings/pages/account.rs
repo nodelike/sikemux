@@ -89,8 +89,14 @@ fn sign_in_panel(
     };
     let this = this.clone();
     let action = match waiting {
-        true => ui::Button::new("devices-cancel-sign-in", "Cancel", ui::Variant::Outline)
-            .on_click(move |_, _, cx| this.update(cx, |bench, _| bench.cancel_sign_in())),
+        true => ui::Button::new("devices-cancel-sign-in", "Cancel", ui::Variant::Outline).on_click(
+            move |_, _, cx| {
+                this.update(cx, |bench, cx| {
+                    bench.cancel_sign_in();
+                    cx.notify();
+                })
+            },
+        ),
         false => ui::Button::new("devices-sign-in", "Sign in", ui::Variant::Primary)
             .on_click(move |_, _, cx| this.update(cx, |bench, _| bench.sign_in())),
     };

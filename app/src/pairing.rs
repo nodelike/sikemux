@@ -518,7 +518,8 @@ impl Workbench {
     }
 
     /// Ends a sign-in the browser has not finished, which settles the one waiting on it.
-    pub fn cancel_sign_in(&self) {
+    pub fn cancel_sign_in(&mut self) {
+        self.signing_in = false;
         Target::here(&self.asks).call_typed::<call::AccountSignInCancel>(NoParams {});
     }
 
