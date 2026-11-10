@@ -1866,22 +1866,32 @@ fn diff_of(repo: &Path, base: &str, head: &str) -> Result<(Proof, bool), String>
     Ok((proof, pages))
 }
 
-/// What each commit's Sikemux footer names, kept as read so a commit is
-/// read once; past its bound it starts over.
+/// The chat and session each commit's Sikemux footer names, kept as read so a
+/// commit is read once; past its bound it starts over.
 #[derive(Default)]
-pub(super) struct Footers(std::sync::Mutex<std::collections::HashMap<String, Vec<String>>>);
+pub(super) struct Footers(
+    std::sync::Mutex<std::collections::HashMap<String, Vec<(String, Option<String>)>>>,
+);
 
 impl Footers {
+    /// Whether `sha`'s footer names `agent`, by its chat or by its session, which a chat
+    /// reopened under a new id keeps.
     fn names(&self, core: &Core, dir: &Path, sha: &str, agent: &str) -> bool {
+        let session = core.names.last_session(agent);
+        let named = |names: &[(String, Option<String>)]| {
+            names.iter().any(|(chat, signed)| {
+                chat == agent || (session.is_some() && signed.as_ref() == session.as_ref())
+            })
+        };
         if let Some(names) = self.0.locked().get(sha) {
-            return names.iter().any(|named| named == agent);
+            return named(names);
         }
-        let names: Vec<String> = footer::verified(core, dir, sha)
+        let names: Vec<(String, Option<String>)> = footer::verified(core, dir, sha)
             .unwrap_or_default()
             .into_iter()
-            .map(|named| named.chat)
+            .map(|named| (named.chat, named.session))
             .collect();
-        let found = names.iter().any(|named| named == agent);
+        let found = named(&names);
         let mut kept = self.0.locked();
         if kept.len() >= MAX_FOOTERS {
             kept.clear();
