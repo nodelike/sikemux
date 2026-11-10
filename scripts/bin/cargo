@@ -162,6 +162,7 @@ def main():
         print("cargo: no cargo found; install rustup from https://rustup.rs", file=sys.stderr)
         return 127
     command = [cargo, *args]
+    path = os.pathsep.join([os.path.dirname(cargo), path])
     if os.environ.get("CI"):
         os.execve(cargo, command, dict(os.environ, PATH=path))
     env = dict(os.environ, PATH=path)
