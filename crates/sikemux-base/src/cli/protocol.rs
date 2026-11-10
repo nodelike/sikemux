@@ -142,6 +142,20 @@ pub enum CliClientCommand {
         token: String,
         request: CliOpenRequest,
     },
+    /// Waits for a turn to build. The turn lasts until the connection closes.
+    Build {
+        protocol: u16,
+        token: String,
+        request: BuildRequest,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildRequest {
+    pub agent_id: Option<String>,
+    /// The command, as the person would read it, such as `cargo check -p core`.
+    pub command: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -176,6 +190,15 @@ pub enum CliServerResponse {
         request_id: String,
         reason: CliCloseReason,
     },
+    /// The build waits behind `ahead` others while `building` builds run, of the
+    /// `limit` this machine takes at once.
+    Queued {
+        ahead: usize,
+        building: usize,
+        limit: usize,
+    },
+    /// The build may run now.
+    Building,
     Error {
         message: String,
     },

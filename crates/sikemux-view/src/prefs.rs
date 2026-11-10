@@ -169,6 +169,9 @@ pub struct Preferences {
     /// The host whose copy of each project is in front (ADR 0023), by the
     /// project's identity: `this` or `host:<key>`.
     pub front_copies: BTreeMap<String, String>,
+    /// How many builds agents start may run at once on this host; 0 sizes it from the
+    /// host's cores and memory.
+    pub build_runs: u32,
 }
 
 /// Declares `PreferenceChange`, a row for each field of `Preferences`. The compiler refuses a field
@@ -262,6 +265,7 @@ preference_changes! {
     WindowView window_view: WindowView,
     RecentCommandKeys recent_command_keys: Vec<String>,
     FrontCopies front_copies: BTreeMap<String, String>,
+    BuildRuns build_runs: u32,
 }
 
 /// What the window shows in place of the other.
@@ -416,6 +420,7 @@ impl Default for Preferences {
             window_view: WindowView::default(),
             recent_command_keys: Vec::new(),
             front_copies: BTreeMap::new(),
+            build_runs: 0,
         }
     }
 }

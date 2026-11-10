@@ -303,6 +303,21 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             }
             Err(message) => Err(message),
         },
+        CliClientCommand::Build {
+            protocol,
+            token,
+            request,
+        } => {
+            if let Err(message) = authenticate(protocol, &token, secret) {
+                write(&mut writer, &CliServerResponse::Error { message }).await;
+                return;
+            }
+            tokio::select! {
+                () = build(&core, &mut reader, &mut writer, request) => {}
+                () = core.updating.until_frozen() => {}
+            }
+            return;
+        }
         CliClientCommand::Open {
             protocol,
             token,
@@ -332,6 +347,55 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
     };
     let response = response.unwrap_or_else(|message| CliServerResponse::Error { message });
     write(&mut writer, &response).await;
+}
+
+/// Gives the build its turn once the host has room, saying while it waits, and
+/// holds the turn until the build closes the connection.
+async fn build(
+    core: &Arc<Core>,
+    reader: &mut BufReader<OwnedReadHalf>,
+    writer: &mut OwnedWriteHalf,
+    request: crate::cli::protocol::BuildRequest,
+) {
+    let turn = super::builds::Turn::ask(core, request.agent_id);
+    let mut told = false;
+    loop {
+        match turn.place() {
+            super::builds::Place::Building => break,
+            super::builds::Place::Waiting {
+                ahead,
+                building,
+                limit,
+            } if !told => {
+                told = true;
+                turn.show();
+                let queued = CliServerResponse::Queued {
+                    ahead,
+                    building,
+                    limit,
+                };
+                if !write(writer, &queued).await {
+                    return;
+                }
+            }
+            super::builds::Place::Waiting { .. } => {}
+        }
+        tokio::select! {
+            () = turn.changed() => {}
+            () = closed(reader) => return,
+        }
+    }
+    if told {
+        turn.show();
+    }
+    if write(writer, &CliServerResponse::Building).await {
+        closed(reader).await;
+    }
+}
+
+async fn closed(reader: &mut BufReader<OwnedReadHalf>) {
+    let mut ignored = [0; 64];
+    while matches!(reader.read(&mut ignored).await, Ok(read) if read > 0) {}
 }
 
 /// Answers once the window has opened every target, and for `--wait` again

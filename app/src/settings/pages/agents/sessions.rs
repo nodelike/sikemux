@@ -78,14 +78,24 @@ pub(in crate::settings) const ENTRIES: &[crate::settings::index::Entry] = &[
         "Idle chats",
         "sleep memory process agents",
     ),
+    crate::settings::index::row(
+        crate::settings::index::Page::Chats,
+        "Chats",
+        "Builds at once",
+        "cargo build compile queue jobs cores parallel limit",
+    ),
 ];
 
 pub struct Fields {
     mid_turn: Choice,
     density: Choice,
+    builds: Choice,
     /// What new agents are called, once the core has said.
     names: Option<Choice>,
 }
+
+/// How many builds agents start may run at once; 0 lets the host size it.
+const BUILD_RUNS: [u32; 9] = [0, 1, 2, 3, 4, 6, 8, 12, 16];
 
 /// The themes new agents' names come from: the core's word, and how the menu shows it.
 const NAMES: [(NameTheme, &str); 2] = [
@@ -162,9 +172,26 @@ impl Fields {
             window,
             cx,
         );
+        let builds = Choice::new(
+            BUILD_RUNS
+                .iter()
+                .map(|runs| match runs {
+                    0 => "Automatic".to_owned(),
+                    runs => runs.to_string(),
+                })
+                .collect(),
+            BUILD_RUNS
+                .iter()
+                .position(|runs| *runs == preferences.build_runs)
+                .unwrap_or(0),
+            |bench, at, _| crate::settings::set(bench, PreferenceChange::BuildRuns(BUILD_RUNS[at])),
+            window,
+            cx,
+        );
         Self {
             mid_turn,
             density,
+            builds,
             names: None,
         }
     }
@@ -307,6 +334,12 @@ pub fn render(
                 cx,
             )
         }))
+        .child(rows::row(
+            "Builds at once",
+            Some("How many builds agents start run side by side. The rest wait their turn and say so. Automatic fits it to this host's cores and free memory."),
+            fields.builds.view(),
+            cx,
+        ))
         .child(rows::row(
             "Idle chats",
             Some("Put every idle chat to sleep now, freeing its process."),

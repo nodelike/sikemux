@@ -17,6 +17,8 @@ pub const CONFIG_DIR: &str = "SIKEMUX_CONFIG_DIR";
 pub const LAUNCH_BEHIND: &str = "SIKEMUX_LAUNCH_BEHIND";
 pub const CLI_ENDPOINT_PUBLISH: &str = "SIKEMUX_CLI_ENDPOINT_PUBLISH";
 pub const REAL_GIT: &str = "SIKEMUX_REAL_GIT";
+/// Set for what a build runs while it holds its turn, so a build it starts does not wait for one.
+pub const BUILD_TURN: &str = "SIKEMUX_BUILD_TURN";
 pub const USER_ZDOTDIR: &str = "SIKEMUX_USER_ZDOTDIR";
 pub const PROJECT: &str = "SIKEMUX_PROJECT";
 pub const SHELL: &str = "SIKEMUX_SHELL";
@@ -53,7 +55,7 @@ pub const CLAUDE_ENTRYPOINT: (&str, &str) = ("CLAUDE_CODE_ENTRYPOINT", "sikemux"
 /// agent's transcript saving off and hand it the session's messaging socket, its Claude home, and
 /// Sikemux's names for that session's agent, which Sikemux sets afresh for each program. Claude
 /// Code's own settings, such as `CLAUDE_CODE_USE_BEDROCK`, are the person's and go through.
-pub const LAUNCHING_SESSION: [&str; 17] = [
+pub const LAUNCHING_SESSION: [&str; 18] = [
     "CLAUDECODE",
     "CLAUDE_CODE_CHILD_SESSION",
     "CLAUDE_CODE_ENTRYPOINT",
@@ -71,4 +73,5 @@ pub const LAUNCHING_SESSION: [&str; 17] = [
     CLI_ENDPOINT,
     SKILLS_DIR,
     REAL_GIT,
+    BUILD_TURN,
 ];

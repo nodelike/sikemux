@@ -12,6 +12,7 @@ mod approvals;
 pub mod attachments;
 mod backdrop;
 pub mod board;
+pub(crate) mod builds;
 mod caller;
 mod callers;
 pub mod calls;
@@ -385,6 +386,8 @@ pub(crate) struct Core {
     /// Agents' actions that leave this machine, held for the person.
     pub(crate) ship: ship::Ships,
     pub(crate) build_outputs: worktree::build_output::BuildOutputs,
+    /// Builds agents start, taking turns.
+    pub(crate) builds: builds::Builds,
     pub(crate) session_watch: session_watch::SessionWatch,
     pub(crate) activity_log: Arc<activity_log::ActivityLog>,
     pub(crate) device_view: device_view::DeviceViews,
@@ -537,6 +540,7 @@ impl Core {
             lifecycle: lifecycle::Lifecycle::default(),
             ship: ship::Ships::default(),
             build_outputs: Default::default(),
+            builds: builds::Builds::default(),
             session_watch: session_watch::SessionWatch::default(),
             activity_log: Arc::new(activity_log::ActivityLog::new(data_dir)),
             device_view: device_view::DeviceViews::default(),

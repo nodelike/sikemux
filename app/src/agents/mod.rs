@@ -1283,7 +1283,7 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
             | sikemux_wire::protocol::AgentStatus::Starting
     );
     let trigger = agent.next_trigger.filter(|_| waits);
-    (agent.subagents > 0 || agent.tasks > 0 || trigger.is_some()).then(|| {
+    (agent.subagents > 0 || agent.tasks > 0 || trigger.is_some() || agent.build_queued).then(|| {
         let count = |glyph: Icon, size: f32, color, value: u32| {
             div()
                 .flex()
@@ -1292,6 +1292,17 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
                 .child(ui::icon(glyph, size).text_color(color))
                 .child(
                     ui::text(value.to_string(), TEXT_2XS, FontWeight::MEDIUM)
+                        .font_features(crate::theme::tabular()),
+                )
+        };
+        let labelled = |glyph: Icon, color, label: String| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(3.))
+                .child(ui::icon(glyph, 11.).text_color(color))
+                .child(
+                    ui::text(label, TEXT_2XS, FontWeight::MEDIUM)
                         .font_features(crate::theme::tabular()),
                 )
         };
@@ -1305,17 +1316,10 @@ pub fn counts(agent: &AgentRow, cx: &App) -> Option<impl IntoElement> {
             .when(agent.tasks > 0, |row| {
                 row.child(count(Icon::Command, 11., t.warn, agent.tasks))
             })
-            .children(trigger.map(|at| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(3.))
-                    .child(ui::icon(Icon::Timer, 11.).text_color(t.cmd))
-                    .child(
-                        ui::text(ui::time::until(at), TEXT_2XS, FontWeight::MEDIUM)
-                            .font_features(crate::theme::tabular()),
-                    )
-            }))
+            .when(agent.build_queued, |row| {
+                row.child(labelled(Icon::Hourglass, t.warn, "queued".into()))
+            })
+            .children(trigger.map(|at| labelled(Icon::Timer, t.cmd, ui::time::until(at))))
     })
 }
 

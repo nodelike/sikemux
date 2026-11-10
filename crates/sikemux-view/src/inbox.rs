@@ -407,6 +407,10 @@ pub struct AgentShown {
     /// How many triggers it set on its own chat, which pause when it closes.
     #[serde(default)]
     pub triggers: u32,
+    /// When a build it started began to wait for its turn on the host, while it waits, in
+    /// Unix milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub build_queued_at: Option<u64>,
     /// When the agent was last named with `@` or messaged by another agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub called_at: Option<u64>,

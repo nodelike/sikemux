@@ -161,6 +161,10 @@ pub(crate) fn environment(path: Option<&str>) -> Vec<(String, String)> {
     };
     let mut env = vec![("PATH".to_owned(), path)];
     env.extend(crate::agent_shell::environment());
+    env.extend(
+        super::builds::rustc_cache()
+            .map(|(name, cache)| (name.to_owned(), cache.to_string_lossy().into_owned())),
+    );
     if let Some(git) = sikemux_process::user_environment::git_program() {
         env.push((
             vars::REAL_GIT.to_owned(),
@@ -373,7 +377,7 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
             kind,
             target: crate::ship::target_of(program, &words, &env, &cwd),
             what: std::iter::once(program.to_owned())
-                .chain(words)
+                .chain(words.iter().cloned())
                 .collect::<Vec<_>>()
                 .join(" "),
         };
@@ -385,7 +389,10 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
             Asked::Goes { went } => watched = went.map(|went| (went, cwd)),
         }
     }
-    let Some(real) = real(program) else {
+    let rustup = (program == "cargo")
+        .then(|| super::builds::rustup_cargo(&std::env::current_dir().unwrap_or_default()))
+        .flatten();
+    let Some(real) = rustup.or_else(|| real(program)) else {
         eprintln!("{program}: Sikemux found no {program} to run on PATH");
         return 127;
     };
@@ -400,9 +407,17 @@ fn run_program(program: &str, args: Vec<OsString>) -> i32 {
         tell_ran(&went, &cwd, code);
         return code.unwrap_or(1);
     }
-    let error = sikemux_process::user_environment::command(&real)
-        .args(&args)
-        .exec();
+    if let Some(build) = (program == "cargo")
+        .then(|| super::builds::of_cargo(&words))
+        .flatten()
+    {
+        return super::builds::run(&real, &args, &words, build);
+    }
+    let mut command = sikemux_process::user_environment::command(&real);
+    if program == "cargo" {
+        command.env("PATH", super::builds::path_with(&real));
+    }
+    let error = command.args(&args).exec();
     eprintln!("{program}: {}: {error}", real.display());
     126
 }
