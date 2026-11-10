@@ -1,6 +1,9 @@
 import Foundation
 import Observation
+import OSLog
 import SikemuxCore
+
+private let log = Logger(subsystem: "com.nodelike.sikemux", category: "draft")
 
 /// What the composer holds for the chat's next message, saved as the chat's own draft on the host.
 @MainActor @Observable
@@ -177,6 +180,7 @@ final class ComposerDraft {
         do {
             _ = try await connection.call(PhoneCall.SetDraft.self, draft)
         } catch {
+            log.error("draft not saved, kept for the next change: \(problem(error), privacy: .public)")
             return
         }
         guard self.edits == edits else { return }
@@ -231,16 +235,32 @@ enum DraftStore {
     }
 
     static func load(_ key: String) -> Unsaved? {
-        guard let data = try? Data(contentsOf: file(key)) else { return nil }
-        return try? JSONDecoder().decode(Unsaved.self, from: data)
+        let file = file(key)
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+        do {
+            return try JSONDecoder().decode(Unsaved.self, from: Data(contentsOf: file))
+        } catch {
+            log.error("unsaved draft unreadable: \(problem(error), privacy: .public)")
+            return nil
+        }
     }
 
     static func save(_ key: String, _ unsaved: Unsaved) {
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try? JSONEncoder().encode(unsaved).write(to: file(key), options: .atomic)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try JSONEncoder().encode(unsaved).write(to: file(key), options: .atomic)
+        } catch {
+            log.error("unsaved draft not kept: \(problem(error), privacy: .public)")
+        }
     }
 
     static func clear(_ key: String) {
-        try? FileManager.default.removeItem(at: file(key))
+        let file = file(key)
+        guard FileManager.default.fileExists(atPath: file.path) else { return }
+        do {
+            try FileManager.default.removeItem(at: file)
+        } catch {
+            log.error("saved draft not cleared: \(problem(error), privacy: .public)")
+        }
     }
 }
