@@ -31,8 +31,10 @@ struct PairedDevice: Codable, Hashable, Identifiable {
 
     var displayName: String { name ?? "Host \(core.prefix(8))" }
 
+    var channelLabel: String? { Self.channelLabel(channel) }
+
     /// Builds other than the stable release are named, since one host pairs once per channel.
-    var channelLabel: String? {
+    static func channelLabel(_ channel: String?) -> String? {
         switch channel {
         case "dev": "Dev"
         case "nightly": "Nightly"
