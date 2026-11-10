@@ -22,16 +22,27 @@ enum StashShared {
   }
 
   static func write(_ data: Data?) {
-    guard let file = file() else { return }
-    if let data {
-      try? data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-    } else {
-      try? FileManager.default.removeItem(at: file)
+    guard let file = file() else { return print("sikemux: this build has no App Group to share with its extension") }
+    do {
+      if let data {
+        try data.write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+      } else if FileManager.default.fileExists(atPath: file.path) {
+        try FileManager.default.removeItem(at: file)
+      }
+    } catch {
+      print("sikemux: could not write what the share extension reads: \(error)")
     }
   }
 
+  /// Nil when the app has written nothing, as before it is signed in.
   static func read() -> Data? {
-    file().flatMap { try? Data(contentsOf: $0) }
+    guard let file = file(), FileManager.default.fileExists(atPath: file.path) else { return nil }
+    do {
+      return try Data(contentsOf: file)
+    } catch {
+      print("sikemux: could not read what the app left for the share extension: \(error)")
+      return nil
+    }
   }
 
   static func setKey(_ hex: String?) {
@@ -40,7 +51,8 @@ enum StashShared {
     var item = base()
     item[kSecValueData as String] = Data(hex.utf8)
     item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-    SecItemAdd(item as CFDictionary, nil)
+    let added = SecItemAdd(item as CFDictionary, nil)
+    if added != errSecSuccess { print("sikemux: could not give the share extension this phone's key: \(added)") }
   }
 
   static func key() -> String? {

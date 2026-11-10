@@ -85,7 +85,7 @@ enum StashAPI {
         do {
             for file in files { _ = try await upload(file, prompt: item.id) }
         } catch {
-            try? await delete(item.id)
+            do { try await delete(item.id) } catch { print("sikemux: could not take back a half-stashed prompt: \(error)") }
             throw error
         }
         return item
@@ -93,15 +93,8 @@ enum StashAPI {
 
     /// Stashes a file as its bytes, read from disk as it goes.
     static func upload(_ file: StashFile, prompt: String? = nil) async throws -> StashItem {
-        var request = URLRequest(url: Config.apiUrl.appending(path: "v1/stash"))
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(try await Account.shared.token())", forHTTPHeaderField: "authorization")
-        request.setValue(file.mime, forHTTPHeaderField: "content-type")
-        request.setValue(uriEncoded(file.name), forHTTPHeaderField: "x-stash-name")
-        if let prompt { request.setValue(prompt, forHTTPHeaderField: "x-stash-prompt") }
-        let (data, response) = try await offline { try await URLSession.shared.upload(for: request, fromFile: file.url) }
-        try check(data, response)
-        return try JSONDecoder().decode(StashItem.self, from: data)
+        try await AccountAPI.upload(
+            "/v1/stash", file: file.url, headers: StashRules.headers(mime: file.mime, name: file.name, prompt: prompt))
     }
 
     /// Brings a stashed file down to this phone, once.
@@ -109,37 +102,9 @@ enum StashAPI {
         let folder = URL.cachesDirectory.appending(path: "stash/\(item.id)")
         let destination = folder.appending(path: item.name ?? "file")
         if FileManager.default.fileExists(atPath: destination.path) { return destination }
-        var request = URLRequest(url: Config.apiUrl.appending(path: "v1/stash/\(item.id)/file"))
-        request.setValue("Bearer \(try await Account.shared.token())", forHTTPHeaderField: "authorization")
-        let (file, response) = try await offline { try await URLSession.shared.download(for: request) }
-        guard (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) == true else {
-            throw StashFailure("Couldn't get this from your stash.")
-        }
+        let file = try await AccountAPI.download("/v1/stash/\(item.id)/file")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: file, to: destination)
         return destination
     }
-
-    private static func offline<T>(_ send: () async throws -> T) async throws -> T {
-        do { return try await send() } catch { throw StashFailure("Can't reach Sikemux. Check the phone is online.") }
-    }
-
-    private static func check(_ data: Data, _ response: URLResponse) throws {
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        if (200..<300).contains(status) { return }
-        let failure = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        throw StashFailure((failure?["error"] as? [String: Any])?["message"] as? String ?? "Sikemux answered \(status).")
-    }
-
-    private static func uriEncoded(_ text: String) -> String {
-        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()")
-        return text.addingPercentEncoding(withAllowedCharacters: allowed) ?? text
-    }
-}
-
-struct StashFailure: LocalizedError {
-    let message: String
-    init(_ message: String) { self.message = message }
-    var errorDescription: String? { message }
 }
