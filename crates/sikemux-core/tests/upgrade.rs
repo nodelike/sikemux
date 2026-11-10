@@ -125,11 +125,14 @@ impl CoreProcess {
                 .flatten()
                 .map(|entry| {
                     let path = entry.path();
-                    if path.is_dir() {
-                        holding(&path, text)
-                    } else {
-                        let bytes = std::fs::read(&path).unwrap_or_default();
-                        usize::from(String::from_utf8_lossy(&bytes).contains(text))
+                    // The folder also holds links to the core's binary, which takes seconds to read.
+                    match entry.file_type() {
+                        Ok(kind) if kind.is_dir() => holding(&path, text),
+                        Ok(kind) if kind.is_file() => {
+                            let bytes = std::fs::read(&path).unwrap_or_default();
+                            usize::from(String::from_utf8_lossy(&bytes).contains(text))
+                        }
+                        _ => 0,
                     }
                 })
                 .sum()
