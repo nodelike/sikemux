@@ -486,12 +486,12 @@ fn reading(host: &Listed, kind: HostAlertKind, short: bool, t: &Tokens) -> Readi
     }
 }
 
-fn meter(
+pub(super) fn meter(
     host: &Listed,
     kind: HostAlertKind,
     short: bool,
     t: &Tokens,
-    cx: &mut Context<Workbench>,
+    cx: &gpui_kit::App,
 ) -> Div {
     let reading = reading(host, kind, short, t);
     let (key, glyph) = match kind {

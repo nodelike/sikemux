@@ -5,6 +5,7 @@ mod board;
 mod chart;
 mod detail;
 mod devices;
+pub mod glance;
 pub mod model;
 
 use std::collections::{HashMap, HashSet};
@@ -43,6 +44,8 @@ pub struct Page {
     pub top_open: bool,
     pub top_by_memory: bool,
     pub history_open: bool,
+    /// The host picker's glance while it is open, drawn again when its host's stats change.
+    pub glance: Option<gpui_kit::WeakEntity<glance::Glance>>,
     /// The people whose agents are folded away in the detail, by name.
     pub folded: HashSet<String>,
     /// Each app's icon by its key, empty while it is asked for or where it has none.
@@ -70,6 +73,7 @@ impl Page {
             top_open: false,
             top_by_memory: false,
             history_open: false,
+            glance: None,
             folded: HashSet::new(),
             app_icons: HashMap::new(),
             watching: Vec::new(),
@@ -177,7 +181,15 @@ impl Workbench {
     /// core samples what its processes use only while it is watched, so the watch stays this
     /// tight.
     pub fn watch_hosts_page(&mut self) {
+        let glancing = self.hosts_page.glance.is_some();
         let wanted: Vec<(Place, StatsSpan)> = match self.hosts_page_target() {
+            None if glancing => {
+                let place = self.place();
+                (model::hosts(self).iter())
+                    .filter(|host| host.place == place && host.online())
+                    .map(|host| (host.place.clone(), StatsSpan::Minutes15))
+                    .collect()
+            }
             Some(_) => {
                 let listed = model::hosts(self);
                 let chosen = chosen_key(self, &listed);
@@ -231,6 +243,18 @@ impl Workbench {
         if self.hosts_page_in_front() {
             self.parts.redraw_stage(cx);
         }
+        self.redraw_glance(cx);
+    }
+
+    fn redraw_glance(&self, cx: &mut Context<Self>) {
+        if let Some(glance) = self
+            .hosts_page
+            .glance
+            .as_ref()
+            .and_then(|glance| glance.upgrade())
+        {
+            glance.update(cx, |_, cx| cx.notify());
+        }
     }
 
     fn ask_app_icon(&mut self, place: &Place, app: String, cx: &mut Context<Self>) {
@@ -250,6 +274,7 @@ impl Workbench {
                 if bench.hosts_page_in_front() {
                     bench.parts.redraw_stage(cx);
                 }
+                bench.redraw_glance(cx);
             });
         })
         .detach();

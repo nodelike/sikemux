@@ -1442,7 +1442,7 @@ fn top(
 }
 
 /// The app's own icon, or a plain tile where it has none.
-fn app_icon(bench: &Workbench, process: &ProcessUse, t: &Tokens) -> AnyElement {
+pub(super) fn app_icon(bench: &Workbench, process: &ProcessUse, t: &Tokens) -> AnyElement {
     let side = px(16.);
     let icon = (process.app.as_ref())
         .and_then(|app| bench.hosts_page.app_icons.get(app))

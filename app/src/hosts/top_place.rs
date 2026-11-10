@@ -5,16 +5,22 @@ use std::f32::consts::FRAC_PI_2;
 use std::rc::Rc;
 
 use gpui_kit::base::Button as BaseButton;
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
+use gpui_kit::prelude::FluentBuilder;
 use gpui_kit::{
-    div, px, radians, Anchor, AnyElement, App, Context, FontWeight, Hsla, InteractiveElement,
-    IntoElement, ParentElement, SharedString, Styled, Transformation,
+    div, px, radians, Anchor, AnyElement, App, AppContext, Context, FontWeight, Hsla,
+    InteractiveElement, IntoElement, ParentElement, SharedString, Styled, Transformation,
+    WeakEntity,
 };
 
 use crate::hosts::install_pane::Words;
+use crate::hosts::page::glance::Glance;
 use crate::hosts::HostChoice;
 use crate::icons::Icon;
+use crate::keymap;
 use crate::theme::{Tokens, SPACE_0, SPACE_1H, SPACE_2, SPACE_2H, TEXT_XS};
 use crate::ui;
+use crate::workbench::actions;
 use crate::workbench::{Strip, Workbench};
 
 #[derive(Clone)]
@@ -57,10 +63,12 @@ pub fn view(bench: &Workbench, cx: &mut Context<Workbench>) -> AnyElement {
             |(_, shown)| shown.clone(),
         );
     let this = cx.entity().downgrade();
+    let glancing = this.clone();
     let host = picker(
         "place-host",
         shown,
         hosts.iter().map(|(_, choice)| choice.clone()).collect(),
+        move |popup, cx| glance(popup, glancing.clone(), cx),
         move |key, cx| {
             let Some((choice, _)) = hosts.iter().find(|(_, shown)| shown.key == *key) else {
                 return;
@@ -208,6 +216,7 @@ fn picker(
     id: &'static str,
     shown: Choice,
     choices: Vec<Choice>,
+    head: impl Fn(PopupMenu, &mut Context<PopupMenu>) -> PopupMenu + 'static,
     on_choose: impl Fn(&SharedString, &mut App) + 'static,
     cx: &App,
 ) -> AnyElement {
@@ -215,7 +224,7 @@ fn picker(
     let trigger = pill(id, shown, cx);
     let on_choose = Rc::new(on_choose);
     ui::menu_button(id, Anchor::TopLeft, trigger, move |mut popup, _, cx| {
-        popup = popup.max_h(px(360.)).scrollable(true);
+        popup = head(popup.max_h(px(560.)).scrollable(true), cx);
         for choice in &choices {
             let (on_choose, key, glyph) = (on_choose.clone(), choice.key.clone(), choice.mark);
             popup = popup.item(
@@ -226,9 +235,49 @@ fn picker(
                     .on_click(move |_, _, cx| on_choose(&key, cx)),
             );
         }
-        popup
+        popup.separator().item(
+            ui::MenuRow::new("Open Devices")
+                .icon(Icon::Gauge)
+                .when_some(keymap::hint(actions::FocusHosts::ID, cx), |row, hint| {
+                    row.hint(hint)
+                })
+                .item(cx)
+                .on_click(|_, window, cx| keymap::dispatch(actions::FocusHosts::ID, window, cx)),
+        )
     })
     .into_any_element()
+}
+
+/// The chosen host's glance above the hosts, its stats watched only while the picker is open,
+/// and a way on to the Devices page below them.
+fn glance(
+    popup: PopupMenu,
+    bench: WeakEntity<Workbench>,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    let glance = cx.new(|_| Glance {
+        bench: bench.clone(),
+    });
+    let shown = glance.downgrade();
+    bench
+        .update(cx, |bench, _| {
+            bench.hosts_page.glance = Some(shown);
+            bench.watch_hosts_page();
+        })
+        .ok();
+    let closing = bench.clone();
+    cx.on_release(move |_, cx| {
+        closing
+            .update(cx, |bench, _| {
+                bench.hosts_page.glance = None;
+                bench.watch_hosts_page();
+            })
+            .ok();
+    })
+    .detach();
+    popup
+        .item(PopupMenuItem::element(move |_, _| glance.clone()))
+        .separator()
 }
 
 fn mark((icon, color): (Icon, Hsla)) -> impl IntoElement {
