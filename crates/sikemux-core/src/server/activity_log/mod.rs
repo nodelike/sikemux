@@ -51,6 +51,9 @@ pub(crate) struct Place {
     pub agent: String,
     pub cwd: String,
     pub transcript: Option<Transcript>,
+    /// The chat, and the account it runs on, that the tokens counted here are charged to.
+    pub chat: String,
+    pub account: String,
 }
 
 pub(crate) struct Transcript {
@@ -70,6 +73,8 @@ pub(crate) fn place(core: &Core, agent_id: &str) -> Option<Place> {
             transcript: transcript_of(&launch.provider, session, home.as_deref()),
             cwd: launch.cwd.to_string_lossy().into_owned(),
             agent: launch.provider,
+            chat: agent_id.to_owned(),
+            account: launch.account.map(|account| account.id).unwrap_or_default(),
         });
     }
     let session = core.agent_session(agent_id)?;
@@ -83,6 +88,10 @@ pub(crate) fn place(core: &Core, agent_id: &str) -> Option<Place> {
         ),
         cwd: owner.project.clone()?,
         agent,
+        chat: agent_id.to_owned(),
+        account: (core.workspaces.agent(agent_id))
+            .and_then(|agent| agent.profile_id)
+            .unwrap_or_default(),
     })
 }
 
@@ -107,6 +116,10 @@ pub(crate) fn chat_launched(core: &Core, launch: &sikemux_wire::protocol::ChatLa
         agent: launch.provider.clone(),
         cwd: launch.cwd.to_string_lossy().into_owned(),
         transcript: transcript_of(&launch.provider, launch.resume_id.clone(), home.as_deref()),
+        chat: launch.agent_id.clone(),
+        account: (launch.account.as_ref())
+            .map(|account| account.id.clone())
+            .unwrap_or_default(),
     };
     core.activity_log
         .launched(place, "chat", launch.resume_id.is_some());
@@ -131,6 +144,8 @@ pub(crate) fn terminal_launched(
         agent: agent.clone(),
         cwd: project.clone(),
         transcript: transcript_of(agent, resumed.clone(), owner.account_home.as_deref()),
+        chat: owner.agent_id.clone().unwrap_or_default(),
+        account: String::new(),
     };
     core.activity_log
         .launched(place, "terminal", resumed.is_some());
@@ -420,6 +435,10 @@ const MIGRATIONS: &[&str] = &[
          count INTEGER NOT NULL,
          PRIMARY KEY (day, feature, via)
      );",
+    "ALTER TABLE tokens ADD COLUMN account TEXT NOT NULL DEFAULT '';
+     ALTER TABLE tokens ADD COLUMN chat TEXT NOT NULL DEFAULT '';
+     CREATE INDEX tokens_by_account ON tokens (account, at_ms);
+     CREATE INDEX tokens_by_project ON tokens (project, at_ms);",
 ];
 
 fn migrate(connection: &Connection) -> rusqlite::Result<()> {
@@ -499,8 +518,8 @@ impl ActivityLog {
             )?;
             for entry in tally.0.iter().filter(|entry| !entry.count.is_empty()) {
                 db.execute(
-                    "INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write, model, speed)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    "INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write, model, speed, account, chat)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                     params![
                         at_ms,
                         transcript.kind.as_str(),
@@ -510,7 +529,9 @@ impl ActivityLog {
                         entry.count.cache_read as i64,
                         entry.count.cache_write as i64,
                         entry.model,
-                        entry.speed
+                        entry.speed,
+                        place.account,
+                        place.chat
                     ],
                 )?;
             }
@@ -553,13 +574,17 @@ impl ActivityLog {
         let agent = kind.map_or_else(|| launch.provider.clone(), |kind| kind.as_str().to_owned());
         let project = launch.cwd.to_string_lossy().into_owned();
         let model = launch.model.clone().unwrap_or_default();
+        let account = (launch.account.as_ref())
+            .map(|account| account.id.clone())
+            .unwrap_or_default();
+        let chat = launch.agent_id.clone();
         let at_ms = epoch_ms() as i64;
         let log = self.clone();
         in_background(move || {
             log.with_database(|db| {
                 db.execute(
-                    "INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write, model, speed)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'standard')",
+                    "INSERT INTO tokens (at_ms, agent, project, input, output, cache_read, cache_write, model, speed, account, chat)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'standard', ?9, ?10)",
                     params![
                         at_ms,
                         agent,
@@ -568,11 +593,50 @@ impl ActivityLog {
                         count.output as i64,
                         count.cache_read as i64,
                         count.cache_write as i64,
-                        model
+                        model,
+                        account,
+                        chat
                     ],
                 )
             });
         });
+    }
+
+    /// The tokens chats on `account` spent between `from_ms` and `to_ms`, cached reads aside
+    /// as plans count them for little. Blocks on the database.
+    pub(crate) fn tokens_on(&self, account: &str, from_ms: u64, to_ms: u64) -> u64 {
+        self.with_database(|db| {
+            db.query_row(
+                "SELECT COALESCE(SUM(input + output + cache_write), 0) FROM tokens
+                 WHERE account = ?1 AND at_ms > ?2 AND at_ms <= ?3",
+                params![account, from_ms as i64, to_ms as i64],
+                |row| row.get::<_, i64>(0),
+            )
+        })
+        .map_or(0, |tokens| tokens.max(0) as u64)
+    }
+
+    /// The tokens a typical chat in the project at `cwd` spent over the last month: the middle
+    /// of its chats', once enough chats have run there to say. Blocks on the database.
+    pub(crate) fn typical_chat_tokens(&self, cwd: &str) -> Option<u64> {
+        const ENOUGH_CHATS: usize = 5;
+        const MONTH_MS: u64 = 30 * 24 * 60 * 60 * 1000;
+        let since = epoch_ms().saturating_sub(MONTH_MS) as i64;
+        let mut chats = self.with_database(|db| {
+            let mut query = db.prepare_cached(
+                "SELECT SUM(input + output + cache_write) FROM tokens
+                 WHERE project = ?1 AND chat != '' AND at_ms > ?2 GROUP BY chat",
+            )?;
+            let rows = query.query_map(params![cwd, since], |row| row.get::<_, i64>(0))?;
+            rows.collect::<rusqlite::Result<Vec<i64>>>()
+        })?;
+        if chats.len() < ENOUGH_CHATS {
+            return None;
+        }
+        chats.sort_unstable();
+        chats
+            .get(chats.len() / 2)
+            .map(|tokens| (*tokens).max(0) as u64)
     }
 }
 

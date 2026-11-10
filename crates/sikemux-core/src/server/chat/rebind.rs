@@ -139,10 +139,14 @@ pub(super) fn next_account<'a>(
         })
         .collect();
     let placed = chat.core.upgrade().and_then(|core| {
+        let chat = crate::server::agent_accounts::Placing {
+            model: launch.model.clone(),
+            typical_tokens: None,
+        };
         crate::server::agent_accounts::placement(
             &core.workspaces.accounts().unwrap_or_default(),
             provider,
-            launch.model.as_deref(),
+            &chat,
             crate::agent_accounts::allocate::Aim::Headroom,
             |profile| open.iter().any(|fallback| fallback.id == profile.id),
         )

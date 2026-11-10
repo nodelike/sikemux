@@ -1,7 +1,8 @@
 //! Which of the person's accounts with one agent a chat goes to. A new chat goes to the account
 //! whose week ends soonest, as what a week leaves unused is lost at its reset; a chat at its
 //! limit goes where the most is left, so it can keep going. Only accounts with room in every
-//! window that limits the chat's model take one.
+//! window that limits the chat's model take one. What is left counts in plans of the smallest
+//! tier, so a week half left on a bigger plan holds more than one half left on a small one.
 
 use super::usage::{Usage, UsageWindow};
 
@@ -9,6 +10,23 @@ use super::usage::{Usage, UsageWindow};
 pub struct Candidate<'a> {
     pub id: &'a str,
     pub usage: Option<&'a Usage>,
+    /// The share of this account's week a typical chat in the project takes, once known.
+    pub typical: Option<f64>,
+    /// How fast the chats running on it fill its windows shorter than a week, in percent a
+    /// minute.
+    pub burn: f64,
+}
+
+/// How many plans of the agent's smallest tier `plan` holds, as reported rather than as the
+/// providers state it; one for a plan not known here.
+pub fn weight(provider: &str, plan: Option<&str>) -> f64 {
+    let plan = plan.unwrap_or_default().to_ascii_lowercase();
+    match (provider, plan.as_str()) {
+        ("claude", "max") => 5.0,
+        ("claude", "ultra") => 10.0,
+        ("codex", "pro") => 10.0,
+        _ => 1.0,
+    }
 }
 
 /// What the chat is placed for.
@@ -40,6 +58,10 @@ struct Standing<'a> {
     id: &'a str,
     /// The share of the week left on the tightest window over the chat's model.
     left: f64,
+    /// That share in plans of the smallest tier.
+    headroom: f64,
+    /// The share of the week a typical chat takes here.
+    typical: f64,
     /// When that week resets, in Unix milliseconds.
     deadline: Option<u64>,
 }
@@ -70,12 +92,11 @@ fn standing<'a>(
         .collect();
     let weekly = |window: &UsageWindow| window.window_minutes.unwrap_or(0) >= WEEK_MINUTES;
     let room = governing.iter().all(|window| {
-        let cap = if weekly(window) {
-            WEEK_CAP
-        } else {
-            SHORT_WINDOW_CAP
-        };
-        window.used_at(now_ms) < cap
+        if weekly(window) {
+            return window.used_at(now_ms) < WEEK_CAP;
+        }
+        window.used_at(now_ms) < SHORT_WINDOW_CAP
+            && projected(window, candidate.burn, now_ms) < 100.0
     });
     if !room || governing.is_empty() {
         return None;
@@ -92,8 +113,20 @@ fn standing<'a>(
     Some(Standing {
         id: candidate.id,
         left,
+        headroom: left * weight(&usage.provider, usage.plan.as_deref()),
+        typical: candidate.typical.unwrap_or(ENOUGH_FOR_A_CHAT),
         deadline,
     })
+}
+
+/// How full the window will be at its reset if the chats running under it keep going at `burn`.
+fn projected(window: &UsageWindow, burn: f64, now_ms: u64) -> f64 {
+    let used = window.used_at(now_ms);
+    let reset = (window.resets_at.as_ref())
+        .and_then(|reset| reset.unix_ms())
+        .filter(|_| !window.is_past_reset(now_ms));
+    let minutes = reset.map_or(0.0, |reset| (reset - now_ms) as f64 / 60_000.0);
+    used + burn * minutes
 }
 
 /// The account a chat of `model` goes to, of `candidates`, or none when no account has a
@@ -108,7 +141,9 @@ pub fn place(
         .filter_map(|candidate| standing(candidate, model, now_ms))
         .collect();
     let most_left = |among: &[&Standing]| -> Option<Placement> {
-        let best = among.iter().max_by(|a, b| a.left.total_cmp(&b.left))?;
+        let best = among
+            .iter()
+            .max_by(|a, b| a.headroom.total_cmp(&b.headroom))?;
         Some(Placement {
             id: best.id.to_owned(),
             why: format!("It has the most of its week left, {:.0}%", best.left),
@@ -119,7 +154,7 @@ pub fn place(
         return most_left(&all);
     }
     let mut enough: Vec<&Standing> = (all.iter().copied())
-        .filter(|standing| standing.left >= ENOUGH_FOR_A_CHAT)
+        .filter(|standing| standing.left >= standing.typical)
         .collect();
     enough.sort_by_key(|standing| standing.deadline.unwrap_or(u64::MAX));
     let Some(soonest) = enough.first() else {
@@ -131,7 +166,7 @@ pub fn place(
     };
     let ending: Vec<&Standing> = enough.iter().copied().filter(together).collect();
     let best = (ending.iter())
-        .max_by(|a, b| a.left.total_cmp(&b.left))
+        .max_by(|a, b| a.headroom.total_cmp(&b.headroom))
         .unwrap_or(soonest);
     let why = match (ending.len(), best.deadline) {
         (_, None) => format!("It has {:.0}% of its week left", best.left),

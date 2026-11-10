@@ -350,18 +350,30 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
     }
     let kind = named.kind.to_owned();
     let book = core.workspaces.accounts().unwrap_or_default();
+    let accounts = (book.clone().with_built_ins().profiles.iter())
+        .filter(|profile| profile.provider == kind)
+        .count();
+    if !book.smart || accounts < 2 {
+        return None;
+    }
     let freshening = super::agent_accounts::freshen(core.clone(), book.clone(), kind.clone());
     match chosen.waits_for_person {
         true => drop(tokio::spawn(freshening)),
         false => freshening.await,
     }
-    let placed = super::agent_accounts::placement(
-        &book,
-        &kind,
-        chosen.model.as_deref(),
-        Aim::Soonest,
-        |_| true,
-    )?;
+    let (log, cwd) = (
+        core.activity_log.clone(),
+        chosen.cwd.to_string_lossy().into_owned(),
+    );
+    let typical_tokens = blocking(move || Ok(log.typical_chat_tokens(&cwd)))
+        .await
+        .ok()
+        .flatten();
+    let chat = super::agent_accounts::Placing {
+        model: chosen.model.clone(),
+        typical_tokens,
+    };
+    let placed = super::agent_accounts::placement(&book, &kind, &chat, Aim::Soonest, |_| true)?;
     let id = LauncherId::on(&kind, &placed.id).to_string();
     let launcher = core
         .workspaces

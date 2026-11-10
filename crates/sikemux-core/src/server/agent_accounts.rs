@@ -376,7 +376,7 @@ fn candidates(book: &Book, provider: &str) -> Vec<(Profile, Option<usage::Readin
 pub(crate) fn placement(
     book: &Book,
     provider: &str,
-    model: Option<&str>,
+    chat: &Placing,
     aim: Aim,
     among: impl Fn(&Profile) -> bool,
 ) -> Option<Placement> {
@@ -391,12 +391,106 @@ pub(crate) fn placement(
         });
     }
     let offered: Vec<Candidate> = (candidates.iter())
-        .map(|(profile, reading)| Candidate {
-            id: &profile.id,
-            usage: reading.as_ref().map(|reading| &reading.usage),
+        .map(|(profile, reading)| {
+            let usage = reading.as_ref().map(|reading| &reading.usage);
+            let weight = usage.map_or(1.0, |usage| {
+                allocate::weight(&usage.provider, usage.plan.as_deref())
+            });
+            Candidate {
+                id: &profile.id,
+                usage,
+                typical: chat
+                    .typical_tokens
+                    .zip(percent_per_token(&profile.id, weight))
+                    .map(|(tokens, percent)| tokens as f64 * percent),
+                burn: usage::burn(provider, profile.config_path.as_deref()),
+            }
         })
         .collect();
+    let model = chat.model.as_deref();
     allocate::place(&offered, model, aim, sikemux_process::clock::epoch_ms())
+}
+
+/// What is known of the chat being placed: its model, and the tokens a typical chat in its
+/// project spends.
+#[derive(Default)]
+pub(crate) struct Placing {
+    pub model: Option<String>,
+    pub typical_tokens: Option<u64>,
+}
+
+/// What its chats' tokens cost one account's week, from how much they spent while it filled.
+struct Cost {
+    at: u64,
+    used: f64,
+    reset: Option<u64>,
+    weight: f64,
+    percent: f64,
+    tokens: f64,
+}
+
+fn costs() -> std::sync::MutexGuard<'static, HashMap<String, Cost>> {
+    static COSTS: LazyLock<Mutex<HashMap<String, Cost>>> = LazyLock::new(Mutex::default);
+    COSTS.locked()
+}
+
+/// The share of the account's week one token takes: as its own chats showed, else as another
+/// account's did, scaled by how many small plans each holds.
+fn percent_per_token(account: &str, weight: f64) -> Option<f64> {
+    let costs = costs();
+    let rate = |cost: &Cost| (cost.tokens > 0.0).then(|| cost.percent / cost.tokens);
+    if let Some(own) = costs.get(account).and_then(rate) {
+        return Some(own);
+    }
+    costs
+        .values()
+        .find_map(|cost| Some(rate(cost)? * cost.weight / weight))
+}
+
+/// Counts what the account's chats spent since its week last rose, once it rose by a point.
+fn note_cost(core: &Core, account: &str, reading: &usage::Usage) {
+    let now = sikemux_process::clock::epoch_ms();
+    let Some(week) = reading.week() else {
+        return;
+    };
+    let (used, reset) = (
+        week.used_at(now),
+        week.resets_at.as_ref().and_then(|at| at.unix_ms()),
+    );
+    let weight = allocate::weight(&reading.provider, reading.plan.as_deref());
+    let since = {
+        let mut costs = costs();
+        let cost = costs.entry(account.to_owned()).or_insert(Cost {
+            at: now,
+            used,
+            reset,
+            weight,
+            percent: 0.0,
+            tokens: 0.0,
+        });
+        if cost.reset != reset {
+            (cost.at, cost.used, cost.reset) = (now, used, reset);
+            return;
+        }
+        let risen = used - cost.used;
+        if risen < 1.0 {
+            return;
+        }
+        let since = cost.at;
+        (cost.at, cost.used, cost.weight) = (now, used, weight);
+        (since, risen)
+    };
+    let (log, account) = (core.activity_log.clone(), account.to_owned());
+    tokio::task::spawn_blocking(move || {
+        let tokens = log.tokens_on(&account, since.0, now);
+        if tokens == 0 {
+            return;
+        }
+        if let Some(cost) = costs().get_mut(&account) {
+            cost.percent += since.1;
+            cost.tokens += tokens as f64;
+        }
+    });
 }
 
 /// How long a chat waits to start for its accounts' readings to come in, before it is placed
@@ -684,6 +778,10 @@ pub(crate) fn note_live(
     if usage::note_live(provider, config_path, live) {
         core.changed(What::Read(Topic::Usage));
     }
+    let reading = usage::last_reading(provider, config_path);
+    if let (Some(account), Some(reading)) = (account_id, reading) {
+        note_cost(core, account, &reading.usage);
+    }
 }
 
 /// Every offered account's usage as last read, starting no agent's CLI.
@@ -750,7 +848,9 @@ fn mark_next(core: &Core, found: &mut [AccountUsage]) {
         .map(|account| account.provider.clone())
         .collect();
     for provider in providers {
-        let next = placement(&book, &provider, None, Aim::Soonest, |_| true);
+        let next = placement(&book, &provider, &Placing::default(), Aim::Soonest, |_| {
+            true
+        });
         let pinned = book.pinned.get(&provider).filter(|_| book.smart);
         for account in found
             .iter_mut()

@@ -199,11 +199,83 @@ pub(crate) fn keep_readings_in(file: PathBuf) {
     };
 }
 
+/// How fast one account's shortest window fills, from two readings in the same window.
+struct Burn {
+    at: u64,
+    used: f64,
+    reset: Option<u64>,
+    per_minute: f64,
+    rated_at: u64,
+}
+
+fn burns() -> &'static Mutex<HashMap<String, Burn>> {
+    static BURNS: OnceLock<Mutex<HashMap<String, Burn>>> = OnceLock::new();
+    BURNS.get_or_init(Default::default)
+}
+
+/// A rate older than this says nothing of the chats running now.
+const BURN_HOLDS_FOR_MS: u64 = 15 * 60 * 1000;
+/// Readings closer together than this are too near to rate.
+const BURN_SPAN_MS: u64 = 60 * 1000;
+
+fn note_burn(key: &str, usage: &Usage, now: u64) {
+    let Some(short) = (usage.windows.iter())
+        .filter(|window| !window.label.contains(" · "))
+        .find(|window| {
+            window
+                .window_minutes
+                .is_some_and(|minutes| minutes < 10_080)
+        })
+    else {
+        return;
+    };
+    let (used, reset) = (
+        short.used_at(now),
+        short.resets_at.as_ref().and_then(UsageResetAt::unix_ms),
+    );
+    let mut burns = burns().locked();
+    let burn = burns.entry(key.to_owned()).or_insert(Burn {
+        at: now,
+        used,
+        reset,
+        per_minute: 0.0,
+        rated_at: 0,
+    });
+    if burn.reset != reset {
+        *burn = Burn {
+            at: now,
+            used,
+            reset,
+            per_minute: 0.0,
+            rated_at: 0,
+        };
+        return;
+    }
+    let span = now.saturating_sub(burn.at);
+    if span < BURN_SPAN_MS {
+        return;
+    }
+    burn.per_minute = ((used - burn.used) / (span as f64 / 60_000.0)).max(0.0);
+    (burn.at, burn.used, burn.rated_at) = (now, used, now);
+}
+
+/// How fast the chats running on the account fill its shortest window, in percent a minute; none
+/// while nothing measured it lately.
+pub(crate) fn burn(provider: &str, config_path: Option<&str>) -> f64 {
+    let now = sikemux_process::clock::epoch_ms();
+    burns()
+        .locked()
+        .get(&key(provider, config_path))
+        .filter(|burn| now.saturating_sub(burn.rated_at) < BURN_HOLDS_FOR_MS)
+        .map_or(0.0, |burn| burn.per_minute)
+}
+
 fn note_reading(key: &str, usage: &Usage) {
     let usage = usage.clone();
     let read_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_millis() as u64);
+    note_burn(key, &usage, read_at);
     let mut readings = readings().locked();
     readings
         .by_account
@@ -269,6 +341,7 @@ pub(crate) fn note_live(provider: &str, config_path: Option<&str>, live: Vec<Usa
     }
     reading.read_at = sikemux_process::clock::epoch_ms();
     let usage = reading.usage.clone();
+    note_burn(&key, &usage, reading.read_at);
     if changed {
         save(&readings);
     }
