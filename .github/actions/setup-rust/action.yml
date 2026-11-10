@@ -16,6 +16,12 @@ inputs:
 runs:
   using: composite
   steps:
+    # Spotlight indexes what the cache restores and the build writes; with it on, the core took 40% longer to compile.
+    - name: Stop Spotlight indexing
+      if: runner.os == 'macOS'
+      shell: bash
+      run: sudo mdutil -a -i off || echo "::warning::Spotlight indexing could not be stopped, so this job builds slower"
+
     # rust-cache keys its caches on every installed toolchain, and runner images differ in which
     # ones they carry, so a stray one would split the cache between images.
     - name: Install the pinned toolchain alone
