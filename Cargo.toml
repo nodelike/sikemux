@@ -54,6 +54,15 @@ codegen-units = 1
 panic = "abort"
 strip = "symbols"
 
+# The two largest crates by far. In one piece each compiles on a single processor and outgrows a
+# release runner's memory, which was most of a release build. The link's LTO still joins them.
+[profile.release.package.sikemux-core]
+codegen-units = 16
+# Cargo drops the profile's strip from a package with an override, so the app's names it again.
+[profile.release.package.sikemux-gpui]
+codegen-units = 16
+strip = "symbols"
+
 # Layout and drawing run every frame.
 [profile.release.package.gpui-pre]
 opt-level = 3
