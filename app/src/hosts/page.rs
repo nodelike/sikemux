@@ -1,4 +1,4 @@
-//! The Hosts page: every host on the account at a glance, and one host's detail beside them.
+//! The Hosts page: every host on the account at a glance, and one host's detail floating over them.
 
 mod board;
 mod chart;
@@ -21,7 +21,7 @@ use sikemux_view::layout::{OpenTab, PaneKind};
 use crate::core::Target;
 use crate::hosts::Place;
 use crate::reads::Read;
-use crate::theme::{self, Tokens};
+use crate::theme::{self, Tokens, RADIUS_4, SPACE_3};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -73,36 +73,29 @@ impl Page {
 
 pub fn pane(
     bench: &Workbench,
-    target: &str,
+    _target: &str,
     _window: &Window,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let listed = model::hosts(bench);
-    let chosen = chosen_key(bench, target, &listed);
+    let chosen = chosen_key(bench, &listed);
     let width = bench.hosts_page.width.clone();
     let detail_width = (width.get() * 0.42).clamp(DETAIL_MIN, DETAIL_MAX);
     let host = listed
         .iter()
         .find(|host| Some(&host.key) == chosen.as_ref());
     let detail = host.map(|host| detail::detail(bench, host, &listed, cx));
-    let board = board::board(
-        bench,
-        &listed,
-        chosen.as_deref(),
-        width.get() - detail_width,
-        cx,
-    );
+    let board = board::board(bench, &listed, chosen.as_deref(), width.get(), cx);
     ui::pane(cx)
         .child(
             div()
                 .size_full()
-                .flex()
+                .relative()
                 .on_children_prepainted(move |bounds, window, _| {
-                    let drawn: f32 = bounds
-                        .iter()
-                        .map(|bounds| f32::from(bounds.size.width))
-                        .sum();
+                    let drawn = bounds
+                        .first()
+                        .map_or(0., |board| f32::from(board.size.width));
                     if (drawn - width.get()).abs() > 0.5 {
                         width.set(drawn);
                         window.refresh();
@@ -111,40 +104,47 @@ pub fn pane(
                 .child(
                     div()
                         .id("hosts-board")
-                        .flex_1()
-                        .min_w_0()
-                        .h_full()
+                        .size_full()
                         .overflow_y_scroll()
                         .child(board),
                 )
                 .children(detail.map(|detail| {
                     div()
                         .id("hosts-detail")
+                        .absolute()
+                        .top(SPACE_3)
+                        .right(SPACE_3)
+                        .bottom(SPACE_3)
                         .w(px(detail_width))
-                        .flex_none()
-                        .h_full()
+                        .occlude()
                         .overflow_y_scroll()
-                        .border_l_1()
-                        .border_color(t.border)
-                        .bg(t.surface_sunken.opacity(0.45))
+                        .rounded(RADIUS_4)
+                        .border_1()
+                        .border_color(t.border_strong)
+                        .bg(t.surface_sunken)
+                        .shadow(t.shadow_float())
                         .child(detail)
                 })),
         )
         .into_any_element()
 }
 
-/// The host whose detail shows: the one the person chose, else the one the tab was opened on,
-/// else the one that needs them most.
-fn chosen_key(bench: &Workbench, target: &str, listed: &[model::Listed]) -> Option<String> {
-    let opened = (!target.is_empty()).then(|| model::page_key(bench, target));
-    [bench.hosts_page.chosen.clone(), opened]
-        .into_iter()
-        .flatten()
-        .find(|key| listed.iter().any(|host| &host.key == key))
-        .or_else(|| listed.first().map(|host| host.key.clone()))
+/// The host whose detail shows: the one the person chose, while it is still listed.
+fn chosen_key(bench: &Workbench, listed: &[model::Listed]) -> Option<String> {
+    bench
+        .hosts_page
+        .chosen
+        .clone()
+        .filter(|key| listed.iter().any(|host| &host.key == key))
 }
 
 impl Workbench {
+    fn close_on_page(&mut self, cx: &mut Context<Self>) {
+        self.hosts_page.chosen = None;
+        self.watch_hosts_page();
+        self.parts.redraw_stage(cx);
+    }
+
     /// Opens the Hosts page in the strip in front, on `host`'s detail when one is named: this
     /// host by "this" or its own core key, another by its core key.
     pub fn open_hosts(&mut self, host: Option<String>) {
@@ -176,9 +176,9 @@ impl Workbench {
     /// tight.
     pub fn watch_hosts_page(&mut self) {
         let wanted: Vec<(Place, StatsSpan)> = match self.hosts_page_target() {
-            Some(target) => {
+            Some(_) => {
                 let listed = model::hosts(self);
-                let chosen = chosen_key(self, &target, &listed);
+                let chosen = chosen_key(self, &listed);
                 (listed.iter())
                     .filter(|host| host.online())
                     .map(|host| {
@@ -225,7 +225,8 @@ impl Workbench {
     }
 
     fn choose_on_page(&mut self, key: String, cx: &mut Context<Self>) {
-        self.hosts_page.chosen = Some(key);
+        let again = self.hosts_page.chosen.as_ref() == Some(&key);
+        self.hosts_page.chosen = (!again).then_some(key);
         self.hosts_page.top_open = false;
         self.watch_hosts_page();
         self.parts.redraw_stage(cx);

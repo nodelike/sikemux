@@ -117,7 +117,11 @@ fn head(bench: &Workbench, host: &Listed, t: &Tokens, cx: &mut Context<Workbench
                         .then(|| new_chat_button(bench, host, cx))
                         .flatten(),
                 )
-                .children(menu_button(bench, host, cx)),
+                .children(menu_button(bench, host, cx))
+                .child(
+                    IconButton::new("hosts-detail-close", Icon::Close, "Close")
+                        .on_click(cx.listener(|bench, _, _, cx| bench.close_on_page(cx))),
+                ),
         )
 }
 
