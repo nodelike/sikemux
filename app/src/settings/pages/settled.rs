@@ -60,7 +60,8 @@ fn restore(agent: &AgentShown, this: &Entity<Workbench>) -> AnyElement {
     )
     .on_click(move |_, _, cx| {
         restoring.update(cx, |bench, cx| {
-            bench.settle_agents(vec![id.clone()], false, cx)
+            let place = bench.place();
+            bench.settle_agents(&place, vec![id.clone()], false, cx)
         })
     })
     .into_any_element()

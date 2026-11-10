@@ -14,6 +14,7 @@ use sikemux_core::server::settling::{self, SettleParams, SnoozeParams};
 use sikemux_process::clock::epoch_ms;
 use sikemux_view::device::DeviceView;
 
+use crate::core::Target;
 use crate::hosts::Place;
 use crate::icons::Icon;
 use crate::theme::{Tokens, SPACE_1, SPACE_2};
@@ -35,16 +36,13 @@ pub fn auto_settled(view: Option<&DeviceView>) -> HashSet<String> {
     .unwrap_or_default()
 }
 
-/// Offers Undo for the agents the core has just settled on the host in front.
+/// Offers Undo for the agents the core at `place` has just settled.
 pub fn tell(
     bench: &Workbench,
     place: &Place,
     before: &HashSet<String>,
     cx: &mut Context<Workbench>,
 ) {
-    if bench.place() != *place {
-        return;
-    }
     let now = epoch_ms();
     let fresh: Vec<String> = bench
         .view_at(place)
@@ -65,36 +63,58 @@ pub fn tell(
         1 => "Settled a chat you're done with".to_owned(),
         count => format!("Settled {count} chats you're done with"),
     };
-    let bench_handle = cx.entity().downgrade();
+    let (bench_handle, place) = (cx.entity().downgrade(), place.clone());
     bench.notify(
         toast::undoable(said, move |_, cx| {
-            settle(&bench_handle, fresh.clone(), false, cx);
+            settle(&bench_handle, &place, fresh.clone(), false, cx);
         }),
         cx,
     );
 }
 
-fn settle(bench: &WeakEntity<Workbench>, agent_ids: Vec<String>, settled: bool, cx: &mut App) {
-    let _ = bench.update(cx, |bench, cx| bench.settle_agents(agent_ids, settled, cx));
+fn settle(
+    bench: &WeakEntity<Workbench>,
+    place: &Place,
+    agent_ids: Vec<String>,
+    settled: bool,
+    cx: &mut App,
+) {
+    let _ = bench.update(cx, |bench, cx| {
+        bench.settle_agents(place, agent_ids, settled, cx)
+    });
 }
 
-fn snooze(bench: &WeakEntity<Workbench>, agent_ids: Vec<String>, until: Option<u64>, cx: &mut App) {
-    let _ = bench.update(cx, |bench, cx| bench.snooze_agents(agent_ids, until, cx));
+fn snooze(
+    bench: &WeakEntity<Workbench>,
+    place: &Place,
+    agent_ids: Vec<String>,
+    until: Option<u64>,
+    cx: &mut App,
+) {
+    let _ = bench.update(cx, |bench, cx| {
+        bench.snooze_agents(place, agent_ids, until, cx)
+    });
 }
 
 impl Workbench {
-    /// Settles the agents, offering Undo, or brings them back to the main list.
-    pub fn settle_agents(&self, agent_ids: Vec<String>, settled: bool, cx: &mut Context<Self>) {
-        self.target()
-            .call_typed::<call::SettleAgents>(SettleParams {
-                agent_ids: agent_ids.clone(),
-                settled,
-            });
+    /// Settles the agents on the host at `place`, offering Undo, or brings them back to the
+    /// main list.
+    pub fn settle_agents(
+        &self,
+        place: &Place,
+        agent_ids: Vec<String>,
+        settled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        Target::new(&self.asks, place.clone()).call_typed::<call::SettleAgents>(SettleParams {
+            agent_ids: agent_ids.clone(),
+            settled,
+        });
         if settled {
-            let handle = cx.entity().downgrade();
+            let (handle, place) = (cx.entity().downgrade(), place.clone());
             self.notify(
                 toast::undoable("Settled", move |_, cx| {
-                    settle(&handle, agent_ids.clone(), false, cx)
+                    settle(&handle, &place, agent_ids.clone(), false, cx)
                 }),
                 cx,
             );
@@ -104,20 +124,20 @@ impl Workbench {
     /// Snoozes the agents until `until`, or wakes them with none, offering Undo for a snooze.
     pub fn snooze_agents(
         &self,
+        place: &Place,
         agent_ids: Vec<String>,
         until: Option<u64>,
         cx: &mut Context<Self>,
     ) {
-        self.target()
-            .call_typed::<call::SnoozeAgents>(SnoozeParams {
-                agent_ids: agent_ids.clone(),
-                until,
-            });
+        Target::new(&self.asks, place.clone()).call_typed::<call::SnoozeAgents>(SnoozeParams {
+            agent_ids: agent_ids.clone(),
+            until,
+        });
         if let Some(until) = until {
-            let handle = cx.entity().downgrade();
+            let (handle, place) = (cx.entity().downgrade(), place.clone());
             self.notify(
                 toast::undoable(format!("Snoozed until {}", when(until)), move |_, cx| {
-                    snooze(&handle, agent_ids.clone(), None, cx)
+                    snooze(&handle, &place, agent_ids.clone(), None, cx)
                 }),
                 cx,
             );
@@ -162,7 +182,8 @@ fn when(at: u64) -> String {
     }
 }
 
-/// Snooze and Settle in an agent's menu, or Wake and Restore once it is out of the main list.
+/// Snooze and Settle in the menu of an agent on this host, or Wake and Restore once it is out
+/// of the main list.
 pub fn menu_items(
     popup: PopupMenu,
     bench: WeakEntity<Workbench>,
@@ -178,7 +199,7 @@ pub fn menu_items(
         popup.item(
             PopupMenuItem::new("Wake Now")
                 .icon(Icon::Clock)
-                .on_click(move |_, _, cx| snooze(&bench, id.clone(), None, cx)),
+                .on_click(move |_, _, cx| snooze(&bench, &Place::This, id.clone(), None, cx)),
         )
     } else {
         let (bench, id) = (bench.clone(), id.clone());
@@ -192,7 +213,7 @@ pub fn menu_items(
                     let (bench, id) = (bench.clone(), id.clone());
                     let label = format!("{}  ·  {}", preset.label, when(preset.until));
                     menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                        snooze(&bench, id.clone(), Some(preset.until), cx)
+                        snooze(&bench, &Place::This, id.clone(), Some(preset.until), cx)
                     }))
                 });
                 let (bench, id) = (bench.clone(), id.clone());
@@ -205,9 +226,12 @@ pub fn menu_items(
                                     "Snooze until, such as fri 2pm or in 90m",
                                     "",
                                     move |bench, typed, _, cx| match settling::parse_time(&typed) {
-                                        Some(until) => {
-                                            bench.snooze_agents(id.clone(), Some(until), cx)
-                                        }
+                                        Some(until) => bench.snooze_agents(
+                                            &Place::This,
+                                            id.clone(),
+                                            Some(until),
+                                            cx,
+                                        ),
                                         None => bench.notify(
                                             toast::error(format!(
                                                 "Couldn't read \"{typed}\" as a time"
@@ -230,6 +254,6 @@ pub fn menu_items(
     popup.item(
         PopupMenuItem::new(label)
             .icon(icon)
-            .on_click(move |_, _, cx| settle(&bench, id.clone(), !settled, cx)),
+            .on_click(move |_, _, cx| settle(&bench, &Place::This, id.clone(), !settled, cx)),
     )
 }
