@@ -32,7 +32,11 @@ final class NotificationService: UNNotificationServiceExtension {
     content.body = card.detail.map { "\($0)\n\(card.body)" } ?? card.body
     content.threadIdentifier = card.thread
     content.categoryIdentifier = card.categoryIdentifier
-    content.userInfo["sikemux"] = card.userInfo
+    do {
+      try card.keep(in: &content.userInfo)
+    } catch {
+      print("sikemux: could not keep the card on its notification: \(error)")
+    }
     return content
   }
 }

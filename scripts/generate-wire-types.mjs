@@ -107,6 +107,9 @@ const OUTPUTS = {
     "mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt",
 };
 
+/** What only the phone's Swift reads or sends: settings inside JSON the bridge passes through, and the kinds of refusal. */
+const PHONE_ROOTS = ["NotifyPrefs", "ErrorKind"];
+
 /** What the phone's own notification code reads of a sealed card, in Swift and Kotlin. */
 const CARD_ROOTS = ["NotificationCard"];
 
@@ -1256,6 +1259,7 @@ async function phoneSwift() {
   const calls = coreCalls();
   const declarations = closure([
     ...TS_ROOTS,
+    ...PHONE_ROOTS,
     ...calls.flatMap((call) => [...named(call.takes), ...named(call.gives)]),
   ]);
   const byName = new Map(declarations.map((d) => [d.name, d]));

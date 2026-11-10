@@ -3,6 +3,11 @@ import SikemuxCore
 import UIKit
 import UserNotifications
 
+/// The buttons on a card, by the identifiers iOS answers with.
+enum CardAction: String {
+    case allow, reject
+}
+
 /// The cards hosts sent that show now: tidied as hosts settle what they asked, and answered or opened when tapped.
 @MainActor
 enum Cards {
@@ -10,9 +15,9 @@ enum Cards {
     private static var pendingSeen: [String: Set<String>] = [:]
     private static var arrivals: [UUID: (host: String, kind: NotificationKind, call: @MainActor () -> Void)] = [:]
 
-    private static func dismissShown(_ pick: @escaping ([[String: String]]) -> [String]) {
+    private static func dismissShown(_ settled: @escaping (Card) -> Bool) {
         Task {
-            for tag in pick(await DeliveredCards.shown()) { DeliveredCards.remove(tag) }
+            await DeliveredCards.remove(Set(await DeliveredCards.shown().filter { settled($0.card) }.map(\.tag)))
         }
     }
 
@@ -24,22 +29,19 @@ enum Cards {
         let before = pendingSeen[host]
         pendingSeen[host] = pending
         if !fresh, let before, before.isSubset(of: pending) { return }
-        dismissShown { shown in
-            shown.filter { card in
-                card["host"] == host && card["kind"] == NotificationKind.permission.rawValue
-                    && card["request"].map { !pending.contains($0) } == true
-            }.compactMap { $0["tag"] }
+        dismissShown { card in
+            card.hostKey == host && card.kind == .permission && card.requestId.map { !pending.contains($0) } == true
         }
     }
 
     /// Removes the cards about one agent, once the person is looking at it.
     static func dismiss(host: String, agent: String) {
-        dismissShown { $0.filter { $0["host"] == host && $0["agent"] == agent }.compactMap { $0["tag"] } }
+        dismissShown { $0.hostKey == host && $0.agentId == agent }
     }
 
     /// Removes every card from a host, as when it is forgotten.
     static func dismiss(host: String) {
-        dismissShown { $0.filter { $0["host"] == host }.compactMap { $0["tag"] } }
+        dismissShown { $0.hostKey == host }
     }
 
     /// Calls `call` while the returned watch is held, whenever a card of `kind` from `host` arrives with the app open.
@@ -49,59 +51,57 @@ enum Cards {
         return HostWatch { arrivals[id] = nil }
     }
 
-    fileprivate static func arrived(_ info: [AnyHashable: Any]) {
-        guard let card = info["sikemux"] as? [String: String] else { return }
-        for arrival in arrivals.values where arrival.host == card["host"] && arrival.kind.rawValue == card["kind"] {
-            arrival.call()
-        }
+    fileprivate static func arrived(_ card: Card) {
+        for arrival in arrivals.values where arrival.host == card.hostKey && arrival.kind == card.kind { arrival.call() }
     }
 
     /// Opens the chat a tapped card is about, and sends the answer when it was Allow or Reject.
-    fileprivate static func tapped(_ info: [AnyHashable: Any], action: String, identifier: String) {
-        guard let card = info["sikemux"] as? [String: String], let host = card["host"], let agent = card["agent"],
-              let url = card["url"].flatMap(URL.init(string:))
-        else { return }
-        Router.shared.open(url)
-        let option = action == "allow" ? card["allow"] : action == "reject" ? card["reject"] : nil
-        guard let option, let request = card["request"] else { return }
-        let tag = info["c"] as? String ?? identifier
-        Task { await answer(tag: tag, host: host, agent: agent, request: request, option: option) }
+    fileprivate static func tapped(_ card: Card, action: CardAction?, tag: String) {
+        if let url = URL(string: card.url) { Router.shared.open(url) }
+        let option = switch action {
+        case .allow: card.allowOptionId
+        case .reject: card.rejectOptionId
+        case nil: String?.none
+        }
+        guard let option, let request = card.requestId else { return }
+        Task { await answer(tag: tag, card: card, request: request, option: option) }
     }
 
     /// Answers over the connection the app already holds to the host, or else over one of its own that keeps the
     /// phone online until the answer is in. A card whose answer failed stays.
-    private static func answer(tag: String, host: String, agent: String, request: String, option: String) async {
-        let quiet = QuietListener()
+    private static func answer(tag: String, card: Card, request: String, option: String) async {
         do {
-            if let held = Hub.shared.openConnections.first(where: { $0.core == host })?.connection {
-                try await held.answerPermission(agentId: agent, requestId: request, optionId: option)
+            if let held = Hub.shared.openConnections.first(where: { $0.core == card.hostKey })?.connection {
+                try await held.answerPermission(agentId: card.agentId, requestId: request, optionId: option)
             } else {
                 try await BackgroundTime.run("Answering from a notification") {
                     try await Identity.shared.whileJoining { device in
-                        let connection = try await device.connect(core: host, listener: quiet)
+                        let connection = try await device.connect(core: card.hostKey, listener: QuietListener())
                         defer { connection.close() }
-                        try await connection.answerPermission(agentId: agent, requestId: request, optionId: option)
+                        try await connection.answerPermission(agentId: card.agentId, requestId: request, optionId: option)
                     }
                 }
             }
-        } catch MobileError.Refused(_, let kind) where kind == "notPending" {
+        } catch let refused as MobileError where refused.refusal == .notPending {
         } catch {
             print("sikemux: could not answer from the notification: \(error)")
             return
         }
-        DeliveredCards.remove(tag)
+        await DeliveredCards.remove([tag])
     }
 }
 
-private final class QuietListener: CoreListener, @unchecked Sendable {
+/// A connection made only to answer a card listens to nothing.
+private final class QuietListener: CoreListener {
     func events(events: [CoreEvent]) throws {}
     func closed() throws {}
 }
 
 /// Hears the system about notifications: the token, a clear that takes a card away, a card arriving while the app
 /// is open, and a card tapped.
+@MainActor
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
-    func application(_ application: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+    func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
         _ = Notify.shared
         return true
@@ -116,27 +116,27 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 
     /// A host's clear arrives as a background push that wakes the app.
-    func application(
-        _: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any],
-        fetchCompletionHandler done: @escaping (UIBackgroundFetchResult) -> Void
-    ) {
-        guard info["t"] as? String == "clear", let tag = info["c"] as? String else { return done(.noData) }
-        DeliveredCards.remove(tag) { done(.newData) }
+    func application(_: UIApplication, didReceiveRemoteNotification info: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard Push.clears(info), let tag = Push.collapseId(info) else { return .noData }
+        await DeliveredCards.remove([tag])
+        return .newData
     }
 
     /// A card that arrives while the app is open shows over it.
-    func userNotificationCenter(
+    nonisolated func userNotificationCenter(
         _: UNUserNotificationCenter, willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
-        let info = notification.request.content.userInfo
-        await MainActor.run { Cards.arrived(info) }
+        if let card = Card.kept(in: notification.request.content.userInfo) {
+            await MainActor.run { Cards.arrived(card) }
+        }
         return [.banner, .list, .sound]
     }
 
-    func userNotificationCenter(_: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+    nonisolated func userNotificationCenter(_: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let request = response.notification.request
-        let info = request.content.userInfo
-        let action = response.actionIdentifier
-        await MainActor.run { Cards.tapped(info, action: action, identifier: request.identifier) }
+        guard let card = Card.kept(in: request.content.userInfo) else { return }
+        let tag = Push.collapseId(request.content.userInfo) ?? request.identifier
+        let action = CardAction(rawValue: response.actionIdentifier)
+        await MainActor.run { Cards.tapped(card, action: action, tag: tag) }
     }
 }
