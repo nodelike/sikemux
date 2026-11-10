@@ -43,7 +43,10 @@ struct JoinTicket: Codable {
 }
 
 struct AccountStanding: Codable {
-    let status: String
+    enum Status: String, Codable {
+        case active, deleting
+    }
+    let status: Status
     let deletesAt: String?
     let restorableDays: Int
 }
@@ -144,7 +147,7 @@ enum AccountCalls {
             _ = try await AccountAPI.send("POST", "/v1/devices", body: registration, as: AccountDevice.self)
         } catch let problem as ApiProblem where problem.status == 401 {
             let account = try? await standing()
-            if account?.status == "deleting", let deletesAt = account?.deletesAt { throw AccountDeleting(deletesAt: deletesAt) }
+            if account?.status == .deleting, let deletesAt = account?.deletesAt { throw AccountDeleting(deletesAt: deletesAt) }
             throw problem
         }
     }

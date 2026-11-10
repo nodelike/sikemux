@@ -77,7 +77,7 @@ final class EmailSignIn {
                 as: Clerk.SignUp.self
             )
             signUp = done
-            guard done.status == "complete" else { throw Clerk.Problem(code: nil, message: Self.unsupportedSignUp) }
+            guard done.status == .complete else { throw Clerk.Problem(code: nil, message: Self.unsupportedSignUp) }
             try await finish(done.createdSessionId, client)
             return nil
         }
@@ -87,10 +87,10 @@ final class EmailSignIn {
     private func afterPassword() async throws -> SignInStep? {
         guard let signIn else { throw Clerk.Problem(code: nil, message: Self.unsupportedSignIn) }
         switch signIn.status {
-        case "complete":
+        case .complete:
             try await finish(signIn.createdSessionId, nil)
             return nil
-        case "needs_client_trust", "needs_second_factor":
+        case .needsClientTrust, .needsSecondFactor:
             var form = ["strategy": "email_code"]
             form["email_address_id"] = signIn.supportedSecondFactors?.first { $0.strategy == "email_code" }?.emailAddressId
             try await step(signIn: "prepare_second_factor", form)

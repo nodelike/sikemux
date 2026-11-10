@@ -64,7 +64,7 @@ final class RecentSignIn {
             let (result, _) = try await Clerk.call(
                 "POST", "v1/client/sessions/\(session)/verify/attempt_first_factor", form, as: Clerk.SessionVerification.self
             )
-            guard result.status == "complete" else {
+            guard result.status == .complete else {
                 return giveUp("This account also needs a second step to confirm it. \(elsewhere)")
             }
         } catch {

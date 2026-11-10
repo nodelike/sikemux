@@ -28,6 +28,8 @@ final class AccountSession {
     var farewell: Farewell?
     /// A device that just joined the account, for the person to keep or take off (ADR 0018).
     var newDevice: AccountDevice?
+    /// Why taking that device off failed.
+    var removeProblem: String?
 
     @ObservationIgnored private var userId: String?
     @ObservationIgnored private var live: LiveAccount?
@@ -156,8 +158,22 @@ final class AccountSession {
         }
     }
 
+    func remove(_ device: AccountDevice) {
+        Task {
+            do {
+                try await AccountCalls.removeDevice(device.key)
+            } catch {
+                removeProblem = Sikemux.problem(error)
+            }
+        }
+    }
+
     private func askAbout(_ key: String) async {
-        if let device = try? await AccountCalls.device(key) { newDevice = device }
+        do {
+            newDevice = try await AccountCalls.device(key)
+        } catch {
+            print("sikemux: could not read the device new to the account: \(error)")
+        }
     }
 }
 

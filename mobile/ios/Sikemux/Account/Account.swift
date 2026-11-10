@@ -55,7 +55,9 @@ final class Account {
                 return
             }
             keep(session: active.id, user: user)
-        } catch {}
+        } catch {
+            print("sikemux: could not read the sign-in from Clerk: \(error)")
+        }
     }
 
     /// Makes the session a sign-in just created the active one, and the phone signed in.
@@ -108,8 +110,11 @@ final class Account {
     }
 
     private func keep(session id: String, user: Clerk.User) {
-        if let data = try? JSONEncoder().encode(Saved(session: id, user: user)) {
-            try? Keychain.write(Self.savedItem, String(decoding: data, as: UTF8.self))
+        do {
+            let data = try JSONEncoder().encode(Saved(session: id, user: user))
+            try Keychain.write(Self.savedItem, String(decoding: data, as: UTF8.self))
+        } catch {
+            print("sikemux: could not keep the sign-in in the Keychain: \(error)")
         }
         apply(session: id, user: user)
     }

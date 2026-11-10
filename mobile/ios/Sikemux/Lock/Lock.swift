@@ -75,7 +75,11 @@ final class Lock {
         asking = false
         switch result {
         case .passed:
-            try? Keychain.write(Self.item, "on")
+            do {
+                try Keychain.write(Self.item, "on")
+            } catch {
+                return Sikemux.problem(error)
+            }
             on = true
             return nil
         case .noPasscode: return "Set a passcode in Settings first"
