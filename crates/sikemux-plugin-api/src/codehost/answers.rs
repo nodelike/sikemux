@@ -147,7 +147,9 @@ pub fn log_excerpt(whole: JobLog, pick: LinePick) -> LogExcerpt {
         for (index, line) in lines.iter().enumerate() {
             if line.text.to_lowercase().contains(&needle) {
                 let end = (index + context + 1).min(lines.len());
-                kept[index.saturating_sub(context)..end].fill(true);
+                if let Some(around) = kept.get_mut(index.saturating_sub(context)..end) {
+                    around.fill(true);
+                }
             }
         }
         let mut kept = kept.into_iter();
@@ -184,11 +186,12 @@ pub fn log_excerpt(whole: JobLog, pick: LinePick) -> LogExcerpt {
         } else {
             lines.drain(..lines.len() - kept).collect()
         };
-        let (first, last) = (left[0].number, left[left.len() - 1].number);
-        format!(
+        let (first, last) = (left.first()?.number, left.last()?.number);
+        Some(format!(
             "Lines {first} to {last} were left out to keep this under {EXCERPT_CHARS} characters; ask for them with from and to."
-        )
-    });
+        ))
+    })
+    .flatten();
     cut |= note.is_some();
     LogExcerpt {
         lines,
