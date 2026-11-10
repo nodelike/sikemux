@@ -3,6 +3,8 @@ import UIKit
 
 @main
 struct SikemuxApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+
     var body: some Scene {
         WindowGroup {
             RootView()
@@ -44,6 +46,13 @@ struct RootView: View {
             Task { _ = await Network.shared.relays() }
             await account.load()
             await hub.reloadDevices()
+        }
+        .notificationsOffer()
+        .task(id: account.isSignedIn) {
+            guard account.isSignedIn else { return }
+            ShareExtension.signIn()
+            StashStore.shared.start()
+            try? await Notify.shared.syncPushToken()
         }
     }
 }
