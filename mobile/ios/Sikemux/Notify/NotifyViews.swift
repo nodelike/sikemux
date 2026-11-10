@@ -8,32 +8,17 @@ struct NotificationsRow: View {
     private let notify = Notify.shared
 
     var body: some View {
-        HStack(spacing: 12) {
-            IconView(icon: Icons.inbox, size: 18).foregroundStyle(palette.secondary)
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Notifications").font(Theme.ui(15, .medium)).foregroundStyle(palette.ink)
-                if notify.blocked {
-                    Button {
-                        if let settings = URL(string: UIApplication.openSettingsURLString) { openURL(settings) }
-                    } label: {
-                        Text("Allow them in Settings").font(Theme.ui(13, .medium)).foregroundStyle(palette.accent)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(.isLink)
+        SwitchRow(icon: Icons.inbox, title: "Notifications", isOn: Binding(get: { notify.on }, set: { flip($0) }), disabled: busy) {
+            if notify.blocked {
+                Button {
+                    if let settings = URL(string: UIApplication.openSettingsURLString) { openURL(settings) }
+                } label: {
+                    Text("Allow them in Settings").font(Theme.ui(13, .medium)).foregroundStyle(palette.accent)
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(.isLink)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle("Notifications", isOn: Binding(get: { notify.on }, set: { flip($0) }))
-                .labelsHidden()
-                .tint(palette.live)
-                .disabled(busy)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(minHeight: 52)
-        .background(RoundedRectangle(cornerRadius: 9).fill(palette.raised))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(palette.border, lineWidth: 1))
-        .padding(.top, 8)
         .task { await notify.checkAllowed() }
     }
 
