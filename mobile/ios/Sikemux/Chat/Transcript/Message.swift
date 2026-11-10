@@ -249,7 +249,7 @@ private struct Letters: View {
                     VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 8) {
                             Rectangle().fill(palette.border).frame(height: 1 / UIScreen.main.scale)
-                            AgentMark(provider: letter.cli, size: 13)
+                            AgentFaceView(agentId: letter.agentId, provider: letter.cli, size: 13)
                             (Text("Message from ").foregroundColor(palette.inkDim) + Text("@\(letter.name)").font(Theme.ui(11.5, .semibold)).foregroundColor(palette.ink))
                                 .font(Theme.ui(11.5))
                                 .fixedSize()
@@ -464,7 +464,7 @@ struct TeamFoldLine: View {
                         .opacity(0.7)
                         .rotationEffect(.degrees(open ? 90 : 0))
                     HStack(spacing: 2) {
-                        ForEach(Array(line.agents.enumerated()), id: \.offset) { _, agent in AgentMark(provider: agent.cli, size: 16) }
+                        ForEach(Array(line.agents.enumerated()), id: \.offset) { _, agent in AgentFaceView(agentId: agent.agentId, provider: agent.cli, size: 16) }
                         if line.more > 0 { Text("+\(line.more)").font(Theme.ui(11)).foregroundStyle(palette.inkDim).padding(.leading, 2) }
                     }
                     Text(count).font(Theme.ui(12.5, .semibold)).foregroundStyle(palette.ink)

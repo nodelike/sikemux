@@ -80,7 +80,7 @@ private struct ChatPane: View {
         let title = rows.head.title ?? listed?.title ?? provider
         Screen {
             Nav(back: nil, onBack: nil) {
-                ChatTitle(agentId: agentId, provider: provider, name: info?.name, title: title)
+                ChatTitle(agentId: agentId, group: info?.group, provider: provider, name: info?.name, title: title)
             } end: {
                 Button { menu = true } label: {
                     IconView(icon: Icons.moreVertical, size: 16).foregroundStyle(palette.tertiary).frame(width: 40, height: 40)
