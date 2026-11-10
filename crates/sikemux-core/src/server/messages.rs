@@ -821,11 +821,7 @@ async fn send_team(
 
 /// Sends one message to each of `to`, its shown name and its address, all at once, each
 /// delivered as a message of its own, and answers with each one's delivery in order.
-async fn send_each(
-    core: &Arc<Core>,
-    request: &HarnessRequest,
-    to: Vec<(String, String)>,
-) -> Value {
+async fn send_each(core: &Arc<Core>, request: &HarnessRequest, to: Vec<(String, String)>) -> Value {
     let sending = to.into_iter().map(|(name, address)| {
         let mut one = request.clone();
         one.params["to"] = Value::String(address);
