@@ -184,6 +184,15 @@ pub(super) struct SlicePull {
     pub at: super::AutoPull,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picture: Option<KeptPicture>,
+    /// The person was asked to post its proof and has not answered.
+    #[serde(default)]
+    pub asked: bool,
+    /// The person posted its proof, so later changes rewrite it without asking.
+    #[serde(default)]
+    pub posted: bool,
+    /// The person chose never to write to it.
+    #[serde(default)]
+    pub skipped: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

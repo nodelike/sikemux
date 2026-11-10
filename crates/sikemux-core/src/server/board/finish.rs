@@ -376,7 +376,7 @@ fn commit_message(card: &Card) -> String {
     message
 }
 
-fn pull_body(core: &Core, step: &Step, repo: &str) -> String {
+fn pull_body(core: &Core, step: &Step) -> String {
     let card = &step.card;
     let mut body = String::new();
     if !card.details.is_empty() {
@@ -398,19 +398,7 @@ fn pull_body(core: &Core, step: &Step, repo: &str) -> String {
         step.name(core),
         card.id
     ));
-    if let Some(proof) = current_proof(core, step, repo) {
-        body.push_str("\n\n");
-        body.push_str(&proof);
-    }
     body
-}
-
-/// What the card's slice shows now, as its pull request's description says it before the
-/// picture it leads with is kept on the code host.
-fn current_proof(core: &Core, step: &Step, repo: &str) -> Option<String> {
-    let state = core.boards.state.locked();
-    let card = state.boards.get(&step.project)?.card(step.id).ok()?;
-    Some(card.slice.as_ref()?.proof_block(card.id, repo, None))
 }
 
 fn current_result(core: &Core, step: &Step) -> Option<String> {
@@ -471,7 +459,7 @@ async fn shipping(core: &Arc<Core>, step: &Step) -> Result<(), String> {
             &step.card.title,
             &step.run.branch,
             &step.run.base,
-            &pull_body(core, step, &host.slug()),
+            &pull_body(core, step),
         )
         .await
         .map_err(|error| format!("the pull request did not open: {error}"))?,

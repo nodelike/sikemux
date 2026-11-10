@@ -141,6 +141,9 @@ struct Question {
     /// answer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     approval: Option<Approval>,
+    /// The slice whose proof the answer posts to its pull request, or keeps off it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    proof: Option<ProofAsk>,
     /// The dialog in the asker's process that waits on the answer, which then
     /// goes to it rather than arriving as a message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -396,8 +399,17 @@ struct Asked {
     assumption: Option<String>,
     secret: bool,
     approval: Option<Approval>,
+    proof: Option<ProofAsk>,
     dialog: Option<String>,
     raise: Option<Raise>,
+}
+
+/// A slice of the board at `project`, by its card.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ProofAsk {
+    pub project: String,
+    pub card: u64,
 }
 
 impl Questions {
@@ -1045,7 +1057,11 @@ fn open(
     let questions: Vec<Question> = asked
         .into_iter()
         .map(|asked| Question {
-            stage: if asked.secret || asked.approval.is_some() || asked.dialog.is_some() {
+            stage: if asked.secret
+                || asked.approval.is_some()
+                || asked.proof.is_some()
+                || asked.dialog.is_some()
+            {
                 Stage::Person {
                     lead: None,
                     passed: false,
@@ -1070,6 +1086,7 @@ fn open(
             relayed: None,
             from_host: None,
             approval: asked.approval,
+            proof: asked.proof,
             dialog: asked.dialog,
             raise: asked.raise,
         })
@@ -1283,6 +1300,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
             assumption,
             secret,
             approval: None,
+            proof: None,
             dialog: None,
             raise,
         }],
@@ -1333,6 +1351,47 @@ pub(crate) fn put_to_person(
             assumption: None,
             secret: false,
             approval: Some(approval),
+            proof: None,
+            dialog: None,
+            raise: None,
+        }],
+    )
+    .map(drop)
+}
+
+/// Asks the person, never a lead, whether a slice's proof goes into its pull request, on
+/// behalf of the agent that owns the slice. `text` is what would be written.
+pub(crate) fn put_proof_to_person(
+    core: &Core,
+    agent_id: &str,
+    proof: ProofAsk,
+    header: String,
+    text: String,
+) -> Result<(), String> {
+    let choice = |label: &str, detail: &str| QuestionChoice {
+        label: label.to_owned(),
+        detail: Some(detail.to_owned()),
+        picture: None,
+        recommended: false,
+    };
+    let project = proof.project.clone();
+    open(
+        core,
+        agent_id,
+        &project,
+        vec![Asked {
+            text: clipped(&text, MAX_QUESTION_BYTES),
+            header: Some(clipped(&header, MAX_HEADER_CHARS)),
+            choices: vec![
+                choice("Post", "Write it now, and keep it up to date on later pushes"),
+                choice("Skip", "Never write to this pull request"),
+            ],
+            multi: false,
+            blocked: false,
+            assumption: Some("Nothing is written to the pull request until you post it.".to_owned()),
+            secret: false,
+            approval: None,
+            proof: Some(proof),
             dialog: None,
             raise: None,
         }],
@@ -1367,6 +1426,7 @@ pub(crate) fn ask_for_dialog(
             assumption: None,
             secret: false,
             approval: None,
+            proof: None,
             dialog: Some(dialog),
             raise: None,
         }],
@@ -1512,6 +1572,7 @@ pub(crate) fn ask_from_cli(core: &Arc<Core>, agent_id: &str, input: &Value) -> S
                 assumption: None,
                 secret: question["isSecret"].as_bool().unwrap_or(false),
                 approval: None,
+                proof: None,
                 dialog: None,
                 raise: None,
             })
@@ -1881,6 +1942,10 @@ pub(crate) async fn answer_all(core: &Arc<Core>, mut params: AnswersParams) -> R
             continue;
         }
         let Some(text) = text else { continue };
+        if let Some(proof) = &question.proof {
+            super::board::proof::answered(core, proof, given.choice == Some(0));
+            continue;
+        }
         if let Some(dialog) = &question.dialog {
             if let Some(chat) = core.chats.get(&question.agent_id) {
                 let _ = chat.send(ChatCommand::AnswerDialog {

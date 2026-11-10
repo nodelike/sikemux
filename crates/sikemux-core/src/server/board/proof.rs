@@ -1,6 +1,8 @@
 //! Each slice's proof in the description of its pull request: the block `slice/words.rs`
 //! draws, written whenever what it shows changes and rewritten in place on later pushes. A
 //! slice is matched to an open pull request by its latest commit, or is the one Auto opened.
+//! Nothing is written unless the project turned it on, and the first write to each pull
+//! request waits for the person to post the exact block.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
@@ -13,6 +15,7 @@ use sikemux_process::sync::Locked;
 use super::slice::{with_proof, KeptPicture, SlicePull};
 use super::{AutoPull, CardStatus, State};
 use crate::server::codehost::repo as codehost;
+use crate::server::questions::{self, ProofAsk};
 use crate::server::Core;
 
 #[derive(Default)]
@@ -37,7 +40,7 @@ pub(super) fn due(core: &Arc<Core>) {
         let mut state = core.boards.state.locked();
         let State { boards, proofs, .. } = &mut *state;
         for (project, board) in boards.iter() {
-            if proofs.writing.contains(project) {
+            if !board.settings.pull_proof || proofs.writing.contains(project) {
                 continue;
             }
             let mut dues = Vec::new();
@@ -121,17 +124,42 @@ fn failed(project: &str, card: u64, error: &str) {
     );
 }
 
+/// Where the person stands on writing to a slice's pull request.
+#[derive(Clone, Copy, PartialEq)]
+enum Consent {
+    /// Not asked yet: the person is asked before anything is written.
+    Unasked,
+    Asked,
+    Posted,
+    Skipped,
+}
+
 async fn rewrite(core: &Arc<Core>, project: &str, card: u64, pull: AutoPull) -> Result<(), String> {
-    let (picture, kept) = {
+    let (consent, picture, kept, owner) = {
         let state = core.boards.state.locked();
-        let slice = (state.boards.get(project))
-            .and_then(|board| board.card(card).ok())
-            .and_then(|card| card.slice.as_ref())
-            .ok_or("the slice is gone")?;
-        let kept = (slice.pull.as_ref()).and_then(|linked| linked.picture.clone());
-        let picture = (slice.proof_picture()).map(|(id, path)| (id, path.to_owned()));
-        (picture, kept)
+        let board = state.boards.get(project).ok_or("the board is gone")?;
+        let held = board.card(card).map_err(|error| error.to_string())?;
+        let slice = held.slice.as_ref().ok_or("the slice is gone")?;
+        let linked = (slice.pull.as_ref()).filter(|linked| linked.at.url == pull.url);
+        let consent = match linked {
+            Some(linked) if linked.skipped => Consent::Skipped,
+            Some(linked) if linked.posted => Consent::Posted,
+            Some(linked) if linked.asked => Consent::Asked,
+            _ => Consent::Unasked,
+        };
+        let kept = linked.and_then(|linked| linked.picture.clone());
+        let picture = (slice.proof_picture())
+            .filter(|_| board.settings.pull_pictures)
+            .map(|(id, path)| (id, path.to_owned()));
+        let owner = (held.owner_id().map(str::to_owned))
+            .or_else(|| held.auto.as_ref().map(|run| run.agent.clone()));
+        (consent, picture, kept, owner)
     };
+    match consent {
+        Consent::Skipped | Consent::Asked => return Ok(()),
+        Consent::Unasked => return ask(core, project, card, pull, picture, owner),
+        Consent::Posted => {}
+    }
     let kept = match picture {
         Some((id, _)) if kept.as_ref().is_some_and(|kept| kept.evidence == id) => kept,
         Some((id, path)) => {
@@ -163,21 +191,76 @@ async fn rewrite(core: &Arc<Core>, project: &str, card: u64, pull: AutoPull) -> 
         codehost::describe(core, &pull, &written).await?;
     }
     core.boards.edit_if(project, card, |card| {
-        let slice = card.slice.as_mut()?;
-        let same = slice
-            .pull
-            .as_ref()
-            .is_some_and(|linked| linked.at.url == pull.url && linked.picture == kept);
-        if same {
+        let linked = card.slice.as_mut()?.pull.as_mut()?;
+        if linked.picture == kept {
             return None;
         }
-        slice.pull = Some(SlicePull {
-            at: pull,
-            picture: kept,
-        });
+        linked.picture = kept;
         Some(())
     });
     Ok(())
+}
+
+/// Puts the exact block to the person before the first write to the pull request, on behalf
+/// of the agent that owns the slice, and keeps the pull request as asked about.
+fn ask(
+    core: &Arc<Core>,
+    project: &str,
+    card: u64,
+    pull: AutoPull,
+    picture: Option<(u64, String)>,
+    owner: Option<String>,
+) -> Result<(), String> {
+    let Some(owner) = owner else {
+        return Ok(());
+    };
+    let block = {
+        let state = core.boards.state.locked();
+        let slice = (state.boards.get(project))
+            .and_then(|board| board.card(card).ok())
+            .and_then(|card| card.slice.as_ref())
+            .ok_or("the slice is gone")?;
+        let repo = format!("{}/{}", pull.owner, pull.name);
+        slice.proof_block(card, &repo, picture.as_ref().map(|(_, path)| path.as_str()))
+    };
+    let mut text = format!(
+        "Sikemux would add this to the description of pull request #{} ({}), below what it says, and keep it up to date on later pushes:\n\n{block}",
+        pull.number, pull.url
+    );
+    if picture.is_some() {
+        text.push_str("\n\nPosting also keeps its screenshot on the code host: on GitHub, on a `sikemux-evidence` branch of the repository.");
+    }
+    let header = format!("Post proof to #{}", pull.number);
+    let asked = ProofAsk {
+        project: project.to_owned(),
+        card,
+    };
+    questions::put_proof_to_person(core, &owner, asked, header, text)?;
+    core.boards.edit(project, card, |card| {
+        if let Some(slice) = &mut card.slice {
+            slice.pull = Some(SlicePull {
+                at: pull,
+                picture: None,
+                asked: true,
+                posted: false,
+                skipped: false,
+            });
+        }
+    });
+    Ok(())
+}
+
+/// The person posted the slice's proof to its pull request, or skipped it for good.
+pub(crate) fn answered(core: &Arc<Core>, asked: &ProofAsk, post: bool) {
+    core.boards.edit_if(&asked.project, asked.card, |card| {
+        let linked = card.slice.as_mut()?.pull.as_mut()?;
+        linked.asked = false;
+        linked.posted = post;
+        linked.skipped = !post;
+        Some(())
+    });
+    (core.boards.state.locked().proofs.said).remove(&(asked.project.clone(), asked.card));
+    core.boards.wake.now();
 }
 
 /// A name for the picture no other slice's or pull request's shares.

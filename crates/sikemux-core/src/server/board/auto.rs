@@ -111,6 +111,12 @@ pub struct BoardSettings {
     /// The linked hosts cards go to past this host's places, by key, the first with room first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hosts: Vec<String>,
+    /// Its slices' pull requests carry their proof in their descriptions, each written the
+    /// first time only once the person posts it.
+    pub pull_proof: bool,
+    /// That proof's picture is kept on the code host: on GitHub a `sikemux-evidence` branch
+    /// of the repository, on GitLab its uploads, on Bitbucket its downloads.
+    pub pull_pictures: bool,
 }
 
 impl BoardSettings {
@@ -204,6 +210,8 @@ impl Default for BoardSettings {
             scaled_review: false,
             branch_backup: true,
             hosts: Vec::new(),
+            pull_proof: false,
+            pull_pictures: false,
         }
     }
 }
@@ -286,6 +294,10 @@ pub struct BoardSettingsParams {
     pub branch_backup: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hosts: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_proof: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_pictures: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -392,6 +404,12 @@ impl BoardSettings {
         }
         if let Some(branch_backup) = params.branch_backup {
             settings.branch_backup = branch_backup;
+        }
+        if let Some(pull_proof) = params.pull_proof {
+            settings.pull_proof = pull_proof;
+        }
+        if let Some(pull_pictures) = params.pull_pictures {
+            settings.pull_pictures = pull_pictures;
         }
         if let Some(reservoir) = params.reservoir {
             settings.reservoir = reservoir;

@@ -858,6 +858,8 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
     let (on_slots, on_landing, on_recover) = (entity(), entity(), entity());
     let (on_guard, on_ceiling, on_backup) = (entity(), entity(), entity());
     let backup_on = settings.branch_backup;
+    let (on_proof, on_pictures) = (entity(), entity());
+    let (proof_on, pictures_on) = (settings.pull_proof, settings.pull_pictures);
     let guard_on = settings.progress_guard;
     let ceilings = [0]
         .into_iter()
@@ -986,6 +988,28 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
                     .on_click(move |_, _, cx| {
                         on_backup.update(cx, |pane, cx| {
                             pane.change_settings(|params| params.branch_backup = Some(!backup_on), cx)
+                        })
+                    })
+                    .into_any_element(),
+                cx,
+            ))
+            .child(fact(
+                "Proof",
+                Toggle::new("board-pull-proof", "Show each slice's proof in its pull request, once you post it", proof_on)
+                    .on_click(move |_, _, cx| {
+                        on_proof.update(cx, |pane, cx| {
+                            pane.change_settings(|params| params.pull_proof = Some(!proof_on), cx)
+                        })
+                    })
+                    .into_any_element(),
+                cx,
+            ))
+            .child(fact(
+                "Pictures",
+                Toggle::new("board-pull-pictures", "Keep its picture on the code host (a sikemux-evidence branch on GitHub)", pictures_on)
+                    .on_click(move |_, _, cx| {
+                        on_pictures.update(cx, |pane, cx| {
+                            pane.change_settings(|params| params.pull_pictures = Some(!pictures_on), cx)
                         })
                     })
                     .into_any_element(),
