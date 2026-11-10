@@ -64,8 +64,8 @@ struct HostSignInScreen: View {
                     .padding(.horizontal, 28)
                     .padding(.top, 32)
                     VStack(spacing: 12) {
-                        Field(placeholder: "BCDF-GHJK", text: $typed, icon: Icons.terminal, autoFocus: true)
-                            .font(Theme.mono(20))
+                        Field(placeholder: "BCDF-GHJK", text: $typed, icon: Icons.terminal, autoFocus: true, font: Theme.mono(20))
+                            .tracking(2)
                             .textInputAutocapitalization(.characters)
                             .autocorrectionDisabled()
                             .submitLabel(.go)
