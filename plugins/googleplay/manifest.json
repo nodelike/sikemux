@@ -14,7 +14,8 @@
         "placeholder": "~/Downloads/play-uploader-3f9c2a.json"
       }
     ],
-    "tokenPage": "https://developers.google.com/android-publisher/getting_started"
+    "tokenPage": "https://developers.google.com/android-publisher/getting_started",
+    "tokenPageLabel": "Make a service account key"
   },
   "tools": [
     {

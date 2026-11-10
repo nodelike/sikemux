@@ -1077,7 +1077,10 @@ pub fn dialog(
     let server = typed_in(&signing.fields, "host")
         .map(|input| input.read(cx).value().to_string())
         .unwrap_or_default();
-    let page = form.and_then(|form| form.token_page(&server));
+    let page = form.and_then(|form| {
+        form.token_page(&server)
+            .map(|page| (page, form.token_page_label().to_owned()))
+    });
     let switch = form
         .and_then(|form| form.other_way.as_ref())
         .map(|way| match signing.other_way {
@@ -1091,9 +1094,9 @@ pub fn dialog(
                     sign_in::link("connector-other-way", words, cx).on_click(on(this, switch_way)),
                 )
             })
-            .when_some(page, |links, page| {
+            .when_some(page, |links, (page, label)| {
                 links.child(
-                    sign_in::link("connector-token-page", "Create a token", cx)
+                    sign_in::link("connector-token-page", label, cx)
                         .on_click(move |_, _, cx| cx.open_url(&page)),
                 )
             })
