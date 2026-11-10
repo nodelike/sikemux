@@ -1,7 +1,7 @@
 use crate::server::changed::What;
 use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use portable_pty::ExitStatus;
@@ -100,6 +100,9 @@ pub(crate) struct AgentActivity {
     last_output_ms: AtomicU64,
     /// When the output an agent at rest has been printing without a pause began.
     resting_output_since_ms: AtomicU64,
+    /// Held while a state change and its event go out, so two threads publishing at once
+    /// can't send their events in the opposite order to their changes.
+    publishing: Mutex<()>,
 }
 
 impl AgentActivity {
@@ -122,6 +125,7 @@ impl AgentActivity {
             last_detection_revision: AtomicU64::new(0),
             last_output_ms: AtomicU64::new(0),
             resting_output_since_ms: AtomicU64::new(0),
+            publishing: Mutex::new(()),
         })
     }
 
@@ -209,10 +213,23 @@ impl AgentActivity {
         let reason = reason.into();
         let fingerprint =
             event_fingerprint(next, source, confidence, &reason, matched_rule.as_deref());
-        if self.last_published.swap(fingerprint, Ordering::AcqRel) == fingerprint {
-            return;
-        }
-        let previous = AgentState::from_u8(self.state.swap(next as u8, Ordering::AcqRel));
+        let previous = {
+            let _publishing = self.publishing.locked();
+            if self.last_published.swap(fingerprint, Ordering::AcqRel) == fingerprint {
+                return;
+            }
+            let previous = AgentState::from_u8(self.state.swap(next as u8, Ordering::AcqRel));
+            core.changed(What::Event(&Event::AgentState(AgentStateEvent {
+                agent_id: self.agent_id.clone(),
+                state: next,
+                sequence: next_sequence(),
+                source: source.into(),
+                confidence: confidence.into(),
+                reason,
+                matched_rule,
+            })));
+            previous
+        };
         let busy = previous.busy();
         let activity = match next {
             AgentState::Working if busy => Some(Activity::Working),
@@ -242,15 +259,6 @@ impl AgentActivity {
         if next != previous {
             core.changed(What::Agents);
         }
-        core.changed(What::Event(&Event::AgentState(AgentStateEvent {
-            agent_id: self.agent_id.clone(),
-            state: next,
-            sequence: next_sequence(),
-            source: source.into(),
-            confidence: confidence.into(),
-            reason,
-            matched_rule,
-        })));
     }
 }
 
