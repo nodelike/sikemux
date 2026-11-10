@@ -410,6 +410,10 @@ struct InboxItem: Codable, Hashable {
     let requestId: String?
     let questionId: String?
     let url: String?
+    /// The linked host the agent runs on, or a HostAlert item is about, when it is not this one.
+    let host: String?
+    /// What a HostAlert item is about.
+    let hostAlert: HostAlert?
 }
 
 enum InboxTier: String, Codable, Hashable {
@@ -486,6 +490,40 @@ struct ShipHold: Codable, Hashable {
     /// What the person can always allow from now on, such as `dev/*`, in place of allowing
     /// this once. Only what reads as no production offers it.
     let letGo: String?
+}
+
+/// Something about the host that needs the person, while it lasts.
+struct HostAlert: Codable, Hashable {
+    let kind: HostAlertKind
+    let level: AlertLevel
+}
+
+enum HostAlertKind: String, Codable, Hashable {
+    /// Short of memory, as the system says.
+    case memory
+    /// The disk is nearly full.
+    case disk
+    /// Every core busy for a while.
+    case cpu
+    /// A linked host stopped answering.
+    case offline
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+enum AlertLevel: String, Codable, Hashable {
+    case warn
+    case danger
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
 }
 
 /// How devices show an open agent here.

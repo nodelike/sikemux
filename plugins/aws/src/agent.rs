@@ -264,14 +264,14 @@ async fn instances(ctx: &PluginContext, input: Value) -> PluginResult<Value> {
         let found = ec2::volumes(&target, &filters)
             .await?
             .into_iter()
-            .filter(|volume| volume.matches(&wanted))
+            .filter(|volume| volume.matches(wanted))
             .collect();
         return listed("volumes", found);
     }
     let found = ec2::instances(&target, &filters)
         .await?
         .into_iter()
-        .filter(|instance| instance.matches(&wanted))
+        .filter(|instance| instance.matches(wanted))
         .collect();
     listed("instances", found)
 }
