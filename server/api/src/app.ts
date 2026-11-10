@@ -83,7 +83,13 @@ export function createApp(services: Services) {
     cors({
       origin: appOrigin,
       allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
-      allowHeaders: ["authorization", "content-type"],
+      // The web app sends Sentry's trace headers, so its requests and the API's spans join up.
+      allowHeaders: [
+        "authorization",
+        "content-type",
+        "sentry-trace",
+        "baggage",
+      ],
       exposeHeaders: ["x-request-id"],
       maxAge: 600,
     }),

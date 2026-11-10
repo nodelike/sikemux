@@ -8,6 +8,7 @@ import {
 import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sentryVitePlugin } from "@sentry/vite-plugin";
 import react from "@vitejs/plugin-react";
 import { defineConfig, type Plugin } from "vite";
 
@@ -88,12 +89,29 @@ function chatAssets(): Plugin {
   };
 }
 
+/** Sends the release's source maps to Sentry, when CI builds it with the token to. They are never served. */
+function sentrySourceMaps() {
+  const authToken = process.env.SENTRY_AUTH_TOKEN;
+  const release = process.env.VITE_SENTRY_RELEASE;
+  if (!authToken || !release) return null;
+  return sentryVitePlugin({
+    org: "nodelike",
+    project: "sikemux-web",
+    authToken,
+    release: { name: release, setCommits: false },
+    telemetry: false,
+    // Sentry being down must not hold back a deploy; that release's traces stay minified.
+    errorHandler: (error) =>
+      console.warn(`Sentry upload failed: ${error.message}`),
+  });
+}
+
 export default defineConfig({
-  plugins: [react(), chatAssets()],
+  plugins: [react(), chatAssets(), sentrySourceMaps()],
   resolve: {
     alias: [{ find: /^@shared\//, replacement: `${join(repo, "shared")}/` }],
     dedupe: ["react", "react-dom"],
   },
   server: { port: 5173, strictPort: true, fs: { allow: [repo] } },
-  build: { sourcemap: true },
+  build: { sourcemap: "hidden" },
 });

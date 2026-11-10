@@ -79,6 +79,11 @@ jobs:
 
       - name: Check, test and build
         run: pnpm check
+        # Only the build that deploys reports to Sentry, and sends Sentry its source maps.
+        env:
+          VITE_SENTRY_DSN: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && 'https://89ce77be8ce1c97146774b0233f889d6@o4512409824919552.ingest.de.sentry.io/4512409866272848' || '' }}
+          VITE_SENTRY_RELEASE: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.sha || '' }}
+          SENTRY_AUTH_TOKEN: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && secrets.SENTRY_AUTH_TOKEN || '' }}
 
       - name: Pack the release
         run: pnpm pack:release
