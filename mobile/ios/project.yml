@@ -107,6 +107,8 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSFaceIDUsageDescription: Sikemux asks for Face ID before it shows your hosts and chats.
         NSLocalNetworkUsageDescription: Sikemux reaches your hosts directly when they are on the same network.
+        NSPhotoLibraryUsageDescription: Sikemux shows your recent photos so you can attach them to a chat.
+        NSCameraUsageDescription: Sikemux uses the camera to take a photo you attach to a chat.
         UIUserInterfaceStyle: Dark
         UIStatusBarStyle: UIStatusBarStyleLightContent
         UIViewControllerBasedStatusBarAppearance: false
