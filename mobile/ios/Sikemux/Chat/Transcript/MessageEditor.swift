@@ -1,11 +1,54 @@
 import SwiftUI
 
-/// A person's message written again in place.
+/// Writing a sent message again where its bubble was.
 struct MessageEditor: View {
+    @Environment(\.palette) private var palette
+    @Environment(TranscriptContext.self) private var context
     let rowId: String
     let text: String
+    @State private var draft: String
+    @FocusState private var focused: Bool
+
+    init(rowId: String, text: String) {
+        self.rowId = rowId
+        self.text = text
+        _draft = State(initialValue: text)
+    }
 
     var body: some View {
-        EmptyView()
+        let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        VStack(alignment: .trailing, spacing: 8) {
+            TextField("", text: $draft, axis: .vertical)
+                .font(Theme.ui(14))
+                .lineSpacing(22 - 14 * 1.22)
+                .foregroundStyle(palette.ink)
+                .tint(palette.accent)
+                .lineLimit(1...12)
+                .focused($focused)
+                .accessibilityLabel("Edit message")
+            HStack(spacing: 6) {
+                Button { context.actions.cancelEdit() } label: {
+                    Text("Cancel").font(Theme.ui(13, .semibold)).foregroundStyle(palette.ink)
+                        .padding(.horizontal, 12).frame(height: 30)
+                        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(palette.borderStrong, lineWidth: 1))
+                }
+                .buttonStyle(ActiveFill(radius: 8))
+                Button { context.actions.sendEdit(rowId, words) } label: {
+                    Text("Send").font(Theme.ui(13, .semibold)).foregroundStyle(palette.sunken)
+                        .padding(.horizontal, 12).frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(palette.ink))
+                }
+                .buttonStyle(PressFade())
+                .disabled(words.isEmpty)
+                .opacity(words.isEmpty ? 0.6 : 1)
+            }
+        }
+        .padding(.top, 9)
+        .padding(.bottom, 8)
+        .padding(.horizontal, 13)
+        .background(RoundedRectangle(cornerRadius: 12).fill(palette.raised))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(palette.borderSelected, lineWidth: 1))
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.84 }
+        .onAppear { focused = true }
     }
 }
