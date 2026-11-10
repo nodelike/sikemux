@@ -11,8 +11,10 @@ configs:
 settings:
   base:
     DEVELOPMENT_TEAM: D577WD6Z5U
-    SWIFT_VERSION: "5.0"
-    SWIFT_STRICT_CONCURRENCY: minimal
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: true
+    GCC_TREAT_WARNINGS_AS_ERRORS: true
     TARGETED_DEVICE_FAMILY: "1"
     ENABLE_USER_SCRIPT_SANDBOXING: true
     MARKETING_VERSION: 0.2.0
@@ -49,8 +51,6 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.nodelike.sikemux.core
         GENERATE_INFOPLIST_FILE: true
         SKIP_INSTALL: true
-        SWIFT_STRICT_CONCURRENCY: minimal
-        SWIFT_VERSION: "5.0"
 
   Sikemux:
     type: application
@@ -156,7 +156,7 @@ targets:
           ASSETCATALOG_COMPILER_APPICON_NAME: sikemux
           EXCLUDED_SOURCE_FILE_NAMES: dev.icon
           # Nothing loads symbols from the app, and the Rust library's exports alone took 1.8 MB.
-          OTHER_LDFLAGS: $(inherited) -Wl,-no_exported_symbols
+          LD_EXPORT_SYMBOLS: false
 
   SikemuxNotifications:
     type: app-extension
