@@ -3,7 +3,8 @@
 - Status: Accepted
 - Decision date: 2026-10-16
 - Amended: 2026-10-19, to say which credentials are shared and how a per-host agent login stays
-  within the vendors' terms, and that agents from a linked host use none of them until allowed
+  within the vendors' terms, and that agents from a linked host use none of them until allowed;
+  2026-11-11, to say how sign-ins a host already has move in
 
 ## Context
 
@@ -58,6 +59,13 @@ when its home goes away.
   finishes it on the vendor's page and types any code into the agent's own prompt; Sikemux carries
   the keystrokes as a terminal does and never reads or keeps the result. A long-lived token from
   `claude setup-token` is the person's to set on a machine themselves; Sikemux does not hold it.
+- **Sign-ins a host already has move in when it joins.** The host that makes the vault, and each
+  host that joins later, puts its connector sign-ins and database logins into the vault once.
+  Each stays allowed for every agent on the host it came from, as before, and that host refreshes
+  it; other hosts use it only once the person allows them. When two hosts hold the same identity
+  on the same service, the newest token is kept and its host refreshes it; different identities
+  become separate entries. AWS profiles stay in the AWS CLI's own files on each host.
+- **A host with no account keeps its sign-ins in its own secret store**, as before the vault.
 
 ## Consequences
 
