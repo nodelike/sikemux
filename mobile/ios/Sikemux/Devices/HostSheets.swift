@@ -276,6 +276,8 @@ struct AwaySheet: View {
     let core: String
     let shown: AgentShown
     let onClose: () -> Void
+    /// Runs once something was snoozed, settled or brought back.
+    var onDone: (() -> Void)?
     @State private var presets: [SnoozePreset] = []
     @State private var typed = ""
     @State private var failed: String?
@@ -387,6 +389,7 @@ struct AwaySheet: View {
                 try await work(connection)
                 if let said { AwayNote.shared.tell(said.text) { said.undo(connection) } }
                 onClose()
+                onDone?()
             } catch {
                 Haptics.failure()
                 failed = problem(error)
