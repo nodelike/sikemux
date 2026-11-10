@@ -18,7 +18,7 @@ use sikemux_core::agent_accounts::{Book, Profile};
 use sikemux_core::agent_catalog::AgentKind;
 use sikemux_core::server::agent_accounts::{
     Account as AgentAccount, AccountUsage, Adding, ChatAccounts, ChatAccountsParams, Choosing,
-    Forget, MoveChatParams, Removing, Saving, Smart, Unpicking, Unpinning,
+    Forget, InProject, MoveChatParams, Removing, Saving, Smart, Unpicking, Unpinning,
 };
 use sikemux_core::server::agent_sign_in::AfterSignIn;
 use sikemux_core::server::agent_sign_in::{Account as SignInAccount, Code};
@@ -415,6 +415,31 @@ pub fn unpick(bench: &Workbench, undoing: Unpicking, cx: &mut Context<Workbench>
 
 pub fn set_smart(bench: &Workbench, on: bool, cx: &mut Context<Workbench>) {
     change::<call::SetSmartAccounts>(bench, Smart { on }, cx);
+}
+
+/// Lets new chats in the project at `folder` start on the account, or keeps them off it. Says why
+/// when the core refuses, such as for the project's last account of an agent.
+pub fn set_in_project(
+    bench: &Workbench,
+    id: &str,
+    folder: &str,
+    allowed: bool,
+    cx: &mut Context<Workbench>,
+) {
+    let params = InProject {
+        account_id: id.to_owned(),
+        project: folder.to_owned(),
+        allowed,
+    };
+    let asked = Target::here(&bench.asks).request_typed::<call::SetAccountInProject>(params);
+    cx.spawn(async move |bench, cx| {
+        let answer = asked.await;
+        let _ = bench.update(cx, |bench, cx| match answer {
+            Ok(book) => adopt(bench, book, cx),
+            Err(why) => bench.notify(crate::toast::error(why), cx),
+        });
+    })
+    .detach();
 }
 
 /// Lets the agent's new chats go wherever smart accounts places them again.

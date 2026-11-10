@@ -67,6 +67,10 @@ pub struct Book {
     /// pinned it.
     #[serde(default)]
     pub pinned: BTreeMap<String, String>,
+    /// The accounts new chats in a project may start on, by the project's folder, so a work
+    /// project never lands on a personal account. A project not listed takes any.
+    #[serde(default)]
+    pub projects: BTreeMap<String, Vec<String>>,
 }
 
 fn smart_by_default() -> bool {
@@ -80,6 +84,7 @@ impl Default for Book {
             selected: BTreeMap::new(),
             smart: smart_by_default(),
             pinned: BTreeMap::new(),
+            projects: BTreeMap::new(),
         }
     }
 }
@@ -107,7 +112,11 @@ impl Book {
         let selected = |(provider, id): (&String, &String)| long(provider) || long(id);
         let oversized =
             oversized || self.selected.iter().any(selected) || self.pinned.iter().any(selected);
-        let many = [self.selected.len(), self.pinned.len()]
+        let listed = |(project, ids): (&String, &Vec<String>)| {
+            long(project) || ids.len() > MAX_PROFILES || ids.iter().any(|id| long(id))
+        };
+        let oversized = oversized || self.projects.iter().any(listed);
+        let many = [self.selected.len(), self.pinned.len(), self.projects.len()]
             .into_iter()
             .any(|len| len > MAX_PROFILES);
         if self.profiles.len() > MAX_PROFILES || oversized || many {
@@ -162,7 +171,20 @@ impl Book {
         self.profiles.retain(|profile| profile.id != id);
         self.selected.retain(|_, selected| selected != id);
         self.pinned.retain(|_, pinned| pinned != id);
+        for ids in self.projects.values_mut() {
+            ids.retain(|kept| kept != id);
+        }
+        self.projects.retain(|_, ids| !ids.is_empty());
         Ok(())
+    }
+
+    /// Whether a new chat working in `cwd` may start on the account `id`: always, unless the
+    /// project holding `cwd` lists the accounts it uses.
+    pub fn allowed_in(&self, cwd: &std::path::Path, id: &str) -> bool {
+        let project = (self.projects.iter())
+            .filter(|(folder, _)| cwd.starts_with(folder))
+            .max_by_key(|(folder, _)| folder.len());
+        project.is_none_or(|(_, ids)| ids.iter().any(|allowed| allowed == id))
     }
 
     /// The account `provider`'s agents run on when none is named: the one
@@ -305,7 +327,7 @@ pub fn cli(
 pub const NO_ACCOUNTS: &str = "Only Claude and Codex keep separate accounts";
 
 /// The core's calls about accounts and their limits, all of them the app's own.
-pub const METHODS: [&str; 17] = [
+pub const METHODS: [&str; 18] = [
     "agentAccounts",
     "setAgentAccounts",
     "saveAgentAccount",
@@ -313,6 +335,7 @@ pub const METHODS: [&str; 17] = [
     "selectAgentAccount",
     "setSmartAccounts",
     "unpinAgentAccount",
+    "setAccountInProject",
     "addAgentAccount",
     "agentStatus",
     "agentAccountStatus",

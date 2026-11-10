@@ -131,9 +131,16 @@ pub(super) fn next_account<'a>(
     launch: &'a ChatLaunch,
     exhausted: &[String],
 ) -> Option<&'a ChatAccount> {
+    let book = chat
+        .core
+        .upgrade()
+        .and_then(|core| core.workspaces.accounts());
     let open: Vec<&ChatAccount> = (launch.fallbacks.iter())
         .filter(|fallback| {
             !exhausted.contains(&fallback.id)
+                && book
+                    .as_ref()
+                    .is_none_or(|book| book.allowed_in(&launch.cwd, &fallback.id))
                 && sign_in::signed_in(provider, &on_account(provider, launch, fallback).env)
                     != Some(SignIn::SignedOut)
         })
@@ -142,6 +149,7 @@ pub(super) fn next_account<'a>(
         let chat = crate::server::agent_accounts::Placing {
             model: launch.model.clone(),
             typical_tokens: None,
+            cwd: Some(launch.cwd.clone()),
         };
         crate::server::agent_accounts::placement(
             &core.workspaces.accounts().unwrap_or_default(),

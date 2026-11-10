@@ -372,6 +372,7 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
     let chat = super::agent_accounts::Placing {
         model: chosen.model.clone(),
         typical_tokens,
+        cwd: Some(chosen.cwd.clone()),
     };
     let placed = super::agent_accounts::placement(&book, &kind, &chat, Aim::Soonest, |_| true)?;
     let id = LauncherId::on(&kind, &placed.id).to_string();

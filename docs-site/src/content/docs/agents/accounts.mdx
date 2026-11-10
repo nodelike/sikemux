@@ -11,9 +11,11 @@ In **Settings → Accounts**, under Claude or Codex, choose **Add account**, giv
 
 ## Smart accounts
 
-**Smart accounts** is on by default, for every agent, and only acts once an agent has two or more signed-in accounts. Each new chat then starts on the account whose week ends soonest, since what a week leaves unused is lost at its reset; accounts whose weeks end within an hour of each other go to the one with more left. An account takes a new chat only while its 5-hour window is under 80% used and its week, and the week of the chat's model where the plan has one, are under 95%. When no account has room, the chat starts on the account you chose, as with smart accounts off. The chat says which account it started on and why.
+**Smart accounts** is on by default, for every agent, and only acts once an agent has two or more signed-in accounts. Each new chat then starts on the account whose week ends soonest, since what a week leaves unused is lost at its reset; accounts whose weeks end within an hour of each other go to the one with more left. An account takes a new chat only while its 5-hour window is under 80% used and would not fill before it resets at the pace its running chats use it, its week, and the week of the chat's model where the plan has one, are under 95%, and it has room for a typical chat of that project. What is left counts by plan size, so half a Max week counts as more than half a Pro week. When no account has room, the chat starts on the account you chose, as with smart accounts off. The chat says which account it started on and why.
 
 A chat that hits a usage limit carries on in the signed-in account with the most of its week left. A chat already going never moves for balance alone: its cache lives with its account, and moving it would send its whole conversation again.
+
+To keep a project to some accounts, such as a work project off your personal account, open an account's **⋯** menu in **Settings → Accounts** and untick the projects under **New chats here in**. A project then starts new chats only on the accounts left ticked for it, and a chat in it carries on at a limit only on those.
 
 To turn it off, switch off **Smart accounts** under **Rotation** at the top of **Settings → Accounts**. Chats then start on the account you chose and wait for a limit to reset. Check each provider's terms first: they expect one person's ordinary use per plan, and rotating several paid accounts may not be within them. A chat never moves to another agent's account.
 

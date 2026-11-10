@@ -209,8 +209,17 @@ fn account_row(
         None => div().into_any_element(),
     };
     let removable = !profile.id.starts_with(BUILT_IN);
-    let more = (signed_in || removable).then(|| {
-        let (sign_out, remove) = (this.clone(), this.clone());
+    let book = bench.accounts.book.as_ref();
+    let projects: Vec<(String, String, bool)> = (bench.projects().iter())
+        .map(|project| {
+            let folder = project.path.to_string_lossy().into_owned();
+            let allowed = (book.and_then(|book| book.projects.get(&folder)))
+                .is_none_or(|ids| ids.contains(&profile.id));
+            (folder, project.name.clone(), allowed)
+        })
+        .collect();
+    let more = (signed_in || removable || !projects.is_empty()).then(|| {
+        let (sign_out, remove, choose) = (this.clone(), this.clone(), this.clone());
         let (out_id, remove_id) = (id.clone(), id.clone());
         let remove_label: SharedString = format!("Remove {name}").into();
         ui::menu_button(
@@ -230,7 +239,24 @@ fn account_row(
                         },
                     ));
                 }
+                if !projects.is_empty() {
+                    popup = popup.separator().label("New chats here in");
+                }
+                for (folder, name, allowed) in &projects {
+                    let (choose, id, folder, allowed) =
+                        (choose.clone(), out_id.clone(), folder.clone(), *allowed);
+                    popup = popup.item(PopupMenuItem::new(name.clone()).checked(allowed).on_click(
+                        move |_, _, cx| {
+                            choose.update(cx, |bench, cx| {
+                                accounts::set_in_project(bench, &id, &folder, !allowed, cx)
+                            })
+                        },
+                    ));
+                }
                 if removable {
+                    if !projects.is_empty() {
+                        popup = popup.separator();
+                    }
                     let (remove, id) = (remove.clone(), remove_id.clone());
                     popup = popup.item(
                         PopupMenuItem::new(remove_label.clone())

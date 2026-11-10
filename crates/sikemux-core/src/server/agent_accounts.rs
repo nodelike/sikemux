@@ -131,6 +131,15 @@ pub struct Smart {
     pub on: bool,
 }
 
+/// Whether new chats in the project at `project` may start on the account `account_id`.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InProject {
+    pub account_id: String,
+    pub project: String,
+    pub allowed: bool,
+}
+
 /// The agent whose pin to take away.
 #[derive(Serialize, Deserialize)]
 pub struct Unpinning {
@@ -334,6 +343,35 @@ pub(super) async fn set_smart(core: &Arc<Core>, smart: Smart) -> CoreResult<Book
     .await
 }
 
+/// Lets new chats in a project start on an account, or keeps them off it. A project then lists
+/// the accounts it uses, and goes back to taking any once it lists them all.
+pub(super) async fn set_in_project(core: &Arc<Core>, setting: InProject) -> CoreResult<Book> {
+    change(core, move |book| {
+        let every = book.clone().with_built_ins().profiles;
+        let provider = (every.iter())
+            .find(|profile| profile.id == setting.account_id)
+            .map(|profile| profile.provider.clone())
+            .ok_or("that account is not one Sikemux keeps")?;
+        let ids = (book.projects.entry(setting.project.clone()))
+            .or_insert_with(|| every.iter().map(|profile| profile.id.clone()).collect());
+        ids.retain(|id| id != &setting.account_id);
+        if setting.allowed {
+            ids.push(setting.account_id.clone());
+        }
+        let keeps_one = (every.iter())
+            .filter(|profile| profile.provider == provider)
+            .any(|profile| ids.contains(&profile.id));
+        if !keeps_one {
+            return Err("A project keeps at least one account of each agent".into());
+        }
+        if every.iter().all(|profile| ids.contains(&profile.id)) {
+            book.projects.remove(&setting.project);
+        }
+        Ok(())
+    })
+    .await
+}
+
 pub(super) async fn unpin(core: &Arc<Core>, unpinning: Unpinning) -> CoreResult<Book> {
     change(core, move |book| {
         book.pinned.remove(&unpinning.provider);
@@ -380,8 +418,11 @@ pub(crate) fn placement(
     aim: Aim,
     among: impl Fn(&Profile) -> bool,
 ) -> Option<Placement> {
+    let allowed = |profile: &Profile| {
+        (chat.cwd.as_deref()).is_none_or(|cwd| book.allowed_in(cwd, &profile.id))
+    };
     let candidates: Vec<_> = (candidates(book, provider).into_iter())
-        .filter(|(profile, _)| among(profile))
+        .filter(|(profile, _)| among(profile) && allowed(profile))
         .collect();
     let pinned = book.pinned.get(provider).filter(|_| aim == Aim::Soonest);
     if let Some(pinned) = pinned.filter(|id| candidates.iter().any(|(p, _)| &p.id == *id)) {
@@ -408,7 +449,16 @@ pub(crate) fn placement(
         })
         .collect();
     let model = chat.model.as_deref();
-    allocate::place(&offered, model, aim, sikemux_process::clock::epoch_ms())
+    let placed = allocate::place(&offered, model, aim, sikemux_process::clock::epoch_ms());
+    let chosen = book.chosen(provider);
+    let chosen_allowed = (book.clone().with_built_ins().profile(&chosen)).is_some_and(allowed);
+    placed.or_else(|| {
+        let first = candidates.first().filter(|_| !chosen_allowed)?;
+        Some(Placement {
+            id: first.0.id.clone(),
+            why: "It is an account this project uses".into(),
+        })
+    })
 }
 
 /// What is known of the chat being placed: its model, and the tokens a typical chat in its
@@ -417,6 +467,8 @@ pub(crate) fn placement(
 pub(crate) struct Placing {
     pub model: Option<String>,
     pub typical_tokens: Option<u64>,
+    /// Where it works, for the accounts its project uses.
+    pub cwd: Option<PathBuf>,
 }
 
 /// What its chats' tokens cost one account's week, from how much they spent while it filled.
