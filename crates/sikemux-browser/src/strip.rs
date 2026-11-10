@@ -39,8 +39,8 @@ pub struct TabStrip {
     pub revealing: HashMap<String, u64>,
     /// Since when each tab has been out of sight and idle.
     pub hidden_since: HashMap<String, Instant>,
-    /// The person's tabs besides those they clicked or typed in: ones they opened, and the
-    /// one in front when the agent's turn ended. Tidying up leaves these open.
+    /// The person's tabs besides those they clicked or typed in: ones they opened. Tidying up
+    /// leaves these open.
     pub kept: HashSet<String>,
 }
 

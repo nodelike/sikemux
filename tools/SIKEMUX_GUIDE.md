@@ -545,8 +545,9 @@ yet comes with a note to wait for it.
 
 Keep to a few tabs. `newTab: true` on a site you already have a tab on goes
 to that tab instead of opening another, and close a tab with
-`browser_close_tab` once you are done with it. When your turn ends, the tab
-in front stays open for the person and Sikemux closes the rest of yours. Tabs
+`browser_close_tab` once you are done with it. When your turn ends, Sikemux
+closes your tabs but the one in front, which closes at a later turn's end once
+you have moved on from it; all of them close with your chat. Tabs
 the person opened, clicked or typed in are theirs: you can still use them,
 but tidying up never closes them, until you take one to another site. Past
 six tabs of your own, opening another closes the one unused longest, and the
@@ -998,8 +999,10 @@ Lines changed while your command and others' ran at once count as yours. With
 `paths` it commits only those files or folders: your lines there, and changes
 no other agent wrote, such as what your scripts, builds and formatters made,
 binary files too. Paths may be absolute, and the commit goes in the repository
-that holds them, even outside the project's checkout; from a folder of
-repositories, a relative path is found one level down. A lockfile goes with the
+that holds them, even outside the project's checkout. A relative path is looked
+for in your folder, then the project's, then among the files you changed; from a
+folder of repositories, one level down. With no paths outside a checkout, it
+commits in the one holding what you changed. A lockfile goes with the
 manifest change it records. A named file holding only another open agent's lines
 fails the commit rather than leaving it half done; a closed agent's lines count
 as nobody's. It returns the commit, its
@@ -1008,17 +1011,22 @@ nothing yourself mid-task: what you `git add`, `git mv` or `git rm` early goes
 into the next agent's commit. Your shell is the person's zsh with
 `nonomatch`, `noequals` and `shwordsplit` on, so a glob that matches nothing
 stays as written, `echo ===` prints, and `$FILES` splits into words as in
-bash; `timeout` works as GNU's does. In a checkout of your own, `land: true` then puts your commits on the
-branch your checkout was cut from and moves your checkout up to it: a file
-someone changed in the project's checkout and has not committed takes your
-lines merged in, and a clash refuses the landing before anything moves.
-Commits already on that branch are skipped; one that clashes with what landed
-since asks you to rebase onto the branch first. With nothing of yours left
-uncommitted, `land: true` lands the commits you made already. With
-`push: true` it then pushes
-your own commits only, even when other agents' unpushed commits sit before
-them, and lists theirs as kept; with no `message` it only pushes. Push only
-when the person asked for it. In a checkout other agents work in, Sikemux refuses
+bash; `timeout` works as GNU's does. In a checkout of your own, `sync: true`
+brings it up to the branch it was cut from, your commits made again on its tip
+and what you have not committed merged in; use it rather than `git rebase`.
+`land: true` puts your commits on that branch and moves your checkout up to
+it: a file someone changed in the project's checkout and has not committed
+takes your lines merged in, and a clash refuses the landing before anything
+moves. Commits already on that branch are skipped; one that clashes with what
+landed since asks you to rebase onto the branch first. When your uncommitted
+changes clash with what landed, your checkout stays where it was and the
+answer says so; commit, then sync. With nothing of yours left uncommitted,
+`land: true` lands the commits you made already. With `push: true` it then
+pushes your own commits only, and those of agents you lead, even when other
+agents' unpushed commits sit before them, and lists theirs as kept; with no
+`message` it only pushes. From a checkout of your own it pushes the branch you
+landed on, never your checkout's own, so land first. Push only when the person
+asked for it. In a checkout other agents work in, Sikemux refuses
 `git add -A`, `commit -a`, `stash`, `reset --hard` and the like while it has
 uncommitted changes (`reset --keep` is always allowed), and
 `git checkout -- <path>` or `git restore` over another agent's uncommitted
@@ -1112,7 +1120,8 @@ branch with `branch`, in the project's way, such as `feat/markdown-preview-find`
 or `fix/jira-board-drag`: short and saying what it holds. Left out, it is named
 from the prompt's first sentence about the work, which reads worse. A name
 already taken gets `-2`. Give each teammate of a team its own checkout; a quick
-helper can share yours, the default. A teammate with its own checkout lands its commits on your branch
+helper can share yours, the default. From a folder of repositories, name the
+one to cut the checkout from with `repo`. A teammate with its own checkout lands its commits on your branch
 with `git_commit`'s `land: true` once its piece builds.
 
 It runs in Sikemux's chat unless you pass `mode: "terminal"`, which starts the

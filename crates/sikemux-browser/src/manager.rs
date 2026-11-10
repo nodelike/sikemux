@@ -3,7 +3,7 @@
 //! pages get real input, real pixels, and the system cookie jar. Whoever hosts
 //! the engine draws the chrome around it and says where the page area is.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
@@ -49,6 +49,7 @@ const DESK_WAIT: std::time::Duration = std::time::Duration::from_millis(300);
 pub(crate) const AGENT_TAB_LIMIT: usize = 6;
 /// How many closed tabs each desk remembers to open again.
 const CLOSED_MEMORY: usize = 20;
+const GONE_MEMORY: usize = 200;
 
 const ACTING_LINGER: Duration = Duration::from_secs(3);
 /// A hidden page runs no animation frames, and React reveals streamed content
@@ -126,6 +127,8 @@ pub struct BrowserManager {
     pub(crate) recordings: Mutex<HashMap<String, recording::Session>>,
     /// The addresses of each agent's closed tabs, latest last.
     pub(crate) closed: Mutex<HashMap<String, Vec<String>>>,
+    /// Why each recently closed tab went, latest last, for an agent that names one again.
+    gone: Mutex<VecDeque<(String, &'static str)>>,
     pub(crate) relieving: AtomicBool,
     /// Rung whenever the app says where an agent's desk shows, or that it does not.
     pub(crate) desk_answers: tokio::sync::Notify,
@@ -149,6 +152,7 @@ impl BrowserManager {
             local_files: local_files::LocalFiles::default(),
             recordings: Mutex::default(),
             closed: Mutex::default(),
+            gone: Mutex::default(),
             relieving: AtomicBool::default(),
             desk_answers: tokio::sync::Notify::new(),
             host,
@@ -639,6 +643,15 @@ impl BrowserManager {
     }
 
     pub fn close_tab(&self, agent_id: &str, tab_id: &str) -> BrowserResult<()> {
+        self.close_tab_because(agent_id, tab_id, "was closed")
+    }
+
+    fn close_tab_because(
+        &self,
+        agent_id: &str,
+        tab_id: &str,
+        why: &'static str,
+    ) -> BrowserResult<()> {
         validate_agent_id(agent_id)?;
         let view = {
             let mut agents = self.agents.locked();
@@ -658,6 +671,12 @@ impl BrowserManager {
                     closed.remove(0);
                 }
             }
+            let mut gone = self.gone.locked();
+            gone.push_back((tab_id.to_owned(), why));
+            if gone.len() > GONE_MEMORY {
+                gone.pop_front();
+            }
+            drop(gone);
             let view = agent.views.remove(tab_id);
             agent.viewports.remove(tab_id);
             self.tabs.locked().remove(tab_id);
@@ -710,22 +729,33 @@ impl BrowserManager {
         Ok(())
     }
 
-    /// Tidies up after the agent's turn: the tab in front becomes the person's, and the
-    /// agent's other tabs close.
+    /// Tidies up after the agent's turn: its tabs other than the one in front close. The one
+    /// in front stays the agent's, so a later turn that moves on from it closes it too.
     pub fn end_turn(&self, agent_id: &str) {
         let spare: Vec<String> = {
-            let mut agents = self.agents.locked();
-            let Some(agent) = agents.get_mut(agent_id) else {
+            let agents = self.agents.locked();
+            let Some(agent) = agents.get(agent_id) else {
                 return;
             };
-            if let Some(front) = agent.strip.active.clone() {
-                agent.strip.kept.insert(front);
-            }
             agent.strip.agents_spare().cloned().collect()
         };
         for tab_id in spare {
-            let _ = self.close_tab(agent_id, &tab_id);
+            let _ = self.close_tab_because(
+                agent_id,
+                &tab_id,
+                "was closed when your last turn ended, as every tab of yours but the one in front is",
+            );
         }
+    }
+
+    /// Why a tab the agent names is not open: how it went, or that it never was the agent's.
+    pub fn why_gone(&self, tab_id: &str) -> &'static str {
+        self.gone
+            .locked()
+            .iter()
+            .rev()
+            .find(|(gone, _)| gone == tab_id)
+            .map_or("is not one of your tabs", |(_, why)| why)
     }
 
     /// Makes room for the agent's next tab, and says which address it closed for it.
@@ -737,7 +767,13 @@ impl BrowserManager {
             let url = strip.pages.get(&tab_id)?.url.clone();
             (tab_id, url)
         };
-        self.close_tab(agent_id, &tab_id).ok().map(|()| url)
+        self.close_tab_because(
+            agent_id,
+            &tab_id,
+            "was closed to make room for a newer tab, since an agent keeps only a few open",
+        )
+        .ok()
+        .map(|()| url)
     }
 
     pub fn same_site_tab(&self, agent_id: &str, url: &str) -> Option<String> {
@@ -836,10 +872,13 @@ impl BrowserManager {
         validate_url(&url)?;
         let parsed = Url::parse(&url).map_err(|_| Error::BadArg("invalid browser url"))?;
         let (tab_id, view) = self.active_view(agent_id)?;
+        let within_page = self
+            .page(agent_id, &tab_id)
+            .is_some_and(|page| crate::address::same_document(&page.url, &url));
         view.navigate(parsed.as_str());
         self.note_page(agent_id, &tab_id, |page| {
             page.url = url.clone();
-            page.loading = true;
+            page.loading |= !within_page;
         });
         Ok(url)
     }
