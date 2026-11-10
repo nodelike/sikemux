@@ -49,6 +49,8 @@ final class HostLive {
     @ObservationIgnored fileprivate var chats: [UUID: @MainActor ([ChatDelivery]) -> Void] = [:]
     @ObservationIgnored fileprivate var catalogRead = false
     @ObservationIgnored fileprivate var heldView: DeviceView?
+    /// No view has come on this connection yet; its first may settle cards that arrived while the phone was away.
+    @ObservationIgnored fileprivate var awaitingView = true
 
     init(core: String) { self.core = core }
 
@@ -203,6 +205,7 @@ final class Hub {
         let found = hosts[core]
         if let connection = found?.connection {
             let goodbye = Task {
+                await Notify.shared.withdrawKey(core, connection)
                 await beforeUnpair?(connection)
                 try? await connection.unpair()
             }
@@ -219,6 +222,8 @@ final class Hub {
             found.status = .closed(problem: "Forgotten.")
         }
         hosts[core] = nil
+        Keys().remove(host: core)
+        Cards.dismiss(host: core)
         await PairedStore.shared.forget(core)
         await reloadDevices()
     }
@@ -268,6 +273,8 @@ final class Hub {
         found.recovering = false
         found.connection = connection
         found.status = .open
+        found.awaitingView = true
+        Task { await Notify.shared.shareKey(found.core, connection) }
         if UIApplication.shared.applicationState != .active {
             Task { try? await connection.setForeground(foreground: false) }
         }
@@ -311,6 +318,9 @@ final class Hub {
             for listen in found.chats.values { listen(chats) }
         }
         guard let view else { return }
+        Cards.reconcile(host: found.core, view: view, fresh: found.awaitingView)
+        found.awaitingView = false
+        ShareExtension.changed()
         if found.catalogRead {
             if found.view != view { found.view = view }
         } else {

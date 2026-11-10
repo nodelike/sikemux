@@ -65,6 +65,7 @@ targets:
         group: Sikemux/Resources
         buildPhase: resources
       - path: Shared
+        excludes: [Notify/Card.generated.swift]
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
         group: Sikemux/UI/Notch
       - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift
@@ -179,9 +180,9 @@ targets:
       - path: Shared/Stash
       - path: Sikemux/UI/Theme.swift
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
-        group: Share/Notch
+        group: Sikemux/UI/Notch
       - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift
-        group: Share/Notch
+        group: Sikemux/UI/Notch
     dependencies:
       - sdk: LinkPresentation.framework
     info:

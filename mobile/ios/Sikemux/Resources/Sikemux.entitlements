@@ -2,9 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>aps-environment</key>
+	<string>development</string>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.$(SIKEMUX_BUNDLE_ID)</string>
+	</array>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID)</string>
+		<string>$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).notify</string>
+		<string>$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).stash</string>
 	</array>
 </dict>
 </plist>
