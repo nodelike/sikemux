@@ -89,7 +89,7 @@ enum HostLook {
                 }
                 let file = URL(filePath: path)
                 guard latest[core] == wanted else {
-                    try? FileManager.default.removeItem(at: file)
+                    delete(file)
                     return
                 }
                 failedAt[key] = nil
@@ -114,7 +114,15 @@ enum HostLook {
     }
 
     private static func delete(_ core: String, _ image: PairedDevice.Backdrop.Image) {
-        if let file = saved(core, image) { try? FileManager.default.removeItem(at: file) }
+        if let file = saved(core, image) { delete(file) }
+    }
+
+    private static func delete(_ file: URL) {
+        do {
+            try FileManager.default.removeItem(at: file)
+        } catch {
+            print("sikemux: could not delete a host's backdrop: \(error)")
+        }
     }
 }
 

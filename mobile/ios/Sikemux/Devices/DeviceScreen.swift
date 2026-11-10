@@ -328,9 +328,6 @@ private struct Unpaired: View {
 
     var body: some View {
         Prompt(icon: Icons.unlink, title: "This host no longer knows this phone", fill: true) {
-            if let problem = forget.problem {
-                Text(problem).metaStyle(palette).foregroundStyle(palette.danger).multilineTextAlignment(.center).padding(.top, 12)
-            }
             ActionButton(forget.busy ? "Forgetting…" : "Forget this host", kind: .danger, icon: Icons.trash) {
                 if let device { Task { await forget.leave(device) } }
             }

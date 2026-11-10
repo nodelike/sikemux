@@ -19,16 +19,29 @@ struct NewChatScreen: View {
 }
 
 private struct NewChatContent: View {
-    enum SheetShown { case agent, project, settings }
+    enum SheetShown { case agent, project, settings, attach, stash }
+
+    /// What was sent, drawn as the chat will draw it while the agent starts.
+    struct Sending {
+        let message: ChatMessage
+        let draft: String
+        let attachments: [Attachment]
+        let since: Date
+    }
+
+    private static let idle = "Ask about this project, or type / for commands"
 
     @Environment(\.palette) private var palette
     let core: String
     @State var projectId: String?
     @State var launcherId: String?
-    @State private var chosenMode: String?
+    @State private var chosenMode: PermissionMode?
     @State private var draft = ""
+    @State private var attachments: [Attachment] = []
+    @State private var chips: [StashItem] = []
     @State private var sheet: SheetShown?
-    @State private var sending: (text: String, since: Date)?
+    @State private var sending: Sending?
+    @State private var context: TranscriptContext?
     @State private var problem: String?
     /// The agent an earlier try started, sent to again rather than starting another.
     @State private var started: String?
@@ -47,8 +60,8 @@ private struct NewChatContent: View {
         let project = workspace.flatMap { space in space.projects.first { $0.id == projectId } ?? space.projects.first }
         let worktree = (flipped?.project == project?.id ? flipped?.on : nil) ?? project?.worktreeDefault ?? false
         let starting = sending != nil
-        let sendable = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && launcher != nil && project != nil
-            && live.isOpen && !starting
+        let written = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty || !chips.isEmpty
+        let sendable = written && launcher != nil && project != nil && live.isOpen && !starting
         let blocked: String? = !live.isOpen
             ? (live.view != nil ? "Reconnecting to the host…" : "Not connected to the host yet.")
             : workspace != nil && project == nil ? "No open projects on the host." : nil
@@ -64,18 +77,13 @@ private struct NewChatContent: View {
                     IconButton(icon: Icons.moreVertical, label: "Chat settings") { sheet = .settings }
                 }
             })
-            if let sending, let launcher {
+            if let sending, let launcher, let context {
                 VStack(alignment: .leading, spacing: 12) {
                     Spacer()
-                    Text(sending.text)
-                        .font(Theme.body)
-                        .foregroundStyle(palette.ink)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(palette.raised))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    TranscriptMessage(message: sending.message, look: RowLook(unsent: Unsent(state: .sending)))
                     ActivityLine(provider: launcher.provider, label: step ?? "Starting", since: sending.since)
                 }
+                .environment(context)
                 .padding(.horizontal, 18)
                 .padding(.bottom, 28)
             } else {
@@ -115,6 +123,11 @@ private struct NewChatContent: View {
                 }
             }
         }
+        .attachSheet(
+            shown: Binding(get: { sheet == .attach || sheet == .stash }, set: { if !$0 { sheet = nil } }),
+            stash: sheet == .stash, room: WireLimits.maxAttachments - attachments.count,
+            onAttach: attach, onStash: { fromStash($0) }, onStashPrompt: nil, onProblem: { problem = $0 }
+        )
         .sheet(shown: Binding(get: { sheet == .project }, set: { if !$0 { sheet = nil } }), tall: (workspace?.projects.count ?? 0) > 6) {
             ProjectSheet(projects: workspace?.projects ?? [], chosen: project?.id) {
                 if let next = $0 { projectId = next }
@@ -156,12 +169,33 @@ private struct NewChatContent: View {
                 .padding(.horizontal, 14)
                 .padding(.bottom, -1)
             }
+            if let query = StashWords.query(in: draft) {
+                StashMenu(query: query) { fromStash([$0], base: StashWords.withoutQuery(draft)) }
+            }
             VStack(spacing: 0) {
-                ComposerInput(text: $draft, placeholder: "Ask anything", editable: !starting)
+                if !attachments.isEmpty || !chips.isEmpty {
+                    ComposerAttachments(attachments: attachments, onRemove: { id in
+                        if !starting { attachments.removeAll { $0.id == id } }
+                    }, onRetry: { start(launcher: launcher, project: project, worktree: worktree) }) {
+                        ForEach(chips, id: \.id) { chip in
+                            StashChip(chip: StashWords.contextChip(chip)) { chips.removeAll { $0.id == chip.id } }
+                        }
+                    }
+                }
+                ComposerInput(text: $draft, placeholder: Self.idle, editable: !starting)
                 HStack(spacing: 2) {
+                    let room = WireLimits.maxAttachments - attachments.count
+                    Button { sheet = .attach } label: {
+                        IconView(icon: Icons.plus, size: 17).foregroundStyle(palette.inkDim).frame(width: 34, height: 34).contentShape(Circle())
+                    }
+                    .buttonStyle(RowPressStyle())
+                    .disabled(starting || room <= 0)
+                    .opacity(starting || room <= 0 ? 0.4 : 1)
+                    .accessibilityLabel("Add photos or files")
+                    StashButton { sheet = .stash }
                     if let launcher {
-                        YoloToggle(core: core, mode: chosenMode.flatMap(PermissionMode.init(rawValue:)) ?? launcher.permissionMode, provider: launcher.provider,
-                                   locked: starting || started != nil) { chosenMode = $0.rawValue }
+                        YoloToggle(core: core, mode: chosenMode ?? launcher.permissionMode, provider: launcher.provider,
+                                   locked: starting || started != nil) { chosenMode = $0 }
                         Button { sheet = .agent } label: {
                             HStack(spacing: 6) {
                                 AgentMark(provider: launcher.provider, size: 16)
@@ -199,6 +233,29 @@ private struct NewChatContent: View {
         .padding(.bottom, 6)
     }
 
+    private func attach(_ picked: [Attachment]) {
+        let (fits, notice) = Uploads.fitting(held: attachments.count, picked)
+        if let notice { problem = notice }
+        attachments += fits
+    }
+
+    /// Stash items into the message: notes into its words, links and text as chips, files fetched to go with it.
+    private func fromStash(_ items: [StashItem], base: String? = nil) {
+        let put = StashWords.intoMessage(items, draft: base ?? draft)
+        draft = put.draft
+        chips += put.chips.filter { chip in !chips.contains { $0.id == chip.id } }
+        if let files = put.files {
+            Task {
+                do {
+                    attach(try await files.value.map { var file = Pick.file($0.url); file.stashId = $0.item.id; return file })
+                } catch {
+                    problem = "Could not pick: \(Sikemux.problem(error))"
+                }
+            }
+        }
+        if !put.restored.isEmpty { Task { await StashStore.shared.take(put.restored) } }
+    }
+
     private func flipWorktree(_ project: ProjectInfo, _ now: Bool) {
         guard let connection = Hub.shared.live(core).connection else { return }
         let on = !now
@@ -215,17 +272,26 @@ private struct NewChatContent: View {
 
     /// Starts the agent, makes its worktree when asked, and leaves the message with the chat to go once it is attached.
     private func start(launcher: LauncherInfo?, project: ProjectInfo?, worktree: Bool) {
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard sending == nil, !text.isEmpty, let launcher, let project, let connection = Hub.shared.live(core).connection else { return }
+        let text = StashWords.withContext(draft.trimmingCharacters(in: .whitespacesAndNewlines), chips.map(StashWords.contextChip))
+        guard sending == nil, !text.isEmpty || !attachments.isEmpty, let launcher, let project,
+              let connection = Hub.shared.live(core).connection
+        else { return }
         Haptics.tap()
-        sending = (draft, Date())
+        let since = Date()
+        let shown = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = ChatMessage(
+            id: "starting", role: .user, parts: shown.isEmpty ? [] : [.text(.init(id: "starting-text", text: shown))],
+            attachments: attachments.isEmpty ? nil : attachments.map(\.uri.absoluteString), sentAt: Int(since.timeIntervalSince1970 * 1000))
+        context = TranscriptContext(provider: launcher.provider, core: core, agentId: nil, folds: Folds(), toolDetail: nil)
+        sending = Sending(message: message, draft: draft, attachments: attachments, since: since)
         draft = ""
+        attachments = []
         problem = nil
         Task {
             do {
                 var agentId = started
                 if agentId == nil {
-                    let made = try await connection.startChat(launcher: launcher.id, project: project.id, permissionMode: chosenMode)
+                    let made = try await connection.startChat(launcher: launcher.id, project: project.id, permissionMode: chosenMode?.rawValue)
                     agentId = made
                     started = made
                 }
@@ -240,7 +306,21 @@ private struct NewChatContent: View {
                     }
                     step = "Starting the agent in the worktree"
                 }
-                ChatSession.of(core: core, agentId: agentId).sendWhenAttached(text, [])
+                var files = sending?.attachments ?? []
+                let (sent, failure) = await Uploads.each(files, put: { file in
+                    let bytes = try await Task.detached { try Data(contentsOf: file.uri) }.value
+                    return try await connection.attachFile(agentId: agentId, name: file.name, mime: file.mime, bytes: bytes)
+                }, mark: { id, change in
+                    if let at = files.firstIndex(where: { $0.id == id }) { change(&files[at]) }
+                })
+                guard let sent else {
+                    fail(failure ?? "Could not send every file to the host", files: files)
+                    return
+                }
+                ChatSession.of(core: core, agentId: agentId).sendWhenAttached(text, sent)
+                let taken = sent.compactMap(\.stashId) + chips.map(\.id)
+                if !taken.isEmpty { Task { await StashStore.shared.take(taken) } }
+                chips = []
                 Router.shared.replace(.chat(core: core, agent: agentId, started: true))
             } catch {
                 fail(Sikemux.problem(error))
@@ -248,10 +328,11 @@ private struct NewChatContent: View {
         }
     }
 
-    private func fail(_ said: String) {
+    private func fail(_ said: String, files: [Attachment]? = nil) {
         Haptics.failure()
         problem = said
-        draft = sending?.text ?? draft
+        draft = sending?.draft ?? draft
+        attachments = files ?? sending?.attachments ?? attachments
         sending = nil
         step = nil
     }

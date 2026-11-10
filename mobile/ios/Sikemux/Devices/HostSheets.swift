@@ -5,12 +5,10 @@ import SwiftUI
 @MainActor @Observable
 final class Forgetting {
     private(set) var busy = false
-    private(set) var problem: String?
 
     func leave(_ device: PairedDevice, done: (() -> Void)? = nil) async {
         guard !busy else { return }
         busy = true
-        problem = nil
         await Hub.shared.forget(device.core)
         HostLook.forget(device)
         Haptics.success()
@@ -43,9 +41,6 @@ struct ForgetSheet: View {
                     onClose()
                     Router.shared.push(.pairing(core: device.core))
                 }
-            }
-            if let problem = forget.problem {
-                Text(problem).font(Theme.ui(13.5)).lineSpacing(5).foregroundStyle(palette.danger)
             }
             ActionButton(forget.busy ? "Forgetting…" : "Forget this host", kind: .danger, icon: Icons.trash) {
                 Task { await forget.leave(device, done: onClose) }
@@ -344,7 +339,7 @@ struct AwaySheet: View {
                     MenuItem(icon: Icons.check, label: "Settle") {
                         let ids = [shown.agentId]
                         act({ try await Self.settle($0, ids, true) }, said: Said(text: "Settled") { connection in
-                            Task { try? await Self.settle(connection, ids, false) }
+                            Task { await Self.undo { try await Self.settle(connection, ids, false) } }
                         })
                     }
                 }
@@ -354,7 +349,11 @@ struct AwaySheet: View {
         }
         .task(id: shown.agentId) {
             guard !snoozed, let connection = Hub.shared.live(core).connection else { return }
-            presets = (try? await connection.call(PhoneCall.SnoozePresets.self, NoParams())) ?? []
+            do {
+                presets = try await connection.call(PhoneCall.SnoozePresets.self, NoParams())
+            } catch {
+                failed = problem(error)
+            }
         }
     }
 
@@ -364,7 +363,7 @@ struct AwaySheet: View {
         if until != nil || words != nil {
             let text = until.map { "Snoozed until \(Self.clock(Date(timeIntervalSince1970: Double($0) / 1000)))" } ?? "Snoozed"
             said = Said(text: text) { connection in
-                Task { _ = try? await connection.call(PhoneCall.SnoozeAgents.self, SnoozeParams(agentIds: ids, until: nil, typed: nil)) }
+                Task { await Self.undo { _ = try await connection.call(PhoneCall.SnoozeAgents.self, SnoozeParams(agentIds: ids, until: nil, typed: nil)) } }
             }
         }
         act({ _ = try await $0.call(PhoneCall.SnoozeAgents.self, SnoozeParams(agentIds: ids, until: until, typed: words)) }, said: said)
@@ -392,6 +391,16 @@ struct AwaySheet: View {
                 Haptics.failure()
                 failed = problem(error)
             }
+        }
+    }
+
+    /// Takes back what the sheet did, from the note it leaves; a failure buzzes, as the note is gone by then.
+    private static func undo(_ work: () async throws -> Void) async {
+        do {
+            try await work()
+        } catch {
+            Haptics.failure()
+            print("sikemux: could not undo: \(error)")
         }
     }
 
