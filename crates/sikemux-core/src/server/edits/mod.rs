@@ -202,7 +202,8 @@ fn json_lines<'a>(edits: impl IntoIterator<Item = &'a Edit>) -> String {
 struct Store {
     folder: Option<PathBuf>,
     logs: Mutex<HashMap<String, Log>>,
-    priors: Mutex<HashMap<String, prior::Priors>>,
+    /// By checkout, so one checkout's many changed files leave room for another's.
+    priors: Mutex<HashMap<PathBuf, prior::Priors>>,
     outside: outside::Outside,
 }
 
@@ -364,12 +365,13 @@ impl Store {
         self.stem(project).map(|stem| stem.with_extension("jsonl"))
     }
 
-    /// Runs `work` on what is kept of a project's changed files, saving it after.
-    fn priors<T>(&self, project: &str, work: impl FnOnce(&mut prior::Priors) -> T) -> T {
+    /// Runs `work` on what is kept of the changed files of the checkout at
+    /// `top`, saving it after.
+    fn priors<T>(&self, top: &Path, work: impl FnOnce(&mut prior::Priors) -> T) -> T {
         let mut priors = self.priors.locked();
         let priors = priors
-            .entry(project.to_owned())
-            .or_insert_with(|| prior::Priors::load(self.stem(project)));
+            .entry(top.to_owned())
+            .or_insert_with(|| prior::Priors::load(self.stem(&top.to_string_lossy()), top));
         let done = work(priors);
         priors.save();
         done
@@ -471,9 +473,14 @@ impl Store {
             self.append(&project, &edits);
             for edit in &edits {
                 let path = Path::new(&edit.path);
-                if let Some((_, project)) = self.outside.checkout_of(path) {
+                let top = match self.outside.checkout_of(path) {
+                    Some((top, _)) => Some(top),
+                    None => (self.outside.top_of(core, &edit.agent_id))
+                        .filter(|top| path.starts_with(top)),
+                };
+                if let Some(top) = top {
                     let text = prior::text_of(path);
-                    self.priors(&project, |priors| {
+                    self.priors(&top, |priors| {
                         priors.keep(
                             &edit.path,
                             text.as_ref().map(|(text, meta)| (text.as_str(), meta)),

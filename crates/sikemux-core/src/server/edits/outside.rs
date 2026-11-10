@@ -144,7 +144,7 @@ impl Outside {
             return;
         };
         let project = core.workspaces.project_of(&top);
-        reconcile(store, &top, &project, &seen, Look::Whole { since });
+        reconcile(store, &top, &seen, Look::Whole { since });
         let mut checkouts = self.checkouts.locked();
         if checkouts.len() >= MAX_CHECKOUTS {
             let oldest = checkouts
@@ -230,7 +230,7 @@ impl Outside {
         for (top, project, seen, worked_at) in checkouts {
             if !top.exists() {
                 self.checkouts.locked().remove(&top);
-                store.priors(&project, |priors| {
+                store.priors(&top, |priors| {
                     for path in priors.under(&top) {
                         priors.forget(&path);
                     }
@@ -266,9 +266,9 @@ impl Outside {
                 (due, committed, overflowed)
             };
             if committed {
-                let kept = store.priors(&project, |priors| priors.under(&top));
+                let kept = store.priors(&top, |priors| priors.under(&top));
                 if !kept.is_empty() {
-                    reconcile(store, &top, &project, &seen, Look::Kept(&kept));
+                    reconcile(store, &top, &seen, Look::Kept(&kept));
                 }
             }
             if !due.is_empty() {
@@ -276,7 +276,7 @@ impl Outside {
             }
             if let Some(at) = overflowed {
                 let since = UNIX_EPOCH + Duration::from_millis(at.saturating_sub(GRACE_MS));
-                reconcile(store, &top, &project, &seen, Look::Whole { since });
+                reconcile(store, &top, &seen, Look::Whole { since });
                 let found = seen
                     .locked()
                     .changed
@@ -304,9 +304,9 @@ impl Outside {
                 .at_work(core, agents, &project, &top, now, GRACE_MS);
             if !mid_turn && shells.is_empty() && terminals.is_empty() {
                 self.checkouts.locked().remove(&top);
-                let kept = store.priors(&project, |priors| priors.under(&top));
+                let kept = store.priors(&top, |priors| priors.under(&top));
                 if !kept.is_empty() {
-                    reconcile(store, &top, &project, &seen, Look::Kept(&kept));
+                    reconcile(store, &top, &seen, Look::Kept(&kept));
                 }
             } else if let Some(checkout) = self.checkouts.locked().get_mut(&top) {
                 checkout.worked_at = now;
@@ -326,7 +326,7 @@ impl Outside {
             return;
         };
         let committed = committed_copies(&top, &[inside.as_str()]);
-        let edit = store.priors(&project, |priors| {
+        let edit = store.priors(&top, |priors| {
             told(priors, &path, committed.get(&inside).map(Option::as_deref)).map(|(edit, _)| edit)
         });
         if let Some(edit) = edit {
@@ -381,7 +381,8 @@ fn inside(top: &Path, path: &Path) -> Option<String> {
 enum Look<'a> {
     /// All, keeping each changed since its last commit as it is now, unless
     /// it was kept so already. One changed `since` the watch began is looked
-    /// at as the watch would have.
+    /// at as the watch would have, unless too many files went unkept to know
+    /// what it held before.
     Whole { since: SystemTime },
     /// Only these kept ones, after a commit.
     Kept(&'a [String]),
@@ -389,7 +390,7 @@ enum Look<'a> {
 
 /// Brings what is kept of `top`'s files in line with git, letting go of each
 /// that no longer differs from its last commit.
-fn reconcile(store: &Store, top: &Path, project: &str, seen: &Mutex<Seen>, look: Look<'_>) {
+fn reconcile(store: &Store, top: &Path, seen: &Mutex<Seen>, look: Look<'_>) {
     let mut args = vec![
         "--no-optional-locks",
         "status",
@@ -429,7 +430,7 @@ fn reconcile(store: &Store, top: &Path, project: &str, seen: &Mutex<Seen>, look:
             }
         }
     }
-    let recent = store.priors(project, |priors| {
+    let recent = store.priors(top, |priors| {
         let kept = match look {
             Look::Kept(paths) => paths.to_vec(),
             Look::Whole { .. } => priors.under(top),
@@ -443,11 +444,13 @@ fn reconcile(store: &Store, top: &Path, project: &str, seen: &Mutex<Seen>, look:
         let Look::Whole { since } = look else {
             return recent;
         };
+        let overflowed = priors.recount();
         for path in changed {
             let Ok(meta) = std::fs::metadata(&path) else {
                 continue;
             };
-            if let Some(at) = meta.modified().ok().filter(|at| *at >= since) {
+            let modified = meta.modified().ok().filter(|_| !overflowed);
+            if let Some(at) = modified.filter(|at| *at >= since) {
                 let changed = Written::exact(&meta, epoch_ms()).unwrap_or(Written {
                     at: epoch_ms_of(at),
                     exact: false,
@@ -517,7 +520,7 @@ fn look_at(
     due: &[(String, PathBuf, Written)],
     agents: &mut Option<Vec<Listed>>,
 ) {
-    let asked: Vec<&str> = store.priors(project, |priors| {
+    let asked: Vec<&str> = store.priors(top, |priors| {
         due.iter()
             .filter(|(_, path, _)| {
                 !priors.knows(&path.to_string_lossy())
@@ -548,7 +551,7 @@ fn look_at(
         ignored_files.map(|(inside, ..)| inside.as_str()),
         true,
     );
-    let changes: Vec<(Edit, [Written; 2])> = store.priors(project, |priors| {
+    let changes: Vec<(Edit, [Written; 2])> = store.priors(top, |priors| {
         due.iter()
             .filter(|(inside, ..)| !ignored(inside))
             .filter_map(|(inside, path, first)| {

@@ -1,8 +1,9 @@
-//! What each file changed since its last commit held after its latest change,
-//! so the next change no edit tool reported can be told line by line. Kept in
-//! the project's folder beside its edit record, each text once under its
-//! digest, and let go of once the file is committed or matches it again. A
-//! file never kept is as its last commit has it.
+//! What each file of one checkout changed since its last commit held after its
+//! latest change, so the next change no edit tool reported can be told line by
+//! line. Kept in the checkout's folder beside its edit record, each text once
+//! under its digest, and let go of once the file is committed or matches it
+//! again. A file never kept is as its last commit has it, unless more changed
+//! files went unkept than are remembered.
 
 use std::collections::{HashMap, HashSet};
 use std::fs::Metadata;
@@ -21,6 +22,7 @@ const MAX_BYTES: u64 = 64 * 1024 * 1024;
 /// not told against their last commit.
 const MAX_UNKNOWN: usize = 4096;
 const INDEX: &str = "index.json";
+const UNKNOWN: &str = "unknown.json";
 
 #[derive(Clone, Serialize, Deserialize)]
 struct Kept {
@@ -30,14 +32,24 @@ struct Kept {
     modified: u128,
 }
 
+/// The changed files that could not be kept.
+#[derive(Default, Serialize, Deserialize)]
+struct Unknown {
+    paths: HashSet<String>,
+    /// More could not be kept than `paths` holds, so any file not kept may
+    /// have changed since its last commit.
+    overflowed: bool,
+}
+
 pub(super) struct Priors {
     folder: Option<PathBuf>,
     kept: HashMap<String, Kept>,
     /// Files changed since their last commit that could not be kept: too big,
     /// not text, or beyond what is kept.
-    unknown: HashSet<String>,
+    unknown: Unknown,
     bytes: u64,
     changed: bool,
+    unknown_changed: bool,
 }
 
 /// What a file changed since its last commit held before its latest change.
@@ -70,25 +82,34 @@ fn digest(text: &str) -> String {
 }
 
 impl Priors {
-    /// What was kept in `folder`, less the files that have gone since.
-    pub(super) fn load(folder: Option<PathBuf>) -> Self {
-        let kept: HashMap<String, Kept> = folder
-            .as_ref()
-            .and_then(|folder| std::fs::read(folder.join(INDEX)).ok())
+    /// What was kept in `folder` of the checkout at `top`, less the files that
+    /// have gone since.
+    pub(super) fn load(folder: Option<PathBuf>, top: &Path) -> Self {
+        let read = |name: &str| {
+            folder
+                .as_ref()
+                .and_then(|folder| std::fs::read(folder.join(name)).ok())
+        };
+        let kept: HashMap<String, Kept> = read(INDEX)
             .and_then(|index| serde_json::from_slice(&index).ok())
             .unwrap_or_default();
+        let mut unknown: Unknown = read(UNKNOWN)
+            .and_then(|unknown| serde_json::from_slice(&unknown).ok())
+            .unwrap_or_default();
+        unknown.paths.retain(|path| Path::new(path).starts_with(top));
         let bytes = kept.values().map(|kept| kept.len).sum();
         let mut priors = Self {
             folder,
             kept,
-            unknown: HashSet::new(),
+            unknown,
             bytes,
             changed: false,
+            unknown_changed: false,
         };
         let gone: Vec<String> = priors
             .kept
             .keys()
-            .filter(|path| !Path::new(path).exists())
+            .filter(|path| !Path::new(path).starts_with(top) || !Path::new(path).exists())
             .cloned()
             .collect();
         for path in gone {
@@ -98,11 +119,14 @@ impl Priors {
     }
 
     pub(super) fn before(&self, path: &str) -> Before {
-        if self.unknown.contains(path) {
+        if self.unknown.paths.contains(path) {
             return Before::Unknown;
         }
         let Some(kept) = self.kept.get(path) else {
-            return Before::Committed;
+            return match self.unknown.overflowed {
+                true => Before::Unknown,
+                false => Before::Committed,
+            };
         };
         self.folder
             .as_ref()
@@ -113,7 +137,14 @@ impl Priors {
 
     /// Whether `path` is kept, or known to be changed but not kept.
     pub(super) fn knows(&self, path: &str) -> bool {
-        self.kept.contains_key(path) || self.unknown.contains(path)
+        self.kept.contains_key(path) || self.unknown.paths.contains(path)
+    }
+
+    /// Starts telling again which files could not be kept, as every changed
+    /// file is about to be looked at. Whether too many were before.
+    pub(super) fn recount(&mut self) -> bool {
+        self.unknown_changed |= self.unknown.overflowed;
+        std::mem::take(&mut self.unknown.overflowed)
     }
 
     /// Whether the file is as it was kept, going by its size and the time it
@@ -172,15 +203,17 @@ impl Priors {
 
     fn unknown(&mut self, path: &str) {
         self.forget(path);
-        if self.unknown.len() >= MAX_UNKNOWN {
-            self.unknown.clear();
+        self.unknown_changed = true;
+        if self.unknown.paths.len() >= MAX_UNKNOWN {
+            self.unknown.overflowed = true;
+        } else {
+            self.unknown.paths.insert(path.to_owned());
         }
-        self.unknown.insert(path.to_owned());
     }
 
     /// Lets go of what was kept of `path`, now as its last commit has it.
     pub(super) fn forget(&mut self, path: &str) {
-        self.unknown.remove(path);
+        self.unknown_changed |= self.unknown.paths.remove(path);
         let Some(kept) = self.kept.remove(path) else {
             return;
         };
@@ -196,31 +229,68 @@ impl Priors {
     pub(super) fn under(&self, top: &Path) -> Vec<String> {
         self.kept
             .keys()
-            .chain(&self.unknown)
+            .chain(&self.unknown.paths)
             .filter(|path| Path::new(path).starts_with(top))
             .cloned()
             .collect()
     }
 
     pub(super) fn save(&mut self) {
-        if !std::mem::take(&mut self.changed) {
-            return;
-        }
+        let kept_changed = std::mem::take(&mut self.changed);
+        let unknown_changed = std::mem::take(&mut self.unknown_changed);
         let Some(folder) = &self.folder else {
             return;
         };
-        let written = if self.kept.is_empty() {
+        let nothing = self.kept.is_empty() && self.unknown.paths.is_empty();
+        let written = if nothing && !self.unknown.overflowed {
+            if !kept_changed && !unknown_changed {
+                return;
+            }
             std::fs::remove_dir_all(folder).or_else(|error| match error.kind() {
                 std::io::ErrorKind::NotFound => Ok(()),
                 _ => Err(error),
             })
         } else {
-            serde_json::to_vec(&self.kept)
-                .map_err(std::io::Error::other)
-                .and_then(|index| write_atomic_unsynced(&folder.join(INDEX), &index, true))
+            let write = |name: &str, json: serde_json::Result<Vec<u8>>| {
+                json.map_err(std::io::Error::other)
+                    .and_then(|json| write_atomic_unsynced(&folder.join(name), &json, true))
+            };
+            let kept = match kept_changed {
+                true => write(INDEX, serde_json::to_vec(&self.kept)),
+                false => Ok(()),
+            };
+            kept.and_then(|()| match unknown_changed {
+                true => write(UNKNOWN, serde_json::to_vec(&self.unknown)),
+                false => Ok(()),
+            })
         };
         if let Err(error) = written {
             eprintln!("sikemux core: what changed files held was not saved: {error}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// On 2026-11-10 a checkout holding 35,000 untracked build files filled what was
+    /// kept, and forgetting every unkept file at once made the next change to the
+    /// shared tools.json count all its uncommitted lines as one agent's.
+    #[test]
+    fn a_file_that_could_not_be_kept_is_never_told_against_its_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let top = dir.path().join("checkout");
+        let folder = Some(dir.path().join("kept"));
+        let shared = top.join("tools.json").to_string_lossy().into_owned();
+        let mut priors = Priors::load(folder.clone(), &top);
+        priors.keep(&shared, None);
+        for n in 0..MAX_UNKNOWN + 10 {
+            priors.keep(&top.join(format!("target/{n}")).to_string_lossy(), None);
+        }
+        priors.save();
+        assert!(matches!(priors.before(&shared), Before::Unknown));
+        let reloaded = Priors::load(folder, &top);
+        assert!(matches!(reloaded.before(&shared), Before::Unknown));
     }
 }
