@@ -74,7 +74,11 @@ final class StashStore {
         guard !ids.isEmpty else { return }
         items.removeAll { ids.contains($0.id) }
         await withTaskGroup(of: Void.self) { group in
-            for id in ids { group.addTask { try? await StashAPI.take(id) } }
+            for id in ids {
+                group.addTask {
+                    do { try await StashAPI.take(id) } catch { print("sikemux: the stash kept an item it was asked to give up: \(error)") }
+                }
+            }
         }
     }
 

@@ -81,7 +81,36 @@ enum AccountAPI {
         _ = try await request(method, path, body: body)
     }
 
+    /// Sends a file's bytes, read from disk as they go, with `headers` beside them.
+    static func upload<Answer: Decodable>(
+        _ path: String, file: URL, headers: [String: String], as: Answer.Type = Answer.self
+    ) async throws -> Answer {
+        var request = try await signedIn("POST", path)
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        let (data, response) = try await reach { try await URLSession.shared.upload(for: request, fromFile: file) }
+        try check(response, data)
+        return try JSONDecoder().decode(Answer.self, from: data)
+    }
+
+    /// Brings a file's bytes down to a temporary file, which the caller moves where it keeps it.
+    static func download(_ path: String) async throws -> URL {
+        let (file, response) = try await reach { try await URLSession.shared.download(for: try await signedIn("GET", path)) }
+        try check(response, Data())
+        return file
+    }
+
     private static func request(_ method: String, _ path: String, body: (any Encodable)?) async throws -> Data {
+        var request = try await signedIn(method, path)
+        if let body {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(body)
+        }
+        let (data, response) = try await reach { try await URLSession.shared.data(for: request) }
+        try check(response, data)
+        return (response as? HTTPURLResponse)?.statusCode == 204 ? Data("{}".utf8) : data
+    }
+
+    private static func signedIn(_ method: String, _ path: String) async throws -> URLRequest {
         var request = URLRequest(url: URL(string: Config.apiUrl.absoluteString + path)!, timeoutInterval: 30)
         request.httpMethod = method
         do {
@@ -89,27 +118,23 @@ enum AccountAPI {
         } catch {
             throw ApiProblem(status: 401, code: "unauthorized", message: "Sign in again.")
         }
-        if let body {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(body)
-        }
-        let (data, response): (Data, URLResponse)
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw ApiProblem(status: nil, code: nil, message: offline)
-        }
+        return request
+    }
+
+    private static func reach<T>(_ send: () async throws -> T) async throws -> T {
+        do { return try await send() } catch { throw ApiProblem(status: nil, code: nil, message: offline) }
+    }
+
+    private static func check(_ response: URLResponse, _ data: Data) throws {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        guard (200..<300).contains(status) else {
-            let detail = (try? JSONDecoder().decode(Failure.self, from: data))?.error
-            throw ApiProblem(
-                status: status,
-                code: detail?.code,
-                message: detail?.message ?? "The accounts server answered \(status).",
-                reverifyWithinMinutes: detail?.reverifyWithinMinutes
-            )
-        }
-        return status == 204 ? Data("{}".utf8) : data
+        guard !(200..<300).contains(status) else { return }
+        let detail = (try? JSONDecoder().decode(Failure.self, from: data))?.error
+        throw ApiProblem(
+            status: status,
+            code: detail?.code,
+            message: detail?.message ?? "The accounts server answered \(status).",
+            reverifyWithinMinutes: detail?.reverifyWithinMinutes
+        )
     }
 }
 
@@ -122,6 +147,11 @@ struct AccountDeleting: Error {
 @MainActor
 enum AccountCalls {
     private struct Challenge: Decodable { let nonce: String }
+
+    /// A one-time value for this phone to sign, valid for two minutes.
+    static func challenge() async throws -> String {
+        try await AccountAPI.send("POST", "/v1/devices/challenge", as: Challenge.self).nonce
+    }
     private struct DeviceList: Decodable { let devices: [AccountDevice] }
     private struct Registration: Encodable {
         let key: String
@@ -136,13 +166,13 @@ enum AccountCalls {
     /// that can still be restored throws AccountDeleting.
     static func registerPhone(userId: String) async throws {
         do {
-            let challenge = try await AccountAPI.send("POST", "/v1/devices/challenge", as: Challenge.self)
+            let nonce = try await challenge()
             let me = try Identity.shared.deviceIdentity()
             let registration = Registration(
                 key: me.id(),
                 name: String(UIDevice.current.name.prefix(64)),
-                nonce: challenge.nonce,
-                signature: try me.signRegistration(nonce: challenge.nonce, userId: userId)
+                nonce: nonce,
+                signature: try me.signRegistration(nonce: nonce, userId: userId)
             )
             _ = try await AccountAPI.send("POST", "/v1/devices", body: registration, as: AccountDevice.self)
         } catch let problem as ApiProblem where problem.status == 401 {

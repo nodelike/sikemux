@@ -86,8 +86,12 @@ enum ShareExtension {
             NewChat(host: $0.chat.host, hostName: $0.chat.hostName, project: $0.chat.project, projectPath: $0.path)
         }
         let next = Snapshot(apiUrl: Config.apiUrl.absoluteString, chats: found.prefix(shown).map(\.chat), newChat: newChat)
-        guard next != written, let data = try? JSONEncoder().encode(next) else { return }
-        written = next
-        StashShared.write(data)
+        guard next != written else { return }
+        do {
+            StashShared.write(try JSONEncoder().encode(next))
+            written = next
+        } catch {
+            print("sikemux: could not write the share extension its chats: \(error)")
+        }
     }
 }

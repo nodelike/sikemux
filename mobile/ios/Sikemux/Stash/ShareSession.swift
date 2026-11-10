@@ -18,10 +18,8 @@ final class ShareSession {
         case unreadable
     }
 
-    enum Ended { case stopped, expired }
-
     private(set) var status = Status.connecting
-    private(set) var endedBecause: Ended?
+    private(set) var endedBecause: ShareServerMessage.EndReason?
     private(set) var hostOnline = false
     private(set) var expiresAt: Date?
     private(set) var chat: SharedChat?
@@ -33,9 +31,6 @@ final class ShareSession {
 
     /// A question the host has not answered in this long gets no answer.
     private static let answerWait: Duration = .seconds(30)
-    private static let notFound = 4404
-    private static let endedCode = 4410
-    private static let overLimit = 4429
 
     @ObservationIgnored private let link: SharedChatLink
     @ObservationIgnored private var socket: URLSessionWebSocketTask?
@@ -111,7 +106,7 @@ final class ShareSession {
     /// What a tool call changed and printed, or an error when the host will not or cannot say.
     func toolDetail(_ toolCallId: String) async throws -> ToolDetail {
         guard let detail = await ask(.toolDetail(.init(id: 0, toolCallId: toolCallId)))?.toolDetail else {
-            throw StashFailure("The sharer's computer did not send this.")
+            throw SharerSilent()
         }
         return detail
     }
@@ -130,9 +125,14 @@ final class ShareSession {
     private func read(_ socket: URLSessionWebSocketTask) async {
         while self.socket === socket {
             do {
-                guard case .string(let text) = try await socket.receive(),
-                      let message = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
-                else { continue }
+                guard case .string(let text) = try await socket.receive() else { continue }
+                let message: ShareServerMessage
+                do {
+                    message = try JSONDecoder().decode(ShareServerMessage.self, from: Data(text.utf8))
+                } catch {
+                    print("sikemux: the share server sent a message this app cannot read: \(error)")
+                    continue
+                }
                 await handle(socket, message)
             } catch {
                 guard self.socket === socket else { return }
@@ -143,22 +143,30 @@ final class ShareSession {
         }
     }
 
-    private func send(_ socket: URLSessionWebSocketTask, _ message: [String: Any]) {
-        guard self.socket === socket, let data = try? JSONSerialization.data(withJSONObject: message) else { return }
-        socket.send(.string(String(decoding: data, as: UTF8.self))) { _ in }
+    private func send(_ socket: URLSessionWebSocketTask, _ message: ShareClientMessage) {
+        guard self.socket === socket else { return }
+        do {
+            let text = String(decoding: try JSONEncoder().encode(message), as: UTF8.self)
+            socket.send(.string(text)) { failed in
+                if let failed { print("sikemux: could not send to the share: \(failed)") }
+            }
+        } catch {
+            print("sikemux: could not write a message to the share: \(error)")
+        }
     }
 
     private func closed(_ code: Int) {
         renewing?.cancel()
         settleAnswers()
         guard !stopped else { return }
-        if code == Self.notFound { return finish(.notFound) }
-        if code == Self.endedCode { return finish(.ended) }
+        let known = ShareCloseCode(rawValue: code)
+        if known == .notFound { return finish(.notFound) }
+        if known == .ended { return finish(.ended) }
         hostOnline = false
         failures += 1
         let ceiling = min(60, pow(2, Double(failures - 1)))
         var wait = ceiling / 2 + ceiling / 2 * Double.random(in: 0...1)
-        if code == Self.overLimit { wait = max(30, wait) }
+        if known == .overLimit { wait = max(30, wait) }
         retrying = Task {
             try? await Task.sleep(for: .seconds(wait))
             if !Task.isCancelled, !stopped { open() }
@@ -170,43 +178,39 @@ final class ShareSession {
         stop()
     }
 
-    private func handle(_ socket: URLSessionWebSocketTask, _ message: [String: Any]) async {
-        switch message["type"] as? String {
-        case "challenge":
-            guard let token = try? await Account.shared.token() else { return finish(.signedOut) }
-            var hello: [String: Any] = ["type": "hello", "role": "viewer", "token": token, "share": link.id,
-                                        "proof": link.viewerProof]
-            if let seq { hello["since"] = seq }
-            send(socket, hello)
-        case "ready":
+    private func handle(_ socket: URLSessionWebSocketTask, _ message: ShareServerMessage) async {
+        switch message {
+        case .challenge:
+            let token: String
+            do { token = try await Account.shared.token() } catch { return finish(.signedOut) }
+            send(socket, .hello(token: token, share: link.id, proof: link.viewerProof, since: seq))
+        case .ready(let ready):
             failures = 0
-            hostOnline = message["hostOnline"] as? Bool ?? false
-            expiresAt = Format.date(iso: message["expiresAt"] as? String)
-            if let renew = Format.date(iso: message["authExpiresAt"] as? String) { renewAuth(socket, before: renew) }
-        case "frames":
-            for frame in message["frames"] as? [[String: Any]] ?? [] {
-                guard let sealed = frame["sealed"] as? String else { continue }
-                guard let plain = link.open(sealed) else { return finish(.unreadable) }
-                seq = frame["seq"] as? Int
+            hostOnline = ready.hostOnline ?? false
+            expiresAt = Format.date(iso: ready.expiresAt)
+            if let renew = Format.date(iso: ready.authExpiresAt) { renewAuth(socket, before: renew) }
+        case .frames(let frames):
+            for frame in frames {
+                guard let plain = link.open(frame.sealed) else { return finish(.unreadable) }
+                seq = frame.seq
                 take(plain)
             }
-        case "answer":
-            guard let sealed = message["sealed"] as? String, let plain = link.open(sealed),
-                  let answer = try? JSONDecoder().decode(ShareReply.self, from: Data(plain.utf8))
-            else { return }
-            answers.removeValue(forKey: answer.id)?.resume(returning: answer.error == nil ? answer : nil)
-        case "host":
-            hostOnline = message["online"] as? Bool ?? false
-        case "ended":
-            switch message["reason"] as? String {
-            case "stopped": endedBecause = .stopped
-            case "expired": endedBecause = .expired
-            default: endedBecause = nil
+        case .answer(let sealed):
+            guard let plain = link.open(sealed) else { return }
+            do {
+                let answer = try JSONDecoder().decode(ShareReply.self, from: Data(plain.utf8))
+                answers.removeValue(forKey: answer.id)?.resume(returning: answer.error == nil ? answer : nil)
+            } catch {
+                print("sikemux: the sharer's computer sent an answer this app cannot read: \(error)")
             }
+        case .host(let online):
+            hostOnline = online
+        case .ended(let reason):
+            endedBecause = reason
             finish(.ended)
-        case "ping":
-            send(socket, ["type": "pong"])
-        default:
+        case .ping:
+            send(socket, .pong)
+        case .other:
             break
         }
     }
@@ -216,14 +220,24 @@ final class ShareSession {
         renewing?.cancel()
         renewing = Task {
             try? await Task.sleep(for: .seconds(max(0, expiry.timeIntervalSinceNow - 15)))
-            guard !Task.isCancelled, let token = try? await Account.shared.token(fresh: true) else { return }
-            send(socket, ["type": "auth", "token": token])
+            guard !Task.isCancelled else { return }
+            do {
+                send(socket, .auth(token: try await Account.shared.token(fresh: true)))
+            } catch {
+                print("sikemux: could not renew the sign-in for a shared chat: \(error)")
+            }
         }
     }
 
     /// One unsealed frame: a snapshot starts the chat over, the rest change it.
     private func take(_ plain: String) {
-        guard let frame = try? JSONDecoder().decode(ShareFrame.self, from: Data(plain.utf8)) else { return }
+        let frame: ShareFrame
+        do {
+            frame = try JSONDecoder().decode(ShareFrame.self, from: Data(plain.utf8))
+        } catch {
+            print("sikemux: the sharer's computer sent a frame this app cannot read: \(error)")
+            return
+        }
         switch frame {
         case .snapshot(let snapshot):
             chat = snapshot.chat
@@ -263,8 +277,14 @@ final class ShareSession {
         case .file(var file): file.id = id; numbered = .file(file)
         case .unknown: return nil
         }
-        guard let json = try? JSONEncoder().encode(numbered), let sealed = link.seal(String(decoding: json, as: UTF8.self))
-        else { return nil }
+        let sealed: String
+        do {
+            guard let made = link.seal(String(decoding: try JSONEncoder().encode(numbered), as: UTF8.self)) else { return nil }
+            sealed = made
+        } catch {
+            print("sikemux: could not write a question for the sharer: \(error)")
+            return nil
+        }
         let timeout = Task {
             try? await Task.sleep(for: Self.answerWait)
             if !Task.isCancelled { answers.removeValue(forKey: id)?.resume(returning: nil) }
@@ -272,7 +292,7 @@ final class ShareSession {
         defer { timeout.cancel() }
         return await withCheckedContinuation { waiting in
             answers[id] = waiting
-            send(socket, ["type": "ask", "sealed": sealed])
+            send(socket, .ask(sealed: sealed))
         }
     }
 
@@ -281,4 +301,9 @@ final class ShareSession {
         answers = [:]
         for answer in waiting.values { answer.resume(returning: nil) }
     }
+}
+
+/// The sharer's computer is away or would not say.
+private struct SharerSilent: LocalizedError {
+    var errorDescription: String? { "The sharer's computer did not send this." }
 }
