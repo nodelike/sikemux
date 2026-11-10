@@ -71,7 +71,7 @@ extension ChatSession {
         let message = draft.takeOut(text)
         if outbox.waiting {
             outbox.deliver(message.text, message.files, waiting: true, named: message.named)
-        } else if busy {
+        } else if busy || outbox.sending {
             queue(message.text, message.files, steers: steers && feed.chat.running, named: message.named)
         } else {
             outbox.deliver(message.text, message.files, named: message.named)
@@ -197,7 +197,7 @@ extension ChatSession {
                 try await outbox.queue(text, files, steers: steers, named: named)
             } catch {
                 draft.putBack([text], files)
-                notice = "Could not send the message: \(problem(error))"
+                notice = "Could not send the message: \(Sikemux.problem(error))"
             }
         }
     }

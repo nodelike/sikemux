@@ -7,8 +7,8 @@ struct ChatQuestionsFooter: View {
     let agentId: String
     let session: ChatSession
     /// A watching phone shows the questions without the answers.
-    let canAnswer: Bool
-    let focus: ComposerFocus
+    var canAnswer = true
+    var focus: ComposerFocus?
 
     var body: some View {
         let questions = ChatQuestions.of(core, agentId)
@@ -21,7 +21,7 @@ struct ChatQuestionsFooter: View {
             }
             QuestionDock(questions: questions, canAnswer: canAnswer) { question in
                 questions.write(question)
-                focus.focus()
+                focus?.request()
             }
             ForEach(questions.assumed, id: \.id) { question in
                 AssumedQuestion(
@@ -29,7 +29,7 @@ struct ChatQuestionsFooter: View {
                     onFine: { questions.answer(question, .fine) },
                     onChange: {
                         questions.write(question)
-                        focus.focus()
+                        focus?.request()
                     }
                 )
             }

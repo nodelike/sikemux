@@ -58,17 +58,6 @@ struct YoloToggle: View {
     }
 }
 
-/// A control that lights the active fill while pressed, as the composer's bar buttons do.
-struct ActiveFill: ButtonStyle {
-    @Environment(\.palette) private var palette
-    var radius: CGFloat = 17
-
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background(RoundedRectangle(cornerRadius: radius, style: .continuous).fill(configuration.isPressed ? palette.active : .clear))
-    }
-}
-
 /// How much of the context window is used, from 0 to 1, and the Mac's colour for it: the agent's own, then warm
 /// from 70%, then hot from 90%.
 enum ContextFill {
@@ -118,7 +107,7 @@ struct ContextRing: View {
             .frame(width: 34, height: 34)
             .contentShape(Circle())
         }
-        .buttonStyle(ActiveFill())
+        .buttonStyle(ActiveFill(radius: 17))
         .accessibilityLabel("Context window \(Int((share * 100).rounded()))% used")
     }
 }

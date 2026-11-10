@@ -7,17 +7,31 @@ extension HostLive {
     }
 }
 
+/// The agent's name on `core`; anything not in the catalog keeps the id it came with.
+@MainActor
+func agentLabel(_ provider: String, core: String) -> String {
+    Catalog.label(provider, core: core)
+}
+
 /// The agents each paired host can run, as its core's catalog says. An agent is named and coloured alike on every
 /// host, so where no host is in view any host's word for it does.
 @MainActor
 enum Catalog {
+    /// Catalogs read from somewhere other than a paired host, such as a shared chat, by where they came from.
+    private static var others: [String: [CatalogAgent]] = [:]
+
+    /// Keeps the catalog that came with something not on a paired host, such as a shared chat.
+    static func set(_ source: String, _ agents: [CatalogAgent]) {
+        others[source] = agents
+    }
+
     static func entry(_ type: String, core: String? = nil) -> CatalogAgent? {
         let hub = Hub.shared
         if let core, let found = hub.live(core).agent(type) { return found }
         for device in hub.devices {
             if let found = hub.live(device.core).agent(type) { return found }
         }
-        return nil
+        return others.values.lazy.compactMap { $0.first { $0.type == type } }.first
     }
 
     /// The agent's name; anything not in the catalog keeps the id it came with.

@@ -3,10 +3,12 @@ import UIKit
 
 /// Lets a screen hand the keyboard to the composer, or take it away.
 @MainActor
-final class ComposerFocus {
+final class ComposerFocus: ObservableObject {
     fileprivate weak var field: UITextView?
+    /// The prompts this chat sent before are on show, to pick one again.
+    @Published var recent = false
 
-    func focus() { field?.becomeFirstResponder() }
+    func request() { field?.becomeFirstResponder() }
     func blur() { field?.resignFirstResponder() }
     /// Empties the field, words the keyboard is still composing too.
     func clear() { field?.text = "" }
