@@ -560,8 +560,13 @@ jobs:
         if: needs.changes.outputs.packaging == 'true'
         run: xargs sudo apt-get install -y <packaging/linux/pack-packages.txt
 
+      # These packages only prove the packing works, so they skip the release build's whole-program
+      # LTO, which tripled the compile. The Release workflow's Linux jobs still build with it.
       - name: Pack the deb, rpm and AppImage
         if: needs.changes.outputs.packaging == 'true'
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 16
         run: scripts/build-linux.sh
 
       - name: Install the deb on a clean Ubuntu
