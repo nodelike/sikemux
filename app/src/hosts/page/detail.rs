@@ -95,12 +95,7 @@ fn head(bench: &Workbench, host: &Listed, t: &Tokens, cx: &mut Context<Workbench
                         .items_center()
                         .gap(px(9.))
                         .min_w_0()
-                        .child(pill(&host.state.words(), tint))
-                        .child(
-                            ui::text(host.model(), TEXT_XS, FontWeight::NORMAL)
-                                .truncate()
-                                .text_color(t.text_tertiary),
-                        ),
+                        .child(pill(&host.state.words(), tint)),
                 ),
         )
         .child(
