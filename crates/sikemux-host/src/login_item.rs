@@ -358,7 +358,7 @@ Description=Sikemux core
 
 [Service]
 ExecStart={command}
-{environment}Delegate=memory pids
+{environment}Delegate=memory
 Restart=on-failure
 RestartSec=2
 StandardOutput=append:{log}

@@ -934,7 +934,7 @@ fn fix(core: &Core, project: &Path, task: &Definition, found: &[Check]) -> Resul
 fn install_dependencies(cwd: &Path, install: &str) -> Result<(), String> {
     let mut words = install.split(' ');
     let program = words.next().ok_or("nothing to install with")?;
-    let mut command = sikemux_process::user_environment::agent_command(program);
+    let mut command = sikemux_process::user_environment::agent_command_in_own_cgroup(program);
     command
         .args(words)
         .current_dir(cwd)
