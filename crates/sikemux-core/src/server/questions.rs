@@ -1857,15 +1857,11 @@ impl AnswerParams {
     /// so the agent reads the same text whichever client answered. The files stay, for a chat to
     /// take as it takes the composer's.
     fn written_out(&mut self) {
-        let paths = self.paths.clone();
         let context = std::mem::take(&mut self.context);
-        if paths.is_empty() && context.is_empty() {
+        if self.paths.is_empty() && context.is_empty() {
             return;
         }
-        let attached = (!paths.is_empty()).then(|| {
-            let listed: Vec<String> = paths.iter().map(|path| format!("- {path}")).collect();
-            format!("Attached:\n{}", listed.join("\n"))
-        });
+        let attached = (!self.paths.is_empty()).then(|| attached(&self.paths));
         let context = (context.iter()).map(|item| match item.text.is_empty() {
             true => item.title.clone(),
             false => format!("{}:\n{}", item.title, item.text),
@@ -1876,6 +1872,19 @@ impl AnswerParams {
             .filter(|part| !part.is_empty());
         self.answer = Some(parts.collect::<Vec<_>>().join("\n\n"));
     }
+}
+
+/// The files given with an answer as its text lists them.
+fn attached(paths: &[String]) -> String {
+    let listed: Vec<String> = paths.iter().map(|path| format!("- {path}")).collect();
+    format!("Attached:\n{}", listed.join("\n"))
+}
+
+/// An answer's text without its list of `paths`, for an agent that takes the files themselves.
+pub(crate) fn without_attached(text: &str, paths: &[String]) -> String {
+    let list = attached(paths);
+    let text = text.replacen(&format!("\n\n{list}"), "", 1);
+    text.replacen(&list, "", 1).trim().to_owned()
 }
 
 /// The person's answers to questions asked together. Each asker gets all of

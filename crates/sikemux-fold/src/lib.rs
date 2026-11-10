@@ -32,10 +32,10 @@ use sikemux_wire::protocol::PermissionMode;
 use sikemux_view::chat::{
     AccountMove, AgentNotice, AsyncTask, ChatCapabilities, ChatCommandInfo, ChatConnection,
     ChatDraft, ChatFailure, ChatGoal, ChatHead, ChatMessage, ChatPart, ChatRole, ChatTrigger,
-    Compactions, ContentBlock, ContextUsage, FailureKind, MoveReason, NoticeSeverity, NoticeState,
-    PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage, Retrying,
-    SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice, TaskState,
-    TaskUsage, ToolDetail, ToolStatus, TurnStart, UsageCost, WorkflowAgent,
+    Compactions, ContentBlock, ContextUsage, FailureKind, LetterKind, MoveReason, NoticeSeverity,
+    NoticeState, PermissionAsk, PermissionKind, PermissionOption, PlanEntry, QueuedMessage,
+    Retrying, SentContext, SessionEnded, StopReason, SubagentCard, SubagentState, TaskNotice,
+    TaskState, TaskUsage, ToolDetail, ToolStatus, TurnStart, UsageCost, WorkflowAgent,
 };
 use tools::WithRow;
 
@@ -2279,10 +2279,14 @@ fn read_sent(row: &mut Row, commands: &[ChatCommandInfo]) {
     let only_text = parts
         .iter()
         .all(|part| matches!(part, ChatPart::Text { .. }));
-    let letters = only_text
+    let mut letters = only_text
         .then(|| prompt::agent_letters(&whole))
         .flatten()
         .unwrap_or_default();
+    let answer = (letters.iter_mut()).find(|letter| letter.kind == LetterKind::Answer);
+    if let Some(answer) = answer.filter(|answer| answer.attachments.is_empty()) {
+        answer.attachments = row.msg.attachments.clone();
+    }
     for (at, part) in parts.iter_mut().enumerate() {
         let id = format!("{}.{at}", row.msg.id);
         match part {

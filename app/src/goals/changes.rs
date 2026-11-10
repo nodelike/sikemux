@@ -22,6 +22,7 @@ use crate::theme::{
     self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, IconButton};
+use crate::board::ChangesBoards;
 use crate::workbench::Workbench;
 
 const PICTURE_HEIGHT: f32 = 340.;

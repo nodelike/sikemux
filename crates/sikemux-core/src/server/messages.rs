@@ -934,13 +934,13 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 letter.kind = MessageKind::Answer;
                 letter.note = Some(lead_answer_note(&letter.from_name, &asked));
             }
-            Ok(Found::Open(target, letter))
+            Ok(Found::Open(target, Box::new(letter)))
         })
         .await
         .map_err(|error| error.to_string())?
     };
     let (target, letter) = match found {
-        Found::Open(target, letter) => (target, letter),
+        Found::Open(target, letter) => (target, *letter),
         Found::Closed(name, ran) => return reopen(core, request, &name, ran).await,
     };
     let from = letter.from_id.clone();
@@ -958,7 +958,7 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
 }
 
 enum Found {
-    Open(Listed, Letter),
+    Open(Listed, Box<Letter>),
     /// A closed agent the sender led, by the name it was sent to.
     Closed(String, super::names::RanSession),
 }
@@ -1223,9 +1223,13 @@ pub(crate) async fn answer(
         .await
         .map_err(|error| error.to_string())?
     };
-    let mut letters = answers
-        .into_iter()
-        .map(|(answered, text, note, paths)| Letter {
+    let chat = core.chats.get(&target.agent_id).is_some();
+    let mut letters = answers.into_iter().map(|(answered, text, note, paths)| {
+        let (text, paths) = match chat && !paths.is_empty() {
+            true => (super::questions::without_attached(&text, &paths), paths),
+            false => (text, Vec::new()),
+        };
+        Letter {
             kind: MessageKind::Answer,
             from_id: Sender::Person.id().to_owned(),
             from_name: Sender::Person.name().to_owned(),
@@ -1236,7 +1240,8 @@ pub(crate) async fn answer(
             answers: Some(answered),
             puts: None,
             paths,
-        });
+        }
+    });
     let mut letter = letters.next().ok_or("there is no answer to send")?;
     let rest: Vec<Letter> = letters.collect();
     if rest.is_empty() {
