@@ -12,7 +12,7 @@ struct StashFace: View {
         case .link: Icons.link
         case .text: Icons.text
         case .image, .video: Icons.image
-        case .file: Icons.file
+        case .file, .unknown: Icons.file
         case .prompt: Icons.message
         }
     }
@@ -91,22 +91,6 @@ private struct StashPress: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.background(RoundedRectangle(cornerRadius: 7).fill(configuration.isPressed ? palette.active : .clear))
-    }
-}
-
-/// A stash file beside the composer: its picture and title.
-struct StashPreview: View {
-    @Environment(\.palette) private var palette
-    let item: StashItem
-
-    var body: some View {
-        HStack(spacing: 8) {
-            StashFace(item: item, size: 30)
-            Text(StashWords.title(item)).font(Theme.ui(12.5, .medium)).foregroundStyle(palette.ink).lineLimit(1)
-        }
-        .padding(.leading, 6)
-        .padding(.trailing, 28)
-        .frame(maxWidth: 220, alignment: .leading)
     }
 }
 

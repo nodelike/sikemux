@@ -109,16 +109,6 @@ final class Notify {
 
     // MARK: The push token
 
-    /// Which build the token belongs to: dev builds have their own bundle id and reach a server that serves only them.
-    fileprivate enum PushApp: String, Codable {
-        case dev, production
-    }
-
-    /// Which of Apple's push servers issued the token.
-    fileprivate enum ApnsEnvironment: String, Codable {
-        case sandbox, production
-    }
-
     /// What the server last took from this phone, so an unchanged token is not sent again.
     private struct SentToken: Codable {
         var device: String
@@ -175,11 +165,11 @@ final class Notify {
                              apnsEnvironment: Self.apnsEnvironment)
         if let sent, sent.same(as: next), Date().timeIntervalSince1970 - sent.at / 1000 < Self.resend { return }
         let nonce = try await AccountCalls.challenge()
-        let registration = PushRegistration(
+        let registration = PushTokenRegistration.apns(ApnsTokenRegistration(
             token: pushToken, app: next.app, apnsEnvironment: next.apnsEnvironment, nonce: nonce,
             signature: try identity.signPush(nonce: nonce, tokenSha256: tokenSha256)
-        )
-        let _: PushTokenState = try await AccountAPI.send("PUT", "/v1/devices/\(identity.id())/push", body: registration)
+        ))
+        _ = try await AccountAPI.send("PUT", "/v1/devices/\(identity.id())/push", body: registration, as: PushTokenState.self)
         next.at = Date().timeIntervalSince1970 * 1000
         try keepSent(next)
     }
@@ -274,17 +264,4 @@ final class Notify {
         ],
         intentIdentifiers: []
     )
-}
-
-private struct PushRegistration: Encodable {
-    let platform = "apns"
-    let token: String
-    let app: Notify.PushApp
-    let apnsEnvironment: Notify.ApnsEnvironment
-    let nonce: String
-    let signature: String
-}
-
-private struct PushTokenState: Decodable {
-    let enabled: Bool
 }
