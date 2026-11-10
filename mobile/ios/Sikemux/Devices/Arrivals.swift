@@ -13,7 +13,7 @@ actor Arrivals {
     /// The hosts that joined the account since the phone last looked, remembering them as seen. The first look at an
     /// account, or at a list that cannot be read, only remembers what is there: those hosts wait in Devices for a tap.
     /// A host is new once, so one that turned the phone down never asks again.
-    func hostsArrived(account: String, hosts: [AccountDevice]) -> [AccountDevice] {
+    func hostsArrived(account: String, hosts: [WireDevice]) -> [WireDevice] {
         guard let seen = read(), seen.account == account else {
             save(Seen(account: account, keys: hosts.map(\.key)))
             return []

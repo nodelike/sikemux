@@ -192,10 +192,10 @@ private struct CardPress: ButtonStyle {
 /// A host signed in to the same account that this phone has not paired with: it asks that host to let this phone in.
 private struct AccountHostCard: View {
     @Environment(\.palette) private var palette
-    let host: AccountDevice
+    let host: WireDevice
 
     var body: some View {
-        let channel = PairedDevice(core: host.key, access: "", pairedAt: 0, channel: host.channel).channelLabel
+        let channel = PairedDevice(core: host.key, access: "", pairedAt: 0, channel: host.channel?.rawValue).channelLabel
         Button {
             Haptics.tap()
             Router.shared.push(.join(core: host.key, name: host.name))
