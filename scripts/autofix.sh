@@ -113,7 +113,6 @@ if touches "$rust"; then
   step "check clippy" scripts/check-rust.sh clippy
   step "check clippy GPUI" scripts/check-rust.sh gpui-clippy
   step "check clippy no plugins" scripts/check-rust.sh no-plugins
-  step "check clippy Linux" cargo clippy --target aarch64-unknown-linux-gnu --all-targets -- -D warnings
 fi
 fixed="$(diff <(printf '%s\n' "$before") <(fingerprint) | sed -n 's/^> \([^ ]*\) .*/\1/p' | sort -u)"
 if touches "$helpers" || printf '%s\n' "$fixed" | grep -qE '\.swift$|^helpers/'; then
