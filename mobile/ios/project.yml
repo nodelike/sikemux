@@ -90,7 +90,6 @@ targets:
       - target: SikemuxNotifications
       - target: SikemuxShare
       - sdk: SystemConfiguration.framework
-      - sdk: MetalKit.framework
     info:
       path: Sikemux/Resources/Info.plist
       properties:
