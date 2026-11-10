@@ -235,11 +235,11 @@ mkdir -p "$APPDIR$WEBKIT_DIR"
 for part in WebKitWebProcess WebKitNetworkProcess WebKitGPUProcess injected-bundle; do
   [[ -e "$WEBKIT_DIR/$part" ]] && cp -a "$WEBKIT_DIR/$part" "$APPDIR$WEBKIT_DIR/"
 done
-# GIO finds its TLS support, which every https page needs, as a module in its own folder.
-GIO_MODULE_DIR="$(pkg-config --variable=giomoduledir gio-2.0)"
-[[ -f "$GIO_MODULE_DIR/libgiognutls.so" ]] || fail "glib-networking, which https pages need, is not installed"
-mkdir -p "$APPDIR$GIO_MODULE_DIR"
-cp "$GIO_MODULE_DIR/libgiognutls.so" "$APPDIR$GIO_MODULE_DIR/"
+# GIO loads its TLS support, which every https page needs, as a module; AppRun points it here.
+GIO_MODULES="$(pkg-config --variable=giomoduledir gio-2.0)"
+[[ -f "$GIO_MODULES/libgiognutls.so" ]] || fail "glib-networking, which https pages need, is not installed"
+mkdir -p "$APPDIR/usr/lib/gio/modules"
+cp "$GIO_MODULES/libgiognutls.so" "$APPDIR/usr/lib/gio/modules/"
 mkdir -p "$WORK/gstreamer"
 cp "$GSTREAMER_DIR/libgstcoreelements.so" "$WORK/gstreamer/"
 dpkg -L "${GSTREAMER_SETS[@]}" | grep -x "$GSTREAMER_DIR/libgst[^/]*\.so" | xargs -I{} cp {} "$WORK/gstreamer/"
@@ -251,16 +251,14 @@ done
   export DEPLOY_GTK_VERSION=3 NO_STRIP=1 GSTREAMER_PLUGINS_DIR="$WORK/gstreamer"
   ./linuxdeploy --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/sikemux" --executable "$APPDIR/usr/bin/sikemux-host" \
-    --deploy-deps-only "$APPDIR$WEBKIT_DIR" --deploy-deps-only "$APPDIR$GIO_MODULE_DIR" \
+    --deploy-deps-only "$APPDIR$WEBKIT_DIR" --deploy-deps-only "$APPDIR/usr/lib/gio/modules" \
     --desktop-file "$APPDIR/usr/share/applications/$APP_IDENTIFIER.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/512x512/apps/sikemux.png" \
     --plugin gtk --plugin gstreamer
 )
 # The same length keeps the libraries intact, and turns the processes' /usr/lib/… into
 # lib/…, found from usr/ inside the AppImage, which AppRun starts in.
-find "$APPDIR"/usr/lib* -name 'libwebkit*' -type f -exec sed -i -e 's|/usr|././|g' {} +
-find "$APPDIR"/usr/lib* -name 'libgio-2.0.so*' -type f -exec sed -i -e "s|$GIO_MODULE_DIR|././${GIO_MODULE_DIR#/usr}|g" {} +
-rm -f "$APPDIR/AppRun" "$APPDIR/AppRun.wrapped"
+find "$APPDIR"/usr/lib* -name 'libwebkit*' -type f -exec sed -i -e 's|/usr|././|g' {} +rm -f "$APPDIR/AppRun" "$APPDIR/AppRun.wrapped"
 cat >"$APPDIR/AppRun" <<'APPRUN'
 #!/bin/sh
 APPDIR="$(dirname "$(readlink -f "$0")")"
@@ -268,6 +266,7 @@ export APPDIR
 for hook in "$APPDIR"/apprun-hooks/*.sh; do
   [ -f "$hook" ] && . "$hook"
 done
+export GIO_MODULE_DIR="$APPDIR/usr/lib/gio/modules"
 cd "$APPDIR/usr" || exit 1
 exec "$APPDIR/usr/bin/sikemux" "$@"
 APPRUN

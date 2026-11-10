@@ -197,6 +197,29 @@ fn forget_starting_terminal() {
     if let Some(path) = crate::git_guard::shim::path_without_shim(&path) {
         std::env::set_var("PATH", path);
     }
+    forget_appimage_runtime();
+}
+
+/// Forgets what the AppImage set for the app's own GTK and GLib, and hands back the person's
+/// `XDG_DATA_DIRS`, which it had put its own folders in front of.
+#[cfg(unix)]
+fn forget_appimage_runtime() {
+    let Ok(appdir) = std::env::var("APPDIR") else {
+        return;
+    };
+    let added = format!("{appdir}/usr/share:/usr/share:");
+    if let Some(theirs) = std::env::var("XDG_DATA_DIRS")
+        .ok()
+        .and_then(|dirs| dirs.strip_prefix(&added).map(str::to_owned))
+    {
+        match theirs.is_empty() {
+            true => std::env::remove_var("XDG_DATA_DIRS"),
+            false => std::env::set_var("XDG_DATA_DIRS", theirs),
+        }
+    }
+    for name in vars::APPIMAGE_RUNTIME {
+        std::env::remove_var(name);
+    }
 }
 
 /// `path` with the system folders added when it lacks them. A core keeps

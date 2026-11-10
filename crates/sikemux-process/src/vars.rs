@@ -75,3 +75,25 @@ pub const LAUNCHING_SESSION: [&str; 18] = [
     REAL_GIT,
     BUILD_TURN,
 ];
+
+/// What the Linux AppImage sets so its own copies of GTK, GLib and GStreamer find their parts.
+/// A program the person runs would load the AppImage's parts with them, or open its windows
+/// through X11, so no terminal, agent or task Sikemux starts inherits them.
+pub const APPIMAGE_RUNTIME: [&str; 16] = [
+    "APPDIR",
+    "GDK_BACKEND",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GIO_MODULE_DIR",
+    "GI_TYPELIB_PATH",
+    "GSETTINGS_SCHEMA_DIR",
+    "GST_PLUGIN_PATH_1_0",
+    "GST_PLUGIN_SCANNER_1_0",
+    "GST_PLUGIN_SYSTEM_PATH_1_0",
+    "GST_PTP_HELPER_1_0",
+    "GST_REGISTRY_REUSE_PLUGIN_SCANNER",
+    "GTK_DATA_PREFIX",
+    "GTK_EXE_PREFIX",
+    "GTK_IM_MODULE_FILE",
+    "GTK_PATH",
+    "GTK_THEME",
+];
