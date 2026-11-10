@@ -107,6 +107,7 @@ struct Field: View {
     var secure = false
     var trailingRoom: CGFloat = 14
     var autoFocus = false
+    var font = Theme.ui(16)
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -124,7 +125,7 @@ struct Field: View {
                 }
             }
             .focused($focused)
-            .font(Theme.ui(16))
+            .font(font)
             .foregroundStyle(palette.ink)
             .tint(palette.accent)
             .padding(.leading, icon == nil ? 14 : 0)
