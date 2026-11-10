@@ -20,6 +20,8 @@
     const INPUT_ROLES = { checkbox: "checkbox", radio: "radio", button: "button", submit: "button", reset: "button", image: "button", range: "slider", search: "searchbox" };
 
     const compact = (value) => String(value ?? "").replace(/\s+/g, " ").trim();
+    // An error saying what a call names is not on the page yet, which a page still drawing may show in a moment.
+    const missing = (message) => Object.assign(new Error(message), { missing: true });
     const submitControl = (element) => {
         const control = element.closest("button, input");
         if (!control || control.disabled) return null;
@@ -422,6 +424,21 @@
             .map(compact)
             .filter(Boolean);
     const clip = (text, cap) => (text.length > cap ? `${text.slice(0, cap)}…` : text);
+    // The part of `text` a read asks for: `chars` around the first place `around`
+    // shows, or the last `tail` characters. Null when it asks for neither.
+    const excerpt = (text, read) => {
+        if (!read) return null;
+        if (read.tail != null) {
+            const from = Math.max(0, text.length - read.tail);
+            return { text: (from > 0 ? "…" : "") + text.slice(from), textLength: text.length, textCut: undefined };
+        }
+        if (read.around == null) return null;
+        const at = text.toLowerCase().indexOf(compact(read.around).toLowerCase());
+        if (at < 0) return { text: "", textLength: text.length, textCut: undefined, note: `"${read.around}" is not in the text` };
+        const from = Math.max(0, at - Math.floor(read.chars / 2));
+        const to = Math.min(text.length, from + read.chars);
+        return { text: (from > 0 ? "…" : "") + text.slice(from, to) + (to < text.length ? "…" : ""), textAt: at, textLength: text.length, textCut: undefined };
+    };
     const without = (lines, taken) => {
         const counts = new Map();
         for (const line of taken) counts.set(line, (counts.get(line) || 0) + 1);
@@ -507,7 +524,9 @@
         const scope = target.role ? ` with role ${target.role}` : "";
         const labelled = matching(target.text, target.role);
         const found = labelled.length || target.role ? labelled : textHolders(target.text);
-        return { found, none: `nothing${scope} shows or is labelled "${target.text}"; try browser_find with part of the words`, many: `${found.length} elements${scope} match "${target.text}"`, narrower: "a role or fuller text" };
+        const otherRoles = target.role && !found.length ? matching(target.text, null) : [];
+        const hint = otherRoles.length ? `; these have that text with another role:\n${lines(otherRoles.slice(0, 10))}` : "; try browser_find with part of the words";
+        return { found, none: `nothing${scope} shows or is labelled "${target.text}"${hint}`, many: `${found.length} elements${scope} match "${target.text}"`, narrower: "a role or fuller text" };
     };
     const centre = (element) => {
         const rect = rectOf(element);
@@ -716,7 +735,7 @@
     window.__sikemux = {
         // "changes" answers with what differs from the previous read of this
         // page, and with everything when there was none.
-        state(mode, fullText) {
+        state(mode, fullText, read) {
             const listed = listing();
             const lines = pageLines();
             const last = window.__sikemuxLast;
@@ -736,7 +755,8 @@
                 elements: kept.map(([, listedEntry]) => listedEntry.line).join("\n"),
                 ...(dropped.length ? { offscreen: offscreenNote(dropped, "elements are") } : {}),
                 text: clip(text, cap),
-                ...(text.length > cap ? { textLength: text.length } : {}),
+                ...(text.length > cap ? { textLength: text.length, textCut: "around, tail or fullText read past the cut" } : {}),
+                ...excerpt(text, read),
             };
         },
         find(query, role) {
@@ -783,7 +803,7 @@
             const { found } = match;
             const listed = () => lines(found.slice(0, 10));
             if (found.length === 1 && (target.index == null || target.index === found[0][0])) return found[0][0];
-            if (!found.length) throw new Error(match.none);
+            if (!found.length) throw missing(match.none);
             if (target.index != null) {
                 if (found.some(([id]) => id === target.index)) return target.index;
                 throw new Error(`element [${target.index}] is not one of the ${found.length} that match; nothing was done. Pass one of these numbers as index:\n${listed()}`);
@@ -990,9 +1010,9 @@
         viewportSize() {
             return { width: innerWidth, height: innerHeight };
         },
-        // The file input an upload names, shown or hidden behind a styled drop
-        // zone, or the page's only one when it names none, laid under the
-        // pointer until `unplaceFileInput` so a real click opens its chooser.
+        // Where a real click opens the chooser of the file input an upload names,
+        // or of the page's only one when it names none. A hidden input, or one
+        // something covers, is laid on top of the page until `unplaceFileInput`.
         // Null when the target is something else to click, such as a button.
         fileInput(target) {
             const isFileInput = (element) => element.tagName === "INPUT" && element.type === "file";
@@ -1005,22 +1025,44 @@
                     const listed = lines(inputs.slice(0, 10).map((input) => [numberFor(input), input]));
                     throw new Error(`${inputs.length} file inputs match; nothing was done. Pass one of these numbers as index:\n${listed}`);
                 }
-                if (target == null && !inputs.length) throw new Error("the page has no file input; pass the number or selector of the button that opens a chooser");
+                if (target == null && !inputs.length) throw missing("the page has no file input; pass the number or selector of the button that opens a chooser");
                 element = inputs[0] || null;
             } else if (target.index != null && target.text == null) {
                 const picked = pick(target.index);
                 element = isFileInput(picked) ? picked : null;
             }
             if (!element) return null;
-            const style = element.getAttribute("style");
-            placedInput = { element, style };
+            const named = { index: numberFor(element), label: describe(element) };
+            const middle = (rect) => ({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+            if (shown(element)) {
+                element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+                const rect = visibleRect(element);
+                const at = rect && middle(rect);
+                if (at && reaches(element, at.x, at.y)) return { ...named, ...at };
+            }
+            placedInput = { element, style: element.getAttribute("style") };
             element.style.cssText += ";position:fixed!important;left:0!important;top:0!important;width:24px!important;height:24px!important;margin:0!important;display:block!important;visibility:visible!important;opacity:0.01!important;pointer-events:auto!important;transform:none!important;z-index:2147483647!important";
-            const rect = rectOf(element);
+            let rect = rectOf(element);
             if (rect.width < 1 || rect.height < 1) {
                 this.unplaceFileInput();
                 throw new Error("the file input sits inside something hidden; pass the number or selector of the button that opens its chooser");
             }
-            return { index: numberFor(element), label: describe(element), x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            // A modal dialog, or an ancestor that makes its own layer, can still cover it; the top layer is above both.
+            if (!reaches(element, middle(rect).x, middle(rect).y) && typeof element.showPopover === "function") {
+                placedInput.popover = element.getAttribute("popover");
+                element.setAttribute("popover", "manual");
+                try {
+                    element.showPopover();
+                } catch {}
+                rect = rectOf(element);
+            }
+            const at = middle(rect);
+            if (!reaches(element, at.x, at.y)) {
+                const over = elementAt(at.x, at.y);
+                this.unplaceFileInput();
+                throw new Error(`the file input stays under ${over ? describe(over) : "something else"}, so a click cannot reach it; pass the number or selector of the button that opens its chooser`);
+            }
+            return { ...named, ...at };
         },
         // Whether a file input on the page took files since the last call,
         // which says the page really got them.
@@ -1039,7 +1081,14 @@
         },
         unplaceFileInput() {
             if (placedInput) {
-                const { element, style } = placedInput;
+                const { element, style, popover } = placedInput;
+                if (popover !== undefined) {
+                    try {
+                        element.hidePopover();
+                    } catch {}
+                    if (popover == null) element.removeAttribute("popover");
+                    else element.setAttribute("popover", popover);
+                }
                 if (style == null) element.removeAttribute("style");
                 else element.setAttribute("style", style);
             }
@@ -1091,14 +1140,15 @@
             else scroller.scrollBy({ top: deltaY ?? 600, behavior: "instant" });
             return scrollState(scroller);
         },
-        extract(selector) {
+        extract(selector, read) {
             const roots = selector ? selected(selector) : [document.body];
             if (selector && roots.length === 0) throw new Error(`nothing matches "${selector}"`);
             const CAP = 40000;
-            const textOf = (root) => compact((root && (root.innerText || root.textContent)) || "") || compact(root && (root.getAttribute("aria-label") || root.getAttribute("alt") || root.getAttribute("title") || root.value || ""));
+            const keptLines = (text) => String(text).split("\n").map(compact).filter(Boolean).join("\n");
+            const textOf = (root) => keptLines((root && (root.innerText || root.textContent)) || "") || compact(root && (root.getAttribute("aria-label") || root.getAttribute("alt") || root.getAttribute("title") || root.value || ""));
             if (!selector || roots.length === 1) {
                 const text = textOf(roots[0]);
-                return { url: location.href, title: document.title, text: clip(text, CAP), matches: roots.length };
+                return { url: location.href, title: document.title, text: clip(text, CAP), matches: roots.length, ...excerpt(text, read) };
             }
             let room = CAP;
             const parts = [];

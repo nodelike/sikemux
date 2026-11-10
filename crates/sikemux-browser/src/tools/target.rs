@@ -61,27 +61,31 @@ pub(super) fn element_target(params: &Value, index_key: &str) -> Value {
     }
 }
 
+/// Calls one of the page script's functions on the element a call names, giving
+/// it a moment to appear when nothing matches yet, as a page still drawing would show it.
+pub(super) async fn call_when_shown(
+    view: &Tab,
+    function: &str,
+    args: &[Value],
+) -> Result<Value, String> {
+    let started = Instant::now();
+    loop {
+        let answer = page_answer(view, function, args).await?;
+        if answer["missing"] != json!(true) || started.elapsed() >= APPEAR_WAIT {
+            return unwrap_answer(answer);
+        }
+        tokio::time::sleep(CONDITION_POLL).await;
+    }
+}
+
 /// The centre of the element `named` picks out, refused when `expected` no
-/// longer matches its label. Text or a selector nothing matches yet is given
-/// a moment to appear, as a page still drawing would show it.
+/// longer matches its label.
 pub(super) async fn point(
     view: &Tab,
     named: Value,
     expected: Value,
 ) -> Result<(f64, f64, Value), String> {
-    let started = Instant::now();
-    let point = loop {
-        match call(view, "point", &[named.clone(), expected.clone()]).await {
-            Err(error)
-                if started.elapsed() < APPEAR_WAIT
-                    && (error.starts_with("nothing shows or is labelled")
-                        || error.starts_with("nothing shown matches")) =>
-            {
-                tokio::time::sleep(CONDITION_POLL).await;
-            }
-            answer => break answer?,
-        }
-    };
+    let point = call_when_shown(view, "point", &[named, expected]).await?;
     let coordinate = |key: &str| {
         point
             .get(key)

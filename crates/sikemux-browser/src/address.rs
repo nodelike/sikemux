@@ -78,6 +78,12 @@ pub fn is_local_host(host: &str) -> bool {
     }
 }
 
+/// Whether going from `current` to `wanted` only moves to a #fragment of the same page.
+pub(crate) fn same_document(current: &str, wanted: &str) -> bool {
+    let without_fragment = |url: &str| url.split('#').next().unwrap_or(url).to_owned();
+    wanted.contains('#') && without_fragment(current) == without_fragment(wanted)
+}
+
 /// Whether two addresses are on one site, by origin.
 pub(crate) fn same_site(one: &str, other: &str) -> bool {
     match (url::Url::parse(one), url::Url::parse(other)) {

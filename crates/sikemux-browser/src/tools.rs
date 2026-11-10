@@ -30,6 +30,13 @@ const MAX_WAIT_MS: u64 = 30_000;
 const SCRIPT_TIMEOUT_MS: u64 = 30_000;
 /// Well inside the time the core waits for any reply.
 const MAX_BLOCKING_MS: u64 = (PAGE_REPLY_TIMEOUT.as_secs() - 5) * 1000;
+/// The longest one call waits on a condition, leaving time to read the page for its answer.
+const MAX_CONDITION_WAIT_MS: u64 = MAX_BLOCKING_MS - EVAL_TIMEOUT.as_millis() as u64;
+/// A whole page is drawn to a PDF first, which takes a long page far longer than the visible part.
+const FULL_PAGE_SHOT_TIMEOUT: Duration = Duration::from_secs(30);
+/// What a read of part of the text returns when it does not say how much.
+const AROUND_CHARS: u64 = 2_000;
+const MAX_READ_CHARS: u64 = 40_000;
 const MAX_SCRIPT_RESULT: usize = 100_000;
 /// A full-page capture goes through a PDF page, and PDF stops at 14,400 points.
 const MAX_PAGE_HEIGHT: f64 = 14_400.0;
@@ -162,21 +169,30 @@ async fn run(
     match method {
         "browser.tab.switch" => {
             let id = text("tabId").ok_or("tabId is required")?;
-            manager
-                .switch_tab(agent_id, &id)
-                .map_err(|error| error.to_string())?;
+            if manager.switch_tab(agent_id, &id).is_err() {
+                return Err(format!(
+                    "{id} {}; your open tabs are {}",
+                    manager.why_gone(&id),
+                    tabs(manager, agent_id)["tabs"]
+                ));
+            }
             if manager.reloading(agent_id) {
                 let _ = manager.active_view(agent_id);
                 manager.wait_until_loaded(agent_id, &id, LOAD_TIMEOUT).await;
             }
-            read_state(manager, agent_id, "changes", false).await
+            read_state(manager, agent_id, "changes", false, Value::Null).await
         }
         "browser.tab.close" => {
-            let id = text("tabId").ok_or("tabId is required")?;
-            manager
-                .close_tab(agent_id, &id)
-                .map_err(|error| error.to_string())?;
-            Ok(tabs(manager, agent_id))
+            let id = match text("tabId") {
+                Some(id) => id,
+                None => active_tab(manager, agent_id)?.0,
+            };
+            let closed = manager.close_tab(agent_id, &id).is_ok();
+            let mut result = tabs(manager, agent_id);
+            if !closed {
+                result["note"] = json!(format!("{id} {}", manager.why_gone(&id)));
+            }
+            Ok(result)
         }
         "browser.navigate" => {
             let url = match (text("url"), text("go")) {
@@ -227,7 +243,7 @@ async fn run(
                         .map_err(|error| error.to_string())?;
                     note = Some("the tab was already on this url, so it was reloaded");
                 } else {
-                    if same_document(&current, &wanted) {
+                    if crate::address::same_document(&current, &wanted) {
                         note = Some("only the #fragment changed, so the page moved within itself and did not load again; use browser_navigate with go reload to load it afresh");
                     }
                     manager
@@ -259,12 +275,13 @@ async fn run(
             if active_tab(manager, agent_id).is_err() {
                 return Ok(tabs(manager, agent_id));
             }
+            let part = text_part(params)?;
             if let Some(selector) = text("selector") {
                 let (_, view) = active(manager, agent_id)?;
-                return call(&view, "extract", &[json!(selector)]).await;
+                return call(&view, "extract", &[json!(selector), part]).await;
             }
             let full_text = params.get("fullText").and_then(Value::as_bool) == Some(true);
-            let mut result = read_state(manager, agent_id, "full", full_text).await?;
+            let mut result = read_state(manager, agent_id, "full", full_text, part).await?;
             let downloads = manager.recent_downloads(agent_id);
             if !downloads.is_empty() {
                 result["downloads"] = json!(downloads);
@@ -335,7 +352,9 @@ async fn run(
             let by_point = params.get("x").is_some() || params.get("y").is_some();
             let input = match by_point {
                 true => Value::Null,
-                false => call(&view, "fileInput", &[element_target(params, "index")]).await?,
+                false => {
+                    call_when_shown(&view, "fileInput", &[element_target(params, "index")]).await?
+                }
             };
             let placed = input.is_object();
             let (x, y, mut result) = match input.get("x").and_then(Value::as_f64) {
@@ -441,7 +460,8 @@ async fn run(
                 Value::Object(at)
             };
             let prepared =
-                call(&view, "focus", &[at.clone(), json!(value), json!(replace)]).await?;
+                call_when_shown(&view, "focus", &[at.clone(), json!(value), json!(replace)])
+                    .await?;
             if prepared.get("selected").is_some() {
                 return Ok(prepared);
             }
@@ -637,7 +657,7 @@ async fn run(
                 if full_page {
                     return Err("pass fullPage or an element, not both".into());
                 }
-                Some(call(&view, "areaOf", &[named]).await?)
+                Some(call_when_shown(&view, "areaOf", &[named]).await?)
             };
             let marked = if annotate {
                 let page = state(manager, agent_id).await?;
@@ -733,16 +753,19 @@ async fn run(
                     .wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
                     .await;
                 let mut result = report(manager, agent_id, params).await?;
-                result["note"] = json!("a fixed wait; text, textGone, selector, url, urlGone or networkIdle wait only as long as it takes");
+                result["note"] = json!("a fixed wait; a condition such as text, selector, url, networkIdle, script or stable waits only as long as it takes");
                 return Ok(result);
             };
-            let limit = params
+            let asked = params
                 .get("timeoutMs")
                 .and_then(Value::as_u64)
-                .unwrap_or(DEFAULT_CONDITION_WAIT_MS)
-                .min(MAX_BLOCKING_MS);
-            let waited =
+                .unwrap_or(DEFAULT_CONDITION_WAIT_MS);
+            let limit = asked.min(MAX_CONDITION_WAIT_MS);
+            let mut waited =
                 wait_for(manager, agent_id, &condition, Duration::from_millis(limit)).await;
+            if limit < asked && waited["met"] == json!(false) {
+                waited["cappedAtMs"] = json!(limit);
+            }
             merge(waited, report(manager, agent_id, params).await?)
         }
         "browser.viewport" => {
@@ -827,6 +850,15 @@ async fn run(
             });
             if let Some(ran) = ran {
                 result["script"] = ran;
+            }
+            if content_height
+                .as_f64()
+                .is_some_and(|height| height > f64::from(sikemux_base::pages::MAX_HEIGHT))
+            {
+                result["tooTall"] = json!(format!(
+                    "a reply shows only the top {} px of a page; split it into pages, or show it with page_show and tab: true",
+                    sikemux_base::pages::MAX_HEIGHT
+                ));
             }
             if params.get("picture").and_then(Value::as_bool) == Some(false) {
                 return Ok(result);
@@ -1235,7 +1267,7 @@ fn tabs(manager: &BrowserManager, agent_id: &str) -> Value {
 }
 
 async fn state(manager: &BrowserManager, agent_id: &str) -> Result<Value, String> {
-    read_state(manager, agent_id, "full", false).await
+    read_state(manager, agent_id, "full", false, Value::Null).await
 }
 
 /// What an action hands back about the page, chosen by its `report`: only the
@@ -1244,7 +1276,7 @@ async fn report(manager: &BrowserManager, agent_id: &str, params: &Value) -> Res
     match params.get("report").and_then(Value::as_str) {
         Some("outcome") => outcome(manager, agent_id),
         Some("full") => state(manager, agent_id).await,
-        _ => read_state(manager, agent_id, "changes", false).await,
+        _ => read_state(manager, agent_id, "changes", false, Value::Null).await,
     }
 }
 
@@ -1261,6 +1293,20 @@ fn outcome(manager: &BrowserManager, agent_id: &str) -> Result<Value, String> {
         result["dialog"] = json!(dialog);
     }
     Ok(result)
+}
+
+/// Which part of the text a read asks for, as the page script's `excerpt` takes it.
+fn text_part(params: &Value) -> Result<Value, String> {
+    let number = |key: &str| params.get(key).and_then(Value::as_u64);
+    let chars = number("chars")
+        .unwrap_or(AROUND_CHARS)
+        .clamp(1, MAX_READ_CHARS);
+    match (params.get("around").and_then(Value::as_str), number("tail")) {
+        (Some(_), Some(_)) => Err("pass around or tail, not both".into()),
+        (Some(around), None) => Ok(json!({ "around": around, "chars": chars })),
+        (None, Some(tail)) => Ok(json!({ "tail": tail.clamp(1, MAX_READ_CHARS) })),
+        (None, None) => Ok(Value::Null),
+    }
 }
 
 /// The element lines that got a box on the picture, in the page's order.
@@ -1292,6 +1338,7 @@ async fn read_state(
     agent_id: &str,
     mode: &str,
     full_text: bool,
+    part: Value,
 ) -> Result<Value, String> {
     let (tab_id, view) = active_tab(manager, agent_id)?;
     let page = manager.page(agent_id, &tab_id).unwrap_or_default();
@@ -1305,7 +1352,7 @@ async fn read_state(
     } else if page.url == BLANK_URL {
         json!({ "url": BLANK_URL, "title": "", "elements": "", "text": "" })
     } else {
-        call(&view, "state", &[json!(mode), json!(full_text)]).await?
+        call(&view, "state", &[json!(mode), json!(full_text), part]).await?
     };
     if let Some(viewport) = result.get_mut("viewport").and_then(Value::as_object_mut) {
         let fixed = manager.viewport(agent_id, &tab_id);
@@ -1356,11 +1403,15 @@ async fn settle(manager: &BrowserManager, agent_id: &str, tab_id: &str) {
 /// script always answers with a JSON string, because WebKit refuses to hand
 /// back anything it cannot serialize.
 pub(crate) async fn call(view: &Tab, function: &str, args: &[Value]) -> Result<Value, String> {
+    unwrap_answer(page_answer(view, function, args).await?)
+}
+
+/// What one of the page script's functions answered, `ok` or `error`, before it is unwrapped.
+async fn page_answer(view: &Tab, function: &str, args: &[Value]) -> Result<Value, String> {
     let answer = answer_of("window.__sikemux", function, args);
     let raw = native::run_helper(view, &format!("{PAGE_SCRIPT}\nreturn {answer};")).await?;
-    let inner = serde_json::from_str::<Value>(&raw)
-        .map_err(|_| "the page returned an unreadable answer".to_string())?;
-    unwrap_answer(inner)
+    serde_json::from_str::<Value>(&raw)
+        .map_err(|_| "the page returned an unreadable answer".to_string())
 }
 
 /// Read what the recorder kept for `function` ("network" or "console").
@@ -1383,7 +1434,7 @@ fn answer_of(target: &str, function: &str, args: &[Value]) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "JSON.stringify((() => {{ try {{ return {{ ok: ({target}).{function}({args}) }}; }} catch (error) {{ return {{ error: String((error && error.message) || error) }}; }} }})())"
+        "JSON.stringify((() => {{ try {{ return {{ ok: ({target}).{function}({args}) }}; }} catch (error) {{ return {{ error: String((error && error.message) || error), missing: Boolean(error && error.missing) }}; }} }})())"
     )
 }
 
@@ -1435,7 +1486,11 @@ pub(crate) async fn screenshot(
             None => page::snapshot_jpeg(webview, area, done),
         }
     });
-    match tokio::time::timeout(EVAL_TIMEOUT, receiver).await {
+    let limit = match height {
+        Some(_) => FULL_PAGE_SHOT_TIMEOUT,
+        None => EVAL_TIMEOUT,
+    };
+    match tokio::time::timeout(limit, receiver).await {
         Ok(Ok(result)) => result,
         Ok(Err(_)) => Err("screenshot was abandoned".into()),
         Err(_) => Err("screenshot took too long".into()),
@@ -1443,6 +1498,14 @@ pub(crate) async fn screenshot(
 }
 
 impl BrowserManager {
+    /// A picture of the agent's tab in front, once its page has loaded.
+    pub async fn front_picture(&self, agent_id: &str) -> Result<Vec<u8>, String> {
+        let (tab_id, view) = active(self, agent_id)?;
+        self.wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT).await;
+        tokio::time::sleep(SETTLE).await;
+        screenshot(&view, None, None).await
+    }
+
     pub fn page(&self, agent_id: &str, tab_id: &str) -> Option<super::TabPage> {
         self.agents
             .locked()
@@ -1534,19 +1597,22 @@ mod tests {
 
     #[test]
     fn a_fragment_change_is_told_apart_from_a_new_page() {
-        assert!(same_document(
+        assert!(crate::address::same_document(
             "https://a.test/doc",
             "https://a.test/doc#size"
         ));
-        assert!(same_document(
+        assert!(crate::address::same_document(
             "https://a.test/doc#a",
             "https://a.test/doc#b"
         ));
-        assert!(!same_document(
+        assert!(!crate::address::same_document(
             "https://a.test/doc",
             "https://a.test/other#size"
         ));
-        assert!(!same_document("https://a.test/doc#a", "https://a.test/doc"));
+        assert!(!crate::address::same_document(
+            "https://a.test/doc#a",
+            "https://a.test/doc"
+        ));
     }
 
     #[test]
