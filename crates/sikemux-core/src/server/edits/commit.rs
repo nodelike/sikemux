@@ -1218,18 +1218,20 @@ mod tests {
         }
         std::fs::write(folder.join("api/lib/only.ts"), "").unwrap();
         let named = |path: &str| vec![folder.join(path).to_string_lossy().into_owned()];
+        let core = Core::new(Default::default(), None).unwrap();
+        let checkout_for = |named: &[String]| checkout_for(&core, "agent", &folder, named);
 
-        let (dir, paths) = checkout_for(&folder, &named("lib/only.ts")).unwrap();
+        let (dir, paths) = checkout_for(&named("lib/only.ts")).unwrap();
         assert_eq!(dir, folder.join("api"));
         assert_eq!(paths, named("api/lib/only.ts"));
 
-        let several = checkout_for(&folder, &named("shared.ts")).unwrap_err();
+        let several = checkout_for(&named("shared.ts")).unwrap_err();
         assert!(
             several.contains("api") && several.contains("web"),
             "{several}"
         );
 
-        let nowhere = checkout_for(&folder, &named("missing.ts")).unwrap_err();
+        let nowhere = checkout_for(&named("missing.ts")).unwrap_err();
         assert!(nowhere.contains("is not in a git checkout"), "{nowhere}");
     }
 
