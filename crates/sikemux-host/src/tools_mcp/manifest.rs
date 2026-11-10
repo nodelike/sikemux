@@ -215,8 +215,8 @@ impl Manifest {
         );
         if self.offers_simulator() {
             instructions.push_str(
-                " To check an iOS or Android app, sim_attach a simulator or Android device, which shows live on your desk, so never open Simulator.app or an emulator window; read it with sim_state and act with sim_tap, sim_type and sim_swipe, loaded together. \
-                 Install with sim_install and sim_launch, never expo run:ios, expo run:android, react-native run-ios, react-native run-android or flutter run.",
+                " To check a mobile app, sim_attach a device, which shows live on your desk, so never open Simulator.app; read it with sim_state and act with sim_tap, sim_type and sim_swipe, loaded together. \
+                 Install with sim_install and sim_launch, never expo run, react-native run-* or flutter run.",
             );
         }
         instructions

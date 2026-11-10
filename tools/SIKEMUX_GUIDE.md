@@ -65,7 +65,7 @@ Pass one of these as `topic`:
 - `browser-pages` — navigating, reloading, waiting, local files, viewports, tabs
 - `browser-evidence` — `browser_screenshot`, `browser_annotate`, `browser_record`
 - `browser-debugging` — network, console, `app_console`, `browser_evaluate`
-- `simulator` — driving an iOS simulator or Android device with `sim_*`
+- `simulator` — driving an iOS simulator with `sim_*`
 - `databases` — the `db_*` tools, SQL, and adding a database
 - `aws` — `aws_*` tools, profiles, expired sign-ins
 - `connectors` — PRs, CI and SigNoz logs
@@ -818,15 +818,15 @@ An Expo development build then reaches it through `sim_open_url` with
 `<scheme>://expo-development-client/?url=http%3A%2F%2F127.0.0.1%3A8081`.
 
 Android devices take the same tools, in the same device points (Android's
-dp). `sim_attach` with `platform: "android"` picks one when you name none: the
-device your desk or project had, else one already running, else the virtual
-device on the newest Android, which starts with no window of its own and shows
-on your desk. Phones plugged in with USB debugging on are listed too. With no
+dp). `sim_devices` lists them with `platform: "android"`; `sim_attach` one by
+its name or udid. Named none, `sim_attach` takes the device your desk or project
+had, else an iOS one where Xcode is installed and an Android one where it is
+not. A virtual device starts with no window of its own and shows on your desk. Phones plugged in with USB debugging on are listed too. With no
 Android SDK on this computer, ask the person to set up the Android Emulator
 from the desk's device menu; do not install the SDK yourself. `sim_install` the
 `.apk` your build produced inside the project (`./gradlew assembleDebug` as a
 process) and `sim_launch` it by package name; `sim_logs` takes the package
-name as `process`. `sim_button` has `back` and `appSwitch` on Android. Do not install or launch with
+name as `process`. `sim_button` has `back` on Android. Do not install or launch with
 `pnpm android`, `expo run:android`, `react-native run-android`, `flutter run`,
 `./gradlew installDebug` or `adb install`: they pick a device on their own,
 which may be one another agent holds or the person's phone. Start only the

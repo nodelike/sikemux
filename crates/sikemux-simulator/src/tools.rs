@@ -148,7 +148,7 @@ pub(super) async fn run(
                     .collect::<Vec<_>>(),
             }))
         }
-        "sim.attach" => attach(manager, agent_id, project, text("device"), text("platform")).await,
+        "sim.attach" => attach(manager, agent_id, project, text("device")).await,
         "sim.state" => settled_state(manager, agent_id, None, Report::Full).await,
         "sim.tap" => {
             let device = attached(manager, agent_id)?;
@@ -603,7 +603,6 @@ async fn attach(
     agent_id: &str,
     project: &str,
     wanted: Option<&str>,
-    platform: Option<&str>,
 ) -> Result<Value, String> {
     let devices = list_devices(manager).await?;
     let held = manager.held_by_others(agent_id);
@@ -620,25 +619,29 @@ async fn attach(
         }
         (None, Some(current)) => current.clone(),
         (None, None) => {
-            let android = match platform {
-                Some("android") => true,
-                Some("ios") => false,
-                Some(other) => return Err(format!("platform must be ios or android, not {other}")),
-                None => !super::capable(),
-            };
-            if android && manager.android().sdk().is_none() {
+            let (desk, remembered) = (
+                manager.desk_device(agent_id),
+                manager.project_device(project),
+            );
+            let chosen = [&desk, &remembered].into_iter().flatten().any(|udid| {
+                devices
+                    .iter()
+                    .any(|device| &device.udid == udid && !held.contains_key(udid))
+            });
+            let android = !super::capable();
+            if android && !chosen && manager.android().sdk().is_none() {
                 return Err(super::android::NO_SDK.into());
             }
             let candidates: Vec<Device> = devices
                 .iter()
-                .filter(|device| is_android(&device.udid) == android)
+                .filter(|device| chosen || is_android(&device.udid) == android)
                 .cloned()
                 .collect();
             match pick_device(
                 &candidates,
                 &held,
-                manager.desk_device(agent_id).as_deref(),
-                manager.project_device(project).as_deref(),
+                desk.as_deref(),
+                remembered.as_deref(),
                 &project_device_name(project),
             ) {
                 Pick::Use(device) => device.clone(),
