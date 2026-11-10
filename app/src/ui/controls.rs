@@ -221,6 +221,8 @@ pub enum Variant {
     Primary,
     /// A dashed box for adding something that is not there yet.
     Dashed,
+    /// Text alone until the pointer is over it, for an action a row keeps but rarely needs.
+    Ghost,
 }
 
 /// A labelled button, optionally with a leading icon and a trailing shortcut.
@@ -364,11 +366,18 @@ impl RenderOnce for Button {
             .rounded(RADIUS_2)
             .whitespace_nowrap();
         let base = match self.variant {
-            Variant::Outline => base
+            Variant::Outline | Variant::Ghost => base
                 .h(px(28.))
                 .px(SPACE_3)
                 .border_1()
-                .border_color(fade("edge", if lit { t.border_strong } else { t.border }))
+                .border_color(fade(
+                    "edge",
+                    match (lit, self.variant) {
+                        (true, _) => t.border_strong,
+                        (false, Variant::Ghost) => t.border.opacity(0.),
+                        (false, _) => t.border,
+                    },
+                ))
                 .text_size(crate::theme::ui_text(TEXT_2XS_H))
                 .text_color(fade(
                     "ink",
@@ -437,7 +446,7 @@ impl RenderOnce for Button {
         });
         let (glyph, rest) = match self.variant {
             Variant::Primary => (13., t.on_accent),
-            Variant::Outline => (11., t.text_secondary),
+            Variant::Outline | Variant::Ghost => (11., t.text_secondary),
             Variant::Dashed => (11., t.text_tertiary),
         };
         let hover = if self.variant == Variant::Primary {

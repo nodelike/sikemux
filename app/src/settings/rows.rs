@@ -174,6 +174,26 @@ pub fn row_with(
     cx: &App,
 ) -> Div {
     let t = Tokens::get(cx);
+    let about = about.map(|about| {
+        div()
+            .text_size(crate::theme::ui_text(TEXT_2XS_H))
+            .line_height(crate::theme::ui_text(TEXT_LG))
+            .text_color(t.text_tertiary)
+            .child(about)
+            .into_any_element()
+    });
+    row_parts(mark, label.into(), about, control, cx)
+}
+
+/// A row whose name and line under it are drawn by the page.
+pub fn row_parts(
+    mark: Option<AnyElement>,
+    label: impl IntoElement,
+    about: Option<AnyElement>,
+    control: impl IntoElement,
+    cx: &App,
+) -> Div {
+    let t = Tokens::get(cx);
     div()
         .flex()
         .items_center()
@@ -194,15 +214,9 @@ pub fn row_with(
                     div()
                         .text_size(crate::theme::ui_text(TEXT_SM))
                         .text_color(t.text_primary)
-                        .child(label.into()),
+                        .child(label),
                 )
-                .children(about.map(|about| {
-                    div()
-                        .text_size(crate::theme::ui_text(TEXT_2XS_H))
-                        .line_height(crate::theme::ui_text(TEXT_LG))
-                        .text_color(t.text_tertiary)
-                        .child(about)
-                })),
+                .children(about),
         )
         .child(div().flex_none().child(control))
 }

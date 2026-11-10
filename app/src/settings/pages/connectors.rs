@@ -270,24 +270,93 @@ fn has_sign_in(plugin: &Listed) -> bool {
     plugin.id == AWS || plugin.token_form.is_some() || plugin.browser_sign_in
 }
 
-/// How the connector stands, in the line under its name.
-fn standing(plugin: &Listed, fields: &Fields) -> SharedString {
+/// Who the connector is signed in as, with any email cut to its domain so the page never shows
+/// an address.
+fn account(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
     if !plugin.enabled {
-        return "Off".into();
+        return None;
     }
     if plugin.id == DATABASE {
         return match fields.databases.len() {
-            0 => "No databases saved yet. Agents propose them for you to approve.".into(),
-            1 => "1 database saved".into(),
-            saved => format!("{saved} databases saved").into(),
+            0 => None,
+            1 => Some("1 database".into()),
+            saved => Some(format!("{saved} databases").into()),
         };
     }
-    match (plugin.signed_in, &plugin.signed_in_as, &plugin.problem) {
-        (Some(true), Some(who), _) => format!("Signed in as {who}").into(),
-        (Some(true), None, _) => "Signed in".into(),
-        (Some(false), _, Some(problem)) => problem.clone().into(),
-        _ => "Not signed in".into(),
+    let who = plugin
+        .signed_in_as
+        .as_deref()
+        .filter(|_| plugin.signed_in == Some(true))?;
+    let shown: Vec<&str> = who
+        .split_whitespace()
+        .map(|word| word.rsplit_once('@').map_or(word, |(_, domain)| domain))
+        .collect();
+    Some(shown.join(" ").into())
+}
+
+/// What the person should know about the connector, under its name: only what needs them.
+fn trouble(plugin: &Listed, fields: &Fields) -> Option<SharedString> {
+    if !plugin.enabled {
+        return None;
     }
+    if plugin.id == DATABASE && fields.databases.is_empty() {
+        return Some("No databases saved yet. Agents propose them for you to approve.".into());
+    }
+    (plugin.signed_in == Some(false))
+        .then(|| plugin.problem.clone().map(SharedString::from))
+        .flatten()
+}
+
+/// The connector's name, its account beside it, and anything wrong under it.
+fn summary(plugin: &Listed, fields: &Fields, cx: &App) -> (AnyElement, Option<AnyElement>) {
+    let t = Tokens::get(cx);
+    let name = div()
+        .flex()
+        .items_center()
+        .gap(SPACE_2)
+        .min_w_0()
+        .when(!plugin.enabled, |name| name.text_color(t.text_tertiary))
+        .child(div().flex_none().child(plugin.name.clone()))
+        .children(account(plugin, fields).map(|account| {
+            div()
+                .min_w_0()
+                .truncate()
+                .px(SPACE_2)
+                .py(px(1.))
+                .rounded_full()
+                .bg(t.surface_hover)
+                .text_size(crate::theme::ui_text(TEXT_XS))
+                .text_color(t.text_secondary)
+                .child(account)
+        }))
+        .into_any_element();
+    let trouble = trouble(plugin, fields).map(|line| {
+        let wrong = plugin.problem.is_some() && plugin.id != DATABASE;
+        div()
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .text_color(if wrong { t.danger } else { t.text_tertiary })
+            .child(line)
+            .into_any_element()
+    });
+    (name, trouble)
+}
+
+/// The connector's mark on a small tile.
+fn tile(plugin: &Listed, cx: &App) -> AnyElement {
+    let t = Tokens::get(cx);
+    div()
+        .flex_none()
+        .size(px(28.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded(theme::RADIUS_2)
+        .bg(t.surface_hover)
+        .border_1()
+        .border_color(t.line_soft)
+        .when(!plugin.enabled, |tile| tile.opacity(0.5))
+        .child(ui::picture(mark(&plugin.id), 16., t.text_secondary))
+        .into_any_element()
 }
 
 pub fn render(
@@ -301,15 +370,15 @@ pub fn render(
     let Some(fields) = &pages.connectors else {
         return Vec::new();
     };
-    let ink = Tokens::get(cx).text_secondary;
     let body = match plugins.is_empty() {
         true => rows::note("No connectors in this build.", cx),
         false => div()
             .children(plugins.all().map(|plugin| {
-                rows::row_with(
-                    Some(ui::picture(mark(&plugin.id), 16., ink).into_any_element()),
-                    plugin.name.clone(),
-                    Some(standing(plugin, fields)),
+                let (name, trouble) = summary(plugin, fields, cx);
+                rows::row_parts(
+                    Some(tile(plugin, cx)),
+                    name,
+                    trouble,
                     controls(plugin, fields, this),
                     cx,
                 )
@@ -320,7 +389,7 @@ pub fn render(
     vec![rows::section(
         "Connectors",
         None,
-        Some("Sign in once here and every agent's tools use it. A connector switched off leaves agents' tools, and costs nothing until it is back on.".into()),
+        None,
         lit("Connectors"),
         body,
         cx,
@@ -363,13 +432,19 @@ fn controls(plugin: &Listed, fields: &Fields, this: &Entity<Workbench>) -> AnyEl
             false if signed_in => ("Sign in again", false),
             false => ("Sign in", false),
         };
+        let (glyph, variant) = match (signing_out, plugin.problem.is_some() && !signed_in) {
+            (true, _) => (Icon::LogOut, ui::Variant::Ghost),
+            (false, true) => (Icon::LogIn, ui::Variant::Primary),
+            (false, false) => (Icon::LogIn, ui::Variant::Outline),
+        };
         let this = this.clone();
         let id = id.clone();
         ui::Button::new(
             SharedString::from(format!("connector-sign-{id}")),
             label,
-            ui::Variant::Outline,
+            variant,
         )
+        .icon(glyph)
         .on_click(move |_, window, cx| {
             this.update(cx, |bench, cx| match signing_out {
                 true => sign_out(bench, &id, cx),
