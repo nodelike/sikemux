@@ -193,6 +193,8 @@ struct Published {
     /// The agents found that run only in their own terminal.
     terminals: Vec<Launcher>,
     recent: Vec<Recent>,
+    /// Every saved chat in each project, by its id.
+    saved_chats: HashMap<PathBuf, Vec<String>>,
     /// Older chats a device paged or searched to, newest looked up first, which it may take up
     /// again as it does a recent one.
     found: Vec<Recent>,
@@ -539,6 +541,7 @@ impl Workspaces {
                 launcher: None,
                 code_host: None,
                 worktree_default: false,
+                saved_chats: BTreeMap::new(),
             };
             check_project(&project, saved)?;
             saved.projects.push(project.clone());
@@ -1253,6 +1256,7 @@ impl Workspaces {
                 .iter()
                 .map(|project| ProjectInfo {
                     launcher: launcher(project),
+                    saved_chats: unheld_chats(&published, &project.path),
                     ..project.clone()
                 })
                 .collect(),
@@ -1740,6 +1744,7 @@ mod tests {
             launcher: None,
             code_host: None,
             worktree_default: false,
+            saved_chats: BTreeMap::new(),
         }
     }
 
@@ -1840,6 +1845,7 @@ mod tests {
                 recent("s3", "/Users/me/closed"),
             ],
             HashMap::new(),
+            HashMap::new(),
         );
         let running = workspaces.listed(Vec::new());
         let shown = workspaces.recent(&running, &Vec::new());
@@ -1894,7 +1900,11 @@ mod tests {
     fn a_recent_chat_resumes_with_its_launcher_in_its_project() {
         let workspaces = Workspaces::new(None);
         offer(&workspaces, vec![launcher()]);
-        workspaces.set_recent(vec![recent("s1", "/Users/me/sikemux")], HashMap::new());
+        workspaces.set_recent(
+            vec![recent("s1", "/Users/me/sikemux")],
+            HashMap::new(),
+            HashMap::new(),
+        );
         let choice = workspaces
             .resume_choice(resuming("claude:s1"), &[], &Vec::new())
             .unwrap();
@@ -1909,20 +1919,24 @@ mod tests {
     fn only_a_published_recent_chat_resumes() {
         let workspaces = Workspaces::new(None);
         offer(&workspaces, vec![launcher()]);
-        workspaces.set_recent(vec![recent("s1", "/Users/me/sikemux")], HashMap::new());
+        workspaces.set_recent(
+            vec![recent("s1", "/Users/me/sikemux")],
+            HashMap::new(),
+            HashMap::new(),
+        );
         assert!(workspaces
             .resume_choice(resuming("claude:other"), &[], &Vec::new())
             .is_err());
         assert!(workspaces
             .resume_choice(resuming("s1"), &[], &Vec::new())
             .is_err());
-        workspaces.set_recent(Vec::new(), HashMap::new());
+        workspaces.set_recent(Vec::new(), HashMap::new(), HashMap::new());
         assert!(workspaces
             .resume_choice(resuming("claude:s1"), &[], &Vec::new())
             .is_err());
         let mut elsewhere = recent("s2", "/Users/me/sikemux");
         elsewhere.launcher = "codex".into();
-        workspaces.set_recent(vec![elsewhere], HashMap::new());
+        workspaces.set_recent(vec![elsewhere], HashMap::new(), HashMap::new());
         assert!(workspaces
             .resume_choice(resuming("claude:s2"), &[], &Vec::new())
             .is_err());

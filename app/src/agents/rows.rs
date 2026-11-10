@@ -6,7 +6,7 @@ use sikemux_core::server::workspace::PinnedParams;
 use sikemux_view::device::{DeviceView, RecentInfo};
 use sikemux_view::inbox::{AgentShown, TeamLink};
 use sikemux_view::layout::PaneKind;
-use sikemux_view::workspace::{AgentFace, PinnedChat};
+use sikemux_view::workspace::{AgentFace, PinnedChat, ProjectInfo};
 use sikemux_wire::protocol::{AgentGroup, AgentStatus};
 
 use crate::copies::Folded;
@@ -134,6 +134,26 @@ impl Workbench {
             .into_iter()
             .filter(|recent| recent.agent_id.is_none())
             .collect()
+    }
+
+    /// How many saved chats Recent has for the project in all, loaded or not; none while
+    /// the filter narrows them.
+    pub fn recent_total(&self, project: &ProjectInfo) -> Option<usize> {
+        if !self.filter_text().is_empty() {
+            return None;
+        }
+        let provider = self.launcher().map(|launcher| launcher.provider.as_str());
+        let saved: usize = (project.saved_chats.iter())
+            .filter(|(kind, _)| self.rails.all_harnesses || provider == Some(kind.as_str()))
+            .map(|(_, count)| count)
+            .sum();
+        let pinned_apart = match self.rails.all_projects {
+            true => 0,
+            false => (self.pinned_of(&project.id).iter())
+                .filter(|pin| pin.agent_id.is_none())
+                .count(),
+        };
+        Some(saved.saturating_sub(pinned_apart))
     }
 
     /// The project's pinned chats, held by an agent or not, in the order the person keeps them.

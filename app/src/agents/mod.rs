@@ -307,7 +307,9 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                 })
                 .when(!recent.is_empty(), |scroll| {
                     scroll.child(
-                        folding(Group::new("Recent", ""), RECENT, bench, cx).children(recent),
+                        folding(Group::new("Recent", ""), RECENT, bench, cx)
+                            .total(project.and_then(|project| bench.recent_total(project)))
+                            .children(recent),
                     )
                 }),
             cx,

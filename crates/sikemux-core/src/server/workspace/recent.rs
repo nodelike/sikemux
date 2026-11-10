@@ -314,8 +314,8 @@ pub(crate) async fn recents(core: Arc<Core>) {
             Ok((newest(requests), homes))
         })
         .await;
-        if let Ok((found, homes)) = found {
-            if core.workspaces.set_recent(found, homes) {
+        if let Ok(((found, saved), homes)) = found {
+            if core.workspaces.set_recent(found, saved, homes) {
                 core.changed(What::View);
             }
         }
@@ -323,22 +323,51 @@ pub(crate) async fn recents(core: Arc<Core>) {
     }
 }
 
-pub(super) fn newest(requests: Vec<(String, RecentRequest)>) -> Vec<Recent> {
-    let mut found: Vec<Recent> = requests
-        .into_iter()
-        .flat_map(|(launcher, request)| {
-            let page = saved_chats::recent_page(request).ok()?;
-            Some(
-                page.sessions
-                    .into_iter()
-                    .map(move |session| saved_chat(launcher.clone(), session)),
-            )
-        })
-        .flatten()
-        .collect();
+/// The newest saved chats across every request, and every saved chat's id by its project.
+pub(super) fn newest(
+    requests: Vec<(String, RecentRequest)>,
+) -> (Vec<Recent>, HashMap<PathBuf, Vec<String>>) {
+    let mut found = Vec::new();
+    let mut saved: HashMap<PathBuf, Vec<String>> = HashMap::new();
+    for (launcher, request) in requests {
+        let Ok(page) = saved_chats::recent_page(request) else {
+            continue;
+        };
+        for chat in page.every {
+            let id = chat_id(chat.agent, &chat.id);
+            saved.entry(chat.project.into()).or_default().push(id);
+        }
+        found.extend(
+            page.sessions
+                .into_iter()
+                .map(|session| saved_chat(launcher.clone(), session)),
+        );
+    }
     found.sort_by_key(|chat| std::cmp::Reverse(chat.active_at));
     found.truncate(RECENT_LIMIT);
-    found
+    (found, saved)
+}
+
+/// How many of the project's saved chats no agent holds, by the agent that saved them.
+pub(super) fn unheld_chats(published: &Published, project: &Path) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    let Some(saved) = published.saved_chats.get(project) else {
+        return counts;
+    };
+    let held: HashSet<String> = (published.saved.agents.iter())
+        .filter_map(|kept| {
+            Some(chat_id(
+                &kept.agent.provider,
+                kept.agent.resume_id.as_deref()?,
+            ))
+        })
+        .collect();
+    for id in saved.iter().filter(|id| !held.contains(*id)) {
+        if let Some((provider, _)) = id.split_once(':') {
+            *counts.entry(provider.to_owned()).or_default() += 1;
+        }
+    }
+    counts
 }
 
 impl Workspaces {
@@ -500,6 +529,7 @@ impl Workspaces {
             cursor: asked.cursor,
             query: asked.query,
             exclude: Vec::new(),
+            count: false,
         };
         Ok((launchers, request))
     }
@@ -536,6 +566,7 @@ impl Workspaces {
                     cursor: None,
                     query: None,
                     exclude: Vec::new(),
+                    count: true,
                 };
                 (launcher, request)
             })
@@ -554,11 +585,15 @@ impl Workspaces {
     pub(super) fn set_recent(
         &self,
         recent: Vec<Recent>,
+        saved_chats: HashMap<PathBuf, Vec<String>>,
         pin_homes: HashMap<PathBuf, PathBuf>,
     ) -> bool {
         let mut published = self.published.locked();
-        let changed = published.recent != recent || published.pin_homes != pin_homes;
+        let changed = published.recent != recent
+            || published.saved_chats != saved_chats
+            || published.pin_homes != pin_homes;
         published.recent = recent;
+        published.saved_chats = saved_chats;
         published.pin_homes = pin_homes;
         changed
     }

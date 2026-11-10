@@ -338,6 +338,7 @@ pub struct Group {
     empty: SharedString,
     first: bool,
     fold: Option<(bool, OnClick)>,
+    total: Option<usize>,
     rows: SmallVec<[AnyElement; 8]>,
 }
 
@@ -350,6 +351,7 @@ impl Group {
             empty: empty.into(),
             first: false,
             fold: None,
+            total: None,
             rows: SmallVec::new(),
         }
     }
@@ -381,6 +383,12 @@ impl Group {
         self.fold = Some((folded, Rc::new(toggle)));
         self
     }
+
+    /// How many rows it has in all, when it holds only some of them; folded, it says that.
+    pub fn total(mut self, total: Option<usize>) -> Self {
+        self.total = total;
+        self
+    }
 }
 
 impl ParentElement for Group {
@@ -394,7 +402,7 @@ impl RenderOnce for Group {
         let t = Tokens::get(cx).clone();
         let empty = self.rows.is_empty();
         let folded = self.fold.as_ref().is_some_and(|(folded, _)| *folded);
-        let count = self.rows.len();
+        let count = self.rows.len().max(self.total.unwrap_or(0));
         let heading = div()
             .id(SharedString::from(format!("group-{}", self.label)))
             .flex()

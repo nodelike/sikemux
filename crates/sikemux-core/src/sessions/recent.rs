@@ -47,6 +47,9 @@ pub struct RecentRequest {
     pub(crate) query: Option<String>,
     #[serde(default)]
     pub(crate) exclude: Vec<RecentRef>,
+    /// Also lists every chat each project has, past the page, to count them.
+    #[serde(default)]
+    pub(crate) count: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -67,6 +70,17 @@ pub struct RecentSession {
 pub struct RecentPage {
     pub(crate) sessions: Vec<RecentSession>,
     pub(crate) next: Option<RecentCursor>,
+    /// Every chat in the projects asked for, when the request asked to count them.
+    #[serde(skip)]
+    pub(crate) every: Vec<Counted>,
+}
+
+/// One saved chat, as counted under its project.
+#[derive(Debug)]
+pub(crate) struct Counted {
+    pub(crate) project: String,
+    pub(crate) agent: &'static str,
+    pub(crate) id: String,
 }
 
 /// One entry a provider can list without opening it.
@@ -101,6 +115,8 @@ pub(crate) struct PageScan<'a> {
     limit: usize,
     query: Option<&'a str>,
     exclude: &'a HashSet<(String, String)>,
+    /// Opens every entry, not only a page's worth.
+    count: bool,
 }
 
 impl<'a> PageScan<'a> {
@@ -118,6 +134,7 @@ impl<'a> PageScan<'a> {
             limit,
             query: None,
             exclude,
+            count: false,
         }
     }
 
@@ -184,7 +201,7 @@ impl<'a> PageScan<'a> {
                     key: entry.key.clone(),
                     found,
                 });
-                if hits.len() == self.limit {
+                if hits.len() == self.limit && !self.count {
                     return hits;
                 }
             }
@@ -258,11 +275,24 @@ pub fn recent_page(request: RecentRequest) -> Result<RecentPage, String> {
                 limit: request.limit,
                 query: query.as_deref(),
                 exclude: &exclude,
+                count: request.count,
             };
             provider_hits(provider, &scan)
         })
         .collect();
     hits.sort_unstable_by(|a, b| compare(a.at_ms, a.agent, &a.key, b.at_ms, b.agent, &b.key));
+    let home_of = |ran_in: &String| home.get(ran_in).cloned().unwrap_or_else(|| ran_in.clone());
+    let every = match request.count {
+        true => hits
+            .iter()
+            .map(|hit| Counted {
+                project: home_of(&hit.found.project),
+                agent: hit.agent,
+                id: hit.found.session.id.clone(),
+            })
+            .collect(),
+        false => Vec::new(),
+    };
     hits.truncate(request.limit);
 
     let next = (hits.len() == request.limit)
@@ -277,7 +307,7 @@ pub fn recent_page(request: RecentRequest) -> Result<RecentPage, String> {
         .into_iter()
         .map(|hit| {
             let ran_in = hit.found.project;
-            let project = home.get(&ran_in).cloned().unwrap_or_else(|| ran_in.clone());
+            let project = home_of(&ran_in);
             RecentSession {
                 agent: hit.agent,
                 id: hit.found.session.id,
@@ -288,7 +318,11 @@ pub fn recent_page(request: RecentRequest) -> Result<RecentPage, String> {
             }
         })
         .collect();
-    Ok(RecentPage { sessions, next })
+    Ok(RecentPage {
+        sessions,
+        next,
+        every,
+    })
 }
 
 /// Where `project` stands in each worktree the core cut of its repository,
@@ -364,6 +398,7 @@ mod tests {
             limit,
             query,
             exclude,
+            count: false,
         }
     }
 
@@ -462,6 +497,7 @@ mod tests {
             cursor,
             query: None,
             exclude: vec![],
+            count: false,
         }
     }
 
@@ -550,6 +586,7 @@ mod tests {
             cursor: None,
             query: None,
             exclude: vec![],
+            count: false,
         };
         assert!(recent_page(request(0)).is_err());
         assert!(recent_page(request(MAX_PAGE + 1)).is_err());

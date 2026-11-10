@@ -154,6 +154,7 @@ fn from_app(saved: &mut Saved, app: &Value, earlier: &Earlier) {
                 launcher: None,
                 code_host: None,
                 worktree_default: false,
+                saved_chats: BTreeMap::new(),
             })
         })
         .filter(|project| project.path.is_absolute())

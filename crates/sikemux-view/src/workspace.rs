@@ -53,6 +53,10 @@ pub struct ProjectInfo {
     /// The core fills it in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_host: Option<ProjectCodeHost>,
+    /// How many saved chats it has that no agent holds, by the agent that saved
+    /// them. The core fills it in.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub saved_chats: BTreeMap<String, usize>,
 }
 
 /// A project's copy on another host of the account (ADR 0023), as that host
