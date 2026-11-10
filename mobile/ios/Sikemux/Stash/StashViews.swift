@@ -33,8 +33,13 @@ struct StashFace: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(photo == nil ? palette.border : .clear, lineWidth: 1))
         .task(id: item.id) {
-            guard item.kind == .image, photo == nil, let file = try? await StashAPI.download(item) else { return }
-            photo = await Task.detached { Self.thumbnail(file, pixels: 160) }.value
+            guard item.kind == .image, photo == nil else { return }
+            do {
+                let file = try await StashAPI.download(item)
+                photo = await Task.detached { Self.thumbnail(file, pixels: 160) }.value
+            } catch {
+                print("sikemux: could not bring a stashed photo down: \(error)")
+            }
         }
     }
 

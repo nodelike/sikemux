@@ -33,9 +33,6 @@ enum Outgoing {
   case file(url: URL, name: String, mime: String, size: Int64)
 }
 
-let mostBytes: Int64 = 25 * 1024 * 1024
-/// The longest text the server takes as text; longer text goes as a file.
-let mostText = 16000
 private let thumbnailPixels: CGFloat = 240
 private let picturesShown = 4
 
@@ -66,21 +63,20 @@ final class ShareModel: ObservableObject {
 
   var tooBig: [String] {
     items.compactMap { item in
-      if case let .file(_, name, _, size) = item, size > mostBytes { return name }
+      if case let .file(_, name, _, size) = item, size > StashRules.mostBytes { return name }
       return nil
     }
   }
 
   var sendable: [Outgoing] {
     items.filter { item in
-      if case let .file(_, _, _, size) = item { return size <= mostBytes }
+      if case let .file(_, _, _, size) = item { return size <= StashRules.mostBytes }
       return true
     }
   }
 
   func load(_ inputs: [NSExtensionItem]) async {
-    guard let data = StashShared.read(), let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data),
-          let key = StashShared.key(), let upload = StashUpload(api: snapshot.apiUrl, keyHex: key)
+    guard let snapshot = Self.snapshot(), let key = StashShared.key(), let upload = StashUpload(api: snapshot.apiUrl, keyHex: key)
     else {
       phase = .signedOut
       return
@@ -88,7 +84,12 @@ final class ShareModel: ObservableObject {
     self.upload = upload
     chats = snapshot.chats
     newChat = snapshot.newChat
-    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    do {
+      try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    } catch {
+      phase = .failed(error.localizedDescription)
+      return
+    }
     var found: [Outgoing] = []
     for input in inputs {
       for provider in input.attachments ?? [] {
@@ -127,7 +128,22 @@ final class ShareModel: ObservableObject {
   }
 
   func cleanUp() {
-    try? FileManager.default.removeItem(at: folder)
+    do {
+      try FileManager.default.removeItem(at: folder)
+    } catch {
+      print("sikemux: could not clear what the share copied: \(error)")
+    }
+  }
+
+  /// What the app left; nil until it has signed in, which sends the person there first.
+  private static func snapshot() -> Snapshot? {
+    guard let data = StashShared.read() else { return nil }
+    do {
+      return try JSONDecoder().decode(Snapshot.self, from: data)
+    } catch {
+      print("sikemux: could not read the chats the app left: \(error)")
+      return nil
+    }
   }
 
   private func start(target: StashTarget?, done: (title: String, detail: String)) {
@@ -151,15 +167,15 @@ final class ShareModel: ObservableObject {
           switch item {
           case let .link(url):
             try await upload.link(url.absoluteString, note: noted, target: target)
-          case let .text(text) where text.count <= mostText:
+          case let .text(text) where text.count <= StashRules.mostText:
             try await upload.text(text, note: noted, target: target)
           case let .text(text):
             let file = folder.appendingPathComponent("Shared text.txt")
             try Data(text.utf8).write(to: file)
             try await upload.file(at: file, name: "Shared text.txt", mime: "text/plain", note: noted, target: target) { _ in }
           case let .file(url, name, mime, _):
-            try await upload.file(at: url, name: name, mime: mime, note: noted, target: target) { [weak self] share in
-              self?.phase = .sending((before + share * weight) / total)
+            try await upload.file(at: url, name: name, mime: mime, note: noted, target: target) { share in
+              self.phase = .sending((before + share * weight) / total)
             }
           }
           sent += weight
