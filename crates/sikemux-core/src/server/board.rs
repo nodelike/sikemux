@@ -2204,7 +2204,7 @@ fn change_in(
     if let By::Agent(agent) = by {
         let holder = holder(core, &before);
         if !only_ticks && !may_change(core, agent, holder) {
-            let owner = name_of(core, holder.unwrap_or_default());
+            let owner = before.owner_name(core).unwrap_or_default();
             return Err(format!(
                 "#{id} is {owner}'s; message {owner} with agent_send to change it"
             ));
