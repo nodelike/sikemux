@@ -64,7 +64,8 @@ const START_BUDGET: Duration = Duration::from_secs(30);
 const OUTPUT_EVENT_GAP: Duration = Duration::from_millis(250);
 const READY_POLL: Duration = Duration::from_millis(250);
 const MAX_WAITS: usize = 32;
-const MAX_WAIT_MS: u64 = 30_000;
+const MAX_WAIT_MS: u64 = 50_000;
+const RUN_TAIL_LINES: usize = 20;
 /// Every running agent's tools server holds one of these open.
 const MAX_PLUGIN_WAITS: usize = 512;
 /// Shorter than the tools server waits for any answer.
@@ -83,7 +84,7 @@ const NO_WINDOW_NOTE: &str =
     "No Sikemux window is open on this host; any tabs listed are the ones it shows when it opens.";
 const AWAITING_TRUST_NOTE: &str = "Waiting for the person to trust this project's sikemux.json in Sikemux. Call process_start again with the same idempotencyKey, or events_wait with this executionId, to see when it starts.";
 const STARTING_NOTE: &str = "Still starting. Call process_start again with the same idempotencyKey, or events_wait with this executionId, to see when it runs.";
-const NOT_READY_NOTE: &str = "The process is running but readyWhen has not appeared yet. Wait with events_wait on this executionId, or process_read with search.";
+const NOT_READY_NOTE: &str = "The process is running but readyWhen has not appeared yet. Wait with events_wait on this executionId and until ready.";
 
 const LAUNCH_CUT_SHORT: &str = "Sikemux's background process was updated while the window was starting this process; start it again";
 

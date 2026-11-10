@@ -213,6 +213,7 @@ pub(super) fn begin_start(
         let execution_id = uuid::Uuid::new_v4().to_string();
         let mut run = Run::new(execution_id.clone(), task_id.clone(), project.to_owned());
         run.agent_id = agent_id.map(str::to_owned);
+        run.ready_when = text(params, "readyWhen")?.map(str::to_owned);
         if let Some(spec) = &spec {
             run.label = Some(spec.label.clone());
             run.command = Some(spec.command.clone());

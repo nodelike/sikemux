@@ -13,8 +13,8 @@ use tokio::sync::Notify;
 
 use crate::cli::protocol::HarnessRequest;
 
-const DEFAULT_WAIT_MS: u64 = 30_000;
-const MAX_WAIT_MS: u64 = 30_000;
+const DEFAULT_WAIT_MS: u64 = 50_000;
+const MAX_WAIT_MS: u64 = 50_000;
 /// How long a file must stay unchanged to count as finished.
 const QUIET: Duration = Duration::from_secs(2);
 /// A file watch can miss a write, so the file is looked at this often too.

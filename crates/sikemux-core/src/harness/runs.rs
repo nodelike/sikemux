@@ -83,6 +83,9 @@ pub struct Run {
     /// When its process started, in Unix milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<u64>,
+    /// The output text that means it is ready, as `process_start` was given it.
+    #[serde(skip)]
+    pub ready_when: Option<String>,
     #[serde(skip)]
     pub agent_id: Option<String>,
     #[serde(skip)]
@@ -107,6 +110,7 @@ impl Run {
             preview_url: None,
             cwd: None,
             started_at: None,
+            ready_when: None,
             agent_id: None,
             launch_spec: None,
             launch: Launch::Pending,
@@ -139,6 +143,7 @@ pub struct RunRecord {
     pub preview_url: Option<String>,
     pub cwd: Option<String>,
     pub started_at: Option<u64>,
+    pub ready_when: Option<String>,
     pub agent_id: Option<String>,
     pub launch_spec: Option<CommandLaunch>,
     pub launch: Launch,
@@ -161,6 +166,7 @@ impl From<&Run> for RunRecord {
             preview_url: run.preview_url,
             cwd: run.cwd,
             started_at: run.started_at,
+            ready_when: run.ready_when,
             agent_id: run.agent_id,
             launch_spec: run.launch_spec,
             launch: run.launch,
@@ -184,6 +190,7 @@ impl From<RunRecord> for Run {
             preview_url: record.preview_url,
             cwd: record.cwd,
             started_at: record.started_at,
+            ready_when: record.ready_when,
             agent_id: record.agent_id,
             launch_spec: record.launch_spec,
             launch: record.launch,

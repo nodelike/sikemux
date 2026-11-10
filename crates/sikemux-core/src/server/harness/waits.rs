@@ -12,6 +12,9 @@ impl Drop for WaitSlot<'_> {
 
 pub(super) async fn events_wait(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
     let params = &request.params;
+    if params.get("until").is_some() {
+        return run_until(core, request).await;
+    }
     let cursor = match params.get("cursor") {
         Some(Value::Null) => None,
         Some(Value::String(cursor)) if cursor.trim().is_empty() => None,
@@ -69,6 +72,75 @@ pub(super) async fn events_wait(core: &Core, request: &HarnessRequest) -> Result
             _ = tokio::time::sleep_until(deadline) => {}
         }
     }
+}
+
+/// Holds the wait until one run exits, gets ready, or prints the text `until` names, so an
+/// agent need not wake on every chunk of its output.
+async fn run_until(core: &Core, request: &HarnessRequest) -> Result<Value, String> {
+    let params = &request.params;
+    let until = required_text(params, "until")?;
+    let execution_id =
+        text(params, "executionId")?.ok_or("until waits on one run; pass its executionId too")?;
+    let timeout = integer(params, "timeoutMs", MAX_WAIT_MS, MAX_WAIT_MS, 0)?;
+    let deadline = Instant::now() + Duration::from_millis(timeout);
+    let project = request.project.as_str();
+    let harness = &core.harness;
+    let run = harness.read(|state| state.run(project, execution_id))?;
+    let pattern = match until {
+        "exit" => None,
+        "ready" => Some(run.ready_when.clone().ok_or(
+            "this run was started without readyWhen; pass the text that means ready as until",
+        )?),
+        text => Some(text.to_owned()),
+    };
+    let _slot = harness.wait_slot()?;
+    let met = match &pattern {
+        Some(pattern) => output_appears(core, project, execution_id, pattern, deadline).await?,
+        None => loop {
+            let mut changed = harness.changes.subscribe();
+            let run = harness.read(|state| state.run(project, execution_id))?;
+            if !run.status.is_active() {
+                break true;
+            }
+            if Instant::now() >= deadline {
+                break false;
+            }
+            tokio::select! {
+                _ = changed.changed() => {}
+                _ = tokio::time::sleep_until(deadline) => {}
+            }
+        },
+    };
+    let run = harness.read(|state| state.run(project, execution_id))?;
+    let mut fields = json!({ "met": met });
+    if let Some(tail) = run_tail(core, &run).await {
+        fields["tail"] = tail.into();
+    }
+    if !met {
+        fields["note"] = match run.status {
+            RunStatus::AwaitingTrust => AWAITING_TRUST_NOTE.into(),
+            status if status.is_active() => {
+                "Not yet; call events_wait with the same until again.".into()
+            }
+            _ => "The run ended first.".into(),
+        };
+    }
+    Ok(with_fields(&run, fields))
+}
+
+/// The last lines a run printed, as plain text.
+async fn run_tail(core: &Core, run: &Run) -> Option<String> {
+    let query = OutputQuery {
+        cursor: 0,
+        limit: 4096,
+        tail: Some(RUN_TAIL_LINES),
+        search: None,
+        context: 0,
+        plain: true,
+    };
+    let page = read_output(core, run.pty_id?, query).await.ok()?;
+    let tail = String::from_utf8_lossy(&page.bytes).trim_end().to_owned();
+    (!tail.is_empty()).then_some(tail)
 }
 
 /// Answers with how many times plugins have changed, once that is no longer
