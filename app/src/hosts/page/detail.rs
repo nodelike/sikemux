@@ -558,6 +558,7 @@ fn resources(
     t: &Tokens,
     cx: &mut Context<Workbench>,
 ) -> Div {
+    let open = bench.hosts_page.history_open;
     let spans = [StatsSpan::Minutes15, StatsSpan::Hour, StatsSpan::Day];
     let picked = spans
         .iter()
@@ -682,19 +683,6 @@ fn resources(
             let level = host
                 .level(kind)
                 .map(|level| crate::hosts::alert_tint(level, t));
-            let chart = match series.points.len() {
-                0 | 1 => div()
-                    .h(px(CHART_HEIGHT))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(
-                        ui::text("Gathering history", TEXT_2XS_H, FontWeight::NORMAL)
-                            .text_color(t.text_disabled),
-                    )
-                    .into_any_element(),
-                _ => history(series, CHART_HEIGHT, t),
-            };
             div()
                 .px(SPACE_4)
                 .pt(SPACE_3H)
@@ -726,13 +714,63 @@ fn resources(
                                 .text_color(level.unwrap_or(t.text_primary)),
                         ),
                 )
-                .child(div().mt(SPACE_3).child(chart))
-                .when(kind == HostAlertKind::Disk, |row| {
+                .child(
+                    div().mt(SPACE_3).child(match open {
+                        true => match series.points.len() {
+                            0 | 1 => div()
+                                .h(px(CHART_HEIGHT))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    ui::text("Gathering history", TEXT_2XS_H, FontWeight::NORMAL)
+                                        .text_color(t.text_disabled),
+                                )
+                                .into_any_element(),
+                            _ => history(series, CHART_HEIGHT, t),
+                        },
+                        false => super::chart::ticks(
+                            host.percent(kind).map_or(0., |percent| percent / 100.),
+                            level.unwrap_or(ink(t, 0.62)),
+                            ink(t, 0.1),
+                            8.,
+                        )
+                        .into_any_element(),
+                    }),
+                )
+                .when(open && kind == HostAlertKind::Disk, |row| {
                     row.child(axis(start, end, t, cx))
-                        .children(disk_parts(stats, t, cx))
+                })
+                .when(kind == HostAlertKind::Disk, |row| {
+                    row.children(disk_parts(stats, t, cx))
                 })
         })
         .collect();
+    let fold = div()
+        .id("hosts-history-fold")
+        .px(SPACE_4)
+        .h(px(32.))
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .border_t_1()
+        .border_color(hair(t))
+        .cursor_pointer()
+        .hover(|row| row.bg(ink(t, 0.03)))
+        .on_click(cx.listener(|bench, _, _, cx| {
+            bench.hosts_page.history_open = !bench.hosts_page.history_open;
+            bench.parts.redraw_stage(cx);
+        }))
+        .child(
+            ui::icon(Icon::Chevron, 12.)
+                .text_color(t.text_tertiary)
+                .when(open, |chevron| {
+                    chevron.with_transformation(gpui_kit::Transformation::rotate(
+                        gpui_kit::radians(std::f32::consts::FRAC_PI_2),
+                    ))
+                }),
+        )
+        .child(ui::text("History", TEXT_XS, FontWeight::NORMAL).text_color(t.text_tertiary));
     div()
         .flex()
         .flex_col()
@@ -740,7 +778,7 @@ fn resources(
             Icon::Gauge,
             "Resources",
             None,
-            Some(switch.into_any_element()),
+            open.then(|| switch.into_any_element()),
             t,
             cx,
         ))
@@ -750,7 +788,9 @@ fn resources(
                 .border_1()
                 .border_color(hair(t))
                 .bg(card(t))
-                .children(boxes),
+                .overflow_hidden()
+                .children(boxes)
+                .child(fold),
         )
 }
 

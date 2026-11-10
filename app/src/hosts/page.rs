@@ -38,6 +38,7 @@ pub struct Page {
     pub span: StatsSpan,
     pub search: Entity<InputState>,
     pub top_open: bool,
+    pub history_open: bool,
     /// The people whose agents are folded away in the detail, by name.
     pub folded: HashSet<String>,
     /// How wide the page was last drawn.
@@ -63,6 +64,7 @@ impl Page {
             span: StatsSpan::Hour,
             search,
             top_open: false,
+            history_open: false,
             folded: HashSet::new(),
             width: Rc::default(),
             watching: Vec::new(),
