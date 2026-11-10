@@ -291,10 +291,14 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
                     )
                 })
                 .when(!snoozed.is_empty(), |scroll| {
-                    scroll.child(Group::new("Snoozed", "").children(snoozed))
+                    scroll.child(
+                        folding(Group::new("Snoozed", ""), SNOOZED, bench, cx).children(snoozed),
+                    )
                 })
                 .when(!settled.is_empty(), |scroll| {
-                    scroll.child(Group::new("Settled", "").children(settled))
+                    scroll.child(
+                        folding(Group::new("Settled", ""), SETTLED, bench, cx).children(settled),
+                    )
                 })
                 .when(!pinned.is_empty(), |scroll| {
                     scroll.child(
@@ -315,6 +319,8 @@ fn page_panel(bench: &Workbench, page: TabRailPage, cx: &mut Context<Workbench>)
 /// The keys the agent rail's groups are kept folded under.
 const PINNED: &str = "pinned";
 const RECENT: &str = "recent";
+const SNOOZED: &str = "snoozed";
+const SETTLED: &str = "settled";
 
 /// `group` folding on a click on its heading, and staying folded under `key` across restarts.
 pub(crate) fn folding(
