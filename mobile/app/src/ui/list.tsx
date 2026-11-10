@@ -35,6 +35,7 @@ export function Row({
   dim,
   detailLines = 1,
   under,
+  after,
 }: {
   mark?: ReactNode;
   /** The agent's name, small and dim with the row's counts and state at its end, as the Mac's rail sets it. */
@@ -52,6 +53,8 @@ export function Row({
   detailLines?: number;
   /** One more line below the detail. */
   under?: ReactNode;
+  /** A control of its own at the row's end, beside the row's press rather than inside it, as nested presses misbehave on iOS. */
+  after?: ReactNode;
 }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
@@ -59,12 +62,12 @@ export function Row({
   const handle = name ? `@${name}` : undefined;
   const label = title ?? handle;
   const named = title && handle ? [handle, where].filter(Boolean).join(' ') : undefined;
-  return (
+  const row = (
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
       accessibilityRole={onPress ? 'button' : undefined}
-      style={({ pressed }) => [styles.row, pressed && onPress && styles.rowPressed]}>
+      style={({ pressed }) => [styles.row, after ? styles.rowBeside : null, pressed && onPress && styles.rowPressed]}>
       {mark ? <View style={styles.mark}>{mark}</View> : null}
       <View style={styles.rowBody}>
         <View style={styles.rowLabel}>
@@ -109,6 +112,13 @@ export function Row({
       ) : null}
     </Pressable>
   );
+  if (!after) return row;
+  return (
+    <View style={styles.rowWith}>
+      {row}
+      {after}
+    </View>
+  );
 }
 
 const ROW_INSET = 8;
@@ -133,6 +143,8 @@ const makeStyles = (colors: Palette) => {
       borderRadius: 9,
     },
     rowPressed: { backgroundColor: colors.active },
+    rowWith: { flexDirection: 'row', alignItems: 'center', paddingRight: ROW_INSET },
+    rowBeside: { flex: 1, minWidth: 0 },
     mark: { width: MARK, height: MARK, alignItems: 'center', justifyContent: 'center' },
     rowBody: { flex: 1, minWidth: 0 },
     rowLabel: { flexDirection: 'row', alignItems: 'baseline' },

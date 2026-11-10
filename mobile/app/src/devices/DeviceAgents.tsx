@@ -153,7 +153,7 @@ const ChatRow = memo(function ChatRow({
       dim={away}
       end={
         away ? (
-          <AwayEnd core={core} shown={shown} minute={minute} restores={!!onHold} />
+          shown.settledAt == null && <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} />
         ) : (
           <>
             {shown.subagents ? <SubagentCount count={shown.subagents} /> : null}
@@ -165,6 +165,7 @@ const ChatRow = memo(function ChatRow({
       }
       onPress={() => router.push(`/device/${core}/chat/${shown.agentId}`)}
       onLongPress={onHold && (() => onHold(shown))}
+      after={shown.settledAt != null && onHold ? <RestoreButton core={core} shown={shown} /> : undefined}
     />
   );
 });
@@ -174,13 +175,12 @@ function Faded({ away, children }: { away: boolean; children: ReactNode }) {
   return away ? <View style={{ opacity: 0.55 }}>{children}</View> : <>{children}</>;
 }
 
-/** The end of a row out of the main list: when a snoozed one wakes, or Restore on a settled one. */
-function AwayEnd({ core, shown, minute, restores }: { core: string; shown: AgentShown; minute: number; restores: boolean }) {
+/** Puts a settled agent back in the main list. */
+function RestoreButton({ core, shown }: { core: string; shown: AgentShown }) {
   const styles = useStyles(makeStyles);
   const colors = useColors();
   const live = useLive(core);
-  if (shown.settledAt == null) return <WakeTime at={Number(shown.snoozedUntil)} now={minute * 60_000} />;
-  if (!restores || live.status !== 'open') return null;
+  if (live.status !== 'open') return null;
   const connection = live.connection;
   return (
     <Pressable
