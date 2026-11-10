@@ -142,7 +142,7 @@ private struct Triggers: View {
         if case .ci(let ci) = trigger.when { return "when CI on \(ci.on) ends" }
         guard let nextAt = trigger.nextAt else { return "on each request" }
         if case .webhook = trigger.when { return "on each request" }
-        let at = Date(timeIntervalSince1970: Double(nextAt) / 1000)
+        let at = Format.date(millis: nextAt)
         let time = at.formatted(date: .omitted, time: .shortened)
         let weekday = Calendar.current.component(.weekday, from: at) - 1
         let next = Calendar.current.isDateInToday(at) ? "today \(time)" : "\(weekdays[weekday]) \(time)"
@@ -190,7 +190,7 @@ private struct BetweenAgents: View {
                                 if let cli { AgentMark(provider: cli, size: 20) } else { Dot(color: palette.rest, size: 9, hollow: true) }
                             },
                             end: {
-                                Text(Format.age(Date(timeIntervalSince1970: Double(row.sentAt) / 1000)))
+                                Text(Format.age(Format.date(millis: row.sentAt)))
                                     .metaStyle(palette)
                                     .monospacedDigit()
                             })
