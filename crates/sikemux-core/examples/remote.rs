@@ -10,6 +10,7 @@
 //!   remote mac <socket> backdrop on|off [image.jpg]  publishes the pane backdrop
 //!   remote mac <socket> chats              lists the chats running on the core
 //!   remote mac <socket> sleepy             keeps a sleeping chat for a device to wake
+//!   remote mac <socket> login              signs the core in by a code a phone approves
 //! As a device, keeping its key in `<key-file>`:
 //!   remote device <key-file> sessions <core-id>
 
@@ -37,6 +38,7 @@ async fn main() -> Result<(), Failure> {
         ["mac", socket, "say", agent, text @ ..] => say(Path::new(socket), agent, &text.join(" ")).await,
         ["mac", socket, "sleepy"] => sleepy(Path::new(socket)).await,
         ["mac", socket, "chats"] => chats(Path::new(socket)).await,
+        ["mac", socket, "login"] => login(Path::new(socket)).await,
         ["mac", socket, action] => mac(Path::new(socket), action).await,
         ["device", key, "sessions", core] => sessions(Path::new(key), core).await,
         _ => Err("usage: remote mac <socket> on|off|allow|status|spawn|publish|chat|say | remote device <key-file> sessions <core-id>".into()),
@@ -60,6 +62,68 @@ async fn mac(socket: &Path, action: &str) -> Result<(), Failure> {
     };
     println!("{}", serde_json::to_string_pretty(&status)?);
     Ok(())
+}
+
+/// Signs the core in to the accounts server at `SIKEMUX_API_URL` by a code, as
+/// `sikemux login` does, printing the code to enter on the phone.
+async fn login(socket: &Path) -> Result<(), Failure> {
+    use sikemux_core::accounts::host::{
+        HostSignIn, HostSignInFinish, HostSignInPoll, HostSignInStart, HostSignInState,
+        HostSignInStatus,
+    };
+    let (client, _events) = CoreClient::connect(socket).await?;
+    let key = client.remote_status().await?.core_id;
+    let host = sikemux_core::server::host::info();
+    let start = HostSignInStart {
+        key,
+        name: host.name.chars().take(64).collect(),
+        platform: sikemux_core::server::host::PLATFORM,
+        channel: host.channel.into(),
+    };
+    let signing: HostSignIn = post("/v1/host-sign-ins", &start).await?;
+    println!("enter {} on the phone", signing.user_code);
+    let poll = HostSignInPoll {
+        code: signing.code.clone(),
+    };
+    let (account, nonce) = loop {
+        tokio::time::sleep(Duration::from_secs(signing.interval.max(1).unsigned_abs())).await;
+        let state: HostSignInState = post("/v1/host-sign-ins/poll", &poll).await?;
+        if let (HostSignInStatus::Approved, Some(account), Some(nonce)) =
+            (state.status, state.account, state.nonce)
+        {
+            break (account, nonce);
+        }
+    };
+    let signed = client
+        .ask(ask::SignRegistration {
+            nonce: nonce.clone(),
+            user_id: account.clone(),
+        })
+        .await?;
+    let finish = HostSignInFinish {
+        code: signing.code,
+        nonce,
+        signature: signed.signature,
+    };
+    let _: serde_json::Value = post("/v1/host-sign-ins/finish", &finish).await?;
+    client.set_owner(Some(account.clone())).await?;
+    println!("signed in to {account}");
+    Ok(())
+}
+
+async fn post<T: serde::de::DeserializeOwned>(
+    path: &str,
+    body: &impl serde::Serialize,
+) -> Result<T, Failure> {
+    let response = sikemux_core::accounts::client()?
+        .post(format!("{}{path}", sikemux_core::accounts::api_base()))
+        .json(body)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(sikemux_core::accounts::refusal(response).await.into());
+    }
+    Ok(response.json().await?)
 }
 
 async fn spawn(socket: &Path) -> Result<(), Failure> {
