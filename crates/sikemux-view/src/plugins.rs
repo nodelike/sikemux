@@ -15,6 +15,9 @@ pub struct TokenForm {
     /// `host` field, or `default_server` while it is empty.
     #[serde(default)]
     pub token_page: Option<String>,
+    /// What the link to `token_page` says, when the service makes something other than a token.
+    #[serde(default)]
+    pub token_page_label: Option<String>,
     #[serde(default)]
     pub default_server: Option<String>,
     /// Boxes to tick, sent as true or false under each one's name whichever way is used.
@@ -64,6 +67,11 @@ impl TokenForm {
             Some(way) => (&way.method, &way.fields),
             None => (&self.method, &self.fields),
         }
+    }
+
+    /// What the link to where a token is made says.
+    pub fn token_page_label(&self) -> &str {
+        self.token_page_label.as_deref().unwrap_or("Create a token")
     }
 
     /// Where a token is made for the server typed in, if the service says.
