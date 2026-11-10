@@ -489,7 +489,7 @@ impl Android {
                 let serial = self.serial(&udid).await?;
                 let button = text("button").ok_or("button is required")?;
                 let code = button_code(button).ok_or_else(|| {
-                    format!("Android has no {button} button; use home, back, appSwitch, lock, volumeUp or volumeDown")
+                    format!("Android has no {button} button; use home, back, lock, volumeUp or volumeDown")
                 })?;
                 self.key(&serial, code, text("phase").unwrap_or("press"), limit)
                     .await
@@ -906,7 +906,6 @@ fn button_code(button: &str) -> Option<i64> {
     Some(match button {
         "home" => 3,
         "back" => 4,
-        "appSwitch" => 187,
         "lock" => 26,
         "volumeUp" => 24,
         "volumeDown" => 25,

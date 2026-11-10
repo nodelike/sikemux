@@ -845,7 +845,7 @@
       "row": {"verb": "list", "kind": "read", "icon": "phone", "target": ["simulators"]},
       "method": "sim.devices",
       "offered": "simulator",
-      "description": "List the iOS simulators and Android devices, emulators and phones, the one you hold, and which other agents hold.",
+      "description": "List the simulators, the one you hold, and which other agents hold.",
       "properties": {},
       "required": []
     },
@@ -854,18 +854,12 @@
       "row": {"verb": "attach", "kind": "move", "icon": "link", "target": ["{device}", "a simulator"]},
       "method": "sim.attach",
       "offered": "simulator",
-      "description": "Attach a simulator or Android device by name or udid, else your project's own; boots it if needed and reads its screen. platform picks iOS or Android when you name none.",
+      "description": "Attach a simulator by name or udid, else your project's own; boots it if needed and reads its screen.",
       "properties": {
         "device": {
           "type": "string",
           "minLength": 1,
           "maxLength": 200
-        },
-        "platform": {
-          "enum": [
-            "ios",
-            "android"
-          ]
         }
       },
       "required": []
@@ -989,7 +983,7 @@
       "row": {"verb": "press", "kind": "edit", "icon": "home-button", "target": ["{button}"]},
       "method": "sim.button",
       "offered": "simulator",
-      "description": "Press a hardware button on the attached device; back and appSwitch are Android's.",
+      "description": "Press a hardware button on the attached simulator.",
       "properties": {
         "button": {
           "enum": [
@@ -999,8 +993,7 @@
             "siri",
             "volumeUp",
             "volumeDown",
-            "back",
-            "appSwitch"
+            "back"
           ]
         },
         "report": {
@@ -1049,7 +1042,7 @@
       "row": {"verb": "launch", "kind": "execute", "icon": "rocket", "target": ["{bundleId}"]},
       "method": "sim.launch",
       "offered": "simulator",
-      "description": "Launch an installed app by bundle id, or package name on Android, relaunching it if it runs, and read the screen.",
+      "description": "Launch an installed app by bundle id, relaunching it if it runs, and read the screen.",
       "properties": {
         "bundleId": {
           "type": "string",
@@ -1113,7 +1106,7 @@
       "row": {"verb": "install", "kind": "execute", "icon": "download", "target": ["{path}"]},
       "method": "sim.install",
       "offered": "simulator",
-      "description": "Install a built .app, or an .apk on Android, from inside the project on the attached device.",
+      "description": "Install a built .app from inside the project on the attached simulator.",
       "properties": {
         "path": {
           "type": "string",
