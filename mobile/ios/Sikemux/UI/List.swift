@@ -54,9 +54,12 @@ struct Row<Mark: View, End: View, After: View>: View {
     /// The linked host the agent runs on, set after its name.
     var host: String?
     var detail: String?
+    /// A detail with its own styling, in place of `detail`.
+    var detailText: Text?
     /// The project the row belongs to, marked with the folder the Mac's rail puts beside it.
     var place: String?
     var under: String?
+    var underText: Text?
     var dim = false
     var detailLines = 1
     var onPress: (() -> Void)?
@@ -123,14 +126,14 @@ struct Row<Mark: View, End: View, After: View>: View {
                             .foregroundStyle(palette.tertiary)
                             .lineLimit(1)
                     }
-                } else if let detail {
-                    Text(detail)
+                } else if let detail = detailText ?? detail.map({ Text($0) }) {
+                    detail
                         .font(Theme.ui(12))
                         .foregroundStyle(palette.tertiary)
                         .lineLimit(detailLines)
                 }
-                if let under {
-                    Text(under).font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
+                if let under = underText ?? under.map({ Text($0) }) {
+                    under.font(Theme.ui(12)).foregroundStyle(palette.tertiary).lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -157,13 +160,14 @@ struct Row<Mark: View, End: View, After: View>: View {
 
 extension Row where After == EmptyView {
     init(
-        title: String? = nil, name: String? = nil, host: String? = nil, detail: String? = nil, place: String? = nil,
-        under: String? = nil, dim: Bool = false, detailLines: Int = 1,
+        title: String? = nil, name: String? = nil, host: String? = nil, detail: String? = nil, detailText: Text? = nil,
+        place: String? = nil, under: String? = nil, underText: Text? = nil, dim: Bool = false, detailLines: Int = 1,
         onPress: (() -> Void)? = nil, onLongPress: (() -> Void)? = nil,
         @ViewBuilder mark: () -> Mark, @ViewBuilder end: () -> End
     ) {
         self.init(
-            title: title, name: name, host: host, detail: detail, place: place, under: under, dim: dim,
+            title: title, name: name, host: host, detail: detail, detailText: detailText, place: place, under: under,
+            underText: underText, dim: dim,
             detailLines: detailLines, onPress: onPress, onLongPress: onLongPress, mark: mark, end: end,
             after: { EmptyView() })
     }
