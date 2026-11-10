@@ -6,10 +6,10 @@ use gpui_kit::{
 };
 use sikemux_view::host_stats::ProcessUse;
 
-use super::board::{meter, METERS};
+use super::board::{meter, name_and_model, tile, METERS};
 use super::detail::app_icon;
 use super::model;
-use crate::theme::{Tokens, SPACE_1, SPACE_2, SPACE_3, TEXT_SM, TEXT_XS};
+use crate::theme::{Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_SM, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -46,17 +46,21 @@ impl Render for Glance {
                 div()
                     .flex()
                     .items_center()
-                    .gap(SPACE_2)
+                    .gap(SPACE_2H)
+                    .child(tile(host, 30., 15., &t))
+                    .child(name_and_model(host, TEXT_SM, &t))
                     .child(
-                        ui::text(host.name.clone(), TEXT_SM, FontWeight::SEMIBOLD)
-                            .truncate()
-                            .text_color(t.text_primary),
-                    )
-                    .child(div().size(px(6.)).flex_none().rounded_full().bg(tint))
-                    .child(
-                        ui::text(host.state.words(), TEXT_XS, FontWeight::NORMAL)
-                            .truncate()
-                            .text_color(t.text_tertiary),
+                        div()
+                            .ml_auto()
+                            .flex_none()
+                            .flex()
+                            .items_center()
+                            .gap(SPACE_1H)
+                            .child(div().size(px(6.)).rounded_full().bg(tint))
+                            .child(
+                                ui::text(host.state.words(), TEXT_XS, FontWeight::NORMAL)
+                                    .text_color(t.text_tertiary),
+                            ),
                     ),
             )
             .children(host.online().then(|| {

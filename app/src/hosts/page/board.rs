@@ -384,7 +384,7 @@ pub fn tile(host: &Listed, size: f32, glyph: f32, t: &Tokens) -> Div {
         .child(ui::icon(logo, glyph).text_color(if online { tint } else { t.text_tertiary }))
 }
 
-fn name_and_model(host: &Listed, size: f32, t: &Tokens) -> Div {
+pub(super) fn name_and_model(host: &Listed, size: f32, t: &Tokens) -> Div {
     div()
         .flex_1()
         .min_w_0()

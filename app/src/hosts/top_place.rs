@@ -277,7 +277,7 @@ fn glance(
     })
     .detach();
     popup
-        .item(PopupMenuItem::element(move |_, _| glance.clone()))
+        .item(PopupMenuItem::element(move |_, _| glance.clone()).disabled(true))
         .separator()
 }
 
