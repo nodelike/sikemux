@@ -51,6 +51,12 @@ use sikemux_wire::protocol::AgentGroup;
 use crate::icons::{self, Icon};
 use crate::theme::{self, Tokens, TEXT_2XS, TEXT_LG};
 
+/// Draws the window again once this frame is done. A layout that learns its size while painting
+/// needs this: GPUI ignores a refresh asked for mid-frame, which left such layouts stale.
+pub fn redraw_after_paint(window: &Window, cx: &mut App) {
+    window.defer(cx, |window, _| window.refresh());
+}
+
 /// What a menu calls showing a file in the system's file manager.
 pub const REVEAL: &str = if cfg!(target_os = "macos") {
     "Reveal in Finder"

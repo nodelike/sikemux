@@ -450,7 +450,7 @@ impl RenderOnce for Composer {
                     .get(usize::from(has_strip))
                     .map_or(0., |box_| box_.size.width.into());
                 if shape(composer, aside_room) != shape(width.replace(composer), aside_room) {
-                    window.refresh();
+                    crate::ui::redraw_after_paint(window, cx);
                 }
                 Drawn::keep(cx, |drawn| Drawn {
                     composer,

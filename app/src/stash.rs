@@ -1312,7 +1312,7 @@ fn grid(cards: Vec<(AnyElement, f32)>, columns: u16) -> impl IntoElement {
             let fit = Columns(((width + GAP) / (MIN_CARD + GAP)).floor().max(1.) as u16);
             if cx.try_global::<Columns>() != Some(&fit) {
                 cx.set_global(fit);
-                window.refresh();
+                crate::ui::redraw_after_paint(window, cx);
             }
         })
         .child(
