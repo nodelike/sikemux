@@ -89,7 +89,7 @@ struct Composer: View {
     @ViewBuilder
     private var writing: some View {
         let rows = session.rows
-        let draft = session.draft
+        let draft = session.draft!
         let text = draft.text
         let matches = Self.matching(rows.commands, text)
         let stashQuery = matches.isEmpty ? StashWords.query(in: text) : nil
@@ -124,7 +124,7 @@ struct Composer: View {
         VStack(spacing: 0) {
             if let question { answering(question) }
             if !attachments.isEmpty || !chips.isEmpty {
-                ComposerAttachments(attachments: attachments, onRemove: session.removeAttachment, onRetry: send) {
+                ComposerAttachments(attachments: attachments, core: core, onRemove: session.removeAttachment, onRetry: send) {
                     ForEach(chips, id: \.uri) { chip in
                         StashChip(chip: chip) { session.removeChip(chip.uri) }
                     }
@@ -172,7 +172,7 @@ struct Composer: View {
             Button { adding = .files } label: {
                 IconView(icon: Icons.plus, size: 17).foregroundStyle(palette.inkDim).frame(width: 34, height: 34).contentShape(Circle())
             }
-            .buttonStyle(ActiveFill())
+            .buttonStyle(ActiveFill(radius: 17))
             .disabled(uploading || room <= 0)
             .opacity(uploading || room <= 0 ? 0.4 : 1)
             .accessibilityLabel("Add photos or files")
@@ -293,7 +293,7 @@ struct Composer: View {
 
     private func send() {
         let text = session.draftText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let draft = session.draft
+        let draft = session.draft!
         let sendable = !text.isEmpty || !draft.attachments.isEmpty || !draft.chips.isEmpty
         guard sendable, !offline, !draft.uploading else { return }
         if let unknown = Self.unknownCommand(text, session.rows.commands) {
