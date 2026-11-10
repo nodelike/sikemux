@@ -75,15 +75,26 @@
 
 ## Mobile app
 
-- The phone app is in `mobile/` (Expo, `mobile/app`) with the core's Rust client bridged
-  in `mobile/native` from `crates/sikemux-mobile`. `mobile/` is its own pnpm
-  workspace: never add it to the root install, scripts or checks.
+- The iPhone app is native SwiftUI in `mobile/ios`. `project.yml` is its XcodeGen spec
+  (`xcodegen generate`; the `.xcodeproj` is build output), and
+  `mobile/ios/scripts/build-core.sh` builds `crates/sikemux-mobile` into
+  `build/SikemuxCore.xcframework` with its Swift bindings, made by the crate's own
+  `uniffi-bindgen` bin behind its `bindgen` feature, which the phone never links. Run it
+  before the first Xcode build and after any change to the Rust the phone links. The core's
+  types and the phone's calls are generated into `Wire.generated.swift` by
+  `scripts/generate-wire-types.mjs`, the icons into `PhoneIcons.generated.swift` by
+  `scripts/generate-notch-icons.mjs`; never hand-edit either. The app compiles the notch's
+  `IconView.swift` by path rather than copying it.
+- The Android app is in `mobile/app` (Expo) with the core's Rust client bridged in
+  `mobile/native`. `mobile/` is its own pnpm workspace: never add it to the root install,
+  scripts or checks.
 - The phone and the core share `sikemux-wire`'s protocol. A protocol change must keep
   `sikemux-mobile` building, and bumps `PROTOCOL_VERSION` once anything already released
   speaks the old shape. A type the phone's Rust does not act on goes in `sikemux-view`, which
   it does not link.
 - The phone links only `sikemux-wire` and `sikemux-client`, so their code, not the
-  core's, decides when a phone needs a store build rather than an over-the-air update.
+  core's, decides when an Android phone needs a store build rather than an over-the-air
+  update; the iPhone app has no over-the-air updates.
   Keep them to data and transport: never make either depend on `sikemux-core`,
   `sikemux-pty` or `workspace-hack`. A new field rides inside JSON the bridge already
   passes through rather than on a typed UniFFI record. A request the phone needs is a
@@ -94,17 +105,17 @@
   catalog. The Mac, the phone and every other client keep one store of what the core
   sends and draw it with their own words, icons, formatting and markdown drawing; none
   reads an agent's messages or repeats the core's logic. ADR 0010 records why.
-- TypeScript the phone and the share page both use lives in `shared/`, imported as
+- TypeScript the Android app and the share page both use lives in `shared/`, imported as
   `@shared/*`. It is plain source, not a package: each workspace that imports it resolves
   its packages from its own install, and its tests run under the phone's vitest.
 - Phone builds need rustup's Rust first on `PATH` as well; Homebrew's has no phone
   targets.
 - Teammates do not boot simulators. The lead runs the app on one simulator after merging
   their work, always through `sim_attach`, never `simctl boot` or Xcode.
-- The bindings `uniffi-bindgen-react-native` generates are build output; do not commit or
-  hand-edit them.
+- The bindings UniFFI and `uniffi-bindgen-react-native` generate are build output; do not
+  commit or hand-edit them.
 - Phone screens are designed in `mobile/design/screens.src.html` before they are built, and
-  it must keep matching the app. Change it in the same commit as the screen it draws; run
+  it must keep matching both apps. Change it in the same commit as the screen it draws; run
   `pnpm design` in `mobile/` to view it.
 
 ## Server

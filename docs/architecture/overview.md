@@ -280,12 +280,13 @@ no window open and event cursors survive restarts. `pnpm agent-tools:generate` w
 
 ## Mobile app (`mobile/`)
 
-The phone app pairs with a host's core and drives it over iroh. It is an Expo app (`mobile/app`)
-that calls the core's own client through `@sikemux/native` (`mobile/native`), which
-`uniffi-bindgen-react-native` generates from `crates/sikemux-mobile`. That crate links only
-`sikemux-wire` and `sikemux-client`, so their code decides when a phone needs a store build
-([ADR 0010](./0010-phone-links-only-the-wire-and-client.md)). TypeScript the phone and the web
-app share lives in `shared/`. [ADR 0008](./0008-mobile-app-expo-and-rust-client.md) records the
+The phone apps pair with a host's core and drive it over iroh, through the core's own client in
+`crates/sikemux-mobile`. The iPhone app is native SwiftUI (`mobile/ios`) and links it as a static
+library with UniFFI's Swift bindings; the Android app is an Expo app (`mobile/app`) that calls it
+through `@sikemux/native` (`mobile/native`), which `uniffi-bindgen-react-native` generates. That
+crate links only `sikemux-wire` and `sikemux-client`, so their code decides when a phone needs a
+store build ([ADR 0010](./0010-phone-links-only-the-wire-and-client.md)). TypeScript the Android
+app and the web app share lives in `shared/`. [ADR 0008](./0008-mobile-app-expo-and-rust-client.md) records the
 choices.
 
 ## Generated files and checks
