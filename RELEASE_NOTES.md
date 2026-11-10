@@ -1,4 +1,4 @@
-# Sikemux v0.6.1-nightly.10
+# Sikemux v0.6.1-nightly.11
 
 Nightlies are signed and delivered exactly like stable releases, but they carry unreleased work and can break. Switch back to stable in Settings → About whenever you want; you keep the build you are on until a stable release passes it.
 
@@ -9,7 +9,7 @@ Nightlies are signed and delivered exactly like stable releases, but they carry 
 
 ## New since nightly.8
 
-Nightly.9 was never published, so this nightly carries everything since nightly.8.
+Nightlies 9 and 10 were never published, so this nightly carries everything since nightly.8.
 
 - **Hosts.** A Hosts page shows every computer on your account that runs Sikemux, with CPU, memory and disk over time and what each agent uses. A host in trouble says why under its name in the rail, raises an alert in Goals and on the notch, and offers to move work to a host with room. Open it with ⌘⇧H.
 - **Smart accounts, on by default.** With two or more signed-in accounts for an agent, a new chat starts on the one with real headroom whose week ends soonest, and a project can keep to some accounts.
@@ -48,4 +48,4 @@ Nightly.9 was never published, so this nightly carries everything since nightly.
 - Codex, Muse and OMP marks stay sharp at any size.
 - Under XWayland the window follows the scale of the display it is on, live.
 
-For the complete patch history, compare [`v0.6.1-nightly.8...v0.6.1-nightly.10`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.8...v0.6.1-nightly.10).
+For the complete patch history, compare [`v0.6.1-nightly.8...v0.6.1-nightly.11`](https://github.com/nodelike/sikemux/compare/v0.6.1-nightly.8...v0.6.1-nightly.11).

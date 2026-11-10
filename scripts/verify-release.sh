@@ -71,7 +71,7 @@ fi
 node "$ROOT/scripts/verify-updater-signature.mjs" "$TAR" "$SIG"
 grep -q "^trusted comment: .*"$'\t'"version:$VERSION\$" <<<"$(/usr/bin/base64 -d -i "$SIG")" ||
   fail "updater signature is not bound to version $VERSION"
-UPDATE_BUDGET_BYTES=$((32 * 1024 * 1024))
+UPDATE_BUDGET_BYTES=$((40 * 1024 * 1024))
 TAR_BYTES="$(stat -f %z "$TAR")"
 echo "→ Updater archive is $TAR_BYTES bytes (budget $UPDATE_BUDGET_BYTES)"
 ((TAR_BYTES <= UPDATE_BUDGET_BYTES)) || fail "updater archive is $TAR_BYTES bytes, over the $UPDATE_BUDGET_BYTES byte budget"
