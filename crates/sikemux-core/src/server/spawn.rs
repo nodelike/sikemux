@@ -316,9 +316,10 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
         checkout: None,
         made_room: None,
     };
+    let reports = started.reports;
     let core = core.clone();
     tokio::spawn(async move { hand_task(&core, started, plan.prompt).await });
-    Ok(answer)
+    Ok(woken_by_answers(answer, reports))
 }
 
 fn start(
@@ -579,7 +580,7 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
     });
     let core = core.clone();
     tokio::spawn(async move { hand_task(&core, started, prompt).await });
-    Ok(answer)
+    Ok(woken_by_answers(answer, reports))
 }
 
 /// Hands the prompt to the agent that already has the session open, as
@@ -632,6 +633,14 @@ async fn send_to_open(
         "sent": sent,
         "note": format!("{name} {opened} your prompt went to it as a message, as agent_send sends one."),
     }))
+}
+
+/// A lead that started a teammate reporting back hears from it without asking.
+fn woken_by_answers(mut answer: Value, reports: bool) -> Value {
+    if reports {
+        answer["next"] = "Its answer wakes you, so end your turn once your own work is done rather than waiting, polling or calling agent_wait.".into();
+    }
+    answer
 }
 
 fn room_made(closed: Option<&str>) -> String {
@@ -858,7 +867,8 @@ async fn spawn_terminal(
             .await;
         }
     });
-    Ok(json!({
+    let reports = opening.reports;
+    let answer = json!({
         "name": opening.name,
         "agentId": opening.agent_id,
         "cli": opening.provider,
@@ -871,7 +881,8 @@ async fn spawn_terminal(
             if opening.reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" },
             room_made(opening.made_room.as_deref()),
         ),
-    }))
+    });
+    Ok(woken_by_answers(answer, reports))
 }
 
 #[derive(Serialize, Deserialize)]
