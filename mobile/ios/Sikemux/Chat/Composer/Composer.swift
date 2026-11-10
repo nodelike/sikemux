@@ -179,8 +179,7 @@ struct Composer: View {
             StashButton { adding = .stash }
             YoloToggle(core: core, mode: session.permissionMode.flatMap(PermissionMode.init(rawValue:)), provider: provider, locked: modeLocked, onToggle: session.setPermissionMode)
             if let model {
-                picker(model, accent: true, label: "Model, \(model)")
-                    .frame(maxWidth: 160)
+                Capped(width: 160) { picker(model, accent: true, label: "Model, \(model)") }
             }
             if let effort {
                 picker(effort, accent: false, label: "Effort, \(effort)").fixedSize()
@@ -356,5 +355,22 @@ struct Composer: View {
         guard !word.isEmpty, word.allSatisfy({ $0.isLetter || $0.isNumber || "_:.-".contains($0) }) else { return nil }
         let name = String(word)
         return commands.contains { $0.name == name } ? nil : name
+    }
+}
+
+/// Its content at its own width, but never wider than `width`, as a capped flexible box sits in a row.
+private struct Capped: Layout {
+    let width: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        subviews.first?.sizeThatFits(capped(proposal)) ?? .zero
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(bounds.size))
+    }
+
+    private func capped(_ proposal: ProposedViewSize) -> ProposedViewSize {
+        ProposedViewSize(width: min(proposal.width ?? width, width), height: proposal.height)
     }
 }

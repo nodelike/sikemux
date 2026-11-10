@@ -39,49 +39,48 @@ struct ComposerAttachments<Lead: View>: View {
         let sending = attachment.upload == .sending
         let broken = attachment.upload == .failed
         let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
-        return Button(action: onRetry) {
-            Group {
-                if attachment.kind == .image {
-                    TileImage(attachment: attachment, core: core).frame(width: 58)
-                } else {
-                    FileChip(name: attachment.name, size: attachment.size == 0 ? nil : attachment.size, tall: true)
-                        .frame(maxWidth: 190)
-                }
-            }
-            .frame(height: 44)
-            .background(palette.sunken)
-            .clipShape(shape)
-            .overlay(shape.strokeBorder(broken ? palette.danger : palette.border, lineWidth: 1))
-            .overlay {
-                if sending || broken {
-                    ZStack {
-                        Color(hex: "rgba(9, 9, 11, 0.55)")
-                        if sending {
-                            ProgressView().tint(palette.ink)
-                        } else {
-                            IconView(icon: Icons.refresh, size: 18).foregroundStyle(palette.ink)
-                        }
-                    }
-                    .clipShape(shape)
-                }
-            }
-            .overlay(alignment: .topTrailing) {
-                if !sending && !broken {
-                    Button { onRemove(attachment.id) } label: {
-                        IconView(icon: Icons.close, size: 10)
-                            .foregroundStyle(palette.ground)
-                            .frame(width: 18, height: 18)
-                            .background(Circle().fill(palette.ink))
-                            .padding(3)
-                            .contentShape(Rectangle().inset(by: -6))
-                    }
-                    .buttonStyle(PressFade())
-                    .accessibilityLabel("Remove \(attachment.name)")
-                }
+        return Group {
+            if attachment.kind == .image {
+                TileImage(attachment: attachment, core: core).frame(width: 58)
+            } else {
+                FileChip(name: attachment.name, size: attachment.size == 0 ? nil : attachment.size, tall: true)
+                    .frame(maxWidth: 190)
             }
         }
-        .buttonStyle(.plain)
-        .disabled(!broken)
+        .frame(height: 44)
+        .background(palette.sunken)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(broken ? palette.danger : palette.border, lineWidth: 1))
+        .overlay {
+            if sending || broken {
+                ZStack {
+                    Color(hex: "rgba(9, 9, 11, 0.55)")
+                    if sending {
+                        ProgressView().tint(palette.ink)
+                    } else {
+                        IconView(icon: Icons.refresh, size: 18).foregroundStyle(palette.ink)
+                    }
+                }
+                .clipShape(shape)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if !sending && !broken {
+                Button { onRemove(attachment.id) } label: {
+                    IconView(icon: Icons.close, size: 10)
+                        .foregroundStyle(palette.ground)
+                        .frame(width: 18, height: 18)
+                        .background(Circle().fill(palette.ink))
+                        .padding(3)
+                        .contentShape(Rectangle().inset(by: -6))
+                }
+                .buttonStyle(PressFade())
+                .accessibilityLabel("Remove \(attachment.name)")
+            }
+        }
+        .contentShape(shape)
+        .onTapGesture { if broken { onRetry() } }
+        .accessibilityAddTraits(broken ? .isButton : [])
         .accessibilityLabel(broken
             ? "\(attachment.name) did not reach the host\(attachment.problem.map { ": \($0)" } ?? ""). Try again"
             : "\(attachment.name)\(sending ? ", sending" : "")")
