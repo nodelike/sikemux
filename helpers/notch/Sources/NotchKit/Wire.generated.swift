@@ -137,6 +137,27 @@ enum CoreCall {
         let method = "answerQuestion"
         let params: AnswerParams
     }
+
+    struct AllowShip: CoreAsk {
+        static let op = "call"
+        typealias Answer = CoreResponse.Called<Nothing?>
+        let method = "allowShip"
+        let params: HoldParams
+    }
+
+    struct RefuseShip: CoreAsk {
+        static let op = "call"
+        typealias Answer = CoreResponse.Called<Nothing?>
+        let method = "refuseShip"
+        let params: HoldParams
+    }
+
+    struct LetShipGo: CoreAsk {
+        static let op = "call"
+        typealias Answer = CoreResponse.Called<Nothing?>
+        let method = "letShipGo"
+        let params: HoldParams
+    }
 }
 
 enum Event: Decodable {
@@ -382,6 +403,8 @@ struct InboxItem: Codable, Hashable {
     /// The agent's terminal; none for a chat.
     let session: Int?
     let card: InboxCard?
+    /// The action a Ship item holds.
+    let hold: ShipHold?
     let requestId: String?
     let questionId: String?
     let url: String?
@@ -447,6 +470,17 @@ enum InboxKind: String, Codable, Hashable {
 
 struct InboxCard: Codable, Hashable {
     let title: String
+}
+
+/// An action an agent wanted to take that leaves this machine, held until the
+/// person allows it once or refuses it.
+struct ShipHold: Codable, Hashable {
+    let id: String
+    /// The exact command or tool call, which allowing it lets run once.
+    let what: String
+    /// What the person can always allow from now on, such as `dev/*`, in place of allowing
+    /// this once. Only what reads as no production offers it.
+    let letGo: String?
 }
 
 /// How devices show an open agent here.
@@ -564,4 +598,8 @@ struct AnswerParams: Codable, Hashable {
     var choices: [Int]?
     /// The assumption the agent went on is right.
     var fine: Bool = false
+}
+
+struct HoldParams: Codable, Hashable {
+    let hold: String
 }

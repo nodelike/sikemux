@@ -587,6 +587,8 @@ function freshAgents() {
         { id: "a9", name: "Maple", type: "codex", title: "Move the ledger import", project: "server", tier: "needs", state: "blocked", time: "0:01",
           what: "Asks you", question: { via: "Otter", text: "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
                       choices: ["Cents", "Decimals"] } },
+        { id: "a12", name: "Kite", type: "claude", title: "Ship the web fix to dev", project: "marketingiq", tier: "needs", state: "blocked", time: "0:12",
+          what: "Leaves this Mac", hold: { what: 'rundeck_run {"job":"dev/backend/marketingiq-web","options":{"BRANCH":"main"}}', letGo: "dev/*" } },
         { id: "a4", name: "Birch", type: "grok", title: "Bump Astro to 6", project: "sikemux-front", tier: "review", state: "done", time: "1m ago", trigger: "18m", called: true },
         { id: "a10", name: "Pine", type: "claude", title: "Rotate the signing keys", project: "server", tier: "finished", state: "failed", time: "5m ago" },
         { id: "a11", name: "Moss", type: "claude", title: "Tidy the changelog", project: "sikemux", tier: "finished", state: "done", time: "15m ago" },
@@ -617,6 +619,28 @@ function rowLine(a) {
     const since = a.reconnecting != null ? `<span class="word">Reconnecting…${a.reconnecting ? ` ${a.reconnecting}` : ""}</span>` : a.time ? `<span class="time">${a.time}</span>` : "";
     const end = `${agentName(a)}${a.subagents ? `<span class="subagents">${GLYPH.agent}${a.subagents}</span>` : ""}${a.tasks ? `<span class="shells">${GLYPH.command}${a.tasks}</span>` : ""}${a.trigger && (a.state === "idle" || a.state === "done") ? `<span class="trigger">${GLYPH.timer}${a.trigger}</span>` : ""}${stateMark(a.state)}`;
     return `<span class="head"><span class="title">${a.title}</span>${since}</span><span class="proj">${GLYPH.folderSmall}${a.project}</span>${end ? `<span class="end">${end}</span>` : ""}`;
+}
+
+/**
+ * The exact command with what answers it: Deny, Always allow and Allow for a permission; Refuse, Allow once and
+ * Always allow for an action held for the person, where Always allow leads whenever it is offered.
+ */
+function askActions(a, size) {
+    if (a.hold) {
+        const once = a.hold.letGo ? "" : " primary";
+        return `<div class="cmd">${a.hold.what}</div>
+        <div class="actions">
+            <button class="btn${size}" data-answer="refuse" data-id="${a.id}">Refuse</button>
+            <button class="btn${size}${once}" data-answer="once" data-id="${a.id}">Allow once</button>
+            ${a.hold.letGo ? `<button class="btn${size} primary" data-answer="always" data-id="${a.id}">Always allow ${a.hold.letGo}</button>` : ""}
+        </div>`;
+    }
+    return `<div class="cmd"><span class="sign">$</span>${a.ask.cmd}</div>
+    <div class="actions">
+        <button class="btn${size}" data-answer="deny" data-id="${a.id}">Deny</button>
+        <button class="btn${size}" data-answer="always" data-id="${a.id}">Always allow</button>
+        <button class="btn${size} primary" data-answer="allow" data-id="${a.id}">Allow</button>
+    </div>`;
 }
 
 /** What answers a question: up to two of its choices, then Answer in Sikemux, which opens the agent's chat. */
@@ -817,13 +841,7 @@ class Island {
                        `<span class="trail" style="color:var(--warn)">Needs you</span>${stateMark("blocked", true)}`, inner)}
                 <div style="padding:8px 0 16px">
                     <div class="text"><span class="title">${a.title}</span><span class="sub">${GLYPH.folderSmall}${a.project}<span class="dotsep">·</span>${a.what}${a.question?.via ? ` · @${a.question.via} raised this` : ""}</span></div>
-                    ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, "")}` : `
-                    <div class="cmd"><span class="sign">$</span>${a.ask.cmd}</div>
-                    <div class="actions">
-                        <button class="btn" data-answer="deny" data-id="${a.id}">Deny</button>
-                        <button class="btn" data-answer="always" data-id="${a.id}">Always allow</button>
-                        <button class="btn primary" data-answer="allow" data-id="${a.id}">Allow</button>
-                    </div>`}
+                    ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, "")}` : askActions(a, "")}
                 </div>`;
         }
 
@@ -879,13 +897,7 @@ class Island {
                                 <span class="mark">${face(a, "blocked")}</span>
                                 ${rowLine({ ...a, state: "blocked" })}
                             </div>
-                            ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, " small")}` : `
-                            <div class="cmd"><span class="sign">$</span>${a.ask.cmd}</div>
-                            <div class="actions">
-                                <button class="btn small" data-answer="deny" data-id="${a.id}">Deny</button>
-                                <button class="btn small" data-answer="always" data-id="${a.id}">Always allow</button>
-                                <button class="btn small primary" data-answer="allow" data-id="${a.id}">Allow</button>
-                            </div>`}
+                            ${a.question ? `<div class="question">${a.question.text}</div>${questionActions(a, " small")}` : askActions(a, " small")}
                         </div>` : `
                         <div class="row${a.called ? " called" : ""}">
                             <span class="mark">${face(a)}</span>
@@ -1058,6 +1070,7 @@ class Island {
                 const a = this.agents.find((x) => x.id === answer.dataset.id);
                 Object.assign(a, { tier: "progress", state: "working" });
                 delete a.ask;
+                delete a.hold;
                 delete a.question;
                 if (this.mode === "peek-ask") this.mode = this.hover ? "open" : "closed";
                 this.render();
@@ -1151,6 +1164,10 @@ const SECTIONS = [
               shows: "The agent's name, its task, Asks you with the lead that did not know, and the question in two lines. Up to two of its answers as buttons, then Answer in Sikemux, which opens its chat for any other answer.",
               leaves: "Answering here, in the chat, on a phone or in the terminal closes it: the first answer wins. Unanswered, it shrinks to C3 after 6 s.",
               opts: { agents: () => only(["a2", "a9"]), mode: "peek-ask", peekAgent: "a9" } },
+            { id: "P5", name: "An action held for you", when: "An agent's push, merge, deploy or write that leaves this Mac waits on the person.",
+              shows: "The agent's name, its task, Leaves this Mac, and the exact command or tool call in one line, with Refuse, Allow once and, where Sikemux offers it, Always allow naming what it covers, such as dev/*, which then leads. Allowing a tool call runs it and the agent gets what it answered.",
+              leaves: "Answering here, in the chat, on Goals Home or on a phone closes it. Unanswered, it shrinks to C3 after 6 s.",
+              opts: { agents: () => only(["a2", "a12"]), mode: "peek-ask", peekAgent: "a12" } },
             { id: "P2", name: "Finished", when: "An agent's turn ends: its inbox item goes from working to finished or to review.",
               shows: "One line either side of the camera: the agent's mark and Finished, then the task and a purple dot. A turn that ran into a problem says Failed, with a red dot.",
               leaves: "Shrinks to C4 after 3 s.", opts: { agents: () => only(["a2", "a4"]), mode: "peek-done", peekAgent: "a4" } },

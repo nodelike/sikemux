@@ -174,6 +174,19 @@ final class NotchStore {
         }
     }
 
+    /// Refuses an action held for the person, allows it once, or always allows what it lands in.
+    func answer(_ hold: ShipHold, _ how: HoldAnswer) {
+        let params = HoldParams(hold: hold.id)
+        let done: (Result<CoreResponse.Called<Nothing?>, CoreLinkError>) -> Void = { [weak self] result in
+            if case .failure(let error) = result { self?.fail(error.message) }
+        }
+        switch how {
+        case .refuse: link?.request(CoreCall.RefuseShip(params: params), reply: done)
+        case .once: link?.request(CoreCall.AllowShip(params: params), reply: done)
+        case .always: link?.request(CoreCall.LetShipGo(params: params), reply: done)
+        }
+    }
+
     /// Answers an agent's question with one of the answers it offered. The first answer anywhere wins.
     func answer(_ question: AgentQuestion, choice: Int) {
         link?.request(CoreCall.AnswerQuestion(params: AnswerParams(id: question.id, choice: choice))) {

@@ -44,6 +44,10 @@ struct Ask: Equatable {
     }
 }
 
+enum HoldAnswer {
+    case refuse, once, always
+}
+
 /// One row of the island: an open agent as the core shows it, with what the inbox says about it, or an item of an
 /// agent on another host.
 struct Entry: Identifiable, Equatable {

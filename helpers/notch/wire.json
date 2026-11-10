@@ -13,7 +13,8 @@
     "AgentFace": "pack shape color box",
     "FaceStyle": "motion",
     "AgentRollup": "subagents tasks",
-    "InboxItem": "id tier kind heading about agentId name cli projectName what detail at session card requestId questionId url",
+    "InboxItem": "id tier kind heading about agentId name cli projectName what detail at session card requestId questionId url hold",
+    "ShipHold": "id what letGo",
     "InboxCard": "title",
     "RemoteStatus": "pending",
     "PendingDevice": "id name platform expiresAt",
@@ -35,7 +36,7 @@
     "AnswerPairing",
     "StartChat"
   ],
-  "calls": ["preferences", "agentCatalog", "questions", "answerQuestion"],
+  "calls": ["preferences", "agentCatalog", "questions", "answerQuestion", "allowShip", "refuseShip", "letShipGo"],
   "events": ["Changed", "Remote", "DeviceView"],
   "declared": ["NotchSettings"]
 }

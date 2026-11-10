@@ -54,6 +54,7 @@ let fixture = #"""
     {"agentId": "a2", "name": "Flint", "cli": "codex", "projectName": "server", "title": "Refactor the auth middleware", "group": "working", "failed": false, "subagents": 3, "tasks": 0},
     {"agentId": "a3", "name": "Wren", "cli": "opencode", "projectName": "sikemux", "reconnecting": 3, "title": "Draft the notch spec", "group": "working", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "a5", "name": "Heron", "cli": "claude", "projectName": "sikemux", "title": "Profile the terminal flood", "group": "idle", "failed": false, "subagents": 0, "tasks": 2},
+    {"agentId": "a12", "name": "Kite", "cli": "claude", "projectName": "marketingiq", "title": "Ship the web fix to dev", "group": "blocked", "failed": false, "subagents": 0, "tasks": 0},
     {"agentId": "t1", "name": "Cedar", "cli": "claude", "projectName": "sikemux-front", "session": 7, "title": "Tighten the rail spacing", "group": "idle", "failed": false, "subagents": 0, "tasks": 0, "nextTrigger": IN(10800)}
   ], "items": [
     {"id": "permission:a1:p1", "tier": "needs", "kind": "permission", "heading": "Fix the login flake", "about": "Fix the login flake", "agentId": "a1", "name": "Otter", "cli": "claude", "projectName": "sikemux",
@@ -61,6 +62,9 @@ let fixture = #"""
     {"id": "question:q1", "tier": "needs", "kind": "question", "heading": "Move the ledger import", "about": "Move the ledger import", "agentId": "a9", "name": "Maple", "cli": "codex", "projectName": "server",
      "title": "Move the ledger import", "what": "Asks you", "detail": "Should amounts be stored in cents or as decimals? The API sends decimals but the ledger table uses integers.",
      "at": AGO(1), "questionId": "q1"},
+    {"id": "ship:7", "tier": "needs", "kind": "ship", "heading": "Ship the web fix to dev", "about": "Ship the web fix to dev", "agentId": "a12", "name": "Kite", "cli": "claude", "projectName": "marketingiq",
+     "title": "Ship the web fix to dev", "what": "Leaves this Mac", "detail": "Deploys", "at": AGO(12),
+     "hold": {"id": "7", "kind": "deploy", "what": "rundeck_run {\"job\":\"dev/backend/marketingiq-web\",\"options\":{\"BRANCH\":\"main\"}}", "letGo": "dev/*"}},
     {"id": "agent:a4", "tier": "review", "kind": "changes", "heading": "Bump Astro to 6", "about": "Bump Astro to 6", "agentId": "a4", "name": "Birch", "cli": "grok", "projectName": "sikemux-front",
      "title": "Bump Astro to 6", "what": "Finished, changed 3 files", "at": AGO(70)},
     {"id": "agent:a10", "tier": "finished", "kind": "failed", "heading": "Rotate the signing keys", "about": "Rotate the signing keys", "agentId": "a10", "name": "Pine", "cli": "claude", "projectName": "server",
@@ -265,6 +269,7 @@ render("C4-done", agents: ["a4", "a10", "a11"])
 render("C4b-working-and-done", agents: ["a2", "a3", "a4"])
 render("C6-hover", agents: ["a2", "a3"]) { $0.hovering = true }
 render("P1-permission", height: 260) { $0.mode = .peekAsk("permission:a1:p1") }
+render("P5-held-deploy", agents: ["a2", "a12"], height: 260) { $0.mode = .peekAsk("ship:7") }
 render("P4-question", agents: ["a2", "a9"], height: 260) { $0.mode = .peekAsk("question:q1") }
 render("P2-finished", agents: ["a2", "a4"]) { $0.mode = .peekDone("agent:a4") }
 render("P3-connect", agents: ["a2", "a3"], height: 240, devices: [PendingDevice(id: "d1", name: "Pixel 8", platform: "android", expiresAt: now + 112_000)]) {

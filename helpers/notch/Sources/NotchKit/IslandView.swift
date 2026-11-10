@@ -359,7 +359,9 @@ struct AskDetail: View {
 
     var body: some View {
         if let ask = entry.ask {
-            CommandText(ask: ask, darker: darker)
+            CommandText(command: ask.command, isCommand: ask.isCommand, darker: darker)
+        } else if let hold = entry.item?.hold {
+            CommandText(command: hold.what, isCommand: false, darker: darker)
         } else if let text = entry.question?.text ?? entry.item?.detail {
             Text(text)
                 .font(Theme.ui(13))
@@ -372,13 +374,14 @@ struct AskDetail: View {
 }
 
 struct CommandText: View {
-    let ask: Ask
+    let command: String
+    let isCommand: Bool
     var darker = false
 
     var body: some View {
         HStack(spacing: 8) {
-            if ask.isCommand { Text("$").foregroundStyle(Theme.inkFaint) }
-            Text(ask.command).foregroundStyle(Theme.ink).lineLimit(1).truncationMode(.tail)
+            if isCommand { Text("$").foregroundStyle(Theme.inkFaint) }
+            Text(command).foregroundStyle(Theme.ink).lineLimit(1).truncationMode(.tail)
         }
         .font(Theme.mono(12))
         .padding(.horizontal, 12)
@@ -388,7 +391,8 @@ struct CommandText: View {
     }
 }
 
-/// Deny, Always allow and Allow for a permission; Open in Sikemux for anything the notch cannot answer.
+/// Deny, Always allow and Allow for a permission; Refuse, Allow once and Always allow for an action held
+/// for the person; Open in Sikemux for anything the notch cannot answer.
 struct AnswerButtons: View {
     let store: NotchStore
     let island: IslandModel
@@ -417,9 +421,22 @@ struct AnswerButtons: View {
                     CapsuleButton(title: "Allow", primary: true, height: height) { answer(ask, once) }
                 }
             }
+        } else if let hold = entry.item?.hold, store.settings.answerInNotch {
+            HStack(spacing: 8) {
+                CapsuleButton(title: "Refuse", height: height) { answer(hold, .refuse) }
+                CapsuleButton(title: "Allow once", primary: hold.letGo == nil, height: height) { answer(hold, .once) }
+                if let always = hold.letGo {
+                    CapsuleButton(title: "Always allow \(always)", primary: true, height: height) { answer(hold, .always) }
+                }
+            }
         } else {
             CapsuleButton(title: "Open in Sikemux", primary: true, height: height) { store.open(entry) }
         }
+    }
+
+    private func answer(_ hold: ShipHold, _ how: HoldAnswer) {
+        store.answer(hold, how)
+        if case .peekAsk = island.mode { island.set(island.hovering ? .open : .closed) }
     }
 
     private func answer(_ ask: Ask, _ option: String) {
