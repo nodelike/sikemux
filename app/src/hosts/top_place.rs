@@ -223,6 +223,7 @@ fn picker(
     let chosen = shown.key.clone();
     let trigger = pill(id, shown, cx);
     let on_choose = Rc::new(on_choose);
+    let t = Tokens::get(cx).clone();
     ui::menu_button(id, Anchor::TopLeft, trigger, move |mut popup, _, cx| {
         popup = head(popup.max_h(px(560.)).scrollable(true), cx);
         for choice in &choices {
@@ -237,7 +238,7 @@ fn picker(
         }
         popup.separator().item(
             ui::MenuRow::new("Open Devices")
-                .icon(Icon::Gauge)
+                .mark(move || mark((Icon::Gauge, t.text_secondary)))
                 .when_some(keymap::hint(actions::FocusHosts::ID, cx), |row, hint| {
                     row.hint(hint)
                 })

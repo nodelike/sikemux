@@ -9,7 +9,7 @@ use sikemux_view::host_stats::ProcessUse;
 use super::board::{meter, METERS};
 use super::detail::app_icon;
 use super::model;
-use crate::theme::{Tokens, SPACE_1, SPACE_2, SPACE_2H, SPACE_3, TEXT_SM, TEXT_XS};
+use crate::theme::{Tokens, SPACE_1, SPACE_2, SPACE_3, TEXT_SM, TEXT_XS};
 use crate::ui;
 use crate::workbench::Workbench;
 
@@ -39,9 +39,7 @@ impl Render for Glance {
         apps.truncate(APPS_SHOWN);
         div()
             .w(px(264.))
-            .px(SPACE_1)
-            .pt(SPACE_1)
-            .pb(SPACE_2)
+            .py(SPACE_1)
             .flex()
             .flex_col()
             .child(
@@ -66,7 +64,7 @@ impl Render for Glance {
                     .mt(SPACE_3)
                     .flex()
                     .flex_col()
-                    .gap(SPACE_2H)
+                    .gap(SPACE_3)
                     .children(METERS.iter().map(|kind| meter(host, *kind, false, &t, cx)))
             }))
             .children((!apps.is_empty()).then(|| {
