@@ -156,7 +156,7 @@ pub struct Rerun {
 pub struct JobRef {
     #[serde(flatten)]
     pub repo: RepoRef,
-    #[serde(deserialize_with = "id_text")]
+    #[serde(alias = "stepId", deserialize_with = "id_text")]
     pub job_id: String,
     /// The run the job is in, for a host that names a job only within it.
     #[serde(default, deserialize_with = "id_text_if_any")]
@@ -172,16 +172,30 @@ pub struct RerunJob {
     pub debug: bool,
 }
 
-/// The lines of a job's log to hand back: the last `tail`, or those matching `grep`.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExcerptQuery {
     #[serde(flatten)]
     pub job: JobRef,
+    #[serde(flatten)]
+    pub pick: LinePick,
+}
+
+/// The lines of a log to hand back: the last `tail`, those from `from` to
+/// `to`, or those matching `grep` with `context` lines around each.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinePick {
     #[serde(default)]
     pub tail: Option<usize>,
     #[serde(default)]
     pub grep: Option<String>,
+    #[serde(default)]
+    pub context: Option<usize>,
+    #[serde(default)]
+    pub from: Option<u64>,
+    #[serde(default)]
+    pub to: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -227,6 +241,12 @@ pub struct PullQuery {
     pub page: Option<u32>,
     #[serde(default)]
     pub per_page: Option<u32>,
+    /// Only pull requests opened by this login.
+    #[serde(default)]
+    pub author: Option<String>,
+    /// Only pull requests from this branch.
+    #[serde(default)]
+    pub head: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

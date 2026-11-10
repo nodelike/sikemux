@@ -238,6 +238,7 @@ pub struct RunTiming {
 #[serde(rename_all = "camelCase")]
 pub struct LogLine {
     pub number: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
     pub text: String,
 }
@@ -257,6 +258,9 @@ pub struct JobLog {
 pub struct LogExcerpt {
     pub lines: Vec<LogLine>,
     pub truncated: bool,
+    /// Which lines were left out to keep the answer short, and how to read them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

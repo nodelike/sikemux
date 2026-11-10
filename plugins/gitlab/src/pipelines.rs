@@ -473,7 +473,7 @@ pub async fn log(data_dir: &Path, input: JobRef) -> GitlabResult<JobLog> {
 /// The end of a job's log for an agent, optionally only the lines that mention something.
 pub async fn excerpt(data_dir: &Path, input: ExcerptQuery) -> GitlabResult<LogExcerpt> {
     let whole = log(data_dir, input.job).await?;
-    Ok(answers::log_excerpt(whole, input.grep, input.tail))
+    Ok(answers::log_excerpt(whole, input.pick))
 }
 
 async fn file(data_dir: &Path, repo: &RepoRef) -> GitlabResult<String> {

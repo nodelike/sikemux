@@ -199,18 +199,43 @@ fn states_for(state: &str) -> &'static [&'static str] {
     }
 }
 
+/// Bitbucket's filter for the author and branch asked about, if any.
+fn filter_of(input: &PullQuery) -> Option<String> {
+    let quoted = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
+    let author = input.author.as_deref().map(|author| {
+        let author = quoted(author);
+        format!("(author.nickname = {author} OR author.display_name = {author})")
+    });
+    let head = input
+        .head
+        .as_deref()
+        .map(|head| format!("source.branch.name = {}", quoted(head)));
+    let terms: Vec<String> = author.into_iter().chain(head).collect();
+    (!terms.is_empty()).then(|| terms.join(" AND "))
+}
+
+/// A page of pull requests without their descriptions, which can run to tens
+/// of thousands of characters each; `pull` reads one whole.
 pub async fn list(data_dir: &Path, input: PullQuery) -> BitbucketResult<Vec<Pull>> {
     let mut query: Vec<(&str, String)> = states_for(input.state.as_deref().unwrap_or("open"))
         .iter()
         .map(|state| ("state", state.to_string()))
         .collect();
-    query.push(("pagelen", "50".into()));
+    let per_page = input.per_page.unwrap_or(50).clamp(1, 50);
+    query.push(("pagelen", per_page.to_string()));
+    query.push(("page", input.page.unwrap_or(1).max(1).to_string()));
     query.push(("sort", "-updated_on".into()));
+    if let Some(filter) = filter_of(&input) {
+        query.push(("q", filter));
+    }
     let rows: Vec<PullRow> =
         client::get_all(data_dir, &input.repo.path("/pullrequests")?, &query, 1).await?;
     Ok(rows
         .into_iter()
-        .map(|row| pull_of(&input.repo, row))
+        .map(|row| Pull {
+            body: String::new(),
+            ..pull_of(&input.repo, row)
+        })
         .collect())
 }
 

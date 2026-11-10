@@ -393,7 +393,7 @@ fn lines_of(text: &str, truncated: bool) -> Vec<LogLine> {
 /// The end of a step's log for an agent, optionally only the lines that mention something.
 pub async fn excerpt(data_dir: &Path, input: ExcerptQuery) -> BitbucketResult<LogExcerpt> {
     let whole = log(data_dir, input.job).await?;
-    Ok(answers::log_excerpt(whole, input.grep, input.tail))
+    Ok(answers::log_excerpt(whole, input.pick))
 }
 
 /// A step that has not started yet has no log, which reads as an empty one.

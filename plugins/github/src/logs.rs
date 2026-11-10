@@ -92,7 +92,7 @@ pub async fn job(data_dir: &Path, input: JobRef) -> GithubResult<JobLog> {
 /// The end of a job's log, optionally only the lines that mention something.
 pub async fn excerpt(data_dir: &Path, input: ExcerptQuery) -> GithubResult<LogExcerpt> {
     let whole = job(data_dir, input.job).await?;
-    Ok(answers::log_excerpt(whole, input.grep, input.tail))
+    Ok(answers::log_excerpt(whole, input.pick))
 }
 
 /// GitHub answers "not found" for a log that aged out, for one a job has not

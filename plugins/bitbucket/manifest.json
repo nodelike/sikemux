@@ -50,11 +50,15 @@
       "name": "bitbucket_pulls",
       "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} pull requests"], "detail": ["{state}"]},
       "method": "pulls",
-      "description": "Pull requests, most recently updated first, with state, branches and reviewers. owner and name come from the git remote.",
+      "description": "Pull requests, most recently updated first, with state, branches and reviewers but not descriptions; bitbucket_pull reads one whole. owner and name come from the git remote.",
       "properties": {
         "owner": { "type": "string", "description": "The workspace." },
         "name": { "type": "string", "description": "The repository slug." },
-        "state": { "type": "string", "enum": ["open", "closed", "all"], "description": "Default open. closed covers merged, declined and superseded." }
+        "state": { "type": "string", "enum": ["open", "closed", "all"], "description": "Default open. closed covers merged, declined and superseded." },
+        "author": { "type": "string", "description": "Only those opened by this nickname or display name." },
+        "head": { "type": "string", "description": "Only those from this branch." },
+        "perPage": { "type": "integer", "description": "Default and most 50." },
+        "page": { "type": "integer", "description": "From 1." }
       },
       "required": ["owner", "name"]
     },
@@ -143,14 +147,17 @@
       "name": "bitbucket_step_log",
       "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["step {jobId}"], "detail": ["“{grep}”"]},
       "method": "jobLogExcerpt",
-      "description": "The end of one pipeline step's log. Start with the default tail or grep for the error. truncated means earlier lines were left out.",
+      "description": "The end of one pipeline step's log, or the lines asked for, at most 30,000 characters. Start with the default tail or grep for the error. truncated means lines were left out; note says which.",
       "properties": {
         "owner": { "type": "string", "description": "The workspace." },
         "name": { "type": "string", "description": "The repository slug." },
-        "jobId": { "type": "string", "description": "A step's id from bitbucket_pipeline, or a step {uuid} with runId." },
+        "jobId": { "type": "string", "description": "A step's id from bitbucket_pipeline, or a step {uuid} with runId. stepId works too." },
         "runId": { "type": "string", "description": "A step {uuid}'s pipeline." },
-        "tail": { "type": "integer", "description": "Lines from the end, after grep. Default 200, at most 2000." },
-        "grep": { "type": "string", "description": "Only lines containing this, ignoring case." }
+        "tail": { "type": "integer", "description": "Lines from the end, after grep; from from when given. Default 200, at most 2000." },
+        "grep": { "type": "string", "description": "Only lines containing this, ignoring case." },
+        "context": { "type": "integer", "description": "Lines kept around each grep match, at most 50." },
+        "from": { "type": "integer", "description": "First line number to read." },
+        "to": { "type": "integer", "description": "Last line number to read." }
       },
       "required": ["owner", "name", "jobId"]
     },

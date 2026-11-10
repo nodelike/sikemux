@@ -7,7 +7,7 @@ use crate::http::{Api, Calls};
 use crate::store::{Account, Accounts};
 use crate::{Service, ServiceError};
 
-use super::asks::PatchQuery;
+use super::asks::{LinePick, PatchQuery};
 use super::{ChangedFile, JobLog, LogExcerpt, LogLine, Pull, PullStage};
 
 const PATCH_LINES: usize = 400;
@@ -15,6 +15,9 @@ const MAX_PATCH_LINES: usize = 1000;
 const PATCH_BYTES: usize = 32 * 1024;
 const DEFAULT_TAIL: usize = 200;
 const MAX_TAIL: usize = 2000;
+const MAX_CONTEXT: usize = 50;
+const EXCERPT_CHARS: usize = 30_000;
+const LINE_CHARS: usize = 2_000;
 
 fn cut_at_char(text: &str, most: usize) -> &str {
     text.get(..text.floor_char_boundary(most))
@@ -126,28 +129,71 @@ pub fn pick_patches<S: Service>(
         .collect())
 }
 
-/// The end of a job's log for an agent, optionally only the lines that mention something.
-pub fn log_excerpt(whole: JobLog, grep: Option<String>, tail: Option<usize>) -> LogExcerpt {
-    let needle = grep
+/// The lines of a job's log `pick` asks for, the end of it when it names none,
+/// cut to what an agent can read at once.
+pub fn log_excerpt(whole: JobLog, pick: LinePick) -> LogExcerpt {
+    let in_range = |line: &LogLine| {
+        pick.from.is_none_or(|from| line.number >= from)
+            && pick.to.is_none_or(|to| line.number <= to)
+    };
+    let mut lines: Vec<LogLine> = whole.lines.into_iter().filter(in_range).collect();
+    let needle = pick
+        .grep
         .map(|grep| grep.to_lowercase())
         .filter(|grep| !grep.is_empty());
-    let mut lines: Vec<LogLine> = whole
-        .lines
-        .into_iter()
-        .filter(|line| {
-            needle
-                .as_deref()
-                .is_none_or(|needle| line.text.to_lowercase().contains(needle))
-        })
-        .collect();
-    let tail = tail.unwrap_or(DEFAULT_TAIL).clamp(1, MAX_TAIL);
-    let cut = lines.len() > tail;
-    if cut {
-        lines.drain(..lines.len() - tail);
+    if let Some(needle) = needle {
+        let context = pick.context.unwrap_or(0).min(MAX_CONTEXT);
+        let mut kept = vec![false; lines.len()];
+        for (index, line) in lines.iter().enumerate() {
+            if line.text.to_lowercase().contains(&needle) {
+                let end = (index + context + 1).min(lines.len());
+                kept[index.saturating_sub(context)..end].fill(true);
+            }
+        }
+        let mut kept = kept.into_iter();
+        lines.retain(|_| kept.next().unwrap_or(false));
     }
+    let forward = pick.from.is_some();
+    let most = pick.tail.unwrap_or(DEFAULT_TAIL).clamp(1, MAX_TAIL);
+    let mut cut = lines.len() > most;
+    if cut {
+        if forward {
+            lines.truncate(most);
+        } else {
+            lines.drain(..lines.len() - most);
+        }
+    }
+    for line in &mut lines {
+        if line.text.len() > LINE_CHARS {
+            line.text = format!("{}…", cut_at_char(&line.text, LINE_CHARS));
+        }
+    }
+    let mut chars = 0;
+    let mut fits = |line: &LogLine| {
+        chars += line.text.len() + 16;
+        chars <= EXCERPT_CHARS
+    };
+    let kept = if forward {
+        lines.iter().take_while(|line| fits(line)).count()
+    } else {
+        lines.iter().rev().take_while(|line| fits(line)).count()
+    };
+    let note = (kept < lines.len()).then(|| {
+        let left = if forward {
+            lines.drain(kept..).collect::<Vec<_>>()
+        } else {
+            lines.drain(..lines.len() - kept).collect()
+        };
+        let (first, last) = (left[0].number, left[left.len() - 1].number);
+        format!(
+            "Lines {first} to {last} were left out to keep this under {EXCERPT_CHARS} characters; ask for them with from and to."
+        )
+    });
+    cut |= note.is_some();
     LogExcerpt {
         lines,
         truncated: cut || whole.truncated,
+        note,
     }
 }
 
@@ -392,7 +438,14 @@ mod tests {
             expired: false,
             truncated: false,
         };
-        let found = log_excerpt(whole, Some("error".into()), Some(10));
+        let found = log_excerpt(
+            whole,
+            LinePick {
+                grep: Some("error".into()),
+                tail: Some(10),
+                ..LinePick::default()
+            },
+        );
         assert_eq!(found.lines.len(), 1);
         assert_eq!(found.lines[0].number, 3);
         assert!(!found.truncated);
