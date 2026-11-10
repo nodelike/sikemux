@@ -206,7 +206,13 @@ final class LiveAccount {
                 if event.role == "host" { hosts = true }
             }
         }
-        if handled > mark { try? Keychain.write(Self.cursorItem, String(handled)) }
+        if handled > mark {
+            do {
+                try Keychain.write(Self.cursorItem, String(handled))
+            } catch {
+                print("sikemux: could not keep the account's event cursor: \(error)")
+            }
+        }
         if hosts { handlers.hostsChanged() }
         if stash { handlers.stashChanged() }
         added.forEach(handlers.deviceAdded)

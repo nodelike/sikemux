@@ -49,10 +49,10 @@ enum ProviderSignIn {
     /// Someone new to Sikemux comes back from the provider with nothing to sign in to yet, and the sign-in becomes
     /// a new account.
     private static func finish(_ signIn: Clerk.SignIn, _ client: Clerk.Client?) async throws {
-        if signIn.status == "complete", let session = signIn.createdSessionId {
+        if signIn.status == .complete, let session = signIn.createdSessionId {
             return try await Account.shared.activate(session: session, client: client)
         }
-        guard signIn.firstFactorVerification?.status == "transferable" else {
+        guard signIn.firstFactorVerification?.status == .transferable else {
             throw Clerk.Problem(code: nil, message: "This account needs a sign-in step the app does not do yet; sign in on the web first.")
         }
         let (signUp, made) = try await Clerk.call("POST", "v1/client/sign_ups", ["transfer": "true"], as: Clerk.SignUp.self)
