@@ -1,4 +1,4 @@
-.PHONY: dev dev-stop build run format hooks check clean clean-dev prune
+.PHONY: dev dev-stop build run format autofix hooks check clean clean-dev prune
 
 export PATH := $(CURDIR)/scripts/bin:$(PATH)
 
@@ -23,6 +23,9 @@ run:
 format:
 	pnpm format
 	pnpm rust:fmt
+
+autofix:
+	scripts/autofix.sh
 
 hooks:
 	pnpm prepare

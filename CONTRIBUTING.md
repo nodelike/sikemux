@@ -86,8 +86,11 @@ Merging a change under `server/` to `main` deploys it: `.github/workflows/server
 CI runs its gates on every push that touches them. To run the ones a Mac can before pushing:
 
 ```bash
+make autofix          # applies the fixes CI's gates want, then runs the quick gates
 make check            # CI's gates, apart from those listed below
 ```
+
+`make autofix` (`pnpm autofix`) regenerates every generated file, runs Prettier, `eslint --fix`, `cargo fmt` and `clippy --fix`, then runs the frontend checks and, when Rust changed since `origin/main`, Clippy for the Mac, the GPUI app, no plugins and Linux. `--since <commit>` compares with another commit and `--all` runs everything. It never commits; it exits non-zero when something it could not fix still fails, and prints what.
 
 `make check` runs Prettier in check mode, ShellCheck, ESLint and TypeScript over `shared/`, the dependency audit, `cargo fmt --check`, the `workspace-hack` check, Clippy with warnings denied, Rust tests, the core built with no plugins, Clippy and tests for the GPUI app, a build of the notch and voice helpers, and credential-free release-tooling checks. It also checks that generated files (wire types, agent tools, grammars, icons) match their sources. It takes as long as a full build of the app.
 

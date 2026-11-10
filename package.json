@@ -13,6 +13,7 @@
     "brand": "node scripts/brand.mjs",
     "dmg:background": "node scripts/dmg-background.mjs",
     "typecheck": "tsc6 --noEmit",
+    "autofix": "scripts/autofix.sh",
     "format": "pnpm format:files --write",
     "format:check": "pnpm format:files --check",
     "format:files": "prettier \"shared/**/*.{ts,tsx}\" \"scripts/*.mjs\" eslint.config.js package.json README.md CONTRIBUTING.md \".github/workflows/*.{yml,yaml}\"",
