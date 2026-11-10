@@ -95,7 +95,7 @@ private struct ChatPane: View {
                 } else {
                     transcript(rows)
                         .overlay(alignment: .top) { askedStrip(rows) }
-                        .overlay(alignment: .bottom) { jump }
+                        .overlay(alignment: .bottom) { JumpToLatest(scroll: scroll) }
                 }
             }
             .frame(maxHeight: .infinity)
@@ -222,22 +222,6 @@ private struct ChatPane: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("You asked: \(text). Go to it")
-        }
-    }
-
-    @ViewBuilder private var jump: some View {
-        if scroll.away {
-            Button { scroll.toEnd() } label: {
-                IconView(icon: Icons.arrowDown, size: 16)
-                    .foregroundStyle(palette.inkDim)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(palette.composer))
-                    .overlay(Circle().strokeBorder(palette.border, lineWidth: 1))
-                    .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
-            }
-            .buttonStyle(.plain)
-            .padding(.bottom, 8)
-            .accessibilityLabel("Jump to latest message")
         }
     }
 
