@@ -34,10 +34,12 @@ on:
 permissions:
   contents: read
 
-# Every push to main gets its own run, so a red main always points at the push that broke it.
+# One run at a time per branch. A run that has started always finishes, so main keeps getting
+# results; of the pushes that arrive meanwhile only the newest runs next, and the older waiting
+# ones are cancelled. A new push to a pull request stops its running one.
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Cargo.toml builds dependencies at full speed so `make dev` feels fast. CI only
 # tests them, and level 1 compiles in about half the time. The cache key carries
