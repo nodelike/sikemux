@@ -574,7 +574,7 @@ mod tests {
     /// A shell writes the script, never this process: a child another test forks here while the
     /// file is open for writing keeps it open, and Linux then refuses to run it as "text file busy".
     fn write_executable(path: &Path, body: &str) {
-        let written = std::process::Command::new("/bin/sh")
+        let written = sikemux_process::user_environment::command("/bin/sh")
             .args([
                 "-c",
                 r#"printf '%s' "$1" > "$2" && chmod 755 "$2""#,
