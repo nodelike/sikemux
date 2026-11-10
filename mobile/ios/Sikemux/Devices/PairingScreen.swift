@@ -18,10 +18,6 @@ private func hostKind(_ platform: String) -> IconDef {
     platform == "linux" ? Icons.desktop : Icons.laptop
 }
 
-private func date(_ millis: Int?) -> Date? {
-    millis.map { Date(timeIntervalSince1970: Double($0) / 1000) }
-}
-
 /// Who may connect to a host: the devices asking now, answered here, and those already paired, changed or removed here.
 struct PairingScreen: View {
     let core: String
@@ -110,7 +106,7 @@ private struct PairingContent: View {
             Rows {
                 ForEach(pairing.devices, id: \.id) { paired in
                     let me = paired.id == phone
-                    let seen = date(paired.lastSeen).map { "seen \(Format.ago($0, now: now))" } ?? "never connected"
+                    let seen = paired.lastSeen.map(Format.date(millis:)).map { "seen \(Format.ago($0, now: now))" } ?? "never connected"
                     Row(
                         title: paired.name.isEmpty ? "Unnamed phone" : paired.name,
                         detail: "\(accessLabel(paired.access)) · \(me ? "this phone" : seen)",
@@ -137,7 +133,7 @@ private struct PairingContent: View {
             SectionLabel("Linked hosts")
             Rows {
                 ForEach(links, id: \.id) { link in
-                    let reach = link.connected ? "connected" : date(link.lastSeen).map { "seen \(Format.ago($0, now: now))" } ?? "never connected"
+                    let reach = link.connected ? "connected" : link.lastSeen.map(Format.date(millis:)).map { "seen \(Format.ago($0, now: now))" } ?? "never connected"
                     let detail = [platformName(link.platform), reach, link.agents > 0 ? "\(link.agents) \(Format.counted("agent", link.agents))" : nil]
                         .compactMap { $0 }.joined(separator: " · ")
                     Row(title: link.name, detail: detail,

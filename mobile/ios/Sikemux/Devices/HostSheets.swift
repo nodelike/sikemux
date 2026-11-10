@@ -300,7 +300,7 @@ struct AwaySheet: View {
                         HStack {
                             Text(preset.label).font(Theme.ui(15)).foregroundStyle(palette.inkDim)
                             Spacer()
-                            Text(Self.clock(Date(timeIntervalSince1970: Double(preset.until) / 1000)))
+                            Text(Self.clock(Format.date(millis: preset.until)))
                                 .font(Theme.ui(13))
                                 .monospacedDigit()
                                 .foregroundStyle(palette.tertiary)
@@ -361,7 +361,7 @@ struct AwaySheet: View {
         let ids = [shown.agentId]
         var said: Said?
         if until != nil || words != nil {
-            let text = until.map { "Snoozed until \(Self.clock(Date(timeIntervalSince1970: Double($0) / 1000)))" } ?? "Snoozed"
+            let text = until.map { "Snoozed until \(Self.clock(Format.date(millis: $0)))" } ?? "Snoozed"
             said = Said(text: text) { connection in
                 Task { await Self.undo { _ = try await connection.call(PhoneCall.SnoozeAgents.self, SnoozeParams(agentIds: ids, until: nil, typed: nil)) } }
             }

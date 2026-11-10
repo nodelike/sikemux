@@ -1,10 +1,6 @@
 import SikemuxCore
 import SwiftUI
 
-private func date(_ millis: Int?) -> Date? {
-    millis.map { Date(timeIntervalSince1970: Double($0) / 1000) }
-}
-
 /// The host's agents: its open agents in one list, each with its own state, then its recent chats.
 struct DeviceAgents: View {
     @Environment(\.palette) private var palette
@@ -83,7 +79,7 @@ private struct ChatRow: View {
         let away = shown.snoozedUntil != nil || shown.settledAt != nil
         Row(
             title: shown.title, name: away ? nil : shown.name,
-            detail: shown.settledAt.map { _ in Format.ago(date(shown.settledAt), now: now) },
+            detail: shown.settledAt.map { Format.ago(Format.date(millis: $0), now: now) },
             place: place, dim: away,
             onPress: { Router.shared.push(.chat(core: core, agent: shown.agentId)) },
             onLongPress: onHold,
@@ -92,7 +88,7 @@ private struct ChatRow: View {
             },
             end: {
                 if away {
-                    if shown.settledAt == nil, let until = date(shown.snoozedUntil) { WakeTime(at: until, now: now) }
+                    if shown.settledAt == nil, let until = shown.snoozedUntil.map(Format.date(millis:)) { WakeTime(at: until, now: now) }
                 } else {
                     if shown.subagents > 0 { SubagentCount(count: shown.subagents) }
                     if shown.tasks > 0 { ShellCount(count: shown.tasks) }
@@ -124,7 +120,7 @@ private struct TerminalAgentRow: View {
                 AgentFaceView(agentId: shown.agentId, provider: shown.cli, group: shown.group, size: 20).opacity(away ? 0.55 : 1)
             },
             end: {
-                if snoozed, let until = date(shown.snoozedUntil) {
+                if snoozed, let until = shown.snoozedUntil.map(Format.date(millis:)) {
                     WakeTime(at: until, now: now)
                 } else if !away {
                     Trigger(shown: shown, now: now)
@@ -140,7 +136,7 @@ private struct Trigger: View {
     let now: Date
 
     var body: some View {
-        if let at = date(shown.nextTrigger), shown.group != .working, shown.group != .blocked {
+        if let at = shown.nextTrigger.map(Format.date(millis:)), shown.group != .working, shown.group != .blocked {
             TriggerTime(at: at, now: now)
         }
     }
@@ -256,7 +252,7 @@ private struct Recent: View {
                             if resuming == chat.id {
                                 Working()
                             } else {
-                                Text(Format.age(date(chat.activeAt), now: now)).font(Theme.ui(12)).monospacedDigit().foregroundStyle(palette.tertiary)
+                                Text(Format.age(Format.date(millis: chat.activeAt), now: now)).font(Theme.ui(12)).monospacedDigit().foregroundStyle(palette.tertiary)
                             }
                         })
                 }
