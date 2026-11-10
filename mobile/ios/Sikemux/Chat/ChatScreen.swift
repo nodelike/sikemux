@@ -50,7 +50,7 @@ private struct ChatPane: View {
     @State private var lit: String?
     @State private var menu = false
     @State private var showLive = false
-    @State private var finding = false
+    @State private var find: ChatFind?
     @State private var stillness: (() -> Void)?
 
     init(core: String, agentId: String) {
@@ -116,7 +116,7 @@ private struct ChatPane: View {
             ChatMenu(
                 core: core, agentId: agentId, agentName: info?.name.map { "@\($0)" } ?? provider, hostName: hostName,
                 onClose: { menu = false },
-                onFind: session.attached == .live ? { finding = true } : nil,
+                onFind: session.attached == .live ? { openFind() } : nil,
                 onRecent: recalls(rows) ? { focus.recent = true } : nil,
                 onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
         }
@@ -130,6 +130,7 @@ private struct ChatPane: View {
         .onChange(of: session.permissions.first?.requestId) { _, asked in
             if asked != nil { Haptics.warning() }
         }
+        .onChange(of: find?.finding) { _, found in context.finding = found }
         .onChange(of: lit) { _, shown in
             guard shown != nil else { return }
             Task {
@@ -169,6 +170,27 @@ private struct ChatPane: View {
             scroll.hold()
             session?.folds.set("team-all/\(id)", true)
         }
+    }
+
+    private func openFind() {
+        editing = nil
+        let folds = session.folds
+        find = ChatFind(session: session) { [weak session, scroll] hit in
+            guard let session, let row = session.rows.messages.first(where: { $0.id == hit.row }) else { return }
+            if let fold = row.fold, !folds.isOpen("work/\(fold.id)", false) {
+                let kept = fold.shown
+                let tucked = !row.parts.enumerated().contains { kept.contains($0.offset) && $0.element.id == hit.part }
+                if tucked { folds.set("work/\(fold.id)", true) }
+            }
+            if let team = row.team { folds.set("team-all/\(team.id)", true) }
+            Task { @MainActor in scroll.reveal(hit.row) }
+        }
+    }
+
+    private func closeFind() {
+        find?.close()
+        find = nil
+        context.finding = nil
     }
 
     private func left() {
@@ -264,7 +286,11 @@ private struct ChatPane: View {
             VStack(spacing: 0) {
                 if !live.isOpen { Reconnecting(closed: isClosed, problem: closedProblem, hostName: hostName) { Hub.shared.retry(core) } }
                 if let notice = session.notice { NoticeBar(text: notice) { session.dismissNotice() } }
-                ChatBottom(session: session, context: bottomContext(rows))
+                if let find {
+                    FindBar(find: find) { closeFind() }
+                } else {
+                    ChatBottom(session: session, context: bottomContext(rows))
+                }
             }
         } else if !rows.messages.isEmpty {
             status
