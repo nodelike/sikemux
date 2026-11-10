@@ -8,7 +8,8 @@
 //! community build, cannot ask for it, so it trusts the app and notch at their
 //! paths in the bundle or build it runs from. On Linux that path is all there is, and it is
 //! weaker: a process can connect and then `exec` the app, keeping the
-//! connection. A dev build also trusts the program that started it, such as a
+//! connection. The installed core trusts only the AppImage unpacked beside it, never one
+//! running from its own mount, which any program could make. A dev build also trusts the program that started it, such as a
 //! test.
 
 use std::os::fd::AsRawFd;
@@ -75,6 +76,9 @@ fn app_paths_beside(own: &Path) -> Vec<PathBuf> {
             ]);
         }
         None => paths.push(directory.join(APP)),
+    }
+    if own == Path::new(crate::host_update::INSTALLED_CORE) {
+        paths.push(Path::new(crate::host_update::INSTALLED_APP).join(crate::host_update::INSTALLED_APP_PROGRAM));
     }
     if cfg!(debug_assertions) {
         paths.extend(DEV_PROGRAMS.iter().map(|dev| directory.join(dev)));

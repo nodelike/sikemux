@@ -326,10 +326,10 @@ impl Workbench {
                 }
                 if now && !already {
                     // The core put the update in place of this app; opening the app again starts it.
-                    // An AppImage runs from a mount that goes with this process, so it starts again
-                    // from its file.
-                    if let Some(appimage) = std::env::var_os("APPIMAGE") {
-                        cx.set_restart_path(appimage.into());
+                    // An AppImage runs from a mount that goes with this process, and an unpacked one
+                    // from a folder the update replaced, so each starts again from its own launcher.
+                    if let Some(launcher) = appimage_launcher() {
+                        cx.set_restart_path(launcher);
                     }
                     if self
                         .reads
@@ -626,6 +626,13 @@ impl Workbench {
 
 /// Keeps `value` decoded in `slot`, and says whether it differs from what was kept. An answer
 /// that does not read leaves the slot as it was.
+fn appimage_launcher() -> Option<std::path::PathBuf> {
+    if let Some(appimage) = std::env::var_os("APPIMAGE") {
+        return Some(appimage.into());
+    }
+    std::env::var_os("APPDIR").map(|folder| std::path::Path::new(&folder).join("AppRun"))
+}
+
 fn keep_decoded<T: DeserializeOwned + PartialEq>(slot: &mut T, value: Value, what: &str) -> bool {
     decoded(value, what).is_some_and(|read| keep(slot, read))
 }

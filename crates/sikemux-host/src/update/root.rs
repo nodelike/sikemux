@@ -1,4 +1,4 @@
-//! What root does to update the core: find the newest release on the
+//! What root does to update the core, and the app unpacked beside it: find the newest release on the
 //! person's channel in the feeds, check Sikemux signed it for this very file
 //! and version before unpacking or running any of it, and put it where the
 //! installer does, setgid to the group that guards the core's secrets. From
@@ -8,8 +8,8 @@ use std::ffi::CStr;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Read, Write};
 use std::os::fd::AsRawFd;
-use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt};
-use std::path::Path;
+use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use semver::Version;
@@ -132,6 +132,18 @@ async fn attempt(
         .get(&release_feed::host_platform())
         .cloned()
         .ok_or_else(|| format!("{} has no core for this machine", newest.version))?;
+    let app = Path::new(host_update::INSTALLED_APP);
+    let app_asset = match app.is_dir() {
+        true => Some(
+            newest
+                .feed
+                .platforms
+                .get(&release_feed::platform())
+                .cloned()
+                .ok_or_else(|| format!("{} has no app for this machine", newest.version))?,
+        ),
+        false => None,
+    };
 
     let work = dir.join(".update");
     let _ = fs::remove_dir_all(&work);
@@ -139,7 +151,18 @@ async fn attempt(
         .mode(0o700)
         .create(&work)
         .map_err(|error| error.to_string())?;
-    let result = fetch_and_place(core, &work, &newest.version, &asset, report).await;
+    let result = async {
+        let unpacked = match &app_asset {
+            Some(app_asset) => Some(fetch_app(&work, &newest.version, app_asset, report).await?),
+            None => None,
+        };
+        let inode = fetch_and_place(core, &work, &newest.version, &asset, report).await?;
+        if let Some(unpacked) = unpacked {
+            replace_app(&unpacked, app)?;
+        }
+        Ok::<_, String>(inode)
+    }
+    .await;
     let _ = fs::remove_dir_all(&work);
     let inode = result?;
     write_checked(dir, channel, &newest.version, inode);
@@ -183,6 +206,79 @@ async fn fetch_and_place(
     }
     report(&UpdateStep::Verified);
     place(&archive, core)
+}
+
+/// Downloads the release's AppImage, checked as the core is, and unpacks it in
+/// `work`, answering with the unpacked folder.
+async fn fetch_app(
+    work: &Path,
+    version: &Version,
+    asset: &release_feed::Asset,
+    report: &mut dyn FnMut(&UpdateStep),
+) -> Result<PathBuf, String> {
+    let file = format!("Sikemux_{version}_{}.AppImage", package_arch());
+    let appimage = work.join(&file);
+    let key = release_feed::release_key()?;
+    let mut bytes = 0;
+    let signed = release_feed::fetch_verified(
+        &asset.url,
+        &asset.signature,
+        &key,
+        &appimage,
+        Some(MAX_ARCHIVE_BYTES),
+        |done, _| bytes = done,
+    )
+    .await?;
+    report(&UpdateStep::Downloaded {
+        version: version.to_string(),
+        bytes,
+    });
+    if !release_feed::signed_for(&signed, &file, version) {
+        return Err(format!(
+            "{file} is not signed by Sikemux: its signature was made for another file ({signed})"
+        ));
+    }
+    report(&UpdateStep::Verified);
+    let failed = |error: io::Error| format!("could not unpack the app: {error}");
+    fs::set_permissions(&appimage, fs::Permissions::from_mode(0o700)).map_err(failed)?;
+    let unpacked_ok = sikemux_process::user_environment::command(&appimage)
+        .arg("--appimage-extract")
+        .current_dir(work)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(failed)?
+        .success();
+    let unpacked = work.join("squashfs-root");
+    if !unpacked_ok || !unpacked.join(host_update::INSTALLED_APP_PROGRAM).is_file() {
+        return Err(format!("{file} could not be unpacked"));
+    }
+    fs::set_permissions(&unpacked, fs::Permissions::from_mode(0o755)).map_err(failed)?;
+    Ok(unpacked)
+}
+
+/// What the release calls this machine in its package names.
+fn package_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        other => other,
+    }
+}
+
+/// Puts the unpacked app in place of the installed one, putting the old one back
+/// if the new one cannot go in.
+fn replace_app(unpacked: &Path, app: &Path) -> Result<(), String> {
+    let failed = |error: io::Error| format!("could not install the app: {error}");
+    let old = app.with_file_name(".app.old");
+    let _ = fs::remove_dir_all(&old);
+    fs::rename(app, &old).map_err(failed)?;
+    if let Err(error) = fs::rename(unpacked, app) {
+        let _ = fs::rename(&old, app);
+        return Err(failed(error));
+    }
+    let _ = fs::remove_dir_all(&old);
+    Ok(())
 }
 
 /// Unpacks the core beside the one it replaces and moves it into place,

@@ -20,7 +20,7 @@ Bring Claude Code, Codex or OpenCode. Sikemux gives them your shell, browser, lo
 curl -fsSL https://sikemux.com/install | sh
 ```
 
-On a Mac this puts Sikemux in `/Applications`; on Linux it asks whether you want the desktop app (the `.deb` or `.rpm`, the Arch package on x86_64, or else the AppImage in `~/Applications`) or just the core for a server. Add `SIKEMUX_CHANNEL=nightly` before `sh` for the nightly build.
+On a Mac this puts Sikemux in `/Applications`; on Linux it asks whether you want the desktop app (the `.deb` or `.rpm`, the Arch package on x86_64, or else the AppImage, unpacked in `/usr/local/lib/sikemux/app`) or just the core for a server. Add `SIKEMUX_CHANNEL=nightly` before `sh` for the nightly build.
 
 Or download the latest `.dmg` from [sikemux.com](https://sikemux.com) or [Releases](https://github.com/nodelike/sikemux/releases/latest). It is about 25 MB, needs macOS 11 or later on Apple Silicon, and keeps itself up to date.
 
