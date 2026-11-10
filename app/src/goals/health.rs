@@ -186,7 +186,12 @@ fn digest(latest: &AuditDigest, cx: &mut Context<GoalsPane>) -> AnyElement {
             .py(SPACE_1H)
             .border_t_1()
             .border_color(t.border)
-            .child(ui::caps(name, cx).w(px(92.)).flex_none().pt(px(2.)))
+            .child(
+                ui::caps(name, cx)
+                    .w(px(super::report::LABEL_W))
+                    .flex_none()
+                    .pt(px(2.)),
+            )
     };
     div()
         .flex()

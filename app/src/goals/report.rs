@@ -22,6 +22,8 @@ use crate::ui::{self, Pick};
 
 /// How many lines a row of the report shows before it counts the rest.
 const SHOWN: usize = 4;
+/// Wide enough for "Waiting on you" in spaced capitals.
+pub(super) const LABEL_W: f32 = 120.;
 
 /// The earlier reports of the goal open, and the one shown, while the person steps back.
 pub(super) struct Stepping {
@@ -239,14 +241,13 @@ fn panel(pane: &GoalsPane, report: &GoalReport, cx: &Context<GoalsPane>) -> AnyE
         .collect();
     let done: Vec<String> = (report.done.iter())
         .map(|line| {
-            let by = line
-                .owner_name
-                .as_ref()
-                .map(|owner| format!(" by @{owner}"));
-            match line.at {
-                Some(at) => format!("done {}{}", ui::time::clock(at), by.unwrap_or_default()),
-                None => format!("done{}", by.unwrap_or_default()),
-            }
+            let at = line.at.map(ui::time::clock);
+            let by = line.owner_name.as_ref().map(|owner| format!("@{owner}"));
+            [at, by]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" · ")
         })
         .collect();
     let under_way = |line: &ReportLine| {
@@ -302,7 +303,7 @@ fn panel(pane: &GoalsPane, report: &GoalReport, cx: &Context<GoalsPane>) -> AnyE
 /// One row of the report: its name in spaced capitals, then what it holds.
 fn row(name: &str, you: bool, first: bool, cx: &Context<GoalsPane>) -> gpui_kit::Div {
     let t = Tokens::get(cx).clone();
-    let name = ui::caps(name, cx).w(px(92.)).flex_none().pt(px(2.));
+    let name = ui::caps(name, cx).w(px(LABEL_W)).flex_none().pt(px(2.));
     div()
         .flex()
         .gap(SPACE_2)
@@ -343,7 +344,9 @@ fn lines_row(
                 .truncate()
                 .text_color(t.text_secondary),
             )
-            .child(ui::meta(format!("· {about}"), cx).flex_none())
+            .when(!about.is_empty(), |item| {
+                item.child(ui::meta(format!("· {about}"), cx).flex_none())
+            })
     });
     let more = lines.len().saturating_sub(SHOWN);
     row(name, you && !lines.is_empty(), you, cx)
