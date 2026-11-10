@@ -11,6 +11,7 @@ struct SheetModifier<SheetContent: View>: ViewModifier {
     @ViewBuilder var sheet: SheetContent
     @State private var drag: CGFloat = 0
     @State private var shown = false
+    @State private var stilled: (() -> Void)?
 
     private static var closeDrag: CGFloat { 110 }
 
@@ -36,6 +37,12 @@ struct SheetModifier<SheetContent: View>: ViewModifier {
         }
         .onAppear { shown = isPresented }
         .onChange(of: shown) { _, now in
+            if now {
+                stilled = stilled ?? BackdropPause.shared.hold()
+            } else {
+                stilled?()
+                stilled = nil
+            }
             if !now { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { onDismiss?() } }
         }
     }
