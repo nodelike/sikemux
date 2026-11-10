@@ -475,8 +475,15 @@ jobs:
       - name: Check the GPUI app on Linux
         run: scripts/check-rust.sh gpui-clippy
 
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
+      # nextest leaves doc tests out, so cargo runs those.
       - name: Run the core's tests on Linux
-        run: cargo test --locked -p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host
+        run: |
+          crates=(-p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host)
+          cargo nextest run --locked "${crates[@]}"
+          cargo test --locked --doc "${crates[@]}"
 
       # The packages are unsigned and go nowhere but this run.
       - name: Install what the app packs with
