@@ -784,6 +784,7 @@ pub(super) fn on_host(wanted: &str) -> (&str, Option<&str>) {
 
 /// What `agent_send` takes as `to` for every other agent of the caller's team.
 const TEAM: &str = "team";
+const MAX_TO_BYTES: usize = 2000;
 
 /// Sends one message to every other agent of `from`'s team: the agent that
 /// leads it and every agent it started, each delivered as a message of its own.
@@ -802,20 +803,34 @@ async fn send_team(
     if members.is_empty() {
         return Err("You have no team: no agent leads you and you started none".into());
     }
-    let mut sent = Vec::new();
-    let mut failed = Vec::new();
-    for member in members {
+    let named = members
+        .into_iter()
+        .map(|member| (core.names.name_or_id(&member), member))
+        .collect();
+    Ok(send_each(core, request, named).await)
+}
+
+/// Sends one message to each of `to`, its shown name and its address, all at once, each
+/// delivered as a message of its own, and answers with each one's delivery in order.
+async fn send_each(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+    to: Vec<(String, String)>,
+) -> Value {
+    let sending = to.into_iter().map(|(name, address)| {
         let mut one = request.clone();
-        one.params["to"] = Value::String(member.clone());
-        let name = core.names.name_or_id(&member);
-        match send(core, &one).await {
-            Ok(answer) => {
-                sent.push(serde_json::json!({ "to": name, "delivery": answer["delivery"] }))
-            }
-            Err(why) => failed.push(serde_json::json!({ "to": name, "error": why })),
+        one.params["to"] = Value::String(address);
+        async move { (name, Box::pin(send(core, &one)).await) }
+    });
+    let answers = futures_util::future::join_all(sending).await;
+    let (mut sent, mut failed) = (Vec::new(), Vec::new());
+    for (name, answer) in answers {
+        match answer {
+            Ok(answer) => sent.push(json!({ "to": name, "delivery": answer["delivery"] })),
+            Err(why) => failed.push(json!({ "to": name, "error": why })),
         }
     }
-    Ok(serde_json::json!({ "sent": sent, "failed": failed }))
+    json!({ "sent": sent, "failed": failed })
 }
 
 pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
@@ -824,8 +839,10 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         .clone()
         .ok_or("agent_send needs the calling agent's id")?;
     let to = match request.params.get("to") {
-        Some(Value::String(to)) if !to.trim().is_empty() && to.len() <= 200 => to.clone(),
-        _ => return Err("to must be the agent's name or id".into()),
+        Some(Value::String(to)) if !to.trim().is_empty() && to.len() <= MAX_TO_BYTES => to.clone(),
+        _ => {
+            return Err("to must be the agent's name or id, or several separated by commas".into())
+        }
     };
     let text = message_text(&request.params)?;
     let why = super::caller::text_param(&request.params, "why", MAX_WHY_BYTES)?.map(str::to_owned);
@@ -842,6 +859,25 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
             return Err("answers goes to one agent, not the team".into());
         }
         return Box::pin(send_team(core, request, &from)).await;
+    }
+    if to.contains(',') {
+        let mut several: Vec<String> = Vec::new();
+        for name in to.split(',').map(str::trim).filter(|name| !name.is_empty()) {
+            if !several.iter().any(|seen| seen.eq_ignore_ascii_case(name)) {
+                several.push(name.to_owned());
+            }
+        }
+        if answers.is_some() {
+            return Err("answers goes to one agent, not several".into());
+        }
+        if several.iter().any(|name| name.eq_ignore_ascii_case(TEAM)) {
+            return Err("team goes alone in to, not among other names".into());
+        }
+        let named = several
+            .into_iter()
+            .map(|name| (name.clone(), name))
+            .collect();
+        return Ok(send_each(core, request, named).await);
     }
     let found = {
         let (core, request, answers) = (core.clone(), request.clone(), answers.clone());
