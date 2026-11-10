@@ -327,7 +327,7 @@ struct MentionMenu: View {
                 Group {
                     switch row.mark {
                     case .icon(let icon): IconView(icon: icon, size: 15).foregroundStyle(palette.tertiary)
-                    case .agent(_, let provider): AgentMark(provider: provider, size: 16)
+                    case .agent(let id, let provider): AgentFaceView(agentId: id, provider: provider, group: nil, size: 18, logoSize: 16)
                     }
                 }
                 .frame(width: 18)
@@ -339,6 +339,7 @@ struct MentionMenu: View {
                 Text(row.detail ?? "").font(Theme.ui(13)).foregroundStyle(palette.tertiary).lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if let aside = row.aside { Text(aside).font(Theme.ui(12)).foregroundStyle(palette.inkFaint) }
+                if let state = row.state { AgentStateMark(group: state) }
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 44)
