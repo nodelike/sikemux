@@ -1624,7 +1624,6 @@
           "maxLength": 200
         },
         "effort": {
-          "description": "Reasoning effort, e.g. low, medium, high",
           "type": "string",
           "minLength": 1,
           "maxLength": 32
