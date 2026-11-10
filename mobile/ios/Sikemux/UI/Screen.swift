@@ -1,14 +1,22 @@
 import SwiftUI
 
-/// A screen's ground under its content, edge to edge, with the content kept inside the safe area at the top.
+/// A screen's ground under its content, edge to edge, with the content kept inside the safe area at the top. A host's
+/// screens draw its pane backdrop over the ground.
 struct Screen<Content: View>: View {
     @Environment(\.palette) private var palette
+    @Environment(\.hostBackdrop) private var backdrop
     @ViewBuilder var content: Content
 
     var body: some View {
         VStack(spacing: 0) { content }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(palette.ground.ignoresSafeArea())
+            .background(alignment: .top) {
+                ZStack(alignment: .top) {
+                    palette.ground
+                    if let backdrop, backdrop.texture { PaneBackdrop(texture: backdrop.texture, image: backdrop.image) }
+                }
+                .ignoresSafeArea()
+            }
             .toolbar(.hidden, for: .navigationBar)
     }
 }

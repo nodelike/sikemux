@@ -107,10 +107,12 @@ struct ScreenFor: View {
 
     var body: some View {
         switch route {
-        case .device(let core, let tab): DeviceScreen(core: core, linkedTab: tab)
-        case .chat(let core, let agent, let started): ChatScreen(core: core, agentId: agent, started: started)
-        case .newChat(let core, let project, let launcher): NewChatScreen(core: core, project: project, launcher: launcher)
-        case .pairing(let core): PairingScreen(core: core)
+        case .device(let core, let tab): HostScoped(core: core) { DeviceScreen(core: core, linkedTab: tab) }
+        case .chat(let core, let agent, let started):
+            HostScoped(core: core) { ChatScreen(core: core, agentId: agent, started: started) }
+        case .newChat(let core, let project, let launcher):
+            HostScoped(core: core) { NewChatScreen(core: core, project: project, launcher: launcher) }
+        case .pairing(let core): HostScoped(core: core) { PairingScreen(core: core) }
         case .join(let core, let name, let arrived): JoinScreen(core: core, name: name ?? "your host", arrived: arrived)
         case .hostSignIn: HostSignInScreen()
         case .deleteAccount: DeleteAccountScreen()

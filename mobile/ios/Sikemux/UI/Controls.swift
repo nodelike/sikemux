@@ -245,3 +245,78 @@ struct Track<Value: Hashable>: View {
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
     }
 }
+
+/// One of a sheet's actions, on its own raised row.
+struct MenuItem: View {
+    @Environment(\.palette) private var palette
+    let icon: IconDef
+    let label: String
+    var danger = false
+    let action: () -> Void
+
+    var body: some View {
+        let ink = danger ? palette.danger : palette.ink
+        Button(action: action) {
+            HStack(spacing: 12) {
+                IconView(icon: icon, size: 18).foregroundStyle(ink)
+                Text(label).font(Theme.ui(15.5, .medium)).foregroundStyle(ink)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14)
+            .frame(minHeight: 52)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(palette.raised))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(MenuItemPress())
+    }
+}
+
+private struct MenuItemPress: ButtonStyle {
+    @Environment(\.palette) private var palette
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous).fill(configuration.isPressed ? palette.active : .clear)
+        )
+    }
+}
+
+/// Lays its views out in rows, starting another when one is full, as chips wrap.
+struct Wrap: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(proposal.width ?? .infinity, subviews)
+        return CGSize(width: rows.map(\.width).max() ?? 0, height: rows.last.map { $0.y + $0.height } ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for row in arrange(bounds.width, subviews) {
+            var x = bounds.minX
+            for index in row.items {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: bounds.minY + row.y + (row.height - size.height) / 2), proposal: .unspecified)
+                x += size.width + spacing
+            }
+        }
+    }
+
+    private func arrange(_ width: CGFloat, _ subviews: Subviews) -> [(items: [Int], y: CGFloat, width: CGFloat, height: CGFloat)] {
+        var rows: [(items: [Int], y: CGFloat, width: CGFloat, height: CGFloat)] = []
+        var current: (items: [Int], y: CGFloat, width: CGFloat, height: CGFloat) = ([], 0, 0, 0)
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.unspecified)
+            let needed = current.items.isEmpty ? size.width : current.width + spacing + size.width
+            if needed > width, !current.items.isEmpty {
+                rows.append(current)
+                current = ([], current.y + current.height + spacing, 0, 0)
+            }
+            current.width = current.items.isEmpty ? size.width : current.width + spacing + size.width
+            current.height = max(current.height, size.height)
+            current.items.append(index)
+        }
+        if !current.items.isEmpty { rows.append(current) }
+        return rows
+    }
+}
