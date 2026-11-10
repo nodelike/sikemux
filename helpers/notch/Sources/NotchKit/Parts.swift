@@ -208,11 +208,6 @@ final class TwinkleGridView: NSView {
     }
 }
 
-extension EnvironmentValues {
-    /// Marks drawn as one still frame, for a picture made without a window, where Core Animation cannot run.
-    @Entry public var stillMarks = false
-}
-
 /// The twinkling grid at one moment, drawn by SwiftUI alone.
 private struct StillTwinkle: View {
     let colour: Color

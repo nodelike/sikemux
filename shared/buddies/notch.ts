@@ -1,6 +1,6 @@
 import type { AgentFace } from "../wire.generated";
-import { packById } from "./catalogue";
-import { buddyMarkup } from "./render";
+import { packById, resolveBuddy, type BuddyStyle } from "./catalogue";
+import { buddyMarkup, FULL_BOX } from "./render";
 import type { BuddyState } from "./shared";
 
 /* Some shapes repeat an attribute on one tag. A page keeps the first; the notch's SVG reader rejects the whole drawing, so the repeats go. */
@@ -19,4 +19,10 @@ export function notchFace(face: AgentFace, state: BuddyState): string | null {
     const color = pack.colors[face.color % pack.colors.length];
     const markup = buddyMarkup(pack, shape, color, state, "notch", face.box).replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
     return firstAttributes(markup);
+}
+
+/** The face a host's style gives an agent it has not given one, such as a chat about to start. */
+export function styledFace(agentId: string, style: BuddyStyle): AgentFace {
+    const look = resolveBuddy({ id: agentId }, style);
+    return { pack: look.pack.id, shape: look.shape.id, color: look.colorIndex, box: FULL_BOX };
 }
