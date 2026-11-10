@@ -35,6 +35,8 @@ pub struct MadeAgentWorktree {
     pub setup_error: Option<String>,
 }
 
+pub(crate) const NOT_IN_GIT: &str = "is not in a git repository";
+
 /// A worktree of the repository `checkout` is in, cut from where it is now on
 /// the branch `branch`, with what it needs copied in, and the folder in it
 /// that stands where `cwd` stood.
@@ -46,7 +48,7 @@ pub(crate) fn cut_for(
     let repo = PathBuf::from(
         Git::quick(checkout)
             .trimmed(&["rev-parse", "--path-format=absolute", "--show-toplevel"])
-            .map_err(|_| "the agent's folder is not in a git repository")?,
+            .map_err(|_| format!("{} {NOT_IN_GIT}", checkout.display()))?,
     );
     let main = main_checkout(&repo).unwrap_or_else(|| repo.clone());
     let start_sha = Git::quick(&repo)
