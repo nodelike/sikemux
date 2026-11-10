@@ -14,6 +14,7 @@ use folded::Chat;
 use serde_json::{json, Value};
 use sikemux_client::client::CoreClient;
 use sikemux_core::client::probe;
+use sikemux_view::chat::{ChatMessage, ChatRole};
 use sikemux_wire::protocol::ask;
 
 const CORE: &str = env!("CARGO_BIN_EXE_sikemux-core");
@@ -81,6 +82,14 @@ fn start_core(dir: &Path, socket: &Path) -> KilledOnDrop {
     core
 }
 
+/// What the agent said to each message that reads `prompt`, in order. A lead's chat also holds
+/// what it says to its worker's reports, which quote the worker's own answers.
+fn answers<'a>(rows: &'a [ChatMessage], prompt: &'a str) -> impl Iterator<Item = String> + 'a {
+    rows.chunk_by(|_, next| next.role != ChatRole::User)
+        .filter(move |turn| folded::prompts(turn) == [prompt])
+        .map(folded::said)
+}
+
 /// One agent's chat, which a test prompts as the person does.
 struct Agent {
     client: CoreClient,
@@ -101,18 +110,29 @@ impl Agent {
         }
     }
 
+    /// Sends `text` and answers what the agent said to it, once that holds `reply`.
     async fn says(&mut self, text: String, reply: &str) -> String {
+        let before = answers(&self.chat.view.rows, &text).count();
         self.client
             .ask(ask::AcpPrompt {
                 agent_id: self.id.clone(),
                 message_id: None,
-                text,
+                text: text.clone(),
                 paths: Vec::new(),
                 context: Vec::new(),
             })
             .await
             .expect("prompt");
-        self.chat.until_said(reply).await
+        let mut said = String::new();
+        self.chat
+            .until(|chat| {
+                said = answers(&chat.view.rows, &text)
+                    .nth(before)
+                    .unwrap_or_default();
+                said.contains(reply)
+            })
+            .await;
+        said
     }
 
     async fn run(&mut self, command: &str) {
@@ -136,7 +156,7 @@ impl Agent {
 fn owners(answer: &Value) -> Vec<(String, String)> {
     answer["commits"][0]["owners"]
         .as_array()
-        .expect("owners")
+        .unwrap_or_else(|| panic!("no owners in {answer}"))
         .iter()
         .map(|owner| {
             (
