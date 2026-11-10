@@ -21,7 +21,8 @@ use crate::cli::auth::{same_secret, server_proof};
 use crate::cli::endpoint::{remove_owned_endpoint, write_endpoint};
 use crate::cli::protocol::{
     CliClientCommand, CliClientHello, CliCloseReason, CliEndpointDescriptor, CliOpenOutcome,
-    CliServerResponse, CLI_PROTOCOL_VERSION, MAX_CLI_FRAME_BYTES, MAX_CLI_RESPONSE_BYTES,
+    CliServerResponse, CLI_PROTOCOL_VERSION, CUT_BY_UPDATE, MAX_CLI_FRAME_BYTES,
+    MAX_CLI_RESPONSE_BYTES,
 };
 use sikemux_wire::protocol::WindowCall;
 
@@ -33,7 +34,6 @@ const MAX_CONNECTIONS: usize = 128;
 const REQUEST_READ_DEADLINE: Duration = Duration::from_secs(10);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const OPEN_ACCEPT_TIMEOUT: Duration = Duration::from_secs(60);
-const CUT_SHORT: &str = "Sikemux started updating its background process while answering this call, so it may already have happened; check before trying it again";
 
 pub(crate) struct ToolEndpoint {
     path: PathBuf,
@@ -294,7 +294,7 @@ async fn serve(core: Arc<Core>, stream: TcpStream, secret: &str, port: u16) {
             Ok(()) => {
                 let answer = tokio::select! {
                     answer = harness::call(&core, request, peer, port) => answer,
-                    () = core.updating.until_frozen() => Err(CUT_SHORT.into()),
+                    () = core.updating.until_frozen() => Err(CUT_BY_UPDATE.into()),
                 };
                 Ok(match answer {
                     Ok(value) => CliServerResponse::Result { value },

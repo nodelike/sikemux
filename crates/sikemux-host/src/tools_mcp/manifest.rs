@@ -1,6 +1,9 @@
 //! The tool surface: tools/tools.json and the guide, as the running core
 //! serves them, or as this binary was built when the core cannot be asked.
 
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use sikemux_core::cli::manifest::{GUIDE, TOOLS};
@@ -26,6 +29,15 @@ pub struct Tool {
     /// A reaction or GIF, which an agent should have to hand without looking it up.
     #[serde(default)]
     gesture: bool,
+    /// How the app shows a call of it, which says whether it changes anything.
+    #[serde(default)]
+    row: Row,
+}
+
+#[derive(Default, Deserialize)]
+struct Row {
+    kind: Option<String>,
+    verb: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -55,6 +67,27 @@ impl Manifest {
             guide_text: GUIDE.to_owned(),
             tools: built.tools,
         }
+    }
+
+    /// Whether a call of `method` only reads, searches or waits, so sending it a second time
+    /// does no more than the first.
+    pub fn repeatable(method: &str) -> bool {
+        static METHODS: OnceLock<HashSet<String>> = OnceLock::new();
+        METHODS
+            .get_or_init(|| {
+                (Self::load().tools.into_iter())
+                    .filter(|tool| {
+                        let Row { kind, verb } = &tool.row;
+                        match (kind.as_deref(), verb.as_deref()) {
+                            (_, Some("scroll" | "show")) => false,
+                            (_, Some("wait")) | (Some("read" | "search"), _) => true,
+                            _ => false,
+                        }
+                    })
+                    .map(|tool| tool.method)
+                    .collect()
+            })
+            .contains(method)
     }
 
     /// What the core answers `tools.manifest` with. A tool this binary cannot

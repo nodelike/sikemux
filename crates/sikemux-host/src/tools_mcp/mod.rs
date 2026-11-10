@@ -386,8 +386,7 @@ fn serve(offer: Arc<Offer>, agent_id: String) {
                         calls.finish(&id);
                         return;
                     }
-                    let mut answer =
-                        call(&offer, &*relays.quick, &*relays.patient, &name, &arguments);
+                    let mut answer = call_by_deadline(Arc::clone(&offer), relays, name, arguments);
                     if calls.finish(&id) {
                         if let Some(blocks) = answer["content"].as_array_mut() {
                             if let Some(news) = offer.take_guide_news() {
@@ -599,6 +598,44 @@ fn list(offer: &Offer, relay: &Relay<'_>) -> Vec<Value> {
 }
 
 /// `quick` asks for the tools, `patient` makes the call.
+/// The longest a call may take while Sikemux answers: two tries, each waiting out a restart,
+/// and the wait for the new Sikemux between them, with a margin.
+const CALL_DEADLINE: Duration = Duration::from_secs(
+    2 * (harness::TOOLS_REPLY_TIMEOUT.as_secs() + harness::RESTART_WAIT.as_secs())
+        + harness::RESTART_WAIT.as_secs()
+        + 15,
+);
+
+/// As [`call`], answering that Sikemux never did once [`CALL_DEADLINE`] passes, so a call stuck
+/// on the way neither holds the agent nor the tab calls queued behind it.
+fn call_by_deadline(
+    offer: Arc<Offer>,
+    relays: Arc<Relays>,
+    name: String,
+    arguments: Value,
+) -> Value {
+    let (answer, answered) = std::sync::mpsc::channel();
+    let calling = name.clone();
+    std::thread::spawn(move || {
+        let _ = answer.send(call(
+            &offer,
+            &*relays.quick,
+            &*relays.patient,
+            &calling,
+            &arguments,
+        ));
+    });
+    answered.recv_timeout(CALL_DEADLINE).unwrap_or_else(|_| {
+        content(
+            vec![text(&format!(
+                "Sikemux did not answer {name} within {} s, so the call was given up; it may still have happened, so check before trying it again",
+                CALL_DEADLINE.as_secs()
+            ))],
+            true,
+        )
+    })
+}
+
 fn call(
     offer: &Offer,
     quick: &Relay<'_>,
@@ -617,6 +654,9 @@ fn call(
     if let Some(tool) = manifest.tool(name) {
         if let Err(message) = tool.validate(arguments) {
             return invalid(&message);
+        }
+        if tool.method == "browser.wait" {
+            return answer(tool, wait_longer(patient, arguments));
         }
         return answer(tool, patient(&tool.method, arguments));
     }
@@ -637,6 +677,31 @@ fn call(
             &json!({ "tool": name, "arguments": arguments }),
         ),
     )
+}
+
+/// A browser_wait longer than one call to Sikemux may take, asked again until its
+/// condition holds or its time is up. Sikemux marks a wait it cut short with `cappedAtMs`.
+fn wait_longer(patient: &Relay<'_>, arguments: &Value) -> Result<Value, String> {
+    let started = std::time::Instant::now();
+    let asked = Duration::from_millis(arguments["timeoutMs"].as_u64().unwrap_or(0));
+    let mut arguments = arguments.clone();
+    let mut rounds = 0;
+    loop {
+        rounds += 1;
+        let mut result = patient("browser.wait", &arguments)?;
+        let cut_short = result
+            .as_object_mut()
+            .and_then(|fields| fields.remove("cappedAtMs"))
+            .is_some();
+        let left = asked.saturating_sub(started.elapsed());
+        if !cut_short || result["met"] != json!(false) || left.is_zero() {
+            if rounds > 1 {
+                result["waitedMs"] = json!(started.elapsed().as_millis() as u64);
+            }
+            return Ok(result);
+        }
+        arguments["timeoutMs"] = json!(left.as_millis() as u64);
+    }
 }
 
 fn invalid(message: &str) -> Value {

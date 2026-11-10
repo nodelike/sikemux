@@ -21,6 +21,8 @@ pub const MAX_CLI_TARGETS: usize = 64;
 pub const PAGE_REPLY_TIMEOUT: Duration = Duration::from_secs(65);
 pub const CORE_REPLY_TIMEOUT: Duration = Duration::from_secs(PAGE_REPLY_TIMEOUT.as_secs() + 1);
 pub const TOOLS_REPLY_TIMEOUT: Duration = Duration::from_secs(CORE_REPLY_TIMEOUT.as_secs() + 4);
+/// What a call's answer says when the core was replaced, such as by an update, while answering it.
+pub const CUT_BY_UPDATE: &str = "Sikemux started updating its background process while answering this call, so it may already have happened; check before trying it again";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

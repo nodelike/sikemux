@@ -5,17 +5,57 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use sikemux_core::cli::client::{attempt, Failure};
+use sikemux_core::cli::protocol::CUT_BY_UPDATE;
 pub use sikemux_core::cli::protocol::TOOLS_REPLY_TIMEOUT;
 use sikemux_host::cli_client::current_project;
 use sikemux_process::paths::handed_cli_endpoint;
+
+use super::manifest::Manifest;
 
 /// How long a call waits for Sikemux to come back while it restarts, such as
 /// after an update.
 pub const RESTART_WAIT: Duration = Duration::from_secs(15);
 const RETRY_GAP: Duration = Duration::from_millis(250);
 
+/// A call that only reads or waits, cut off by Sikemux updating, goes again to the Sikemux
+/// that replaces it.
 pub fn call(agent_id: &str, method: &str, params: &Value) -> Result<Value, String> {
-    call_within(agent_id, method, params, TOOLS_REPLY_TIMEOUT, RESTART_WAIT)
+    let (endpoint, project) = (endpoint()?, current_project()?);
+    let was = std::fs::read(&endpoint).ok();
+    let send = || {
+        relay(
+            &endpoint,
+            &project,
+            agent_id,
+            method,
+            params,
+            TOOLS_REPLY_TIMEOUT,
+            RESTART_WAIT,
+        )
+    };
+    match send() {
+        Err(cut)
+            if cut == CUT_BY_UPDATE
+                && Manifest::repeatable(method)
+                && replaced(&endpoint, was.as_deref()) =>
+        {
+            send()
+        }
+        sent => sent,
+    }
+}
+
+/// Waits up to [`RESTART_WAIT`] for the endpoint file to stop naming the Sikemux it named as
+/// `was`, and answers whether it did.
+fn replaced(endpoint: &Path, was: Option<&[u8]>) -> bool {
+    let give_up = Instant::now() + RESTART_WAIT;
+    while std::fs::read(endpoint).ok().as_deref() == was {
+        if Instant::now() + RETRY_GAP >= give_up {
+            return false;
+        }
+        std::thread::sleep(RETRY_GAP);
+    }
+    true
 }
 
 /// As [`call`], giving up on an answer after `timeout`, and on reaching
