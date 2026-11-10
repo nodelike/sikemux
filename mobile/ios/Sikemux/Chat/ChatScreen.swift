@@ -155,6 +155,13 @@ private struct ChatPane: View {
         actions.edit = { [self] message in
             open = nil
             editing = message.id
+            scroll.reveal(message.id)
+        }
+        actions.cancelEdit = { [self] in editing = nil }
+        actions.sendEdit = { [self] row, text in
+            session.edit(row, text)
+            editing = nil
+            scroll.toEnd()
         }
         actions.toggleWork = { [weak session] id in
             guard let folds = session?.folds else { return }
