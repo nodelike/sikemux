@@ -11,7 +11,8 @@ struct DeviceAgents: View {
     let full: Bool
     let hostName: String
     let onTab: (Route.DeviceTab) -> Void
-    @State private var held: String?
+    /// Opens an agent's snooze sheet; absent for a phone that can only watch.
+    let onHold: ((String) -> Void)?
 
     var body: some View {
         // The open agents in the order the host lists them on every device: the main list, what wants the person
@@ -48,17 +49,12 @@ struct DeviceAgents: View {
                 }
             }
         }
-        .sheet(shown: Binding(get: { held != nil }, set: { if !$0 { held = nil } })) {
-            if let shown = view.inbox.agents.first(where: { $0.agentId == held }) {
-                AwaySheet(core: core, shown: shown) { held = nil }
-            }
-        }
     }
 
     @ViewBuilder
     private func row(_ agent: AgentShown, now: Date) -> some View {
         let place = scope == nil ? agent.projectName : nil
-        let onHold: (() -> Void)? = full ? { held = agent.agentId } : nil
+        let onHold = onHold.map { hold in { hold(agent.agentId) } }
         if agent.session == nil {
             ChatRow(core: core, shown: agent, place: place, now: now, onHold: onHold)
         } else {
