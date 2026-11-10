@@ -115,7 +115,11 @@ struct Composer: View {
             .onAppear { search.ask(typed) }
             .onChange(of: typed) { _, now in search.ask(now) }
         }
-        prompt.toast
+        if let toast = prompt.toast {
+            StashedToast(done: toast != .stashing) {
+                prompt.undo({ id in try await session.unstashPrompt(id) }, report: session.report)
+            }
+        }
         if dock == nil && matches.isEmpty && stashQuery == nil && typed == nil { strip }
         VStack(spacing: 0) {
             if let question { answering(question) }
@@ -312,11 +316,11 @@ struct Composer: View {
     }
 
     private func stashPrompt() {
-        prompt.stash(
-            { try await session.stashPrompt() },
-            undo: { id in try await session.unstashPrompt(id) },
-            report: session.report
-        )
+        prompt.stash({
+            let id = try await session.stashPrompt()
+            focus.clear()
+            return id
+        }, report: session.report)
     }
 
     private func fromStash(_ items: [StashItem], base: String? = nil) {

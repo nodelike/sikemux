@@ -8,6 +8,8 @@ final class ComposerFocus {
 
     func focus() { field?.becomeFirstResponder() }
     func blur() { field?.resignFirstResponder() }
+    /// Empties the field, words the keyboard is still composing too.
+    func clear() { field?.text = "" }
 }
 
 /// The chat composer's text field: grows with its text to a few lines, then scrolls; draws the draft's chips apart
