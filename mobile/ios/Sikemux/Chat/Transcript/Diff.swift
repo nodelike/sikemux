@@ -94,7 +94,7 @@ struct DiffRows: View {
                     case .line(let line): DiffRow(line: line, numbered: numbered)
                     case .gap(let count):
                         Button { onGap?() } label: {
-                            Text("\(count) unchanged \(ChatWords.counted("line", count))")
+                            Text("\(count) unchanged \(Format.counted("line", count))")
                                 .font(Theme.mono(10.5))
                                 .foregroundStyle(palette.inkFaint)
                                 .frame(height: 20)

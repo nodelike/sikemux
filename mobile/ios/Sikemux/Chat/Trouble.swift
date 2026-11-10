@@ -12,8 +12,8 @@ struct Trouble: View {
     @State private var accounts: ChatAccounts?
     @State private var now = Date()
 
-    private var label: String { Hub.shared.live(session.core).catalog.first { $0.type == provider }?.label ?? provider }
-    private var maker: String? { Hub.shared.live(session.core).catalog.first { $0.type == provider }?.maker }
+    private var label: String { Catalog.label(provider, core: session.core) }
+    private var maker: String? { Catalog.entry(provider, core: session.core)?.maker }
 
     var body: some View {
         let head = session.rows.head
@@ -70,8 +70,12 @@ struct Trouble: View {
     }
 
     private func readAccounts(_ failure: ChatFailure?) async {
-        guard canAct, failure?.kind == .signIn || failure?.kind == .limit, let connection = try? session.openConnection() else { return }
-        accounts = try? await connection.call(PhoneCall.ChatAccounts.self, ChatAccountsParams(agentId: session.agentId))
+        guard canAct, failure?.kind == .signIn || failure?.kind == .limit else { return }
+        do {
+            accounts = try await session.openConnection().call(PhoneCall.ChatAccounts.self, ChatAccountsParams(agentId: session.agentId))
+        } catch {
+            print("sikemux: could not read the chat's accounts: \(error)")
+        }
     }
 
     private func said(_ icon: IconDef, _ text: String) -> some View {

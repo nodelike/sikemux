@@ -197,14 +197,24 @@ private func nextTree(_ tree: PartTree?, _ change: MdChange?, _ text: String) ->
     return change.n == text.utf16.count ? PartTree(blocks: blocks, n: change.n) : nil
 }
 
+/// The core sends a head's and a row's changes field by field, so they are laid over the JSON of what is held and read
+/// back; a change this build cannot read leaves what is held as it was.
 func decodeJSON<T: Decodable>(_ value: JSONValue) -> T? {
-    guard let data = try? JSONEncoder().encode(value) else { return nil }
-    return try? JSONDecoder().decode(T.self, from: data)
+    do {
+        return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+    } catch {
+        print("sikemux: could not read a chat change as \(T.self): \(error)")
+        return nil
+    }
 }
 
 func encodeJSON<T: Encodable>(_ value: T) -> JSONValue {
-    guard let data = try? JSONEncoder().encode(value) else { return .null }
-    return (try? JSONDecoder().decode(JSONValue.self, from: data)) ?? .null
+    do {
+        return try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(value))
+    } catch {
+        print("sikemux: could not write \(T.self) as JSON: \(error)")
+        return .null
+    }
 }
 
 extension ChatRows {

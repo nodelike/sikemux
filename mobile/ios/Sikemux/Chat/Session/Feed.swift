@@ -103,8 +103,11 @@ final class Feed {
     func take(_ deliveries: [ChatDelivery]) {
         for delivery in deliveries {
             if let taken, delivery.seq <= taken { continue }
-            guard let changes = try? JSONDecoder().decode([ChatChange].self, from: Data(delivery.changesJson.utf8)) else {
-                print("sikemux: could not read a chat change")
+            let changes: [ChatChange]
+            do {
+                changes = try JSONDecoder().decode([ChatChange].self, from: Data(delivery.changesJson.utf8))
+            } catch {
+                print("sikemux: could not read a chat change: \(error)")
                 continue
             }
             if let taken, delivery.seq != taken + 1, !Self.follows(changes, taken) {
