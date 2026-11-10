@@ -17,6 +17,7 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: true
     MARKETING_VERSION: 0.2.0
     CURRENT_PROJECT_VERSION: "1"
+    SIKEMUX_COMMIT: ""
   configs:
     Debug:
       SIKEMUX_VARIANT: dev
@@ -103,6 +104,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         SikemuxVariant: $(SIKEMUX_VARIANT)
+        SikemuxCommit: $(SIKEMUX_COMMIT)
         LSRequiresIPhoneOS: true
         SikemuxKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify
         SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)

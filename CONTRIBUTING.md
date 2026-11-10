@@ -31,7 +31,7 @@ them by hand in an existing clone with `make hooks`.
 | `tools/`             | Agent tool declarations (`tools.json`) and the guide agents read                                                                           |
 | `scripts/`           | Code generators, CI checks, icon pipeline and release tooling                                                                              |
 | `docs/architecture/` | How the app fits together, and the decisions behind it                                                                                     |
-| `mobile/`            | The phone app (Expo) and `@sikemux/native`, the core's client compiled from Rust; its own pnpm workspace                                   |
+| `mobile/`            | The iPhone app (SwiftUI, `mobile/ios`), the Android app (Expo) and `@sikemux/native`; the Android side is its own pnpm workspace           |
 
 Read [the architecture overview](docs/architecture/overview.md) before a large change, and the decision records beside it before proposing to undo one.
 
@@ -41,26 +41,36 @@ Terminals, agents and tasks run in a separate process, the core (`sikemux core`)
 
 ### The mobile app
 
-The phone app lives in `mobile/`, a pnpm workspace of its own, so nothing in it is installed or checked with the desktop app. `mobile/app` is the Expo app and `mobile/native` is `@sikemux/native`, a Turbo Module that `uniffi-bindgen-react-native` generates from `crates/sikemux-mobile`: the core's own client, pairing and iroh connection. [ADR 0008](docs/architecture/0008-mobile-app-expo-and-rust-client.md) records why.
+The phone apps live in `mobile/`. The iPhone app is native SwiftUI in `mobile/ios`; the Android app is the Expo app in `mobile/app`, which with `mobile/native` and the rest of `mobile/` is a pnpm workspace of its own, so nothing in it is installed or checked with the desktop app. Both link `crates/sikemux-mobile`, the core's own client, pairing and iroh connection, through UniFFI: Swift bindings for the iPhone, and for Android `@sikemux/native`, a Turbo Module that `uniffi-bindgen-react-native` generates. [ADR 0008](docs/architecture/0008-mobile-app-expo-and-rust-client.md) records why.
 
-You need rustup's Rust (Homebrew's Rust ignores `rust-toolchain.toml` and has no phone targets), Xcode, and for Android the NDK and `cargo-ndk`. `rust-toolchain.toml` lists the phone targets, so rustup installs them with the toolchain:
+You need rustup's Rust (Homebrew's Rust ignores `rust-toolchain.toml` and has no phone targets), and `rust-toolchain.toml` lists the phone targets, so rustup installs them with the toolchain. For the iPhone you need Xcode and XcodeGen (`brew install xcodegen`):
 
 ```bash
-cargo install cargo-ndk     # Android only
-cd mobile
-pnpm install
-pnpm run doctor             # checks the toolchain, Xcode, the Android SDK and what is built
-pnpm native:ios:sim         # builds the Rust client for the simulator and generates its bindings
-pnpm ios                    # builds the development app and runs it in the simulator
+mobile/ios/scripts/build-core.sh --sim-only   # the Rust client for the simulator, and its Swift bindings
+cd mobile/ios && xcodegen generate            # Sikemux.xcodeproj from project.yml
+xcodebuild -project Sikemux.xcodeproj -scheme Sikemux -sdk iphonesimulator -derivedDataPath build/derived build
 ```
 
-Rebuild with `pnpm native:ios:sim` after changing `sikemux-mobile`, `sikemux-client` or the protocol in `sikemux-wire`; it builds only the simulator slice, which is the quickest loop. `pnpm native:ios` adds the device slice, `pnpm native:android` builds for Android, and the `:release` variants build with the small `mobile` profile that release runs require. These scripts put `~/.cargo/bin` first on `PATH` themselves and stop if the toolchain or a target is missing. `pnpm clean` deletes the generated native projects and bindings. The generated bindings and native libraries are build output and are not committed. The app needs a development build; Expo Go cannot load `@sikemux/native`. To pair the simulator with your Mac, turn on Settings, Devices in a dev build of Sikemux.
+Run `build-core.sh` again after changing `sikemux-mobile`, `sikemux-client` or the protocol in `sikemux-wire`; without `--sim-only` it adds the device slice, and `--profile mobile` builds with the small profile releases use. The Debug configuration is Sikemux Dev, which installs beside the release app. Everything under `mobile/ios/build/` and the generated project are build output and are not committed.
+
+For Android you need the NDK and `cargo-ndk`:
+
+```bash
+cargo install cargo-ndk
+cd mobile
+pnpm install
+pnpm run doctor             # checks the toolchain, the Android SDK and what is built
+pnpm native:android         # builds the Rust client for Android and generates its bindings
+pnpm android                # builds the development app and runs it on a device or emulator
+```
+
+`pnpm native:android:release` builds with the `mobile` profile that release runs require. These scripts put `~/.cargo/bin` first on `PATH` themselves and stop if the toolchain or a target is missing. `pnpm clean` deletes the generated native project and bindings. The app needs a development build; Expo Go cannot load `@sikemux/native`. To pair a phone with your Mac, turn on Settings, Devices in a dev build of Sikemux.
 
 `pnpm check` in `mobile/` runs the phone's typecheck, lint, Prettier check and unit tests (vitest, with stand-ins for React Native and the native modules in `mobile/app/test/mocks`). Its lint also fails if anything `shared/` imports reaches a desktop-only package or a file outside `shared/` and `server/protocol`, which the phone and the share page cannot bundle; the repo's `pnpm lint` runs that check too.
 
 #### Designing phone screens
 
-Every phone screen is drawn first in `mobile/design/screens.src.html`, with the Mac app's own icons and fonts. A design change starts there, before the app: run `pnpm design` in `mobile/` and open http://127.0.0.1:8791/mobile/design/screens.html, which rebuilds on each reload. In the PR, add a screenshot of each screen you changed or added from that page, so the design is reviewed before the code. `{{IconName}}` or `{{IconName:size}}` in the file draws one of the app's icons. The glyphs the phone draws itself live in `mobile/app/src/ui/drawnIcons.ts`, which the app and the page both read.
+Every phone screen is drawn first in `mobile/design/screens.src.html`, with the Mac app's own icons and fonts. A design change starts there, before the app: run `pnpm design` in `mobile/` and open http://127.0.0.1:8791/mobile/design/screens.html, which rebuilds on each reload. In the PR, add a screenshot of each screen you changed or added from that page, so the design is reviewed before the code. `{{IconName}}` or `{{IconName:size}}` in the file draws one of the app's icons. The glyphs the phone draws itself live in `mobile/app/src/ui/drawnIcons.ts`, which the Android app and the page read and `scripts/generate-notch-icons.mjs` turns into the iPhone app's icons.
 
 ### The accounts server
 
