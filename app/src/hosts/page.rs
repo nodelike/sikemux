@@ -7,14 +7,17 @@ mod detail;
 mod devices;
 pub mod model;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
-    div, px, relative, AnyElement, AppContext, Context, Entity, Hsla, InteractiveElement,
-    IntoElement, ParentElement, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, px, relative, AnyElement, AppContext, Context, Entity, Hsla, Image, ImageFormat,
+    InteractiveElement, IntoElement, ParentElement, StatefulInteractiveElement, Styled,
+    Subscription, Window,
 };
 use sikemux_core::server::call;
+use sikemux_core::server::host_stats::apps::AppIconParams;
 use sikemux_view::host_stats::{HostStats, HostStatsParams, StatsSpan};
 use sikemux_view::layout::{OpenTab, PaneKind};
 
@@ -42,6 +45,8 @@ pub struct Page {
     pub history_open: bool,
     /// The people whose agents are folded away in the detail, by name.
     pub folded: HashSet<String>,
+    /// Each app's icon by its key, empty while it is asked for or where it has none.
+    pub app_icons: HashMap<String, Option<Arc<Image>>>,
     /// The cores watched for the page, each with the span asked of it.
     watching: Vec<(Place, StatsSpan)>,
     _typing: Subscription,
@@ -66,6 +71,7 @@ impl Page {
             top_by_memory: false,
             history_open: false,
             folded: HashSet::new(),
+            app_icons: HashMap::new(),
             watching: Vec::new(),
             _typing: typing,
         }
@@ -214,10 +220,39 @@ impl Workbench {
         if feed.stats.as_ref() == Some(&stats) {
             return;
         }
+        let apps: Vec<String> = (stats.top.iter())
+            .filter_map(|process| process.app.clone())
+            .filter(|app| !self.hosts_page.app_icons.contains_key(app))
+            .collect();
         feed.stats = Some(stats);
+        for app in apps {
+            self.ask_app_icon(&place, app, cx);
+        }
         if self.hosts_page_in_front() {
             self.parts.redraw_stage(cx);
         }
+    }
+
+    fn ask_app_icon(&mut self, place: &Place, app: String, cx: &mut Context<Self>) {
+        self.hosts_page.app_icons.insert(app.clone(), None);
+        let asked = Target::new(&self.asks, place.clone())
+            .request_typed::<call::AppIcon>(AppIconParams { app: app.clone() });
+        cx.spawn(async move |bench, cx| {
+            use base64::Engine;
+            let Some(png) = (asked.await.ok().flatten())
+                .and_then(|png| base64::engine::general_purpose::STANDARD.decode(png).ok())
+            else {
+                return;
+            };
+            let _ = bench.update(cx, |bench, cx| {
+                let icon = Arc::new(Image::from_bytes(ImageFormat::Png, png));
+                bench.hosts_page.app_icons.insert(app, Some(icon));
+                if bench.hosts_page_in_front() {
+                    bench.parts.redraw_stage(cx);
+                }
+            });
+        })
+        .detach();
     }
 
     fn choose_on_page(&mut self, key: String, cx: &mut Context<Self>) {

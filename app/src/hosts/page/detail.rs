@@ -1393,8 +1393,8 @@ fn top(
         }));
     let mut top: Vec<&ProcessUse> = stats.top.iter().collect();
     match by_memory {
-        true => top.sort_by(|a, b| b.memory.cmp(&a.memory)),
-        false => top.sort_by(|a, b| b.cpu.cmp(&a.cpu)),
+        true => top.sort_by_key(|process| std::cmp::Reverse(process.memory)),
+        false => top.sort_by_key(|process| std::cmp::Reverse(process.cpu)),
     }
     top.truncate(TOP_SHOWN);
     div().flex().flex_col().child(head).when(open, |section| {
@@ -1407,15 +1407,16 @@ fn top(
                     .px(SPACE_3)
                     .h(px(34.))
                     .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                    .child(app_icon(bench, process, t))
                     .child(
                         ui::mono(process.name.clone(), TEXT_XS, cx)
                             .truncate()
                             .text_color(t.text_secondary),
                     )
-                    .child(
+                    .children(process.app.is_none().then(|| {
                         ui::mono(process.pid.to_string(), TEXT_3XS_H, cx)
-                            .text_color(t.text_disabled),
-                    )
+                            .text_color(t.text_disabled)
+                    }))
                     .children(process.agent_id.as_deref().map(|agent| {
                         ui::text(host.agent_name(agent), TEXT_2XS_H, FontWeight::MEDIUM)
                             .text_color(t.text_primary)
@@ -1438,6 +1439,29 @@ fn top(
             })),
         )
     })
+}
+
+/// The app's own icon, or a plain tile where it has none.
+fn app_icon(bench: &Workbench, process: &ProcessUse, t: &Tokens) -> AnyElement {
+    let side = px(16.);
+    let icon = (process.app.as_ref())
+        .and_then(|app| bench.hosts_page.app_icons.get(app))
+        .and_then(Option::clone);
+    match icon {
+        Some(icon) => gpui_kit::img(icon)
+            .size(side)
+            .flex_none()
+            .rounded(px(4.))
+            .into_any_element(),
+        None => div()
+            .size(side)
+            .flex_none()
+            .rounded(px(4.5))
+            .bg(ink(t, 0.05))
+            .border_1()
+            .border_color(hair(t))
+            .into_any_element(),
+    }
 }
 
 fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
