@@ -511,14 +511,10 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn an_agent_is_found_working_broken_or_missing() {
-        use std::fs;
-        use std::os::unix::fs::PermissionsExt;
-
         let dir = tempfile::tempdir().unwrap();
         let script = |name: &str, body: &str| {
             let path = dir.path().join(name);
-            fs::write(&path, body).unwrap();
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+            write_executable(&path, body);
             path
         };
         let pi = script(
@@ -570,11 +566,25 @@ mod tests {
     }
 
     fn fake_cli(dir: &Path, script: &str) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
         let path = dir.join("agent");
-        std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        write_executable(&path, &format!("#!/bin/sh\n{script}\n"));
         path
+    }
+
+    /// A shell writes the script, never this process: a child another test forks here while the
+    /// file is open for writing keeps it open, and Linux then refuses to run it as "text file busy".
+    fn write_executable(path: &Path, body: &str) {
+        let written = std::process::Command::new("/bin/sh")
+            .args([
+                "-c",
+                r#"printf '%s' "$1" > "$2" && chmod 755 "$2""#,
+                "sh",
+                body,
+            ])
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(written.success(), "could not write {}", path.display());
     }
 
     #[tokio::test]
