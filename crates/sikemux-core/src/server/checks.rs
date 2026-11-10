@@ -130,6 +130,9 @@ struct Checks {
     standing: HashMap<String, Standing>,
     /// The projects searching for the commit that broke them, which take none of the slots.
     hunting: HashSet<String>,
+    /// Commits CI failed on, by project, with when: a later passing run that holds one stands
+    /// for it too, since the failure may have been another commit's.
+    failed_on_ci: HashMap<String, Vec<(Commit, u64)>>,
 }
 
 /// Which of a project's two checks a run is.
@@ -980,6 +983,15 @@ async fn wait_for_ci(
                 .filter(|commit| held.contains(&commit.sha))
                 .cloned()
                 .collect();
+            match (&outcome, &tip) {
+                (Ok((false, _)), _) => keep_failed(&core, &project, &checked),
+                (Ok((true, _)), Some(tip)) => {
+                    let mut vouched = vouched_by(&core, &project, &dir, tip).await;
+                    vouched.retain(|old| checked.iter().all(|commit| commit.sha != old.sha));
+                    checked.splice(0..0, vouched);
+                }
+                _ => {}
+            }
             if let Some(tip) = tip.filter(|tip| !held.contains(tip)) {
                 checked.push(Commit {
                     sha: tip,
@@ -1021,6 +1033,44 @@ async fn wait_for_ci(
     state.running.remove(&project);
     drop(state);
     core.checks.wake.now();
+}
+
+/// How long a commit CI failed on waits for a later passing run to stand for it.
+const FAILED_KEPT_MS: u64 = 24 * 60 * 60_000;
+
+fn keep_failed(core: &Core, project: &str, commits: &[Commit]) {
+    let now = epoch_ms();
+    let mut state = core.checks.state.locked();
+    let kept = state.failed_on_ci.entry(project.to_owned()).or_default();
+    kept.retain(|(_, at)| now.saturating_sub(*at) < FAILED_KEPT_MS);
+    kept.extend(commits.iter().cloned().map(|commit| (commit, now)));
+}
+
+/// The commits CI failed on that `tip` holds, which its passing run stands for.
+async fn vouched_by(core: &Core, project: &str, dir: &Path, tip: &str) -> Vec<Commit> {
+    let kept = (core.checks.state.locked().failed_on_ci.remove(project)).unwrap_or_default();
+    if kept.is_empty() {
+        return Vec::new();
+    }
+    let (dir, tip) = (dir.to_owned(), tip.to_owned());
+    let (held, others): (Vec<_>, Vec<_>) = tokio::task::spawn_blocking(move || {
+        kept.into_iter().partition(|(commit, _)| {
+            Git::quick(&dir)
+                .output(&["merge-base", "--is-ancestor", &commit.sha, &tip])
+                .is_ok_and(|output| output.status.success())
+        })
+    })
+    .await
+    .unwrap_or_default();
+    if !others.is_empty() {
+        let mut state = core.checks.state.locked();
+        state
+            .failed_on_ci
+            .entry(project.to_owned())
+            .or_default()
+            .extend(others);
+    }
+    held.into_iter().map(|(commit, _)| commit).collect()
 }
 
 /// The newest of `commits` by ancestry, last, with those of them it holds,

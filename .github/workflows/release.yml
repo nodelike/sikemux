@@ -181,13 +181,20 @@ jobs:
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
 
+      # The core and the app are stripped here, once their symbols are in a dSYM published beside
+      # the release. It names a crash's functions but not their lines: line tables carried
+      # through the link's LTO need more memory than a runner has, and more than double the build.
+      - &keep_symbols
+        name: Leave the symbols in for the dSYM
+        run: printf '[profile.release]\nstrip = "none"\n[profile.release.package.sikemux-gpui]\nstrip = "none"\n' >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
+
       - name: Build the core
         env:
           SIKEMUX_USAGE_REPORTING: app
-          # Line tables go to a dSYM published beside the release, never into the app.
-          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
-          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
-        run: cargo build --locked --release -p sikemux-host --bin sikemux-host
+        run: |
+          cargo build --locked --release -p sikemux-host --bin sikemux-host
+          dsymutil target/release/sikemux-host -o target/release/sikemux-host.dSYM
+          strip target/release/sikemux-host
 
       - name: Keep the core
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -307,12 +314,12 @@ jobs:
       - name: Fetch Rust dependencies
         run: cargo fetch --locked
 
+      - *keep_symbols
+
       - name: Compile the app around the signed helpers
         env:
           VERSION: ${{ needs.plan.outputs.version }}
           CHANNEL: ${{ needs.plan.outputs.channel }}
-          CARGO_PROFILE_RELEASE_DEBUG: line-tables-only
-          CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO: packed
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p packaging/binaries
@@ -330,6 +337,8 @@ jobs:
           flags=(--publish --stage compile)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
+          dsymutil target/release/sikemux -o target/release/sikemux.dSYM
+          strip target/release/sikemux
           mkdir -p "$RUNNER_TEMP/symbols"
           ditto -c -k --keepParent target/release/sikemux.dSYM "$RUNNER_TEMP/symbols/Sikemux_${VERSION}_aarch64.app.dSYM.zip"
 
