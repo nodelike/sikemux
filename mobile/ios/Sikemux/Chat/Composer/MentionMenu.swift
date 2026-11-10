@@ -1,5 +1,8 @@
-import SwiftUI
+import OSLog
 import SikemuxCore
+import SwiftUI
+
+private let log = Logger(subsystem: "com.nodelike.sikemux", category: "mentions")
 
 /// One thing the menu offers, and what taking it writes into the draft.
 struct MentionRow: Identifiable {
@@ -73,8 +76,12 @@ final class MentionSearch {
         case .agents:
             if closed?.cwd != cwd {
                 run("closed") {
-                    let list = (try? await connection.call(PhoneCall.ClosedAgents.self, ClosedAgentsParams(cwd: cwd))) ?? []
-                    self.closed = (cwd, list)
+                    do {
+                        self.closed = (cwd, try await connection.call(PhoneCall.ClosedAgents.self, ClosedAgentsParams(cwd: cwd)))
+                    } catch {
+                        log.error("closed agents: \(problem(error), privacy: .public)")
+                        self.closed = (cwd, [])
+                    }
                 }
             }
             let query = typed.needle.trimmingCharacters(in: .whitespaces).lowercased()
@@ -83,8 +90,13 @@ final class MentionSearch {
                 try? await Task.sleep(for: Self.settle)
                 if Task.isCancelled { return }
                 let params = SessionSearchParams(query: query, projects: [cwd], limit: Self.earlierShown, budgetMs: Self.earlierBudget)
-                let list = (try? await connection.call(PhoneCall.AgentSessions.self, params)) ?? []
-                if !Task.isCancelled { self.found = (query, list) }
+                do {
+                    let list = try await connection.call(PhoneCall.AgentSessions.self, params)
+                    if !Task.isCancelled { self.found = (query, list) }
+                } catch {
+                    log.error("earlier chats: \(problem(error), privacy: .public)")
+                    if !Task.isCancelled { self.found = (query, []) }
+                }
             }
         case .files:
             let needle = typed.needle
@@ -119,8 +131,11 @@ final class MentionSearch {
         case .failed(let failure):
             return .failed(failure.category == .auth ? "Sign in to \(host) in the Git pane to pick from its issues" : failure.message)
         case .value(let value):
-            let data = (try? JSONEncoder().encode(value)) ?? Data()
-            return .items((try? JSONDecoder().decode([Item].self, from: data)) ?? [])
+            do {
+                return .items(try value.decoded(as: [Item].self))
+            } catch {
+                return .failed(problem(error))
+            }
         case .unknown:
             return .items([])
         }
@@ -227,11 +242,13 @@ final class MentionSearch {
                             guard let connection else { return }
                             Task {
                                 let params = TrackedContextParams(project: cwd, kind: pulls ? .pull : .issue, number: item.number)
-                                guard case .value(let value) = try? await connection.call(PhoneCall.CodeHostTrackedContext.self, params),
-                                      let data = try? JSONEncoder().encode(value),
-                                      let context = try? JSONDecoder().decode(ChatContext.self, from: data)
-                                else { return }
-                                session.track(id, context)
+                                do {
+                                    let answer = try await connection.call(PhoneCall.CodeHostTrackedContext.self, params)
+                                    guard case .value(let value) = answer else { return }
+                                    session.track(id, try value.decoded(as: ChatContext.self))
+                                } catch {
+                                    log.error("what the issue or pull request says: \(problem(error), privacy: .public)")
+                                }
                             }
                         }
                     )

@@ -9,3 +9,10 @@ extension Connection {
         return try JSONDecoder().decode(Call.Answer.self, from: Data(answer.utf8))
     }
 }
+
+extension JSONValue {
+    /// What a call's free-form answer holds, read as `T`.
+    func decoded<T: Decodable>(as type: T.Type) throws -> T {
+        try JSONDecoder().decode(type, from: JSONEncoder().encode(self))
+    }
+}

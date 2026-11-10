@@ -5,19 +5,19 @@ struct YoloToggle: View {
     @Environment(\.palette) private var palette
     /// The host the agent runs on.
     let core: String
-    let mode: String
+    let mode: PermissionMode?
     let provider: String
     /// A turn is running or something waits on an answer, and the host refuses a switch then.
     let locked: Bool
-    let onToggle: (String) -> Void
+    let onToggle: (PermissionMode) -> Void
 
-    private var on: Bool { mode == "bypass" }
+    private var on: Bool { mode == .bypass }
 
     var body: some View {
         if Catalog.canSwitchMode(provider, core: core) {
             Button {
                 Haptics.select()
-                onToggle(on ? "workspace-write" : "bypass")
+                onToggle(on ? .workspaceWrite : .bypass)
             } label: {
                 look
             }

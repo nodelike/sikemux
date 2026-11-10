@@ -150,7 +150,7 @@ struct PermissionDock: View {
             detail: "\(agent) needs permission to continue",
             pager: Dock.Pager(index: index, count: requests.count, onPage: { page = $0 }, noun: "request"),
             command: Self.asked(request.toolCall),
-            run: Self.kind(request.toolCall) == "run",
+            run: ChatWords.toolKind(request.toolCall) == "run",
             diff: request.diff,
             acts: (cancel + rejects + always + once).map { option in
                 DockAct(
@@ -164,22 +164,11 @@ struct PermissionDock: View {
     }
 
     static func title(_ request: PermissionAsk) -> String {
-        switch kind(request.toolCall) {
+        switch ChatWords.toolKind(request.toolCall) {
         case "run": "Run a command?"
         case "edit", "move", "delete": "Change a file?"
         case "fetch": "Open a web page?"
         default: "Allow this?"
-        }
-    }
-
-    private static func kind(_ tool: ToolCall) -> String {
-        if let verb = tool.row.verb { return verb }
-        if let server = tool.row.server { return server }
-        switch tool.row.action {
-        case .execute: return "run"
-        case .switchMode: return "mode"
-        case .other, .unknown: return "tool"
-        default: return tool.row.action.rawValue
         }
     }
 

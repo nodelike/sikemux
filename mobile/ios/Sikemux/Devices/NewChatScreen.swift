@@ -160,8 +160,8 @@ private struct NewChatContent: View {
                 ComposerInput(text: $draft, placeholder: "Ask anything", editable: !starting)
                 HStack(spacing: 2) {
                     if let launcher {
-                        YoloToggle(core: core, mode: chosenMode ?? launcher.permissionMode.rawValue, provider: launcher.provider,
-                                   locked: starting || started != nil) { chosenMode = $0 }
+                        YoloToggle(core: core, mode: chosenMode.flatMap(PermissionMode.init(rawValue:)) ?? launcher.permissionMode, provider: launcher.provider,
+                                   locked: starting || started != nil) { chosenMode = $0.rawValue }
                         Button { sheet = .agent } label: {
                             HStack(spacing: 6) {
                                 AgentMark(provider: launcher.provider, size: 16)

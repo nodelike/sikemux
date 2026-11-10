@@ -91,11 +91,14 @@ extension ChatSession {
         notice = nil
         var attachments: [Attachment] = []
         if !draft.attachments.isEmpty {
-            guard !draft.uploading,
-                  let sent = try? await outbox.put(connection, draft.attachments, mark: { id, change in self.draft.patch(id, change) })
-            else { return false }
+            guard !draft.uploading else { return false }
+            do {
+                attachments = try await outbox.put(connection, draft.attachments) { id, change in self.draft.patch(id, change) }
+            } catch {
+                notice = Sikemux.problem(error)
+                return false
+            }
             draft.attachments = []
-            attachments = sent
         }
         if await answer(WrittenAnswer(answer: text, paths: Uploads.paths(attachments), context: draft.chips)) {
             draft.chips = []
@@ -164,9 +167,10 @@ extension ChatSession {
         }
     }
 
-    /// `bypass` runs without asking; `workspace-write` asks first.
-    func setPermissionMode(_ mode: String) {
+    /// `bypass` runs without asking; `workspaceWrite` asks first.
+    func setPermissionMode(_ chosen: PermissionMode) {
         if feed.chat.changingMode { return }
+        let mode = chosen.rawValue
         let before = self.mode
         self.mode = mode
         notice = nil
