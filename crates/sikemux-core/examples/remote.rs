@@ -11,6 +11,8 @@
 //!   remote mac <socket> chats              lists the chats running on the core
 //!   remote mac <socket> sleepy             keeps a sleeping chat for a device to wake
 //!   remote mac <socket> login              signs the core in by a code a phone approves
+//!   remote mac <socket> owner <user-id>    signs the core in to an account, as far as devices can tell
+//!   remote mac <socket> trust <device-id> [full|watch]  pairs a device by its key, as joining does
 //! As a device, keeping its key in `<key-file>`:
 //!   remote device <key-file> sessions <core-id>
 
@@ -39,6 +41,23 @@ async fn main() -> Result<(), Failure> {
         ["mac", socket, "sleepy"] => sleepy(Path::new(socket)).await,
         ["mac", socket, "chats"] => chats(Path::new(socket)).await,
         ["mac", socket, "login"] => login(Path::new(socket)).await,
+        ["mac", socket, "owner", owner] => {
+            let (client, _events) = CoreClient::connect(Path::new(socket)).await?;
+            println!("{:#?}", client.set_owner(Some(owner.to_string())).await?);
+            Ok(())
+        }
+        ["mac", socket, "trust", device, access @ ..] => {
+            let (client, _events) = CoreClient::connect(Path::new(socket)).await?;
+            let access = if access.first() == Some(&"watch") { DeviceAccess::Watch } else { DeviceAccess::Full };
+            let allowed = sikemux_wire::protocol::AllowedDevice {
+                id: device.to_string(),
+                name: "Simulator".into(),
+                platform: "ios".into(),
+                access,
+            };
+            println!("{:#?}", client.allow_devices(vec![allowed]).await?);
+            Ok(())
+        }
         ["mac", socket, action] => mac(Path::new(socket), action).await,
         ["device", key, "sessions", core] => sessions(Path::new(key), core).await,
         _ => Err("usage: remote mac <socket> on|off|allow|status|spawn|publish|chat|say | remote device <key-file> sessions <core-id>".into()),
