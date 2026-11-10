@@ -299,6 +299,10 @@ pub async fn run(
             })
         }
         Err(error @ RundeckError::Transport(_)) => error,
+        Err(RundeckError::Http {
+            status: 409,
+            message,
+        }) => return Err(already_running(session, &job_id, message).await),
         Err(error) => return Err(error),
     };
     let recent = job_executions(session, &job_id, 5, None)
@@ -312,6 +316,38 @@ pub async fn run(
             recovered: true,
         }),
         _ => Err(error),
+    }
+}
+
+/// A job that allows only so many runs at once refuses another with 409; this
+/// says which runs hold it, so an agent can wait on them or abort one.
+async fn already_running(session: &Session, job_id: &str, message: String) -> RundeckError {
+    let running = job_executions(session, job_id, 5, Some("running"))
+        .await
+        .unwrap_or_default();
+    let named: Vec<String> = running
+        .iter()
+        .map(|execution| {
+            let by = execution.user.as_deref().unwrap_or("someone");
+            let since = execution
+                .date_started
+                .as_ref()
+                .and_then(|started| started.date.as_deref())
+                .unwrap_or("a while ago");
+            format!("execution {} by {by}, started {since}", execution.id)
+        })
+        .collect();
+    let message = if named.is_empty() {
+        message
+    } else {
+        format!(
+            "{message}. Running now: {}. Wait for it with rundeck_execution, or abort it with rundeck_abort if asked to.",
+            named.join("; ")
+        )
+    };
+    RundeckError::Http {
+        status: 409,
+        message,
     }
 }
 
