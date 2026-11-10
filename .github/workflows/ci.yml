@@ -222,10 +222,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Built alone, the core takes 58 of its dependencies with other features than the whole workspace
+      # gives them. Building those again each run costs about a minute; a cache of this job's own was 590 MB.
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
           cache: "true"
+          cache-from: rust-tests
 
       - name: Install cargo-nextest
         uses: ./.github/actions/install-nextest
@@ -299,6 +302,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           cache: "true"
+          cache-from: gpui
 
       - name: Build the window probe
         run: cargo build --example window_probe

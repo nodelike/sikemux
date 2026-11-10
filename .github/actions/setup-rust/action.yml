@@ -13,6 +13,10 @@ inputs:
     description: Restore and save cargo's cache, with dependencies at the job's DEPS_OPT_LEVEL
     required: false
     default: "false"
+  cache-from:
+    description: A job whose cache to restore, without keeping one of this job's own, since the caches fill the repository's 10 GB
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -51,5 +55,6 @@ runs:
       uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
         key: deps-opt-level-${{ env.DEPS_OPT_LEVEL }}
+        shared-key: ${{ inputs.cache-from && format('deps-opt-level-{0}-{1}', env.DEPS_OPT_LEVEL, inputs.cache-from) || '' }}
         cache-on-failure: true
-        save-if: ${{ github.ref == 'refs/heads/main' }}
+        save-if: ${{ github.ref == 'refs/heads/main' && inputs.cache-from == '' }}
