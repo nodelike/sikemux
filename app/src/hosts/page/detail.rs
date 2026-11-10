@@ -938,8 +938,7 @@ fn agents(
             .is_some_and(|using| using.cpu > 0 || using.memory > 0);
         busy || using || line.killed
     });
-    let rest = stats.and_then(|stats| stats.rest.as_ref());
-    if lines.is_empty() && rest.is_none() {
+    if total == 0 {
         return None;
     }
     let people: BTreeMap<String, Vec<&AgentLine>> =
@@ -985,16 +984,9 @@ fn agents(
             rows.push(row(line, false, cx));
         }
     }
-    if let Some(rest) = rest {
-        rows.push(rest_row(rest, t, cx));
-    }
-    let shown = match lines.len() == total {
-        true => total.to_string(),
-        false => format!("{} of {total}", lines.len()),
-    };
     let (label, count) = match people.is_empty() {
-        true => ("Agents", shown),
-        false => ("People & agents", format!("{} · {shown}", people.len())),
+        true => ("Agents", total.to_string()),
+        false => ("People & agents", format!("{} · {total}", people.len())),
     };
     Some(
         div()
@@ -1008,21 +1000,26 @@ fn agents(
                 },
                 label,
                 Some(count),
-                Some(
-                    ui::text("CPU · memory", TEXT_2XS_H, FontWeight::NORMAL)
-                        .text_color(t.text_tertiary)
-                        .into_any_element(),
-                ),
+                Some(super::board::counts(host.counts(), t).into_any_element()),
                 t,
                 cx,
             ))
-            .child(
-                list(t).children(rows.into_iter().enumerate().map(|(at, row)| {
-                    div()
-                        .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
-                        .child(row)
-                })),
-            ),
+            .child(match rows.is_empty() {
+                true => ui::text(
+                    "None of them is using CPU or memory right now",
+                    TEXT_XS,
+                    FontWeight::NORMAL,
+                )
+                .text_color(t.text_tertiary)
+                .into_any_element(),
+                false => list(t)
+                    .children(rows.into_iter().enumerate().map(|(at, row)| {
+                        div()
+                            .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                            .child(row)
+                    }))
+                    .into_any_element(),
+            }),
     )
 }
 
@@ -1327,49 +1324,6 @@ fn person_row(
                 ),
         )
         .child(using(Some(cpu), Some(memory), false, t, cx))
-        .child(div().w(px(22.)).flex_none())
-        .into_any_element()
-}
-
-fn rest_row(
-    rest: &sikemux_view::host_stats::RestUse,
-    t: &Tokens,
-    cx: &mut Context<Workbench>,
-) -> AnyElement {
-    let named = rest
-        .names
-        .iter()
-        .take(3)
-        .cloned()
-        .collect::<Vec<_>>()
-        .join(", ");
-    let more = (rest.count as usize).saturating_sub(rest.names.len().min(3));
-    let named = match more {
-        0 => named,
-        more => format!("{named} +{more}"),
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap(px(11.))
-        .pl(SPACE_3)
-        .pr(SPACE_2H)
-        .py(px(9.))
-        .child(div().size(px(24.)).flex_none())
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(
-                    ui::text("Everything else", TEXT_SM, FontWeight::NORMAL)
-                        .text_color(t.text_tertiary),
-                )
-                .child(ui::mono(named, TEXT_2XS, cx).truncate()),
-        )
-        .child(using(Some(rest.cpu), Some(rest.memory), false, t, cx))
         .child(div().w(px(22.)).flex_none())
         .into_any_element()
 }
