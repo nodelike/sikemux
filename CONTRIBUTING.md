@@ -43,7 +43,7 @@ Terminals, agents and tasks run in a separate process, the core (`sikemux core`)
 
 The phone apps live in `mobile/`. The iPhone app is native SwiftUI in `mobile/ios`; the Android app is the Expo app in `mobile/app`, which with `mobile/native` and the rest of `mobile/` is a pnpm workspace of its own, so nothing in it is installed or checked with the desktop app. Both link `crates/sikemux-mobile`, the core's own client, pairing and iroh connection, through UniFFI: Swift bindings for the iPhone, and for Android `@sikemux/native`, a Turbo Module that `uniffi-bindgen-react-native` generates. [ADR 0008](docs/architecture/0008-mobile-app-expo-and-rust-client.md) records why.
 
-You need rustup's Rust (Homebrew's Rust ignores `rust-toolchain.toml` and has no phone targets), and `rust-toolchain.toml` lists the phone targets, so rustup installs them with the toolchain. For the iPhone you need Xcode and XcodeGen (`brew install xcodegen`):
+You need rustup's Rust (Homebrew's Rust ignores `rust-toolchain.toml` and has no phone targets), and `rust-toolchain.toml` lists the phone targets, so rustup installs them with the toolchain. For the iPhone you need Xcode with its Metal toolchain (`xcodebuild -downloadComponent MetalToolchain`, once) and XcodeGen (`brew install xcodegen`):
 
 ```bash
 mobile/ios/scripts/build-core.sh --sim-only   # the Rust client for the simulator, and its Swift bindings
