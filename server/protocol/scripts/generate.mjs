@@ -65,12 +65,24 @@ const PHONE_SWIFT = [
   "LiveServerMessage",
   "Network",
   "PendingHost",
+  "PushTokenRegistration",
+  "PushTokenState",
+  "ShareClientMessage",
+  "ShareCloseCode",
+  "ShareServerMessage",
+  "StashAdd",
+  "StashItem",
+  "StashList",
+  "StashSeen",
+  "StashUpdate",
 ];
 const SWIFT_RENAMED = new Set([
   "Account",
   "AccountStatus",
   "Device",
   "Network",
+  "ShareAsk",
+  "ShareFrame",
 ]);
 /** Definitions sikemux-wire carries, which the app already has in Wire.generated.swift. */
 const SWIFT_FROM_THE_WIRE = new Set(["RevokeReason"]);

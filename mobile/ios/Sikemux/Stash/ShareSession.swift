@@ -19,7 +19,7 @@ final class ShareSession {
     }
 
     private(set) var status = Status.connecting
-    private(set) var endedBecause: ShareServerMessage.EndReason?
+    private(set) var endedBecause: ShareEndReason?
     private(set) var hostOnline = false
     private(set) var expiresAt: Date?
     private(set) var chat: SharedChat?
@@ -183,34 +183,34 @@ final class ShareSession {
         case .challenge:
             let token: String
             do { token = try await Account.shared.token() } catch { return finish(.signedOut) }
-            send(socket, .hello(token: token, share: link.id, proof: link.viewerProof, since: seq))
+            send(socket, .hello(ShareHello(role: .viewer, token: token, share: link.id, proof: link.viewerProof, since: seq)))
         case .ready(let ready):
             failures = 0
             hostOnline = ready.hostOnline ?? false
             expiresAt = Format.date(iso: ready.expiresAt)
             if let renew = Format.date(iso: ready.authExpiresAt) { renewAuth(socket, before: renew) }
         case .frames(let frames):
-            for frame in frames {
+            for frame in frames.frames {
                 guard let plain = link.open(frame.sealed) else { return finish(.unreadable) }
                 seq = frame.seq
                 take(plain)
             }
-        case .answer(let sealed):
-            guard let plain = link.open(sealed) else { return }
+        case .answer(let answer):
+            guard let plain = link.open(answer.sealed) else { return }
             do {
                 let answer = try JSONDecoder().decode(ShareReply.self, from: Data(plain.utf8))
                 answers.removeValue(forKey: answer.id)?.resume(returning: answer.error == nil ? answer : nil)
             } catch {
                 print("sikemux: the sharer's computer sent an answer this app cannot read: \(error)")
             }
-        case .host(let online):
-            hostOnline = online
-        case .ended(let reason):
-            endedBecause = reason
+        case .host(let host):
+            hostOnline = host.online
+        case .ended(let ended):
+            endedBecause = ended.reason
             finish(.ended)
         case .ping:
-            send(socket, .pong)
-        case .other:
+            send(socket, .pong(SharePong()))
+        case .opened, .refused, .viewers, .ask, .snapshot, .bye, .unknown:
             break
         }
     }
@@ -222,7 +222,7 @@ final class ShareSession {
             try? await Task.sleep(for: .seconds(max(0, expiry.timeIntervalSinceNow - 15)))
             guard !Task.isCancelled else { return }
             do {
-                send(socket, .auth(token: try await Account.shared.token(fresh: true)))
+                send(socket, .auth(ShareAuth(token: try await Account.shared.token(fresh: true))))
             } catch {
                 print("sikemux: could not renew the sign-in for a shared chat: \(error)")
             }
@@ -292,7 +292,7 @@ final class ShareSession {
         defer { timeout.cancel() }
         return await withCheckedContinuation { waiting in
             answers[id] = waiting
-            send(socket, .ask(sealed: sealed))
+            send(socket, .ask(WireShareAsk(sealed: sealed)))
         }
     }
 

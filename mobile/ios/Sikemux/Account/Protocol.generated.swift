@@ -67,6 +67,29 @@ struct ApiError: Codable, Hashable, Sendable {
     var error: ErrorDetail
 }
 
+/// Which of Apple's push servers issued an iOS token: sandbox for builds run from Xcode, production for TestFlight and the App Store.
+enum ApnsEnvironment: String, Codable, Hashable, Sendable {
+    case sandbox = "sandbox"
+    case production = "production"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// An APNs token, which says which of Apple's environments issued it.
+struct ApnsTokenRegistration: Codable, Hashable, Sendable {
+    var platform = "apns"
+    /// The native APNs token the app was given, never an Expo push token.
+    var token: String
+    var app: PushApp
+    var apnsEnvironment: ApnsEnvironment
+    var nonce: String
+    var signature: String
+}
+
 /// A semantic version, such as 0.5.0 or 0.6.0-nightly.3.
 typealias AppVersion = String
 
@@ -166,6 +189,16 @@ struct ErrorDetail: Codable, Hashable, Sendable {
 
 /// An account event's place in the log. Later events have larger ids.
 typealias EventId = Int
+
+/// An FCM token.
+struct FcmTokenRegistration: Codable, Hashable, Sendable {
+    var platform = "fcm"
+    /// The native FCM token the app was given, never an Expo push token.
+    var token: String
+    var app: PushApp
+    var nonce: String
+    var signature: String
+}
 
 /// Which host on the account the phone wants to join.
 struct JoinRequest: Codable, Hashable, Sendable {
@@ -400,6 +433,18 @@ enum Platform: String, Codable, Hashable, Sendable {
     }
 }
 
+/// Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them.
+enum PushApp: String, Codable, Hashable, Sendable {
+    case production = "production"
+    case dev = "dev"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
 /// A number the host picks for each push, so it can match the server's answer to it.
 typealias PushRef = Int
 
@@ -420,6 +465,40 @@ enum PushResult: String, Codable, Hashable, Sendable {
     }
 }
 
+/// Where the phone wants its notifications delivered. The signature is the phone's device key's Ed25519 signature over the UTF-8 text `sikemux-push|<nonce>|<key>|<sha256 of the token, lowercase hex>`, so no other sign-in on the account can redirect the phone's notifications.
+enum PushTokenRegistration: Codable, Hashable, Sendable {
+    case apns(ApnsTokenRegistration)
+    case fcm(FcmTokenRegistration)
+    /// A message added after this build, which it cannot act on.
+    case unknown
+
+    private enum Tag: String, CodingKey {
+        case tag = "platform"
+    }
+
+    init(from decoder: Decoder) throws {
+        switch try decoder.container(keyedBy: Tag.self).decode(String.self, forKey: .tag) {
+        case "apns": self = .apns(try ApnsTokenRegistration(from: decoder))
+        case "fcm": self = .fcm(try FcmTokenRegistration(from: decoder))
+        default: self = .unknown
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .apns(let message): try message.encode(to: encoder)
+        case .fcm(let message): try message.encode(to: encoder)
+        case .unknown: break
+        }
+    }
+}
+
+struct PushTokenState: Codable, Hashable, Sendable {
+    /// Whether the server has a token for this phone.
+    var enabled: Bool
+    var updatedAt: String
+}
+
 struct Relay: Codable, Hashable, Sendable {
     /// The relay's HTTPS address, such as https://relay.sikemux.com/.
     var url: String
@@ -429,5 +508,500 @@ struct Relay: Codable, Hashable, Sendable {
     var quicPort: Int?
 }
 
+/// What the host sealed for the share's viewers: a 12-byte nonce, then AES-256-GCM ciphertext and tag, in unpadded base64url. The key lives only in the share's link, so the server cannot read it.
+typealias Sealed = String
+
+/// Host only: the sealed answer to one viewer's question.
+struct ShareAnswer: Codable, Hashable, Sendable {
+    var type = "answer"
+    var share: ShareId
+    var viewer: ShareViewerId
+    var sealed: Sealed
+}
+
+/// To a viewer: the host's sealed answer to one of its questions.
+struct ShareAnswered: Codable, Hashable, Sendable {
+    var type = "answer"
+    var sealed: Sealed
+}
+
+/// Viewer only: a sealed question for the host, such as the chat's turns before some event or a picture pasted into it. The host answers with answer.
+struct WireShareAsk: Codable, Hashable, Sendable {
+    var type = "ask"
+    var sealed: Sealed
+}
+
+/// To the host: a viewer's sealed question. Answer it with answer, naming the viewer.
+struct ShareAsked: Codable, Hashable, Sendable {
+    var type = "ask"
+    var share: ShareId
+    var viewer: ShareViewerId
+    var sealed: Sealed
+}
+
+/// Viewer only: a fresh Clerk token for the same user, sent before ready.authExpiresAt.
+struct ShareAuth: Codable, Hashable, Sendable {
+    var type = "auth"
+    var token: String
+}
+
+/// The server is restarting and closes with ShareCloseCode restarting after it. Reconnect no sooner than reconnectAfterMs.
+struct ShareBye: Codable, Hashable, Sendable {
+    var type = "bye"
+    var reconnectAfterMs: Int
+}
+
+/// The server's first message on every share connection: a one-time value a host's hello signs.
+struct ShareChallenge: Codable, Hashable, Sendable {
+    var type = "challenge"
+    var nonce: String
+    var expiresAt: String
+}
+
+/// What a host or a viewer sends on a share connection.
+enum ShareClientMessage: Codable, Hashable, Sendable {
+    case hello(ShareHello)
+    case open(ShareOpen)
+    case publish(SharePublish)
+    case answer(ShareAnswer)
+    case close(ShareClose)
+    case ask(WireShareAsk)
+    case auth(ShareAuth)
+    case pong(SharePong)
+    /// A message added after this build, which it cannot act on.
+    case unknown
+
+    private enum Tag: String, CodingKey {
+        case tag = "type"
+    }
+
+    init(from decoder: Decoder) throws {
+        switch try decoder.container(keyedBy: Tag.self).decode(String.self, forKey: .tag) {
+        case "hello": self = .hello(try ShareHello(from: decoder))
+        case "open": self = .open(try ShareOpen(from: decoder))
+        case "publish": self = .publish(try SharePublish(from: decoder))
+        case "answer": self = .answer(try ShareAnswer(from: decoder))
+        case "close": self = .close(try ShareClose(from: decoder))
+        case "ask": self = .ask(try WireShareAsk(from: decoder))
+        case "auth": self = .auth(try ShareAuth(from: decoder))
+        case "pong": self = .pong(try SharePong(from: decoder))
+        default: self = .unknown
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .hello(let message): try message.encode(to: encoder)
+        case .open(let message): try message.encode(to: encoder)
+        case .publish(let message): try message.encode(to: encoder)
+        case .answer(let message): try message.encode(to: encoder)
+        case .close(let message): try message.encode(to: encoder)
+        case .ask(let message): try message.encode(to: encoder)
+        case .auth(let message): try message.encode(to: encoder)
+        case .pong(let message): try message.encode(to: encoder)
+        case .unknown: break
+        }
+    }
+}
+
+/// Host only: end a share for good. Its viewers are told it was stopped.
+struct ShareClose: Codable, Hashable, Sendable {
+    var type = "close"
+    var share: ShareId
+}
+
+/// Why the server closed a share connection, as the WebSocket close code.
+enum ShareCloseCode: Int, Sendable {
+    /// Something the protocol does not allow was sent. Reconnect with backoff.
+    case badMessage = 4400
+    /// The hello did not prove who is connecting, or the viewer's sign-in expired.
+    case unauthenticated = 4401
+    /// No share has this id. Do not reconnect.
+    case notFound = 4404
+    /// No hello came within 10 seconds of the challenge. Reconnect with backoff.
+    case helloTimeout = 4408
+    /// A newer connection for the same host took over.
+    case replaced = 4409
+    /// The share ended, after an ended message. Do not reconnect.
+    case ended = 4410
+    /// Over a limit: too many messages, viewers or failed hellos. Wait at least 30 seconds.
+    case overLimit = 4429
+    /// Something failed on the server. Reconnect with backoff.
+    case serverError = 1011
+    /// The server is restarting, after a bye message. Reconnect no sooner than its reconnectAfterMs.
+    case restarting = 1012
+    /// The server has too many connections, or the connection stopped reading. Reconnect with backoff.
+    case overloaded = 1013
+}
+
+/// The share ended. The server closes a viewer's connection with ShareCloseCode ended after it.
+struct ShareEnded: Codable, Hashable, Sendable {
+    var type = "ended"
+    var share: ShareId
+    var reason: ShareEndReason
+}
+
+/// Why a share ended: the host stopped it or its chat ended, or it ran past its expiry.
+enum ShareEndReason: String, Codable, Hashable, Sendable {
+    case stopped = "stopped"
+    case expired = "expired"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// One sealed frame of a share. A snapshot holds the whole chat as it stands, so a viewer starts over from it and the frames before it are no longer needed.
+struct WireShareFrame: Codable, Hashable, Sendable {
+    var seq: ShareSeq
+    var snapshot: Bool
+    var sealed: Sealed
+}
+
+/// To a viewer: frames in order. One with snapshot set replaces everything before it.
+struct ShareFrames: Codable, Hashable, Sendable {
+    var type = "frames"
+    var frames: [WireShareFrame]
+}
+
+/// The first message on a share connection. A host sends its key and its Ed25519 signature over the UTF-8 text `sikemux-share|<nonce>|<key>`. A viewer sends the share it wants, the proof its link holds and the last frame it holds, if any, and signs in with a Clerk token from the web app or the phone, or, on a Mac, with the host's key and its Ed25519 signature over `sikemux-share-viewer|<nonce>|<key>`.
+struct ShareHello: Codable, Hashable, Sendable {
+    var type = "hello"
+    var role: ShareRole
+    var key: DeviceKey?
+    var signature: String?
+    var token: String?
+    var share: ShareId?
+    var proof: ShareViewerProof?
+    var since: ShareSeq?
+}
+
+/// To a viewer: the sharing host connected or went away. Questions wait for it.
+struct ShareHost: Codable, Hashable, Sendable {
+    var type = "host"
+    var online: Bool
+}
+
+/// A shared chat's id: 16 random bytes the host picks, in unpadded base64url.
+typealias ShareId = String
+
+/// Host only: start a share. The server answers opened or refused. Hosts on 0.5.3 and earlier send no viewers check, and their shares are open to anyone signed in who has the link.
+struct ShareOpen: Codable, Hashable, Sendable {
+    var type = "open"
+    var share: ShareId
+    var expiresAt: String
+    var viewers: ShareViewerCheck?
+}
+
+/// To the host: the share is open and viewers may join.
+struct ShareOpened: Codable, Hashable, Sendable {
+    var type = "opened"
+    var share: ShareId
+}
+
+/// Answer with pong.
+struct SharePing: Codable, Hashable, Sendable {
+    var type = "ping"
+}
+
+/// The answer to ping.
+struct SharePong: Codable, Hashable, Sendable {
+    var type = "pong"
+}
+
+/// Host only: the share's next frame, for every viewer now and later.
+struct SharePublish: Codable, Hashable, Sendable {
+    var type = "publish"
+    var share: ShareId
+    var frame: WireShareFrame
+}
+
+/// The hello was accepted. A viewer is sent the frames it does not hold next, from the latest snapshot on.
+struct ShareReady: Codable, Hashable, Sendable {
+    var type = "ready"
+    var heartbeatMs: Int
+    /// Viewer only: when the share ends.
+    var expiresAt: String?
+    /// Viewer only: whether the sharing host is connected.
+    var hostOnline: Bool?
+    /// Viewer only: send a fresh token in an auth message before this.
+    var authExpiresAt: String?
+}
+
+/// Why the server would not open a share: the account has as many open as it may, the id is taken, or the expiry is not between now and seven days from now.
+enum ShareRefusal: String, Codable, Hashable, Sendable {
+    case limit = "limit"
+    case exists = "exists"
+    case expiry = "expiry"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// To the host: the share was not opened.
+struct ShareRefused: Codable, Hashable, Sendable {
+    var type = "refused"
+    var share: ShareId
+    var reason: ShareRefusal
+}
+
+/// A host publishes its shared chats; a viewer watches one.
+enum ShareRole: String, Codable, Hashable, Sendable {
+    case host = "host"
+    case viewer = "viewer"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// A frame's place in its share. The host numbers frames from 1, one higher each time.
+typealias ShareSeq = Int
+
+/// What the server sends on a share connection.
+enum ShareServerMessage: Codable, Hashable, Sendable {
+    case challenge(ShareChallenge)
+    case ready(ShareReady)
+    case opened(ShareOpened)
+    case refused(ShareRefused)
+    case viewers(ShareViewers)
+    case ask(ShareAsked)
+    case snapshot(ShareWantsSnapshot)
+    case frames(ShareFrames)
+    case answer(ShareAnswered)
+    case host(ShareHost)
+    case ended(ShareEnded)
+    case ping(SharePing)
+    case bye(ShareBye)
+    /// A message added after this build, which it cannot act on.
+    case unknown
+
+    private enum Tag: String, CodingKey {
+        case tag = "type"
+    }
+
+    init(from decoder: Decoder) throws {
+        switch try decoder.container(keyedBy: Tag.self).decode(String.self, forKey: .tag) {
+        case "challenge": self = .challenge(try ShareChallenge(from: decoder))
+        case "ready": self = .ready(try ShareReady(from: decoder))
+        case "opened": self = .opened(try ShareOpened(from: decoder))
+        case "refused": self = .refused(try ShareRefused(from: decoder))
+        case "viewers": self = .viewers(try ShareViewers(from: decoder))
+        case "ask": self = .ask(try ShareAsked(from: decoder))
+        case "snapshot": self = .snapshot(try ShareWantsSnapshot(from: decoder))
+        case "frames": self = .frames(try ShareFrames(from: decoder))
+        case "answer": self = .answer(try ShareAnswered(from: decoder))
+        case "host": self = .host(try ShareHost(from: decoder))
+        case "ended": self = .ended(try ShareEnded(from: decoder))
+        case "ping": self = .ping(try SharePing(from: decoder))
+        case "bye": self = .bye(try ShareBye(from: decoder))
+        default: self = .unknown
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .challenge(let message): try message.encode(to: encoder)
+        case .ready(let message): try message.encode(to: encoder)
+        case .opened(let message): try message.encode(to: encoder)
+        case .refused(let message): try message.encode(to: encoder)
+        case .viewers(let message): try message.encode(to: encoder)
+        case .ask(let message): try message.encode(to: encoder)
+        case .snapshot(let message): try message.encode(to: encoder)
+        case .frames(let message): try message.encode(to: encoder)
+        case .answer(let message): try message.encode(to: encoder)
+        case .host(let message): try message.encode(to: encoder)
+        case .ended(let message): try message.encode(to: encoder)
+        case .ping(let message): try message.encode(to: encoder)
+        case .bye(let message): try message.encode(to: encoder)
+        case .unknown: break
+        }
+    }
+}
+
+/// The lowercase hex SHA-256 of a share's ShareViewerProof bytes, which the host gives the server so it can check viewers without learning the proof.
+typealias ShareViewerCheck = String
+
+/// One viewer's connection, as the server names it to the host.
+typealias ShareViewerId = String
+
+/// What a share's link proves to the server, so only someone holding the link takes a viewer's place: HMAC-SHA256 keyed with the link's 32-byte key over the UTF-8 text `sikemux-share-viewer|v1|<share id>`, in unpadded base64url. It cannot be turned back into the key.
+typealias ShareViewerProof = String
+
+/// To the host: how many viewers a share has now.
+struct ShareViewers: Codable, Hashable, Sendable {
+    var type = "viewers"
+    var share: ShareId
+    var count: Int
+}
+
+/// To the host: the server let go of the share's frames, so the next frame it publishes must be a snapshot.
+struct ShareWantsSnapshot: Codable, Hashable, Sendable {
+    var type = "snapshot"
+    var share: ShareId
+}
+
+/// A link, text or prompt to stash. A file is sent as its bytes instead, with Content-Type, X-Stash-Name (URI-encoded), and optionally X-Stash-Note and X-Stash-Target (URI-encoded JSON of a StashTarget), or X-Stash-Prompt with a prompt's id to attach it to that prompt. A file signed with SikemuxHost or SikemuxDevice also sends X-Body-Sha256, the body's SHA-256 in lowercase hex, which the signature covers in place of hashing the body.
+enum StashAdd: Codable, Hashable, Sendable {
+    case link(StashAddLink)
+    case text(StashAddText)
+    case prompt(StashAddPrompt)
+    /// A message added after this build, which it cannot act on.
+    case unknown
+
+    private enum Tag: String, CodingKey {
+        case tag = "kind"
+    }
+
+    init(from decoder: Decoder) throws {
+        switch try decoder.container(keyedBy: Tag.self).decode(String.self, forKey: .tag) {
+        case "link": self = .link(try StashAddLink(from: decoder))
+        case "text": self = .text(try StashAddText(from: decoder))
+        case "prompt": self = .prompt(try StashAddPrompt(from: decoder))
+        default: self = .unknown
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .link(let message): try message.encode(to: encoder)
+        case .text(let message): try message.encode(to: encoder)
+        case .prompt(let message): try message.encode(to: encoder)
+        case .unknown: break
+        }
+    }
+}
+
+/// A link to stash.
+struct StashAddLink: Codable, Hashable, Sendable {
+    var kind = "link"
+    /// An http or https link.
+    var url: String
+    var note: StashNote?
+    var target: StashTarget?
+}
+
+/// A composer's whole prompt to stash: its text, with its files uploaded after it.
+struct StashAddPrompt: Codable, Hashable, Sendable {
+    var kind = "prompt"
+    var text: String
+    /// How many files will follow, each uploaded with X-Stash-Prompt set to the prompt's id. Until the last arrives the prompt is in no list and announced to no device; one left unfinished for a day is deleted.
+    var attachmentCount: Int?
+    var note: StashNote?
+    var target: StashTarget?
+}
+
+/// Text to stash.
+struct StashAddText: Codable, Hashable, Sendable {
+    var kind = "text"
+    var text: String
+    var note: StashNote?
+    var target: StashTarget?
+}
+
+/// Something the person shared into Sikemux, kept on their account until they use it.
+struct StashItem: Codable, Hashable, Sendable {
+    var id: StashItemId
+    var kind: StashKind
+    /// Only on links.
+    var url: String?
+    /// Only on text and prompts.
+    var text: String?
+    /// Only on prompts: the files attached to the prompt, oldest first. They are not listed on their own, get no events of their own, and are taken and deleted with their prompt.
+    var attachments: [StashItem]?
+    /// Only on text and prompts: the links written in its words, in the order they first appear, without repeats.
+    var links: [StashLink]?
+    var note: StashNote?
+    /// The file's name. Only on items with a file.
+    var name: String?
+    /// The file's media type. Only on items with a file.
+    var mime: String?
+    /// The file's size in bytes. Only on items with a file.
+    var size: Int?
+    /// Only links get one, and only once the server has read the page; null until then, or when it could not. The links in a text's or prompt's words have theirs in links.
+    var preview: StashPreview?
+    var target: StashTarget?
+    var createdAt: String
+    /// When the item was attached to a prompt or delivered to its target; null until then. Taken items are deleted 30 days later.
+    var takenAt: String?
+    /// The device that stashed the item, or null when the web app did.
+    var fromDevice: DeviceKey?
+}
+
 /// A stash item's id: 16 random bytes the server picks, in unpadded base64url.
 typealias StashItemId = String
+
+/// What was shared. A link, text or prompt arrives as JSON; an image, video or file as its bytes. A prompt is a composer's whole prompt: its text and the files attached to it.
+enum StashKind: String, Codable, Hashable, Sendable {
+    case link = "link"
+    case text = "text"
+    case image = "image"
+    case video = "video"
+    case file = "file"
+    case prompt = "prompt"
+    /// A value added after this build, which it cannot act on.
+    case unknown
+
+    init(from decoder: Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+/// A link written in a text's or prompt's words, exactly as it is written there, with what its page says about itself.
+struct StashLink: Codable, Hashable, Sendable {
+    var url: String
+    /// Null until the server has read the page, or when it could not.
+    var preview: StashPreview?
+}
+
+/// A page of the stash, newest first.
+struct StashList: Codable, Hashable, Sendable {
+    var items: [StashItem]
+    /// Send as cursor for the next page. Absent on the last page.
+    var cursor: StashListCursor?
+    /// When the person last looked at the stash on any device; items created after it are new. Null until they first do.
+    var seenAt: String?
+}
+
+/// Where the next page of a list starts. Opaque to apps.
+typealias StashListCursor = String
+
+/// What the person wrote beside the item when they shared it.
+typealias StashNote = String
+
+/// What a link's page says about itself, read by the server from its meta tags after the link was stashed.
+struct StashPreview: Codable, Hashable, Sendable {
+    var title: String
+    /// The site's name, or its host name when the page names none.
+    var site: String
+    var description: String
+    var imageUrl: String?
+    /// The site's icon, as the page names it.
+    var iconUrl: String?
+}
+
+/// When the person last looked at the stash. Setting it only ever moves it forward, and never past the server's clock.
+struct StashSeen: Codable, Hashable, Sendable {
+    var at: String
+}
+
+/// Where the person sent the item from the share sheet: a chat on a host (chatId), or a new chat in a project on it (projectPath with newChat true). That host puts it in the chat's draft and marks it taken.
+struct StashTarget: Codable, Hashable, Sendable {
+    var hostKey: DeviceKey
+    var chatId: String?
+    var projectPath: String?
+    var newChat: Bool?
+}
+
+/// A change to an item: a new note, or taken true once it is used. A taken item cannot be untaken.
+struct StashUpdate: Codable, Hashable, Sendable {
+    var note: StashNote?
+    var taken: Bool?
+}
