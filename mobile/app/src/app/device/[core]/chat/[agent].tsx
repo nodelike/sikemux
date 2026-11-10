@@ -1,6 +1,6 @@
 import { useChatFind, useRevealFound } from '@/chat/useChatFind';
 import { useEditingRow } from '@/chat/useEditingRow';
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { type TextInput, Pressable, StyleSheet, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
@@ -11,13 +11,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { activityText, composerPlaceholder } from '@shared/chat/chatStatus';
 import { askedText, lastAsked } from '@shared/chat/team';
 import { sentPrompts } from '@/chat/promptHistory';
-import type { ChatMessage } from '@shared/wire.generated';
+import type { ChatMessage, InboxItem, ShipHold } from '@shared/wire.generated';
 import { ChatMenu } from '@/chat/ChatMenu';
 import { FindBar } from '@/chat/FindBar';
 import { FindingContext } from '@/chat/found';
 import { ChatTitle } from '@/chat/ChatTitle';
 import { Composer } from '@/chat/Composer';
 import { askTitle } from '@/chat/PermissionDock';
+import { HoldDock, type HoldAnswer } from '@/chat/HoldDock';
 import { RecentSheet } from '@/chat/RecentSheet';
 import { FoldsContext, rowFold, runsOf, shownRows } from '@/chat/folds';
 import { useTranscriptScroll } from '@/chat/transcriptScroll';
@@ -35,7 +36,8 @@ import { Activity } from '@/chat/Activity';
 import { Earlier, EarlierLost, Queued } from '@/chat/TranscriptEdges';
 import { AgentContext, ProviderContext, SubagentsContext } from '@/chat/transcriptContext';
 import { useChat } from '@/chat/useChat';
-import { useHostCall } from '@/core/hostCalls';
+import { callHost, useHostCall } from '@/core/hostCalls';
+import { problem } from '@/core/problem';
 import { retry as reconnect, useDevices, useLive } from '@/devices/hub';
 import { dismissCardsFor } from '@/notify/cards';
 import { deviceName } from '@/devices/paired';
@@ -191,6 +193,24 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
   const liveShown = hasLiveWork(fresh) && chat.attached === 'live';
   const recalls = !watchOnly && (queued.length > 0 || state.messages.some((message) => message.role === 'user'));
   const strip = liveShown ? <LiveStrip work={work} provider={provider} onOpen={openLive} /> : null;
+  const holds = useMemo(
+    () =>
+      (live.snapshot?.inbox.items ?? []).filter(
+        (item): item is InboxItem & { hold: ShipHold } => item.agentId === agentId && item.hold != null,
+      ),
+    [live.snapshot?.inbox.items, agentId],
+  );
+  const [holding, setHolding] = useState<ReadonlySet<string>>(new Set());
+  const answerHold = useCallback(
+    (hold: ShipHold, how: HoldAnswer) => {
+      if (!connection) return;
+      setHolding((current) => new Set([...current, hold.id]));
+      callHost(connection, how, { hold: hold.id })
+        .catch((error: unknown) => session.report(problem(error)))
+        .finally(() => setHolding((current) => new Set([...current].filter((id) => id !== hold.id))));
+    },
+    [connection, session],
+  );
   const questions = useQuestions(connection, agentId, `${info?.activeAt}|${info?.unread}|${state.running}`, session.report);
   const input = useRef<TextInput>(null);
   const composing = watchOnly ? null : questions.composing;
@@ -437,6 +457,9 @@ function ChatScreen({ core, agentId }: { core: string; agentId: string }) {
                   onSent={scroll.toEnd}
                   attachments={chat.attachments}
                   chips={chat.chips}
+                  held={
+                    holds.length && !watchOnly ? <HoldDock items={holds} answering={holding} onAnswer={answerHold} /> : null
+                  }
                   strip={strip}
                   onRecent={recalls ? openRecent : undefined}
                   inputRef={input}

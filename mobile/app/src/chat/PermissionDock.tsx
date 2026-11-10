@@ -24,10 +24,112 @@ export function asked(tool: ToolCall): string {
   return tool.row.path ?? tool.row.target;
 }
 
+/** One button of a dock: `go` is the one it leads with, `quiet` one that says no. */
+export type DockAct = { key: string; label: string; go?: boolean; quiet?: boolean; wide?: boolean; onPress: () => void };
+
 /**
- * Sits above the composer until it is answered: the Mac's permission card, with the agent's own
- * options, and Cancel when none of them says no.
+ * Sits above the composer until it is answered: a title, the exact command and the answers, with
+ * a pager when more than one waits. Wide answers take a row of their own above the rest.
  */
+export function Dock({
+  title,
+  detail,
+  label,
+  pager,
+  command,
+  run,
+  diff,
+  acts,
+  busy,
+}: {
+  title: string;
+  detail: string;
+  label: string;
+  pager?: { index: number; count: number; onPage: (index: number) => void; noun: string };
+  command: string;
+  run: boolean;
+  diff?: PermissionAsk['diff'];
+  acts: DockAct[];
+  busy: boolean;
+}) {
+  const colors = useColors();
+  const styles = useStyles(makeStyles);
+  const act = (each: DockAct) => (
+    <Pressable
+      key={each.key}
+      disabled={busy}
+      onPress={() => {
+        haptics.select();
+        each.onPress();
+      }}
+      style={({ pressed }) => [styles.act, each.go && styles.actGo, pressed && { opacity: 0.8 }, busy && { opacity: 0.5 }]}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: busy, busy }}>
+      <Text style={[styles.actText, each.go && styles.actGoText, each.quiet && { color: colors.secondary }]} numberOfLines={1}>
+        {each.label}
+      </Text>
+    </Pressable>
+  );
+  const wide = acts.filter((each) => each.wide);
+  return (
+    <View style={styles.dock} accessibilityRole="alert" accessibilityLabel={label}>
+      <View style={styles.dockHead}>
+        <Icon name="IconShieldBolt" size={16} color={colors.ink} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.dockTitle}>{title}</Text>
+          <Text style={styles.dockDetail}>{detail}</Text>
+        </View>
+        {pager && pager.count > 1 ? (
+          <View style={styles.pages}>
+            <Pressable
+              onPress={() => pager.onPage(pager.index - 1)}
+              disabled={pager.index === 0}
+              hitSlop={8}
+              style={[styles.pageButton, pager.index === 0 && { opacity: 0.3 }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Previous ${pager.noun}`}>
+              <View style={{ transform: [{ rotate: '180deg' }] }}>
+                <Icon name="IconChevron" size={12} color={colors.secondary} />
+              </View>
+            </Pressable>
+            <Text style={styles.pageText} accessibilityLabel={`${pager.noun[0].toUpperCase()}${pager.noun.slice(1)} ${pager.index + 1} of ${pager.count}`}>
+              {pager.index + 1} of {pager.count}
+            </Text>
+            <Pressable
+              onPress={() => pager.onPage(pager.index + 1)}
+              disabled={pager.index === pager.count - 1}
+              hitSlop={8}
+              style={[styles.pageButton, pager.index === pager.count - 1 && { opacity: 0.3 }]}
+              accessibilityRole="button"
+              accessibilityLabel={`Next ${pager.noun}`}>
+              <Icon name="IconChevron" size={12} color={colors.secondary} />
+            </Pressable>
+          </View>
+        ) : null}
+      </View>
+      <ScrollView style={styles.dockCmd} contentContainerStyle={styles.dockCmdPad} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+        <Text style={styles.dockCmdText} selectable>
+          {run ? <Text style={{ color: colors.toolRun }}>$ </Text> : null}
+          {command}
+        </Text>
+        {diff ? (
+          <Text style={[styles.dockCmdText, { marginTop: 4 }]}>
+            <Text style={{ color: colors.gitAdded }}>+{diff.adds}</Text>{' '}
+            <Text style={{ color: colors.gitDeleted }}>−{diff.dels}</Text>
+          </Text>
+        ) : null}
+      </ScrollView>
+      {wide.map((each) => (
+        <View key={each.key} style={styles.dockActs}>
+          {act(each)}
+        </View>
+      ))}
+      <View style={styles.dockActs}>{acts.filter((each) => !each.wide).map(act)}</View>
+    </View>
+  );
+}
+
+/** A chat agent's permission requests, with the agent's own options, and Cancel when none of them says no. */
 export function PermissionDock({
   requests,
   provider,
@@ -39,95 +141,33 @@ export function PermissionDock({
   answering: ReadonlySet<string>;
   onAnswer: (requestId: string, optionId: string | null) => void;
 }) {
-  const colors = useColors();
-  const styles = useStyles(makeStyles);
   const [page, setPage] = useState(0);
   const index = Math.min(page, requests.length - 1);
   const request = requests[index];
-  const busy = answering.has(request.requestId);
   const rejects = request.options.filter((option) => option.kind.startsWith('reject'));
   const always = request.options.filter((option) => option.kind === 'allow_always');
   const once = request.options.filter((option) => option.kind === 'allow_once');
   const cancel = rejects.length ? [] : [{ optionId: '', name: 'Cancel', kind: 'reject_once' }];
-  const ordered = [...cancel, ...rejects, ...always, ...once];
   const primary = once[0] ?? always[0];
-  const run = toolKind(request.toolCall) === 'run';
   const title = askTitle(request);
   return (
-    <View
-      style={styles.dock}
-      accessibilityRole="alert"
-      accessibilityLabel={`${title} ${agentLabel(provider)} needs permission to continue`}>
-      <View style={styles.dockHead}>
-        <Icon name="IconShieldBolt" size={16} color={colors.ink} />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.dockTitle}>{title}</Text>
-          <Text style={styles.dockDetail}>{agentLabel(provider)} needs permission to continue</Text>
-        </View>
-        {requests.length > 1 ? (
-          <View style={styles.pages}>
-            <Pressable
-              onPress={() => setPage(index - 1)}
-              disabled={index === 0}
-              hitSlop={8}
-              style={[styles.pageButton, index === 0 && { opacity: 0.3 }]}
-              accessibilityRole="button"
-              accessibilityLabel="Previous request">
-              <View style={{ transform: [{ rotate: '180deg' }] }}>
-                <Icon name="IconChevron" size={12} color={colors.secondary} />
-              </View>
-            </Pressable>
-            <Text style={styles.pageText} accessibilityLabel={`Request ${index + 1} of ${requests.length}`}>
-              {index + 1} of {requests.length}
-            </Text>
-            <Pressable
-              onPress={() => setPage(index + 1)}
-              disabled={index === requests.length - 1}
-              hitSlop={8}
-              style={[styles.pageButton, index === requests.length - 1 && { opacity: 0.3 }]}
-              accessibilityRole="button"
-              accessibilityLabel="Next request">
-              <Icon name="IconChevron" size={12} color={colors.secondary} />
-            </Pressable>
-          </View>
-        ) : null}
-      </View>
-      <ScrollView style={styles.dockCmd} contentContainerStyle={styles.dockCmdPad} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-        <Text style={styles.dockCmdText} selectable>
-          {run ? <Text style={{ color: colors.toolRun }}>$ </Text> : null}
-          {asked(request.toolCall)}
-        </Text>
-        {request.diff ? (
-          <Text style={[styles.dockCmdText, { marginTop: 4 }]}>
-            <Text style={{ color: colors.gitAdded }}>+{request.diff.adds}</Text>{' '}
-            <Text style={{ color: colors.gitDeleted }}>−{request.diff.dels}</Text>
-          </Text>
-        ) : null}
-      </ScrollView>
-      <View style={styles.dockActs}>
-        {ordered.map((option) => {
-          const go = option === primary;
-          return (
-            <Pressable
-              key={option.optionId || option.name}
-              disabled={busy}
-              onPress={() => {
-                haptics.select();
-                onAnswer(request.requestId, option.optionId || null);
-              }}
-              style={({ pressed }) => [styles.act, go && styles.actGo, pressed && { opacity: 0.8 }, busy && { opacity: 0.5 }]}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: busy, busy }}>
-              <Text
-                style={[styles.actText, go && styles.actGoText, option.kind.startsWith('reject') && { color: colors.secondary }]}
-                numberOfLines={1}>
-                {option.name}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
+    <Dock
+      title={title}
+      detail={`${agentLabel(provider)} needs permission to continue`}
+      label={`${title} ${agentLabel(provider)} needs permission to continue`}
+      pager={{ index, count: requests.length, onPage: setPage, noun: 'request' }}
+      command={asked(request.toolCall)}
+      run={toolKind(request.toolCall) === 'run'}
+      diff={request.diff}
+      busy={answering.has(request.requestId)}
+      acts={[...cancel, ...rejects, ...always, ...once].map((option) => ({
+        key: option.optionId || option.name,
+        label: option.name,
+        go: option === primary,
+        quiet: option.kind.startsWith('reject'),
+        onPress: () => onAnswer(request.requestId, option.optionId || null),
+      }))}
+    />
   );
 }
 

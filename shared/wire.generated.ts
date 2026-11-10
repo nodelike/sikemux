@@ -622,7 +622,7 @@ export interface ChatTrigger {
     when: TriggerWhen;
     /**
      * The next time it fires, in Unix milliseconds; none for a webhook, which fires on each
-     * request.
+     * request, or a CI trigger, which fires when CI ends.
      */
     nextAt?: number;
 }
@@ -650,6 +650,11 @@ export type TriggerWhen =
     | {
           kind: "webhook";
           url: string;
+      }
+    /** Once, when CI on `on` ends: a commit or a run, as the agent named it. */
+    | {
+          kind: "ci";
+          on: string;
       };
 
 export interface Inbox {
@@ -1945,6 +1950,8 @@ export interface PageRef {
     title: string;
     /** Its height at the reply width, when the agent measured it. */
     height?: number;
+    /** Shown in a tab on the agent's desk, so the reply draws a card for it. */
+    tab?: boolean;
 }
 
 /** A GIF an agent sent with `gif_send`, which clients load from `url`. */
@@ -3737,6 +3744,10 @@ export interface SessionMatch {
     snippets: string[];
 }
 
+export interface HoldParams {
+    hold: string;
+}
+
 export interface PairingAnswer {
     id: string;
     allow: boolean;
@@ -4025,6 +4036,7 @@ export interface CoreCalls {
     agentCatalog: { params: NoParams; answer: CatalogAgent[] };
     agentMessageRows: { params: AgentMessagesParams; answer: AgentMessageRows };
     agentSessions: { params: SessionSearchParams; answer: SessionMatch[] };
+    allowShip: { params: HoldParams; answer: null };
     answerPairing: { params: PairingAnswer; answer: RemotePairing };
     answerQuestion: { params: AnswerParams; answer: null };
     answerQuestions: { params: AnswersParams; answer: null };
@@ -4044,12 +4056,14 @@ export interface CoreCalls {
     discardFailed: { params: ChatAccountsParams; answer: null };
     dropQueued: { params: QueuedParams; answer: null };
     editMessage: { params: EditParams; answer: null };
+    letShipGo: { params: HoldParams; answer: null };
     moveChatAccount: { params: MoveChatParams; answer: null };
     pairing: { params: NoParams; answer: RemotePairing };
     preferences: { params: NoParams; answer: Preferences };
     projectEntries: { params: ProjectEntriesParams; answer: ProjectEntry[] };
     promptChat: { params: PromptChatParams; answer: null };
     questions: { params: NoParams; answer: AgentQuestion[] };
+    refuseShip: { params: HoldParams; answer: null };
     removeStash: { params: StashItemParams; answer: null };
     requireApproval: { params: NoParams; answer: ApprovalSetting };
     retryFailed: { params: ChatAccountsParams; answer: null };

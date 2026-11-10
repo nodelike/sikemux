@@ -108,6 +108,7 @@ export const Composer = memo(function Composer({
   onSent,
   attachments,
   chips,
+  held,
   strip,
   onRecent,
   question,
@@ -140,6 +141,8 @@ export const Composer = memo(function Composer({
   attachments: readonly Attachment[];
   /** Stashed links and text picked for the next message. */
   chips: readonly ContextChip[];
+  /** The agent's actions held for the person, docked while no permission request is. */
+  held: ReactNode;
   /** What is still going, docked on the composer's top edge while nothing more urgent is. */
   strip: ReactNode;
   /** Pulling an empty composer up opens what was sent before; absent when nothing was. */
@@ -177,7 +180,9 @@ export const Composer = memo(function Composer({
   const mentions = useMentions(session, watchOnly ? undefined : typedMention(draft, tokens));
   const dock = requests.length ? (
     <PermissionDock requests={requests} provider={provider} answering={answering} onAnswer={session.answer} />
-  ) : null;
+  ) : (
+    held
+  );
 
   const prompt = usePromptStash({
     stash: async () => {

@@ -442,7 +442,7 @@
   .docked-acts { display: flex; gap: 6px; margin-top: 10px; }
   .docked-acts span { flex: 1; height: 38px; border-radius: 10px; display: grid; place-items: center; font-size: 14px; font-weight: 500; border: 1px solid var(--border-strong); color: var(--ink); }
   .docked-acts span:first-child { color: var(--text-secondary); }
-  .docked-acts .go { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
+  .docked-acts span.go { background: var(--ink); border-color: var(--ink); color: var(--bg); font-weight: 600; }
   .docked .dock-cmd.long { max-height: 96px; overflow: hidden; white-space: pre-wrap; word-break: break-all; }
   .dock-cmd .diff { display: block; margin-top: 4px; }
   .reconnect { display: flex; align-items: center; gap: 10px; margin: 0 0 8px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-overlay); font-size: 13px; color: var(--text-secondary); }
@@ -2199,6 +2199,45 @@
       </div>
       <div class="home-bar"></div></div>
       <figcaption><b>Asking permission</b><div class="note">A card of its own just above the composer, inside the chat, and it stays until it is answered: no drawer, no scrim, nothing to fold away. It keeps its own border and corners, with a gap, so the composer never looks to cover it. Allow is the one white button. The command is all there, as typed, in the code face; a long one scrolls inside the card, so nothing at its end hides behind Allow. An edit adds its +/− count. Once a button is tapped they all dim and take no second tap until the host has the answer, and when the agent offers no way to say no, Cancel comes first. While it waits, it takes the place of the live line.</div></figcaption>
+    </figure>
+
+    <figure><div class="phone"><div class="island"></div>
+      <div class="status"><span>9:41</span><span class="bars"><i></i><i></i></span></div>
+      <div class="screen">
+        <div class="nav"><span class="back">{{IconChevron:18}}</span><span class="mid"><span class="claude">{{IconClaude:17}}</span><span class="named"><b>@Otter</b><i>·</i><em>Ship the web fix to dev</em></span></span><span class="icon-btn">{{IconMoreVertical:16}}</span></div>
+        <div class="chat">
+          <div class="prose">The fix is on main and CI is green. Deploying it to dev so you can try it.</div>
+          <div class="tools">
+            <span class="tools-sum open">2 tool calls <span class="time">1s</span>{{IconChevron:11}}</span>
+            <div class="tools-body">
+              <div class="tool"><span class="tick"></span><span class="k-read">{{IconFile:12}}</span><span class="kind k-read">read</span><span class="target">src/settings/DevicesPage.tsx</span><span class="end">12ms</span></div>
+              <div class="tool"><span class="tick"></span><span class="k-edit">{{IconPencil:12}}</span><span class="kind k-edit">edit</span><span class="target">PairingQr.tsx</span><span class="end"><span class="add">+18</span><span class="del">−4</span></span></div>
+            </div>
+          </div>
+        </div>
+        <div class="composer-wrap">
+          <div class="docked">
+            <div class="docked-head">{{IconShieldBolt:16}}<div><b>Deploy?</b><span>Sikemux held this until you allow it</span></div></div>
+            <div class="dock-cmd long">rundeck_run {"job":"dev/backend/marketingiq-web","options":{"BRANCH":"main"}}</div>
+            <div class="docked-acts"><span class="go">Always allow dev/*</span></div>
+            <div class="docked-acts"><span>Refuse</span><span>Allow once</span></div>
+          </div>
+          <div class="composer">
+            <div class="ta ph">Send to steer this turn</div>
+            <div class="bar">
+              <span class="ib">{{IconPlus:18}}</span>
+              <span class="yolo">{{IconShield:13}}<b style="font-weight:560">safe</b></span>
+              <span class="picker model"><span class="claude">{{IconClaude:16}}</span>Opus 4.6<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="picker">High<span class="ch">{{IconChevron:10}}</span></span>
+              <span class="ring"><i class="ctx claude" style="--p:42"></i></span>
+              <span class="spacer"></span>
+              <span class="send"><i></i></span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="home-bar"></div></div>
+      <figcaption><b>An action held for you</b><div class="note">An agent's push, merge, deploy or write that leaves the host waits in the same card above the composer, titled by what it does (Push commits?, Deploy?, Publish?), with the exact command or tool call. Where the host offers to always allow what it lands in, such as dev/* or Vercel previews, that leads, white, on a row of its own so a long name fits; Refuse and Allow once sit under it. Otherwise Allow once is the white one. Allowing a tool call runs it on the host and the agent gets what it answered. Several waiting page like permission requests. A permission request, when there is one, comes first. A watch-only phone doesn't show it.</div></figcaption>
     </figure>
 
     <figure><div class="phone"><div class="island"></div>
