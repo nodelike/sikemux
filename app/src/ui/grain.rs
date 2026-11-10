@@ -12,8 +12,8 @@ use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use gpui::{
-    canvas, relative, App, AppContext, Context, Global, Hsla, IntoElement, RenderImage, Rgba,
-    ShaderProgram, Styled, Task, Window,
+    canvas, relative, App, AppContext, Context, Global, Hsla, IntoElement, RawShaderProgram,
+    RenderImage, Rgba, Styled, Task, Window,
 };
 use sikemux_view::prefs::{PaneColours, PaneCoverage, PanePattern, Preferences};
 
@@ -21,7 +21,7 @@ use crate::theme::{self, Tokens, RADIUS_3};
 
 macro_rules! program {
     ($name:literal) => {
-        ShaderProgram {
+        RawShaderProgram {
             name: $name,
             wgsl: include_str!(concat!(env!("OUT_DIR"), "/shaders/", $name, ".wgsl")),
             msl: include_str!(concat!(env!("OUT_DIR"), "/shaders/", $name, ".metal")),
@@ -29,11 +29,11 @@ macro_rules! program {
     };
 }
 
-static FIELD: ShaderProgram = program!("field");
-static PICTURE: ShaderProgram = program!("picture");
-static SKY: ShaderProgram = program!("sky");
-static POSTER_MARK: ShaderProgram = program!("poster_mark");
-static TILE: ShaderProgram = program!("tile");
+static FIELD: RawShaderProgram = program!("field");
+static PICTURE: RawShaderProgram = program!("picture");
+static SKY: RawShaderProgram = program!("sky");
+static POSTER_MARK: RawShaderProgram = program!("poster_mark");
+static TILE: RawShaderProgram = program!("tile");
 
 static MARK_PNG: &[u8] = include_bytes!("../../../brand/mark/mark-white-256.png");
 /// How much of the distance between dots each dot fills, and how solid they are.
@@ -122,7 +122,7 @@ impl Look {
     }
 
     /// The shader's params after the first four, which the caller fills.
-    fn params(&self, cx: &App) -> [f32; gpui::SHADER_PARAMS] {
+    fn params(&self, cx: &App) -> [f32; gpui::RAW_SHADER_PARAMS] {
         let pack = |ink: Option<Rgba>| {
             ink.map_or(-1., |ink| {
                 let byte = |channel: f32| (channel.clamp(0., 1.) * 255.).round();
@@ -142,7 +142,7 @@ impl Look {
             PanePattern::Bayer8 => 8.,
             PanePattern::Noise => 0.,
         };
-        let mut params = [0.; gpui::SHADER_PARAMS];
+        let mut params = [0.; gpui::RAW_SHADER_PARAMS];
         params[3] = if self.full { 1. } else { 0. };
         params[4..13].copy_from_slice(&[
             self.dot_size,
@@ -322,7 +322,7 @@ pub fn field(cx: &App) -> Option<impl IntoElement> {
         canvas(
             |_, _, _| {},
             move |bounds, (), window, _| {
-                let mut params = [0.; gpui::SHADER_PARAMS];
+                let mut params = [0.; gpui::RAW_SHADER_PARAMS];
                 params[..8].copy_from_slice(&[
                     start,
                     speed,
@@ -377,7 +377,7 @@ fn picture_canvas(
                 }
                 false => {
                     params[0] = window.scale_factor();
-                    window.paint_shader(bounds, &PICTURE, params, Some(&picture))
+                    window.paint_raw_shader(bounds, &PICTURE, params, Some(&picture))
                 }
             };
             if let Err(error) = painted {
@@ -401,12 +401,12 @@ pub fn sky(fade_from: f32, opacity: f32, cx: &App) -> impl IntoElement + Styled 
     canvas(
         |_, _, _| {},
         move |bounds, (), window, _| {
-            let mut params = [0.; gpui::SHADER_PARAMS];
+            let mut params = [0.; gpui::RAW_SHADER_PARAMS];
             params[..4].copy_from_slice(&[start, speed, window.scale_factor(), fade_from]);
             for (slot, hue) in params[4..].as_chunks_mut::<4>().0.iter_mut().zip(hues) {
                 slot.copy_from_slice(&[hue.r, hue.g, hue.b, hue.a * opacity]);
             }
-            let _ = window.paint_shader(bounds, &SKY, params, None);
+            let _ = window.paint_raw_shader(bounds, &SKY, params, None);
         },
     )
 }
@@ -441,11 +441,12 @@ pub fn poster_mark(resolved: f32, spacing: f32, cx: &App) -> Option<impl IntoEle
                 MARK_DOT
             };
             let dot = (pitch * fill).round().max(1.);
-            let mut params = [0.; gpui::SHADER_PARAMS];
+            let mut params = [0.; gpui::RAW_SHADER_PARAMS];
             params[..4].copy_from_slice(&[resolved, pitch, dot, 0.]);
             params[4..8].copy_from_slice(&[accent.r, accent.g, accent.b, MARK_OPACITY]);
             params[8..12].copy_from_slice(&[start, speed, window.scale_factor(), 0.]);
-            if let Err(error) = window.paint_shader(bounds, &POSTER_MARK, params, Some(&shape)) {
+            if let Err(error) = window.paint_raw_shader(bounds, &POSTER_MARK, params, Some(&shape))
+            {
                 eprintln!("sikemux: the mark does not draw: {error}");
             }
         },
@@ -505,12 +506,12 @@ pub fn wall_dots(dots: WallDots, cx: &App) -> impl IntoElement + Styled {
     canvas(
         |_, _, _| {},
         move |bounds, (), window, _| {
-            let mut params = [0.; gpui::SHADER_PARAMS];
+            let mut params = [0.; gpui::RAW_SHADER_PARAMS];
             params[..4].copy_from_slice(&[start, speed, window.scale_factor(), dots.density]);
             params[4..8].copy_from_slice(&[colour, dots.opacity, dots.seed, dots.feather]);
             params[8..12].copy_from_slice(&dots.anchor);
             params[12..16].copy_from_slice(&layout);
-            let _ = window.paint_shader(bounds, &TILE, params, None);
+            let _ = window.paint_raw_shader(bounds, &TILE, params, None);
         },
     )
 }
