@@ -338,14 +338,13 @@ struct LongText: View {
     private static let limit = 20_000
 
     var body: some View {
-        let tree = md?.blocks ?? plainBlocks(text)
-        let found = context.finding?.byPart[id]
-        let blocks = context.finding.map { $0.marking(tree, part: id) } ?? tree
+        let blocks = md?.blocks ?? plainBlocks(text)
+        let found = context.finding?.marks(id)
         let watched = context.folds.watched(id, live: live)
         let whole = context.folds.isOpen("whole/\(id)", false)
         let cut = whole || found != nil || watched ? nil : Self.cut(blocks)
         VStack(alignment: .leading, spacing: 0) {
-            MarkdownView(blocks: cut?.blocks ?? blocks, style: style)
+            MarkdownView(blocks: cut?.blocks ?? blocks, style: style, marks: found)
             if let cut {
                 Button { context.folds.set("whole/\(id)", true) } label: {
                     Text("Show the rest · \(Int((Double(cut.hidden) / 1000).rounded()))k more characters")

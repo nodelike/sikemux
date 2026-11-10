@@ -55,6 +55,9 @@ struct Inline {
     let palette: Palette
     let style: ProseStyle
     var paths = true
+    /// The places the find bar found, and where in the part's words this run starts.
+    var marks: Marks?
+    var cursor: FindCursor?
 
     func string(_ nodes: [MdNode]) -> AttributedString {
         var out = AttributedString()
@@ -62,8 +65,26 @@ struct Inline {
         return out
     }
 
-    private func plain(_ text: String) -> AttributedString {
-        AttributedString(text)
+    /// Words as written; `counts` says whether the find bar counts them among the part's words.
+    private func plain(_ text: String, counts: Bool = true) -> AttributedString {
+        var run = AttributedString(text)
+        guard counts, let marks, let cursor else { return run }
+        let start = cursor.at
+        let length = text.utf16.count
+        cursor.at += length
+        for range in marks.ranges where range.lowerBound < start + length && range.upperBound > start {
+            let from = max(range.lowerBound - start, 0)
+            let to = min(range.upperBound - start, length)
+            guard to > from, let found = Range(NSRange(location: from, length: to - from), in: run) else { continue }
+            let current = marks.current == range.lowerBound
+            run[found].backgroundColor = current ? palette.accent : palette.accent.opacity(0.34)
+            run[found].foregroundColor = current ? palette.sunken : palette.ink
+        }
+        return run
+    }
+
+    private func inner(_ paths: Bool) -> Inline {
+        Inline(palette: palette, style: style, paths: paths, marks: marks, cursor: cursor)
     }
 
     private func string(_ node: MdNode) -> AttributedString {
@@ -94,13 +115,13 @@ struct Inline {
         case .br:
             return plain("\n")
         case .fnref(let ref):
-            var run = plain("\(ref.n)")
+            var run = plain("\(ref.n)", counts: false)
             run.font = Theme.ui(10)
             run.baselineOffset = 4
             run.foregroundColor = palette.accent
             return run
         case .path(let path):
-            let label = path.code == true ? chip(visibleText(path.c)) : Inline(palette: palette, style: style, paths: false).string(path.c)
+            let label = path.code == true ? chip(visibleText(path.c)) : inner(false).string(path.c)
             guard paths, let url = TranscriptLink.file(path.href) else { return label }
             var run = label
             run.link = url
@@ -108,20 +129,20 @@ struct Inline {
             return run
         case .img(let image):
             if let url = TranscriptLink.openable(image.src) {
-                var run = plain(image.alt.isEmpty ? image.src : image.alt)
+                var run = plain(image.alt.isEmpty ? image.src : image.alt, counts: false)
                 run.link = url
                 run.foregroundColor = palette.accent
                 return run
             }
             if paths, let url = TranscriptLink.file(image.src) {
-                var run = plain(image.alt.isEmpty ? image.src : image.alt)
+                var run = plain(image.alt.isEmpty ? image.src : image.alt, counts: false)
                 run.link = url
                 run.foregroundColor = palette.accent
                 return run
             }
-            return plain(image.alt)
+            return plain(image.alt, counts: false)
         case .a(let link):
-            var label = Inline(palette: palette, style: style, paths: false).string(link.c)
+            var label = inner(false).string(link.c)
             if let url = TranscriptLink.openable(link.href) {
                 label.link = url
                 label.foregroundColor = palette.accent
@@ -136,11 +157,19 @@ struct Inline {
     }
 
     private func chip(_ text: String) -> AttributedString {
-        var run = plain(text)
+        var run = AttributedString(text)
         run.font = Theme.mono(12.5)
         run.foregroundColor = palette.accent
         run.backgroundColor = palette.accentSoft
-        return run
+        guard marks != nil else { return run }
+        var marked = plain(text)
+        marked.font = Theme.mono(12.5)
+        let plainRanges = marked.runs.filter { $0.backgroundColor == nil }.map(\.range)
+        for range in plainRanges {
+            marked[range].foregroundColor = palette.accent
+            marked[range].backgroundColor = palette.accentSoft
+        }
+        return marked
     }
 }
 
@@ -168,11 +197,14 @@ struct MarkdownView: View {
     @Environment(\.palette) private var palette
     let blocks: [MdElement]
     let style: ProseStyle
+    /// The places the find bar found in this part, while it is open.
+    var marks: Marks?
 
     var body: some View {
+        let starts = marks.map { _ in FindText.starts(blocks.map(MdNode.element), separated: true, top: true) }
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                BlockView(block: block, style: style, palette: palette).equatable()
+            ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                BlockView(block: block, style: style, palette: palette, marks: marks?.from(starts![index])).equatable()
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -185,6 +217,9 @@ struct BlockView: View, Equatable {
     let block: MdElement
     let style: ProseStyle
     let palette: Palette
+    var marks: Marks?
+
+    private var inline: Inline { Inline(palette: palette, style: style, marks: marks, cursor: marks.map { FindCursor($0.base) }) }
 
     var body: some View {
         switch block {
@@ -193,17 +228,17 @@ struct BlockView: View, Equatable {
         case .h(let heading):
             let size = heading.l <= headingSizes.count ? headingSizes[heading.l - 1] : style.size
             let set = ProseStyle(size: size, lineHeight: size * 1.35, color: palette.ink)
-            var text = Inline(palette: palette, style: set).string(heading.c)
+            var text = Inline(palette: palette, style: set, marks: marks, cursor: marks.map { FindCursor($0.base) }).string(heading.c)
             let _ = text.font = Theme.ui(size, .semibold)
             Prose(text: text, style: set).accessibilityAddTraits(.isHeader)
         case .ul(let list):
-            ListBlock(items: list.c, first: nil, style: style, palette: palette)
+            ListBlock(items: list.c, first: nil, style: style, palette: palette, marks: marks)
         case .ol(let list):
-            ListBlock(items: list.c, first: list.start ?? 1, style: style, palette: palette)
+            ListBlock(items: list.c, first: list.start ?? 1, style: style, palette: palette, marks: marks)
         case .quote(let quote):
             var quoted = style
             let _ = quoted.color = palette.secondary
-            Contents(nodes: quote.c, style: quoted, palette: palette)
+            Contents(nodes: quote.c, style: quoted, palette: palette, marks: marks, separated: true)
                 .padding(.leading, 12)
                 .overlay(alignment: .leading) { Rectangle().fill(palette.borderStrong).frame(width: 2) }
         case .hr:
@@ -213,15 +248,15 @@ struct BlockView: View, Equatable {
         case .fndef(let note):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(note.n)").font(Theme.ui(10)).foregroundStyle(palette.accent).frame(minWidth: 14, alignment: .leading)
-                Contents(nodes: note.c, style: ProseStyle(size: 12.5, lineHeight: style.lineHeight, color: palette.secondary), palette: palette)
+                Contents(nodes: note.c, style: ProseStyle(size: 12.5, lineHeight: style.lineHeight, color: palette.secondary), palette: palette, marks: marks)
             }
             .padding(.leading, 2)
         case .details(let details):
-            DetailsBlock(details: details, style: style)
+            DetailsBlock(details: details, style: style, marks: marks)
         case .p(let paragraph):
-            Prose(text: Inline(palette: palette, style: style).string(paragraph.c), style: style)
+            Prose(text: inline.string(paragraph.c), style: style)
         default:
-            Prose(text: Inline(palette: palette, style: style).string(block), style: style)
+            Prose(text: inline.string(block), style: style)
         }
     }
 }
@@ -254,22 +289,27 @@ struct Contents: View {
     let nodes: [MdNode]
     let style: ProseStyle
     let palette: Palette
+    var marks: Marks?
+    /// The find bar counts a line between each of these nodes, as between a quote's blocks.
+    var separated = false
 
     private enum Group {
-        case words([MdNode])
-        case block(MdElement)
+        case words([MdNode], Int)
+        case block(MdElement, Int)
     }
 
     private var groups: [Group] {
+        let starts = marks.map { FindText.starts(nodes, separated: separated, top: false, at: $0.base) } ?? []
         var groups: [Group] = []
-        for node in nodes {
+        for (index, node) in nodes.enumerated() {
+            let start = starts.isEmpty ? 0 : starts[index]
             if isBlock(node), case .element(let element) = node {
-                groups.append(.block(element))
-            } else if case .words(var run) = groups.last {
+                groups.append(.block(element, start))
+            } else if case .words(var run, let from) = groups.last {
                 run.append(node)
-                groups[groups.count - 1] = .words(run)
+                groups[groups.count - 1] = .words(run, from)
             } else {
-                groups.append(.words([node]))
+                groups.append(.words([node], start))
             }
         }
         return groups
@@ -279,8 +319,10 @@ struct Contents: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
-                case .words(let run): Prose(text: Inline(palette: palette, style: style).string(run), style: style)
-                case .block(let block): BlockView(block: block, style: style, palette: palette)
+                case .words(let run, let start):
+                    Prose(text: Inline(palette: palette, style: style, marks: marks?.from(start), cursor: marks.map { _ in FindCursor(start) }).string(run), style: style)
+                case .block(let block, let start):
+                    BlockView(block: block, style: style, palette: palette, marks: marks?.from(start))
                 }
             }
         }
@@ -293,8 +335,10 @@ private struct ListBlock: View {
     let first: Int?
     let style: ProseStyle
     let palette: Palette
+    var marks: Marks?
 
     var body: some View {
+        let starts = marks.map { FindText.starts(items, separated: true, top: false, at: $0.base) } ?? []
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(items.enumerated()), id: \.offset) { index, node in
                 if case .element(.li(let item)) = node {
@@ -315,7 +359,7 @@ private struct ListBlock: View {
                                 .foregroundStyle(palette.tertiary)
                                 .frame(minWidth: 14, alignment: .leading)
                         }
-                        Contents(nodes: item.c, style: item.checked == true ? ProseStyle(size: style.size, lineHeight: style.lineHeight, color: palette.tertiary, italic: style.italic) : style, palette: palette)
+                        Contents(nodes: item.c, style: item.checked == true ? ProseStyle(size: style.size, lineHeight: style.lineHeight, color: palette.tertiary, italic: style.italic) : style, palette: palette, marks: starts.isEmpty ? nil : marks?.from(starts[index]))
                     }
                     .padding(.leading, 2)
                 }
@@ -328,6 +372,7 @@ private struct DetailsBlock: View {
     @Environment(\.palette) private var palette
     let details: MdElement.Details
     let style: ProseStyle
+    var marks: Marks?
     @State private var open: Bool?
 
     var body: some View {
@@ -347,7 +392,7 @@ private struct DetailsBlock: View {
             }
             .buttonStyle(.plain)
             .accessibilityValue(shown ? "expanded" : "collapsed")
-            if shown { Contents(nodes: details.c, style: style, palette: palette) }
+            if shown || marks != nil { Contents(nodes: details.c, style: style, palette: palette, marks: marks, separated: true) }
         }
     }
 }
