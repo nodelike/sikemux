@@ -23,6 +23,7 @@ pub(super) struct App {
 #[derive(Default)]
 pub(super) struct Apps {
     of_process: HashMap<(u32, u64), Seen>,
+    #[cfg(target_os = "macos")]
     of_bundle: HashMap<PathBuf, Option<Arc<App>>>,
 }
 
