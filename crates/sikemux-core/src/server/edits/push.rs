@@ -1,5 +1,5 @@
-//! Pushes the calling agent's own commits, leaving other agents' unpushed
-//! ones behind. A shared branch often holds several agents' commits that are
+//! Pushes the calling agent's own commits, and those of the agents it leads,
+//! leaving other agents' unpushed ones behind. A shared branch often holds several agents' commits that are
 //! not on the remote yet; pushing the branch would publish all of them. The
 //! agent's commits, told by their signed footers, are put on the remote's tip
 //! and pushed, and the branch is rebuilt on what was pushed with the other
@@ -75,6 +75,7 @@ pub(super) fn push(
     let whose = |commit: &str| {
         let is_me = |chat: &str, of: Option<&str>| {
             chat == agent_id
+                || core.names.leads(agent_id, chat)
                 || session
                     .as_deref()
                     .is_some_and(|session| of == Some(session))
@@ -156,8 +157,9 @@ fn push_as(
         )
     };
     let base = base.ok_or_else(cannot_go_alone)?;
-    let tip = replay(signing, &top, &base, &ours, WITHOUT_THEIRS)?;
-    let rebuilt = replay(signing, &top, &tip, &theirs, WITHOUT_THEIRS)?;
+    let tip = replay(signing, &top, &base, &ours, WITHOUT_THEIRS).map_err(|_| cannot_go_alone())?;
+    let rebuilt =
+        replay(signing, &top, &tip, &theirs, WITHOUT_THEIRS).map_err(|_| cannot_go_alone())?;
     if tree(&top, &rebuilt)? != tree(&top, &head)? {
         return Err(cannot_go_alone());
     }
@@ -272,7 +274,9 @@ fn rebase_branch(
             })
             .collect();
         let later: Vec<&Unpushed> = later.iter().collect();
-        let caught_up = replay(signing, top, &onto, &later, WITHOUT_THEIRS)?;
+        let Ok(caught_up) = replay(signing, top, &onto, &later, WITHOUT_THEIRS) else {
+            return Ok(false);
+        };
         if tree(top, &caught_up)? != tree(top, &now)? {
             return Ok(false);
         }
