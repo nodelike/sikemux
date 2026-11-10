@@ -1,8 +1,9 @@
 //! Actions agents take that leave this machine, held for the person. An agent
 //! pushing, merging, deploying, publishing, writing to production, or writing to
 //! a website or a connector is stopped
-//! there, and the person is asked in the inbox. Allowing one lets exactly that
-//! action run once, until the end of the turn in which the agent hears of it.
+//! there, and the person is asked in the inbox. Allowing a Sikemux tool call runs
+//! it and sends the agent what it answered; allowing a command lets exactly that
+//! command run once, until the end of the turn in which the agent hears of it.
 //! Where the person lets agents land work, pushes and merges go through. A
 //! deploy to an environment the project marked safe goes without asking, and
 //! one that goes is followed to its end and kept as evidence on the slice.
@@ -96,6 +97,16 @@ struct Hold {
     why: Option<String>,
     /// What the person could always allow from now on.
     let_go: Option<Always>,
+    /// The Sikemux tool call held, which the core runs itself once the person allows it.
+    call: Option<ToolCall>,
+    /// The deploy it is, to follow once the person lets it go.
+    deploy: Option<Deploy>,
+}
+
+/// A Sikemux tool an agent called, as it called it.
+pub(crate) struct ToolCall {
+    pub name: String,
+    pub arguments: Value,
 }
 
 /// An action the person allowed the agent to take once.
@@ -198,6 +209,17 @@ pub(crate) fn check(
     ship: Ship,
     cwd: &Path,
 ) -> Result<Option<Deploy>, String> {
+    check_call(core, agent_id, ship, cwd, None)
+}
+
+/// [`check`] for a Sikemux tool call, which a hold keeps to run once the person allows it.
+fn check_call(
+    core: &Core,
+    agent_id: &str,
+    ship: Ship,
+    cwd: &Path,
+    call: Option<ToolCall>,
+) -> Result<Option<Deploy>, String> {
     let project = core.workspaces.project_of(cwd);
     let lands = matches!(ship.kind, ShipKind::Push | ShipKind::Merge)
         && board::landing(core, &project) == Landing::Core;
@@ -238,8 +260,12 @@ pub(crate) fn check(
         }
         Goes::Holds => {}
     }
+    let then = match call {
+        Some(_) => "Do not call it again: once they allow it, Sikemux runs it and sends you what it answered.",
+        None => "You will hear when they allow it, and then run exactly this again.",
+    };
     let mut said = format!(
-        "Held for the person: `{}` {}, so Sikemux asked them first. Go on with other work; you will hear when they allow it, and then run exactly this again.",
+        "Held for the person: `{}` {}, so Sikemux asked them first: they answer it on its card in your chat or on Goals Home in Sikemux, on the notch, or in your chat on their phone. {then} Go on with other work meanwhile.",
         ship.what,
         leaves(&ship)
     );
@@ -302,6 +328,8 @@ pub(crate) fn check(
             environment: judged.environment,
             why: judged.why,
             let_go: unasked,
+            deploy: call.as_ref().and(let_go),
+            call,
             ship,
         });
     }
@@ -510,12 +538,17 @@ pub(crate) async fn check_tool(
     let what = format!("{name} {arguments}");
     let target = tool_target(core, name, arguments).await;
     let (checking, agent_id, cwd) = (core.clone(), agent_id.clone(), request.project.clone());
+    let call = ToolCall {
+        name: name.to_owned(),
+        arguments: arguments.clone(),
+    };
     tokio::task::spawn_blocking(move || {
-        check(
+        check_call(
             &checking,
             &agent_id,
             Ship { kind, what, target },
             Path::new(&cwd),
+            Some(call),
         )
     })
     .await
@@ -719,16 +752,22 @@ pub struct HoldParams {
     pub hold: String,
 }
 
-/// The person allows the held action once: the agent is told it may run it
-/// again, which then runs until the end of the turn in which it hears this.
+/// The person allows the held action once: a tool call runs and its agent hears
+/// what it answered; a command its agent is told it may run again, until the end
+/// of the turn in which it hears this.
 pub(crate) async fn allow(core: &Arc<Core>, params: HoldParams) -> CoreResult<()> {
     let hold = take(core, &params.hold)?;
     allow_hold(core, hold).await;
     Ok(())
 }
 
-async fn allow_hold(core: &Arc<Core>, hold: Hold) {
+async fn allow_hold(core: &Arc<Core>, mut hold: Hold) {
     core.ship.remember(&hold, true);
+    if let Some(call) = hold.call.take() {
+        let allowed = format!("The person allowed `{}` once", hold.ship.what);
+        run_held(core, hold, call, allowed);
+        return;
+    }
     let text = format!(
         "The person allowed `{}` once. Run exactly that again now; it may run once, until this turn ends.",
         hold.ship.what
@@ -738,6 +777,25 @@ async fn allow_hold(core: &Arc<Core>, hold: Hold) {
         cwd: hold.cwd,
     };
     permitted(core, hold.agent_id, permit, text).await;
+}
+
+/// Runs a held tool call the person let go, without making them wait on it, and
+/// sends its agent what it answered.
+fn run_held(core: &Arc<Core>, hold: Hold, call: ToolCall, allowed: String) {
+    let core = core.clone();
+    tokio::spawn(async move {
+        let ran = plugins::run_agent_tool(&core, &call.name, call.arguments, hold.deploy).await;
+        let text = match ran {
+            Ok(Value::String(answer)) => {
+                format!("{allowed}, and Sikemux ran it for you. It answered:\n{answer}")
+            }
+            Ok(answer) => {
+                format!("{allowed}, and Sikemux ran it for you. It answered:\n{answer:#}")
+            }
+            Err(error) => format!("{allowed}, and Sikemux ran it for you, but it failed: {error}"),
+        };
+        let _ = messages::for_person(&core, hold.agent_id, text).await;
+    });
 }
 
 /// Keeps what the person allowed and tells the agent, whose hearing of it in a
@@ -800,7 +858,8 @@ pub(crate) async fn permit_environment(
 }
 
 /// The person always allows what the held action lands in, for its project or for every
-/// project in its folder. Each deploy held for there goes, and its agent is told to run it again.
+/// project in its folder. Each action held for there goes: a tool call runs, and a command's
+/// agent is told to run it again.
 pub(crate) async fn let_go(core: &Arc<Core>, params: HoldParams) -> CoreResult<()> {
     let (project, always) = {
         let state = core.ship.state.locked();
@@ -824,8 +883,16 @@ pub(crate) async fn let_go(core: &Arc<Core>, params: HoldParams) -> CoreResult<(
         if board::judge_ship(core, &project, &ship).goes != Goes::Freely {
             continue;
         }
-        if let Ok(hold) = take(core, &id.to_string()) {
+        if let Ok(mut hold) = take(core, &id.to_string()) {
             core.ship.remember(&hold, true);
+            if let Some(call) = hold.call.take() {
+                hold.deploy = check(core, &hold.agent_id, hold.ship.clone(), &hold.cwd)
+                    .ok()
+                    .flatten();
+                let allowed = format!("The person always allows {} now", always.covers);
+                run_held(core, hold, call, allowed);
+                continue;
+            }
             let text = format!(
                 "The person always allows {} now. Run `{}` again now.",
                 always.covers, hold.ship.what

@@ -450,6 +450,19 @@ pub(crate) async fn call_agent_tool(
     if let Some(gated) = plugins.gated(name) {
         return super::approvals::propose(core, request, gated, arguments).await;
     }
+    run_agent_tool(core, name, arguments, deploy).await
+}
+
+/// Runs a tool call that may go, following it to its end when it deploys.
+pub(crate) async fn run_agent_tool(
+    core: &Arc<Core>,
+    name: &str,
+    arguments: Value,
+    deploy: Option<super::ship::Deploy>,
+) -> Result<Value, String> {
+    let Some(Provided(plugins)) = core.config.plugins else {
+        return Err("plugins are not loaded".into());
+    };
     let answer = plugins
         .call_agent_tool(name, arguments)
         .await
