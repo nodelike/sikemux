@@ -85,6 +85,8 @@ struct DiffRows: View {
     let numbered: Bool
     var onGap: (() -> Void)?
     var rows: [DiffText.Row]?
+    /// The box's own width, which every row's tint spans at least.
+    @State private var width: CGFloat = 0
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -105,8 +107,10 @@ struct DiffRows: View {
                     }
                 }
             }
+            .frame(minWidth: width, alignment: .leading)
             .padding(.vertical, 3)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
 
