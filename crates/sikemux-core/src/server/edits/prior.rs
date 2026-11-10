@@ -96,7 +96,9 @@ impl Priors {
         let mut unknown: Unknown = read(UNKNOWN)
             .and_then(|unknown| serde_json::from_slice(&unknown).ok())
             .unwrap_or_default();
-        unknown.paths.retain(|path| Path::new(path).starts_with(top));
+        unknown
+            .paths
+            .retain(|path| Path::new(path).starts_with(top));
         let bytes = kept.values().map(|kept| kept.len).sum();
         let mut priors = Self {
             folder,
