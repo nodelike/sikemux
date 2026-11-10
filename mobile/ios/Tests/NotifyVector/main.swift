@@ -40,7 +40,9 @@ if case let .read(_, plaintext) = opened {
   check(card?.detail == notification["detail"] as? String, "detail")
   check(card?.answerable == true, "answerable")
   check(card?.categoryIdentifier == "permission", "category")
-  check(card?.userInfo["request"] == notification["requestId"] as? String, "request in userInfo")
+  var info: [AnyHashable: Any] = [:]
+  try card?.keep(in: &info)
+  check(Card.kept(in: info)?.requestId == notification["requestId"] as? String, "kept on the notification")
   check(Card.parse(plaintext, host: phone) == nil, "a card from another host")
 }
 

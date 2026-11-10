@@ -17,16 +17,30 @@ extension NotificationCard {
 
   /// Nil when the host sealed a version this app does not know, or something that is not a card from `host`.
   static func parse(_ plaintext: String, host: String) -> Card? {
-    guard let card = try? JSONDecoder().decode(Card.self, from: Data(plaintext.utf8)) else { return nil }
-    return card.v == version && card.hostKey == host ? card : nil
+    do {
+      let card = try JSONDecoder().decode(Card.self, from: Data(plaintext.utf8))
+      return card.v == version && card.hostKey == host ? card : nil
+    } catch {
+      print("sikemux: a host sent a card this app cannot read: \(error)")
+      return nil
+    }
   }
 
-  /// What the app reads back from a shown card: to answer it, open its chat, or take it away.
-  var userInfo: [String: String] {
-    var info = ["host": hostKey, "hostName": hostName, "agent": agentId, "kind": kind.rawValue, "url": url]
-    info["request"] = requestId
-    info["allow"] = allowOptionId
-    info["reject"] = rejectOptionId
-    return info
+  private static let infoKey = "sikemux"
+
+  /// The card kept on the notification that shows it, for the app to answer it, open its chat, or take it away.
+  func keep(in info: inout [AnyHashable: Any]) throws {
+    info[Self.infoKey] = try JSONEncoder().encode(self)
+  }
+
+  /// The card a shown notification keeps; nil on one the extension could not open, which only opens the app.
+  static func kept(in info: [AnyHashable: Any]) -> Card? {
+    guard let data = info[infoKey] as? Data else { return nil }
+    do {
+      return try JSONDecoder().decode(Card.self, from: data)
+    } catch {
+      print("sikemux: a shown notification keeps a card this app cannot read: \(error)")
+      return nil
+    }
   }
 }

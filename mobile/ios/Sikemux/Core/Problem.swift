@@ -14,3 +14,11 @@ func problem(_ error: Error) -> String {
     if let error = error as? LocalizedError, let description = error.errorDescription { return description }
     return error.localizedDescription
 }
+
+extension MobileError {
+    /// What kind of refusal the host met, when it names one this build knows.
+    var refusal: ErrorKind? {
+        if case .Refused(_, let kind) = self { return kind.flatMap(ErrorKind.init) }
+        return nil
+    }
+}
