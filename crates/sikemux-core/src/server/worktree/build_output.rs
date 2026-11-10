@@ -186,7 +186,8 @@ fn all_landed(tree: &AgentWorktree) -> bool {
             })
 }
 
-/// Every worktree in the worktrees folders of `projects`.
+/// Every agent worktree in the worktrees folders of `projects`, leaving out the core's own
+/// checkouts there, such as `.integration`, whose builds the next check would only redo.
 fn worktrees_of(projects: &[PathBuf]) -> Vec<PathBuf> {
     let mut folders: Vec<PathBuf> = projects.iter().map(|path| worktrees_folder(path)).collect();
     folders.sort();
@@ -194,6 +195,7 @@ fn worktrees_of(projects: &[PathBuf]) -> Vec<PathBuf> {
     folders
         .iter()
         .flat_map(|folder| std::fs::read_dir(folder).into_iter().flatten().flatten())
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
         .map(|entry| entry.path())
         .filter(|tree| tree.join(".git").is_file())
         .collect()
