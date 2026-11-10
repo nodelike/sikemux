@@ -1503,7 +1503,7 @@ pub(crate) async fn report_as(
             let target = agents.iter().find(|agent| agent.agent_id == lead).cloned();
             let name = name.unwrap_or_else(|| worker.clone());
             let note = format!(
-                "{name} is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to {name} if it needs more."
+                "{name} is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to {name} if it needs more; once its work has landed and you need nothing more, close it with agent_close."
             );
             let mut letter = letter_from(&agents, MessageKind::Report, worker, text, Some(note));
             letter.from_name = name;

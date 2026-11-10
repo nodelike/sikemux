@@ -1341,7 +1341,7 @@
     "tools": [
       "agent_close"
     ],
-    "prompt": "<agent-message from=\"Fern\" agent-id=\"agent-eval-2\" cli=\"claude\" note=\"Fern, your teammate, reports back.\">\nDone: the upload retry fix is committed and landed on main as 7e8f9a0, and its tests pass. Nothing is left on my side.\n</agent-message>",
+    "prompt": "<agent-message from=\"Fern\" agent-id=\"agent-eval-2\" cli=\"claude\" note=\"Fern is an agent you started, and this is how its turn ended, sent by Sikemux. Reply with agent_send to Fern if it needs more; once its work has landed and you need nothing more, close it with agent_close.\">\nDone: the upload retry fix is committed and landed on main as 7e8f9a0, and its tests pass. Nothing is left on my side.\n</agent-message>",
     "fixture": {
       "agents": [
         {
