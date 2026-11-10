@@ -769,6 +769,22 @@ struct Ruled {
 
 /// Reads which of `waiting` the project's pushed branch holds, and which no
 /// branch does. Other remote branches, such as work in progress, decide nothing.
+/// Whether the project's pushed branch has moved past `tip`. Its CI run may then have been
+/// cancelled only because a newer push took its place, and the newer tip's run rules instead.
+async fn tip_moved(dir: &Path, tip: &str) -> bool {
+    let (dir, tip) = (dir.to_owned(), tip.to_owned());
+    tokio::task::spawn_blocking(move || {
+        let Some(upstream) = crate::git::upstream(&dir) else {
+            return false;
+        };
+        Git::quick(&dir)
+            .trimmed(&["rev-parse", &upstream])
+            .is_ok_and(|now| now != tip)
+    })
+    .await
+    .unwrap_or(false)
+}
+
 pub(crate) fn look(dir: &Path, waiting: &[String]) -> Looked {
     let upstream = crate::git::upstream(dir);
     let tip = upstream
@@ -929,6 +945,7 @@ async fn wait_for_ci(
             let outcome = match checks {
                 Ok(CiChecks::Passed) => Some(Ok((true, format!("{label} passed on {tip}")))),
                 Ok(CiChecks::Failed(what)) => Some(Ok((false, what))),
+                Ok(CiChecks::Stopped(_)) if tip_moved(&dir, tip).await => None,
                 Ok(CiChecks::Stopped(why)) => Some(Err(format!(
                     "its CI runs were cancelled or ended without a verdict:\n{why}"
                 ))),
