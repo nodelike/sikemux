@@ -929,21 +929,6 @@ pub(super) const SPECS: &[(&str, Spec)] = &[
         },
     ),
     (
-        "aws_volumes",
-        Spec {
-            verb: "list",
-            kind: "read",
-            icon: "folder",
-            target: &[
-                "volumes of {instance}",
-                "EBS {state} volumes",
-                "EBS volumes",
-            ],
-            detail: &[],
-            plugin: Some("sikemux.aws"),
-        },
-    ),
-    (
         "aws_cost",
         Spec {
             verb: "cost",

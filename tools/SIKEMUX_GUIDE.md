@@ -15,8 +15,7 @@ When the person asks you to open, show or preview a page, open it on your desk
 with `browser_navigate`, not in their own browser. Desk tabs run WebKit, the
 engine Safari runs on, so check pages there, not in a headless Chromium.
 
-Read this page first. For one area in depth, call `guide` with a `topic`
-from the list below.
+Read this page first; for one area in depth, call `guide` with a `topic`.
 
 ## Essentials
 
@@ -42,7 +41,7 @@ from the list below.
   numbering restarts on every new page. Never carry a number across a
   navigation; read or `browser_find` again.
 - Wait with `browser_wait` conditions, or `waitFor` on `browser_navigate`,
-  rather than with sleeps or screenshots.
+  not sleeps or screenshots.
 - Every state says whether the tab is `visible` to the person; never tell
   them a hidden page is on their screen.
 - Other agents may share this checkout: commit with `git_commit`, and see
@@ -68,7 +67,8 @@ Pass one of these as `topic`:
 - `browser-debugging` — network, console, `app_console`, `browser_evaluate`
 - `simulator` — driving an iOS simulator with `sim_*`
 - `databases` — the `db_*` tools, SQL, and adding a database
-- `aws` — the `aws_*` tools, profiles and expired sign-ins
+- `aws` — `aws_*` tools, profiles, expired sign-ins
+- `connectors` — PRs, CI and SigNoz logs
 - `skills` — skills every agent gets
 - `agents` — names, `@`, messages, committing, who broke CI
 - `board` — the project's cards: adding, claiming, finishing
@@ -906,13 +906,36 @@ none of them change anything.
   missing. The period widens to keep 120 points at most.
 - `aws_ec2` lists instances; `name` keeps those whose name, id or address
   contains it, and `state`, `type`, `tag` (`Key=Value`) and `vpc` narrow them.
-  `aws_volumes` lists EBS volumes, of one `instance` or in one `state`, such as
-  `available` for those attached to nothing.
+  With `volumes: true` it lists EBS volumes instead, largest first: `name`
+  matches a volume's name, id or the instance it is attached to, `state:
+  "available"` keeps those attached to nothing, and `type` is the volume type,
+  such as `gp3`.
 - `aws_cost` gives what the account spent up to yesterday from Cost Explorer,
   per month or `daily`, grouped by service unless `groupBy` names another
   dimension. Each call costs the account a cent, so ask once and read it all.
 
 For anything else, run the `aws` CLI yourself, read-only.
+
+## connectors: Pull requests, CI logs and SigNoz logs
+
+- Bitbucket's tools name a repository by `owner`, its workspace, and `name`,
+  its slug.
+- `bitbucket_pulls` leaves descriptions out, so a list stays short; read one
+  whole with `bitbucket_pull`. `author` keeps those opened by a nickname or
+  display name, `head` those from one branch, and `perPage` (at most 50) with
+  `page` reads further back.
+- `bitbucket_step_log` and `gitlab_job_log` answer at most 30,000 characters,
+  each line clipped at 2,000. With nothing else they give the last `tail` lines
+  (200 by default). `grep` keeps the lines that contain it, ignoring case, and
+  `context` keeps that many lines around each, up to 50. `from` and `to` read
+  a range of line numbers, forward from `from`. When lines were left out,
+  `truncated` is true and `note` names them; read them with `from` and `to`.
+  `bitbucket_step_log` takes a step's id from `bitbucket_pipeline` as `jobId`
+  or `stepId`, or a step's `{uuid}` with its pipeline's `runId`.
+- `signoz_logs` answers at most 30,000 characters. When the lines asked for
+  would run past that, it returns the first that fit, a `note`, and
+  `nextOffset`: pass that as `offset` for the next page, or narrow the search.
+  Bodies clip at 1,000 characters; `id` reads one line whole.
 
 ## skills: Skills every agent in Sikemux gets
 

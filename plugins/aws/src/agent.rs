@@ -48,14 +48,8 @@ struct Instances {
     kind: Option<String>,
     tag: Option<String>,
     vpc: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct Volumes {
-    #[serde(flatten)]
-    target: Target,
-    instance: Option<String>,
-    state: Option<String>,
+    #[serde(default)]
+    volumes: bool,
 }
 
 #[derive(Deserialize)]
@@ -118,7 +112,6 @@ pub(crate) async fn call(
         "agentLogs" => log_search(ctx, input).await,
         "agentMetrics" => metric_series(ctx, input).await,
         "agentEc2" => instances(ctx, input).await,
-        "agentVolumes" => volumes(ctx, input).await,
         "agentCost" => spending(ctx, input).await,
         _ => return None,
     })
@@ -247,11 +240,18 @@ fn tag_filter(tag: &str) -> (String, String) {
 
 async fn instances(ctx: &PluginContext, input: Value) -> PluginResult<Value> {
     let ask: Instances = params(input)?;
+    if ask.volumes && ask.vpc.is_some() {
+        return Err(AwsError::BadArg("volumes have no VPC; leave vpc out").into());
+    }
     let target = auth::resolve(ctx, ask.target).await?;
+    let (state, kind) = if ask.volumes {
+        ("status", "volume-type")
+    } else {
+        ("instance-state-name", "instance-type")
+    };
     let filters: ec2::Filters = [
-        ask.state
-            .map(|state| ("instance-state-name".to_owned(), state)),
-        ask.kind.map(|kind| ("instance-type".to_owned(), kind)),
+        ask.state.map(|value| (state.to_owned(), value)),
+        ask.kind.map(|value| (kind.to_owned(), value)),
         ask.vpc.map(|vpc| ("vpc-id".to_owned(), vpc)),
         ask.tag.as_deref().map(tag_filter),
     ]
@@ -259,26 +259,21 @@ async fn instances(ctx: &PluginContext, input: Value) -> PluginResult<Value> {
     .flatten()
     .collect();
     let wanted = ask.name.map(|name| name.to_lowercase());
+    let wanted = |text: &str| wanted.as_deref().is_none_or(|wanted| text.contains(wanted));
+    if ask.volumes {
+        let found = ec2::volumes(&target, &filters)
+            .await?
+            .into_iter()
+            .filter(|volume| volume.matches(&wanted))
+            .collect();
+        return listed("volumes", found);
+    }
     let found = ec2::instances(&target, &filters)
         .await?
         .into_iter()
-        .filter(|instance| wanted.as_deref().is_none_or(|text| instance.matches(text)))
+        .filter(|instance| instance.matches(&wanted))
         .collect();
     listed("instances", found)
-}
-
-async fn volumes(ctx: &PluginContext, input: Value) -> PluginResult<Value> {
-    let ask: Volumes = params(input)?;
-    let target = auth::resolve(ctx, ask.target).await?;
-    let filters: ec2::Filters = [
-        ask.instance
-            .map(|instance| ("attachment.instance-id".to_owned(), instance)),
-        ask.state.map(|state| ("status".to_owned(), state)),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
-    listed("volumes", ec2::volumes(&target, &filters).await?)
 }
 
 async fn spending(ctx: &PluginContext, input: Value) -> PluginResult<Value> {

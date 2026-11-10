@@ -140,17 +140,17 @@
       "name": "gitlab_job_log",
       "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["job {jobId}"], "detail": ["“{grep}”"]},
       "method": "jobLogExcerpt",
-      "description": "The end of one CI job's log, or the lines asked for, without colour codes, at most 30,000 characters. Start with the default tail or grep for the error. truncated means lines were left out; note says which.",
+      "description": "One CI job's log without colour codes: its end, grep matches or a line range, at most 30,000 characters. Start with the default tail or a grep for the error.",
       "properties": {
         "owner": { "type": "string", "description": "The group path." },
         "name": { "type": "string", "description": "The project path." },
         "host": { "type": "string", "description": "The server in the git remote, e.g. gitlab.acme.dev." },
         "jobId": { "type": "string", "description": "A job's id from gitlab_pipeline." },
-        "tail": { "type": "integer", "description": "Lines from the end, after grep; from from when given. Default 200, at most 2000." },
+        "tail": { "type": "integer", "description": "Lines kept, from the end or from from. Default 200, at most 2000." },
         "grep": { "type": "string", "description": "Only lines containing this, ignoring case." },
-        "context": { "type": "integer", "description": "Lines kept around each grep match, at most 50." },
-        "from": { "type": "integer", "description": "First line number to read." },
-        "to": { "type": "integer", "description": "Last line number to read." }
+        "context": { "type": "integer", "description": "Lines around each grep match." },
+        "from": { "type": "integer", "description": "First line." },
+        "to": { "type": "integer", "description": "Last line." }
       },
       "required": ["owner", "name", "jobId"]
     }

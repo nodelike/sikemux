@@ -56,8 +56,8 @@ pub struct Ec2Instance {
 }
 
 impl Ec2Instance {
-    /// Whether its name, id or an address contains `text`, which is lowercase.
-    pub(crate) fn matches(&self, text: &str) -> bool {
+    /// Whether `wanted` holds of its name, id or an address, lowercased.
+    pub(crate) fn matches(&self, wanted: impl Fn(&str) -> bool) -> bool {
         [
             self.name.as_deref(),
             Some(self.instance_id.as_str()),
@@ -66,7 +66,7 @@ impl Ec2Instance {
         ]
         .into_iter()
         .flatten()
-        .any(|field| field.to_lowercase().contains(text))
+        .any(|field| wanted(&field.to_lowercase()))
     }
 }
 
@@ -149,6 +149,17 @@ pub struct Volume {
     zone: Option<String>,
     attached_to: Vec<String>,
     created: Option<String>,
+}
+
+impl Volume {
+    /// Whether `wanted` holds of its name, id or an instance it is attached to, lowercased.
+    pub(crate) fn matches(&self, wanted: impl Fn(&str) -> bool) -> bool {
+        [self.name.as_deref(), Some(self.id.as_str())]
+            .into_iter()
+            .flatten()
+            .chain(self.attached_to.iter().map(String::as_str))
+            .any(|field| wanted(&field.to_lowercase()))
+    }
 }
 
 /// EBS volumes, largest first, with the instances each is attached to.

@@ -45,11 +45,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         }
       }
     },
@@ -69,23 +69,23 @@
         ]
       },
       "method": "agentEcs",
-      "description": "ECS clusters; a cluster's services; a service's deployments and recent events; or tasks with health, image and why they stopped. A service without a cluster is looked for in every cluster.",
+      "description": "ECS clusters; a cluster's services; a service's deployments and recent events; or tasks with health, image and why they stopped.",
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "cluster": {
           "type": "string",
-          "description": "Name or ARN; leave out to list clusters, or to find service in all of them."
+          "description": "Name or ARN; leave out to list clusters."
         },
         "service": {
           "type": "string",
-          "description": "Name; with no tasks, its deployments and events. Without cluster, part of a name."
+          "description": "Name; with no tasks, its deployments and events. Alone, searched for in every cluster."
         },
         "tasks": {
           "type": "string",
@@ -112,11 +112,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "name": {
           "type": "string",
@@ -144,11 +144,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "loadBalancer": {
           "type": "string",
@@ -179,11 +179,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "group": {
           "type": "string",
@@ -225,11 +225,11 @@
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "namespace": {
           "type": "string",
@@ -277,68 +277,39 @@
         ]
       },
       "method": "agentEc2",
-      "description": "EC2 instances with name, state, type, zone, VPC and addresses, at most 100.",
+      "description": "EC2 instances with name, state, type, zone, VPC and addresses, or EBS volumes with their size and instances; at most 100.",
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "region": {
           "type": "string",
-          "description": "Leave out for the profile's region."
+          "description": "Default: the profile's."
         },
         "name": {
           "type": "string",
-          "description": "Only instances whose name, id or IP contains this."
+          "description": "Only those whose name, id, IP or instance contains this."
         },
         "state": {
           "type": "string",
-          "description": "Like running or stopped."
+          "description": "e.g. running, or available for unattached volumes"
         },
         "type": {
           "type": "string",
-          "description": "Instance type, like t3.large."
+          "description": "e.g. t3.large or gp3"
         },
         "tag": {
           "type": "string",
-          "description": "Key=Value, or a key alone."
+          "description": "Key=Value or Key"
         },
         "vpc": {
           "type": "string",
-          "description": "VPC id."
-        }
-      }
-    },
-    {
-      "name": "aws_volumes",
-      "row": {
-        "verb": "list",
-        "kind": "read",
-        "icon": "folder",
-        "target": [
-          "volumes of {instance}",
-          "EBS {state} volumes",
-          "EBS volumes"
-        ]
-      },
-      "method": "agentVolumes",
-      "description": "EBS volumes, largest first, with size, type, state, IOPS and the instances they are attached to, at most 100.",
-      "properties": {
-        "profile": {
-          "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "VPC id"
         },
-        "region": {
-          "type": "string",
-          "description": "Leave out for the profile's region."
-        },
-        "instance": {
-          "type": "string",
-          "description": "Only those attached to this instance id."
-        },
-        "state": {
-          "type": "string",
-          "description": "Like available, for volumes attached to nothing, or in-use."
+        "volumes": {
+          "type": "boolean",
+          "description": "EBS volumes instead, largest first."
         }
       }
     },
@@ -355,27 +326,27 @@
         ]
       },
       "method": "agentCost",
-      "description": "What the account spent from Cost Explorer up to yesterday, per month or day, biggest groups first. Each call costs the account $0.01.",
+      "description": "Spend from Cost Explorer up to yesterday, biggest groups first. Costs $0.01 a call.",
       "properties": {
         "profile": {
           "type": "string",
-          "description": "Leave out for the default, or the only profile."
+          "description": "Default: the agents' profile."
         },
         "days": {
           "type": "integer",
-          "description": "How far back. Default 30, at most 365."
+          "description": "Default 30, at most 365."
         },
         "daily": {
           "type": "boolean",
-          "description": "Per day instead of per month."
+          "description": "Per day, not per month."
         },
         "groupBy": {
           "type": "string",
-          "description": "SERVICE (default), REGION, USAGE_TYPE, INSTANCE_TYPE, LINKED_ACCOUNT or another Cost Explorer dimension."
+          "description": "Default SERVICE; or REGION, USAGE_TYPE and the like."
         },
         "service": {
           "type": "string",
-          "description": "Only this service, named as a SERVICE grouping names it."
+          "description": "Only this SERVICE."
         }
       }
     }
