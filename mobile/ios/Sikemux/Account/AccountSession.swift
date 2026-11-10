@@ -61,7 +61,7 @@ final class AccountSession {
         guard userId != nil else { return }
         live = LiveAccount(handlers: .init(
             hostsChanged: { AccountHosts.shared.read() },
-            stashChanged: {},
+            stashChanged: { StashStore.shared.changed() },
             deviceAdded: { key in Task { await AccountSession.shared.askAbout(key) } },
             ready: { AccountHosts.shared.retry() },
             gone: { reason in
@@ -216,6 +216,9 @@ enum Leave {
         if let leaving { return await leaving.value }
         let run = Task {
             AccountSession.shared.follow(nil)
+            await Notify.shared.forget()
+            ShareExtension.signOut()
+            StashStore.shared.forget()
             await Lock.shared.turnOff()
             await withTaskGroup(of: Void.self) { group in
                 for device in Hub.shared.devices {
@@ -235,6 +238,7 @@ enum Leave {
     /// Takes this phone off the account first, so hosts hear of it, then leaves. Throws when the server could not
     /// confirm, so the person can choose to leave anyway.
     static func signOut() async throws {
+        try await Notify.shared.stopPush()
         try await AccountCalls.removePhone()
         await signOutHere(confirmed: true)
     }

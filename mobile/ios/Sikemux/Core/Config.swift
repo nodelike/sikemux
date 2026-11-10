@@ -18,6 +18,7 @@ enum Config {
         }
         struct Retention: Decodable {
             let restorableDays: Int
+            let backupDays: Int
         }
         let accounts: Accounts
         let account: Retention
@@ -50,6 +51,9 @@ enum Config {
 
     /// How long a deleted account can still be restored.
     static var restorableDays: Int { release.account.restorableDays }
+
+    /// How long backups outlive an account deleted for good.
+    static var backupDays: Int { release.account.backupDays }
 
     /// Where a person gets a newer app, until the App Store lists it.
     static let updateLink = URL(string: "https://sikemux.com/")!

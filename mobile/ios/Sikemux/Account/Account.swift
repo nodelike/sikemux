@@ -33,6 +33,8 @@ final class Account {
 
     var userId: String? { user?.id }
 
+    var sessionId: String? { session }
+
     func load() async {
         guard Clerk.hasClient,
               let text = try? Keychain.read(Self.savedItem),

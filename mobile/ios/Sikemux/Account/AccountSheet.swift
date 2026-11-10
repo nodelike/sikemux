@@ -60,6 +60,7 @@ struct AccountSheet: View {
         VStack(spacing: 0) {
             head
             phone
+            NotificationsRow()
             LockRow()
             if let unconfirmed {
                 Text(unconfirmed)
