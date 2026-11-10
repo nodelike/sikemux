@@ -41,6 +41,10 @@ pub(crate) use config::saved_window;
 use control::Control;
 use reader::{Asking, Reader, ReaderState, Shared, Turn};
 
+/// Claude Code tells the model it writes to a terminal and offers its own Artifact tool, so
+/// charts went to claude.ai links the person never asked for.
+const SHOWING_PAGES: &str = "Your replies are drawn in Sikemux's chat, which shows pages, not in a terminal. To show a chart, diagram, mockup or comparison, build an HTML page, check it with page_preview and show it with page_show. Publish a claude.ai Artifact only when the person asks for a link to share.";
+
 enum Start<'a> {
     New(&'a str),
     Resume(&'a str),
@@ -338,9 +342,12 @@ impl Claude {
             args.extend(["--model".to_owned(), model.to_owned()]);
         }
         let tools = servers::tool_servers(launch);
-        let personality =
-            servers::offers_sikemux_tools(&tools).then_some(crate::server::gestures::PERSONALITY);
-        let appended: Vec<&str> = personality.into_iter().chain(brief).collect();
+        let sikemux_lines: &[&str] = if servers::offers_sikemux_tools(&tools) {
+            &[crate::server::gestures::PERSONALITY, SHOWING_PAGES]
+        } else {
+            &[]
+        };
+        let appended: Vec<&str> = sikemux_lines.iter().copied().chain(brief).collect();
         if !appended.is_empty() {
             args.extend(["--append-system-prompt".to_owned(), appended.join("\n\n")]);
         }
