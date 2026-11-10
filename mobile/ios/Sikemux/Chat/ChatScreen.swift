@@ -77,7 +77,7 @@ private struct ChatPane: View {
 
     var body: some View {
         let rows = session.rows
-        let title = rows.head.title ?? listed?.title ?? provider
+        let title = rows.head.title ?? listed?.title ?? Catalog.label(provider, core: core)
         Screen {
             Nav(back: nil, onBack: nil) {
                 ChatTitle(agentId: agentId, group: info?.group, provider: provider, name: info?.name, title: title)
@@ -190,7 +190,18 @@ private struct ChatPane: View {
                 if tucked { folds.set("work/\(fold.id)", true) }
             }
             if let team = row.team { folds.set("team-all/\(team.id)", true) }
-            Task { @MainActor in scroll.reveal(hit.row) }
+            let length = row.parts.first { $0.id == hit.part }.map(Self.length) ?? 0
+            let at = length > 0 ? CGFloat(hit.range.first) / CGFloat(length) : 0
+            Task { @MainActor in scroll.reveal(hit.row, at: at) }
+        }
+    }
+
+    /// How many words a part shows, as the host counts the places it finds.
+    private static func length(_ part: ChatPart) -> Int {
+        switch part {
+        case .text(let text): text.md.map { FindText.shown($0.blocks).utf16.count } ?? text.text.utf16.count
+        case .thought(let thought): thought.md.map { FindText.shown($0.blocks).utf16.count } ?? thought.text.utf16.count
+        default: 0
         }
     }
 
