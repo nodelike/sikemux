@@ -501,6 +501,7 @@ pub(super) fn tool_page(
             .get("height")
             .and_then(Value::as_f64)
             .filter(|height| height.is_finite()),
+        tab: page.get("tab").and_then(Value::as_bool) == Some(true),
     })
 }
 

@@ -1501,7 +1501,8 @@ impl BrowserManager {
     /// A picture of the agent's tab in front, once its page has loaded.
     pub async fn front_picture(&self, agent_id: &str) -> Result<Vec<u8>, String> {
         let (tab_id, view) = active(self, agent_id)?;
-        self.wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT).await;
+        self.wait_until_loaded(agent_id, &tab_id, LOAD_TIMEOUT)
+            .await;
         tokio::time::sleep(SETTLE).await;
         screenshot(&view, None, None).await
     }

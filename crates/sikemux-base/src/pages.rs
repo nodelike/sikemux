@@ -17,7 +17,8 @@ const MAX_SOURCE_BYTES: u64 = 2 * MIB;
 const MAX_IMAGE_BYTES: u64 = 10 * MIB;
 const MAX_PAGE_BYTES: usize = 25 * MIB as usize;
 const MAX_TITLE_CHARS: usize = 120;
-const MAX_HEIGHT: u32 = 4000;
+/// The most of a page a reply draws, in points.
+pub const MAX_HEIGHT: u32 = 4000;
 
 static LOCAL_FILE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -32,6 +33,9 @@ pub struct PageRef {
     pub title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<u32>,
+    /// Shown in a tab on the agent's desk, with a card for it in the reply.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub tab: bool,
 }
 
 pub fn is_page_id(id: &str) -> bool {
@@ -195,7 +199,12 @@ pub fn publish(
     let id = uuid::Uuid::new_v4().simple().to_string();
     std::fs::write(dir.join(format!("{id}.html")), page)
         .map_err(|error| format!("could not keep the page: {error}"))?;
-    Ok(PageRef { id, title, height })
+    Ok(PageRef {
+        id,
+        title,
+        height,
+        tab: false,
+    })
 }
 
 const BASE_CSS: &str = "html{background:var(--background,Canvas);color:var(--foreground,CanvasText);font-family:var(--font-sans,system-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}html[data-sikemux-framed]{background:transparent;overflow:hidden!important}body{margin:0}code,kbd,pre,samp{font-family:var(--font-mono,ui-monospace)}";

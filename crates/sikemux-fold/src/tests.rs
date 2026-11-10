@@ -583,6 +583,7 @@ mod reducer {
                 id: "0123456789abcdef0123456789abcdef".into(),
                 title: "Revenue".into(),
                 height: Some(300.0),
+                tab: false,
             })
         );
         assert_eq!(part.output, None);
@@ -2345,6 +2346,7 @@ mod pages {
                 id: ID.into(),
                 title: "Revenue".into(),
                 height: Some(412.0),
+                tab: false,
             })
         );
     }
@@ -2356,6 +2358,7 @@ mod pages {
             id: ID.into(),
             title: "Revenue".into(),
             height: None,
+            tab: false,
         });
         assert_eq!(
             shown(

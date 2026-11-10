@@ -534,7 +534,7 @@ pub struct ChatTrigger {
     pub title: String,
     pub when: TriggerWhen,
     /// The next time it fires, in Unix milliseconds; none for a webhook, which fires on each
-    /// request.
+    /// request, or a CI trigger, which fires when CI ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_at: Option<u64>,
 }
@@ -558,6 +558,10 @@ pub enum TriggerWhen {
     /// On each request to `url`, the address senders post to.
     Webhook {
         url: String,
+    },
+    /// Once, when CI on `on` ends: a commit or a run, as the agent named it.
+    Ci {
+        on: String,
     },
 }
 
@@ -1318,6 +1322,9 @@ pub struct PageRef {
     /// Its height at the reply width, when the agent measured it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<f64>,
+    /// Shown in a tab on the agent's desk, so the reply draws a card for it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub tab: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
