@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 
 struct ViewBox {
     let x: CGFloat
@@ -125,10 +126,10 @@ struct SVGPathShape: Shape {
 /// Reads SVG path data into a `Path`: every command, absolute and relative,
 /// with arcs turned into curves.
 enum SVGPath {
-    private static var cache: [String: Path] = [:]
+    private static let cache = OSAllocatedUnfairLock(initialState: [String: Path]())
 
     static func parse(_ d: String) -> Path {
-        if let known = cache[d] { return known }
+        if let known = cache.withLock({ $0[d] }) { return known }
         var reader = Reader(Array(d.utf8))
         var path = Path()
         var current = CGPoint.zero
@@ -209,7 +210,8 @@ enum SVGPath {
             lastControl = curveControl
             lastQuad = quadControl
         }
-        cache[d] = path
+        let parsed = path
+        cache.withLock { $0[d] = parsed }
         return path
     }
 

@@ -75,8 +75,10 @@ struct BuddyFigure: View {
 
     var body: some View {
         if moves, !still, !reduceMotion, state == .working || state == .waiting || state == .error {
+            let unit = unit
+            let shakes = state == .error
             picture.keyframeAnimator(initialValue: CGFloat(0), repeating: true) { content, offset in
-                state == .error ? content.offset(x: offset * unit) : content.offset(y: offset * unit)
+                shakes ? content.offset(x: offset * unit) : content.offset(y: offset * unit)
             } keyframes: { _ in
                 switch state {
                 case .working:

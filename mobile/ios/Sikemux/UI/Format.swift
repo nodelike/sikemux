@@ -33,7 +33,7 @@ enum Format {
     /// An ISO date the core sent.
     static func date(iso: String?) -> Date? {
         guard let iso else { return nil }
-        return isoFractional.date(from: iso) ?? isoPlain.date(from: iso)
+        return (try? Date(iso, strategy: isoFractional)) ?? (try? Date(iso, strategy: .iso8601))
     }
 
     /// A countdown in words: `5 min`, `1 hour`, `3 hours`, `2 days`.
@@ -50,11 +50,5 @@ enum Format {
         count == 1 ? word : "\(word)s"
     }
 
-    private static let isoFractional: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let isoPlain = ISO8601DateFormatter()
+    private static let isoFractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
 }

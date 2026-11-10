@@ -404,7 +404,7 @@ struct CodeBlock: View, Equatable {
     let lang: String
     let text: String
 
-    static func == (a: CodeBlock, b: CodeBlock) -> Bool { a.lang == b.lang && a.text == b.text }
+    nonisolated static func == (a: CodeBlock, b: CodeBlock) -> Bool { a.lang == b.lang && a.text == b.text }
 
     var body: some View {
         let name = lang.removingPercentEncoding ?? lang
