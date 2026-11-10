@@ -36,6 +36,9 @@ const NO_APP_WAIT: Duration = Duration::from_secs(30);
 /// How many reads, a step apart, to wait for Home to bring the Home Screen up from an app:
 /// it always does, but a busy device starts leaving the app late. Six seconds.
 const HOME_READS: usize = 20;
+/// How many reads, a step apart, to wait for iOS's own keyboard to leave once a
+/// hardware key is pressed: six seconds.
+const KEYBOARD_READS: usize = 20;
 /// How many pictures, a step apart, to wait for a turn to come round: three seconds.
 const TURN_READS: usize = 20;
 const TURN_STEP: Duration = Duration::from_millis(150);
@@ -202,7 +205,7 @@ pub(super) async fn run(
             // that arrive while it goes are lost, so a lone Shift sends it away first.
             let shift = json!({ "udid": device.udid, "key": "Shift" });
             let fields = if manager.request("key", shift).await.is_ok() {
-                steady(manager, &device).await?
+                keyboard_gone(manager, &device, before.clone()).await?
             } else {
                 before.clone()
             };
@@ -397,13 +400,15 @@ pub(crate) struct Element {
 /// An element with the number an agent refers to it by.
 pub(crate) type Numbered = (usize, Element);
 
-/// One accessibility read: the frontmost app, its elements, and the size of the
-/// app's window, which follows the app when it turns.
+/// One accessibility read: the frontmost app, its elements, the size of the
+/// app's window, which follows the app when it turns, and whether iOS's own
+/// keyboard is on screen.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Read {
     pub app: String,
     pub elements: Vec<Element>,
     pub size: Option<(f64, f64)>,
+    pub keyboard: bool,
 }
 
 /// Gives each element a number that stays with it from read to read. An
@@ -993,10 +998,16 @@ async fn read_screen(manager: &SimulatorManager, device: &Device) -> Result<Read
     };
     let size = app_size(&reply).or(device.screen);
     let (app, elements) = elements_from(&reply, size);
+    let keyboard = flattened(&reply["elements"]).into_iter().any(|element| {
+        element["traits"]
+            .as_array()
+            .is_some_and(|traits| traits.iter().any(|trait_| trait_ == "KeyboardKey"))
+    });
     Ok(Read {
         app,
         elements,
         size,
+        keyboard,
     })
 }
 
@@ -1074,20 +1085,19 @@ fn landed(before: &[Element], after: &[Element]) -> bool {
     was.is_empty() && now.is_empty() || was != now
 }
 
-/// The screen once two reads a moment apart agree.
-async fn steady(manager: &SimulatorManager, device: &Device) -> Result<Read, String> {
-    let mut latest = read_screen(manager, device).await?;
-    for _ in 1..SETTLE_READS {
-        if near_deadline() {
+/// The screen once iOS's own keyboard has left it. It starts leaving a second
+/// or more after the key that sends it away, longer than two reads take.
+async fn keyboard_gone(
+    manager: &SimulatorManager,
+    device: &Device,
+    mut latest: Read,
+) -> Result<Read, String> {
+    for _ in 0..KEYBOARD_READS {
+        if !latest.keyboard || near_deadline() {
             break;
         }
         pause(SETTLE_STEP).await?;
-        let next = read_screen(manager, device).await?;
-        let settled = next == latest;
-        latest = next;
-        if settled {
-            break;
-        }
+        latest = read_screen(manager, device).await?;
     }
     Ok(latest)
 }
