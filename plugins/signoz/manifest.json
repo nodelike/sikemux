@@ -126,7 +126,7 @@
       "name": "signoz_logs",
       "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["{service}", "trace {traceId}", "all services"], "detail": ["“{text}”", "{expression}", "{severities}"]},
       "method": "searchLogs",
-      "description": "Search logs, newest first. Shared fields come once in `shared`; bodies clip at 1000 characters, and id reads one whole. None for a service? Try aws_logs.",
+      "description": "Search logs, newest first, up to 30,000 characters; nextOffset reads on. Shared fields come once in `shared`; bodies clip at 1000 characters, and id reads one whole. None for a service? Try aws_logs.",
       "properties": {
         "service": {
           "type": "string"
@@ -156,7 +156,7 @@
           "description": "Default 30."
         },
         "offset": {
-          "description": "Lines to skip, for the next page.",
+          "description": "Lines to skip: the nextOffset of the last page.",
           "type": "integer"
         },
         "environment": {

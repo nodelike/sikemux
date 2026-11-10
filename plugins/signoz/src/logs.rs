@@ -55,6 +55,7 @@ const DEFAULT_LIMIT: u32 = 30;
 const MAX_LIMIT: u32 = 500;
 const BODY_CHARS: usize = 1_000;
 const ID_WINDOW_MS: u64 = 10 * 60_000;
+const ANSWER_CHARS: usize = 30_000;
 /// What every returned line has in common, written once instead of on each line.
 #[derive(Serialize, Default, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -99,6 +100,9 @@ pub struct LogDigest {
     pub lines: Vec<DigestLine>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_offset: Option<u32>,
+    /// Why fewer lines came back than were asked for.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 fn present(value: &Option<String>) -> Option<&str> {
@@ -204,7 +208,36 @@ pub async fn search(data_dir: &Path, search: LogSearch) -> SignozResult<LogDiges
         return one_line(data_dir, &search, id).await;
     }
     let found = page(data_dir, &search).await?;
-    Ok(digest(found.lines, found.next_offset, Some(BODY_CHARS)))
+    let digest = digest(found.lines, found.next_offset, Some(BODY_CHARS));
+    Ok(within_budget(digest, search.offset.unwrap_or(0)))
+}
+
+fn chars_of(value: &impl Serialize) -> usize {
+    serde_json::to_string(value).map_or(0, |text| text.len())
+}
+
+/// The first lines of `digest` that fit in what an agent reads at once, with
+/// the offset of the first one left out.
+fn within_budget(mut digest: LogDigest, offset: u32) -> LogDigest {
+    let mut chars = digest.shared.as_ref().map_or(0, chars_of);
+    let kept = digest
+        .lines
+        .iter()
+        .take_while(|line| {
+            chars += chars_of(*line);
+            chars <= ANSWER_CHARS
+        })
+        .count()
+        .max(1);
+    if kept < digest.lines.len() {
+        digest.lines.truncate(kept);
+        let next = offset.saturating_add(kept as u32);
+        digest.next_offset = Some(next);
+        digest.note = Some(format!(
+            "Only {kept} lines fit in {ANSWER_CHARS} characters; pass offset {next} for the next, or narrow the search."
+        ));
+    }
+    digest
 }
 
 /// The lines `search` finds, every field of each.
@@ -365,6 +398,7 @@ pub fn digest(
         shared: shared.filter(|shared| shared != &Shared::default()),
         lines,
         next_offset,
+        note: None,
     }
 }
 
