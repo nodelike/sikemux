@@ -63,6 +63,7 @@ pub(crate) async fn spawn(
     }
     let link = find(core, host)?;
     let model = text(params, "model").map(str::to_owned);
+    let effort = text(params, "effort").map(str::to_owned);
     let reports = !matches!(params.get("report"), Some(Value::Bool(false)));
     let agent_id = crate::server::names::new_agent_id();
     let (lead, cwd, named, provider) = {
@@ -119,6 +120,7 @@ pub(crate) async fn spawn(
                 depth,
             },
             model,
+            effort,
             reports,
             prompt,
             branch: text(params, "branch").map(str::to_owned),
@@ -154,6 +156,7 @@ pub(crate) struct Handing {
     pub project: String,
     pub lead: LeadParams,
     pub model: Option<String>,
+    pub effort: Option<String>,
     pub reports: bool,
     pub prompt: String,
     pub branch: Option<String>,
@@ -181,6 +184,7 @@ pub(crate) async fn hand_over(
         project,
         lead,
         model,
+        effort,
         reports,
         prompt,
         branch,
@@ -208,6 +212,7 @@ pub(crate) async fn hand_over(
         lead,
         cli: provider,
         model,
+        effort,
         reports,
         prompt,
         branch,
@@ -297,6 +302,8 @@ pub(super) struct SpawnParams {
     lead: LeadParams,
     cli: String,
     model: Option<String>,
+    #[serde(default)]
+    effort: Option<String>,
     reports: bool,
     prompt: String,
     #[serde(default)]
@@ -400,6 +407,9 @@ pub(super) async fn start_here(
         mode: lead.mode.clone(),
         provider: params.cli.trim().to_lowercase(),
         model: params.model.clone(),
+        effort: (params.effort.as_deref()).and_then(|effort| {
+            crate::agent_accounts::defaults::clean_effort(&params.cli.trim().to_lowercase(), effort)
+        }),
         reports: params.reports,
         cwd,
         prompt: params.prompt.clone(),

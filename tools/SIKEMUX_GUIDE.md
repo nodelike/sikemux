@@ -1195,7 +1195,9 @@ task, at most 64 KB. `cli` picks which agent, such as `claude` or `codex`, and
 `model` its model. Leave both out for a helper, such as a scout or reviewer: it
 runs as the person set helpers to in Settings, on a cheaper model, else as your
 own CLI. Leave `model` out for the helper's model when `cli` names the helper's
-agent, else your own when it is your CLI, else the CLI's default. `provider`
+agent, else your own when it is your CLI, else the CLI's default. `effort`
+sets its reasoning effort, such as `medium`, from the efforts its CLI takes;
+left out, it runs at yours when it is your CLI. `provider`
 names a model provider the person connected, such as `openrouter`, to pay for
 its turns in place of the agent's account; the answer's `provider` says who
 pays. It opens in its own tab without taking the person there, runs on

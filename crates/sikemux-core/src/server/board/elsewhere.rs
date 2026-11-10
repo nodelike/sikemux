@@ -249,6 +249,7 @@ async fn start_on(
                 depth: 0,
             },
             model: settings.model.clone(),
+            effort: None,
             reports: true,
             prompt,
             branch: Some(tree.branch.clone()),

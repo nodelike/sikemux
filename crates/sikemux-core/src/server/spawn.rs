@@ -92,6 +92,22 @@ fn own_checkout(params: &Value) -> Result<bool, String> {
     }
 }
 
+/// The reasoning effort asked for, when `provider`'s CLI takes it.
+fn effort_param(params: &Value, provider: &str) -> Result<Option<String>, String> {
+    let Some(effort) = text_param(params, "effort", 32)? else {
+        return Ok(None);
+    };
+    let efforts = crate::agent_catalog::agent(provider)
+        .map(|agent| agent.efforts)
+        .unwrap_or_default();
+    crate::agent_accounts::defaults::clean_effort(provider, effort)
+        .map(Some)
+        .ok_or_else(|| match efforts.is_empty() {
+            true => format!("{provider} takes no effort; leave effort out"),
+            false => format!("{provider} takes effort {}", efforts.join(", ")),
+        })
+}
+
 fn reports_back(params: &Value) -> Result<bool, String> {
     match params.get("report") {
         None | Some(Value::Null) => Ok(true),
@@ -244,6 +260,7 @@ pub(crate) struct ForHost {
     pub mode: Option<String>,
     pub provider: String,
     pub model: Option<String>,
+    pub effort: Option<String>,
     pub reports: bool,
     pub cwd: PathBuf,
     pub prompt: String,
@@ -269,6 +286,9 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
         plan.model.clone(),
         Paid::By(None),
     )?;
+    if let Some(effort) = plan.effort.clone() {
+        launch.effort = Some(effort);
+    }
     if let Some(mode) = plan
         .mode
         .as_ref()
@@ -405,6 +425,9 @@ fn start(
     let (mut launch, launcher) = core
         .workspaces
         .worker_launch(&lead, &provider, &cwd, model, paid)?;
+    if let Some(effort) = effort_param(params, &provider)? {
+        launch.effort = Some(effort);
+    }
     if let Some(saved) = resume {
         saved::same_account(&provider, &launch, saved)?;
     }
@@ -705,6 +728,7 @@ struct Opening {
     name: String,
     provider: String,
     model: Option<String>,
+    effort: Option<String>,
     permission_mode: PermissionMode,
     launcher: Option<String>,
     lead_id: String,
@@ -748,6 +772,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
             .filter(|_| same)
             .and_then(|launch| launch.model.clone())
     });
+    let effort = effort_param(params, &provider)?;
     let agent_id = crate::server::names::new_agent_id();
     let (named, made_room) = hire_held(
         core,
@@ -766,6 +791,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
         agent_id,
         name: named.name,
         model,
+        effort,
         permission_mode,
         lead_cli: lead.cli_word().to_owned(),
         launcher: lead.launcher.filter(|_| same),
@@ -797,7 +823,7 @@ async fn open_terminal(core: &Arc<Core>, opening: &Opening) -> Result<(), String
             lead: Some(lead.id),
             profile_id: on_launcher.or(lead.profile_id.filter(|_| same)),
             model: opening.model.clone(),
-            effort: lead.effort.filter(|_| same),
+            effort: opening.effort.clone().or(lead.effort.filter(|_| same)),
             worktree: lead.worktree,
             ..new_agent(
                 opening.agent_id.clone(),
