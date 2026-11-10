@@ -9,13 +9,13 @@ const vector = fileURLToPath(new URL('../../../server/protocol/vectors/push.json
 
 export const swiftAvailable = process.platform === 'darwin' && spawnSync('xcrun', ['--find', 'swiftc']).status === 0;
 
-/** Builds the extension's decryptor with mobile/ios/Tests/NotifyVector.swift and runs it on the core's vector. */
+/** Builds the extension's decryptor with mobile/ios/Tests/NotifyVector/main.swift and runs it on the core's vector. */
 export function openVectorInSwift() {
   const dir = mkdtempSync(join(tmpdir(), 'sikemux-notify-'));
   try {
     const shared = readdirSync(join(ios, 'Shared', 'Notify')).map((name) => join(ios, 'Shared', 'Notify', name));
     const binary = join(dir, 'check');
-    execFileSync('xcrun', ['swiftc', '-o', binary, ...shared, join(ios, 'Tests', 'NotifyVector.swift')], { stdio: 'pipe' });
+    execFileSync('xcrun', ['swiftc', '-o', binary, ...shared, join(ios, 'Tests', 'NotifyVector', 'main.swift')], { stdio: 'pipe' });
     return execFileSync(binary, [vector], { encoding: 'utf8' }).trim();
   } finally {
     rmSync(dir, { recursive: true, force: true });
