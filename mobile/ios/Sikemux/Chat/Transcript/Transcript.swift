@@ -97,3 +97,25 @@ private struct TranscriptHeader: View {
         }
     }
 }
+
+/// The round button over a transcript's end while the reader is away from it.
+struct JumpToLatest: View {
+    @Environment(\.palette) private var palette
+    let scroll: TranscriptScroll
+
+    var body: some View {
+        if scroll.away {
+            Button { scroll.toEnd() } label: {
+                IconView(icon: Icons.arrowDown, size: 16)
+                    .foregroundStyle(palette.inkDim)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(palette.composer))
+                    .overlay(Circle().strokeBorder(palette.border, lineWidth: 1))
+                    .shadow(color: .black.opacity(0.4), radius: 12, y: 6)
+            }
+            .buttonStyle(.plain)
+            .padding(.bottom, 8)
+            .accessibilityLabel("Jump to latest message")
+        }
+    }
+}
