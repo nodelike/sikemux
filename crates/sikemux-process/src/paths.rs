@@ -57,12 +57,17 @@ pub fn config_dir() -> Option<PathBuf> {
 }
 
 /// The endpoint file of the core that started this program, when one handed it over. A
-/// program given a config folder of its own belongs to the Sikemux kept there, so an endpoint
-/// handed down from a core outside that folder is not its own.
+/// program given a config folder or a home of its own, as a sandbox is, belongs to the Sikemux
+/// kept there, so an endpoint handed down from another Sikemux's config folder is not its own.
 pub fn handed_cli_endpoint() -> Option<PathBuf> {
     let handed = env_path(crate::vars::CLI_ENDPOINT)?;
+    let folder = handed.parent()?;
+    let in_a_config = folder
+        .parent()
+        .is_some_and(|parent| parent.ends_with(".config"));
     match env_path(crate::vars::CONFIG_DIR) {
         Some(own) if !handed.starts_with(&own) => None,
+        None if in_a_config && config_dir().as_deref() != Some(folder) => None,
         _ => Some(handed),
     }
 }
