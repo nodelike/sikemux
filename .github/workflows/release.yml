@@ -187,7 +187,7 @@ jobs:
       # through the link's LTO need more memory than a runner has, and more than double the build.
       - &keep_symbols
         name: Leave the symbols in for the dSYM
-        run: printf '[profile.release]\nstrip = "none"\n[profile.release.package.sikemux-gpui]\nstrip = "none"\n' >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
+        run: mkdir -p "${CARGO_HOME:-$HOME/.cargo}" && printf '[profile.release]\nstrip = "none"\n[profile.release.package.sikemux-gpui]\nstrip = "none"\n' >>"${CARGO_HOME:-$HOME/.cargo}/config.toml"
 
       - name: Build the core
         env:
