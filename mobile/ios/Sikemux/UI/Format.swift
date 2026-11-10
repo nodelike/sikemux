@@ -26,6 +26,10 @@ enum Format {
         millis.map { Date(timeIntervalSince1970: $0 / 1000) }
     }
 
+    static func date(millis: Int) -> Date {
+        Date(timeIntervalSince1970: Double(millis) / 1000)
+    }
+
     /// An ISO date the core sent.
     static func date(iso: String?) -> Date? {
         guard let iso else { return nil }
