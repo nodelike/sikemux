@@ -102,7 +102,7 @@ const OUTPUTS = {
   ts: "shared/wire.generated.ts",
   phone: "mobile/ios/Sikemux/Core/Wire.generated.swift",
   notch: "helpers/notch/Sources/NotchKit/Wire.generated.swift",
-  cardSwift: "mobile/app/modules/notify/ios/Shared/Card.generated.swift",
+  cardSwift: "mobile/ios/Shared/Notify/Card.generated.swift",
   cardKotlin:
     "mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt",
 };

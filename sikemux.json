@@ -15,7 +15,7 @@
     "outputs": [
       "shared/wire.generated.ts",
       "helpers/notch/Sources/NotchKit/Wire.generated.swift",
-      "mobile/app/modules/notify/ios/Shared/Card.generated.swift",
+      "mobile/ios/Shared/Notify/Card.generated.swift",
       "mobile/app/modules/notify/android/src/main/java/com/nodelike/sikemux/notify/Card.generated.kt"
     ]
   }
