@@ -57,8 +57,8 @@ final class TranscriptScroll {
 
     func toEnd() { controller?.toEnd(animated: true) }
 
-    /// Brings row `id` into view, near the top.
-    func reveal(_ id: String) { controller?.reveal(id) }
+    /// Brings row `id` into view, near the top; `at` is how far down the row the place wanted is, from 0 to 1.
+    func reveal(_ id: String, at: CGFloat = 0) { controller?.reveal(id, at: at) }
 
     /// Keeps the rows in view where they are through the next change, as when a fold above them opens.
     func hold() { controller?.holdPlace() }
@@ -220,10 +220,16 @@ final class TranscriptController: UIViewController, UICollectionViewDelegate {
         collection.setContentOffset(CGPoint(x: 0, y: bottomOffset), animated: animated)
     }
 
-    func reveal(_ id: String) {
+    func reveal(_ id: String, at: CGFloat) {
         guard let path = source.indexPath(for: .row(id)) else { return }
         pinned = false
-        collection.scrollToItem(at: path, at: .top, animated: true)
+        collection.scrollToItem(at: path, at: .top, animated: false)
+        collection.layoutIfNeeded()
+        guard let frame = collection.layoutAttributesForItem(at: path)?.frame else { return }
+        let inset = collection.adjustedContentInset
+        let wanted = frame.minY + frame.height * min(max(at, 0), 1) - collection.bounds.height * 0.3
+        let top = max(-inset.top, min(wanted, bottomOffset))
+        collection.setContentOffset(CGPoint(x: 0, y: top), animated: true)
     }
 
     func holdPlace() {
