@@ -590,17 +590,20 @@ pub(super) fn hire_here(core: &Core, host: &str, params: HireParams) -> CoreResu
     if !crate::cli::protocol::is_tool_agent_id(&params.agent_id) {
         return Err("that is not an agent id".into());
     }
-    let named = core.names.hire(
-        Worker {
-            agent_id: &params.agent_id,
-            lead: &params.lead,
-            project: None,
-            provider: &params.provider,
-            session: None,
-            reports: params.reports,
-        },
-        core.open_agents(),
-    )?;
+    let named = core
+        .names
+        .hire(
+            Worker {
+                agent_id: &params.agent_id,
+                lead: &params.lead,
+                project: None,
+                provider: &params.provider,
+                session: None,
+                reports: params.reports,
+            },
+            core.open_agents(),
+        )
+        .map_err(String::from)?;
     core.hosts.team.add(Foreign {
         agent_id: params.agent_id,
         host: host.to_owned(),

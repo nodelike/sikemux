@@ -342,12 +342,14 @@ fn kept(core: &Core, agent_id: &str) -> bool {
         .is_some_and(|agent| !agent.keep_alive)
 }
 
+/// A chat waking from sleep reads as idle while it starts, since it keeps the feed it slept with,
+/// so only a ready one counts.
 fn idle(core: &Core, agent_id: &str) -> bool {
-    let offline = core
-        .chats
-        .get(agent_id)
-        .is_some_and(|chat| chat.offline_failed.load(Ordering::Acquire));
-    !offline && core.agent_now(agent_id).chat_state() == Some(AgentState::Idle)
+    core.chats.get(agent_id).is_some_and(|chat| {
+        chat.is_ready()
+            && !chat.offline_failed.load(Ordering::Acquire)
+            && chat.state_now() == AgentState::Idle
+    })
 }
 
 impl super::part::Part for Lifecycle {

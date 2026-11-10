@@ -450,7 +450,7 @@ fn handoff(core: &Core, agent_id: &str) -> InboxHandoff {
 
 /// Whether a file the agent changed in any turn of its chat holds changes git has not committed,
 /// so a later turn that changed nothing does not hide them.
-fn uncommitted(core: &Core, project: &str, agent_id: &str, cwd: &Path) -> bool {
+pub(crate) fn uncommitted(core: &Core, project: &str, agent_id: &str, cwd: &Path) -> bool {
     let filter = serde_json::from_value(json!({ "project": project, "agentId": agent_id }));
     let Ok(filter) = filter else {
         return false;

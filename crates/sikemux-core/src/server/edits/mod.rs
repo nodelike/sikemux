@@ -37,6 +37,7 @@ use super::chat::Chat;
 use super::connection::blocking;
 use super::workspace::project_of;
 use super::{Core, CoreResult};
+pub(crate) use land::unlanded;
 pub(crate) use lines::{changed, hunk, replaced, Lines, Replaced};
 pub(crate) use owners::{authors, before, commit_lines, git, owners_at, Owners};
 use sikemux_view::owners::CheckoutParams;
@@ -313,6 +314,17 @@ impl Edits {
                 && filter.turn.is_none_or(|turn| Some(turn) == edit.turn)
                 && filter.path.as_ref().is_none_or(|path| *path == edit.path)
         })
+    }
+
+    /// Every file `agent_id` has changed in its project, by absolute path.
+    pub(crate) fn paths_of(&self, core: &Core, agent_id: &str) -> HashSet<String> {
+        let Some(named) = core.names.get(agent_id) else {
+            return HashSet::new();
+        };
+        self.matching(&named.project, |edit| edit.agent_id == agent_id)
+            .into_iter()
+            .map(|edit| edit.path)
+            .collect()
     }
 
     /// The edits in a project to `path`, oldest first, up to but not

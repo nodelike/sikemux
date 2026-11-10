@@ -843,12 +843,28 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         }
         return Box::pin(send_team(core, request, &from)).await;
     }
-    let (target, letter) = {
+    let found = {
         let (core, request, answers) = (core.clone(), request.clone(), answers.clone());
         blocking(move || {
             let project = super::caller::project_of(&core, &request);
             let agents = listed(&core);
-            let target = resolve(&core, &agents, &to, &project, &from)?;
+            let target = match resolve(&core, &agents, &to, &project, &from) {
+                Ok(target) => target,
+                Err(why) => {
+                    let wanted = to.trim().trim_start_matches('@');
+                    let named = |agent: &Listed| {
+                        agent.agent_id == wanted
+                            || (agent.name.as_deref())
+                                .is_some_and(|name| name.eq_ignore_ascii_case(wanted))
+                    };
+                    return match core.names.closed_worker(&from, wanted) {
+                        Some(ran) if answers.is_none() && !agents.iter().any(named) => {
+                            Ok(Found::Closed(wanted.to_owned(), ran))
+                        }
+                        _ => Err(why.into()),
+                    };
+                }
+            };
             if target.agent_id == from {
                 return Err("That agent is you".into());
             }
@@ -876,10 +892,14 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
                 letter.kind = MessageKind::Answer;
                 letter.note = Some(lead_answer_note(&letter.from_name, &asked));
             }
-            Ok((target, letter))
+            Ok(Found::Open(target, letter))
         })
         .await
         .map_err(|error| error.to_string())?
+    };
+    let (target, letter) = match found {
+        Found::Open(target, letter) => (target, letter),
+        Found::Closed(name, ran) => return reopen(core, request, &name, ran).await,
     };
     let from = letter.from_id.clone();
     if target.reach == Reach::Remote {
@@ -893,6 +913,42 @@ pub(crate) async fn send(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         settle_answer(core, from, target.agent_id.clone(), answering, answer).await;
     }
     Ok(sent)
+}
+
+enum Found {
+    Open(Listed, Letter),
+    /// A closed agent the sender led, by the name it was sent to.
+    Closed(String, super::names::RanSession),
+}
+
+/// Takes up again the session of a closed agent the sender led, with the message as its task.
+async fn reopen(
+    core: &Arc<Core>,
+    request: &HarnessRequest,
+    name: &str,
+    ran: super::names::RanSession,
+) -> Result<Value, String> {
+    let mut spawning = request.clone();
+    spawning.params = json!({
+        "prompt": message_text(&request.params)?,
+        "resume": ran.session_id,
+        "cli": ran.provider,
+    });
+    let opened = Box::pin(super::spawn::spawn(core, &spawning))
+        .await
+        .map_err(|why| format!("{name} had closed, and reopening its session failed: {why}"))?;
+    let now = opened["name"].as_str().unwrap_or(name);
+    let as_now = if now.eq_ignore_ascii_case(name) {
+        String::new()
+    } else {
+        format!(" as {now}")
+    };
+    Ok(json!({
+        "to": now,
+        "agentId": opened["agentId"],
+        "delivery": "reopened",
+        "note": format!("{name} had closed, so Sikemux reopened its session{as_now}; it gets this as its task once it is ready."),
+    }))
 }
 
 /// What the asker is told beside its lead's answer.
@@ -1480,6 +1536,7 @@ async fn handed(
         }
     }
     let mut woke = "";
+    let not_woken;
     let mut held = None;
     let mut reach = target.reach;
     let notice = letter.kind == MessageKind::Notice;
@@ -1491,13 +1548,27 @@ async fn handed(
             held = Some("was put to sleep when the person stopped everything")
         }
         Reach::Asleep => {
-            launching::wake(core, target.agent_id.clone())
-                .await
-                .map_err(|error| format!("{name} is asleep and did not wake: {error}"))?;
-            mailbox.state.locked().wake_failed.remove(&target.agent_id);
-            woke = " Sikemux woke it first.";
-            if core.agent_session(&target.agent_id).is_some() {
-                reach = Reach::Terminal;
+            let woken = match launching::wake(core, target.agent_id.clone()).await {
+                Ok(()) => Ok(()),
+                Err(_) => launching::wake(core, target.agent_id.clone()).await,
+            };
+            match woken {
+                Ok(()) => {
+                    mailbox.state.locked().wake_failed.remove(&target.agent_id);
+                    woke = " Sikemux woke it first.";
+                    if core.agent_session(&target.agent_id).is_some() {
+                        reach = Reach::Terminal;
+                    }
+                }
+                Err(error) => {
+                    mailbox
+                        .state
+                        .locked()
+                        .wake_failed
+                        .insert(target.agent_id.clone(), epoch_ms());
+                    not_woken = format!("is asleep and did not wake twice ({error}); Sikemux tries again within a minute");
+                    held = Some(not_woken.as_str());
+                }
             }
         }
         Reach::Stopped if letter.answers.is_some() || letter.kind == MessageKind::Report => {

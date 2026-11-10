@@ -139,6 +139,10 @@ struct ClosedSession {
     agent_id: String,
     #[serde(flatten)]
     ran: RanSession,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lead: Option<String>,
 }
 
 /// The provider session an agent ran, and the project it ran in.
@@ -174,7 +178,23 @@ pub struct ClosedAgent {
     pub buddy: Option<AgentBuddy>,
 }
 
+/// Why a lead may not start another agent.
+pub(crate) enum Unhired {
+    /// The lead, or its project, has as many agents open as it may.
+    Full(String),
+    Refused(String),
+}
+
+impl From<Unhired> for String {
+    fn from(unhired: Unhired) -> Self {
+        match unhired {
+            Unhired::Full(why) | Unhired::Refused(why) => why,
+        }
+    }
+}
+
 /// An agent another agent starts.
+#[derive(Clone)]
 pub(crate) struct Worker<'a> {
     pub agent_id: &'a str,
     pub lead: &'a str,
@@ -371,7 +391,7 @@ impl Names {
         &self,
         worker: Worker<'_>,
         open: HashSet<String>,
-    ) -> Result<AgentName, String> {
+    ) -> Result<AgentName, Unhired> {
         let mut book = self.book.locked();
         let open = self.open_with(open);
         book.release(&open);
@@ -380,12 +400,14 @@ impl Names {
             .iter()
             .find(|entry| entry.agent_id == worker.lead)
             .cloned()
-            .ok_or("Sikemux has not named you yet; try again in a moment")?;
+            .ok_or_else(|| {
+                Unhired::Refused("Sikemux has not named you yet; try again in a moment".into())
+            })?;
         if book.depth(worker.lead) >= MAX_DEPTH {
-            return Err(format!(
+            return Err(Unhired::Refused(format!(
                 "{} is already {MAX_DEPTH} levels below an agent the person started, so it cannot start agents; do this work yourself or hand it back to your lead",
                 lead.name
-            ));
+            )));
         }
         let project = worker.project.unwrap_or_else(|| lead.project.clone());
         let live = |entry: &&Entry| open.contains(&entry.agent_id);
@@ -396,19 +418,22 @@ impl Names {
             .filter(|entry| entry.parent.as_deref() == Some(worker.lead))
             .count();
         if children >= MAX_CHILDREN {
-            return Err(format!(
-                "{} already has {MAX_CHILDREN} agents of its own open, the most one agent may have; give one of them the work, or ask the person to close one that is done",
+            return Err(Unhired::Full(format!(
+                "{} already has {MAX_CHILDREN} agents of its own open, the most one agent may have; give one of them the work, or close one that is done with agent_close",
                 lead.name
-            ));
+            )));
         }
         if book.started_open(&project, &open) >= MAX_SPAWNED_PER_PROJECT {
-            return Err(format!(
-                "this project already has {MAX_SPAWNED_PER_PROJECT} agents open that agents or Auto started, the most it may have; give one of them the work, or close one of yours that is done"
-            ));
+            return Err(Unhired::Full(format!(
+                "this project already has {MAX_SPAWNED_PER_PROJECT} agents open that agents or Auto started, the most it may have; give one of them the work, or close one of yours that is done with agent_close"
+            )));
         }
+        let former = worker
+            .session
+            .and_then(|session| book.former_name(session, &project));
         let entry = Entry {
             agent_id: worker.agent_id.to_owned(),
-            name: book.fresh(&project, worker.agent_id, &open),
+            name: former.unwrap_or_else(|| book.fresh(&project, worker.agent_id, &open)),
             project,
             parent: Some(worker.lead.to_owned()),
             quiet: !worker.reports,
@@ -493,6 +518,14 @@ impl Names {
         current.to_owned()
     }
 
+    /// The agents `lead` started itself, oldest first.
+    pub(crate) fn workers(&self, lead: &str) -> Vec<String> {
+        (self.book.locked().agents.iter())
+            .filter(|entry| entry.parent.as_deref() == Some(lead))
+            .map(|entry| entry.agent_id.clone())
+            .collect()
+    }
+
     /// Whether `lead` started `agent_id`, or started an agent that did.
     pub(crate) fn leads(&self, lead: &str, agent_id: &str) -> bool {
         self.book.locked().leads(lead, agent_id)
@@ -575,6 +608,25 @@ impl Names {
         (self.book.locked().agents.iter()).any(|entry| {
             open.contains(&entry.agent_id) && entry.session_id.as_deref() == Some(&*session)
         })
+    }
+
+    /// The session of the newest closed agent called `name` that `lead` started, or started an
+    /// agent that did.
+    pub(crate) fn closed_worker(&self, lead: &str, name: &str) -> Option<RanSession> {
+        let book = self.book.locked();
+        book.closed_sessions
+            .iter()
+            .find(|closed| {
+                closed
+                    .name
+                    .as_deref()
+                    .is_some_and(|called| same(called, name))
+                    && closed
+                        .lead
+                        .as_deref()
+                        .is_some_and(|by| by == lead || book.leads(lead, by))
+            })
+            .map(|closed| closed.ran.clone())
     }
 
     /// Whether an agent here runs or recently ran `session_id`.
@@ -819,6 +871,8 @@ impl Book {
                         project: entry.project.clone(),
                         profile: entry.profile.clone(),
                     },
+                    name: Some(entry.name.clone()),
+                    lead: entry.parent.clone(),
                 });
                 self.closed_sessions.truncate(MAX_CLOSED_SESSIONS);
             }
@@ -948,6 +1002,21 @@ impl Book {
 
     /// A word no agent of the project has, starting differently from the
     /// open ones' so they are told apart at a glance.
+    /// The name the agent that last ran `session` closed with, unless another in `project` has it.
+    fn former_name(&self, session: &str, project: &str) -> Option<String> {
+        let name = self
+            .closed_sessions
+            .iter()
+            .find(|closed| closed.ran.session_id == session)?
+            .name
+            .clone()?;
+        let taken = self
+            .agents
+            .iter()
+            .any(|entry| entry.project == project && same(&entry.name, &name));
+        (!taken).then_some(name)
+    }
+
     fn fresh(&mut self, project: &str, agent_id: &str, open: &HashSet<String>) -> String {
         let others: Vec<&Entry> = self
             .agents

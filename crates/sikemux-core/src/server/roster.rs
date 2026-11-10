@@ -362,7 +362,7 @@ pub(crate) fn resolve(
     match (here.as_slice(), called.as_slice()) {
         ([agent], _) | ([], [agent]) => Ok((*agent).clone()),
         ([], []) => Err(format!(
-            "No open agent is called {wanted}; agent_list shows the agents you can message. One that closed is found by agent_sessions, or who_wrote for its commit, and reopened by agent_spawn with resume set to its sessionId"
+            "No open agent is called {wanted}; agent_list shows the agents you can message. One you started that closed is reopened by agent_send; any other is found by agent_sessions, or who_wrote for its commit, and reopened by agent_spawn with resume set to its sessionId"
         )),
         (_, many) => Err(format!(
             "More than one agent is called {wanted}: {}. Pass the agent id instead",

@@ -26,7 +26,7 @@ use super::follow::{self, TerminalAnswer};
 use super::hosts::spawn::{self as elsewhere, Hired};
 use super::launching;
 use super::messages;
-use super::names::{Adopted, AgentName, Worker};
+use super::names::{Adopted, AgentName, Unhired, Worker};
 use super::saved::{self, Saved};
 use super::workspace::{new_agent, LauncherId};
 use super::workspace::{Lead, Paid};
@@ -37,6 +37,7 @@ use super::Core;
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
 const MAX_MODEL_CHARS: usize = 200;
 const MAX_BRANCH_BYTES: usize = 200;
+const MAX_REPO_BYTES: usize = 4096;
 const MAX_SESSION_ID_CHARS: usize = 4_096;
 /// How much of a worker's final answer its lead is sent.
 const MAX_REPORT_BYTES: usize = 6 * 1024;
@@ -118,6 +119,8 @@ struct Started {
     chat: Arc<chat::Chat>,
     /// The checkout of its own it works in, set up before it gets its task.
     checkout: Option<Box<AgentWorktree>>,
+    /// The agent of its lead's that was closed to make room for it.
+    made_room: Option<String>,
 }
 
 /// How the calling agent runs and where, for its worker to do the same.
@@ -162,15 +165,71 @@ pub(crate) fn lead_of(
 /// Names a worker for its lead, one spawn at a time.
 pub(crate) fn hire(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
     let _one_at_a_time = core.harness.spawning.one_at_a_time();
-    hire_held(core, worker)
+    hire_held(core, worker).map(|(named, _)| named)
 }
 
-/// Names a worker for its lead while this spawn already holds its turn.
-fn hire_held(core: &Core, worker: Worker<'_>) -> Result<AgentName, String> {
+/// Names a worker for its lead while this spawn already holds its turn. When the lead has as
+/// many open as it may, closes one of its own that is done with all its work committed first,
+/// and answers which.
+fn hire_held(core: &Core, worker: Worker<'_>) -> Result<(AgentName, Option<String>), String> {
     let lead = worker.lead.to_owned();
-    let named = core.names.hire(worker, open(core))?;
+    let (named, closed) = match core.names.hire(worker.clone(), open(core)) {
+        Err(Unhired::Full(why)) => {
+            let closed = make_room(core, &lead).map_err(|done| format!("{why}.{done}"))?;
+            (core.names.hire(worker, open(core))?, Some(closed))
+        }
+        hired => (hired?, None),
+    };
     super::board::chat_goal::hired(core, &lead);
-    Ok(named)
+    Ok((named, closed))
+}
+
+/// Closes the oldest agent `lead` started that is done, with nothing uncommitted or left to
+/// land, and answers its name. Otherwise says which are done but still hold work.
+fn make_room(core: &Core, lead: &str) -> Result<String, String> {
+    let open = core.open_agents();
+    let done: Vec<String> = (core.names.workers(lead).into_iter())
+        .filter(|worker| open.contains(worker))
+        .filter(|worker| {
+            let now = core.agent_now(worker);
+            !now.maybe_mid_turn() && !now.waits_on_something() && !now.workers_busy(worker)
+        })
+        .collect();
+    let mut holding = Vec::new();
+    for worker in done {
+        let name = core.names.name_or_id(&worker);
+        if holds_work(core, &worker) {
+            holding.push(name);
+        } else if super::workspace::close(core, std::slice::from_ref(&worker)).is_ok() {
+            return Ok(name);
+        }
+    }
+    Err(match holding.as_slice() {
+        [] => " None of yours is done yet".to_owned(),
+        _ => format!(
+            " Done but holding uncommitted or unlanded work: {}; have them commit and land, then close them with agent_close",
+            holding.join(", ")
+        ),
+    })
+}
+
+/// Whether the agent changed files it has not committed, or has commits in its own checkout
+/// that are not on its base branch yet.
+fn holds_work(core: &Core, agent_id: &str) -> bool {
+    let Some(agent) = core.workspaces.agent(agent_id) else {
+        return false;
+    };
+    let project = core
+        .names
+        .get(agent_id)
+        .map_or(agent.project.clone(), |named| named.project);
+    if super::inbox::uncommitted(core, &project, agent_id, &agent.cwd) {
+        return true;
+    }
+    agent
+        .worktree
+        .as_ref()
+        .is_some_and(|worktree| !matches!(super::edits::unlanded(worktree), Ok(None)))
 }
 
 /// A worker here for a lead on a linked host, as that host named it.
@@ -255,6 +314,7 @@ pub(crate) fn start_for_host(core: &Arc<Core>, plan: ForHost) -> Result<Value, S
         reports: plan.reports,
         chat,
         checkout: None,
+        made_room: None,
     };
     let core = core.clone();
     tokio::spawn(async move { hand_task(&core, started, plan.prompt).await });
@@ -286,6 +346,12 @@ fn start(
             "branch names the branch of an own checkout; pass checkout: \"own\" too".into(),
         );
     }
+    let repo = text_param(params, "repo", MAX_REPO_BYTES)?.map(str::trim);
+    if repo.is_some() && !own {
+        return Err(
+            "repo names the repository of an own checkout; pass checkout: \"own\" too".into(),
+        );
+    }
     let _one_at_a_time = core.harness.spawning.one_at_a_time();
     if let Some((agent_id, name)) =
         resume.and_then(|saved| saved::open_now(core, &saved.cli, &saved.session_id))
@@ -301,7 +367,14 @@ fn start(
                 text_param(params, "prompt", MAX_PROMPT_BYTES)?.unwrap_or_default(),
             ),
         };
-        let (checkout, tree_cwd) = worktree::agent::cut_for(&cwd, &cwd, &branch)?;
+        let from = repo.map_or_else(|| cwd.clone(), |repo| cwd.join(repo));
+        let (checkout, tree_cwd) =
+            worktree::agent::cut_for(&from, &cwd, &branch).map_err(|error| {
+                match repo.is_none() && error.ends_with(worktree::agent::NOT_IN_GIT) {
+                    true => format!("{error}; name the repository to cut it from with repo"),
+                    false => error,
+                }
+            })?;
         (Unclaimed(Some(checkout)), tree_cwd)
     } else {
         (Unclaimed(None), cwd)
@@ -331,6 +404,7 @@ fn start(
     }
     launch.resume_id = resume.map(|saved| saved.session_id.clone());
     let project = core.workspaces.project_of(&launch.cwd);
+    let mut made_room = None;
     let (agent_id, named) = match hired {
         Some(hired) => {
             let named = core.names.adopt(
@@ -349,7 +423,7 @@ fn start(
         }
         None => {
             let agent_id = crate::server::names::new_agent_id();
-            let named = hire_held(
+            let (named, closed) = hire_held(
                 core,
                 Worker {
                     agent_id: &agent_id,
@@ -360,6 +434,7 @@ fn start(
                     reports,
                 },
             )?;
+            made_room = closed;
             (agent_id, named)
         }
     };
@@ -392,6 +467,7 @@ fn start(
         reports,
         chat,
         checkout: checkout.0.take().map(Box::new),
+        made_room,
     }))
 }
 
@@ -488,8 +564,9 @@ pub(crate) async fn spawn(core: &Arc<Core>, request: &HarnessRequest) -> Result<
         "resumed": saved.as_ref().map(|saved| &saved.session_id),
         "reportsBack": reports,
         "note": format!(
-            "{starting} and gets your prompt once it is ready.{}",
-            if reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" }
+            "{starting} and gets your prompt once it is ready.{}{}",
+            if reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" },
+            room_made(started.made_room.as_deref()),
         ),
     });
     let core = core.clone();
@@ -547,6 +624,12 @@ async fn send_to_open(
         "sent": sent,
         "note": format!("{name} {opened} your prompt went to it as a message, as agent_send sends one."),
     }))
+}
+
+fn room_made(closed: Option<&str>) -> String {
+    closed.map_or_else(String::new, |name| {
+        format!(" You had as many agents open as you may, so Sikemux closed {name}, which was done with its work committed; its chat stays in Recent.")
+    })
 }
 
 /// Gives the new agent its task once it is ready, or tells its lead it
@@ -611,6 +694,7 @@ struct Opening {
     lead_name: String,
     lead_cli: String,
     reports: bool,
+    made_room: Option<String>,
 }
 
 /// Names a terminal worker and says how it runs, for the window to open it.
@@ -648,7 +732,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
             .and_then(|launch| launch.model.clone())
     });
     let agent_id = crate::server::names::new_agent_id();
-    let named = hire_held(
+    let (named, made_room) = hire_held(
         core,
         Worker {
             agent_id: &agent_id,
@@ -672,6 +756,7 @@ fn plan_terminal(core: &Core, request: &HarnessRequest) -> Result<Opening, Strin
         lead_id,
         lead_name,
         reports,
+        made_room,
     })
 }
 
@@ -773,9 +858,10 @@ async fn spawn_terminal(
         "mode": "terminal",
         "reportsBack": opening.reports,
         "note": format!(
-            "{} is starting in a terminal tab and gets your prompt once its prompt box shows.{}",
+            "{} is starting in a terminal tab and gets your prompt once its prompt box shows.{}{}",
             opening.name,
-            if opening.reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" }
+            if opening.reports { " Each time its turn ends, its final answer comes to you as a message." } else { "" },
+            room_made(opening.made_room.as_deref()),
         ),
     }))
 }
