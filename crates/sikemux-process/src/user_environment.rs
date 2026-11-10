@@ -77,11 +77,13 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
 
 /// [`command`] for an agent, an agent's CLI or a task: it inherits nothing of the agent session
 /// that started this process, so the caller sets the program's own Sikemux and account variables.
+/// It runs in a cgroup of its own, so running out of memory stops it rather than the core.
 pub fn agent_command(program: impl AsRef<OsStr>) -> Command {
     let mut command = command(program);
     for name in crate::vars::LAUNCHING_SESSION {
         command.env_remove(name);
     }
+    crate::cgroups::give_own_cgroup(&mut command);
     command
 }
 

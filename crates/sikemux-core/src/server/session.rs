@@ -467,6 +467,9 @@ pub(crate) fn spawn_session(core: &Arc<Core>, launch: PreparedLaunch) -> CoreRes
 
     let child = pair.slave.spawn_command(command).map_err(CoreError::pty)?;
     let pid = child.process_id();
+    if let Some(pid) = pid {
+        sikemux_process::cgroups::move_into_own_cgroup(pid);
+    }
     let child = SpawnedChildGuard::new(child);
     drop(pair.slave);
 

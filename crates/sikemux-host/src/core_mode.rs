@@ -5,6 +5,7 @@ use std::path::Path;
 /// [`sikemux_core::server::main`]; the commands that manage it are in
 /// [`sikemux_host::headless`].
 pub fn run() -> i32 {
+    sikemux_process::cgroups::take_own_unit();
     let args: Vec<String> = std::env::args().skip(2).collect();
     sikemux_host::cli_paths::link_cli_for_children();
     let plugins = args
