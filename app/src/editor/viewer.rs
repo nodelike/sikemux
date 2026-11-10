@@ -592,7 +592,7 @@ fn pin_button(
             #[cfg(target_os = "macos")]
             let seconds = playing.as_ref().and_then(|document| document.playing_at());
             #[cfg(not(target_os = "macos"))]
-            let seconds = None;
+            let seconds: Option<f64> = None;
             let pinning = pinning.clone();
             let title = match seconds {
                 Some(seconds) => format!(

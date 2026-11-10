@@ -73,7 +73,7 @@ pub(super) fn block(fence: Fence, running: bool, window: &mut Window, cx: &mut A
     });
     let (drawing, fault) = match drawn {
         Some(Ok(drawing)) => (Some(drawing), None),
-        Some(Err(fault)) => (None, Some(fault).filter(|_| !running)),
+        Some(Err(fault)) => (None, (!running).then_some(fault)),
         None => (None, None),
     };
     let source = block.read(cx).source || drawing.is_none();
@@ -253,6 +253,7 @@ impl Asset for Drawn {
     type Source = Wanted;
     type Output = Result<Drawing, SharedString>;
 
+    #[allow(clippy::manual_async_fn)]
     fn load(
         wanted: Wanted,
         _: &mut App,
@@ -307,7 +308,7 @@ fn draw(wanted: &Wanted) -> Result<Drawing, String> {
     let (columns, rows) = (pixmap.width(), pixmap.height());
     let mut pixels = image::RgbaImage::from_raw(columns, rows, pixmap.take())
         .ok_or("The diagram could not be drawn")?;
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         gpui::swap_rgba_pa_to_bgra(pixel);
     }
     Ok(Drawing {
