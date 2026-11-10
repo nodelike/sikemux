@@ -34,6 +34,17 @@ pub(crate) fn attributed(dir: &Path) -> bool {
     .map_or(true, |value| value.trim() != "false")
 }
 
+/// Whether `text` credits Claude, as a Co-Authored-By trailer or a "Generated
+/// with Claude Code" line does. The person never wants that on anything an
+/// agent writes; Sikemux's footer credits the agent already.
+pub(crate) fn credits_claude(text: &str) -> bool {
+    text.lines().any(|line| {
+        let line = line.trim().to_lowercase();
+        (line.contains("claude") || line.contains("anthropic"))
+            && (line.starts_with("co-authored-by:") || line.contains("generated with"))
+    })
+}
+
 /// The footer for committing what `dir` has staged, or what `index` holds when
 /// git commits from an index of its own: `fallback`, the agent committing, and
 /// every agent whose lines it holds for certain, or the agents `named` when

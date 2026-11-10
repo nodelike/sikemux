@@ -449,6 +449,11 @@ pub(crate) async fn call_agent_tool(
     let Some(Provided(plugins)) = core.config.plugins else {
         return Err("plugins are not loaded".into());
     };
+    if writes(core, name) && credits_claude(&arguments) {
+        return Err(format!(
+            "{name} did nothing: leave out the line crediting Claude, such as \"Generated with Claude Code\" or a Co-Authored-By trailer."
+        ));
+    }
     let deploy = super::ship::check_tool(core, request, name, &arguments).await?;
     if let Some(gated) = plugins.gated(name) {
         return super::approvals::propose(core, request, gated, arguments).await;
@@ -477,6 +482,27 @@ pub(crate) async fn run_agent_tool(
     let answer = answer?;
     tool_ran(core, name);
     Ok(answer)
+}
+
+/// Whether the plugin tool `tool` changes something rather than only reading.
+fn writes(core: &Core, tool: &str) -> bool {
+    manifests(core)
+        .into_iter()
+        .flat_map(|manifest| &manifest.tools)
+        .find(|each| each.name == tool)
+        .is_some_and(|tool| {
+            let kind = tool.row.as_ref().and_then(|row| row.get("kind"));
+            !matches!(kind.and_then(Value::as_str), Some("read" | "search"))
+        })
+}
+
+fn credits_claude(value: &Value) -> bool {
+    match value {
+        Value::String(text) => super::edits::footer::credits_claude(text),
+        Value::Array(items) => items.iter().any(credits_claude),
+        Value::Object(fields) => fields.values().any(credits_claude),
+        _ => false,
+    }
 }
 
 /// An agent ran the tool `tool`, which may be one of a plugin's writes.
