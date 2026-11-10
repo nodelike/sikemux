@@ -16,7 +16,11 @@ enum Config {
             let production: Production
             let dev: Dev
         }
+        struct Retention: Decodable {
+            let restorableDays: Int
+        }
         let accounts: Accounts
+        let account: Retention
     }
 
     private static let release: Release = {
@@ -43,6 +47,12 @@ enum Config {
         }
         return URL(string: "http://127.0.0.1:\(release.accounts.dev.apiPort)")!
     }
+
+    /// How long a deleted account can still be restored.
+    static var restorableDays: Int { release.account.restorableDays }
+
+    /// Where a person gets a newer app, until the App Store lists it.
+    static let updateLink = URL(string: "https://sikemux.com/")!
 
     static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"

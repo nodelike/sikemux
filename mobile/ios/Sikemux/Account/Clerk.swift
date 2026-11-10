@@ -47,6 +47,7 @@ enum Clerk {
         let firstName: String?
         let lastName: String?
         let imageUrl: String?
+        let hasImage: Bool?
         let primaryEmailAddressId: String?
         let emailAddresses: [Email]
         let externalAccounts: [External]?
