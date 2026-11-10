@@ -345,7 +345,7 @@ pub(crate) async fn start(
 /// before its agent starts is placed at once, on the readings already kept.
 async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
     let named = LauncherId::parse(&chosen.launcher);
-    if named.account.is_some() || chosen.account.is_some() {
+    if named.account.is_some() || chosen.account.is_some() || chosen.model_provider.is_some() {
         return None;
     }
     let kind = named.kind.to_owned();
@@ -370,7 +370,7 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
         .ok()
         .flatten();
     let chat = super::agent_accounts::Placing {
-        model: chosen.model.clone(),
+        model: model_of(core, &book, &kind, chosen.model.clone()),
         typical_tokens,
         cwd: Some(chosen.cwd.clone()),
     };
@@ -393,6 +393,28 @@ async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
         "reason": "placed",
         "why": placed.why,
     }))
+}
+
+/// The model a new chat of `kind` will run: the one chosen, else the agent's own default as its
+/// settings name it, else the one its last session started on. None when all that says is
+/// "default".
+fn model_of(
+    core: &Core,
+    book: &crate::agent_accounts::Book,
+    kind: &str,
+    chosen: Option<String>,
+) -> Option<String> {
+    let config_path = (book.clone().with_built_ins().profile(&book.chosen(kind)))
+        .and_then(|profile| profile.config_path.clone());
+    chosen
+        .or_else(|| {
+            crate::agent_accounts::defaults::configured_default_model(kind, config_path.as_deref())
+        })
+        .or_else(|| {
+            let options = core.workspaces.agent_options(kind)?;
+            crate::acp::pickers::current_choice(&json!({ "configOptions": options }), "model")
+        })
+        .filter(|model| !model.eq_ignore_ascii_case("default"))
 }
 
 /// Starts an agent of the workspace as its record says, on its saved

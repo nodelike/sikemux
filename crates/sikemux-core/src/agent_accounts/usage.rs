@@ -29,6 +29,9 @@ pub enum UsageResetAt {
 #[serde(rename_all = "camelCase")]
 pub struct UsageWindow {
     pub label: String,
+    /// The model or limit the window is for, such as Opus; none for the whole plan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
     pub used_percent: f64,
     pub resets_at: Option<UsageResetAt>,
     pub window_minutes: Option<u64>,
@@ -58,6 +61,26 @@ impl UsageResetAt {
 }
 
 impl UsageWindow {
+    /// A window of `duration`, such as 7d, over `scope`, labelled as the person reads it.
+    fn new(
+        scope: Option<&str>,
+        duration: &str,
+        used_percent: f64,
+        resets_at: Option<UsageResetAt>,
+        window_minutes: Option<u64>,
+    ) -> Self {
+        Self {
+            label: match scope {
+                Some(scope) => format!("{scope} · {duration}"),
+                None => duration.to_owned(),
+            },
+            scope: scope.map(str::to_owned),
+            used_percent: used_percent.clamp(0.0, 100.0),
+            resets_at,
+            window_minutes,
+        }
+    }
+
     /// Whether the window has started over since it was read, so its numbers are the last
     /// window's.
     pub fn is_past_reset(&self, now_ms: u64) -> bool {
@@ -220,7 +243,7 @@ const BURN_SPAN_MS: u64 = 60 * 1000;
 
 fn note_burn(key: &str, usage: &Usage, now: u64) {
     let Some(short) = (usage.windows.iter())
-        .filter(|window| !window.label.contains(" · "))
+        .filter(|window| window.scope.is_none())
         .find(|window| {
             window
                 .window_minutes
@@ -359,21 +382,22 @@ pub(crate) fn claude_live(info: &Value) -> Vec<UsageWindow> {
         return Vec::new();
     };
     let named = |key: &str| match key {
-        "five_hour" => Some(("5h", 300)),
-        "seven_day" => Some(("7d", 10_080)),
-        "seven_day_opus" => Some(("Opus · 7d", 10_080)),
-        "seven_day_sonnet" => Some(("Sonnet · 7d", 10_080)),
+        "five_hour" => Some((None, "5h", 300)),
+        "seven_day" => Some((None, "7d", 10_080)),
+        "seven_day_opus" => Some((Some("Opus"), "7d", 10_080)),
+        "seven_day_sonnet" => Some((Some("Sonnet"), "7d", 10_080)),
         _ => None,
     };
     (windows.iter())
         .filter_map(|(key, window)| {
-            let (label, minutes) = named(key)?;
-            Some(UsageWindow {
-                label: label.to_owned(),
-                used_percent: (window.get("utilization")?.as_f64()? * 100.0).clamp(0.0, 100.0),
-                resets_at: window.get("resetsAt").and_then(usage_reset_at),
-                window_minutes: Some(minutes),
-            })
+            let (scope, duration, minutes) = named(key)?;
+            Some(UsageWindow::new(
+                scope,
+                duration,
+                window.get("utilization")?.as_f64()? * 100.0,
+                window.get("resetsAt").and_then(usage_reset_at),
+                Some(minutes),
+            ))
         })
         .collect()
 }
@@ -687,7 +711,7 @@ fn push_claude_usage_window(
     windows: &mut Vec<UsageWindow>,
     limits: &Value,
     key: &str,
-    label: &str,
+    (scope, duration): (Option<&str>, &str),
     window_minutes: u64,
 ) {
     let Some(window) = limits.get(key) else {
@@ -696,12 +720,13 @@ fn push_claude_usage_window(
     let Some(used_percent) = window.get("utilization").and_then(Value::as_f64) else {
         return;
     };
-    windows.push(UsageWindow {
-        label: label.to_string(),
-        used_percent: used_percent.clamp(0.0, 100.0),
-        resets_at: window.get("resets_at").and_then(usage_reset_at),
-        window_minutes: Some(window_minutes),
-    });
+    windows.push(UsageWindow::new(
+        scope,
+        duration,
+        used_percent,
+        window.get("resets_at").and_then(usage_reset_at),
+        Some(window_minutes),
+    ));
 }
 
 /// What Claude answered the control request `request_id`, among the lines it printed.
@@ -745,23 +770,16 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
         .and_then(clean);
     let mut windows = Vec::new();
     if let Some(limits) = payload.get("rate_limits").filter(|value| value.is_object()) {
-        push_claude_usage_window(&mut windows, limits, "five_hour", "5h", 300);
-        push_claude_usage_window(&mut windows, limits, "seven_day", "7d", 10_080);
-        push_claude_usage_window(&mut windows, limits, "seven_day_opus", "Opus · 7d", 10_080);
-        push_claude_usage_window(
-            &mut windows,
-            limits,
-            "seven_day_sonnet",
-            "Sonnet · 7d",
-            10_080,
-        );
-        push_claude_usage_window(
-            &mut windows,
-            limits,
-            "seven_day_oauth_apps",
-            "OAuth apps · 7d",
-            10_080,
-        );
+        let windows_named = [
+            ("five_hour", None, "5h", 300),
+            ("seven_day", None, "7d", 10_080),
+            ("seven_day_opus", Some("Opus"), "7d", 10_080),
+            ("seven_day_sonnet", Some("Sonnet"), "7d", 10_080),
+            ("seven_day_oauth_apps", Some("OAuth apps"), "7d", 10_080),
+        ];
+        for (key, scope, duration, minutes) in windows_named {
+            push_claude_usage_window(&mut windows, limits, key, (scope, duration), minutes);
+        }
         if let Some(model_scoped) = limits.get("model_scoped").and_then(Value::as_array) {
             for window in model_scoped {
                 let Some(display_name) = window
@@ -774,12 +792,13 @@ fn parse_claude_usage(text: &str, request_id: &str) -> Option<Usage> {
                 let Some(used_percent) = window.get("utilization").and_then(Value::as_f64) else {
                     continue;
                 };
-                windows.push(UsageWindow {
-                    label: format!("{display_name} · 7d"),
-                    used_percent: used_percent.clamp(0.0, 100.0),
-                    resets_at: window.get("resets_at").and_then(usage_reset_at),
-                    window_minutes: Some(10_080),
-                });
+                windows.push(UsageWindow::new(
+                    Some(&display_name),
+                    "7d",
+                    used_percent,
+                    window.get("resets_at").and_then(usage_reset_at),
+                    Some(10_080),
+                ));
             }
         }
     }
@@ -822,14 +841,13 @@ fn push_codex_usage_window(
     };
     let window_minutes = window.get("windowDurationMins").and_then(Value::as_u64);
     let duration = usage_duration_label(window_minutes, fallback);
-    windows.push(UsageWindow {
-        label: scope
-            .map(|scope| format!("{scope} · {duration}"))
-            .unwrap_or(duration),
-        used_percent: used_percent.clamp(0.0, 100.0),
-        resets_at: window.get("resetsAt").and_then(usage_reset_at),
+    windows.push(UsageWindow::new(
+        scope,
+        &duration,
+        used_percent,
+        window.get("resetsAt").and_then(usage_reset_at),
         window_minutes,
-    });
+    ));
 }
 
 fn parse_codex_usage_result(result: &Value) -> Usage {

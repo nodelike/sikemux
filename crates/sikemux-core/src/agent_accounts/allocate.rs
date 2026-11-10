@@ -69,7 +69,7 @@ struct Standing<'a> {
 /// Whether `window` limits a chat on `model`: every window for the whole plan, and a model's
 /// own week only for that model.
 fn governs(window: &UsageWindow, model: Option<&str>) -> bool {
-    let Some((scope, _)) = window.label.split_once(" · ") else {
+    let Some(scope) = &window.scope else {
         return true;
     };
     let (scope, model) = (
@@ -80,10 +80,12 @@ fn governs(window: &UsageWindow, model: Option<&str>) -> bool {
 }
 
 /// Where the account stands for a chat on `model`, or none when a window over that model is
-/// too full to start one.
+/// too full to start one. A chat whose model is not known counts every model's own week as
+/// over it while `wary`.
 fn standing<'a>(
     candidate: &Candidate<'a>,
     model: Option<&str>,
+    wary: bool,
     now_ms: u64,
 ) -> Option<Standing<'a>> {
     let usage = candidate.usage?;
@@ -91,13 +93,19 @@ fn standing<'a>(
         .filter(|window| governs(window, model))
         .collect();
     let weekly = |window: &UsageWindow| window.window_minutes.unwrap_or(0) >= WEEK_MINUTES;
-    let room = governing.iter().all(|window| {
-        if weekly(window) {
-            return window.used_at(now_ms) < WEEK_CAP;
-        }
-        window.used_at(now_ms) < SHORT_WINDOW_CAP
-            && projected(window, candidate.burn, now_ms) < 100.0
-    });
+    let unknown_models =
+        (usage.windows.iter()).filter(|window| wary && model.is_none() && window.scope.is_some());
+    let room = governing
+        .iter()
+        .copied()
+        .chain(unknown_models)
+        .all(|window| {
+            if weekly(window) {
+                return window.used_at(now_ms) < WEEK_CAP;
+            }
+            window.used_at(now_ms) < SHORT_WINDOW_CAP
+                && projected(window, candidate.burn, now_ms) < 100.0
+        });
     if !room || governing.is_empty() {
         return None;
     }
@@ -130,16 +138,24 @@ fn projected(window: &UsageWindow, burn: f64, now_ms: u64) -> f64 {
 }
 
 /// The account a chat of `model` goes to, of `candidates`, or none when no account has a
-/// reading that leaves it room.
+/// reading that leaves it room. A chat whose model is not known keeps off an account with any
+/// model's week full, unless every account has one.
 pub fn place(
     candidates: &[Candidate],
     model: Option<&str>,
     aim: Aim,
     now_ms: u64,
 ) -> Option<Placement> {
-    let standings: Vec<Standing> = (candidates.iter())
-        .filter_map(|candidate| standing(candidate, model, now_ms))
-        .collect();
+    let standings_for = |wary| -> Vec<Standing> {
+        (candidates.iter())
+            .filter_map(|candidate| standing(candidate, model, wary, now_ms))
+            .collect()
+    };
+    let wary = standings_for(true);
+    let standings = match wary.is_empty() && model.is_none() {
+        true => standings_for(false),
+        false => wary,
+    };
     let most_left = |among: &[&Standing]| -> Option<Placement> {
         let best = among
             .iter()
