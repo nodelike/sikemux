@@ -16,7 +16,6 @@ enum Route: Hashable {
     case hostSignIn
     case deleteAccount
     case share(id: String, key: String?)
-    case stash
     case signIn
 
     /// The route a link names, from its path and query, without the scheme.
@@ -46,7 +45,6 @@ enum Route: Hashable {
             guard words.count >= 2 else { return nil }
             // A shared chat's key rides in the link's fragment, which never reaches a server.
             self = .share(id: words[1], key: query["key"] ?? parts?.fragment)
-        case "stash": self = .stash
         case "sign-in": self = .signIn
         default: return nil
         }
