@@ -522,6 +522,10 @@ button:focus-visible,
   gap: 32px;
 }
 
+.groups + .groups {
+  margin-top: 32px;
+}
+
 .group h2 {
   display: flex;
   align-items: baseline;

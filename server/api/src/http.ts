@@ -83,16 +83,18 @@ export function requestContext(log: Logger): MiddlewareHandler<Env> {
 
 const MAX_BODY_BYTES = 64 * 1024;
 
-/** Refuses a body over 64 KB, the most any JSON request needs. */
-export function limitBody<E extends Env = Env>(): MiddlewareHandler<E> {
+/** Refuses a body over `maxSize` bytes: by default 64 KB, enough for any JSON request but the vault's. */
+export function limitBody<E extends Env = Env>(
+  maxSize = MAX_BODY_BYTES,
+): MiddlewareHandler<E> {
   return bodyLimit({
-    maxSize: MAX_BODY_BYTES,
+    maxSize,
     onError: (c) =>
       errorResponse(
         c,
         413,
         "payload_too_large",
-        `Request bodies are limited to ${MAX_BODY_BYTES} bytes.`,
+        `Request bodies are limited to ${maxSize} bytes.`,
       ),
   });
 }

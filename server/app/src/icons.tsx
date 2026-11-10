@@ -120,3 +120,12 @@ export function BackIcon() {
     </Stroke>
   );
 }
+
+export function KeyIcon({ size }: { size?: number }) {
+  return (
+    <Stroke size={size}>
+      <circle cx="5.2" cy="10.8" r="2.8" />
+      <path d="M7.2 8.8 13.4 2.6M11.4 4.6l1.7 1.7M9.6 6.4l1.4 1.4" />
+    </Stroke>
+  );
+}

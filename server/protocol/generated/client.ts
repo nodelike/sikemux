@@ -33,6 +33,15 @@ import type {
   StashSeen,
   StashTaken,
   StashUpdate,
+  VaultCreate,
+  VaultEntry,
+  VaultEntryPut,
+  VaultKeysAdd,
+  VaultRevisionParam,
+  VaultRotate,
+  VaultState,
+  VaultUses,
+  VaultUsesAdd,
 } from "./types.ts";
 
 export type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -150,6 +159,38 @@ export function apiClient(send: Send) {
     /** Take one of this host's webhooks away, with the requests it still holds. */
     removeHook: (hookId: string) =>
       send<void>("DELETE", `/v1/hooks/${encodeURIComponent(hookId)}`),
+    /** The account's vault as this host sees it: its entries, the key sealed for this host, and the hosts still waiting for it. */
+    getVault: () => send<VaultState>("GET", `/v1/vault`),
+    /** Make the account's vault, with its key sealed for this host and for the recovery key. */
+    createVault: (body: VaultCreate) =>
+      send<VaultState>("POST", `/v1/vault`, body),
+    /** Seal the vault key for hosts on the account: a holder for any of them, a host restoring the vault from its recovery key only for itself. */
+    addVaultKeys: (body: VaultKeysAdd) =>
+      send<VaultState>("PUT", `/v1/vault/keys`, body),
+    /** Replace the vault key, sealing every entry again under the new one. */
+    rotateVault: (body: VaultRotate) =>
+      send<VaultState>("POST", `/v1/vault/rotate`, body),
+    /** Add an entry to the vault, or replace one. */
+    putVaultEntry: (id: string, body: VaultEntryPut) =>
+      send<VaultEntry>(
+        "PUT",
+        `/v1/vault/entries/${encodeURIComponent(id)}`,
+        body,
+      ),
+    /** Take an entry out of the vault. */
+    deleteVaultEntry: (
+      id: string,
+      query: { revision?: VaultRevisionParam } = {},
+    ) =>
+      send<void>(
+        "DELETE",
+        `/v1/vault/entries/${encodeURIComponent(id)}${search(query)}`,
+      ),
+    /** Report the uses this host's agents made of the vault's entries. */
+    addVaultUses: (body: VaultUsesAdd) =>
+      send<void>("POST", `/v1/vault/uses`, body),
+    /** Which agents on which hosts used the vault's entries in the last 30 days. */
+    listVaultUses: () => send<VaultUses>("GET", `/v1/vault/uses`),
   };
 }
 

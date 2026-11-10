@@ -1554,6 +1554,368 @@
           }
         }
       }
+    },
+    "/v1/vault": {
+      "get": {
+        "operationId": "getVault",
+        "summary": "The account's vault as this host sees it: its entries, the key sealed for this host, and the hosts still waiting for it",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "responses": {
+          "200": {
+            "description": "The vault, or null when the account has none yet.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultState" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createVault",
+        "summary": "Make the account's vault, with its key sealed for this host and for the recovery key",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultCreate" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The vault, at generation 1. Every host hears vault.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultState" }
+              }
+            }
+          },
+          "409": {
+            "description": "The account already has a vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vault/keys": {
+      "put": {
+        "operationId": "addVaultKeys",
+        "summary": "Seal the vault key for hosts on the account: a holder for any of them, a host restoring the vault from its recovery key only for itself",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultKeysAdd" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The vault with the new holders. Every host hears vault.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultState" }
+              }
+            }
+          },
+          "400": {
+            "description": "A key is for a device that is not a host on the account.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "This host does not hold the key at that generation, and the keys are not only for itself.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The generation is not the current one.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vault/rotate": {
+      "post": {
+        "operationId": "rotateVault",
+        "summary": "Replace the vault key, sealing every entry again under the new one",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultRotate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The vault at the next generation. Every host hears vault.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultState" }
+              }
+            }
+          },
+          "400": {
+            "description": "A key is for a device that is not a host on the account, or leaves out this host.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "403": {
+            "description": "This host does not hold the key at that generation.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The generation is not the current one, or the entries are not every current entry at its current revision.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vault/entries/{id}": {
+      "put": {
+        "operationId": "putVaultEntry",
+        "summary": "Add an entry to the vault, or replace one",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultEntryPut" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The entry as it is now. Every host hears vault.changed.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultEntry" }
+              }
+            }
+          },
+          "404": {
+            "description": "The account has no vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The revision is not the entry's current one, the generation is not current, or the vault already holds 500 entries.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteVaultEntry",
+        "summary": "Take an entry out of the vault",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": false,
+            "schema": { "$ref": "#/components/schemas/VaultRevisionParam" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Removed. Every host hears vault.changed." },
+          "400": {
+            "description": "The revision is missing.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "404": {
+            "description": "No entry with that id is in the vault.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "409": {
+            "description": "The revision is not the entry's current one.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/vault/uses": {
+      "post": {
+        "operationId": "addVaultUses",
+        "summary": "Report the uses this host's agents made of the vault's entries",
+        "security": [{ "host": [] }],
+        "description": "Only a request signed by a host on the account.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/VaultUsesAdd" }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Recorded." },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listVaultUses",
+        "summary": "Which agents on which hosts used the vault's entries in the last 30 days",
+        "security": [{ "session": [] }, { "host": [] }, { "device": [] }],
+        "description": "The phone's or the web app's sign-in, the Mac app's OAuth token, or a request signed by a host or a phone on the account.",
+        "responses": {
+          "200": {
+            "description": "Up to 500 uses, the most recent first.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/VaultUses" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1647,7 +2009,8 @@
           "stash.added",
           "stash.changed",
           "stash.removed",
-          "stash.seen"
+          "stash.seen",
+          "vault.changed"
         ]
       },
       "AccountProfile": {
@@ -2649,6 +3012,11 @@
         "type": "string",
         "enum": ["macos", "linux", "ios", "android"]
       },
+      "PluginId": {
+        "description": "The connector a sign-in is for, such as sikemux.github.",
+        "type": "string",
+        "pattern": "^sikemux\\.[a-z0-9-]{1,48}$"
+      },
       "PushApp": {
         "description": "Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them.",
         "type": "string",
@@ -2703,6 +3071,11 @@
         },
         "required": ["enabled", "updatedAt"],
         "additionalProperties": false
+      },
+      "RecoveryKey": {
+        "description": "The X25519 public key the person's recovery code makes, in lowercase hex.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
       },
       "Relay": {
         "type": "object",
@@ -3372,6 +3745,300 @@
           "note": { "$ref": "#/components/schemas/StashNote" },
           "taken": { "type": "boolean" }
         },
+        "additionalProperties": false
+      },
+      "Vault": {
+        "description": "The account's vault, as the host that asked sees it.",
+        "type": "object",
+        "properties": {
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "recoveryKey": { "$ref": "#/components/schemas/RecoveryKey" },
+          "recoveryWrap": {
+            "description": "The vault key sealed for the recovery key.",
+            "$ref": "#/components/schemas/VaultSealed"
+          },
+          "key": {
+            "description": "The vault key sealed for the asking host at the current generation, or null when it has none yet.",
+            "anyOf": [
+              { "$ref": "#/components/schemas/VaultSealed" },
+              { "type": "null" }
+            ]
+          },
+          "holders": {
+            "description": "The hosts holding the key at the current generation.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DeviceKey" }
+          },
+          "waiting": {
+            "description": "The account's hosts without the key at the current generation, for a holder to wrap it for.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/DeviceKey" }
+          },
+          "rotate": {
+            "description": "A host left the account, so a holder should replace the vault key.",
+            "type": "boolean"
+          },
+          "entries": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultEntry" }
+          }
+        },
+        "required": [
+          "generation",
+          "recoveryKey",
+          "recoveryWrap",
+          "key",
+          "holders",
+          "waiting",
+          "rotate",
+          "entries"
+        ],
+        "additionalProperties": false
+      },
+      "VaultCreate": {
+        "description": "A host makes the account's vault, holding its key at generation 1.",
+        "type": "object",
+        "properties": {
+          "recoveryKey": { "$ref": "#/components/schemas/RecoveryKey" },
+          "recoveryWrap": { "$ref": "#/components/schemas/VaultSealed" },
+          "key": {
+            "description": "The vault key sealed for the asking host.",
+            "$ref": "#/components/schemas/VaultSealed"
+          }
+        },
+        "required": ["recoveryKey", "recoveryWrap", "key"],
+        "additionalProperties": false
+      },
+      "VaultEntry": {
+        "description": "One sign-in in the vault, sealed under the vault key of its generation.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/VaultEntryId" },
+          "plugin": { "$ref": "#/components/schemas/PluginId" },
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "revision": { "$ref": "#/components/schemas/VaultRevision" },
+          "updatedBy": { "$ref": "#/components/schemas/DeviceKey" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "id",
+          "plugin",
+          "generation",
+          "sealed",
+          "revision",
+          "updatedBy",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "VaultEntryId": {
+        "description": "A vault entry's id: 16 random bytes in lowercase hex, made by the host that adds it.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{32}$"
+      },
+      "VaultEntryPut": {
+        "description": "A host adds or replaces an entry.",
+        "type": "object",
+        "properties": {
+          "plugin": { "$ref": "#/components/schemas/PluginId" },
+          "generation": {
+            "description": "The generation of the key it is sealed under, which must be current.",
+            "$ref": "#/components/schemas/VaultGeneration"
+          },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "revision": {
+            "description": "The entry's revision as the writer last saw it, or 0 to add it.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 999999999
+          }
+        },
+        "required": ["plugin", "generation", "sealed", "revision"],
+        "additionalProperties": false
+      },
+      "VaultEntryReseal": {
+        "description": "An entry sealed again under the new key.",
+        "type": "object",
+        "properties": {
+          "id": { "$ref": "#/components/schemas/VaultEntryId" },
+          "sealed": { "$ref": "#/components/schemas/VaultSealed" },
+          "revision": {
+            "description": "The entry's current revision.",
+            "$ref": "#/components/schemas/VaultRevision"
+          }
+        },
+        "required": ["id", "sealed", "revision"],
+        "additionalProperties": false
+      },
+      "VaultGeneration": {
+        "description": "Which vault key is current. It starts at 1 and goes up by one each time a host replaces the key.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 999999999
+      },
+      "VaultKeysAdd": {
+        "description": "A host holding the key at the current generation seals it for other hosts on the account. A host without it, restoring the vault from the recovery key, may seal it only for itself.",
+        "type": "object",
+        "properties": {
+          "generation": { "$ref": "#/components/schemas/VaultGeneration" },
+          "keys": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/WrappedKey" },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        },
+        "required": ["generation", "keys"],
+        "additionalProperties": false
+      },
+      "VaultRevision": {
+        "description": "How many times an entry was written. It starts at 1 and goes up by one each write.",
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 999999999
+      },
+      "VaultRevisionParam": {
+        "description": "An entry's revision, as the writer last saw it, in a query string.",
+        "type": "string",
+        "pattern": "^[1-9][0-9]{0,8}$"
+      },
+      "VaultRotate": {
+        "description": "A host replaces the vault key: every wrap and every entry moves to the next generation at once.",
+        "type": "object",
+        "properties": {
+          "from": {
+            "description": "The current generation.",
+            "$ref": "#/components/schemas/VaultGeneration"
+          },
+          "recoveryWrap": { "$ref": "#/components/schemas/VaultSealed" },
+          "keys": {
+            "description": "The new key sealed for each host that keeps it, the asking host among them. Every other wrap is dropped.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/WrappedKey" },
+            "minItems": 1,
+            "maxItems": 50
+          },
+          "entries": {
+            "description": "Every entry in the vault, each once.",
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultEntryReseal" },
+            "maxItems": 500
+          }
+        },
+        "required": ["from", "recoveryWrap", "keys", "entries"],
+        "additionalProperties": false
+      },
+      "VaultSealed": {
+        "description": "What a host encrypted, in unpadded base64url. Only hosts holding the vault key can read it; the server cannot.",
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]+$",
+        "minLength": 1,
+        "maxLength": 87400
+      },
+      "VaultState": {
+        "type": "object",
+        "properties": {
+          "vault": {
+            "description": "Null until a host on the account makes the vault.",
+            "anyOf": [
+              { "$ref": "#/components/schemas/Vault" },
+              { "type": "null" }
+            ]
+          }
+        },
+        "required": ["vault"],
+        "additionalProperties": false
+      },
+      "VaultUse": {
+        "description": "How often one agent on the signing host used one entry.",
+        "type": "object",
+        "properties": {
+          "entryId": { "$ref": "#/components/schemas/VaultEntryId" },
+          "plugin": { "$ref": "#/components/schemas/PluginId" },
+          "actor": {
+            "description": "Who used it: an agent's name such as @Otter, or Sikemux for the host itself.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "count": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+          "firstAt": { "type": "string", "format": "date-time" },
+          "lastAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "entryId",
+          "plugin",
+          "actor",
+          "count",
+          "firstAt",
+          "lastAt"
+        ],
+        "additionalProperties": false
+      },
+      "VaultUseRow": {
+        "description": "Uses one host reported of one entry by one agent.",
+        "type": "object",
+        "properties": {
+          "entryId": { "$ref": "#/components/schemas/VaultEntryId" },
+          "plugin": { "$ref": "#/components/schemas/PluginId" },
+          "hostKey": { "$ref": "#/components/schemas/DeviceKey" },
+          "hostName": {
+            "description": "The host's name, or null once it has left the account.",
+            "type": ["string", "null"]
+          },
+          "actor": { "type": "string" },
+          "count": { "type": "integer", "minimum": 1 },
+          "firstAt": { "type": "string", "format": "date-time" },
+          "lastAt": { "type": "string", "format": "date-time" }
+        },
+        "required": [
+          "entryId",
+          "plugin",
+          "hostKey",
+          "hostName",
+          "actor",
+          "count",
+          "firstAt",
+          "lastAt"
+        ],
+        "additionalProperties": false
+      },
+      "VaultUses": {
+        "description": "Uses of the vault's entries in the last 30 days, newest first, at most 500.",
+        "type": "object",
+        "properties": {
+          "uses": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultUseRow" }
+          }
+        },
+        "required": ["uses"],
+        "additionalProperties": false
+      },
+      "VaultUsesAdd": {
+        "description": "Uses a host made of the vault's entries since it last reported.",
+        "type": "object",
+        "properties": {
+          "uses": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultUse" },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": ["uses"],
+        "additionalProperties": false
+      },
+      "WrappedKey": {
+        "description": "The vault key, sealed for one host.",
+        "type": "object",
+        "properties": {
+          "hostKey": { "$ref": "#/components/schemas/DeviceKey" },
+          "wrapped": { "$ref": "#/components/schemas/VaultSealed" }
+        },
+        "required": ["hostKey", "wrapped"],
         "additionalProperties": false
       }
     },

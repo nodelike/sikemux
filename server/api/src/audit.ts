@@ -26,7 +26,12 @@ type AuditAction =
   | "update.published"
   | "update.promoted"
   | "update.withdrawn"
-  | "update.rolled_back";
+  | "update.rolled_back"
+  | "vault.created"
+  | "vault.rotated"
+  | "vault.key_added"
+  | "vault.entry_written"
+  | "vault.entry_removed";
 
 interface AuditEntry {
   /** The account it happened to, or null for what belongs to none. */

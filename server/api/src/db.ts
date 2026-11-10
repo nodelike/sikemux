@@ -203,6 +203,46 @@ export interface Tables {
     attempts: ColumnType<number, never, number>;
     retry_at: ColumnType<Date | null, never, Date | null>;
   };
+  vaults: {
+    user_id: string;
+    generation: ColumnType<number, never, number>;
+    recovery_key: string;
+    recovery_wrap: string;
+    rotate: ColumnType<boolean, never, boolean>;
+    created_by: string;
+    created_at: CreatedAt;
+    rotated_at: ColumnType<Date | null, never, Date>;
+  };
+  vault_keys: {
+    user_id: string;
+    host_key: string;
+    generation: number;
+    wrapped: string;
+    wrapped_by: string;
+    created_at: ColumnType<Date, never, Date>;
+  };
+  vault_entries: {
+    id: string;
+    user_id: string;
+    plugin: string;
+    generation: number;
+    sealed: string;
+    revision: number;
+    updated_by: string;
+    updated_at: ColumnType<Date, never, Date>;
+    created_at: CreatedAt;
+  };
+  vault_uses: {
+    id: Generated<string>;
+    user_id: string;
+    entry_id: string;
+    plugin: string;
+    host_key: string;
+    actor: string;
+    count: number;
+    first_at: ColumnType<Date, string, never>;
+    last_at: ColumnType<Date, string, never>;
+  };
   audit: {
     id: Generated<string>;
     user_id: string | null;

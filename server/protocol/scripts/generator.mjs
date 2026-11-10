@@ -586,6 +586,7 @@ const AUTH = new Set([
   "sessionOrHost",
   "sessionHostOrMac",
   "sessionOrDevice",
+  "sessionDeviceOrMac",
   "host",
   "device",
   "webhook",
@@ -596,6 +597,7 @@ const SECURITY = {
   sessionOrHost: [{ session: [] }, { host: [] }],
   sessionHostOrMac: [{ session: [] }, { host: [] }],
   sessionOrDevice: [{ session: [] }, { host: [] }, { device: [] }],
+  sessionDeviceOrMac: [{ session: [] }, { host: [] }, { device: [] }],
   host: [{ host: [] }],
 };
 const AUTH_NOTES = {
@@ -609,6 +611,8 @@ const AUTH_NOTES = {
     "The phone's or the web app's sign-in, a request signed by a host on the account, or the Mac app's OAuth token.",
   sessionOrDevice:
     "The phone's or the web app's sign-in, or a request signed by a host or a phone on the account.",
+  sessionDeviceOrMac:
+    "The phone's or the web app's sign-in, the Mac app's OAuth token, or a request signed by a host or a phone on the account.",
   host: "Only a request signed by a host on the account.",
   device:
     "A WebSocket. The device proves who it is in its first message, since browsers cannot set headers on one. `send` is what the device sends; `receive` is what the server sends.",

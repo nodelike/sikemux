@@ -55,12 +55,12 @@
       "auth": "signedIn",
       "request": "DeviceRegistration",
       "responses": {
-        "201": {
-          "description": "The device was added.",
-          "body": "Device"
-        },
         "200": {
           "description": "The device was already yours and is updated.",
+          "body": "Device"
+        },
+        "201": {
+          "description": "The device was added.",
           "body": "Device"
         }
       }
@@ -223,12 +223,12 @@
       "auth": "none",
       "request": "HostSignInFinish",
       "responses": {
-        "201": {
-          "description": "The host is on the account. The code is used up.",
-          "body": "Device"
-        },
         "200": {
           "description": "The host was already on the account and is updated. The code is used up.",
+          "body": "Device"
+        },
+        "201": {
+          "description": "The host is on the account. The code is used up.",
           "body": "Device"
         },
         "400": {
@@ -276,12 +276,12 @@
         "204": {
           "description": "Approved. The host finishes on its next ask."
         },
-        "404": {
-          "description": "The code is unknown, was refused, or has expired.",
-          "body": "ApiError"
-        },
         "403": {
           "description": "The sign-in was not verified again within the error's reverifyWithinMinutes (message reverify).",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The code is unknown, was refused, or has expired.",
           "body": "ApiError"
         }
       }
@@ -696,6 +696,172 @@
         "429": {
           "description": "Too many connections from this address.",
           "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/vault",
+      "operationId": "getVault",
+      "summary": "The account's vault as this host sees it: its entries, the key sealed for this host, and the hosts still waiting for it",
+      "auth": "host",
+      "responses": {
+        "200": {
+          "description": "The vault, or null when the account has none yet.",
+          "body": "VaultState"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/vault",
+      "operationId": "createVault",
+      "summary": "Make the account's vault, with its key sealed for this host and for the recovery key",
+      "auth": "host",
+      "request": "VaultCreate",
+      "responses": {
+        "201": {
+          "description": "The vault, at generation 1. Every host hears vault.changed.",
+          "body": "VaultState"
+        },
+        "409": {
+          "description": "The account already has a vault.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/vault/keys",
+      "operationId": "addVaultKeys",
+      "summary": "Seal the vault key for hosts on the account: a holder for any of them, a host restoring the vault from its recovery key only for itself",
+      "auth": "host",
+      "request": "VaultKeysAdd",
+      "responses": {
+        "200": {
+          "description": "The vault with the new holders. Every host hears vault.changed.",
+          "body": "VaultState"
+        },
+        "400": {
+          "description": "A key is for a device that is not a host on the account.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "This host does not hold the key at that generation, and the keys are not only for itself.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The generation is not the current one.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/vault/rotate",
+      "operationId": "rotateVault",
+      "summary": "Replace the vault key, sealing every entry again under the new one",
+      "auth": "host",
+      "request": "VaultRotate",
+      "responses": {
+        "200": {
+          "description": "The vault at the next generation. Every host hears vault.changed.",
+          "body": "VaultState"
+        },
+        "400": {
+          "description": "A key is for a device that is not a host on the account, or leaves out this host.",
+          "body": "ApiError"
+        },
+        "403": {
+          "description": "This host does not hold the key at that generation.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The generation is not the current one, or the entries are not every current entry at its current revision.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "put",
+      "path": "/v1/vault/entries/{id}",
+      "operationId": "putVaultEntry",
+      "summary": "Add an entry to the vault, or replace one",
+      "auth": "host",
+      "request": "VaultEntryPut",
+      "responses": {
+        "200": {
+          "description": "The entry as it is now. Every host hears vault.changed.",
+          "body": "VaultEntry"
+        },
+        "404": {
+          "description": "The account has no vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The revision is not the entry's current one, the generation is not current, or the vault already holds 500 entries.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "delete",
+      "path": "/v1/vault/entries/{id}",
+      "operationId": "deleteVaultEntry",
+      "summary": "Take an entry out of the vault",
+      "auth": "host",
+      "query": {
+        "revision": "VaultRevisionParam"
+      },
+      "responses": {
+        "204": {
+          "description": "Removed. Every host hears vault.changed."
+        },
+        "400": {
+          "description": "The revision is missing.",
+          "body": "ApiError"
+        },
+        "404": {
+          "description": "No entry with that id is in the vault.",
+          "body": "ApiError"
+        },
+        "409": {
+          "description": "The revision is not the entry's current one.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/vault/uses",
+      "operationId": "addVaultUses",
+      "summary": "Report the uses this host's agents made of the vault's entries",
+      "auth": "host",
+      "request": "VaultUsesAdd",
+      "responses": {
+        "204": {
+          "description": "Recorded."
+        }
+      }
+    },
+    {
+      "method": "get",
+      "path": "/v1/vault/uses",
+      "operationId": "listVaultUses",
+      "summary": "Which agents on which hosts used the vault's entries in the last 30 days",
+      "auth": "sessionDeviceOrMac",
+      "responses": {
+        "200": {
+          "description": "Up to 500 uses, the most recent first.",
+          "body": "VaultUses"
         }
       }
     }

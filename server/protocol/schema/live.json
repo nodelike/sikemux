@@ -22,7 +22,8 @@
         "stash.added",
         "stash.changed",
         "stash.removed",
-        "stash.seen"
+        "stash.seen",
+        "vault.changed"
       ]
     },
     "RevokeReason": {

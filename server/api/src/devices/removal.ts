@@ -4,6 +4,7 @@ import { sql, type Transaction } from "kysely";
 import { audit, type Actor } from "../audit.ts";
 import type { Tables } from "../db.ts";
 import { appendEvent } from "../events/log.ts";
+import { leaveVault } from "../vault/leave.ts";
 
 interface Removal {
   userId: string;
@@ -22,7 +23,8 @@ export interface Removed {
 /**
  * Takes a device off its account: the row moves to a tombstone that keeps its cursor, so a
  * device that was offline still learns why it is gone, and the account hears device.revoked.
- * A host's shared chats end with it, and so do the apps it added to the account.
+ * A host's shared chats end with it, and so do the apps it added to the account; its copy of the
+ * vault key goes, and the vault is marked for a new key.
  */
 export async function removeDevice(
   trx: Transaction<Tables>,
@@ -55,6 +57,7 @@ export async function removeDevice(
       .where("host_key", "=", key)
       .where("ended_at", "is", null)
       .execute();
+    await leaveVault(trx, userId, key);
     const added = await trx
       .selectFrom("devices")
       .select("key")
