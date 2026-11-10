@@ -61,9 +61,9 @@ fn answer<C: Call + 'static>(
     .detach();
 }
 
-/// Allows a held action once, or refuses it, without opening anything; where the core offers it,
-/// always allows what the action lands in, in its project or every project of its folder. The
-/// buttons wrap rather than run past a narrow column.
+/// Refuses a held action or allows it once, without opening anything; where the core offers it,
+/// always allows what the action lands in, in its project or every project of its folder, as the
+/// main button. The buttons wrap rather than run past a narrow column.
 pub fn ship_buttons(
     hold: &ShipHold,
     busy: bool,
@@ -72,9 +72,10 @@ pub fn ship_buttons(
 ) -> AnyElement {
     let id = hold.id.as_str();
     let hold_folder = hold.let_go_in.clone();
+    let once_leads = hold.let_go.is_none();
     let button = |label: &'static str, key: String, allow: bool| {
         let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
-        let variant = if allow {
+        let variant = if allow && once_leads {
             Variant::Primary
         } else {
             Variant::Outline
@@ -95,6 +96,7 @@ pub fn ship_buttons(
         .flex_wrap()
         .min_w_0()
         .gap(SPACE_1)
+        .child(button("Refuse", format!("ship-refuse-{id}"), false))
         .child(button("Allow once", format!("ship-allow-{id}"), true))
         .when_some(hold.let_go.clone(), |row, covers| {
             let (hold, target, bench) = (id.to_owned(), target.clone(), bench.clone());
@@ -112,7 +114,7 @@ pub fn ship_buttons(
                 Button::new(
                     SharedString::from(format!("ship-let-go-{hold}")),
                     label,
-                    Variant::Outline,
+                    Variant::Primary,
                 )
                 .tooltip(tooltip)
                 .disabled(busy)
@@ -124,7 +126,6 @@ pub fn ship_buttons(
                 }),
             )
         })
-        .child(button("Refuse", format!("ship-refuse-{id}"), false))
         .into_any_element()
 }
 
