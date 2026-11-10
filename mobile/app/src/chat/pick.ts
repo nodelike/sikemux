@@ -2,10 +2,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import { Asset } from 'expo-media-library';
 
 import { isDrawnType } from '@shared/lib/imagePaths';
-import type { LibraryPhoto } from './library';
 import type { Attachment } from './uploads';
 
 /** A photo is sent no larger than this on its longest side, which agents read at full detail. */
@@ -34,29 +32,11 @@ export async function pickPhotos(limit: number): Promise<Attachment[]> {
     selectionLimit: limit,
     quality: 1,
     exif: false,
-    preferredAssetRepresentationMode: ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
   });
   if (result.canceled) return [];
   const photos: Attachment[] = [];
   // One at a time, since each full-size photo is decoded in memory.
   for (const asset of result.assets.slice(0, limit)) photos.push(await asJpeg(fromPicker(asset)));
-  return photos;
-}
-
-/** Photos chosen in the app's own gallery, in the order they were chosen. */
-export async function libraryPhotos(chosen: readonly LibraryPhoto[]): Promise<Attachment[]> {
-  const photos: Attachment[] = [];
-  for (const { id, width, height, filename } of chosen) {
-    const asset = new Asset(id);
-    photos.push(
-      await asJpeg({
-        uri: await asset.getUri(),
-        width: width ?? (await asset.getWidth()),
-        height: height ?? (await asset.getHeight()),
-        name: filename,
-      }),
-    );
-  }
   return photos;
 }
 

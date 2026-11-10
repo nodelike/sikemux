@@ -37,10 +37,9 @@ const env = { ...process.env, PATH };
 const [command, platform] = args;
 const help = args.includes('--help') || args.includes('-h');
 const building = command === 'build' && platform in PHONE_TARGETS && !help;
-const simOnly = args.includes('--sim-only');
 
 if (building) {
-  checkRust(env, cargoBin, simOnly ? ['aarch64-apple-ios-sim'] : PHONE_TARGETS[platform]);
+  checkRust(env, cargoBin, PHONE_TARGETS[platform]);
   if (platform === 'android' && output('cargo', ['ndk', '--version'], env) === null) {
     fail('cargo-ndk is not installed: run `cargo install cargo-ndk`.');
   }
@@ -54,5 +53,5 @@ if (building) {
   const flag = args.findIndex((arg) => arg === '--profile' || arg === '-p');
   const release = args.includes('--release') || args.includes('-r');
   const profile = flag >= 0 ? args[flag + 1] : release ? 'release' : 'debug';
-  recordBuild(platform, profile, simOnly);
+  recordBuild(platform, profile);
 }

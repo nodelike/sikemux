@@ -70,7 +70,7 @@ beforeEach(() => {
     key: async () => OWN,
     sign: async (nonce) => `signed:${nonce}`,
     token: async () => 'session-token',
-    app: { platform: 'ios', version: '0.1.0' },
+    app: { platform: 'android', version: '0.1.0' },
     cursor: {
       load: async () => saved,
       save: async (id) => {
@@ -102,7 +102,7 @@ describe('the hello', () => {
         key: OWN,
         signature: `signed:${NONCE}`,
         token: 'session-token',
-        app: { platform: 'ios', version: '0.1.0' },
+        app: { platform: 'android', version: '0.1.0' },
       },
     ]);
   });

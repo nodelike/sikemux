@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { formatBytes } from '@shared/lib/format';
 import type { TokenSource } from '@/account/api';
@@ -135,7 +135,7 @@ export function ShareSheet({
 
   const sending = phase.at === 'sending';
   return (
-    <KeyboardAvoidingView style={styles.wrap} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <View style={styles.wrap}>
       {head}
       <ScrollView
         style={styles.scroll}
@@ -203,7 +203,7 @@ export function ShareSheet({
           onPress={toStash}
         />
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

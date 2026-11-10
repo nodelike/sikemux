@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Image, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Directory, File, Paths } from 'expo-file-system';
 
@@ -11,7 +11,7 @@ import { fonts, type Palette, radius, useColors, useStyles } from '@/ui/theme';
 import { imageType } from '@shared/lib/imagePaths';
 import { useHostFile } from './hostFiles';
 
-/** A picture a call returned is held as text; the share sheet and the folder picker both want a file. */
+/** A picture a call returned is held as text; the folder picker wants a file. */
 function onDisk(uri: string, name: string): string {
   const data = /^data:[^,]*;base64,/.exec(uri);
   if (!data) return uri;
@@ -20,17 +20,12 @@ function onDisk(uri: string, name: string): string {
   return file.uri;
 }
 
-/** iOS's share sheet carries Save Image and Save to Files; Android saves into a folder the person picks, needing no storage access. */
-async function save(shown: string, name: string): Promise<boolean> {
+/** Saves into a folder the person picks, needing no storage access. */
+async function save(shown: string, name: string) {
   const uri = onDisk(shown, name);
-  if (Platform.OS === 'ios') {
-    const result = await Share.share({ url: uri });
-    return result.action === Share.sharedAction;
-  }
   const folder = await Directory.pickDirectoryAsync();
   const copy = folder.createFile(name, imageType(name) ?? 'application/octet-stream');
   copy.write(await new File(uri).bytes());
-  return true;
 }
 
 export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; name: string; onClose: () => void }) {
@@ -45,9 +40,7 @@ export function ImageViewer({ uri, name, onClose }: { uri: string | undefined; n
     setSaving(true);
     setProblem(null);
     save(uri, name)
-      .then((done) => {
-        if (done) haptics.success();
-      })
+      .then(() => haptics.success())
       .catch((error: unknown) => {
         const message = problemOf(error);
         if (!/cancel/i.test(message)) setProblem(`Could not save it: ${message}`);

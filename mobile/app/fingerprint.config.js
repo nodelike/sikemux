@@ -18,7 +18,7 @@ const NATIVE_FILES = [
     .sort()
     .map((name) => `scripts/${name}`),
 ];
-const LINKED_MODULES = ['rncoreAutolinkingConfig:android', 'rncoreAutolinkingConfig:ios'];
+const LINKED_MODULES = ['rncoreAutolinkingConfig:android'];
 
 /** @type {import('expo/fingerprint').Config} */
 module.exports = {

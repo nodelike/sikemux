@@ -45,7 +45,7 @@ describe('joining a host on the account', () => {
     await expect(joinHost(HOST, token, (step) => steps.push(step))).resolves.toBe('watch');
     expect(steps).toEqual(['asking', 'waiting']);
     expect(api.joinTicket).toHaveBeenCalledWith(token, HOST.core);
-    expect(device.join).toHaveBeenCalledWith(HOST.core, JSON.stringify(TICKET), 'Test iPhone', 'ios', undefined);
+    expect(device.join).toHaveBeenCalledWith(HOST.core, JSON.stringify(TICKET), 'Test iPhone', 'android', undefined);
     expect(await pairedDevices()).toEqual([expect.objectContaining({ core: HOST.core, access: 'watch', name: 'Work MacBook' })]);
     expect(hub.rejoined).toHaveBeenCalledWith(HOST.core);
     expect(hub.reloadDevices).toHaveBeenCalled();
@@ -93,7 +93,7 @@ describe('joining a host on the account', () => {
       return JoinAnswer.Allowed.new({ access: 'full' });
     });
     await expect(joinHost(HOST, token, () => {}, controller.signal)).rejects.not.toBeInstanceOf(JoinFailed);
-    expect(device.join).toHaveBeenCalledWith(HOST.core, JSON.stringify(TICKET), 'Test iPhone', 'ios', { signal: controller.signal });
+    expect(device.join).toHaveBeenCalledWith(HOST.core, JSON.stringify(TICKET), 'Test iPhone', 'android', { signal: controller.signal });
     expect(await pairedDevices()).toEqual([]);
   });
 });

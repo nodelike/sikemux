@@ -1,5 +1,5 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
-import { Alert, AppState, Platform } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@clerk/expo';
 import { nativeApplicationVersion } from 'expo-application';
@@ -146,7 +146,7 @@ export function useAccountSequence() {
       key: async () => (await deviceIdentity()).id(),
       sign: async (nonce) => (await deviceIdentity()).signLive(nonce),
       token: () => token(),
-      app: { platform: Platform.OS === 'ios' ? 'ios' : 'android', version: nativeApplicationVersion ?? 'unknown' },
+      app: { platform: 'android', version: nativeApplicationVersion ?? 'unknown' },
       cursor: savedCursor,
       hostsChanged,
       stashChanged,

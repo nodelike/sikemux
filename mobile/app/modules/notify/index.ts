@@ -1,5 +1,4 @@
 import { requireOptionalNativeModule } from 'expo';
-import type { ApnsEnvironment } from '@sikemux/protocol';
 
 export type ShownCard = { tag: string; host: string; agent?: string; kind?: string; request?: string };
 
@@ -14,8 +13,6 @@ type NotifyModule = {
   shown(): Promise<ShownCard[]>;
   dismiss(tag: string): void;
   settle(tag: string, outcome: AnswerOutcome): void;
-  /** iOS only: which of Apple's push servers issued this build's token. */
-  apnsEnvironment?(): ApnsEnvironment;
 };
 
 /** The phone's half of notifications: the keys hosts seal cards with, and the cards showing. */

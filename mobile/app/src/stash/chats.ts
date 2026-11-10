@@ -56,7 +56,7 @@ function shareChats(hosts: readonly { device: PairedDevice; snapshot: Snapshot |
 }
 
 /** The share sheet's chats from what the phone knows of its hosts now. */
-export function shareChatsNow(): ShareChats {
+function shareChatsNow(): ShareChats {
   return shareChats(knownDevices().map((device) => ({ device, snapshot: liveOf(device.core).snapshot })));
 }
 
@@ -77,9 +77,4 @@ export function useShareChats(): ShareChats {
     [],
   );
   return chats;
-}
-
-/** Hears whenever the share sheet's chats may have changed. */
-export function onShareChats(listener: (chats: ShareChats) => void) {
-  return onAnyHost(() => listener(shareChatsNow()));
 }
