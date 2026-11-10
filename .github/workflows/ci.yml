@@ -51,8 +51,8 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
 
 jobs:
-  # Compares against main's last green run rather than the previous push, so a job that
-  # failed keeps running until it passes again.
+  # Compares against main's last run that ran to a result, and also runs every area a job of that
+  # run failed or was stopped in, so a failed job keeps running until it passes again.
   changes:
     name: What changed
     if: github.event_name != 'schedule' && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
@@ -81,10 +81,27 @@ jobs:
           PR_BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           base=""
+          rerun=""
           if [ "$EVENT" = pull_request ]; then
             base="$PR_BASE"
           elif [ "$EVENT" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
-            base="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // empty')"
+            read -r run base < <(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=main&event=push&status=completed&per_page=50" \
+              --jq '[.workflow_runs[] | select(.conclusion == "success" or .conclusion == "failure")][0] // empty | "\(.id) \(.head_sha)"') || true
+            if [ -n "${run:-}" ]; then
+              failed="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "cancelled") | .name')" || base=""
+              while IFS= read -r job; do
+                case "$job" in
+                  "") ;;
+                  "Dependency audit" | "Frontend quality, build, and tests" | "GPUI in a real window") ;;
+                  "Linux compile check and core tests"*) rerun+=" rust packaging" ;;
+                  "Rust "* | "Core unit tests" | "GPUI app tests" | "GPUI on Linux in a real window") rerun+=" rust" ;;
+                  "iOS Simulator helper") rerun+=" simulator" ;;
+                  "Notch and voice helpers") rerun+=" helpers" ;;
+                  *) base="" ;;
+                esac
+              done <<<"$failed"
+              printf 'Run %s failed or stopped in:\n%s\n' "$run" "$failed"
+            fi
           fi
 
           git merge-base --is-ancestor "$base" HEAD 2>/dev/null || base=""
@@ -93,11 +110,12 @@ jobs:
 
           area() {
             name="$1" needs="$2" ignores="${3:-^$}"
-            if [ -z "$base" ] || printf '%s\n' "$changed" | grep -vE "$ignores" | grep -qE "^\.github/(workflows/ci\.yml$|actions/)|$needs"; then
+            if [ -z "$base" ] || [[ " $rerun " == *" $name "* ]] ||
+              printf '%s\n' "$changed" | grep -vE "$ignores" | grep -qE "^\.github/(workflows/ci\.yml$|actions/)|$needs"; then
               echo "$name=true" >>"$GITHUB_OUTPUT"
             else
               echo "$name=false" >>"$GITHUB_OUTPUT"
-              echo "Skipped $name: nothing it checks changed" >>"$GITHUB_STEP_SUMMARY"
+              echo "Skipped $name: nothing it checks changed, and it passed last run" >>"$GITHUB_STEP_SUMMARY"
             fi
           }
           area rust '^(app/|crates/|plugins/|packaging/linux/build-packages\.txt$|Cargo\.(toml|lock)$|\.config/hakari\.toml$|clippy\.toml$|tools/|rust-toolchain\.toml$)'
