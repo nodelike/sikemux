@@ -21,7 +21,7 @@ use super::warm::{hold_builds, ignored_folders, is_cargo_output, seed_in_backgro
 use super::{worktrees_folder, AgentWorktree};
 use crate::git::Git;
 use crate::server::changed::What;
-use crate::server::host_stats::{disk_has_room, lowest_priority, size_of_folder};
+use crate::server::host_stats::{disk_has_room, lowest_priority};
 use crate::server::Core;
 
 /// How long after one pass at making room the next may start, while the disk stays full.
@@ -245,9 +245,9 @@ fn clear(core: &Core, tree: &Path, reason: ClearedFor) -> bool {
         ClearedFor::DiskFull => "the disk was nearly full",
     };
     eprintln!(
-        "sikemux core: removed {} MB of build output from the worktree {}, as {why}",
-        freed / (1024 * 1024),
-        tree.display()
+        "sikemux core: removed the build output of the worktree {}, which freed {} MB, as {why}",
+        tree.display(),
+        freed / (1024 * 1024)
     );
     core.host_watch.note(HostEventKind::BuildOutputCleared {
         worktree,
@@ -259,29 +259,30 @@ fn clear(core: &Core, tree: &Path, reason: ClearedFor) -> bool {
 }
 
 /// Removes the build output in the worktree at `tree` that Cargo is not building in, and answers
-/// how many bytes went, or `None` when none did. A main checkout has a `.git` folder, not a
-/// file, so it is left.
+/// how much disk came back, or `None` when none went. A copy-on-write clone gives back only what
+/// it no longer shares, so the volume's free space is measured rather than the folder's size. A
+/// main checkout has a `.git` folder, not a file, so it is left.
 fn remove_outputs(tree: &Path) -> Option<u64> {
     if !tree.join(".git").is_file() {
         return None;
     }
-    let mut freed = None;
+    let before = free_space(tree);
+    let mut removed = false;
     for output in outputs(tree) {
         let Some(_held) = hold_builds(&output) else {
             continue;
         };
-        let size = size_of_folder(&output);
-        let gone = match std::fs::remove_dir_all(&output) {
-            Ok(()) => size,
-            Err(error) => {
-                eprintln!(
-                    "sikemux core: {} was not all removed: {error}",
-                    output.display()
-                );
-                size.saturating_sub(size_of_folder(&output))
-            }
-        };
-        *freed.get_or_insert(0) += gone;
+        if let Err(error) = std::fs::remove_dir_all(&output) {
+            eprintln!(
+                "sikemux core: {} was not all removed: {error}",
+                output.display()
+            );
+        }
+        removed = true;
     }
-    freed
+    removed.then(|| free_space(tree).saturating_sub(before))
+}
+
+fn free_space(path: &Path) -> u64 {
+    sikemux_process::machine::disk(path).map_or(0, |disk| disk.total.saturating_sub(disk.used))
 }

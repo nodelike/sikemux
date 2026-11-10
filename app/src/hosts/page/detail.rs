@@ -678,7 +678,7 @@ fn resources(
                 }
                 (HostEventKind::BuildOutputCleared { bytes, .. }, HostAlertKind::Disk) => Some((
                     event.at,
-                    format!("{} of build output removed", model::size(*bytes)),
+                    format!("{} freed from build output", model::size(*bytes)),
                 )),
                 _ => None,
             })
@@ -1475,12 +1475,12 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                     Icon::Trash,
                     t.text_tertiary,
                     format!(
-                        "Removed {} of build output from {worktree}, {}",
+                        "Removed build output from {worktree}, freeing {}, {}",
                         model::size(*bytes),
                         match reason {
                             ClearedFor::Closed => "its agent closed",
                             ClearedFor::Landed => "its agent landed everything",
-                            ClearedFor::DiskFull => "to free disk",
+                            ClearedFor::DiskFull => "as the disk was nearly full",
                         }
                     ),
                 ),

@@ -240,6 +240,8 @@ pub enum HostEventKind {
     /// The build output of a worktree, named by its folder, was removed.
     BuildOutputCleared {
         worktree: String,
+        /// How much the volume's free space grew, which for a copy-on-write clone is only
+        /// what it no longer shared.
         bytes: u64,
         reason: ClearedFor,
     },
