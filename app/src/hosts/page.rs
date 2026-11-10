@@ -5,14 +5,12 @@ mod chart;
 mod detail;
 pub mod model;
 
-use std::cell::Cell;
 use std::collections::HashSet;
-use std::rc::Rc;
 
 use gpui_kit::component::input::{InputEvent, InputState};
 use gpui_kit::{
-    div, px, AnyElement, AppContext, Context, Entity, Hsla, InteractiveElement, IntoElement,
-    ParentElement, StatefulInteractiveElement, Styled, Subscription, Window,
+    div, px, relative, AnyElement, AppContext, Context, Entity, Hsla, InteractiveElement,
+    IntoElement, ParentElement, StatefulInteractiveElement, Styled, Subscription, Window,
 };
 use sikemux_core::server::call;
 use sikemux_view::host_stats::{HostStats, HostStatsParams, StatsSpan};
@@ -42,8 +40,6 @@ pub struct Page {
     pub history_open: bool,
     /// The people whose agents are folded away in the detail, by name.
     pub folded: HashSet<String>,
-    /// How wide the page was last drawn.
-    width: Rc<Cell<f32>>,
     /// The cores watched for the page, each with the span asked of it.
     watching: Vec<(Place, StatsSpan)>,
     _typing: Subscription,
@@ -68,7 +64,6 @@ impl Page {
             top_by_memory: false,
             history_open: false,
             folded: HashSet::new(),
-            width: Rc::default(),
             watching: Vec::new(),
             _typing: typing,
         }
@@ -84,28 +79,16 @@ pub fn pane(
     let t = Tokens::get(cx).clone();
     let listed = model::hosts(bench);
     let chosen = chosen_key(bench, &listed);
-    let width = bench.hosts_page.width.clone();
-    let detail_width = (width.get() * 0.42).clamp(DETAIL_MIN, DETAIL_MAX);
     let host = listed
         .iter()
         .find(|host| Some(&host.key) == chosen.as_ref());
     let detail = host.map(|host| detail::detail(bench, host, &listed, cx));
-    let board = board::board(bench, &listed, chosen.as_deref(), width.get(), cx);
-    let stage = bench.parts.stage.clone();
+    let board = board::board(bench, &listed, chosen.as_deref(), cx);
     ui::pane(cx)
         .child(
             div()
                 .size_full()
                 .relative()
-                .on_children_prepainted(move |bounds, _, cx| {
-                    let drawn = bounds
-                        .first()
-                        .map_or(0., |board| f32::from(board.size.width));
-                    if (drawn - width.get()).abs() > 0.5 {
-                        width.set(drawn);
-                        stage.update(cx, |_, cx| cx.notify());
-                    }
-                })
                 .child(
                     div()
                         .id("hosts-board")
@@ -120,7 +103,9 @@ pub fn pane(
                         .top(SPACE_3)
                         .right(SPACE_3)
                         .bottom(SPACE_3)
-                        .w(px(detail_width))
+                        .w(relative(0.42))
+                        .min_w(px(DETAIL_MIN))
+                        .max_w(px(DETAIL_MAX))
                         .occlude()
                         .overflow_y_scroll()
                         .rounded(RADIUS_4)

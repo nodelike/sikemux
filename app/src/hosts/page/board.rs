@@ -22,13 +22,13 @@ use crate::workbench::actions;
 use crate::workbench::Workbench;
 
 const CARD_MIN: f32 = 262.;
+const CARD_MAX: f32 = 380.;
 const GAP: f32 = 12.;
 
 pub fn board(
     bench: &Workbench,
     listed: &[Listed],
     chosen: Option<&str>,
-    width: f32,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
@@ -42,7 +42,7 @@ pub fn board(
     let hosts = match (shown.is_empty(), page.table) {
         (true, _) => empty(&t, listed.is_empty()).into_any_element(),
         (false, true) => table(&shown, chosen, &t, cx),
-        (false, false) => cards(&shown, chosen, width - 2. * f32::from(SPACE_6), &t, cx),
+        (false, false) => cards(&shown, chosen, &t, cx),
     };
     div()
         .px(SPACE_6)
@@ -215,24 +215,20 @@ fn empty(t: &Tokens, none_at_all: bool) -> Div {
 fn cards(
     shown: &[&Listed],
     chosen: Option<&str>,
-    width: f32,
     t: &Tokens,
     cx: &mut Context<Workbench>,
 ) -> AnyElement {
-    let columns = (((width + GAP) / (CARD_MIN + GAP)).floor() as usize).max(1);
     div()
         .flex()
-        .flex_col()
+        .flex_wrap()
         .gap(px(GAP))
-        .children(shown.chunks(columns).map(|row| {
+        .children(shown.iter().map(|host| {
             div()
+                .flex_1()
+                .min_w(px(CARD_MIN))
+                .max_w(px(CARD_MAX))
                 .flex()
-                .gap(px(GAP))
-                .children(
-                    row.iter()
-                        .map(|host| host_card(host, chosen == Some(host.key.as_str()), t, cx)),
-                )
-                .children((row.len()..columns).map(|_| div().flex_1().min_w_0()))
+                .child(host_card(host, chosen == Some(host.key.as_str()), t, cx))
         }))
         .into_any_element()
 }
