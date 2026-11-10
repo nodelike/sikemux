@@ -928,6 +928,16 @@ fn agents(
             });
         }
     }
+    let total = lines.len();
+    lines.retain(|line| {
+        let busy = line.shown.is_some_and(|shown| {
+            matches!(shown.status, AgentStatus::Working | AgentStatus::Blocked)
+        });
+        let using = line
+            .using
+            .is_some_and(|using| using.cpu > 0 || using.memory > 0);
+        busy || using || line.killed
+    });
     let rest = stats.and_then(|stats| stats.rest.as_ref());
     if lines.is_empty() && rest.is_none() {
         return None;
@@ -978,12 +988,13 @@ fn agents(
     if let Some(rest) = rest {
         rows.push(rest_row(rest, t, cx));
     }
+    let shown = match lines.len() == total {
+        true => total.to_string(),
+        false => format!("{} of {total}", lines.len()),
+    };
     let (label, count) = match people.is_empty() {
-        true => ("Agents", lines.len().to_string()),
-        false => (
-            "People & agents",
-            format!("{} · {}", people.len(), lines.len()),
-        ),
+        true => ("Agents", shown),
+        false => ("People & agents", format!("{} · {shown}", people.len())),
     };
     Some(
         div()

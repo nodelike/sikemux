@@ -186,13 +186,14 @@ impl State {
         }
     }
 
-    pub fn icon(&self) -> Icon {
+    /// The glyph before its words; a healthy host gets a plain dot instead.
+    pub fn icon(&self) -> Option<Icon> {
         match self {
-            State::Alert(alert) if alert.level == AlertLevel::Danger => Icon::Warning,
-            State::Alert(_) => Icon::Gauge,
-            State::Offline { .. } => Icon::Power,
-            State::Updating => Icon::Refresh,
-            State::Healthy => Icon::Check,
+            State::Alert(alert) if alert.level == AlertLevel::Danger => Some(Icon::Warning),
+            State::Alert(_) => Some(Icon::Gauge),
+            State::Offline { .. } => Some(Icon::Power),
+            State::Updating => Some(Icon::Refresh),
+            State::Healthy => None,
         }
     }
 

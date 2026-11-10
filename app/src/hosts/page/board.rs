@@ -236,6 +236,18 @@ fn cards(
         .into_any_element()
 }
 
+fn state_mark(host: &Listed, tint: Hsla) -> AnyElement {
+    match host.state.icon() {
+        Some(glyph) => ui::icon(glyph, 13.).text_color(tint).into_any_element(),
+        None => div()
+            .size(px(6.))
+            .mx(px(3.5))
+            .rounded_full()
+            .bg(tint)
+            .into_any_element(),
+    }
+}
+
 type Clicked = dyn Fn(&gpui_kit::ClickEvent, &mut gpui_kit::Window, &mut gpui_kit::App);
 
 /// What a click on a host's card or row does: shows its detail.
@@ -369,7 +381,7 @@ fn state_corner(host: &Listed, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
                 .flex()
                 .items_center()
                 .gap(SPACE_1H)
-                .child(ui::icon(host.state.icon(), 13.).text_color(tint))
+                .child(state_mark(host, tint))
                 .child(
                     ui::text(
                         host.state.words(),
@@ -641,7 +653,7 @@ fn table(
                             .flex()
                             .items_center()
                             .gap(px(7.))
-                            .child(ui::icon(host.state.icon(), 13.).text_color(tint))
+                            .child(state_mark(host, tint))
                             .child(
                                 ui::text(
                                     host.state.words(),
