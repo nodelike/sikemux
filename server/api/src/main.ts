@@ -9,6 +9,7 @@ import { loadConfig, loadMigrationConfig, loadPurgeConfig } from "./config.ts";
 import { openDatabase, type Database } from "./db.ts";
 import { createLogger } from "./log.ts";
 import { migrate, readMigrations } from "./migrations.ts";
+import { flushSentry, startSentry } from "./sentry.ts";
 import { startServer } from "./server.ts";
 import { checkStashFiles, StashFiles } from "./stash/files.ts";
 import { purgeHookDeliveries } from "./hooks/purge.ts";
@@ -49,7 +50,7 @@ function startLogging(level: Level) {
   const log = createLogger(level);
   process.on("unhandledRejection", (error) => {
     log.fatal({ err: error }, "an unhandled rejection");
-    process.exit(1);
+    void flushSentry().finally(() => process.exit(1));
   });
   return log;
 }
@@ -200,10 +201,13 @@ const COMMANDS: Record<string, () => void | Promise<void>> = {
   },
 };
 
+startSentry(process.env);
 const command = process.argv[2] ?? "serve";
 const run = COMMANDS[command];
-if (run) await run();
-else {
+if (run) {
+  await run();
+  if (command !== "serve") await flushSentry();
+} else {
   startLogging("info").fatal(
     { command },
     `unknown command; use ${Object.keys(COMMANDS).join(", ")}`,

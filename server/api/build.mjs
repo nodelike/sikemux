@@ -1,6 +1,7 @@
 // Bundles the API into one file, so a release needs no node_modules on the server.
 import { execFileSync } from "node:child_process";
 import { copyFileSync } from "node:fs";
+import { sentryEsbuildPlugin } from "@sentry/node/esbuild";
 import { build } from "esbuild";
 
 const version =
@@ -21,6 +22,15 @@ await build({
     js: "import { createRequire as sikemuxCreateRequire } from 'node:module'; const require = sikemuxCreateRequire(import.meta.url);",
   },
   logLevel: "warning",
+  // Instruments the bundled Hono and pg, which Sentry cannot hook once they are inside one file.
+  plugins: [
+    sentryEsbuildPlugin({
+      telemetry: false,
+      silent: true,
+      sourcemaps: { disable: true },
+      release: { inject: false, create: false },
+    }),
+  ],
 });
 // publish-update checks bundles against the certificate the phones trust, so it ships beside the API.
 copyFileSync(

@@ -17,6 +17,7 @@ import {
   type Env,
 } from "./http.ts";
 import { standingDevices } from "./devices/standing.ts";
+import { reportAs } from "./sentry.ts";
 
 export interface Identity {
   userId: string;
@@ -315,6 +316,7 @@ export function requireIdentity(
     c.set("identity", identity);
     c.set("checkBody", checkBody);
     c.set("log", c.get("log").child({ userId: identity.userId }));
+    reportAs(identity.userId);
     await next();
   };
 }

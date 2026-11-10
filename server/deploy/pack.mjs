@@ -30,6 +30,8 @@ mkdirSync(release, { recursive: true });
 
 const pieces = {
   "api/dist": join(server, "api/dist"),
+  // Sentry reads the lines around each frame of a stack trace from these.
+  "api/src": join(server, "api/src"),
   "api/migrations": join(server, "api/migrations"),
   app: join(server, "app/dist"),
 };
@@ -38,7 +40,11 @@ for (const [to, from] of Object.entries(pieces)) {
     console.error(`${from} is missing; run pnpm build first.`);
     process.exit(1);
   }
-  cpSync(from, join(release, to), { recursive: true });
+  // The web app's source maps go only to Sentry.
+  cpSync(from, join(release, to), {
+    recursive: true,
+    filter: (path) => !(to === "app" && path.endsWith(".map")),
+  });
 }
 writeFileSync(join(release, "RELEASE"), version);
 

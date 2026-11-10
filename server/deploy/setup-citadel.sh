@@ -62,6 +62,9 @@ chown root:sikemux /etc/sikemux/api.env
 chmod 640 /etc/sikemux/api.env
 grep -q '^GEOIP_DIR=' /etc/sikemux/api.env ||
   echo 'GEOIP_DIR=/var/lib/sikemux-places' >>/etc/sikemux/api.env
+# Sentry's project sikemux-api. The DSN is a public key; only citadel has it, so nothing else reports.
+grep -q '^SENTRY_DSN=' /etc/sikemux/api.env ||
+  echo 'SENTRY_DSN=https://17b6c2227b3e9779893205a1d5db6d59@o4512409824919552.ingest.de.sentry.io/4512409866141776' >>/etc/sikemux/api.env
 
 step "stash: files written by the API, encrypted with a key kept in /etc/sikemux/stash.key"
 # The backup reads the files, which the key already encrypts, through the sikemux-stash group;
