@@ -56,7 +56,6 @@ pub fn detail(
         .when_some(stats.filter(|_| host.online()), |detail, stats| {
             detail.child(resources(bench, host, stats, &t, cx))
         })
-        .children(agents(bench, host, listed, &t, cx))
         .when_some(
             stats.filter(|stats| !stats.top.is_empty()),
             |detail, stats| detail.child(top(bench, host, stats, &t, cx)),
@@ -66,6 +65,7 @@ pub fn detail(
             |detail, stats| detail.child(activity(host, stats, &t, cx)),
         )
         .when_some(stats, |detail, stats| detail.child(about(stats, &t, cx)))
+        .children(agents(bench, host, listed, &t, cx))
         .into_any_element()
 }
 
@@ -1005,7 +1005,13 @@ fn agents(
                 t,
                 cx,
             ))
-            .child(list(t).children(rows)),
+            .child(
+                list(t).children(rows.into_iter().enumerate().map(|(at, row)| {
+                    div()
+                        .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
+                        .child(row)
+                })),
+            ),
     )
 }
 
@@ -1116,8 +1122,6 @@ fn agent_row(
         .pl(if indent { px(26.) } else { SPACE_3 })
         .pr(SPACE_2H)
         .py(px(9.))
-        .border_t_1()
-        .border_color(hair(t))
         .hover(|row| row.bg(t.surface_hover))
         .child(
             div()
@@ -1277,8 +1281,6 @@ fn person_row(
         .gap(px(11.))
         .px(SPACE_3)
         .py(px(9.))
-        .border_t_1()
-        .border_color(hair(t))
         .bg(ink(t, 0.02))
         .cursor_pointer()
         .hover(|row| row.bg(t.surface_hover))
@@ -1342,8 +1344,6 @@ fn rest_row(
         .pl(SPACE_3)
         .pr(SPACE_2H)
         .py(px(9.))
-        .border_t_1()
-        .border_color(hair(t))
         .child(div().size(px(24.)).flex_none())
         .child(
             div()
