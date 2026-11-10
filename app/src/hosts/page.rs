@@ -87,18 +87,19 @@ pub fn pane(
         .find(|host| Some(&host.key) == chosen.as_ref());
     let detail = host.map(|host| detail::detail(bench, host, &listed, cx));
     let board = board::board(bench, &listed, chosen.as_deref(), width.get(), cx);
+    let stage = bench.parts.stage.clone();
     ui::pane(cx)
         .child(
             div()
                 .size_full()
                 .relative()
-                .on_children_prepainted(move |bounds, window, _| {
+                .on_children_prepainted(move |bounds, _, cx| {
                     let drawn = bounds
                         .first()
                         .map_or(0., |board| f32::from(board.size.width));
                     if (drawn - width.get()).abs() > 0.5 {
                         width.set(drawn);
-                        window.refresh();
+                        stage.update(cx, |_, cx| cx.notify());
                     }
                 })
                 .child(
