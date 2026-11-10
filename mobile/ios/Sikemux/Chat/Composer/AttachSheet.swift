@@ -30,7 +30,7 @@ struct AttachSheet: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(shown: $shown, tall: full || stashing, onDismiss: dismissed) {
+            .liftedSheet(shown: $shown, tall: full || stashing, onDismiss: dismissed) {
                 if stashing {
                     StashPicker(
                         chosen: stashChosen,

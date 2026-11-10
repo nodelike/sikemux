@@ -157,7 +157,7 @@ struct Composer: View {
             onStashPrompt: sendable && !uploading ? stashPrompt : nil,
             onProblem: { session.report($0) }
         )
-        .sheet(shown: $configuring) {
+        .liftedSheet(shown: $configuring) {
             ConfigSheet(provider: provider, model: rows.model, effort: rows.effort, usage: rows.usage) { picker, value in
                 session.setConfig(picker.id, value)
                 configuring = false
