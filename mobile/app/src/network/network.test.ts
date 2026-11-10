@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clear } from '../../test/mocks/expo-file-system';
 
-const release = vi.hoisted(() => ({ current: null as { version: string; platform: 'ios' | 'android' } | null }));
+const release = vi.hoisted(() => ({ current: null as { version: string; platform: 'android' } | null }));
 vi.mock('./installed', () => ({ installedRelease: () => release.current }));
 vi.mock('@/account/config', () => ({ apiUrl: () => 'https://api.test' }));
 

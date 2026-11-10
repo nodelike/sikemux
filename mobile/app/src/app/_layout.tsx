@@ -20,13 +20,11 @@ import { useDevices } from '@/devices/hub';
 import { lockFor, useLock } from '@/lock/lock';
 import { LockCover, LockScreen } from '@/lock/LockScreen';
 import { NotificationsOffer } from '@/notify/NotificationsOffer';
-import { useNotificationResponses } from '@/notify/responses';
 import { currentRelays, useUpdateRequired } from '@/network/network';
 import { useOverTheAirUpdates } from '@/updates/overTheAir';
 import { Crashed } from '@/ui/Crashed';
 import { appReady, useCrashReportsAccount, withCrashReports } from '@/crashes/reports';
 import { Unreachable } from '@/account/Unreachable';
-import { useShareExtension } from '@/stash/extension';
 import { useShareIntake } from '@/stash/incoming';
 import { useStashFeed } from '@/stash/store';
 import { UpdateRequired } from '@/network/UpdateRequired';
@@ -159,19 +157,12 @@ function Routes({ background }: { background: string }) {
       {!isSignedIn || lock.phase === 'open' ? (
         <>
           <NotificationsOffer />
-          <NotificationResponses />
           {isSignedIn ? <ShareIntake /> : null}
         </>
       ) : null}
       {isSignedIn ? <LockCover /> : null}
     </>
   );
-}
-
-/** Mounted with the screens while they show, so a tapped card opens its chat, and answers it, only once the app is unlocked. */
-function NotificationResponses() {
-  useNotificationResponses();
-  return null;
 }
 
 /** Mounted while signed in and unlocked, so a share opens its sheet only then. */
@@ -185,7 +176,6 @@ function PhoneOnAccount() {
   useAccountSequence();
   useAccountHostsFeed();
   useStashFeed();
-  useShareExtension();
   useConnectArrivals();
   return null;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Platform, Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, RefreshControl, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { router, useIsFocused } from 'expo-router';
 import { useUser } from '@clerk/expo';
 import * as Clipboard from 'expo-clipboard';
@@ -200,7 +200,7 @@ function BringItIn() {
   }, [copied]);
 
   const send = () => {
-    Share.share(Platform.OS === 'ios' ? { url: DOWNLOAD } : { message: DOWNLOAD }).catch(() => {});
+    Share.share({ message: DOWNLOAD }).catch(() => {});
   };
   const copy = () => {
     Clipboard.setStringAsync(DOWNLOAD)

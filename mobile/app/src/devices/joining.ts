@@ -3,7 +3,6 @@ import { Platform } from 'react-native';
 import { JoinAnswer, MobileError } from '@sikemux/native';
 
 import { problem } from '@/core/problem';
-import { inBackgroundTime } from '../../modules/background-time';
 import { ApiProblem, joinTicket, type TokenSource } from '@/account/api';
 import { whileJoining } from '@/phone/identity';
 import { phoneName } from '@/phone/name';
@@ -93,8 +92,8 @@ export async function joinHost(
   });
   if (signal?.aborted) throw new Error('Connecting was cancelled.');
   onStep('waiting');
-  const answer = await inBackgroundTime('Joining a host', () =>
-    whileJoining((device) => device.join(host.core, JSON.stringify(ticket), phoneName(), Platform.OS, signal ? { signal } : undefined)),
+  const answer = await whileJoining((device) =>
+    device.join(host.core, JSON.stringify(ticket), phoneName(), Platform.OS, signal ? { signal } : undefined),
   ).catch((error: unknown) => {
     throw new JoinFailed(dialFailure(host.name, error));
   });

@@ -8,7 +8,6 @@ export const native = join(mobile, 'native');
 export const repo = resolve(mobile, '..');
 
 export const PHONE_TARGETS = {
-  ios: ['aarch64-apple-ios', 'aarch64-apple-ios-sim'],
   android: ['aarch64-linux-android', 'x86_64-linux-android'],
 };
 
@@ -24,17 +23,14 @@ export function toolchainChannel() {
 
 const LIBRARY = 'libsikemux_mobile.a';
 const librariesDir = {
-  ios: join(native, 'SikemuxNativeFramework.xcframework'),
   android: join(native, 'android/src/main/jniLibs'),
 };
 
 export const buildCommand = {
-  ios: 'pnpm native:ios:sim',
   android: 'pnpm native:android',
 };
 
 export const releaseCommand = {
-  ios: 'pnpm native:ios:release',
   android: 'pnpm native:android:release',
 };
 
@@ -53,10 +49,10 @@ export function bindingsExist() {
 
 const recordPath = (platform) => join(native, 'build', `${platform}.json`);
 
-export function recordBuild(platform, profile, simOnly) {
+export function recordBuild(platform, profile) {
   const built = Object.fromEntries(libraries(platform).map((path) => [path, statSync(path).mtimeMs]));
   mkdirSync(join(native, 'build'), { recursive: true });
-  writeFileSync(recordPath(platform), `${JSON.stringify({ profile, simOnly, libraries: built }, null, 2)}\n`);
+  writeFileSync(recordPath(platform), `${JSON.stringify({ profile, libraries: built }, null, 2)}\n`);
 }
 
 /**
