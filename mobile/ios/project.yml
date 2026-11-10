@@ -106,6 +106,7 @@ targets:
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
         ITSAppUsesNonExemptEncryption: false
+        NSFaceIDUsageDescription: Sikemux asks for Face ID before it shows your hosts and chats.
         NSLocalNetworkUsageDescription: Sikemux reaches your hosts directly when they are on the same network.
         UIUserInterfaceStyle: Dark
         UIStatusBarStyle: UIStatusBarStyleLightContent
@@ -127,6 +128,7 @@ targets:
       properties:
         aps-environment: development
         com.apple.security.application-groups: [group.$(SIKEMUX_BUNDLE_ID)]
+        com.apple.developer.applesignin: [Default]
         keychain-access-groups:
           - $(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID)
           - $(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).notify
