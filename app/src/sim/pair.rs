@@ -149,10 +149,14 @@ fn qr_picture(code: &QrCode) -> impl IntoElement {
 impl Render for PairPhone {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = Tokens::get(cx).clone();
-        let line =
-            |text: String| ui::text(text, TEXT_XS, FontWeight::NORMAL).text_color(t.text_secondary);
-        let quiet =
-            |text: String| ui::text(text, TEXT_2XS, FontWeight::NORMAL).text_color(t.text_tertiary);
+        let wrapped = |text: String, size: f32, colour| {
+            div()
+                .text_size(crate::theme::ui_text(size))
+                .text_color(colour)
+                .child(text)
+        };
+        let line = |text: String| wrapped(text, TEXT_XS, t.text_secondary);
+        let quiet = |text: String| wrapped(text, TEXT_2XS, t.text_tertiary);
         let mut body = div().flex().flex_col().gap(SPACE_2);
         let mut actions = div().flex().justify_end().gap(SPACE_1H);
         let cancel = Button::new("pair-cancel", "Cancel", Variant::Outline)
