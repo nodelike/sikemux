@@ -14,7 +14,7 @@ const STASH_EVENTS = accountEventTypeValues.filter((type) =>
 /**
  * Which of an account's events a connection may read. Hosts learn of phones only when one is
  * revoked; phones never learn of other phones; the web app sees the whole account. Everyone hears
- * of the stash.
+ * of the stash, and hosts of the vault.
  */
 function visibleTo(role: LiveRole, ownKey: string | null) {
   return (eb: ExpressionBuilder<Tables, "events">): Expression<SqlBool> => {
@@ -27,6 +27,7 @@ function visibleTo(role: LiveRole, ownKey: string | null) {
         own,
         accountDeleted,
         stash,
+        eb("type", "=", "vault.changed"),
         eb.and([
           eb("type", "=", "device.revoked"),
           eb("subject_role", "=", "client"),

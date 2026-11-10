@@ -51,6 +51,7 @@ const CORE_ONLY = new Map([
     { module: "host.rs", imports: `\nuse super::protocol::*;${FROM_THE_WIRE}` },
   ],
   ["hooks.json", { module: "hooks.rs", imports: FROM_THE_WIRE }],
+  ["vault.json", { module: "vault.rs", imports: FROM_THE_WIRE }],
 ]);
 
 const schemaDir = join(protocol, "schema");

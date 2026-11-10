@@ -54,7 +54,8 @@ export type AccountEventType =
   | "stash.added"
   | "stash.changed"
   | "stash.removed"
-  | "stash.seen";
+  | "stash.seen"
+  | "vault.changed";
 export const accountEventTypeValues: readonly AccountEventType[] = [
   "device.added",
   "device.changed",
@@ -64,6 +65,7 @@ export const accountEventTypeValues: readonly AccountEventType[] = [
   "stash.changed",
   "stash.removed",
   "stash.seen",
+  "vault.changed",
 ];
 
 /** The name, email and picture the account signed in with, for a host to show who it belongs to. */
@@ -626,6 +628,9 @@ export const platformValues: readonly Platform[] = [
   "android",
 ];
 
+/** The connector a sign-in is for, such as sikemux.github. */
+export type PluginId = string;
+
 /** Which build of the phone app the token belongs to. Each has its own Firebase project and bundle id, and an API serves only one of them. */
 export type PushApp = "production" | "dev";
 export const pushAppValues: readonly PushApp[] = ["production", "dev"];
@@ -669,6 +674,9 @@ export interface PushTokenState {
   enabled: boolean;
   updatedAt: string;
 }
+
+/** The X25519 public key the person's recovery code makes, in lowercase hex. */
+export type RecoveryKey = string;
 
 export interface Relay {
   /** The relay's HTTPS address, such as https://relay.sikemux.com/. */
@@ -1060,6 +1068,137 @@ export interface StashUpdate {
   taken?: boolean;
 }
 
+/** The account's vault, as the host that asked sees it. */
+export interface Vault {
+  generation: VaultGeneration;
+  recoveryKey: RecoveryKey;
+  /** The vault key sealed for the recovery key. */
+  recoveryWrap: VaultSealed;
+  /** The vault key sealed for the asking host at the current generation, or null when it has none yet. */
+  key: VaultSealed | null;
+  /** The hosts holding the key at the current generation. */
+  holders: DeviceKey[];
+  /** The account's hosts without the key at the current generation, for a holder to wrap it for. */
+  waiting: DeviceKey[];
+  /** A host left the account, so a holder should replace the vault key. */
+  rotate: boolean;
+  entries: VaultEntry[];
+}
+
+/** A host makes the account's vault, holding its key at generation 1. */
+export interface VaultCreate {
+  recoveryKey: RecoveryKey;
+  recoveryWrap: VaultSealed;
+  /** The vault key sealed for the asking host. */
+  key: VaultSealed;
+}
+
+/** One sign-in in the vault, sealed under the vault key of its generation. */
+export interface VaultEntry {
+  id: VaultEntryId;
+  plugin: PluginId;
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  revision: VaultRevision;
+  updatedBy: DeviceKey;
+  updatedAt: string;
+}
+
+/** A vault entry's id: 16 random bytes in lowercase hex, made by the host that adds it. */
+export type VaultEntryId = string;
+
+/** A host adds or replaces an entry. */
+export interface VaultEntryPut {
+  plugin: PluginId;
+  /** The generation of the key it is sealed under, which must be current. */
+  generation: VaultGeneration;
+  sealed: VaultSealed;
+  /** The entry's revision as the writer last saw it, or 0 to add it. */
+  revision: number;
+}
+
+/** An entry sealed again under the new key. */
+export interface VaultEntryReseal {
+  id: VaultEntryId;
+  sealed: VaultSealed;
+  /** The entry's current revision. */
+  revision: VaultRevision;
+}
+
+/** Which vault key is current. It starts at 1 and goes up by one each time a host replaces the key. */
+export type VaultGeneration = number;
+
+/** A host holding the key at the current generation seals it for other hosts on the account. A host without it, restoring the vault from the recovery key, may seal it only for itself. */
+export interface VaultKeysAdd {
+  generation: VaultGeneration;
+  keys: WrappedKey[];
+}
+
+/** How many times an entry was written. It starts at 1 and goes up by one each write. */
+export type VaultRevision = number;
+
+/** An entry's revision, as the writer last saw it, in a query string. */
+export type VaultRevisionParam = string;
+
+/** A host replaces the vault key: every wrap and every entry moves to the next generation at once. */
+export interface VaultRotate {
+  /** The current generation. */
+  from: VaultGeneration;
+  recoveryWrap: VaultSealed;
+  /** The new key sealed for each host that keeps it, the asking host among them. Every other wrap is dropped. */
+  keys: WrappedKey[];
+  /** Every entry in the vault, each once. */
+  entries: VaultEntryReseal[];
+}
+
+/** What a host encrypted, in unpadded base64url. Only hosts holding the vault key can read it; the server cannot. */
+export type VaultSealed = string;
+
+export interface VaultState {
+  /** Null until a host on the account makes the vault. */
+  vault: Vault | null;
+}
+
+/** How often one agent on the signing host used one entry. */
+export interface VaultUse {
+  entryId: VaultEntryId;
+  plugin: PluginId;
+  /** Who used it: an agent's name such as @Otter, or Sikemux for the host itself. */
+  actor: string;
+  count: number;
+  firstAt: string;
+  lastAt: string;
+}
+
+/** Uses one host reported of one entry by one agent. */
+export interface VaultUseRow {
+  entryId: VaultEntryId;
+  plugin: PluginId;
+  hostKey: DeviceKey;
+  /** The host's name, or null once it has left the account. */
+  hostName: string | null;
+  actor: string;
+  count: number;
+  firstAt: string;
+  lastAt: string;
+}
+
+/** Uses of the vault's entries in the last 30 days, newest first, at most 500. */
+export interface VaultUses {
+  uses: VaultUseRow[];
+}
+
+/** Uses a host made of the vault's entries since it last reported. */
+export interface VaultUsesAdd {
+  uses: VaultUse[];
+}
+
+/** The vault key, sealed for one host. */
+export interface WrappedKey {
+  hostKey: DeviceKey;
+  wrapped: VaultSealed;
+}
+
 /** Every definition by name, so code can look a type up from the name it validates against. */
 export interface Definitions {
   Account: Account;
@@ -1144,6 +1283,7 @@ export interface Definitions {
   Network: Network;
   PendingHost: PendingHost;
   Platform: Platform;
+  PluginId: PluginId;
   PushApp: PushApp;
   PushKind: PushKind;
   PushPlatform: PushPlatform;
@@ -1151,6 +1291,7 @@ export interface Definitions {
   PushResult: PushResult;
   PushTokenRegistration: PushTokenRegistration;
   PushTokenState: PushTokenState;
+  RecoveryKey: RecoveryKey;
   Relay: Relay;
   RevokeReason: RevokeReason;
   Sealed: Sealed;
@@ -1203,4 +1344,22 @@ export interface Definitions {
   StashTaken: StashTaken;
   StashTarget: StashTarget;
   StashUpdate: StashUpdate;
+  Vault: Vault;
+  VaultCreate: VaultCreate;
+  VaultEntry: VaultEntry;
+  VaultEntryId: VaultEntryId;
+  VaultEntryPut: VaultEntryPut;
+  VaultEntryReseal: VaultEntryReseal;
+  VaultGeneration: VaultGeneration;
+  VaultKeysAdd: VaultKeysAdd;
+  VaultRevision: VaultRevision;
+  VaultRevisionParam: VaultRevisionParam;
+  VaultRotate: VaultRotate;
+  VaultSealed: VaultSealed;
+  VaultState: VaultState;
+  VaultUse: VaultUse;
+  VaultUseRow: VaultUseRow;
+  VaultUses: VaultUses;
+  VaultUsesAdd: VaultUsesAdd;
+  WrappedKey: WrappedKey;
 }

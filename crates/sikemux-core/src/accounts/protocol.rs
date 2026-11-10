@@ -87,6 +87,8 @@ pub enum AccountEventType {
     StashRemoved,
     #[serde(rename = "stash.seen")]
     StashSeen,
+    #[serde(rename = "vault.changed")]
+    VaultChanged,
     /// A value added after this build, which it cannot act on.
     #[serde(other)]
     Unknown,

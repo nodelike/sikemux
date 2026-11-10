@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "vault.json",
+  "$defs": {
+    "VaultEntryId": {
+      "description": "A vault entry's id: 16 random bytes in lowercase hex, made by the host that adds it.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "VaultSealed": {
+      "description": "What a host encrypted, in unpadded base64url. Only hosts holding the vault key can read it; the server cannot.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+$",
+      "minLength": 1,
+      "maxLength": 87400
+    },
+    "VaultGeneration": {
+      "description": "Which vault key is current. It starts at 1 and goes up by one each time a host replaces the key.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999999999
+    },
+    "VaultRevision": {
+      "description": "How many times an entry was written. It starts at 1 and goes up by one each write.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999999999
+    },
+    "VaultRevisionParam": {
+      "description": "An entry's revision, as the writer last saw it, in a query string.",
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,8}$"
+    },
+    "PluginId": {
+      "description": "The connector a sign-in is for, such as sikemux.github.",
+      "type": "string",
+      "pattern": "^sikemux\\.[a-z0-9-]{1,48}$"
+    },
+    "RecoveryKey": {
+      "description": "The X25519 public key the person's recovery code makes, in lowercase hex.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "WrappedKey": {
+      "description": "The vault key, sealed for one host.",
+      "type": "object",
+      "properties": {
+        "hostKey": { "$ref": "devices.json#/$defs/DeviceKey" },
+        "wrapped": { "$ref": "#/$defs/VaultSealed" }
+      },
+      "required": ["hostKey", "wrapped"],
+      "additionalProperties": false
+    },
+    "VaultEntry": {
+      "description": "One sign-in in the vault, sealed under the vault key of its generation.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/VaultEntryId" },
+        "plugin": { "$ref": "#/$defs/PluginId" },
+        "generation": { "$ref": "#/$defs/VaultGeneration" },
+        "sealed": { "$ref": "#/$defs/VaultSealed" },
+        "revision": { "$ref": "#/$defs/VaultRevision" },
+        "updatedBy": { "$ref": "devices.json#/$defs/DeviceKey" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "plugin",
+        "generation",
+        "sealed",
+        "revision",
+        "updatedBy",
+        "updatedAt"
+      ],
+      "additionalProperties": false
+    },
+    "Vault": {
+      "description": "The account's vault, as the host that asked sees it.",
+      "type": "object",
+      "properties": {
+        "generation": { "$ref": "#/$defs/VaultGeneration" },
+        "recoveryKey": { "$ref": "#/$defs/RecoveryKey" },
+        "recoveryWrap": {
+          "description": "The vault key sealed for the recovery key.",
+          "$ref": "#/$defs/VaultSealed"
+        },
+        "key": {
+          "description": "The vault key sealed for the asking host at the current generation, or null when it has none yet.",
+          "anyOf": [{ "$ref": "#/$defs/VaultSealed" }, { "type": "null" }]
+        },
+        "holders": {
+          "description": "The hosts holding the key at the current generation.",
+          "type": "array",
+          "items": { "$ref": "devices.json#/$defs/DeviceKey" }
+        },
+        "waiting": {
+          "description": "The account's hosts without the key at the current generation, for a holder to wrap it for.",
+          "type": "array",
+          "items": { "$ref": "devices.json#/$defs/DeviceKey" }
+        },
+        "rotate": {
+          "description": "A host left the account, so a holder should replace the vault key.",
+          "type": "boolean"
+        },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VaultEntry" }
+        }
+      },
+      "required": [
+        "generation",
+        "recoveryKey",
+        "recoveryWrap",
+        "key",
+        "holders",
+        "waiting",
+        "rotate",
+        "entries"
+      ],
+      "additionalProperties": false
+    },
+    "VaultState": {
+      "type": "object",
+      "properties": {
+        "vault": {
+          "description": "Null until a host on the account makes the vault.",
+          "anyOf": [{ "$ref": "#/$defs/Vault" }, { "type": "null" }]
+        }
+      },
+      "required": ["vault"],
+      "additionalProperties": false
+    },
+    "VaultCreate": {
+      "description": "A host makes the account's vault, holding its key at generation 1.",
+      "type": "object",
+      "properties": {
+        "recoveryKey": { "$ref": "#/$defs/RecoveryKey" },
+        "recoveryWrap": { "$ref": "#/$defs/VaultSealed" },
+        "key": {
+          "description": "The vault key sealed for the asking host.",
+          "$ref": "#/$defs/VaultSealed"
+        }
+      },
+      "required": ["recoveryKey", "recoveryWrap", "key"],
+      "additionalProperties": false
+    },
+    "VaultKeysAdd": {
+      "description": "A host holding the key at the current generation seals it for other hosts on the account. A host without it, restoring the vault from the recovery key, may seal it only for itself.",
+      "type": "object",
+      "properties": {
+        "generation": { "$ref": "#/$defs/VaultGeneration" },
+        "keys": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/WrappedKey" },
+          "minItems": 1,
+          "maxItems": 50
+        }
+      },
+      "required": ["generation", "keys"],
+      "additionalProperties": false
+    },
+    "VaultEntryReseal": {
+      "description": "An entry sealed again under the new key.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "#/$defs/VaultEntryId" },
+        "sealed": { "$ref": "#/$defs/VaultSealed" },
+        "revision": {
+          "description": "The entry's current revision.",
+          "$ref": "#/$defs/VaultRevision"
+        }
+      },
+      "required": ["id", "sealed", "revision"],
+      "additionalProperties": false
+    },
+    "VaultRotate": {
+      "description": "A host replaces the vault key: every wrap and every entry moves to the next generation at once.",
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "The current generation.",
+          "$ref": "#/$defs/VaultGeneration"
+        },
+        "recoveryWrap": { "$ref": "#/$defs/VaultSealed" },
+        "keys": {
+          "description": "The new key sealed for each host that keeps it, the asking host among them. Every other wrap is dropped.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/WrappedKey" },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "entries": {
+          "description": "Every entry in the vault, each once.",
+          "type": "array",
+          "items": { "$ref": "#/$defs/VaultEntryReseal" },
+          "maxItems": 500
+        }
+      },
+      "required": ["from", "recoveryWrap", "keys", "entries"],
+      "additionalProperties": false
+    },
+    "VaultEntryPut": {
+      "description": "A host adds or replaces an entry.",
+      "type": "object",
+      "properties": {
+        "plugin": { "$ref": "#/$defs/PluginId" },
+        "generation": {
+          "description": "The generation of the key it is sealed under, which must be current.",
+          "$ref": "#/$defs/VaultGeneration"
+        },
+        "sealed": { "$ref": "#/$defs/VaultSealed" },
+        "revision": {
+          "description": "The entry's revision as the writer last saw it, or 0 to add it.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999999999
+        }
+      },
+      "required": ["plugin", "generation", "sealed", "revision"],
+      "additionalProperties": false
+    },
+    "VaultUse": {
+      "description": "How often one agent on the signing host used one entry.",
+      "type": "object",
+      "properties": {
+        "entryId": { "$ref": "#/$defs/VaultEntryId" },
+        "plugin": { "$ref": "#/$defs/PluginId" },
+        "actor": {
+          "description": "Who used it: an agent's name such as @Otter, or Sikemux for the host itself.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "count": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "firstAt": { "type": "string", "format": "date-time" },
+        "lastAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["entryId", "plugin", "actor", "count", "firstAt", "lastAt"],
+      "additionalProperties": false
+    },
+    "VaultUsesAdd": {
+      "description": "Uses a host made of the vault's entries since it last reported.",
+      "type": "object",
+      "properties": {
+        "uses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VaultUse" },
+          "minItems": 1,
+          "maxItems": 200
+        }
+      },
+      "required": ["uses"],
+      "additionalProperties": false
+    },
+    "VaultUseRow": {
+      "description": "Uses one host reported of one entry by one agent.",
+      "type": "object",
+      "properties": {
+        "entryId": { "$ref": "#/$defs/VaultEntryId" },
+        "plugin": { "$ref": "#/$defs/PluginId" },
+        "hostKey": { "$ref": "devices.json#/$defs/DeviceKey" },
+        "hostName": {
+          "description": "The host's name, or null once it has left the account.",
+          "type": ["string", "null"]
+        },
+        "actor": { "type": "string" },
+        "count": { "type": "integer", "minimum": 1 },
+        "firstAt": { "type": "string", "format": "date-time" },
+        "lastAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "entryId",
+        "plugin",
+        "hostKey",
+        "hostName",
+        "actor",
+        "count",
+        "firstAt",
+        "lastAt"
+      ],
+      "additionalProperties": false
+    },
+    "VaultUses": {
+      "description": "Uses of the vault's entries in the last 30 days, newest first, at most 500.",
+      "type": "object",
+      "properties": {
+        "uses": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/VaultUseRow" }
+        }
+      },
+      "required": ["uses"],
+      "additionalProperties": false
+    }
+  }
+}

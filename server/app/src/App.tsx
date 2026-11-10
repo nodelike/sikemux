@@ -30,6 +30,7 @@ import {
   usePath,
 } from "./navigation.ts";
 import { SignIn } from "./SignIn.tsx";
+import { SignIns, useSignIns } from "./SignIns.tsx";
 import "./app.css";
 
 /** The deleted page's address, carrying when the account is deleted for good so it survives signing out. */
@@ -188,10 +189,17 @@ function Account({
   const { account, restored } = useAccountState(ready);
   const active = account.state === "active";
   const devices = useDevices(ready && active);
+  const signIns = useSignIns(ready && active);
 
   useLive(ready && isSignedIn === true && active, {
-    onEvents: devices.apply,
-    onResync: devices.reload,
+    onEvents: (events) => {
+      devices.apply(events);
+      signIns.apply(events);
+    },
+    onResync: () => {
+      devices.reload();
+      signIns.reload();
+    },
     onAccountDeleted: () => onDeleted(),
   });
 
@@ -236,6 +244,7 @@ function Account({
               connects to a host only after someone at the host allows it.
             </p>
             <Devices load={devices.load} remove={devices.remove} />
+            <SignIns load={signIns.load} />
             <footer className="account-footer">
               <a href={DELETE_ACCOUNT} onClick={onDelete}>
                 Delete account
