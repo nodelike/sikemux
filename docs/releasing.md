@@ -65,6 +65,8 @@ Stable is cut from a `release/<major.minor>` branch and nightly from `main`. A n
 
 ## Version numbers
 
+Nightlies tag themselves. A board trigger on the owner's Mac runs `scripts/nightly.sh check` every half hour, and once `main` has commits since the last nightly, that nightly is at least 12 hours old (`SIKEMUX_NIGHTLY_HOURS`), the newest finished push run of CI, Mobile CI, Server and Docs on `main` passed and no Release run is going, its card starts an agent that writes the notes and runs `scripts/nightly.sh tag --notes <file>`. That commits the version bump and the notes on `origin/main`'s tip from a temporary index, pushes it and tags it. `--dry-run` prints the bump and the notes instead. The tag is pushed from the Mac because a tag pushed by a workflow's `GITHUB_TOKEN` starts no other workflow. Stable releases stay by hand.
+
 A nightly is a prerelease of the next stable release. After a stable `0.x.y`, `main`'s nightlies are `0.x.(y+1)-nightly.N`, or `0.(x+1).0-nightly.N` when the next release is a bigger one. Stable releases come every few days, each a promoted nightly.
 
 ## Promoting a nightly to stable
