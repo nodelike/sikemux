@@ -9,7 +9,7 @@ use gpui_kit::{
 use sikemux_view::host_stats::{AlertLevel, HostAlertKind};
 
 use super::model::{self, Counts, Listed, State};
-use super::{card, hair, ink};
+use super::{hair, ink};
 use crate::icons::Icon;
 use crate::keymap;
 use crate::theme::{
@@ -245,7 +245,7 @@ fn chooses(key: &str, cx: &mut Context<Workbench>) -> Box<Clicked> {
 }
 
 fn host_card(host: &Listed, chosen: bool, t: &Tokens, cx: &mut Context<Workbench>) -> AnyElement {
-    let ground = card(t);
+    let ground = t.surface_sunken.opacity(0.85);
     div()
         .id(SharedString::from(format!("host-card-{}", host.key)))
         .flex_1()
@@ -581,7 +581,7 @@ fn table(
         .rounded(RADIUS_4)
         .border_1()
         .border_color(hair(t))
-        .bg(card(t))
+        .bg(t.surface_sunken.opacity(0.85))
         .overflow_hidden()
         .child(
             div()
