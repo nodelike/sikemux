@@ -690,7 +690,7 @@ impl Copying {
     }
 }
 
-/// What a host in trouble says of `alert`, alike on its rail row and its Hosts page card:
+/// What a host in trouble says of `alert` on its Hosts page card:
 /// "Memory 98%", "Disk 94%", "CPU 97%" or "Out of reach 14 min".
 pub fn alert_words(alert: &HostAlert) -> String {
     match alert.kind {
