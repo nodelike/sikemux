@@ -50,6 +50,7 @@ private struct ChatPane: View {
     @State private var lit: String?
     @State private var menu = false
     @State private var showLive = false
+    @State private var finding = false
 
     init(core: String, agentId: String) {
         self.core = core
@@ -78,10 +79,7 @@ private struct ChatPane: View {
         let title = rows.head.title ?? listed?.title ?? provider
         Screen {
             Nav(back: nil, onBack: nil) {
-                AgentMark(provider: provider, size: 17)
-                Text(title).font(Theme.ui(16, .semibold)).tracking(-0.25).foregroundStyle(palette.ink).lineLimit(1)
-                    .accessibilityAddTraits(.isHeader)
-                if let name = info?.name { Text("@\(name)").font(Theme.ui(12)).foregroundStyle(palette.tertiary).fixedSize() }
+                ChatTitle(agentId: agentId, provider: provider, name: info?.name, title: title)
             } end: {
                 Button { menu = true } label: {
                     IconView(icon: Icons.moreVertical, size: 16).foregroundStyle(palette.tertiary).frame(width: 40, height: 40)
@@ -106,9 +104,19 @@ private struct ChatPane: View {
         .onAppear(perform: appeared)
         .onDisappear(perform: left)
         .onChange(of: info) { _, info in session.hostSaw(info) }
-        .onChange(of: live.connection === nil) { _, _ in
+        .onChange(of: live.isOpen) { _, _ in
             release?()
             release = session.hold(live.connection)
+        }
+        .sheet(shown: $showLive) {
+            LiveSheet(work: LiveWork(rows), provider: provider, steerable: steerable(rows), canAct: !watchOnly, session: session) { scroll.toEnd() }
+        }
+        .sheet(shown: $menu) {
+            ChatMenu(
+                core: core, agentId: agentId, agentName: info?.name.map { "@\($0)" } ?? provider, hostName: hostName,
+                onClose: { menu = false },
+                onFind: session.attached == .live ? { finding = true } : nil,
+                onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
         }
         .onChange(of: rows.subagentRows) { _, rows in context.subagentRows = rows }
         .onChange(of: rows.running) { was, running in
@@ -168,67 +176,21 @@ private struct ChatPane: View {
     // MARK: The transcript
 
     private func transcript(_ rows: ChatRows) -> some View {
-        let shown = shownRows(rows)
-        return TranscriptList(
-            order: shown.order, entries: shown.entries, drawn: session.drawn, touched: { session.takeTouched() },
-            scroll: scroll, hasEarlier: session.hasEarlier && session.earlier == .idle, loadEarlier: { session.loadEarlier() },
-            environment: { [palette, context] view in AnyView(view.environment(\.palette, palette).environment(context)) },
-            header: { TranscriptHeader(session: session) },
-            footer: { TranscriptFooter(session: session, core: core, agentId: agentId, provider: provider) },
-            row: { entry in TranscriptRow(entry: entry) })
-            .environment(\.openURL, OpenURLAction { url in opened(url) })
-            .sheet(item: $context.picture) { picture in ImageViewer(image: picture.image, name: picture.name) }
-    }
-
-    private func opened(_ url: URL) -> OpenURLAction.Result {
-        guard let path = TranscriptLink.filePath(url) else { return .systemAction }
-        if let image = HostFiles.imagePath(path) {
-            Task {
-                guard let file = await HostFiles.shared.read(core: core, path: image), let picture = UIImage(contentsOfFile: file.path) else { return }
-                context.showImage(picture, (image as NSString).lastPathComponent)
-            }
-        }
-        return .handled
-    }
-
-    private func shownRows(_ rows: ChatRows) -> (order: [String], entries: [String: RowEntry]) {
-        let folds = session.folds
-        let messages = rows.messages
-        let runs = ShownRows.teamRows(messages) { id in
-            folds.isOpen("team-all/\(id)", false) ? .all : folds.isOpen("team/\(id)", false) ? .open : .closed
-        }
-        let liveId = rows.running ? messages.last?.id : nil
         let canEdit = !watchOnly && rows.head.capabilities.editing == true && rows.head.connection == .ready && !rows.running && session.attached == .live
-        let stripOwner = open
-        let worktree = live.view?.workspace.agents?.first { $0.id == agentId }?.worktree
-        var order: [String] = []
-        var entries: [String: RowEntry] = [:]
-        for (index, message) in messages.enumerated() {
-            let run = runs[message.id]
-            let fold = ShownRows.fold(message, { folds.isOpen("work/\($0)", false) }, run)
-            guard !fold.hidden || fold.summary != nil || run?.head != nil else { continue }
-            var look = RowLook()
-            look.live = message.id == liveId
-            look.lit = message.id == lit
-            look.unsent = session.unsent[message.id]
-            look.kept = fold.kept
-            look.hidden = fold.hidden
-            look.summary = fold.summary
-            look.workOpen = fold.summary.map { folds.isOpen("work/\($0.id)", false) } ?? false
-            if let run, let head = run.head {
-                look.team = head
-                look.teamId = run.id
-                look.teamOpen = folds.isOpen("team/\(run.id)", false)
-                look.teamAll = folds.isOpen("team-all/\(run.id)", false)
-            }
-            if index == 0, !session.hasEarlier { look.worktree = worktree }
-            if message.id == stripOwner { look.strip = Strip.of(messages, message.id) }
-            look.editable = canEdit && message.role == .user && message.promptId != nil && (message.context ?? []).isEmpty && session.unsent[message.id] == nil
-            look.editing = message.id == editing && canEdit
-            order.append(message.id)
-            entries[message.id] = RowEntry(message: message, look: look)
-        }
-        return (order, entries)
+        let messages = rows.messages
+        let unsent = session.unsent
+        return Transcript(
+            rows: rows, drawn: session.drawn, touched: { session.takeTouched() }, context: context, scroll: scroll,
+            hasEarlier: session.hasEarlier, earlier: session.earlier, loadEarlier: { session.loadEarlier() },
+            worktree: live.view?.workspace.agents?.first { $0.id == agentId }?.worktree,
+            look: { [open, lit, editing] message, look in
+                look.lit = message.id == lit
+                look.unsent = unsent[message.id]
+                if message.id == open { look.strip = Strip.of(messages, message.id) }
+                look.editable = canEdit && message.role == .user && message.promptId != nil && (message.context ?? []).isEmpty && unsent[message.id] == nil
+                look.editing = message.id == editing && canEdit
+            },
+            footer: { TranscriptFooter(session: session, core: core, agentId: agentId, provider: provider, hostName: hostName, canAct: !watchOnly) })
     }
 
     @ViewBuilder private func askedStrip(_ rows: ChatRows) -> some View {
@@ -320,26 +282,15 @@ private struct ChatPane: View {
     }
 
     private func bottomContext(_ rows: ChatRows) -> ChatBottomContext {
-        let steerable = rows.head.capabilities.steering == true && rows.running && !watchOnly
+        let work = LiveWork(rows)
+        let strip = work.any && session.attached == .live ? AnyView(LiveStrip(work: work, provider: provider) { showLive = true }) : nil
         return ChatBottomContext(
             core: core, agentId: agentId, provider: provider, hostName: hostName, watchOnly: watchOnly,
-            offline: !live.isOpen, steers: steerable, strip: nil, onSent: { scroll.toEnd() }, onRecent: nil, focus: focus)
+            offline: !live.isOpen, steers: steerable(rows), strip: strip, onSent: { scroll.toEnd() }, onRecent: nil, focus: focus)
     }
-}
 
-/// Above the first row: earlier turns arriving, or a note that the host no longer keeps them.
-private struct TranscriptHeader: View {
-    let session: ChatSession
-
-    var body: some View {
-        if session.hasEarlier {
-            EarlierLine(failed: session.earlier == .failed, loading: session.earlier == .loading) { session.loadEarlier() }
-        } else if session.rows.head.earlierLost {
-            Text(ChatWords.earlierLost).font(Theme.ui(12.5)).foregroundStyle(Palette.standard.tertiary)
-                .frame(maxWidth: .infinity).padding(.top, 10).padding(.bottom, 6)
-        } else {
-            Color.clear.frame(height: 6)
-        }
+    private func steerable(_ rows: ChatRows) -> Bool {
+        rows.head.capabilities.steering == true && rows.running && !watchOnly
     }
 }
 
@@ -349,6 +300,8 @@ private struct TranscriptFooter: View {
     let core: String
     let agentId: String
     let provider: String
+    let hostName: String
+    let canAct: Bool
 
     var body: some View {
         let rows = session.rows
@@ -356,6 +309,7 @@ private struct TranscriptFooter: View {
         VStack(alignment: .leading, spacing: 0) {
             if !rows.queued.isEmpty { QueuedLines(held: rows.queued) }
             if let activity { ActivityLine(provider: provider, label: activity, since: session.turnSince) }
+            Trouble(session: session, provider: provider, hostName: hostName, canAct: canAct && session.attached == .live && Hub.shared.live(core).isOpen)
             ChatQuestionsFooter(core: core, agentId: agentId, session: session)
         }
         .padding(.bottom, 28)
