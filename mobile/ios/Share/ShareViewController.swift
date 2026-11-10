@@ -9,7 +9,7 @@ final class ShareViewController: UIViewController {
     super.viewDidLoad()
     Theme.registerFonts()
     overrideUserInterfaceStyle = .dark
-    view.backgroundColor = UIColor(Theme.ground)
+    view.backgroundColor = UIColor(palette.overlay)
     model.onFinish = { [weak self] in self?.finish() }
     let sheet = UIHostingController(rootView: ShareView(model: model, cancel: { [weak self] in self?.cancel() }))
     sheet.view.backgroundColor = .clear
