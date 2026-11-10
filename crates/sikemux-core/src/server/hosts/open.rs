@@ -26,23 +26,28 @@ const OPEN_WAIT: Duration = Duration::from_secs(10 * 60);
 pub struct OpenOnParams {
     pub path: PathBuf,
     pub host: String,
+    /// What is not committed goes too, as a commit on top.
+    #[serde(default)]
+    pub uncommitted: bool,
 }
 
 /// Opens the project at `path` on the linked host `host`, and answers with
 /// that host's project for it.
 pub(crate) async fn open_on(core: &Arc<Core>, params: OpenOnParams) -> CoreResult<Value> {
     let link = find(core, &params.host)?;
-    open_there(core, &link, params.path, false).await
+    open_there(core, &link, params.path, params.uncommitted, true).await
 }
 
 /// Opens the project at `path` on the linked host `link`, with what is not committed laid
 /// over it there when `uncommitted`, and answers with that host's project for it and, then,
-/// how the uncommitted changes went.
+/// how the uncommitted changes went. A `copy` is a new checkout there, with what is not
+/// committed committed on top.
 pub(crate) async fn open_there(
     core: &Arc<Core>,
     link: &StoredLink,
     path: PathBuf,
     uncommitted: bool,
+    copy: bool,
 ) -> CoreResult<Value> {
     let packed = blocking(move || code::package(&path).map_err(Into::into)).await?;
     let patch = packed.code.patch.clone().filter(|_| uncommitted);
@@ -51,6 +56,7 @@ pub(crate) async fn open_there(
             patch,
             ..packed.code.clone()
         },
+        copy,
     });
     let asked = |body| {
         ask(
@@ -91,6 +97,10 @@ pub(crate) async fn open_there(
 #[derive(Serialize, Deserialize)]
 pub(super) struct OpenParams {
     code: Code,
+    /// A new copy (ADR 0023): a checkout of its own, never one already there, with what is
+    /// not committed committed on top.
+    #[serde(default)]
+    copy: bool,
 }
 
 pub(super) async fn open_here(
@@ -98,11 +108,12 @@ pub(super) async fn open_here(
     params: OpenParams,
     body: Option<Received>,
 ) -> Answer {
-    let OpenParams { code } = params;
+    let OpenParams { code, copy } = params;
     let opened = {
         let (core, code) = (core.clone(), code.clone());
         blocking(move || {
-            code::open_project(&core, &code, body.as_ref().map(Received::path)).map_err(Into::into)
+            code::open_project(&core, &code, body.as_ref().map(Received::path), copy)
+                .map_err(Into::into)
         })
         .await
         .map_err(|error| error.to_string())?
@@ -113,7 +124,13 @@ pub(super) async fn open_here(
             let laid = match &code.patch {
                 Some(patch) => {
                     let (path, patch) = (path.clone(), patch.clone());
-                    let laid = blocking(move || code::lay_over(&path, &patch).map_err(Into::into));
+                    let laid = blocking(move || {
+                        match copy {
+                            true => code::commit_over(&path, &patch),
+                            false => code::lay_over(&path, &patch),
+                        }
+                        .map_err(Into::into)
+                    });
                     Some(
                         laid.await
                             .map_or_else(|error| error.to_string(), |()| "applied".into()),

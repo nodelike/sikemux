@@ -214,6 +214,7 @@ pub fn copy_menu(
     let this = cx.weak_entity();
     let front = bench.front_copy(folded).cloned();
     let targets = bench.copy_targets(folded);
+    let leaves = bench.rails.copy_leaves_uncommitted;
     let folded = folded.clone();
     let t = Tokens::get(cx).clone();
     move |mut popup, _, cx| {
@@ -259,13 +260,29 @@ pub fn copy_menu(
                             return;
                         };
                         let (key, label, identity) = (key.clone(), label.clone(), identity.clone());
-                        let _ = this.update(cx, |bench, cx| {
-                            bench.copy_to(from, identity, key, label, cx)
-                        });
+                        let copying = crate::hosts::Copying {
+                            from,
+                            identity,
+                            host: key,
+                            label,
+                            uncommitted: !leaves,
+                        };
+                        let _ = this.update(cx, |bench, cx| bench.copy_to(copying, cx));
                     }),
             );
         }
-        popup
+        let this = this.clone();
+        popup.item(
+            ui::MenuRow::new("Bring uncommitted changes")
+                .item(cx)
+                .checked(!leaves)
+                .on_click(move |_, _, cx| {
+                    let _ = this.update(cx, |bench, cx| {
+                        bench.rails.copy_leaves_uncommitted = !leaves;
+                        cx.notify();
+                    });
+                }),
+        )
     }
 }
 

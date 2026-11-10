@@ -82,6 +82,7 @@ impl Rails {
             peeking: None,
             unpeek: None,
             page: TabRailPage::Agents,
+            copy_leaves_uncommitted: false,
             keeping: None,
             all_projects: false,
             goal_focus: None,
@@ -137,6 +138,9 @@ pub struct Rails {
     pub(crate) unpeek: Option<gpui_kit::Task<()>>,
     /// Which of its pages the tab rail shows.
     pub page: TabRailPage,
+    /// A new copy of a project leaves the uncommitted changes where they are, as the person
+    /// chose in the copy switch.
+    pub(crate) copy_leaves_uncommitted: bool,
     /// The rails' state waiting to be kept in the core's preferences, once a drag settles.
     pub(crate) keeping: Option<gpui_kit::Task<()>>,
     pub(crate) all_projects: bool,

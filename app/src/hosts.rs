@@ -263,54 +263,41 @@ impl Workbench {
         }
     }
 
-    /// Makes a copy of the project `from` holds on the account host `host`, once the person
-    /// agrees: that host clones it from its remote, or takes it from `from`'s host as a bundle,
-    /// then the new copy is in front. Only committed work goes.
-    pub fn copy_to(
-        &mut self,
-        from: crate::copies::HostCopy,
-        identity: Option<String>,
-        host: String,
-        label: SharedString,
-        cx: &mut Context<Self>,
-    ) {
-        let name = from
-            .path
-            .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_default();
+    /// Makes the copy `copying` asks for, once the person agrees: that host clones the project
+    /// from its remote, or takes it from the copy's host as a bundle, then the new copy is in
+    /// front.
+    pub fn copy_to(&mut self, copying: Copying, cx: &mut Context<Self>) {
+        let (from, label) = (&copying.from.host, &copying.label);
+        let said = match copying.uncommitted {
+            true => format!("{label} makes a new checkout of it from its remote, or from {from} when it cannot reach the remote, with the uncommitted changes there as a commit on top."),
+            false => format!("{label} makes a new checkout of it from its remote, or from {from} when it cannot reach the remote. Only what is committed goes over; uncommitted changes stay there."),
+        };
         self.confirm(
-            format!("Copy {name} to {label}?"),
-            format!("{label} clones it from its remote, or takes it from {} when it cannot reach the remote. Only what is committed goes over; uncommitted changes stay there.", from.host),
+            format!("Copy {} to {label}?", copying.name()),
+            said,
             "Copy",
             false,
             move |bench, yes, _, cx| {
                 if yes {
-                    bench.copy_now(&from, identity.clone(), &host, &name, label.clone(), cx);
+                    bench.copy_now(&copying, cx);
                 }
             },
             cx,
         );
     }
 
-    fn copy_now(
-        &mut self,
-        from: &crate::copies::HostCopy,
-        identity: Option<String>,
-        host: &str,
-        name: &str,
-        label: SharedString,
-        cx: &mut Context<Self>,
-    ) {
+    fn copy_now(&mut self, copying: &Copying, cx: &mut Context<Self>) {
         let params = OpenOnParams {
-            path: from.path.clone(),
-            host: host.to_owned(),
+            path: copying.from.path.clone(),
+            host: copying.host.clone(),
+            uncommitted: copying.uncommitted,
         };
         // The copy's own host sends it.
-        let opening = core::Target::new(&self.asks, from.place.clone())
+        let opening = core::Target::new(&self.asks, copying.from.place.clone())
             .request_typed::<call::OpenOnHost>(params);
+        let (name, label) = (copying.name(), copying.label.clone());
         self.notify(toast::info(format!("Copying {name} to {label}…")), cx);
-        let host = host.to_owned();
+        let (host, identity) = (copying.host.clone(), copying.identity.clone());
         cx.spawn(async move |bench, cx| {
             let opened = opening.await;
             let _ = bench.update(cx, |bench, cx| match opened {
@@ -653,6 +640,27 @@ pub fn load_label(load: &sikemux_view::device::HostLoad) -> String {
     match load.memory_used {
         Some(bytes) => format!("{}% · {:.1} GB", load.cpu, bytes as f64 / 1024f64.powi(3)),
         None => format!("{}%", load.cpu),
+    }
+}
+
+/// A new copy of a project, as the person asked for it.
+pub struct Copying {
+    /// The copy it is made from.
+    pub from: crate::copies::HostCopy,
+    /// What the project is known by on every host.
+    pub identity: Option<String>,
+    /// The account host it goes to, by its key, and its name.
+    pub host: String,
+    pub label: SharedString,
+    /// What is not committed goes too, as a commit on top.
+    pub uncommitted: bool,
+}
+
+impl Copying {
+    fn name(&self) -> String {
+        (self.from.path.file_name())
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default()
     }
 }
 

@@ -115,7 +115,8 @@ pub(crate) async fn send_session(core: &Arc<Core>, params: SendParams) -> CoreRe
             .into());
         }
     }
-    let opened = open::open_there(core, &link, project.path.clone(), params.uncommitted).await?;
+    let opened =
+        open::open_there(core, &link, project.path.clone(), params.uncommitted, false).await?;
     let there = opened["project"]
         .as_str()
         .ok_or_else(|| CoreError::from(format!("{} did not open the project", link.name)))?

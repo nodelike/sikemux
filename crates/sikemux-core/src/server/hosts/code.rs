@@ -285,7 +285,7 @@ fn has_origin(dir: &Path, remote: &str) -> bool {
 
 /// Where a project opened from another host goes: beside most of this host's
 /// projects, else in the home folder, under a new name when its own is taken.
-fn opened_dir(core: &Core, code: &Code) -> Result<PathBuf, String> {
+fn opened_dir(core: &Core, code: &Code, fresh: bool) -> Result<PathBuf, String> {
     let mut parents: Vec<PathBuf> = core
         .workspaces
         .project_paths()
@@ -310,10 +310,8 @@ fn opened_dir(core: &Core, code: &Code) -> Result<PathBuf, String> {
         })
         .find(|dir| {
             !dir.exists()
-                || code
-                    .remote
-                    .as_deref()
-                    .is_some_and(|remote| has_origin(dir, remote))
+                || (!fresh
+                    && (code.remote.as_deref()).is_some_and(|remote| has_origin(dir, remote)))
         })
         .ok_or_else(|| {
             format!(
@@ -323,26 +321,26 @@ fn opened_dir(core: &Core, code: &Code) -> Result<PathBuf, String> {
         })
 }
 
-/// Opens the person's project from another host here (ADR 0019): a checkout
-/// of the same `origin` as it is, else a clone from the remote with this
-/// host's own sign-in, else a copy from `bundle`, at the commit sent and on
-/// its branch. Only committed work comes over.
+/// Opens the person's project from another host here: a checkout of the same
+/// `origin` as it is, unless `fresh` asks for a new one, else a clone from the
+/// remote with this host's own sign-in, else a copy from `bundle`, at the
+/// commit sent and on its branch. Only committed work comes over.
 pub(crate) fn open_project(
     core: &Core,
     code: &Code,
     bundle: Option<&Path>,
+    fresh: bool,
 ) -> Result<Opened, String> {
     if !is_commit_id(&code.commit) {
         return Err("the project's commit is not a commit id".into());
     }
-    if let Some(repo) = code
-        .remote
-        .as_deref()
+    if let Some(repo) = (code.remote.as_deref())
+        .filter(|_| !fresh)
         .and_then(|remote| project_with(core, remote))
     {
         return Ok(Opened::Ready(repo));
     }
-    let dir = opened_dir(core, code)?;
+    let dir = opened_dir(core, code, fresh)?;
     // A clone this made before it had the commit is still its own to check out.
     let reused = dir.exists()
         && Git::quick(&dir)
@@ -505,6 +503,16 @@ pub(crate) fn lay_over(tree: &Path, patch: &str) -> Result<(), String> {
         ])
         .map(drop)
         .map_err(|error| format!("the uncommitted changes do not apply here: {error}"))
+}
+
+/// Applies the uncommitted changes of the copy a new copy was made from and
+/// commits them on their own, as a worker gets its lead's.
+pub(crate) fn commit_over(tree: &Path, patch: &str) -> Result<(), String> {
+    lay_over(tree, patch)?;
+    commit_everything(
+        tree,
+        "The uncommitted changes of the copy this one was made from, as they were then",
+    )
 }
 
 /// Applies the lead's uncommitted changes and commits them on their own, so

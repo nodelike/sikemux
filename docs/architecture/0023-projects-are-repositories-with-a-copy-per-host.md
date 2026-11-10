@@ -48,8 +48,10 @@ between hosts for workers.
   project has more than one copy; the chip switches the copy in front.
 - **A host with no copy gets one on request.** The copy switch and the project menu offer
   **Copy to <host>** for each linked host without one: cloned from the remote with that
-  host's own sign-in, else taken from the copy in front as a git bundle. Only committed work
-  goes. The new copy joins the project and becomes the copy in front. Work moves between copies as commits, as workers'
+  host's own sign-in, else taken from the copy in front as a git bundle, always into a new
+  checkout and never one the host already has. Its uncommitted changes go too, as a commit on
+  top the way workers get their lead's (ADR 0013), unless the person turns that off in the
+  copy switch. The new copy joins the project and becomes the copy in front. Work moves between copies as commits, as workers'
   does, never by syncing files.
 - **A folder outside git is a project of one host.** It has no identity, shows with its
   host's name when that is not this host, and offers no **Copy to**.

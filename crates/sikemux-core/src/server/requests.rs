@@ -141,6 +141,7 @@ pub(super) async fn run(
             }
             Request::RegisterWindow => {
                 core.window.register(client.clone());
+                core.hosts.wake.now();
                 super::notch::follow(&core);
                 core.usage_wake.notify_one();
                 crate::waiting::wake(&core.config.socket);

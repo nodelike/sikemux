@@ -61,6 +61,11 @@ const REDIAL: Backoff = Backoff {
     first: Duration::from_secs(2),
     cap: Duration::from_secs(60),
 };
+/// How a linked host is tried again when only its projects are wanted, while the window is open.
+const REDIAL_FOR_COPIES: Backoff = Backoff {
+    first: Duration::from_secs(30),
+    cap: Duration::from_secs(15 * 60),
+};
 /// How long a host that runs workers may be out of reach before their leads
 /// hear of it.
 const OUT_OF_REACH_MS: u64 = 2 * 60_000;
@@ -599,17 +604,18 @@ pub(crate) fn settle(core: &Arc<Core>) {
     let now = epoch_ms();
     let mut next = None;
     let mut redial = Vec::new();
+    let window = core.window.is_open();
     let mut tell = Vec::new();
     {
         let mut state = core.hosts.state.locked();
         state.down.retain(|host, _| linked.contains(host));
         for link in &links {
-            let wanted = core.hosts.outbox.has(&link.id)
+            let needed = core.hosts.outbox.has(&link.id)
                 || core.hosts.team.has_host(&link.id)
-                || core.hosts.listed.load(Ordering::Acquire)
-                || core.hosts.copies.holds(&link.id)
-                || !core.hosts.copies.heard_from(&link.id);
-            if !wanted
+                || core.hosts.listed.load(Ordering::Acquire);
+            let for_copies = window
+                && (core.hosts.copies.holds(&link.id) || !core.hosts.copies.heard_from(&link.id));
+            if !(needed || for_copies)
                 || state.connections.contains_key(&link.id)
                 || state.dialing.contains(&link.id)
             {
@@ -631,7 +637,10 @@ pub(crate) fn settle(core: &Arc<Core>) {
             }
             if down.retry_at <= now {
                 state.dialing.insert(link.id.clone());
-                redial.push(link.clone());
+                redial.push((
+                    link.clone(),
+                    if needed { REDIAL } else { REDIAL_FOR_COPIES },
+                ));
             } else {
                 next = sooner(next, Some(down.retry_at));
             }
@@ -641,7 +650,7 @@ pub(crate) fn settle(core: &Arc<Core>) {
         core.hosts.state.locked().dialing.clear();
         redial.clear();
     }
-    for link in redial {
+    for (link, backoff) in redial {
         let core = core.clone();
         tokio::spawn(async move {
             let dialed = dial(&core, &link.id, &link.addresses).await;
@@ -651,7 +660,8 @@ pub(crate) fn settle(core: &Arc<Core>) {
                 if dialed.is_err() {
                     if let Some(down) = state.down.get_mut(&link.id) {
                         down.failures = down.failures.saturating_add(1);
-                        down.retry_at = epoch_ms() + REDIAL.after(down.failures).as_millis() as u64;
+                        down.retry_at =
+                            epoch_ms() + backoff.after(down.failures).as_millis() as u64;
                     }
                 }
             }
