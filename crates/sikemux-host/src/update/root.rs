@@ -1,8 +1,9 @@
-//! What root does to update the core, and the app unpacked beside it: find the newest release on the
-//! person's channel in the feeds, check Sikemux signed it for this very file
-//! and version before unpacking or running any of it, and put it where the
-//! installer does, setgid to the group that guards the core's secrets. From
-//! whoever asked it takes only who they are and which channel they follow.
+//! What root does to update the core, and the app unpacked beside it: find
+//! the newest release on the person's channel in the feeds, check Sikemux
+//! signed it for this very file and version before unpacking or running any
+//! of it, and put it where the installer does, setgid to the group that guards
+//! the core's secrets. From whoever asked it takes only who they are and which
+//! channel they follow.
 
 use std::ffi::CStr;
 use std::fs::{self, File, OpenOptions};
@@ -133,17 +134,17 @@ async fn attempt(
         .cloned()
         .ok_or_else(|| format!("{} has no core for this machine", newest.version))?;
     let app = Path::new(host_update::INSTALLED_APP);
-    let app_asset = match app.is_dir() {
-        true => Some(
+    let app_asset = app
+        .is_dir()
+        .then(|| {
             newest
                 .feed
                 .platforms
                 .get(&release_feed::platform())
                 .cloned()
-                .ok_or_else(|| format!("{} has no app for this machine", newest.version))?,
-        ),
-        false => None,
-    };
+                .ok_or_else(|| format!("{} has no app for this machine", newest.version))
+        })
+        .transpose()?;
 
     let work = dir.join(".update");
     let _ = fs::remove_dir_all(&work);
@@ -156,11 +157,13 @@ async fn attempt(
             Some(app_asset) => Some(fetch_app(&work, &newest.version, app_asset, report).await?),
             None => None,
         };
-        let inode = fetch_and_place(core, &work, &newest.version, &asset, report).await?;
+        let archive = fetch_core(&work, &newest.version, &asset, report).await?;
+        // The app goes in first: should the core then fail, the next try finds the old
+        // version still installed and puts both in again.
         if let Some(unpacked) = unpacked {
             replace_app(&unpacked, app)?;
         }
-        Ok::<_, String>(inode)
+        place(&archive, core)
     }
     .await;
     let _ = fs::remove_dir_all(&work);
@@ -175,13 +178,12 @@ async fn attempt(
 /// Downloads the release, checking the updater key's signature as it comes
 /// and that it was made for this very file and version, so no other
 /// release's signature can stand in for it.
-async fn fetch_and_place(
-    core: &Path,
+async fn fetch_core(
     work: &Path,
     version: &Version,
     asset: &release_feed::Asset,
     report: &mut dyn FnMut(&UpdateStep),
-) -> Result<u64, String> {
+) -> Result<PathBuf, String> {
     let file = host_update::host_asset(version, std::env::consts::ARCH);
     let archive = work.join(&file);
     let key = release_feed::release_key()?;
@@ -205,7 +207,7 @@ async fn fetch_and_place(
         ));
     }
     report(&UpdateStep::Verified);
-    place(&archive, core)
+    Ok(archive)
 }
 
 /// Downloads the release's AppImage, checked as the core is, and unpacks it in
@@ -254,7 +256,28 @@ async fn fetch_app(
         return Err(format!("{file} could not be unpacked"));
     }
     fs::set_permissions(&unpacked, fs::Permissions::from_mode(0o755)).map_err(failed)?;
+    only_root_writes(&unpacked).map_err(failed)?;
     Ok(unpacked)
+}
+
+/// Takes write access away from everyone but root throughout `folder`, as the
+/// installer does, since the core trusts whatever runs from it.
+fn only_root_writes(folder: &Path) -> io::Result<()> {
+    for entry in fs::read_dir(folder)? {
+        let path = entry?.path();
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() {
+            continue;
+        }
+        let mode = metadata.permissions().mode();
+        if mode & 0o022 != 0 {
+            fs::set_permissions(&path, fs::Permissions::from_mode(mode & !0o022))?;
+        }
+        if metadata.is_dir() {
+            only_root_writes(&path)?;
+        }
+    }
+    Ok(())
 }
 
 /// What the release calls this machine in its package names.

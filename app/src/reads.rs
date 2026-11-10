@@ -624,8 +624,6 @@ impl Workbench {
     }
 }
 
-/// Keeps `value` decoded in `slot`, and says whether it differs from what was kept. An answer
-/// that does not read leaves the slot as it was.
 fn appimage_launcher() -> Option<std::path::PathBuf> {
     if let Some(appimage) = std::env::var_os("APPIMAGE") {
         return Some(appimage.into());
@@ -633,6 +631,8 @@ fn appimage_launcher() -> Option<std::path::PathBuf> {
     std::env::var_os("APPDIR").map(|folder| std::path::Path::new(&folder).join("AppRun"))
 }
 
+/// Keeps `value` decoded in `slot`, and says whether it differs from what was kept. An answer
+/// that does not read leaves the slot as it was.
 fn keep_decoded<T: DeserializeOwned + PartialEq>(slot: &mut T, value: Value, what: &str) -> bool {
     decoded(value, what).is_some_and(|read| keep(slot, read))
 }
