@@ -23,8 +23,8 @@ use crate::hosts::{HostChoice, Place, Sending};
 use crate::icons::Icon;
 use crate::theme::{
     Tokens, RADIUS_1, RADIUS_2, RADIUS_3, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H,
-    SPACE_4, SPACE_5, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM,
-    TEXT_XL, TEXT_XS,
+    SPACE_4, SPACE_6, TEXT_2XS, TEXT_2XS_H, TEXT_3XS, TEXT_3XS_H, TEXT_MD, TEXT_SM, TEXT_XL,
+    TEXT_XS,
 };
 use crate::ui::{self, Button, IconButton, Segmented, Variant};
 use crate::workbench::Workbench;
@@ -50,7 +50,7 @@ pub fn detail(
         .flex_col()
         .child(head(bench, host, &t, cx))
         .when_some(stats, |detail, stats| {
-            detail.child(specs(host, stats, &t, cx))
+            detail.child(about(host, stats, &t, cx))
         })
         .children(needs_you(bench, host, listed, &t, cx))
         .when_some(stats.filter(|_| host.online()), |detail, stats| {
@@ -64,7 +64,6 @@ pub fn detail(
             stats.filter(|stats| !stats.events.is_empty()),
             |detail, stats| detail.child(activity(host, stats, &t, cx)),
         )
-        .when_some(stats, |detail, stats| detail.child(about(stats, &t, cx)))
         .children(agents(bench, host, listed, &t, cx))
         .into_any_element()
 }
@@ -217,78 +216,6 @@ fn menu_button(
             )
         }
     }
-}
-
-fn specs(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
-    let about = &stats.about;
-    let (logo, tint) = model::logo(about.mark, t);
-    let cell = |at: usize, label: &str, glyph: AnyElement, value: String| {
-        div()
-            .flex_1()
-            .min_w_0()
-            .px(SPACE_3H)
-            .pt(px(11.))
-            .pb(SPACE_3)
-            .flex()
-            .flex_col()
-            .gap(px(5.))
-            .when(at > 0, |cell| cell.border_l_1().border_color(hair(t)))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(SPACE_1H)
-                    .child(glyph)
-                    .child(ui::caps(label, cx)),
-            )
-            .child(
-                ui::text(value, TEXT_MD, FontWeight::MEDIUM)
-                    .truncate()
-                    .text_color(t.text_primary),
-            )
-    };
-    let glyph = |icon: Icon| {
-        ui::icon(icon, 12.)
-            .text_color(t.text_tertiary)
-            .into_any_element()
-    };
-    let system_tint = if host.online() { tint } else { t.text_tertiary };
-    div()
-        .mt(SPACE_5)
-        .flex()
-        .rounded(RADIUS_3)
-        .border_1()
-        .border_color(hair(t))
-        .bg(card(t))
-        .child(cell(
-            0,
-            "Cores",
-            glyph(Icon::Activity),
-            about.cores.to_string(),
-        ))
-        .child(cell(
-            1,
-            "Memory",
-            glyph(Icon::Stack),
-            model::size(about.memory_total),
-        ))
-        .child(cell(
-            2,
-            "Disk",
-            glyph(Icon::Database),
-            model::size(about.disk_total),
-        ))
-        .child(
-            cell(
-                3,
-                "System",
-                ui::icon(logo, 12.)
-                    .text_color(system_tint)
-                    .into_any_element(),
-                about.system.clone(),
-            )
-            .flex_grow(1.3),
-        )
 }
 
 /// A section's head: its icon and spaced capitals, how many it holds, and what sits at its end.
@@ -1521,19 +1448,57 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
         )
 }
 
-fn about(stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
+fn glyph(icon: Icon, t: &Tokens) -> AnyElement {
+    ui::icon(icon, 13.)
+        .text_color(t.text_tertiary)
+        .into_any_element()
+}
+
+fn about(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
     let about = &stats.about;
-    let rows: Vec<(Icon, &str, String, bool)> = [
+    let (logo, tint) = model::logo(about.mark, t);
+    let system_tint = if host.online() { tint } else { t.text_tertiary };
+    let rows: Vec<(AnyElement, &str, String, bool)> = [
         about
             .model
             .clone()
-            .map(|model| (Icon::Laptop, "Model", model, false)),
-        Some((Icon::Settings, "System", about.system.clone(), false)),
+            .map(|model| (glyph(Icon::Laptop, t), "Model", model, false)),
+        Some((
+            ui::icon(logo, 13.)
+                .text_color(system_tint)
+                .into_any_element(),
+            "System",
+            about.system.clone(),
+            false,
+        )),
+        Some((
+            glyph(Icon::Activity, t),
+            "Cores",
+            about.cores.to_string(),
+            true,
+        )),
+        Some((
+            glyph(Icon::Stack, t),
+            "Memory",
+            model::size(about.memory_total),
+            true,
+        )),
+        Some((
+            glyph(Icon::Database, t),
+            "Disk",
+            model::size(about.disk_total),
+            true,
+        )),
         about
             .gpu
             .clone()
-            .map(|gpu| (Icon::Cube, "Graphics", gpu, false)),
-        Some((Icon::Logo, "Sikemux", about.core_version.clone(), true)),
+            .map(|gpu| (glyph(Icon::Cube, t), "Graphics", gpu, false)),
+        Some((
+            glyph(Icon::Logo, t),
+            "Sikemux",
+            about.core_version.clone(),
+            true,
+        )),
     ]
     .into_iter()
     .flatten()
@@ -1553,14 +1518,14 @@ fn about(stats: &HostStats, t: &Tokens, cx: &mut Context<Workbench>) -> Div {
                 .children(
                     rows.into_iter()
                         .enumerate()
-                        .map(|(at, (icon, label, value, mono))| {
+                        .map(|(at, (glyph, label, value, mono))| {
                             div()
                                 .h(px(32.))
                                 .flex()
                                 .items_center()
                                 .gap(px(9.))
                                 .when(at > 0, |row| row.border_t_1().border_color(hair(t)))
-                                .child(ui::icon(icon, 13.).text_color(t.text_tertiary))
+                                .child(glyph)
                                 .child(
                                     ui::text(label, TEXT_SM, FontWeight::NORMAL)
                                         .text_color(t.text_tertiary),
