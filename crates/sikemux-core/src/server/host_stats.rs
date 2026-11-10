@@ -119,6 +119,14 @@ impl super::part::Part for HostWatch {
 }
 
 impl HostWatch {
+    pub(crate) fn note(&self, what: HostEventKind) {
+        self.state.locked().record(epoch_ms(), what);
+    }
+
+    fn disk_alerted(&self) -> bool {
+        self.state.locked().alert(HostAlertKind::Disk).is_some()
+    }
+
     fn watched(&self) -> bool {
         epoch_ms() < self.watched_until.load(Ordering::Acquire)
     }
@@ -354,6 +362,9 @@ async fn run(core: Arc<Core>) {
             looker = back;
             if host_due {
                 next_host = now + HISTORY_EVERY;
+                if core.host_watch.disk_alerted() {
+                    super::worktree::build_output::make_room(&core);
+                }
                 if now >= next_shown {
                     next_shown = now + LOAD_SHOWN_EVERY;
                     if core.shows_load() && core.load_moved(&load(&core)) {
@@ -852,6 +863,14 @@ impl State {
     }
 }
 
+/// Whether the disk has dropped back below where a full disk's alert ends.
+pub(crate) fn disk_has_room() -> bool {
+    let Some(disk) = sikemux_process::paths::home().and_then(|home| machine::disk(&home)) else {
+        return true;
+    };
+    percent(disk.used, disk.total) < DISK_LIMITS.calm
+}
+
 /// Measures what takes the disk, in the background at the system's lowest priority, at most
 /// every so often while the page is watched.
 fn measure_disk_parts(core: &Arc<Core>) {
@@ -893,7 +912,7 @@ fn measure_disk_parts(core: &Arc<Core>) {
     }
 }
 
-fn lowest_priority() {
+pub(crate) fn lowest_priority() {
     #[cfg(target_os = "macos")]
     // SAFETY: changes only this thread's priority, which throttles its disk reads too.
     unsafe {
@@ -943,7 +962,7 @@ fn disk_parts(projects: &[PathBuf]) -> Vec<DiskPart> {
 }
 
 /// What the files under `folder` take on the disk, not following links.
-fn size_of_folder(folder: &Path) -> u64 {
+pub(crate) fn size_of_folder(folder: &Path) -> u64 {
     use std::os::unix::fs::MetadataExt;
     let mut total = 0;
     let mut folders = vec![folder.to_path_buf()];

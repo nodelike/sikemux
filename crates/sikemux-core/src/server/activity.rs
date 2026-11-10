@@ -33,6 +33,7 @@ impl Core {
                 }
                 super::board::chat_goal::turn_started(self, agent_id);
                 self.ship.turn_started(agent_id);
+                super::worktree::build_output::turn_started(self, agent_id);
                 self.seen.started(agent_id);
                 self.inbox.started(agent_id);
                 self.boards.wake.now();
@@ -97,6 +98,7 @@ impl Core {
 
     fn came_to_rest(&self, agent_id: &str) {
         self.ship.turn_ended(agent_id);
+        super::worktree::build_output::turn_ended(self, agent_id);
         if let Some(place) = super::activity_log::place(self, agent_id) {
             self.activity_log.turn_ended(agent_id, place);
         }

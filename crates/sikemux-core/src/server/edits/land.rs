@@ -97,6 +97,7 @@ pub(super) fn apply(repo: &Path, steps: Steps, before: &str, after: &str) -> Vec
 pub(super) fn land(core: &Core, agent_id: &str) -> Result<Landed, String> {
     let worktree = own_checkout(core, agent_id).ok_or("You work in the project's own checkout, so your commits are on its branch already; there is nothing to land")?;
     let landed = land_from(&worktree, &Signing::of(core))?;
+    core.build_outputs.landed(agent_id);
     core.repo_events.tell(RepoEvent::Landed {
         project: core.workspaces.project_of(&worktree.repo),
         agent: agent_id.to_owned(),

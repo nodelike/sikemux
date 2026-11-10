@@ -137,10 +137,14 @@ pub(crate) fn resumed_in(cwd: &Path, branch: Option<&str>) -> Result<ResumedIn, 
 }
 
 /// Makes again the worktree a stored agent ran in when it was cleaned away, so it wakes on its
-/// session there, and keeps it on the agent's record.
+/// session there, and keeps it on the agent's record. One still there gets back, warm, any
+/// build output that was removed while the agent was closed.
 pub(crate) async fn restore(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
     let agent = core.workspaces.agent_or_gone(agent_id)?;
     if agent.cwd.is_dir() {
+        if let Some(tree) = agent.worktree {
+            warm::seed_in_background(&tree.repo, &tree.path);
+        }
         return Ok(());
     }
     let (cwd, branch) = (agent.cwd, agent.worktree.map(|tree| tree.branch));

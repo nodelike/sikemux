@@ -384,6 +384,7 @@ pub(crate) struct Core {
     pub(crate) lifecycle: lifecycle::Lifecycle,
     /// Agents' actions that leave this machine, held for the person.
     pub(crate) ship: ship::Ships,
+    pub(crate) build_outputs: worktree::build_output::BuildOutputs,
     pub(crate) session_watch: session_watch::SessionWatch,
     pub(crate) activity_log: Arc<activity_log::ActivityLog>,
     pub(crate) device_view: device_view::DeviceViews,
@@ -535,6 +536,7 @@ impl Core {
             settling: settling::Settling::default(),
             lifecycle: lifecycle::Lifecycle::default(),
             ship: ship::Ships::default(),
+            build_outputs: Default::default(),
             session_watch: session_watch::SessionWatch::default(),
             activity_log: Arc::new(activity_log::ActivityLog::new(data_dir)),
             device_view: device_view::DeviceViews::default(),

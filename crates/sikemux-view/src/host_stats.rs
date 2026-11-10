@@ -237,6 +237,24 @@ pub enum HostEventKind {
         agent_id: String,
         command: String,
     },
+    /// The build output of a worktree, named by its folder, was removed.
+    BuildOutputCleared {
+        worktree: String,
+        bytes: u64,
+        reason: ClearedFor,
+    },
     #[serde(other)]
     Unknown,
+}
+
+/// Why a worktree's build output was removed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClearedFor {
+    /// Its agent closed.
+    Closed,
+    /// Its agent landed everything and ended its turn.
+    Landed,
+    /// The disk was nearly full and nothing had built in it for longest.
+    DiskFull,
 }

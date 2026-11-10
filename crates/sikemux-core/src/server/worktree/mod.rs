@@ -11,6 +11,7 @@ use crate::git::{main_checkout, Git};
 use crate::tasks::detect::PERSONAL_TASKS;
 
 pub mod agent;
+pub(crate) mod build_output;
 pub mod removal;
 mod warm;
 

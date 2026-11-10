@@ -1588,9 +1588,13 @@ pub(crate) fn close(core: &Core, agent_ids: &[String]) -> CoreResult<()> {
             .note_look(&agent.id, agent.buddy.clone(), named(&agent));
         super::triggers::pause(core, &agent.id, core.workspaces.held_chat(&agent));
     }
+    let trees: Vec<_> = (agent_ids.iter())
+        .filter_map(|id| core.workspaces.agent(id)?.worktree)
+        .collect();
     let before = core.workspaces.agent_ids();
     core.workspaces.close_agents(agent_ids)?;
     agents_closed(core, before);
+    super::worktree::build_output::closed(core, trees);
     Ok(())
 }
 

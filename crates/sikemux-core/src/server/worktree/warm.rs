@@ -4,7 +4,10 @@
 //! checkout does. Where there is no cheap clone, installed packages are linked
 //! to the main checkout's instead.
 
+use std::fs::File;
 use std::path::{Path, PathBuf};
+
+use rustix::fs::FlockOperation;
 
 use super::included;
 use crate::git::Git;
@@ -39,21 +42,9 @@ pub(crate) fn seed_in_background(main: &Path, tree: &Path) {
 /// can build from: Cargo's output, installed packages `tree` has the same
 /// lockfile for, and the folders `.worktreeinclude` lists.
 pub(crate) fn seed(main: &Path, tree: &Path) {
-    let Ok(listed) = Git::quick(main).trimmed(&[
-        "ls-files",
-        "-z",
-        "--others",
-        "--ignored",
-        "--exclude-standard",
-        "--directory",
-    ]) else {
+    let Some(ignored) = ignored_folders(main) else {
         return;
     };
-    let ignored: Vec<PathBuf> = listed
-        .split('\0')
-        .filter_map(|path| path.strip_suffix('/'))
-        .map(PathBuf::from)
-        .collect();
     for folder in chosen(main, tree, &ignored, &included(main)) {
         if let Err(error) = bring(&main.join(&folder), &tree.join(&folder)) {
             eprintln!(
@@ -62,6 +53,53 @@ pub(crate) fn seed(main: &Path, tree: &Path) {
             );
         }
     }
+}
+
+/// The folders Git ignores in `checkout`, each by its topmost ignored folder.
+pub(super) fn ignored_folders(checkout: &Path) -> Option<Vec<PathBuf>> {
+    let listed = Git::quick(checkout)
+        .trimmed(&[
+            "ls-files",
+            "-z",
+            "--others",
+            "--ignored",
+            "--exclude-standard",
+            "--directory",
+        ])
+        .ok()?;
+    Some(
+        listed
+            .split('\0')
+            .filter_map(|path| path.strip_suffix('/'))
+            .map(PathBuf::from)
+            .collect(),
+    )
+}
+
+/// Whether Cargo builds in `folder`.
+pub(super) fn is_cargo_output(folder: &Path) -> bool {
+    folder.join(CARGO_OUTPUT).is_file()
+}
+
+/// Locks each Cargo build in `folder` against writing while it is cloned or
+/// removed, or `None` while one is running. Cloning one mid-build could pair a
+/// finished build's record with the files it replaced, which Cargo would then trust.
+pub(super) fn hold_builds(folder: &Path) -> Option<Vec<File>> {
+    if !is_cargo_output(folder) {
+        return Some(Vec::new());
+    }
+    let mut held = Vec::new();
+    for profile in subfolders(folder).flat_map(|dir| {
+        let inner: Vec<PathBuf> = subfolders(&dir).collect();
+        std::iter::once(dir).chain(inner)
+    }) {
+        let Ok(lock) = File::open(profile.join(".cargo-lock")) else {
+            continue;
+        };
+        rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive).ok()?;
+        held.push(lock);
+    }
+    Some(held)
 }
 
 fn chosen(main: &Path, tree: &Path, ignored: &[PathBuf], listed: &[PathBuf]) -> Vec<PathBuf> {
@@ -81,7 +119,7 @@ fn chosen(main: &Path, tree: &Path, ignored: &[PathBuf], listed: &[PathBuf]) -> 
 }
 
 fn builds_from(main: &Path, tree: &Path, folder: &Path) -> bool {
-    if main.join(folder).join(CARGO_OUTPUT).is_file() {
+    if is_cargo_output(&main.join(folder)) {
         return true;
     }
     folder.file_name() == Some(NODE_MODULES.as_ref())
@@ -139,15 +177,12 @@ fn bring(from: &Path, to: &Path) -> std::io::Result<()> {
 #[cfg(target_os = "macos")]
 mod clone {
     use std::ffi::CString;
-    use std::fs::File;
     use std::io;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::MetadataExt;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
-    use rustix::fs::FlockOperation;
-
-    use super::{subfolders, CARGO_OUTPUT};
+    use super::hold_builds;
 
     /// Deep enough that no single clone of a build folder reaches for long.
     const CLONE_LEVELS: usize = 4;
@@ -184,27 +219,6 @@ mod clone {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok(()),
             placed => placed,
         }
-    }
-
-    /// Locks each Cargo build in `folder` against writing while it is cloned, or
-    /// `None` while one is running. Cloning one mid-build could pair a finished
-    /// build's record with the files it replaced, which Cargo would then trust.
-    fn hold_builds(folder: &Path) -> Option<Vec<File>> {
-        if !folder.join(CARGO_OUTPUT).is_file() {
-            return Some(Vec::new());
-        }
-        let mut held = Vec::new();
-        for profile in subfolders(folder).flat_map(|dir| {
-            let inner: Vec<PathBuf> = subfolders(&dir).collect();
-            std::iter::once(dir).chain(inner)
-        }) {
-            let Ok(lock) = File::open(profile.join(".cargo-lock")) else {
-                continue;
-            };
-            rustix::fs::flock(&lock, FlockOperation::NonBlockingLockExclusive).ok()?;
-            held.push(lock);
-        }
-        Some(held)
     }
 
     /// Clones a piece at a time, down to `levels` folders deep. One clone of a whole build

@@ -10,7 +10,7 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
 use sikemux_view::host_stats::{
-    AgentUse, AlertLevel, HostAlert, HostAlertKind, HostEventKind, HostStats, StatsSpan,
+    AgentUse, AlertLevel, ClearedFor, HostAlert, HostAlertKind, HostEventKind, HostStats, StatsSpan,
 };
 use sikemux_view::inbox::AgentShown;
 use sikemux_wire::protocol::AgentStatus;
@@ -676,6 +676,10 @@ fn resources(
                         format!("{} started {command}", host.agent_name(agent_id)),
                     ))
                 }
+                (HostEventKind::BuildOutputCleared { bytes, .. }, HostAlertKind::Disk) => Some((
+                    event.at,
+                    format!("{} of build output removed", model::size(*bytes)),
+                )),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -1462,6 +1466,23 @@ fn activity(host: &Listed, stats: &HostStats, t: &Tokens, cx: &mut Context<Workb
                     Icon::Run,
                     t.text_tertiary,
                     format!("{} started {command}", host.agent_name(agent_id)),
+                ),
+                HostEventKind::BuildOutputCleared {
+                    worktree,
+                    bytes,
+                    reason,
+                } => (
+                    Icon::Trash,
+                    t.text_tertiary,
+                    format!(
+                        "Removed {} of build output from {worktree}, {}",
+                        model::size(*bytes),
+                        match reason {
+                            ClearedFor::Closed => "its agent closed",
+                            ClearedFor::Landed => "its agent landed everything",
+                            ClearedFor::DiskFull => "to free disk",
+                        }
+                    ),
                 ),
                 HostEventKind::Unknown => return None,
             };
