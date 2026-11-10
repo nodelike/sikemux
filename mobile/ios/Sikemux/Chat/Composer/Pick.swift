@@ -91,13 +91,16 @@ enum Pick {
             present(picker)
         }
         showing = nil
-        return urls.prefix(limit).map { url in
-            let type = UTType(filenameExtension: url.pathExtension)
-            let mime = type?.preferredMIMEType ?? "application/octet-stream"
-            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-            let image = type.map { $0.conforms(to: .image) && !$0.conforms(to: .svg) } ?? false
-            return Attachment(id: nextId(), kind: image ? .image : .file, name: url.lastPathComponent, mime: mime, uri: url, size: size)
-        }
+        return urls.prefix(limit).map(file)
+    }
+
+    /// A file already on this phone, as the next message carries it.
+    static func file(_ url: URL) -> Attachment {
+        let type = UTType(filenameExtension: url.pathExtension)
+        let mime = type?.preferredMIMEType ?? "application/octet-stream"
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        let image = type.map { $0.conforms(to: .image) && !$0.conforms(to: .svg) } ?? false
+        return Attachment(id: nextId(), kind: image ? .image : .file, name: url.lastPathComponent, mime: mime, uri: url, size: size)
     }
 
     /// Scaled down and as JPEG, which every agent reads (HEIC included).

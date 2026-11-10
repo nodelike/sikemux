@@ -66,7 +66,13 @@ private struct PairingContent: View {
             .pausesBackdrop()
         }
         .task(id: "\(live.isOpen) \(reads)") { await read(live) }
-        .task { phone = try? Identity.shared.deviceIdentity().id() }
+        .task {
+            do {
+                phone = try Identity.shared.deviceIdentity().id()
+            } catch {
+                print("sikemux: could not read this phone's key: \(error)")
+            }
+        }
         .onChange(of: phase) { _, now in if now == .active { reads += 1 } }
         .onAppear { arrivals = Cards.onArrive(host: core, kind: .pairing) { reads += 1 } }
         .onDisappear { arrivals?.cancel() }
