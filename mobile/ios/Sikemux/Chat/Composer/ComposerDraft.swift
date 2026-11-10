@@ -1,0 +1,246 @@
+import Foundation
+import Observation
+import SikemuxCore
+
+/// What the composer holds for the chat's next message, saved as the chat's own draft on the host.
+@MainActor @Observable
+final class ComposerDraft {
+    private(set) var text = ""
+    /// Picked for the next message.
+    var attachments: [Attachment] = []
+    /// Links and text the draft carries, as the host keeps them: shown as chips, sent as words.
+    var chips: [ChatContext] = []
+    /// The agents, files, chats and issues the draft names, over the words that name them.
+    private(set) var tokens: [TextToken] = []
+    /// The issues and pull requests the draft's chips name, by chip.
+    @ObservationIgnored private var tracked: [String: ChatContext] = [:]
+    /// The host's revision of this chat's draft that the composer last took in.
+    @ObservationIgnored private var rev: Int?
+    /// Changes made here since the draft was last saved, which the host's draft must not replace.
+    @ObservationIgnored private var edits = 0
+    @ObservationIgnored private var saving: Task<Void, Never>?
+
+    @ObservationIgnored private let agentId: String
+    /// Where the unsaved draft is kept on this phone.
+    @ObservationIgnored private let key: String
+    @ObservationIgnored private let held: () -> ChatDraft?
+    @ObservationIgnored private let live: () -> Connection?
+    @ObservationIgnored private let emit: () -> Void
+
+    /// How long typing rests before the draft is saved on the host.
+    private static let rest: Duration = .milliseconds(600)
+
+    init(core: String, agentId: String, held: @escaping () -> ChatDraft?, live: @escaping () -> Connection?, emit: @escaping () -> Void) {
+        self.agentId = agentId
+        key = "\(core)-\(agentId)"
+        self.held = held
+        self.live = live
+        self.emit = emit
+        guard let unsaved = DraftStore.load(key) else { return }
+        text = unsaved.text
+        attachments = unsaved.attachments.filter { $0.path != nil || FileManager.default.fileExists(atPath: $0.uri.path) }
+        tokens = Mentions.tokens(unsaved.text, unsaved.tokens)
+        tracked = unsaved.tracked
+        chips = unsaved.chips
+        rev = unsaved.rev
+        edits = 1
+    }
+
+    /// Answers whether the draft named anything before, so its chips must be drawn again.
+    @discardableResult
+    func write(_ next: String) -> Bool {
+        let named = !tokens.isEmpty
+        (text, tokens) = Mentions.edit(text, next, tokens)
+        edited()
+        return named
+    }
+
+    /// Writes what was picked from the mention menu over the word from `start` that asked for it, as a chip when it
+    /// is one.
+    func mention(_ start: Int, written: String, id: String? = nil, label: String? = nil, context: ChatContext? = nil) {
+        let before = text.units(0, start)
+        var kept = tokens.filter { $0.end <= start }
+        if let id { kept.append(TextToken(start: start, end: start + written.utf16.count, id: id, label: label)) }
+        tokens = kept
+        if let context, id == nil, !chips.contains(where: { $0.uri == context.uri }) { chips.append(context) }
+        text = written.isEmpty ? before : "\(before)\(written) "
+        edited()
+    }
+
+    /// Keeps what the issue or pull request chip `id` sends, once the host has read it.
+    func track(_ id: String, _ context: ChatContext) {
+        guard tokens.contains(where: { $0.id == id }) else { return }
+        tracked[id] = context
+        edited()
+    }
+
+    /// Adds what was picked, leaving out what the host would refuse; answers why some was left out.
+    func attach(_ picked: [Attachment]) -> String? {
+        let (fits, notice) = Uploads.fitting(held: attachments.count, picked)
+        attachments += fits
+        edited()
+        return notice
+    }
+
+    func removeChip(_ uri: String) {
+        chips.removeAll { $0.uri == uri }
+        edited()
+    }
+
+    /// Answers whether it could, which it cannot while a file is going up.
+    func removeAttachment(_ id: String) -> Bool {
+        if uploading { return false }
+        attachments.removeAll { $0.id == id }
+        edited()
+        return true
+    }
+
+    var uploading: Bool { attachments.contains { $0.upload == .sending } }
+
+    func patch(_ id: String, _ change: (inout Attachment) -> Void) {
+        guard let at = attachments.firstIndex(where: { $0.id == id }) else { return }
+        change(&attachments[at])
+        emit()
+    }
+
+    /// Takes the files and chips out for the message `text`, answering it with its text chips written in.
+    func takeOut(_ message: String) -> (text: String, files: [Attachment], named: Named) {
+        let files = attachments
+        attachments = []
+        var named = Mentions.outgoing(text, tokens, tracked)
+        named.context += chips.filter { $0.text.isEmpty }
+        let written = Self.withContext(message, chips.filter { !$0.text.isEmpty })
+        chips = []
+        tokens = []
+        tracked = [:]
+        edited()
+        return (written, files, named)
+    }
+
+    /// Puts `texts` and `files` back before what the composer holds now.
+    func putBack(_ texts: [String], _ files: [Attachment]) {
+        text = (texts + [text]).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        tokens = []
+        attachments = files + attachments
+    }
+
+    /// Empties the draft once the host holds it elsewhere, such as in the stash.
+    func clear() {
+        text = ""
+        attachments = []
+        chips = []
+        tokens = []
+        tracked = [:]
+    }
+
+    /// Saves the draft on the host now, answering whether everything written here is saved.
+    func saveNow() async -> Bool {
+        saving?.cancel()
+        await save()
+        return edits == 0
+    }
+
+    /// The draft changed here: it is saved on the host once typing rests.
+    func edited() {
+        edits += 1
+        saving?.cancel()
+        saving = Task { [weak self] in
+            try? await Task.sleep(for: Self.rest)
+            guard let self, !Task.isCancelled else { return }
+            self.keep()
+            await self.save()
+        }
+    }
+
+    /// Writes down what is not saved on the host yet, so it outlives the app quitting.
+    func keep() {
+        guard edits > 0 else { return }
+        DraftStore.save(key, DraftStore.Unsaved(
+            text: text, attachments: attachments.filter { $0.upload == nil }, chips: chips,
+            tokens: Mentions.kept(text, tokens), tracked: liveTracked, rev: rev
+        ))
+    }
+
+    /// Saves the draft as the chat's own on the host, naming the revision last taken in, so the host keeps whatever it
+    /// put in the draft since. A save that fails waits for the next change or attach.
+    func save() async {
+        guard edits > 0, let connection = live() else { return }
+        let edits = self.edits
+        let paths = Uploads.paths(attachments)
+        let extra = DraftExtra(
+            tokens: tokens.isEmpty ? nil : Mentions.kept(text, tokens),
+            attachments: paths.isEmpty ? nil : paths,
+            context: chips.isEmpty ? nil : chips,
+            tracked: liveTracked.isEmpty ? nil : liveTracked
+        )
+        let draft = SetDraftParams(key: "\(WireURIs.chatDraft)\(agentId)", text: text, extra: extra, rev: rev)
+        do {
+            _ = try await connection.call(PhoneCall.SetDraft.self, draft)
+        } catch {
+            return
+        }
+        guard self.edits == edits else { return }
+        self.edits = 0
+        DraftStore.clear(key)
+        takeIn()
+    }
+
+    private var liveTracked: [String: ChatContext] {
+        tracked.filter { entry in tokens.contains { $0.id == entry.key } }
+    }
+
+    /// Takes in the host's draft, unless changes made here are still to be saved over it.
+    func takeIn() {
+        guard edits == 0 else { return }
+        let host = held()
+        if let host, host.rev == rev { return }
+        let extra = host?.extra
+        let kept = Dictionary(attachments.compactMap { attachment in attachment.path.map { ($0, attachment) } }, uniquingKeysWith: { a, _ in a })
+        rev = host?.rev
+        text = host?.text ?? ""
+        tokens = Mentions.tokens(text, extra?.tokens)
+        tracked = extra?.tracked ?? [:]
+        chips = extra?.context ?? []
+        attachments = (extra?.attachments ?? []).map { kept[$0] ?? .onHost($0) } + attachments.filter { $0.path == nil }
+        emit()
+    }
+
+    /// `text` with the words of each text chip after it, as the host reads them.
+    static func withContext(_ text: String, _ chips: [ChatContext]) -> String {
+        ([text] + chips.map(\.text)).filter { !$0.isEmpty }.joined(separator: "\n\n")
+    }
+}
+
+/// Writing not saved on the host yet, kept on this phone so it outlives the app quitting.
+enum DraftStore {
+    struct Unsaved: Codable {
+        var text: String
+        var attachments: [Attachment]
+        var chips: [ChatContext]
+        var tokens: [DraftToken]
+        var tracked: [String: ChatContext]
+        var rev: Int?
+    }
+
+    private static var folder: URL {
+        URL.applicationSupportDirectory.appending(path: "drafts", directoryHint: .isDirectory)
+    }
+
+    private static func file(_ key: String) -> URL {
+        folder.appending(path: "\(key.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? key).json")
+    }
+
+    static func load(_ key: String) -> Unsaved? {
+        guard let data = try? Data(contentsOf: file(key)) else { return nil }
+        return try? JSONDecoder().decode(Unsaved.self, from: data)
+    }
+
+    static func save(_ key: String, _ unsaved: Unsaved) {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try? JSONEncoder().encode(unsaved).write(to: file(key), options: .atomic)
+    }
+
+    static func clear(_ key: String) {
+        try? FileManager.default.removeItem(at: file(key))
+    }
+}
