@@ -602,6 +602,14 @@ jobs:
       - name: Stop when a Linux check fails
         uses: ./.github/actions/stop-on-linux-failure
 
+      # A new device stays busy for about a quarter of an hour after it boots, so it boots while the job builds.
+      - name: Start an iPhone 17 Pro simulator
+        run: |
+          udid=$(xcrun simctl create "Sikemux CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)
+          echo "SIKEMUX_SIM_DEVICE=$udid" >>"$GITHUB_ENV"
+          nohup scripts/boot-ci-simulator.sh "$udid" >"$RUNNER_TEMP/simulator-boot.log" 2>&1 &
+          echo "$!" >"$RUNNER_TEMP/simulator-boot.pid"
+
       - name: Install XcodeGen
         run: scripts/install-xcodegen.sh
 
@@ -628,19 +636,22 @@ jobs:
       - name: Build the simulator tests
         run: cargo test -p sikemux-simulator --lib --no-run
 
-      # Booting earlier slowed the builds above by competing for the runner's three cores.
-      - name: Boot an iPhone 17 Pro simulator
-        timeout-minutes: 10
-        # "Booted" comes before the home screen takes input, and the tests no longer compile after it.
+      # A device still busy from its first boot fills the runner's memory and cores, and single
+      # screen reads then took up to a minute, so the tests wait until the load is below two per core.
+      - name: Wait for the simulator to settle
+        timeout-minutes: 20
         run: |
-          udid=$(xcrun simctl create "Sikemux CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)
-          echo "SIKEMUX_SIM_DEVICE=$udid" >>"$GITHUB_ENV"
-          export SIKEMUX_SIM_DEVICE="$udid"
-          xcrun simctl boot "$SIKEMUX_SIM_DEVICE"
-          xcrun simctl bootstatus "$SIKEMUX_SIM_DEVICE" -b
-          xcrun simctl launch "$SIKEMUX_SIM_DEVICE" com.apple.Preferences
-          sleep 20
-          xcrun simctl terminate "$SIKEMUX_SIM_DEVICE" com.apple.Preferences
+          while kill -0 "$(cat "$RUNNER_TEMP/simulator-boot.pid")" 2>/dev/null; do sleep 5; done
+          cat "$RUNNER_TEMP/simulator-boot.log"
+          grep -q "The simulator is ready" "$RUNNER_TEMP/simulator-boot.log"
+          cores=$(sysctl -n hw.ncpu)
+          calm=0
+          while [ "$calm" -lt 2 ]; do
+            sleep 15
+            load=$(sysctl -n vm.loadavg | awk '{ print $2 }')
+            echo "Load $load"
+            if awk -v load="$load" -v cores="$cores" 'BEGIN { exit !(load < 2 * cores) }'; then calm=$((calm + 1)); else calm=0; fi
+          done
 
       - name: Drive a real simulator and the fixture app as an agent would
         env:
