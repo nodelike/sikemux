@@ -31,7 +31,8 @@ use super::{empty, goal_name, At, GoalsPane};
 use crate::chat::{NewerPrompt, OlderPrompt, START};
 use crate::theme::TEXT_XS;
 use crate::theme::{
-    self, Tokens, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3,
+    self, Tokens, RADIUS_1, RADIUS_2, RADIUS_3, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H,
+    SPACE_3,
 };
 use crate::theme::{SPACE_3H, SPACE_4, SPACE_5, TEXT_2XS, TEXT_3XS_H, TEXT_LG, TEXT_SM, TEXT_XL};
 use crate::ui::{self, Button, Variant};
@@ -45,6 +46,14 @@ const ASKED_LINES: usize = 6;
 const ASKED_CHARS: usize = 420;
 /// How tall each of a Looks right card's two large pictures is.
 const PAIR_HEIGHT: f32 = 200.;
+/// How tall the picture of the answer a card has chosen is, and each answer's in the strip under it.
+const LEAD_HEIGHT: f32 = 240.;
+const THUMB_HEIGHT: f32 = 64.;
+const THUMB_MIN_W: f32 = 120.;
+/// How solid a call's card is over the pane's picture, which shows faintly through.
+const CARD_FILL: f32 = 0.9;
+/// The most of an answer "Go with" names before it cuts it short.
+const GO_WITH_CHARS: usize = 28;
 
 /// Something that finished or failed while the person was away.
 #[derive(Clone, Copy)]
@@ -196,9 +205,9 @@ pub(super) fn home(pane: &mut GoalsPane, cx: &mut Context<GoalsPane>) -> AnyElem
 fn call_kind(item: &InboxItem) -> Option<(&'static str, Tone)> {
     if let Some(raised) = &item.raised {
         return Some(match raised.reason {
-            RaisedFor::Irreversible => ("Can't be undone", Tone::Warn),
+            RaisedFor::Irreversible => ("Can't be undone", Tone::Failed),
             RaisedFor::Money => ("Money", Tone::Warn),
-            RaisedFor::Taste => ("Look", Tone::Plain),
+            RaisedFor::Taste => ("Taste", Tone::Warn),
             RaisedFor::Access => ("Access", Tone::Plain),
         });
     }
@@ -223,35 +232,35 @@ enum Tone {
     Failed,
 }
 
-/// A call's kind as a small pill, in the ink of its tone.
-fn kind_badge(kind: &'static str, tone: Tone, cx: &App) -> Div {
+/// A call's kind as a dot and its name in spaced capitals, both in the ink of its tone.
+fn kind_tag(kind: &'static str, tone: Tone, cx: &App) -> Div {
     let t = Tokens::get(cx);
-    let ink = match tone {
-        Tone::Plain => None,
-        Tone::Warn => Some(t.warn),
-        Tone::Failed => Some(t.danger),
+    let (dot, ink) = match tone {
+        Tone::Plain => (t.text_tertiary, t.text_secondary),
+        Tone::Warn => (t.warn, t.warn),
+        Tone::Failed => (t.danger, t.danger),
     };
     div()
         .flex_none()
-        .px(SPACE_1H)
-        .rounded_full()
-        .border_1()
-        .border_color(ink.map_or(t.border, |ink| ink.opacity(0.35)))
-        .when_some(ink, |badge, ink| badge.bg(ink.opacity(0.06)))
+        .flex()
+        .items_center()
+        .gap(SPACE_1H)
+        .child(div().size(px(6.)).rounded_full().bg(dot))
         .child(
             ui::text(kind.to_uppercase(), TEXT_3XS_H, FontWeight::SEMIBOLD)
-                .letter_spacing(0.06)
-                .text_color(ink.unwrap_or(t.text_secondary)),
+                .letter_spacing(0.1)
+                .text_color(ink),
         )
 }
 
-/// Who puts the call to the person.
+/// Who puts the call to the person: the lead that raised it for the agent that asked, or the agent.
 fn call_who(item: &InboxItem) -> Option<String> {
     let by = (item.raised.as_ref()).and_then(|raised| raised.by.as_ref());
-    match (by, item.kind, &item.name) {
-        (Some(by), ..) => Some(format!("raised by @{by}")),
-        (None, _, Some(name)) => Some(format!("@{name}")),
-        (None, _, None) => None,
+    match (by, &item.name) {
+        (Some(by), Some(name)) => Some(format!("@{by} for @{name}")),
+        (Some(by), None) => Some(format!("@{by}")),
+        (None, Some(name)) => Some(format!("@{name}")),
+        (None, None) => None,
     }
 }
 
@@ -264,8 +273,28 @@ fn call_says(item: &InboxItem) -> String {
         (InboxKind::Gate, Some(look)) if item.gate == Some(Gate::LooksRight) => {
             look.question.clone()
         }
+        _ if item.stalled.is_some() => (item.detail.clone()).unwrap_or_else(|| item.what.clone()),
         _ => item.what.clone(),
     }
+}
+
+/// What the person should know before they answer, in a line: what breaks if the pick is wrong,
+/// with its lead-in set apart, and what the asker goes on assuming meanwhile.
+fn call_hint(item: &InboxItem, looked: bool) -> Option<(Option<&'static str>, String)> {
+    let assumed = (item.assumption.as_ref())
+        .map(|assumption| format!("Goes on assuming {assumption} until you answer."));
+    if let Some(raised) = &item.raised {
+        let lead = match raised.pick {
+            Some(_) => "If wrong:",
+            None => "Without it:",
+        };
+        let says = [Some(raised.breaks.clone()), assumed].into_iter().flatten();
+        return Some((Some(lead), says.collect::<Vec<_>>().join(" ")));
+    }
+    assumed
+        .or_else(|| item.hold.as_ref().and_then(|hold| hold.why.clone()))
+        .or_else(|| looked.then(|| "Click a picture to see it full size".to_owned()))
+        .map(|says| (None, says))
 }
 
 impl GoalsPane {
@@ -291,10 +320,11 @@ impl GoalsPane {
     }
 }
 
-/// One thing only the person can decide, as a raised card: what kind of call it is, where it is
-/// from and who asks, the question, what backs it, and its answers at the bottom right with a
-/// quiet hint beside them. On Home a click chooses it for the panel beside the list; on a goal's
-/// page, which names the goal, it opens.
+/// One thing only the person can decide, as a raised card in one frame for every kind: a line
+/// with what kind of call it is, what it is about and who asks; the question; what backs it, its
+/// pictures leading; then what breaks if it goes wrong, in a line, and the answers at the bottom
+/// right. On Home a click chooses it for the panel beside the list; on a goal's page, which names
+/// the goal, it opens.
 pub(super) fn call_card(
     pane: &GoalsPane,
     item: &InboxItem,
@@ -304,36 +334,32 @@ pub(super) fn call_card(
 ) -> AnyElement {
     let t = Tokens::get(cx).clone();
     let looked = (item.look.as_ref()).filter(|_| item.gate == Some(Gate::LooksRight));
-    let from = (home && looked.is_none())
-        .then(|| pane.call_from(item, cx))
-        .flatten();
+    let subject = match (&item.stalled, &item.card) {
+        (Some(_), Some(card)) => Some(card.title.clone()),
+        _ => (home && looked.is_none())
+            .then(|| pane.call_from(item, cx))
+            .flatten(),
+    };
     let context = looked.map(|look| match look.slices.len() {
         1 => "1 change built and checked".to_owned(),
         many => format!("{many} changes built and checked"),
     });
     let unnamed = looked.and_then(|look| look.unnamed.clone());
-    let place = [from, unnamed, context]
+    let subject = [subject, unnamed, context]
         .into_iter()
         .flatten()
         .collect::<Vec<_>>()
         .join(" · ");
     let under = match (item.kind, &item.detail) {
         (InboxKind::Question | InboxKind::Ship, _) => None,
+        _ if item.stalled.is_some() => None,
         (_, Some(detail)) if *detail != item.what => Some(detail.clone()),
         _ => None,
     };
-    let if_wrong = item.raised.as_ref().map(|raised| match raised.pick {
-        Some(_) => format!("If wrong: {}", raised.breaks),
-        None => format!("Without it: {}", raised.breaks),
-    });
-    let assumed = (item.assumption.as_ref())
-        .map(|assumption| format!("Goes on assuming {assumption} until you answer."));
-    let hint = [if_wrong, assumed]
-        .into_iter()
-        .flatten()
-        .reduce(|wrong, assumed| format!("{wrong} {assumed}"))
-        .or_else(|| item.hold.as_ref().and_then(|hold| hold.why.clone()))
-        .or_else(|| looked.map(|_| "Click a picture to see it full size".to_owned()));
+    let fill = match chosen {
+        true => theme::over(t.surface_chosen, t.surface_raised),
+        false => t.surface_raised,
+    };
     let opened = item.clone();
     let picks = item.id.clone();
     let card = div()
@@ -347,11 +373,7 @@ pub(super) fn call_card(
         .rounded(RADIUS_3)
         .border_1()
         .border_color(t.border)
-        .bg(if chosen {
-            t.surface_chosen
-        } else {
-            t.surface_raised
-        })
+        .bg(crate::see_through::pill(fill.opacity(CARD_FILL), cx))
         .shadow(t.shadow_lit())
         .cursor_pointer()
         .hover(move |card| card.border_color(t.border_strong))
@@ -371,9 +393,9 @@ pub(super) fn call_card(
                 .flex()
                 .items_center()
                 .gap(SPACE_2)
-                .children(call_kind(item).map(|(kind, tone)| kind_badge(kind, tone, cx)))
+                .children(call_kind(item).map(|(kind, tone)| kind_tag(kind, tone, cx)))
                 .child(
-                    ui::text(place, TEXT_XS, FontWeight::NORMAL)
+                    ui::text(subject, TEXT_XS, FontWeight::NORMAL)
                         .flex_1()
                         .min_w_0()
                         .truncate()
@@ -400,7 +422,7 @@ pub(super) fn call_card(
         }))
         .children(looked.and_then(|look| look_at(pane, item, look, cx)))
         .children(item.hold.as_ref().map(|hold| held(hold, cx)))
-        .children(options(pane, item, cx));
+        .children(answers(pane, item, cx));
     let ends = match note_line(pane, item, cx) {
         Some(note) => note.into_any_element(),
         None => {
@@ -412,16 +434,39 @@ pub(super) fn call_card(
                 .items_center()
                 .justify_end()
                 .gap(SPACE_2)
-                .children(hint.map(|hint| {
+                .children(call_hint(item, looked.is_some()).map(|(lead, says)| {
                     div()
+                        .id(SharedString::from(format!("call-hint-{}", item.id)))
                         .flex_1()
                         .min_w(px(160.))
+                        .flex()
+                        .gap(SPACE_1)
                         .text_size(theme::ui_text(TEXT_XS))
-                        .text_color(t.text_tertiary)
-                        .child(hint)
+                        .tooltip(ui::tooltip(says.clone()))
+                        .children(lead.map(|lead| {
+                            div()
+                                .flex_none()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(t.text_secondary)
+                                .child(lead)
+                        }))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(t.text_tertiary)
+                                .child(says),
+                        )
                 }))
                 .when(!buttons.is_empty(), |ends| {
-                    ends.child(div().flex().flex_none().gap(SPACE_1H).children(buttons))
+                    ends.child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .ml_auto()
+                            .gap(SPACE_1H)
+                            .children(buttons),
+                    )
                 })
                 .into_any_element()
         }
@@ -728,94 +773,179 @@ fn held(hold: &ShipHold, cx: &App) -> Div {
         )
 }
 
-/// The answers a question takes in one click, as rows with a radio, the one its asker would take
-/// first, lifted and marked.
-fn options(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<Div> {
-    let question = item
-        .question_id
+/// The answer a question's card has chosen: the one the person clicked, else its asker's pick.
+fn viewed(pane: &GoalsPane, item: &InboxItem) -> usize {
+    let pick =
+        (item.answers.iter()).position(|answer| Some(answer.as_str()) == item.pick.as_deref());
+    (pane.viewing.get(&item.id).copied())
+        .filter(|&choice| choice < item.answers.len())
+        .or(pick)
+        .unwrap_or(0)
+}
+
+/// What "Go with" names an answer by, cut short with an ellipsis when it is long.
+fn go_with(head: &str) -> String {
+    match head.char_indices().nth(GO_WITH_CHARS) {
+        Some((at, _)) => format!("{}…", head[..at].trim_end()),
+        None => head.to_owned(),
+    }
+}
+
+/// An answer's own words, without what it adds after a dash.
+fn answer_head(answer: &str) -> &str {
+    answer.split_once(" — ").map_or(answer, |(head, _)| head)
+}
+
+/// The answers a question takes, which a click chooses for the card's "Go with". With pictures the
+/// chosen one's shows large over a strip of every answer's; without, they are a short list.
+fn answers(pane: &GoalsPane, item: &InboxItem, cx: &mut Context<GoalsPane>) -> Option<Div> {
+    item.question_id
         .as_ref()
         .filter(|_| !item.answers.is_empty())?;
     let t = Tokens::get(cx).clone();
-    let pick = item.pick.as_deref();
+    let on = viewed(pane, item);
     let picked_by = match item.raised {
         Some(_) => "lead's pick",
         None => "agent's pick",
     };
-    let mut answers: Vec<(usize, &String)> = item.answers.iter().enumerate().collect();
-    answers.sort_by_key(|(_, answer)| Some(answer.as_str()) != pick);
-    let busy = pane.busy;
-    Some(
-        div()
-            .pt(SPACE_1)
-            .flex()
-            .flex_col()
-            .gap(SPACE_1H)
-            .children(answers.into_iter().map(|(choice, answer)| {
-                let question = question.clone();
-                let picked = Some(answer.as_str()) == pick;
+    let choose = |choice: usize| {
+        let id = item.id.clone();
+        move |pane: &mut GoalsPane, _: &ClickEvent, _: &mut Window, cx: &mut Context<GoalsPane>| {
+            cx.stop_propagation();
+            pane.viewing.insert(id.clone(), choice);
+            cx.notify();
+        }
+    };
+    let pick_mark = |answer: &str| {
+        (Some(answer) == item.pick.as_deref()).then(|| {
+            ui::text(picked_by, TEXT_2XS, FontWeight::NORMAL)
+                .flex_none()
+                .text_color(t.text_tertiary)
+        })
+    };
+    let pictured = item.pictures.iter().any(Option::is_some);
+    if !pictured {
+        return Some(div().pt(SPACE_1).flex().flex_col().gap(SPACE_0).children(
+            item.answers.iter().enumerate().map(|(choice, answer)| {
+                let chosen = choice == on;
                 let (head, rest) = match answer.split_once(" — ") {
                     Some((head, rest)) => (head.to_owned(), Some(rest.to_owned())),
                     None => (answer.clone(), None),
                 };
                 div()
-                    .id(SharedString::from(format!("answer-{question}-{choice}")))
+                    .id(SharedString::from(format!("answer-{}-{choice}", item.id)))
                     .flex()
-                    .items_center()
-                    .gap(SPACE_2H)
-                    .py(SPACE_2)
-                    .px(SPACE_3)
+                    .items_start()
+                    .gap(SPACE_2)
+                    .py(SPACE_1H)
+                    .px(SPACE_2)
                     .rounded(RADIUS_2)
-                    .border_1()
-                    .border_color(t.border)
-                    .bg(if picked {
-                        t.surface_chosen
-                    } else {
-                        t.surface_sunken
-                    })
                     .cursor_pointer()
-                    .hover(move |row| row.border_color(t.border_strong))
-                    .child(
-                        div()
-                            .size(px(14.))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_full()
-                            .border(px(1.5))
-                            .border_color(if picked { t.accent } else { t.text_disabled })
-                            .when(picked, |radio| {
-                                radio.child(div().size(px(6.)).rounded_full().bg(t.accent))
-                            }),
-                    )
+                    .when(chosen, |row| row.bg(t.surface_chosen))
+                    .when(!chosen, |row| row.hover(move |row| row.bg(t.surface_hover)))
+                    .child(crate::chat::radio(chosen, &t))
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .text_size(theme::ui_text(TEXT_SM))
-                            .child(
-                                ui::text(head, TEXT_SM, FontWeight::SEMIBOLD)
-                                    .whitespace_normal()
-                                    .text_color(t.text_primary),
-                            )
-                            .children(
-                                rest.map(|rest| div().text_color(t.text_tertiary).child(rest)),
-                            ),
+                            .line_height(theme::ui_text(19.))
+                            .text_color(if chosen {
+                                t.text_primary
+                            } else {
+                                t.text_secondary
+                            })
+                            .child(head)
+                            .children(rest.map(|rest| {
+                                div()
+                                    .text_size(theme::ui_text(TEXT_XS))
+                                    .text_color(t.text_tertiary)
+                                    .child(rest)
+                            })),
                     )
-                    .when(picked, |row| {
-                        row.child(
-                            ui::text(picked_by, TEXT_2XS, FontWeight::MEDIUM)
-                                .flex_none()
-                                .text_color(t.text_secondary),
-                        )
-                    })
-                    .on_click(cx.listener(move |pane, _, _, cx| {
-                        cx.stop_propagation();
-                        if !busy {
-                            pane.answer(question.clone(), choice, cx);
-                        }
-                    }))
-            })),
+                    .children(pick_mark(answer).map(|mark| mark.mt(px(3.))))
+                    .on_click(cx.listener(choose(choice)))
+            }),
+        ));
+    }
+    let shown = item.pictures.get(on).cloned().flatten();
+    let large = div()
+        .id(SharedString::from(format!("call-shown-{}", item.id)))
+        .relative()
+        .w_full()
+        .h(px(LEAD_HEIGHT))
+        .rounded(RADIUS_2)
+        .overflow_hidden()
+        .border_1()
+        .border_color(t.border)
+        .bg(t.surface_sunken)
+        .when_some(shown.clone(), |large, path| {
+            large
+                .cursor_pointer()
+                .child(framed(&path, cx))
+                .on_click(cx.listener(move |pane, _, window, cx| {
+                    cx.stop_propagation();
+                    pane.show_picture(&path, window, cx);
+                }))
+        });
+    let strip = item.answers.iter().enumerate().map(|(choice, answer)| {
+        let chosen = choice == on;
+        let picture = item.pictures.get(choice).cloned().flatten();
+        div()
+            .id(SharedString::from(format!("answer-{}-{choice}", item.id)))
+            .flex_1()
+            .min_w(px(THUMB_MIN_W))
+            .flex()
+            .flex_col()
+            .gap(SPACE_1H)
+            .p(SPACE_1H)
+            .rounded(RADIUS_2)
+            .border_1()
+            .border_color(if chosen { t.border_strong } else { t.border })
+            .cursor_pointer()
+            .when(chosen, |thumb| thumb.bg(t.surface_chosen))
+            .when(!chosen, |thumb| {
+                thumb.hover(move |thumb| thumb.bg(t.surface_hover))
+            })
+            .child(
+                div()
+                    .relative()
+                    .h(px(THUMB_HEIGHT))
+                    .rounded(RADIUS_1)
+                    .overflow_hidden()
+                    .bg(t.surface_sunken)
+                    .children(picture.map(|path| framed(&path, cx))),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(SPACE_1H)
+                    .child(crate::chat::radio(chosen, &t))
+                    .child(
+                        ui::text(answer_head(answer).to_owned(), TEXT_XS, FontWeight::NORMAL)
+                            .flex_1()
+                            .min_w_0()
+                            .line_height(theme::ui_text(19.))
+                            .truncate()
+                            .text_color(if chosen {
+                                t.text_primary
+                            } else {
+                                t.text_secondary
+                            }),
+                    )
+                    .children(pick_mark(answer).map(|mark| mark.mt(px(3.)))),
+            )
+            .on_click(cx.listener(choose(choice)))
+    });
+    Some(
+        div()
+            .pt(SPACE_1)
+            .flex()
+            .flex_col()
+            .gap(SPACE_2)
+            .child(large)
+            .child(div().flex().flex_wrap().gap(SPACE_1H).children(strip)),
     )
 }
 
@@ -1010,8 +1140,34 @@ fn call_buttons(
     if item.stalled.is_some() {
         return stall_buttons(item, cx).into_iter().collect();
     }
-    if item.question_id.is_some() && !item.answers.is_empty() {
-        return Vec::new();
+    if let Some(question) = item
+        .question_id
+        .clone()
+        .filter(|_| !item.answers.is_empty())
+    {
+        let choice = viewed(pane, item);
+        let head = answer_head(&item.answers[choice]);
+        let opened = item.clone();
+        let discuss = Button::new(
+            SharedString::from(format!("discuss-{}", item.id)),
+            "Discuss",
+            Variant::Outline,
+        )
+        .on_click(cx.listener(move |pane, _, _, cx| {
+            cx.stop_propagation();
+            pane.open(&opened, cx)
+        }));
+        let go = Button::new(
+            SharedString::from(format!("go-{}", item.id)),
+            format!("Go with {}", go_with(head)),
+            Variant::Primary,
+        )
+        .disabled(pane.busy)
+        .on_click(cx.listener(move |pane, _, _, cx| {
+            cx.stop_propagation();
+            pane.answer(question.clone(), choice, cx);
+        }));
+        return vec![discuss.into_any_element(), go.into_any_element()];
     }
     let (label, variant) = match item.need {
         _ if item.kind == InboxKind::SeededRules => ("Review", Variant::Primary),
@@ -1092,16 +1248,31 @@ pub(super) fn stall_buttons(item: &InboxItem, cx: &mut Context<GoalsPane>) -> Op
             popup
         }
     };
+    let resume =
+        (item.name.as_ref()).map_or_else(|| "Resume".to_owned(), |name| format!("Resume @{name}"));
     Some(
         div()
             .flex()
-            .gap(SPACE_1)
+            .gap(SPACE_1H)
+            .child(ui::menu_button(
+                SharedString::from(format!("stalled-hand-on-{id}")),
+                Anchor::TopRight,
+                Button::new(
+                    SharedString::from(format!("stalled-hand-on-button-{id}")),
+                    "Hand on",
+                    match stalled.can_resume {
+                        true => Variant::Outline,
+                        false => Variant::Primary,
+                    },
+                ),
+                menu,
+            ))
             .when(stalled.can_resume, |buttons| {
                 buttons.child(
                     Button::new(
                         SharedString::from(format!("stalled-resume-{id}")),
-                        "Resume",
-                        Variant::Outline,
+                        resume,
+                        Variant::Primary,
                     )
                     .on_click(cx.listener(move |pane, _, _, cx| {
                         cx.stop_propagation();
@@ -1113,16 +1284,6 @@ pub(super) fn stall_buttons(item: &InboxItem, cx: &mut Context<GoalsPane>) -> Op
                     })),
                 )
             })
-            .child(ui::menu_button(
-                SharedString::from(format!("stalled-hand-on-{id}")),
-                Anchor::TopRight,
-                Button::new(
-                    SharedString::from(format!("stalled-hand-on-button-{id}")),
-                    "Hand on",
-                    Variant::Outline,
-                ),
-                menu,
-            ))
             .into_any_element(),
     )
 }

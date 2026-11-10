@@ -456,6 +456,11 @@ pub fn mix(a: Hsla, b: Hsla, amount: f32) -> Hsla {
     mix_oklab(a.into(), b.into(), amount).into()
 }
 
+/// The see-through `top` laid over the opaque `under`, as the one opaque colour they show.
+pub fn over(top: Hsla, under: Hsla) -> Hsla {
+    mix(Hsla { a: 1., ..top }, under, top.a)
+}
+
 fn mix_oklab(a: Rgba, b: Rgba, amount: f32) -> Rgba {
     let [l1, a1, b1] = oklab(a);
     let [l2, a2, b2] = oklab(b);

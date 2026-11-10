@@ -637,7 +637,7 @@ pub(super) fn answer_row(
 }
 
 /// The ring of a choice on a question that takes one.
-pub(super) fn radio(on: bool, t: &Tokens) -> AnyElement {
+pub(crate) fn radio(on: bool, t: &Tokens) -> AnyElement {
     div()
         .mt(px(3.5))
         .size(px(12.))

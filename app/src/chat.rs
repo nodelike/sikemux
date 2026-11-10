@@ -80,6 +80,7 @@ mod meta;
 pub mod model_picker;
 mod page;
 mod questions;
+pub(crate) use questions::radio;
 mod rows;
 mod schema;
 pub(crate) mod status;

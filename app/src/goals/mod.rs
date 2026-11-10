@@ -183,6 +183,8 @@ pub struct GoalsPane {
     panel: Option<Entity<panel::PaneView>>,
     /// The inbox item whose long question its card shows whole.
     unclamped: Option<String>,
+    /// The answer each call's card has chosen, by the call, once the person clicked one.
+    viewing: std::collections::HashMap<String, usize>,
     /// A goal's page shows its assertions, how slices land and its rules.
     details: bool,
     /// Home's calls and goals.
@@ -236,6 +238,7 @@ impl GoalsPane {
             room: room::Room::new(cx),
             panel: None,
             unclamped: None,
+            viewing: std::collections::HashMap::new(),
             details: false,
             list: None,
             start: start::Start::default(),

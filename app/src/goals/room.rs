@@ -41,6 +41,9 @@ const END_W: f32 = 96.;
 const FIND_W: f32 = 190.;
 const FIND_MIN_W: f32 = 140.;
 const SCOPE_MIN_W: f32 = 56.;
+/// How much of the pane's ground lies over its picture behind Home, so the picture shows only
+/// faintly where words are.
+const VEIL: f32 = 0.82;
 /// How long after one read the goals are read again, however often the core says they moved.
 const READ_SPACING: Duration = Duration::from_millis(500);
 /// How often the clocks on the rows are drawn again.
@@ -570,10 +573,18 @@ pub(super) fn draw(
             .and_then(|memory| memory.seeding.as_ref()),
         Some(Seeding::Reading { .. })
     );
+    let ground = Tokens::get(cx).surface_sunken.opacity(VEIL);
     div()
         .size_full()
+        .relative()
         .flex()
         .flex_col()
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .bg(crate::see_through::ground(ground, cx)),
+        )
         .child(head(pane, happened, window, cx))
         .when(reading_rules, |list| {
             list.children(
