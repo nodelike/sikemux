@@ -10,7 +10,8 @@ use gpui_kit::{
     ParentElement, SharedString, StatefulInteractiveElement, Styled,
 };
 use sikemux_view::host_stats::{
-    AgentUse, AlertLevel, ClearedFor, HostAlert, HostAlertKind, HostEventKind, HostStats, StatsSpan,
+    AgentUse, AlertLevel, ClearedFor, HostAlert, HostAlertKind, HostEventKind, HostStats,
+    ProcessUse, StatsSpan,
 };
 use sikemux_view::inbox::AgentShown;
 use sikemux_wire::protocol::AgentStatus;
@@ -33,6 +34,7 @@ use crate::workbench::Workbench;
 const LIMIT: f32 = 0.9;
 const CHART_HEIGHT: f32 = 44.;
 const ACTIVITY_SHOWN: usize = 8;
+const TOP_SHOWN: usize = 8;
 
 pub fn detail(
     bench: &Workbench,
@@ -1337,11 +1339,9 @@ fn top(
     cx: &mut Context<Workbench>,
 ) -> Div {
     let open = bench.hosts_page.top_open;
-    let head = div()
+    let by_memory = bench.hosts_page.top_by_memory;
+    let fold = div()
         .id("hosts-top-fold")
-        .mt(px(28.))
-        .mb(SPACE_3)
-        .h(px(22.))
         .flex()
         .items_center()
         .gap(SPACE_2)
@@ -1365,16 +1365,41 @@ fn top(
                 .px(SPACE_1H)
                 .rounded(px(8.))
                 .bg(ink(t, 0.06))
-                .child(ui::mono(stats.top.len().to_string(), TEXT_3XS, cx)),
-        )
-        .child(
-            ui::text("by CPU", TEXT_2XS_H, FontWeight::NORMAL)
-                .ml_auto()
-                .text_color(t.text_tertiary),
+                .child(ui::mono(
+                    stats.top.len().min(TOP_SHOWN).to_string(),
+                    TEXT_3XS,
+                    cx,
+                )),
         );
+    let head = div()
+        .mt(px(28.))
+        .mb(SPACE_3)
+        .h(px(22.))
+        .flex()
+        .items_center()
+        .child(fold)
+        .children(open.then(|| {
+            div().ml_auto().child(
+                Segmented::words(
+                    "hosts-top-by",
+                    vec![("CPU".into(), None), ("Memory".into(), None)],
+                    usize::from(by_memory),
+                )
+                .on_select(cx.listener(|bench, at: &usize, _, cx| {
+                    bench.hosts_page.top_by_memory = *at == 1;
+                    bench.parts.redraw_stage(cx);
+                })),
+            )
+        }));
+    let mut top: Vec<&ProcessUse> = stats.top.iter().collect();
+    match by_memory {
+        true => top.sort_by(|a, b| b.memory.cmp(&a.memory)),
+        false => top.sort_by(|a, b| b.cpu.cmp(&a.cpu)),
+    }
+    top.truncate(TOP_SHOWN);
     div().flex().flex_col().child(head).when(open, |section| {
         section.child(
-            list(t).children(stats.top.iter().enumerate().map(|(at, process)| {
+            list(t).children(top.iter().enumerate().map(|(at, process)| {
                 div()
                     .flex()
                     .items_center()

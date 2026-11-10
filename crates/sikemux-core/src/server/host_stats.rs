@@ -560,7 +560,12 @@ impl Looker {
             .take(REST_NAMED)
             .map(str::to_owned)
             .collect();
+        let mut heaviest: Vec<usize> = (0..usages.len()).collect();
+        heaviest.sort_by(|a, b| usages[*b].memory.cmp(&usages[*a].memory));
+        let mut kept = HashSet::new();
         let top: Vec<ProcessUse> = (order.iter().take(TOP_KEPT))
+            .chain(heaviest.iter().take(TOP_KEPT))
+            .filter(|index| kept.insert(**index))
             .map(|index| ProcessUse {
                 pid: usages[*index].pid,
                 name: usages[*index].name.clone(),
