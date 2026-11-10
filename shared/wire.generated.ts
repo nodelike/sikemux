@@ -1127,6 +1127,11 @@ export interface AgentShown {
     nextTrigger?: number;
     /** How many triggers it set on its own chat, which pause when it closes. */
     triggers?: number;
+    /**
+     * When a build it started began to wait for its turn on the host, while it waits, in
+     * Unix milliseconds.
+     */
+    buildQueuedAt?: number;
     /** When the agent was last named with `@` or messaged by another agent. */
     calledAt?: number;
     /**
@@ -2514,6 +2519,11 @@ export interface Preferences {
      * project's identity: `this` or `host:<key>`.
      */
     frontCopies: Record<string, string>;
+    /**
+     * How many builds agents start may run at once on this host; 0 sizes it from the
+     * host's cores and memory.
+     */
+    buildRuns: number;
 }
 
 export type MidTurnSend = "steer" | "queue";

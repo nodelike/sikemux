@@ -78,7 +78,12 @@ async fn start_branch(
             let made: serde_json::Value = client::API
                 .send_json(data_dir, Method::POST, &path?, &body)
                 .await?;
-            Ok::<_, GithubError>(made["sha"].as_str().unwrap_or_default().to_owned())
+            Ok::<_, GithubError>(
+                made.get("sha")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+            )
         }
     };
     let blob = made(
