@@ -9251,6 +9251,8 @@ dependencies = [
  "memchr",
  "minisign-verify",
  "notify",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
  "portable-pty",
  "quick-xml 0.42.0",
  "rayon",

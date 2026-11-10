@@ -76,5 +76,7 @@ undocumented_unsafe_blocks = "deny"
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
 core-foundation = { version = "0.10", default-features = false }
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSBundle", "NSData", "NSDictionary", "NSGeometry", "NSString"] }
 security-framework = { version = "3", default-features = false }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

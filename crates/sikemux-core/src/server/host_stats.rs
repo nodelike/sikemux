@@ -27,6 +27,8 @@ use tokio::task::JoinHandle;
 use super::changed::What;
 use super::Core;
 
+pub mod apps;
+
 const HISTORY_EVERY: Duration = Duration::from_secs(15);
 const WATCHED_EVERY: Duration = Duration::from_secs(3);
 /// How often the rows' load may send the device view again, as phones and the notch get it too.
@@ -68,6 +70,7 @@ pub(crate) struct HostWatch {
     watched_until: AtomicU64,
     woken: tokio::sync::Notify,
     measuring: AtomicBool,
+    icons: apps::Icons,
 }
 
 #[derive(Default)]
@@ -107,6 +110,7 @@ impl Default for HostWatch {
             watched_until: AtomicU64::new(0),
             woken: tokio::sync::Notify::new(),
             measuring: AtomicBool::new(false),
+            icons: apps::Icons::default(),
         }
     }
 }
@@ -313,6 +317,7 @@ struct Looker {
     used: HashMap<(u32, u64), u64>,
     looked_at: Option<Instant>,
     commands: HashMap<String, (u32, u64)>,
+    apps: apps::Apps,
 }
 
 #[derive(Default)]
@@ -560,18 +565,57 @@ impl Looker {
             .take(REST_NAMED)
             .map(str::to_owned)
             .collect();
-        let mut heaviest: Vec<usize> = (0..usages.len()).collect();
-        heaviest.sort_by(|a, b| usages[*b].memory.cmp(&usages[*a].memory));
+        let (in_apps, met) = self.apps.of(&usages);
+        core.host_watch.icons.meet(met);
+        let mut grouped: Vec<(ProcessUse, u64, u64)> = Vec::new();
+        let mut group_of: HashMap<(&str, Option<&str>), usize> = HashMap::new();
+        for (index, usage) in usages.iter().enumerate() {
+            let owner = tree.owner[index];
+            let app = in_apps[index].as_deref();
+            let group = app.map(|app| (app.key.as_str(), owner));
+            let at = match group.and_then(|group| group_of.get(&group)) {
+                Some(at) => *at,
+                None => {
+                    grouped.push((
+                        ProcessUse {
+                            pid: usage.pid,
+                            name: app.map_or(&usage.name, |app| &app.name).clone(),
+                            cpu: 0,
+                            memory: 0,
+                            app: app.map(|app| app.key.clone()),
+                            agent_id: owner.map(str::to_owned),
+                        },
+                        0,
+                        0,
+                    ));
+                    group_of.extend(group.map(|group| (group, grouped.len() - 1)));
+                    grouped.len() - 1
+                }
+            };
+            let (process, busy_together, heaviest) = &mut grouped[at];
+            *busy_together += busy[index];
+            process.memory += usage.memory;
+            if usage.memory > *heaviest {
+                *heaviest = usage.memory;
+                process.pid = usage.pid;
+            }
+        }
+        let mut busiest: Vec<usize> = (0..grouped.len()).collect();
+        busiest.sort_by(|a, b| {
+            (grouped[*b].1, grouped[*b].0.memory).cmp(&(grouped[*a].1, grouped[*a].0.memory))
+        });
+        let mut heaviest: Vec<usize> = (0..grouped.len()).collect();
+        heaviest.sort_by(|a, b| grouped[*b].0.memory.cmp(&grouped[*a].0.memory));
         let mut kept = HashSet::new();
-        let top: Vec<ProcessUse> = (order.iter().take(TOP_KEPT))
+        let top: Vec<ProcessUse> = (busiest.iter().take(TOP_KEPT))
             .chain(heaviest.iter().take(TOP_KEPT))
             .filter(|index| kept.insert(**index))
-            .map(|index| ProcessUse {
-                pid: usages[*index].pid,
-                name: usages[*index].name.clone(),
-                cpu: share(busy[*index]),
-                memory: usages[*index].memory,
-                agent_id: tree.owner[*index].map(str::to_owned),
+            .map(|index| {
+                let (process, busy_together, _) = &grouped[*index];
+                ProcessUse {
+                    cpu: share(*busy_together),
+                    ..process.clone()
+                }
             })
             .collect();
         let shown = shown_of(&agents, &rest, &top);
@@ -621,7 +665,7 @@ fn shown_of(agents: &[AgentUse], rest: &RestUse, top: &[ProcessUse]) -> Vec<(Str
     shown.push((rest.names.join(","), rest.cpu / 10, rest.memory >> 27));
     shown.extend(top.iter().map(|process| {
         (
-            process.pid.to_string(),
+            (process.app.clone()).unwrap_or_else(|| process.pid.to_string()),
             process.cpu / 10,
             process.memory >> 27,
         )

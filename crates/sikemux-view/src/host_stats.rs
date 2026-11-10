@@ -135,10 +135,14 @@ pub struct RestUse {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessUse {
+    /// The process's, or for an app its heaviest process's.
     pub pid: u32,
     pub name: String,
     pub cpu: u16,
     pub memory: u64,
+    /// The Mac app it is, with its helpers taken together, by the key `appIcon` draws it for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
     /// The agent whose process it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,

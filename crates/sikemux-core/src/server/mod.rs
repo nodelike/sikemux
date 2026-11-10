@@ -44,7 +44,7 @@ pub mod harness;
 mod hooks;
 pub mod host;
 mod host_key;
-mod host_stats;
+pub mod host_stats;
 pub mod hosts;
 pub mod inbox;
 mod join;

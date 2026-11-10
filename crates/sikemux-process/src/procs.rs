@@ -55,6 +55,21 @@ mod system {
         (length > 0).then(|| String::from_utf8_lossy(&buffer[..length as usize]).into_owned())
     }
 
+    pub(super) fn program(pid: u32) -> Option<std::path::PathBuf> {
+        use std::os::unix::ffi::OsStrExt;
+        let mut buffer = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
+        // SAFETY: the buffer's length is passed alongside it.
+        let length = unsafe {
+            libc::proc_pidpath(
+                pid as libc::c_int,
+                buffer.as_mut_ptr().cast::<c_void>(),
+                buffer.len() as u32,
+            )
+        };
+        let length = usize::try_from(length).ok().filter(|length| *length > 0)?;
+        Some(std::ffi::OsStr::from_bytes(&buffer[..length]).into())
+    }
+
     fn all_pids() -> Vec<u32> {
         // SAFETY: a null buffer asks only for how many pids there are.
         let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
@@ -423,6 +438,12 @@ pub fn parent(pid: u32) -> Option<(u32, u64)> {
 
 pub fn name(pid: u32) -> Option<String> {
     system::name(pid)
+}
+
+/// The program `pid` runs, by its path.
+#[cfg(target_os = "macos")]
+pub fn program(pid: u32) -> Option<std::path::PathBuf> {
+    system::program(pid)
 }
 
 /// Every process: its pid, its parent and when it started.
