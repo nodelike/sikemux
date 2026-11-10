@@ -2907,6 +2907,8 @@ export interface SliceView {
      * nothing is under way.
      */
     wait?: Wait | null;
+    /** The address of the pull request its work is reviewed in, once the core found it. */
+    pull?: string;
 }
 
 export interface GateView {
@@ -3381,6 +3383,16 @@ export interface BoardSettings {
     branchBackup: boolean;
     /** The linked hosts cards go to past this host's places, by key, the first with room first. */
     hosts?: string[];
+    /**
+     * Its slices' pull requests carry their proof in their descriptions, each written the
+     * first time only once the person posts it.
+     */
+    pullProof: boolean;
+    /**
+     * That proof's picture is kept on the code host: on GitHub a `sikemux-evidence` branch
+     * of the repository, on GitLab its uploads, on Bitbucket its downloads.
+     */
+    pullPictures: boolean;
 }
 
 /**
