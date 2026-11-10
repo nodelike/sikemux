@@ -60,7 +60,7 @@ fn choices() -> [Choice; 10] {
         Choice {
             command: actions::NewSimulator::ID,
             label: "Simulator",
-            detail: "Drive an iPhone or an Android phone on the agent's desk",
+            detail: "Drive a phone on the agent's desk",
             icon: Icon::Phone,
             in_project: true,
         },
@@ -73,7 +73,7 @@ fn choices() -> [Choice; 10] {
         Choice::of(
             PaneKind::Git,
             actions::FocusGit::ID,
-            "Changes, branches, remotes and stashes",
+            "Changes, branches and stashes",
             true,
         ),
         Choice::of(
@@ -91,7 +91,7 @@ fn choices() -> [Choice; 10] {
         Choice::of(
             PaneKind::Hosts,
             actions::FocusHosts::ID,
-            "Your hosts, how busy each is, and the phones paired here",
+            "Hosts and paired phones",
             false,
         ),
         Choice::of(

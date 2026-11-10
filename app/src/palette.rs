@@ -29,6 +29,9 @@ const INSET: f32 = ui::FLOAT_INSET;
 /// A hairline between groups, with the room around it.
 const RULE_HEIGHT: f32 = 17.;
 const SHOWN: usize = 200;
+const NUMBER_WIDTH: f32 = 8.;
+/// A row too narrow cuts its detail before its title.
+const META_GIVES_WAY: f32 = 1000.;
 const PAGE: isize = 8;
 
 pub fn install(cx: &mut App) {
@@ -348,9 +351,13 @@ impl Palette {
         self.spec.id
     }
 
+    fn numbering(&self, cx: &App) -> bool {
+        self.spec.numbered && self.input.read(cx).value().is_empty()
+    }
+
     /// The number `line` goes by in a numbered palette while nothing is typed.
     fn number_of(&self, line: usize, cx: &App) -> Option<usize> {
-        let numbering = self.spec.numbered && self.input.read(cx).value().is_empty();
+        let numbering = self.numbering(cx);
         let rows = self.lines[..=line.min(self.lines.len().saturating_sub(1))]
             .iter()
             .filter(|line| matches!(line, Line::Row(_)))
@@ -875,8 +882,14 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                     cx.listener(move |bench, _, window, cx| bench.pick(Some(line), window, cx)),
                 )
         })
-        .when_some(palette.number_of(line, cx), |element, number| {
-            element.child(ui::kbd(number.to_string(), cx).flex_none())
+        .when(palette.numbering(cx), |element| {
+            element.child(
+                div().w(px(NUMBER_WIDTH)).flex_none().children(
+                    palette
+                        .number_of(line, cx)
+                        .map(|number| ui::kbd(number.to_string(), cx)),
+                ),
+            )
         })
         .when_some(row.mark.clone(), |element, mark| {
             element.child(
@@ -893,7 +906,7 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                     }),
             )
         })
-        .child(div().flex_1().min_w_0().truncate().child(ui::found(
+        .child(div().flex_grow(1.).min_w_0().truncate().child(ui::found(
             row.title.clone(),
             &palette.input.read(cx).value(),
             cx,
@@ -917,7 +930,12 @@ fn line_of(bench: &Workbench, line: usize, cx: &mut Context<Workbench>) -> AnyEl
                 None if row.meta_is_path => {
                     element.child(ui::mono(meta, TEXT_3XS_H, cx).flex_none())
                 }
-                None => element.child(ui::meta(meta, cx).flex_none()),
+                None => element.child(
+                    ui::meta(meta, cx)
+                        .min_w_0()
+                        .truncate()
+                        .flex_shrink(META_GIVES_WAY),
+                ),
             }
         })
         .when_some(row.keys.clone(), |element, keys| {
