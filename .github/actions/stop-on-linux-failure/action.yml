@@ -1,0 +1,12 @@
+name: Stop when a Linux check fails
+description: Ends this job as soon as one of the run's quick Linux checks fails, so a broken push frees its macOS runner. The job then fails, and so does the run.
+runs:
+  using: composite
+  steps:
+    - name: Watch the Linux checks
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        "$GITHUB_ACTION_PATH/linux-checks.sh" once || exit 1
+        nohup "$GITHUB_ACTION_PATH/linux-checks.sh" watch >"$RUNNER_TEMP/linux-checks.log" 2>&1 &

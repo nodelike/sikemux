@@ -33,6 +33,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 # One run at a time per branch. A run that has started always finishes, so main keeps getting
 # results; of the pushes that arrive meanwhile only the newest runs next, and the older waiting
@@ -221,6 +222,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
+
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
         with:
@@ -244,6 +248,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
+
       # Built alone, the core takes 58 of its dependencies with other features than the whole workspace
       # gives them. Building those again each run costs about a minute; a cache of this job's own was 590 MB.
       - name: Setup Rust
@@ -266,6 +273,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -299,6 +309,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
 
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
@@ -478,6 +491,8 @@ jobs:
           - arch: aarch64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    env:
+      CORE_CRATES: -p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -495,8 +510,18 @@ jobs:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
-      - name: Check the app compiles on Linux
-        run: cargo check --all-targets --locked
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
+      # The tests that fail most often run first, so a broken push stops the Mac jobs sooner.
+      - name: Check the agent tools fit their budgets
+        if: matrix.arch == 'aarch64'
+        run: |
+          read -ra crates <<<"$CORE_CRATES"
+          cargo nextest run --locked "${crates[@]}" -E 'test(/^tools_mcp::tests::/)'
+
+      - name: Check the app compiles on Linux and passes Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: Check the GPUI app on Linux
         run: scripts/check-rust.sh gpui-clippy
@@ -505,13 +530,10 @@ jobs:
         if: matrix.arch == 'x86_64'
         run: scripts/check-rust.sh no-plugins
 
-      - name: Install cargo-nextest
-        uses: ./.github/actions/install-nextest
-
       # nextest leaves doc tests out, so cargo runs those.
       - name: Run the core's tests on Linux
         run: |
-          crates=(-p sikemux-core -p sikemux-pty -p sikemux-process -p sikemux-wire -p sikemux-view -p sikemux-client -p sikemux-keychain -p sikemux-host)
+          read -ra crates <<<"$CORE_CRATES"
           cargo nextest run --locked "${crates[@]}"
           cargo test --locked --doc "${crates[@]}"
 
@@ -558,6 +580,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
 
       - name: Install XcodeGen
         run: scripts/install-xcodegen.sh
@@ -616,6 +641,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Stop when a Linux check fails
+        uses: ./.github/actions/stop-on-linux-failure
 
       - name: Setup pnpm
         uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
