@@ -51,6 +51,7 @@ private struct ChatPane: View {
     @State private var menu = false
     @State private var showLive = false
     @State private var find: ChatFind?
+    @State private var away = false
     @State private var stillness: (() -> Void)?
 
     init(core: String, agentId: String) {
@@ -112,12 +113,16 @@ private struct ChatPane: View {
         .sheet(shown: $showLive) {
             LiveSheet(work: LiveWork(rows), provider: provider, steerable: steerable(rows), canAct: !watchOnly, session: session) { scroll.toEnd() }
         }
+        .sheet(shown: $away) {
+            if let listed { AwaySheet(core: core, shown: listed) { away = false } }
+        }
         .sheet(shown: $menu) {
             ChatMenu(
                 core: core, agentId: agentId, agentName: info?.name.map { "@\($0)" } ?? provider, hostName: hostName,
                 onClose: { menu = false },
                 onFind: session.attached == .live ? { openFind() } : nil,
                 onRecent: recalls(rows) ? { focus.recent = true } : nil,
+                onAway: watchOnly || listed == nil ? nil : { away = true },
                 onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
         }
         .onChange(of: rows.subagentRows) { _, rows in context.subagentRows = rows }
