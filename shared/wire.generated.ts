@@ -2956,6 +2956,11 @@ export type Spot =
           y: number;
           seconds?: number;
       }
+    /** A moment of a recording, `seconds` in. */
+    | {
+          kind: "moment";
+          seconds: number;
+      }
     /** A line of a file in a diff, as the new side numbers it. */
     | {
           kind: "line";

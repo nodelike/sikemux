@@ -58,14 +58,14 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
             opened: page,
             ..
         } => {
-            let (opened, still) = (path.clone(), seconds.is_none());
+            let (opened, still, id) = (path.clone(), seconds.is_none(), evidence.id);
             let frame = frame
                 .h(px(LARGE))
                 .bg(t.surface_sunken)
                 .cursor_pointer()
                 .on_click(cx.listener(move |pane, _, window, cx| match still {
                     true => pane.show_picture(&opened, window, cx),
-                    false => pane.open_file(&opened, cx),
+                    false => pane.open_recording(&opened, id, cx),
                 }));
             match seconds {
                 None => div()
@@ -112,8 +112,11 @@ pub(super) fn large(evidence: &Evidence, cx: &mut Context<GoalsPane>) -> AnyElem
                     .id("evidence-diff-head")
                     .cursor_pointer()
                     .hover(move |row| row.bg(t.surface_hover))
-                    .tooltip(ui::tooltip("Open Git"))
-                    .on_click(cx.listener(|pane, _, _, cx| pane.open_git(cx)))
+                    .tooltip(ui::tooltip("Open in Git to pin changes on its lines"))
+                    .on_click({
+                        let (head, id) = (head.clone(), evidence.id);
+                        cx.listener(move |pane, _, _, cx| pane.open_diff(&head, id, cx))
+                    })
                     .child(ui::mono(format!("+{added}"), TEXT_XS, cx).text_color(t.git_added))
                     .child(ui::mono(format!("−{removed}"), TEXT_XS, cx).text_color(t.git_deleted))
                     .child(div().flex_1())

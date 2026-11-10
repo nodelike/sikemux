@@ -575,6 +575,40 @@ fn bytes(bytes: Vec<u8>, t: &Tokens) -> AnyElement {
 /// The bar over a viewer: the file's name, size and type, the picture's
 /// zoom, and buttons that read it again, open it in its own app, or show it
 /// in Finder.
+/// Pins a change for the slice a recording is evidence of on the moment it is playing.
+fn pin_button(
+    this: &Entity<Workbench>,
+    viewer: &Viewer,
+    pinning: crate::goals::Pinning,
+) -> AnyElement {
+    #[cfg(target_os = "macos")]
+    let playing = (viewer.document.clone().flatten()).map(|(document, ..)| document);
+    #[cfg(not(target_os = "macos"))]
+    let _ = viewer;
+    let this = this.clone();
+    ui::IconButton::new("viewer-pin", Icon::Pin, "Pin a change at this moment")
+        .small()
+        .on_click(move |_, _, cx| {
+            #[cfg(target_os = "macos")]
+            let seconds = playing.as_ref().and_then(|document| document.playing_at());
+            #[cfg(not(target_os = "macos"))]
+            let seconds = None;
+            let pinning = pinning.clone();
+            let title = match seconds {
+                Some(seconds) => format!(
+                    "What should change at {}?",
+                    ui::time::elapsed(seconds.round() as u64)
+                ),
+                None => "What should change in the recording?".to_owned(),
+            };
+            let spot = seconds.map(|seconds| sikemux_view::slice::Spot::Moment { seconds });
+            this.update(cx, |bench, cx| {
+                crate::goals::ask_change(bench, pinning, spot, title, cx)
+            })
+        })
+        .into_any_element()
+}
+
 fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> impl IntoElement {
     let t = Tokens::get(cx).clone();
     let path = key.path.as_path();
@@ -605,6 +639,8 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
     let open = openable(viewer, key);
     let reveal = (key.place == Place::This).then(|| path.to_owned());
     let this_reload = this.clone();
+    let pinning = (this.read(cx).editors.read(cx).pinning.get(path).cloned())
+        .map(|pinning| pin_button(this, viewer, pinning));
     div()
         .flex()
         .items_center()
@@ -623,6 +659,7 @@ fn bar(this: &Entity<Workbench>, key: &FileKey, viewer: &Viewer, cx: &App) -> im
         }))
         .children(about.map(|about| div().text_color(t.text_tertiary).child(about.mime.clone())))
         .child(div().flex_1())
+        .children(pinning)
         .when(image, |bar| {
             bar.child(zoom("viewer-fit", "Fit", |_| Zoom::Fit))
                 .child(zoom("viewer-actual", "1:1", |_| Zoom::Scale(1.)))

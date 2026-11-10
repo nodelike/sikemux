@@ -212,6 +212,8 @@ pub enum Spot {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         seconds: Option<f64>,
     },
+    /// A moment of a recording, `seconds` in.
+    Moment { seconds: f64 },
     /// A line of a file in a diff, as the new side numbers it.
     Line { file: String, line: u32 },
 }

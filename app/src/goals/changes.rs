@@ -11,7 +11,8 @@ use gpui_kit::{
     MouseButton, MouseDownEvent, ObjectFit, ParentElement, Pixels, SharedString,
     StatefulInteractiveElement, Styled, StyledImage,
 };
-use sikemux_core::server::board::BoardCard;
+use sikemux_core::server::board::{BoardCard, BoardNoteParams};
+use sikemux_core::server::call;
 use sikemux_view::slice::{Evidence, Note, Proof, SliceView, Spot};
 
 use super::{evidence, GoalsPane};
@@ -20,9 +21,96 @@ use crate::theme::{
     self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, IconButton};
+use crate::workbench::Workbench;
 
 const PICTURE_HEIGHT: f32 = 340.;
 const PIN: f32 = 18.;
+
+/// A piece of a slice's evidence, which a change pinned on it goes to.
+#[derive(Clone)]
+pub(crate) struct Pinning {
+    pub project: String,
+    pub card: u64,
+    pub evidence: u64,
+}
+
+/// Asks the person what should change, with `title`, and sends it to the slice `pinning` names,
+/// pinned at `spot` on its evidence.
+pub(crate) fn ask_change(
+    bench: &mut Workbench,
+    pinning: Pinning,
+    spot: Option<Spot>,
+    title: String,
+    cx: &mut Context<Workbench>,
+) {
+    bench.prompt(
+        title,
+        "",
+        move |bench, text, _, cx| {
+            let text = text.trim().to_owned();
+            if text.is_empty() {
+                return;
+            }
+            let params = BoardNoteParams {
+                project: pinning.project.clone(),
+                card: pinning.card,
+                text,
+                evidence: Some(pinning.evidence),
+                spot: spot.clone(),
+                reopens: None,
+            };
+            let sent =
+                crate::core::Target::here(&bench.asks).request_typed::<call::BoardNote>(params);
+            let told = cx.entity().downgrade();
+            cx.spawn(async move |_, cx| {
+                let note = match sent.await {
+                    Ok(_) => crate::toast::success("Change sent"),
+                    Err(error) => crate::toast::error(error.to_string()),
+                };
+                cx.update(|cx| crate::toast::show(&told, note, cx));
+            })
+            .detach();
+        },
+        cx,
+    );
+}
+
+impl GoalsPane {
+    /// Opens Git at commit `head`, the end of the change the slice open holds as evidence
+    /// `evidence`, where a line takes a change for it.
+    pub(super) fn open_diff(&self, head: &str, evidence: u64, cx: &mut Context<Self>) {
+        let (Some(project), super::At::Slice(card)) = (self.here.clone(), self.at) else {
+            return self.open_git(cx);
+        };
+        let pinning = Pinning {
+            project,
+            card,
+            evidence,
+        };
+        let head = head.to_owned();
+        self.on_workbench(cx, move |bench, cx| {
+            bench.open_commit_pinned(&head, pinning, cx)
+        });
+    }
+
+    /// Opens a recording the slice open holds as evidence `evidence` in the viewer, which can
+    /// pin a change on the moment it plays.
+    pub(super) fn open_recording(&self, path: &str, evidence: u64, cx: &mut Context<Self>) {
+        let (Some(project), super::At::Slice(card)) = (self.here.clone(), self.at) else {
+            return self.open_file(path, cx);
+        };
+        let pinning = Pinning {
+            project,
+            card,
+            evidence,
+        };
+        let path = std::path::PathBuf::from(path);
+        self.on_workbench(cx, move |bench, cx| {
+            (bench.editors).update(cx, |editors, _| editors.pin_on(path.clone(), pinning));
+            bench.open_file(&path, cx);
+        });
+    }
+}
 
 /// Where the picture in front was last laid out, which a click and the pins are placed by.
 #[derive(Clone, Default)]
@@ -90,7 +178,7 @@ pub(super) fn picture(
             Spot::Point { x, y, .. } => {
                 at(*x, *y).map(|(x, y)| pin("+".to_owned(), x, y, t.accent, cx))
             }
-            Spot::Line { .. } => None,
+            Spot::Moment { .. } | Spot::Line { .. } => None,
         }))
         .collect();
     let (viewed, id) = (path.clone(), shown.id);
@@ -221,7 +309,10 @@ fn place(note: &Note, slice: &SliceView) -> Option<String> {
     Some(match &note.spot {
         Some(Spot::Point {
             seconds: Some(at), ..
-        }) => format!("{at:.0}s into the {on}"),
+        })
+        | Some(Spot::Moment { seconds: at }) => {
+            format!("{} into the {on}", ui::time::elapsed(at.round() as u64))
+        }
         Some(Spot::Line { file, line }) => format!("{file}:{line}"),
         _ => format!("on the {on}"),
     })

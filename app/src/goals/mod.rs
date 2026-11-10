@@ -67,6 +67,7 @@ mod start;
 /// How wide the back link from a chat grows before its name is cut short.
 const CRUMB_MAX: f32 = 280.;
 
+pub(crate) use changes::{ask_change, Pinning};
 pub(crate) use evidence::thumb_face;
 pub(crate) use rails::{goals_page, places};
 pub use start::start_composer;

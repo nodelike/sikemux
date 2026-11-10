@@ -5,9 +5,10 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use gpui::Window;
+use objc2::encode::{Encode, Encoding};
 use objc2::rc::{Allocated, Retained};
 use objc2::runtime::{AnyClass, AnyObject, Bool, ProtocolObject};
-use objc2::{msg_send, MainThreadMarker};
+use objc2::{msg_send, MainThreadMarker, Message};
 use objc2_app_kit::NSView;
 use objc2_foundation::{NSRect, NSString, NSURL};
 use objc2_quick_look_ui::{QLPreviewView, QLPreviewViewStyle};
@@ -70,6 +71,21 @@ impl Document {
         self.path.borrow().clone()
     }
 
+    /// How far into the video it plays it is, in seconds; none when it shows no video.
+    pub fn playing_at(&self) -> Option<f64> {
+        let Viewer::QuickLook(view) = &self.view else {
+            return None;
+        };
+        let player_view = within(view, AnyClass::get(c"AVPlayerView")?)?;
+        // SAFETY: AVPlayerView's `player` is an AVPlayer or nil, whose `currentTime` is a CMTime.
+        unsafe {
+            let player: Option<Retained<AnyObject>> = msg_send![&*player_view, player];
+            let time: Time = msg_send![&*player?, currentTime];
+            let valid = time.flags & 1 != 0 && time.timescale > 0;
+            valid.then(|| time.value as f64 / f64::from(time.timescale))
+        }
+    }
+
     fn show(&self, url: Option<&NSURL>) {
         match &self.view {
             Viewer::Pdf(view) => {
@@ -87,6 +103,36 @@ impl Document {
             }
         }
     }
+}
+
+/// A point in a video as AVFoundation keeps it: `value` over `timescale` seconds.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct Time {
+    value: i64,
+    timescale: i32,
+    flags: u32,
+    epoch: i64,
+}
+
+// SAFETY: the same fields in the same order as CMTime.
+unsafe impl Encode for Time {
+    const ENCODING: Encoding = Encoding::Struct(
+        "?",
+        &[i64::ENCODING, i32::ENCODING, u32::ENCODING, i64::ENCODING],
+    );
+}
+
+/// The first view under `view`, itself included, of `class`.
+fn within(view: &NSView, class: &AnyClass) -> Option<Retained<NSView>> {
+    // SAFETY: main thread, as every `Document` is used.
+    let mine: bool = unsafe { msg_send![view, isKindOfClass: class] };
+    if mine {
+        return Some(view.retain());
+    }
+    view.subviews()
+        .iter()
+        .find_map(|child| within(&child, class))
 }
 
 /// Whether `path` gets PDFKit's viewer rather than Quick Look's.

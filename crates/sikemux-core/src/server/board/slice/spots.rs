@@ -23,6 +23,16 @@ pub(crate) fn spot_on(proof: &Proof, spot: Spot) -> Result<Spot, String> {
                 _ => Ok(spot),
             }
         }
+        (
+            Proof::Picture {
+                seconds: Some(length),
+                ..
+            },
+            Spot::Moment { seconds },
+        ) => match (0.0..=*length).contains(seconds) {
+            true => Ok(spot),
+            false => Err(format!("the recording is {length:.1} seconds long")),
+        },
         (Proof::Diff { .. }, Spot::Line { file, line }) if !file.is_empty() && *line > 0 => {
             Ok(spot)
         }
@@ -36,7 +46,8 @@ pub(crate) fn spot_words(spot: &Spot) -> String {
     match spot {
         Spot::Point {
             seconds: Some(at), ..
-        } => format!(" at {at:.1}s"),
+        }
+        | Spot::Moment { seconds: at } => format!(" at {at:.1}s"),
         Spot::Point { x, y, .. } => {
             format!(" at {:.0}% across and {:.0}% down", x * 100.0, y * 100.0)
         }
