@@ -41,7 +41,7 @@ struct ChatBottom: View {
             },
             focus: focus
         )
-        .sheet(shown: $focus.recent) {
+        .liftedSheet(shown: $focus.recent) {
             RecentSheet(prompts: focus.recent ? RecentSheet.sent(rows.messages, queued: rows.queued.map(\.text)) : []) { text in
                 session.setDraft(text)
                 focus.recent = false

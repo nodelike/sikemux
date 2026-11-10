@@ -129,3 +129,53 @@ struct SheetLabel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+/// The app's sheet over the whole window, for a view that does not fill the screen, such as the chat's composer.
+/// It rides a cover that comes and goes without animating, so only the sheet is seen to move.
+private struct LiftedSheet<SheetContent: View>: ViewModifier {
+    @Environment(\.palette) private var palette
+    @Binding var isPresented: Bool
+    var tall: Bool
+    var onDismiss: (() -> Void)?
+    @ViewBuilder var sheet: SheetContent
+    @State private var covering = false
+    @State private var inner = false
+
+    func body(content: Content) -> some View {
+        content
+            .fullScreenCover(isPresented: $covering) {
+                Color.clear
+                    .ignoresSafeArea()
+                    .sheet(shown: $inner, tall: tall, onDismiss: {
+                        cover(false)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { onDismiss?() }
+                    }) { sheet }
+                    .environment(\.palette, palette)
+                    .presentationBackground(.clear)
+                    .onAppear { inner = true }
+            }
+            .onChange(of: isPresented) { _, now in
+                if now { cover(true) } else { inner = false }
+            }
+            .onChange(of: inner) { _, now in
+                if !now && isPresented { isPresented = false }
+            }
+    }
+
+    private func cover(_ on: Bool) {
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) { covering = on }
+    }
+}
+
+extension View {
+    /// Shows `content` in the app's sheet over the whole window while `isPresented` holds, from a view that does not
+    /// fill the screen.
+    func liftedSheet<Content: View>(
+        shown isPresented: Binding<Bool>, tall: Bool = false, onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        modifier(LiftedSheet(isPresented: isPresented, tall: tall, onDismiss: onDismiss, sheet: content))
+    }
+}
