@@ -76,11 +76,10 @@ impl Render for Glance {
                     .mt(SPACE_3)
                     .flex()
                     .flex_col()
-                    .gap(SPACE_1)
-                    .child(ui::caps("Top apps", cx))
+                    .child(div().mb(SPACE_1).child(ui::caps("Top apps", cx)))
                     .children(apps.into_iter().map(|app| {
                         div()
-                            .h(px(24.))
+                            .h(px(22.))
                             .flex()
                             .items_center()
                             .gap(SPACE_2)
