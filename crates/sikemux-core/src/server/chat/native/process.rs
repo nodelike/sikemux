@@ -144,8 +144,12 @@ impl Process {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .process_group(0);
-        let mut child = command.spawn().map_err(|error| {
-            format!("{} could not be started: {error}", launch.program.display())
+        let mut child = command.spawn().map_err(|error| match launch.cwd.is_dir() {
+            true => format!("{} could not be started: {error}", launch.program.display()),
+            false => format!(
+                "the agent's folder {} is gone, so it could not be started there",
+                launch.cwd.display()
+            ),
         })?;
         let pid = child.id();
         let pipes = (|| {

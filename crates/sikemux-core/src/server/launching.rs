@@ -166,6 +166,7 @@ async fn launch_terminal(
     (cols, rows): (u16, u16),
     continues: Option<Continuation>,
 ) -> CoreResult<SessionId> {
+    super::worktree::agent::restore(core, agent_id).await?;
     let agent = core.workspaces.agent_or_gone(agent_id)?;
     if agent.resume_id.is_none() {
         super::session_watch::note_launch(core, &agent).await;
@@ -339,6 +340,7 @@ pub(crate) async fn start_agent(
     agent_id: &str,
     waits_for_person: bool,
 ) -> CoreResult<Arc<chat::Chat>> {
+    super::worktree::agent::restore(core, agent_id).await?;
     let kept = core
         .workspaces
         .kept_launch(agent_id)
@@ -484,10 +486,15 @@ async fn start_new(
     let agent_id = crate::server::names::new_agent_id();
     let kind = LauncherId::parse(&choice.launcher).kind.to_owned();
     let project = core.workspaces.project_path(&choice.project)?;
-    let (cwd, worktree) = match choice.cwd {
-        Some(cwd) => blocking(move || Ok(super::worktree::agent::resumed_in(cwd, project))).await?,
-        None => (project, None),
+    let resumed = match choice.cwd {
+        Some(cwd) => {
+            Some(blocking(move || Ok(super::worktree::agent::resumed_in(&cwd, None)?)).await?)
+        }
+        None => None,
     };
+    let (cwd, worktree) = resumed.as_ref().map_or((project, None), |resumed| {
+        (resumed.cwd.clone(), resumed.worktree.clone())
+    });
     if let Some(launcher) = core.workspaces.terminal_launcher(&choice.launcher) {
         core.workspaces.put_agent(WorkspaceAgent {
             profile_id: LauncherId::parse(&launcher.id).account.map(str::to_owned),
@@ -502,6 +509,9 @@ async fn start_new(
                 choice.permission_mode.unwrap_or(launcher.permission_mode),
             )
         })?;
+        if let Some(resumed) = &resumed {
+            super::worktree::agent::set_up_made_again(core, &agent_id, resumed);
+        }
         let size = super::spare::opening_size(core);
         if let Err(error) = start_terminal(core, &agent_id, size, None).await {
             super::workspace::close_gone(core, std::slice::from_ref(&agent_id));
@@ -533,6 +543,9 @@ async fn start_new(
     if let Some(worktree) = worktree {
         core.workspaces
             .edit_agent(&agent_id, |agent| agent.worktree = Some(worktree))?;
+    }
+    if let Some(resumed) = &resumed {
+        super::worktree::agent::set_up_made_again(core, &agent_id, resumed);
     }
     remember_kind(core, &kind);
     if started.unstarted() {

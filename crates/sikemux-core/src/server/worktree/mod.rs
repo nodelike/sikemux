@@ -437,7 +437,6 @@ pub(crate) fn make_again(
     shipped: Option<&str>,
 ) -> Result<(Tree, MadeAgain), String> {
     let repo = lost.repo.clone();
-    Git::quick(&repo).trimmed(&["worktree", "prune"])?;
     let local = Git::quick(&repo)
         .trimmed(&[
             "rev-parse",
@@ -465,23 +464,31 @@ pub(crate) fn make_again(
             (sha.clone(), MadeAgain::FromBase, sha)
         }
     };
-    if let Some(folder) = lost.path.parent() {
+    add_again(&repo, &lost.path, &lost.branch, &start)?;
+    Ok((Tree { start_sha, ..lost }, made))
+}
+
+/// Checks `branch` out at `start` in a worktree of `repo` at `path` again, after its folder
+/// was taken away, with what it needs copied in.
+pub(crate) fn add_again(repo: &Path, path: &Path, branch: &str, start: &str) -> Result<(), String> {
+    Git::quick(repo).trimmed(&["worktree", "prune"])?;
+    if let Some(folder) = path.parent() {
         std::fs::create_dir_all(folder)
             .map_err(|error| format!("could not make {}: {error}", folder.display()))?;
     }
-    let target = lost.path.to_string_lossy().into_owned();
-    Git::slow(&repo).trimmed(&[
+    let target = path.to_string_lossy().into_owned();
+    Git::slow(repo).trimmed(&[
         "worktree",
         "add",
         "--no-track",
         "-B",
-        &lost.branch,
+        branch,
         &target,
-        &start,
+        start,
     ])?;
-    copy_included(&repo, &lost.path);
-    warm::seed_in_background(&repo, &lost.path);
-    Ok((Tree { start_sha, ..lost }, made))
+    copy_included(repo, path);
+    warm::seed_in_background(repo, path);
+    Ok(())
 }
 
 /// Takes away a card's worktree, its branch and what was kept of it on the remote, and when

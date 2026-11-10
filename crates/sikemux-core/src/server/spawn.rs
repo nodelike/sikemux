@@ -359,7 +359,12 @@ fn start(
         return Ok(Opened::AlreadyOpen(agent_id, name));
     }
     let (lead, lead_cwd) = lead_of(core, &lead_id, &request.project)?;
-    let cwd = resume.map_or(lead_cwd, |saved| saved.project.clone());
+    let resumed = resume
+        .map(|saved| worktree::agent::resumed_in(&saved.project, None))
+        .transpose()?;
+    let cwd = resumed
+        .as_ref()
+        .map_or(lead_cwd, |resumed| resumed.cwd.clone());
     let (mut checkout, cwd) = if own {
         let branch = match branch {
             Some(branch) => branch.to_owned(),
@@ -445,7 +450,8 @@ fn start(
         core.names.forget(&agent_id);
         error.to_string()
     })?;
-    if let Some(checkout) = &checkout.0 {
+    let own_tree = (checkout.0.as_ref()).or_else(|| resumed.as_ref()?.worktree.as_ref());
+    if let Some(checkout) = own_tree {
         let kept = core
             .workspaces
             .edit_agent(&agent_id, |agent| agent.worktree = Some(checkout.clone()));
@@ -466,7 +472,9 @@ fn start(
         lead_cli: lead.cli_word().to_owned(),
         reports,
         chat,
-        checkout: checkout.0.take().map(Box::new),
+        checkout: (checkout.0.take())
+            .or_else(|| resumed.filter(|resumed| resumed.made_again)?.worktree)
+            .map(Box::new),
         made_room,
     }))
 }

@@ -8,7 +8,10 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use sikemux_process::vars;
 
-use super::{branch_for, copy_included, cut, inside, warm, worktrees_folder, AgentWorktree};
+use super::{
+    add_again, branch_exists, branch_for, copy_included, cut, inside, warm, worktrees_folder,
+    AgentWorktree,
+};
 use crate::git::{main_checkout, Git};
 use crate::server::connection::blocking;
 use crate::server::custom_command::{self, CommandParams};
@@ -101,14 +104,136 @@ pub(crate) async fn at(params: AtParams) -> CoreResult<Option<AgentWorktree>> {
     blocking(move || Ok(read_back(&params.cwd))).await
 }
 
-/// Where a saved chat that ran in `cwd`, a worktree of `project`, resumes: back in that
-/// worktree while it is there, otherwise in the project.
-pub(crate) fn resumed_in(cwd: PathBuf, project: PathBuf) -> (PathBuf, Option<AgentWorktree>) {
-    if !cwd.is_dir() {
-        return (project, None);
+/// Where an agent that ran in `cwd` takes its saved session up again, and its own checkout there.
+pub(crate) struct ResumedIn {
+    pub cwd: PathBuf,
+    pub worktree: Option<AgentWorktree>,
+    /// Whether the worktree was cleaned away and is made again, so it needs the project's setup.
+    pub made_again: bool,
+}
+
+/// Where an agent that ran in `cwd` resumes: there, making its worktree again at the same path
+/// when it was cleaned away, since Claude and Codex find a session by the folder it ran in.
+/// `branch` is the one the agent's record names, when it has one.
+pub(crate) fn resumed_in(cwd: &Path, branch: Option<&str>) -> Result<ResumedIn, String> {
+    if cwd.is_dir() {
+        return Ok(ResumedIn {
+            worktree: read_back(cwd),
+            cwd: cwd.to_owned(),
+            made_again: false,
+        });
     }
-    let worktree = read_back(&cwd);
-    (cwd, worktree)
+    let worktree = make_again(cwd, branch).map_err(|why| {
+        format!(
+            "the folder the session ran in, {}, is gone, and {why}",
+            cwd.display()
+        )
+    })?;
+    Ok(ResumedIn {
+        cwd: cwd.to_owned(),
+        worktree: Some(worktree),
+        made_again: true,
+    })
+}
+
+/// Makes again the worktree a stored agent ran in when it was cleaned away, so it wakes on its
+/// session there, and keeps it on the agent's record.
+pub(crate) async fn restore(core: &Arc<Core>, agent_id: &str) -> CoreResult<()> {
+    let agent = core.workspaces.agent_or_gone(agent_id)?;
+    if agent.cwd.is_dir() {
+        return Ok(());
+    }
+    let (cwd, branch) = (agent.cwd, agent.worktree.map(|tree| tree.branch));
+    let resumed = blocking(move || Ok(resumed_in(&cwd, branch.as_deref())?)).await?;
+    core.workspaces
+        .edit_agent(agent_id, |agent| agent.worktree = resumed.worktree.clone())?;
+    set_up_made_again(core, agent_id, &resumed);
+    Ok(())
+}
+
+/// Runs the project's worktree setup in a worktree made again for `agent_id`, without holding
+/// up its start.
+pub(crate) fn set_up_made_again(core: &Arc<Core>, agent_id: &str, resumed: &ResumedIn) {
+    let Some(tree) = resumed.worktree.as_ref().filter(|_| resumed.made_again) else {
+        return;
+    };
+    let (core, agent_id) = (core.clone(), agent_id.to_owned());
+    let (repo, cwd) = (tree.repo.clone(), resumed.cwd.clone());
+    tokio::spawn(async move {
+        if let Some(error) = set_up(&core, &repo, Some(&agent_id), &cwd).await {
+            eprintln!(
+                "sikemux core: {agent_id}'s worktree made again is not fully set up: {error}"
+            );
+        }
+    });
+}
+
+/// Makes the worktree that held `cwd` again at the same path: on its branch while that has work
+/// the project's branch lacks, else on the branch reset to where the project is now.
+fn make_again(cwd: &Path, branch: Option<&str>) -> Result<AgentWorktree, String> {
+    let (repo, path) = lost_worktree(cwd)
+        .ok_or("it was not a worktree beside a repository, so it cannot be made again")?;
+    let folder = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let base = Git::quick(&repo)
+        .trimmed(&["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .ok();
+    let now = Git::quick(&repo)
+        .trimmed(&["rev-parse", "--verify", "HEAD"])
+        .map_err(|_| "the project has no commit to make it from")?;
+    let kept = branch
+        .map(str::to_owned)
+        .filter(|branch| branch_exists(&repo, branch))
+        .or_else(|| branch_for_folder(&repo, &folder));
+    let (branch, start_sha, start) = match kept {
+        Some(branch) if !landed(&repo, &branch, &now) => {
+            let start_sha = Git::quick(&repo).trimmed(&["merge-base", &now, &branch])?;
+            (branch.clone(), start_sha, branch)
+        }
+        Some(branch) => (branch, now.clone(), now),
+        None => {
+            let branch = branch.map_or(folder, str::to_owned);
+            (branch, now.clone(), now)
+        }
+    };
+    add_again(&repo, &path, &branch, &start)?;
+    Ok(AgentWorktree {
+        repo,
+        path,
+        branch,
+        base,
+        start_sha,
+    })
+}
+
+/// Whether every commit of `branch` is in `onto` already, as it is or replayed on top.
+fn landed(repo: &Path, branch: &str, onto: &str) -> bool {
+    Git::quick(repo)
+        .trimmed(&["cherry", onto, branch])
+        .is_ok_and(|unlanded| !unlanded.lines().any(|line| line.starts_with('+')))
+}
+
+/// The main checkout and the worktree folder in its worktrees folder that `cwd` lay in, while
+/// that repository is still there.
+fn lost_worktree(cwd: &Path) -> Option<(PathBuf, PathBuf)> {
+    cwd.ancestors().find_map(|path| {
+        let folder = path.parent()?;
+        let name = folder.file_name()?.to_str()?.strip_suffix(".worktrees")?;
+        let repo = folder.with_file_name(name);
+        (main_checkout(&repo).as_deref() == Some(repo.as_path())).then(|| (repo, path.to_owned()))
+    })
+}
+
+/// The local branch whose worktree folder is named `folder`, as [`super::cut`] names them.
+fn branch_for_folder(repo: &Path, folder: &str) -> Option<String> {
+    Git::quick(repo)
+        .trimmed(&["for-each-ref", "--format=%(refname:short)", "refs/heads"])
+        .ok()?
+        .lines()
+        .find(|branch| branch.replace('/', "-") == folder)
+        .map(str::to_owned)
 }
 
 fn read_back(cwd: &Path) -> Option<AgentWorktree> {
@@ -325,4 +450,41 @@ pub(crate) async fn set_up(
         return Some(format!("{} failed: {failed}", hook.label));
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_resumes_in_its_worktree_made_again_where_it_was() {
+        let parent = tempfile::tempdir().unwrap();
+        let repo = parent.path().join("app");
+        std::fs::create_dir(&repo).unwrap();
+        let commit = ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q"];
+        Git::quick(&repo).trimmed(&["init", "-q"]).unwrap();
+        Git::quick(&repo)
+            .trimmed(&[&commit[..], &["--allow-empty", "-m", "base"]].concat())
+            .unwrap();
+        let (branch, path) = cut(&repo, "fix/lost", "HEAD").unwrap();
+        Git::quick(&path)
+            .trimmed(&[&commit[..], &["--allow-empty", "-m", "work"]].concat())
+            .unwrap();
+        let work = Git::quick(&path).trimmed(&["rev-parse", "HEAD"]).unwrap();
+        std::fs::remove_dir_all(&path).unwrap();
+
+        let resumed = resumed_in(&path, None).unwrap();
+        assert!(resumed.made_again);
+        assert_eq!(resumed.cwd, path);
+        let tree = resumed.worktree.unwrap();
+        assert_eq!(tree.branch, branch);
+        assert_eq!(
+            Git::quick(&path).trimmed(&["rev-parse", "HEAD"]).unwrap(),
+            work
+        );
+
+        let gone = parent.path().join("elsewhere");
+        let error = resumed_in(&gone, None).err().unwrap();
+        assert!(error.contains(&gone.display().to_string()));
+    }
 }
