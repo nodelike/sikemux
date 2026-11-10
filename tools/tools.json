@@ -1527,10 +1527,10 @@
       "description": "Message a Sikemux agent.",
       "properties": {
         "to": {
-          "description": "Agent name or id",
+          "description": "Agent name or id, several separated by commas, or team",
           "type": "string",
           "minLength": 1,
-          "maxLength": 200
+          "maxLength": 2000
         },
         "text": {
           "type": "string",
