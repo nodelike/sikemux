@@ -56,11 +56,12 @@ final class Outbox {
         let behind = notQueued(holding, chat.queued)
         if entries.isEmpty && behind.isEmpty { return chat }
         var view = chat
-        if !entries.isEmpty {
-            view.messages += entries.map(Self.ownRow)
-            view.running = chat.running || sending
+        if !entries.isEmpty { view.messages += entries.map(Self.ownRow) }
+        let running = chat.running || sending
+        view.setHead { head in
+            head.running = running
+            head.queued += behind.map(\.message)
         }
-        if !behind.isEmpty { view.queued += behind.map(\.message) }
         return view
     }
 

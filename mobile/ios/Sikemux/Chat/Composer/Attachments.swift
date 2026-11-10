@@ -5,6 +5,8 @@ import SwiftUI
 struct ComposerAttachments<Lead: View>: View {
     @Environment(\.palette) private var palette
     let attachments: [Attachment]
+    /// The host a picture only it has is read from.
+    var core: String?
     let onRemove: (String) -> Void
     let onRetry: () -> Void
     @ViewBuilder var lead: Lead
@@ -40,7 +42,7 @@ struct ComposerAttachments<Lead: View>: View {
         return Button(action: onRetry) {
             Group {
                 if attachment.kind == .image {
-                    TileImage(attachment: attachment).frame(width: 58)
+                    TileImage(attachment: attachment, core: core).frame(width: 58)
                 } else {
                     FileChip(name: attachment.name, size: attachment.size == 0 ? nil : attachment.size, tall: true)
                         .frame(maxWidth: 190)
@@ -87,15 +89,16 @@ struct ComposerAttachments<Lead: View>: View {
 }
 
 extension ComposerAttachments where Lead == EmptyView {
-    init(attachments: [Attachment], onRemove: @escaping (String) -> Void, onRetry: @escaping () -> Void) {
-        self.init(attachments: attachments, onRemove: onRemove, onRetry: onRetry) { EmptyView() }
+    init(attachments: [Attachment], core: String? = nil, onRemove: @escaping (String) -> Void, onRetry: @escaping () -> Void) {
+        self.init(attachments: attachments, core: core, onRemove: onRemove, onRetry: onRetry) { EmptyView() }
     }
 }
 
-/// A picture on the composer: this phone's copy, or the picture's mark for one only the host has.
+/// A picture on the composer: this phone's copy, or one fetched from the host for a picture only the host has.
 private struct TileImage: View {
     @Environment(\.palette) private var palette
     let attachment: Attachment
+    let core: String?
     @State private var image: UIImage?
 
     var body: some View {
@@ -108,8 +111,11 @@ private struct TileImage: View {
             }
         }
         .task(id: attachment.uri) {
-            guard !attachment.onHostOnly else { return }
-            let url = attachment.uri
+            var url: URL? = attachment.uri
+            if attachment.onHostOnly, let path = attachment.path {
+                url = if let core { await HostFiles.shared.read(core: core, path: path) } else { nil }
+            }
+            guard let url else { return }
             image = await Task.detached { Self.thumbnail(url) }.value
         }
     }
