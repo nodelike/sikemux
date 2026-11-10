@@ -117,7 +117,6 @@ struct ScreenFor: View {
         case .hostSignIn: HostSignInScreen()
         case .deleteAccount: DeleteAccountScreen()
         case .share(let id, let key): ShareScreen(id: id, key: key)
-        case .stash: StashScreen()
         case .signIn: SignInScreen()
         }
     }

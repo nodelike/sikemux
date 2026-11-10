@@ -3,7 +3,7 @@ import Foundation
 
 /// A shared chat's link: which share, and the key that reads it. The key rides in the link's fragment, so it never
 /// reaches a server.
-struct ShareLink: Hashable {
+struct SharedChatLink: Hashable {
     let id: String
     let key: String
 
@@ -18,7 +18,7 @@ struct ShareLink: Hashable {
 
     private let secret: SymmetricKey
 
-    static func == (a: ShareLink, b: ShareLink) -> Bool { a.id == b.id && a.key == b.key }
+    static func == (a: SharedChatLink, b: SharedChatLink) -> Bool { a.id == b.id && a.key == b.key }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     private var aad: Data { Data("sikemux-share|v1|\(id)".utf8) }
