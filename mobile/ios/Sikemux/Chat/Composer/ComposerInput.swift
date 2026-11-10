@@ -54,11 +54,11 @@ struct ComposerInput: UIViewRepresentable {
         field.placeholder = NSAttributedString(string: placeholder, attributes: attributes(UIColor(palette.inkFaint)))
         if field.text != text || context.coordinator.drawnTokens != tokens {
             let selection = field.selectedRange
+            let replaced = field.text != text
             field.attributedText = styled()
             context.coordinator.drawnTokens = tokens
             let length = (text as NSString).length
-            field.selectedRange = NSRange(location: min(selection.location, length), length: 0)
-            if field.text != context.coordinator.lastTyped { field.selectedRange = NSRange(location: length, length: 0) }
+            field.selectedRange = NSRange(location: replaced ? length : min(selection.location, length), length: 0)
         }
         field.setNeedsDisplay()
     }
@@ -99,13 +99,11 @@ struct ComposerInput: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         var parent: ComposerInput
         var drawnTokens: [TextToken] = []
-        var lastTyped: String?
 
         init(parent: ComposerInput) { self.parent = parent }
 
         func textViewDidChange(_ field: UITextView) {
             if field.markedTextRange != nil { return }
-            lastTyped = field.text
             parent.text = field.text
             field.setNeedsDisplay()
         }
