@@ -75,15 +75,19 @@ function session(core, environment) {
     request(method, params) {
       const id = (nextId += 1);
       return new Promise((resolve, reject) => {
-        pending.set(id, (message) =>
-          message.error
-            ? reject(new Error(`${method}: ${message.error.message}`))
-            : resolve(message.result),
+        const timeout = setTimeout(
+          () => reject(new Error(`${method} timed out`)),
+          30_000,
         );
+        pending.set(id, (message) => {
+          clearTimeout(timeout);
+          if (message.error)
+            reject(new Error(`${method}: ${message.error.message}`));
+          else resolve(message.result);
+        });
         child.stdin.write(
           `${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`,
         );
-        setTimeout(() => reject(new Error(`${method} timed out`)), 30_000);
       });
     },
   };
