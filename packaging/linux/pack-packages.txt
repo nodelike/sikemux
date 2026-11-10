@@ -1,4 +1,5 @@
 dpkg-dev
+glib-networking
 gstreamer1.0-plugins-base
 gstreamer1.0-plugins-good
 patchelf

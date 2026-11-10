@@ -235,6 +235,11 @@ mkdir -p "$APPDIR$WEBKIT_DIR"
 for part in WebKitWebProcess WebKitNetworkProcess WebKitGPUProcess injected-bundle; do
   [[ -e "$WEBKIT_DIR/$part" ]] && cp -a "$WEBKIT_DIR/$part" "$APPDIR$WEBKIT_DIR/"
 done
+# GIO finds its TLS support, which every https page needs, as a module in its own folder.
+GIO_MODULE_DIR="$(pkg-config --variable=giomoduledir gio-2.0)"
+[[ -f "$GIO_MODULE_DIR/libgiognutls.so" ]] || fail "glib-networking, which https pages need, is not installed"
+mkdir -p "$APPDIR$GIO_MODULE_DIR"
+cp "$GIO_MODULE_DIR/libgiognutls.so" "$APPDIR$GIO_MODULE_DIR/"
 mkdir -p "$WORK/gstreamer"
 cp "$GSTREAMER_DIR/libgstcoreelements.so" "$WORK/gstreamer/"
 dpkg -L "${GSTREAMER_SETS[@]}" | grep -x "$GSTREAMER_DIR/libgst[^/]*\.so" | xargs -I{} cp {} "$WORK/gstreamer/"
@@ -246,7 +251,7 @@ done
   export DEPLOY_GTK_VERSION=3 NO_STRIP=1 GSTREAMER_PLUGINS_DIR="$WORK/gstreamer"
   ./linuxdeploy --appdir "$APPDIR" \
     --executable "$APPDIR/usr/bin/sikemux" --executable "$APPDIR/usr/bin/sikemux-host" \
-    --deploy-deps-only "$APPDIR$WEBKIT_DIR" \
+    --deploy-deps-only "$APPDIR$WEBKIT_DIR" --deploy-deps-only "$APPDIR$GIO_MODULE_DIR" \
     --desktop-file "$APPDIR/usr/share/applications/$APP_IDENTIFIER.desktop" \
     --icon-file "$APPDIR/usr/share/icons/hicolor/512x512/apps/sikemux.png" \
     --plugin gtk --plugin gstreamer
@@ -254,6 +259,7 @@ done
 # The same length keeps the libraries intact, and turns the processes' /usr/lib/… into
 # lib/…, found from usr/ inside the AppImage, which AppRun starts in.
 find "$APPDIR"/usr/lib* -name 'libwebkit*' -type f -exec sed -i -e 's|/usr|././|g' {} +
+find "$APPDIR"/usr/lib* -name 'libgio-2.0.so*' -type f -exec sed -i -e "s|$GIO_MODULE_DIR|././${GIO_MODULE_DIR#/usr}|g" {} +
 rm -f "$APPDIR/AppRun" "$APPDIR/AppRun.wrapped"
 cat >"$APPDIR/AppRun" <<'APPRUN'
 #!/bin/sh
