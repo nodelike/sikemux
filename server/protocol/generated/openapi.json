@@ -427,6 +427,14 @@
               }
             }
           },
+          "404": {
+            "description": "The token is unknown, used or expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
           "429": {
             "description": "Too many sign-ins from this address.",
             "content": {
@@ -713,6 +721,48 @@
           },
           "404": {
             "description": "The code is unknown, was refused, or has expired.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "default": {
+            "description": "Something went wrong.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/host-tokens": {
+      "post": {
+        "operationId": "createHostToken",
+        "summary": "Make a token that signs one server in to your account, for a server the app cannot reach to approve a code",
+        "security": [{ "session": [] }, { "host": [] }],
+        "description": "The phone's or the web app's sign-in, or a request signed by a host on the account.",
+        "responses": {
+          "201": {
+            "description": "The token, good once for an hour, and the command that uses it.",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/HostTokenGrant" }
+              }
+            }
+          },
+          "403": {
+            "description": "The sign-in was not verified again within the error's reverifyWithinMinutes (message reverify).",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ApiError" }
+              }
+            }
+          },
+          "429": {
+            "description": "More than 10 tokens in a minute.",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/ApiError" }
@@ -2201,7 +2251,11 @@
           "key": { "$ref": "#/components/schemas/DeviceKey" },
           "name": { "type": "string", "minLength": 1, "maxLength": 64 },
           "platform": { "$ref": "#/components/schemas/Platform" },
-          "channel": { "$ref": "#/components/schemas/Channel" }
+          "channel": { "$ref": "#/components/schemas/Channel" },
+          "token": {
+            "description": "A host token in place of a code: the sign-in is approved at once by the account that made it, and the token is used up.",
+            "$ref": "#/components/schemas/HostToken"
+          }
         },
         "required": ["key", "name", "platform", "channel"],
         "additionalProperties": false
@@ -2231,6 +2285,25 @@
         "description": "What the host shows its person, who types it on a device already signed in. Eight consonants in two groups of four.",
         "type": "string",
         "pattern": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$"
+      },
+      "HostToken": {
+        "description": "Lets one host onto the account without a code: a person makes it on a device already signed in and hands it to a server they cannot reach from the app, such as through cloud-init. 32 random bytes in lowercase hex, good once, for an hour.",
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      },
+      "HostTokenGrant": {
+        "description": "A new host token, with the command that installs Sikemux on a server and signs it in with it.",
+        "type": "object",
+        "properties": {
+          "token": { "$ref": "#/components/schemas/HostToken" },
+          "command": {
+            "description": "The shell command to run on the server, carrying the token.",
+            "type": "string"
+          },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        },
+        "required": ["token", "command", "expiresAt"],
+        "additionalProperties": false
       },
       "JoinRequest": {
         "description": "Which host on the account the phone wants to join.",

@@ -4,6 +4,7 @@ import type {
   HostSignInFinish,
   HostSignInStart,
   HostSignInState,
+  HostTokenGrant,
   PendingHost,
 } from "@sikemux/protocol";
 import { sql, type ExpressionBuilder, type Kysely } from "kysely";
@@ -16,6 +17,7 @@ import { badRequest, notFound, type ApiFailure } from "../http.ts";
 import type { Places } from "../places.ts";
 
 const LIFETIME_MS = 10 * 60_000;
+const TOKEN_LIFETIME_MS = 60 * 60_000;
 const INTERVAL_SECONDS = 5;
 /** Consonants only, so no code spells a word or mixes up 0 and O. */
 const ALPHABET = "BCDFGHJKLMNPQRSTVWXZ";
@@ -140,7 +142,60 @@ export async function refuseHost(
   });
 }
 
-/** Starts a host's sign-in by code from `requestedFrom`, with a user code no other sign-in holds. */
+/** A token that lets one host onto `userId`'s account, with the command a server runs to use it. */
+export async function createHostToken(
+  db: Kysely<Tables>,
+  { userId, via }: { userId: string; via: string },
+): Promise<HostTokenGrant> {
+  await db
+    .deleteFrom("host_tokens")
+    .where("expires_at", "<", sql<Date>`now()`)
+    .execute();
+  const token = randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + TOKEN_LIFETIME_MS);
+  await db
+    .insertInto("host_tokens")
+    .values({ token_hash: hash(token), user_id: userId, expires_at: expiresAt })
+    .execute();
+  await audit(db, {
+    userId,
+    actor: `user:${userId}`,
+    action: "host_token.created",
+    subject: hash(token).slice(0, 16),
+    detail: { via },
+  });
+  return {
+    token,
+    command: `curl -fsSL https://sikemux.com/install | sh -s -- --host --yes --token ${token}`,
+    expiresAt: expiresAt.toISOString(),
+  };
+}
+
+/** Uses up `token`, answering the account that made it. */
+async function spendToken(db: Kysely<Tables>, token: string, key: string) {
+  const row = await db
+    .deleteFrom("host_tokens")
+    .where("token_hash", "=", hash(token))
+    .where("expires_at", ">", sql<Date>`now()`)
+    .returning("user_id")
+    .executeTakeFirst();
+  if (!row)
+    throw notFound(
+      "That token is unknown, used or expired. Make a new one in Sikemux.",
+    );
+  await audit(db, {
+    userId: row.user_id,
+    actor: `device:${key}`,
+    action: "host_token.used",
+    subject: hash(token).slice(0, 16),
+  });
+  return row.user_id;
+}
+
+/**
+ * Starts a host's sign-in from `requestedFrom`, with a user code no other sign-in holds. A sign-in
+ * with a token is approved at once by the account that made it.
+ */
 export async function startSignIn(
   db: Kysely<Tables>,
   start: HostSignInStart,
@@ -155,34 +210,39 @@ export async function startSignIn(
     .execute();
   const code = randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + LIFETIME_MS);
-  for (;;) {
-    const userCode = newUserCode();
-    const inserted = await db
-      .insertInto("host_sign_ins")
-      .values({
-        code_hash: hash(code),
-        user_code: userCode,
-        key: start.key,
-        name,
-        platform: start.platform,
-        channel: start.channel,
-        requested_from: requestedFrom,
-        expires_at: expiresAt,
-      })
-      .onConflict((oc) => oc.column("user_code").doNothing())
-      .returning("user_code")
-      .executeTakeFirst();
-    if (!inserted) continue;
-    return {
-      code,
-      userCode,
-      verificationUrl: `${appOrigin}/host`,
-      expiresAt: expiresAt.toISOString(),
-      interval: INTERVAL_SECONDS,
-    };
-  }
+  return db.transaction().execute(async (trx) => {
+    const approvedBy = start.token
+      ? await spendToken(trx, start.token, start.key)
+      : null;
+    for (;;) {
+      const userCode = newUserCode();
+      const inserted = await trx
+        .insertInto("host_sign_ins")
+        .values({
+          code_hash: hash(code),
+          user_code: userCode,
+          key: start.key,
+          name,
+          platform: start.platform,
+          channel: start.channel,
+          approved_by: approvedBy,
+          requested_from: requestedFrom,
+          expires_at: expiresAt,
+        })
+        .onConflict((oc) => oc.column("user_code").doNothing())
+        .returning("user_code")
+        .executeTakeFirst();
+      if (!inserted) continue;
+      return {
+        code,
+        userCode,
+        verificationUrl: `${appOrigin}/host`,
+        expiresAt: expiresAt.toISOString(),
+        interval: INTERVAL_SECONDS,
+      };
+    }
+  });
 }
-
 /** Whether the person has approved the sign-in yet, with the challenge the host then signs. */
 export async function pollSignIn(
   db: Kysely<Tables>,

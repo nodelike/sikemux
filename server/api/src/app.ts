@@ -12,7 +12,7 @@ import { deviceRoutes } from "./devices/routes.ts";
 import { healthRoutes } from "./health/routes.ts";
 import type { HookHosts } from "./hooks/hosts.ts";
 import { hookReceiveRoutes, hookRoutes } from "./hooks/routes.ts";
-import { hostSignInRoutes } from "./host/routes.ts";
+import { hostSignInRoutes, hostTokenRoutes } from "./host/routes.ts";
 import {
   ApiFailure,
   errorResponse,
@@ -96,6 +96,7 @@ export function createApp(services: Services) {
   app.route("/v1/network", networkRoutes(network, limiter));
   app.route("/v1/devices", deviceRoutes(services));
   app.route("/v1/host-sign-ins", hostSignInRoutes(services));
+  app.route("/v1/host-tokens", hostTokenRoutes(services));
   app.route("/v1/account/profile", profileRoutes(services));
   app.route("/v1/account", accountRoutes(services));
   app.route("/v1/webhooks", clerkWebhookRoutes(database, webhookSecret));

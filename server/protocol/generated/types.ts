@@ -391,6 +391,8 @@ export interface HostSignInStart {
   name: string;
   platform: Platform;
   channel: Channel;
+  /** A host token in place of a code: the sign-in is approved at once by the account that made it, and the token is used up. */
+  token?: HostToken;
 }
 
 /** Pending until the person approves. Approved carries the account and a fresh challenge, which the host signs as it would a DeviceRegistration and sends back in HostSignInFinish. */
@@ -410,6 +412,17 @@ export const hostSignInStatusValues: readonly HostSignInStatus[] = [
 
 /** What the host shows its person, who types it on a device already signed in. Eight consonants in two groups of four. */
 export type HostSignInUserCode = string;
+
+/** Lets one host onto the account without a code: a person makes it on a device already signed in and hands it to a server they cannot reach from the app, such as through cloud-init. 32 random bytes in lowercase hex, good once, for an hour. */
+export type HostToken = string;
+
+/** A new host token, with the command that installs Sikemux on a server and signs it in with it. */
+export interface HostTokenGrant {
+  token: HostToken;
+  /** The shell command to run on the server, carrying the token. */
+  command: string;
+  expiresAt: string;
+}
 
 /** Which host on the account the phone wants to join. */
 export interface JoinRequest {
@@ -1119,6 +1132,8 @@ export interface Definitions {
   HostSignInState: HostSignInState;
   HostSignInStatus: HostSignInStatus;
   HostSignInUserCode: HostSignInUserCode;
+  HostToken: HostToken;
+  HostTokenGrant: HostTokenGrant;
   JoinRequest: JoinRequest;
   JoinTicket: JoinTicket;
   LiveAck: LiveAck;

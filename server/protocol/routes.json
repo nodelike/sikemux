@@ -187,6 +187,10 @@
           "description": "The codes, good for ten minutes. The host shows the user code and asks every interval seconds whether it was approved.",
           "body": "HostSignIn"
         },
+        "404": {
+          "description": "The token is unknown, used or expired.",
+          "body": "ApiError"
+        },
         "429": {
           "description": "Too many sign-ins from this address.",
           "body": "ApiError"
@@ -315,6 +319,27 @@
         },
         "404": {
           "description": "The code is unknown, was refused, or has expired.",
+          "body": "ApiError"
+        }
+      }
+    },
+    {
+      "method": "post",
+      "path": "/v1/host-tokens",
+      "operationId": "createHostToken",
+      "summary": "Make a token that signs one server in to your account, for a server the app cannot reach to approve a code",
+      "auth": "sessionOrHost",
+      "responses": {
+        "201": {
+          "description": "The token, good once for an hour, and the command that uses it.",
+          "body": "HostTokenGrant"
+        },
+        "403": {
+          "description": "The sign-in was not verified again within the error's reverifyWithinMinutes (message reverify).",
+          "body": "ApiError"
+        },
+        "429": {
+          "description": "More than 10 tokens in a minute.",
           "body": "ApiError"
         }
       }

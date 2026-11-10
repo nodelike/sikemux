@@ -12,6 +12,30 @@
       "type": "string",
       "pattern": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$"
     },
+    "HostToken": {
+      "description": "Lets one host onto the account without a code: a person makes it on a device already signed in and hands it to a server they cannot reach from the app, such as through cloud-init. 32 random bytes in lowercase hex, good once, for an hour.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "HostTokenGrant": {
+      "description": "A new host token, with the command that installs Sikemux on a server and signs it in with it.",
+      "type": "object",
+      "properties": {
+        "token": {
+          "$ref": "#/$defs/HostToken"
+        },
+        "command": {
+          "description": "The shell command to run on the server, carrying the token.",
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["token", "command", "expiresAt"],
+      "additionalProperties": false
+    },
     "HostSignInStart": {
       "description": "A host with no browser asks to be signed in. It proves its key only when it finishes, once it knows the account.",
       "type": "object",
@@ -29,6 +53,10 @@
         },
         "channel": {
           "$ref": "devices.json#/$defs/Channel"
+        },
+        "token": {
+          "description": "A host token in place of a code: the sign-in is approved at once by the account that made it, and the token is used up.",
+          "$ref": "#/$defs/HostToken"
         }
       },
       "required": ["key", "name", "platform", "channel"],
@@ -127,8 +155,12 @@
       "description": "The host a sign-in code belonged to, once approved.",
       "type": "object",
       "properties": {
-        "key": { "$ref": "devices.json#/$defs/DeviceKey" },
-        "name": { "type": "string" }
+        "key": {
+          "$ref": "devices.json#/$defs/DeviceKey"
+        },
+        "name": {
+          "type": "string"
+        }
       },
       "required": ["key", "name"],
       "additionalProperties": false
@@ -164,7 +196,7 @@
           "maxLength": 64
         },
         "requestedNear": {
-          "description": "Where requestedFrom is, as far as the server's IP database knows: the country, then the network's owner, such as `Germany · Hetzner Online`. Null when it does not know.",
+          "description": "Where requestedFrom is, as far as the server's IP database knows: the country, then the network's owner, such as `Germany \u00b7 Hetzner Online`. Null when it does not know.",
           "type": ["string", "null"],
           "maxLength": 256
         },

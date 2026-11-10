@@ -94,6 +94,12 @@ export interface Tables {
     >;
   };
   challenges: { nonce: string; user_id: string; expires_at: Date };
+  host_tokens: {
+    token_hash: string;
+    user_id: string;
+    created_at: CreatedAt;
+    expires_at: Date;
+  };
   host_sign_ins: {
     code_hash: string;
     user_code: string;

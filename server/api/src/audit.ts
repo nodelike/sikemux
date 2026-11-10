@@ -16,6 +16,8 @@ type AuditAction =
   | "join.issued"
   | "host_sign_in.approved"
   | "host_sign_in.refused"
+  | "host_token.created"
+  | "host_token.used"
   | "account.deletion_requested"
   | "account.deleted_in_clerk"
   | "account.restored"

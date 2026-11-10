@@ -1,12 +1,18 @@
 import type { Services } from "../app.ts";
 import { Hono } from "hono";
 
-import { requireIdentity, requireRecentSignIn, type AuthEnv } from "../auth.ts";
+import {
+  isSession,
+  requireIdentity,
+  requireRecentSignIn,
+  type AuthEnv,
+} from "../auth.ts";
 import { toDevice } from "../devices/register.ts";
 import { readBody } from "../http.ts";
 import { callerAddress, clientAddress, limit, perUser } from "../limits.ts";
 import {
   approveHost,
+  createHostToken,
   finishSignIn,
   pendingHost,
   pollSignIn,
@@ -106,5 +112,26 @@ export function hostSignInRoutes({
         );
         return c.json(toDevice(device), added ? 201 : 200);
       })
+  );
+}
+
+/**
+ * A token that signs one server in with no code, for a server the person cannot reach from the app,
+ * such as one set up by cloud-init. The app on a host makes one with its signature, which it gives
+ * only for the person's own click (ADR 0018); the phone and the web app need a recent sign-in.
+ */
+export function hostTokenRoutes({
+  database: { db },
+  verifier,
+  limiter,
+}: Pick<Services, "database" | "verifier" | "limiter">) {
+  const recentUnlessHost = requireRecentSignIn();
+  return new Hono<AuthEnv>().post(
+    "/",
+    requireIdentity(verifier, db, { accept: ["session", "host"] }),
+    (c, next) =>
+      isSession(c.get("identity")) ? recentUnlessHost(c, next) : next(),
+    perUser(limiter, "host-token", 10),
+    async (c) => c.json(await createHostToken(db, c.get("identity")), 201),
   );
 }

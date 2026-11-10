@@ -20,6 +20,7 @@ import type {
   HostSignInPoll,
   HostSignInStart,
   HostSignInState,
+  HostTokenGrant,
   JoinRequest,
   JoinTicket,
   Network,
@@ -119,6 +120,8 @@ export function apiClient(send: Send) {
     /** Refuse the waiting host. */
     refuseHostSignIn: (userCode: string) =>
       send<void>("DELETE", `/v1/host-sign-ins/${encodeURIComponent(userCode)}`),
+    /** Make a token that signs one server in to your account, for a server the app cannot reach to approve a code. */
+    createHostToken: () => send<HostTokenGrant>("POST", `/v1/host-tokens`),
     /** Whether your account is in use or waiting to be deleted. */
     getAccount: () => send<Account>("GET", `/v1/account`),
     /** Delete your account and take every device off it. */

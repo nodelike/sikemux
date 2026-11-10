@@ -53,6 +53,9 @@ pub struct HostSignInStart {
     pub name: String,
     pub platform: Platform,
     pub channel: Channel,
+    /// A host token in place of a code: the sign-in is approved at once by the account that made it, and the token is used up.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token: Option<HostToken>,
 }
 
 /// Pending until the person approves. Approved carries the account and a fresh challenge, which the host signs as it would a DeviceRegistration and sends back in HostSignInFinish.
@@ -81,6 +84,19 @@ pub enum HostSignInStatus {
 
 /// What the host shows its person, who types it on a device already signed in. Eight consonants in two groups of four.
 pub type HostSignInUserCode = String;
+
+/// Lets one host onto the account without a code: a person makes it on a device already signed in and hands it to a server they cannot reach from the app, such as through cloud-init. 32 random bytes in lowercase hex, good once, for an hour.
+pub type HostToken = String;
+
+/// A new host token, with the command that installs Sikemux on a server and signs it in with it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostTokenGrant {
+    pub token: HostToken,
+    /// The shell command to run on the server, carrying the token.
+    pub command: String,
+    pub expires_at: String,
+}
 
 /// The host waiting behind a user code, for the person to check before approving it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -116,6 +132,8 @@ pub(crate) fn round_trip(name: &str, json: &str) -> Option<super::RoundTrip> {
         "HostSignInState" => through::<HostSignInState>(json),
         "HostSignInStatus" => through::<HostSignInStatus>(json),
         "HostSignInUserCode" => through::<HostSignInUserCode>(json),
+        "HostToken" => through::<HostToken>(json),
+        "HostTokenGrant" => through::<HostTokenGrant>(json),
         "PendingHost" => through::<PendingHost>(json),
         _ => return None,
     })

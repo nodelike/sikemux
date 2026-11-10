@@ -682,6 +682,11 @@ export const schema = {
         name: { type: "string", minLength: 1, maxLength: 64 },
         platform: { $ref: "#/$defs/Platform" },
         channel: { $ref: "#/$defs/Channel" },
+        token: {
+          description:
+            "A host token in place of a code: the sign-in is approved at once by the account that made it, and the token is used up.",
+          $ref: "#/$defs/HostToken",
+        },
       },
       required: ["key", "name", "platform", "channel"],
       additionalProperties: false,
@@ -714,6 +719,28 @@ export const schema = {
         "What the host shows its person, who types it on a device already signed in. Eight consonants in two groups of four.",
       type: "string",
       pattern: "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$",
+    },
+    HostToken: {
+      description:
+        "Lets one host onto the account without a code: a person makes it on a device already signed in and hands it to a server they cannot reach from the app, such as through cloud-init. 32 random bytes in lowercase hex, good once, for an hour.",
+      type: "string",
+      pattern: "^[0-9a-f]{64}$",
+    },
+    HostTokenGrant: {
+      description:
+        "A new host token, with the command that installs Sikemux on a server and signs it in with it.",
+      type: "object",
+      properties: {
+        token: { $ref: "#/$defs/HostToken" },
+        command: {
+          description:
+            "The shell command to run on the server, carrying the token.",
+          type: "string",
+        },
+        expiresAt: { type: "string", format: "date-time" },
+      },
+      required: ["token", "command", "expiresAt"],
+      additionalProperties: false,
     },
     JoinRequest: {
       description: "Which host on the account the phone wants to join.",
