@@ -51,6 +51,7 @@ private struct ChatPane: View {
     @State private var menu = false
     @State private var showLive = false
     @State private var finding = false
+    @State private var stillness: (() -> Void)?
 
     init(core: String, agentId: String) {
         self.core = core
@@ -119,8 +120,11 @@ private struct ChatPane: View {
                 onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
         }
         .onChange(of: rows.subagentRows) { _, rows in context.subagentRows = rows }
-        .onChange(of: rows.running) { was, running in
+        .onChange(of: rows.running, initial: true) { was, running in
             if was && !running { Haptics.success() }
+            // A streaming reply needs the main thread more than the moving backdrop does.
+            stillness?()
+            stillness = running ? BackdropPause.shared.hold() : nil
         }
         .onChange(of: session.permissions.first?.requestId) { _, asked in
             if asked != nil { Haptics.warning() }
@@ -135,6 +139,7 @@ private struct ChatPane: View {
     }
 
     private func appeared() {
+        Cards.dismiss(host: core, agent: agentId)
         watch = Hub.shared.watch(core)
         session.hostSaw(info)
         release = session.hold(live.connection)
@@ -166,6 +171,8 @@ private struct ChatPane: View {
     }
 
     private func left() {
+        stillness?()
+        stillness = nil
         release?()
         release = nil
         watch?.cancel()
