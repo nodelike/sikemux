@@ -27,7 +27,7 @@ final class AccountSession {
     /// Said once on the way out, before Welcome.
     var farewell: Farewell?
     /// A device that just joined the account, for the person to keep or take off (ADR 0018).
-    var newDevice: AccountDevice?
+    var newDevice: WireDevice?
     /// Why taking that device off failed.
     var removeProblem: String?
 
@@ -158,7 +158,7 @@ final class AccountSession {
         }
     }
 
-    func remove(_ device: AccountDevice) {
+    func remove(_ device: WireDevice) {
         Task {
             do {
                 try await AccountCalls.removeDevice(device.key)
@@ -177,13 +177,13 @@ final class AccountSession {
     }
 }
 
-extension LiveAccount.Gone {
+extension RevokeReason {
     /// Signing out on this phone needs no explanation; anything else does.
     var farewell: Farewell? {
         switch self {
         case .removed: .removed
         case .accountDeleted: .deleted
-        case .signedOut: nil
+        case .signedOut, .unknown: nil
         }
     }
 }
@@ -193,7 +193,7 @@ extension LiveAccount.Gone {
 final class AccountHosts {
     static let shared = AccountHosts()
 
-    private(set) var hosts: [AccountDevice] = []
+    private(set) var hosts: [WireDevice] = []
     /// The server has answered since signing in.
     private(set) var loaded = false
     /// Why the last read failed, while it has.

@@ -4,10 +4,6 @@ import Foundation
 /// the phone was taken off it. It reconnects with backoff while running.
 @MainActor
 final class LiveAccount {
-    enum Gone: String {
-        case removed, signedOut = "signed_out", accountDeleted = "account_deleted"
-    }
-
     struct Handlers {
         /// A host joined, changed or left the account: the list of hosts is stale.
         var hostsChanged: () -> Void
@@ -16,37 +12,13 @@ final class LiveAccount {
         /// The server took the hello, so the account is reachable again.
         var ready: () -> Void
         /// Called once; the connection stays closed after it.
-        var gone: (Gone) -> Void
-    }
-
-    private struct Event: Decodable {
-        let id: Int
-        let type: String
-        let key: String?
-        let role: String?
-        let reason: String?
-        let at: String?
-    }
-
-    private struct Message: Decodable {
-        let type: String
-        let nonce: String?
-        let heartbeatMs: Double?
-        let events: [Event]?
-        let reconnectAfterMs: Double?
-        let reason: String?
+        var gone: (RevokeReason) -> Void
     }
 
     private static let cursorItem = "sikemux.account-event"
     /// How long after a device joins the account the person still hears of it; a phone back from days offline is not
     /// told of every one.
     private static let newsFor: TimeInterval = 10 * 60
-
-    private enum CloseCode {
-        static let revoked = 4403
-        static let overLimit = 4429
-        static let replaced = 4409
-    }
 
     private let handlers: Handlers
     private var socket: URLSessionWebSocketTask?
@@ -134,76 +106,89 @@ final class LiveAccount {
         }
     }
 
-    private func send(_ task: URLSessionWebSocketTask, _ message: [String: Any]) {
-        guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
-        task.send(.string(String(decoding: data, as: UTF8.self))) { _ in }
+    private func send(_ task: URLSessionWebSocketTask, _ message: some Encodable) {
+        do {
+            let data = try JSONEncoder().encode(message)
+            task.send(.string(String(decoding: data, as: UTF8.self))) { error in
+                if let error { print("sikemux: the account connection could not send: \(error)") }
+            }
+        } catch {
+            print("sikemux: the account connection could not write a message: \(error)")
+        }
     }
 
     private func handle(_ task: URLSessionWebSocketTask, _ text: String) async {
-        guard let message = try? JSONDecoder().decode(Message.self, from: Data(text.utf8)) else { return }
-        switch message.type {
-        case "challenge":
-            guard let nonce = message.nonce else { return }
+        let message: LiveServerMessage
+        do {
+            message = try JSONDecoder().decode(LiveServerMessage.self, from: Data(text.utf8))
+        } catch {
+            print("sikemux: the account connection could not read a message: \(error)")
+            return
+        }
+        switch message {
+        case .challenge(let challenge):
             do {
                 let me = try Identity.shared.deviceIdentity()
                 let token = try await Account.shared.token()
                 ownKey = me.id()
                 guard socket === task else { return }
-                send(task, [
-                    "type": "hello", "role": "client", "key": ownKey, "signature": try me.signLive(nonce: nonce),
-                    "token": token, "app": ["platform": "ios", "version": Config.version],
-                ])
+                send(task, LiveHello(
+                    role: .client, key: ownKey, signature: try me.signLive(nonce: challenge.nonce), token: token,
+                    app: LiveApp(platform: .ios, version: Config.version)
+                ))
             } catch {
+                print("sikemux: could not answer the account connection's challenge: \(error)")
                 if !Account.shared.isSignedIn { stop() }
             }
-        case "ready":
+        case .ready(let ready):
             attempt = 0
-            if let ms = message.heartbeatMs { heartbeat = ms / 1000 }
+            heartbeat = TimeInterval(ready.heartbeatMs) / 1000
             heard()
             handlers.ready()
-        case "events":
-            let (ack, gone) = read(message.events ?? [])
-            if socket === task, ack > 0 { send(task, ["type": "ack", "id": ack]) }
+        case .events(let frame):
+            let (ack, gone) = read(frame.events)
+            if socket === task, ack > 0 { send(task, LiveAck(id: ack)) }
             if let gone { end(gone) }
-        case "reset":
+        case .reset:
             handlers.hostsChanged()
             handlers.stashChanged()
-        case "ping":
-            send(task, ["type": "pong"])
-        case "bye":
-            byeAfter = (message.reconnectAfterMs ?? 0) / 1000
-        case "revoked":
-            end(Gone(rawValue: message.reason ?? "") ?? .removed)
-        default:
+        case .ping:
+            send(task, LivePong())
+        case .bye(let bye):
+            byeAfter = TimeInterval(bye.reconnectAfterMs) / 1000
+        case .revoked(let revoked):
+            end(revoked.reason)
+        case .pushed, .unknown:
             break
         }
     }
 
-    private func read(_ events: [Event]) -> (ack: Int, gone: Gone?) {
+    private func read(_ events: [AccountEvent]) -> (ack: EventId, gone: RevokeReason?) {
         let mark = (try? Keychain.read(Self.cursorItem)).flatMap { $0 }.flatMap(Int.init) ?? 0
         var newest = 0
         var handled = mark
         var hosts = false
         var stash = false
         var added: [String] = []
-        var gone: Gone?
+        var gone: RevokeReason?
         for event in events.sorted(by: { $0.id < $1.id }) {
             newest = max(newest, event.id)
             guard event.id > mark else { continue }
             handled = event.id
-            if event.type == "account.deleted" {
+            switch event.type {
+            case .accountDeleted:
                 gone = .accountDeleted
-            } else if event.type == "device.revoked", event.key == ownKey {
-                gone = gone ?? Gone(rawValue: event.reason ?? "") ?? .removed
-            } else if event.type.hasPrefix("stash.") {
+            case .deviceRevoked where event.key == ownKey:
+                gone = gone ?? event.reason ?? .removed
+            case .stashAdded, .stashChanged, .stashRemoved, .stashSeen:
                 stash = true
-            } else {
-                if event.type == "device.added", let key = event.key, key != ownKey,
+            default:
+                if event.type == .deviceAdded, let key = event.key, key != ownKey,
                    let at = Format.date(iso: event.at), Date().timeIntervalSince(at) < Self.newsFor
                 {
                     added.append(key)
                 }
-                if event.role == "host" { hosts = true }
+                if event.role == .host { hosts = true }
             }
         }
         if handled > mark {
@@ -219,7 +204,7 @@ final class LiveAccount {
         return (newest, gone)
     }
 
-    private func end(_ reason: Gone) {
+    private func end(_ reason: RevokeReason) {
         guard !ended else { return }
         ended = true
         stop()
@@ -229,8 +214,9 @@ final class LiveAccount {
     private func closed(_ code: Int) {
         silence?.cancel()
         guard running else { return }
-        if code == CloseCode.revoked { return end(.removed) }
-        if code == CloseCode.replaced {
+        let code = LiveCloseCode(rawValue: code)
+        if code == .revoked { return end(.removed) }
+        if code == .replaced {
             running = false
             return
         }
@@ -240,7 +226,7 @@ final class LiveAccount {
             self.byeAfter = nil
         } else {
             wait = AccountSession.backoff(attempt)
-            if code == CloseCode.overLimit { wait = max(wait, 30) }
+            if code == .overLimit { wait = max(wait, 30) }
             attempt += 1
         }
         retrying = Task { [weak self] in
