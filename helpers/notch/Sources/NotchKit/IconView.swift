@@ -29,6 +29,9 @@ struct IconShape {
     let opacity: Double
     let evenOdd: Bool
     let translate: (CGFloat, CGFloat)
+    /// In the icon's own units: the app strokes 1.4 on its 16-unit grid and 2.1 on its 24-unit one.
+    var lineWidth: CGFloat = 1.4
+    var dash: [CGFloat] = []
 }
 
 struct IconDef {
@@ -37,7 +40,7 @@ struct IconDef {
 }
 
 /// One of the app's icons at `size` points, stroked like the app's: 1.4 units
-/// on its 16-unit grid, with round caps and joins.
+/// on its 16-unit grid unless the icon says otherwise, with round caps and joins.
 struct IconView: View {
     let icon: IconDef
     var size: CGFloat = 14
@@ -56,8 +59,12 @@ struct IconView: View {
         let path = SVGPathShape(d: shape.d, viewBox: icon.viewBox, translate: shape.translate)
         switch shape.style {
         case .stroke:
-            path.stroke(style: StrokeStyle(lineWidth: 1.4 * size / icon.viewBox.width, lineCap: .round, lineJoin: .round))
-                .opacity(shape.opacity)
+            let scale = size / max(icon.viewBox.width, icon.viewBox.height)
+            path.stroke(style: StrokeStyle(
+                lineWidth: shape.lineWidth * scale, lineCap: .round, lineJoin: .round,
+                dash: shape.dash.map { $0 * scale }
+            ))
+            .opacity(shape.opacity)
         case .fill(let paint):
             filled(path, paint: paint, evenOdd: shape.evenOdd).opacity(shape.opacity)
         }
@@ -105,7 +112,10 @@ struct SVGPathShape: Shape {
 
     func path(in rect: CGRect) -> Path {
         let scale = min(rect.width / viewBox.width, rect.height / viewBox.height)
-        let transform = CGAffineTransform(translationX: rect.minX, y: rect.minY)
+        let transform = CGAffineTransform(
+            translationX: rect.minX + (rect.width - viewBox.width * scale) / 2,
+            y: rect.minY + (rect.height - viewBox.height * scale) / 2
+        )
             .scaledBy(x: scale, y: scale)
             .translatedBy(x: -viewBox.x + translate.0, y: -viewBox.y + translate.1)
         return SVGPath.parse(d).applying(transform)

@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Writes the notch helper's icons, which the phone's share extension draws too,
 // from the app's own: the line icons in shared/ui/Icons.tsx and the agent marks
-// beside them. `--check` fails when the Swift file is out of date instead of
-// writing it.
+// beside them. The iPhone app builds the notch's file and adds the rest of the
+// icons it draws from a second one. `--check` fails when either Swift file is out
+// of date instead of writing it.
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { emit } from "./lib/generated.mjs";
+import { emit, typescriptLoader } from "./lib/generated.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const iconsPath = resolve(root, "shared/ui/Icons.tsx");
@@ -14,6 +15,10 @@ const logosDir = resolve(root, "shared/assets/agent-logos");
 const outputPath = resolve(
   root,
   "helpers/notch/Sources/NotchKit/Icons.generated.swift",
+);
+const phoneOutputPath = resolve(
+  root,
+  "mobile/ios/Sikemux/UI/PhoneIcons.generated.swift",
 );
 
 const LINE_ICONS = {
@@ -321,3 +326,377 @@ ${marks.join("\n")}
 `;
 
 await emit(outputPath, swift);
+
+/** The icons the phone draws, by the name shared/ui/Icons.tsx exports each under. */
+const PHONE_ICONS = [
+  "Logo",
+  "IconActivity",
+  "IconAgent",
+  "IconArrowDown",
+  "IconArrowUp",
+  "IconAws",
+  "IconBoard",
+  "IconBook",
+  "IconCamera",
+  "IconCheck",
+  "IconChevron",
+  "IconClaude",
+  "IconClick",
+  "IconClock",
+  "IconClose",
+  "IconCode",
+  "IconCodex",
+  "IconCommand",
+  "IconCopy",
+  "IconDashboard",
+  "IconDownload",
+  "IconEye",
+  "IconFile",
+  "IconFolder",
+  "IconGit",
+  "IconGlobe",
+  "IconGrok",
+  "IconHermes",
+  "IconHighlighter",
+  "IconHomeButton",
+  "IconHourglass",
+  "IconImage",
+  "IconInbox",
+  "IconInfo",
+  "IconIssue",
+  "IconKeyboard",
+  "IconLink",
+  "IconLock",
+  "IconLogLines",
+  "IconLogOut",
+  "IconMessage",
+  "IconMore",
+  "IconMoreVertical",
+  "IconMouse",
+  "IconMove",
+  "IconMuse",
+  "IconNetwork",
+  "IconOmp",
+  "IconOpenCode",
+  "IconPanel",
+  "IconPencil",
+  "IconPhone",
+  "IconPi",
+  "IconPinch",
+  "IconPlug",
+  "IconPlus",
+  "IconPointer",
+  "IconPower",
+  "IconPullRequest",
+  "IconRecord",
+  "IconRefresh",
+  "IconResize",
+  "IconRocket",
+  "IconRotate",
+  "IconRun",
+  "IconRundeck",
+  "IconSearch",
+  "IconServer",
+  "IconShield",
+  "IconShieldBolt",
+  "IconSquarePlus",
+  "IconStack",
+  "IconStatus",
+  "IconSteps",
+  "IconStop",
+  "IconSwipe",
+  "IconTabs",
+  "IconTap",
+  "IconTerminal",
+  "IconText",
+  "IconTimer",
+  "IconTouchPath",
+  "IconTrash",
+  "IconUnlink",
+  "IconUpload",
+  "IconUser",
+  "IconWarning",
+  "IconWaterfall",
+  "IconWindow",
+  "IconWorkflow",
+  "IconWrench",
+];
+
+/** Line icons the phone also paints solid, as the `filled` of its RN `Icon` did. */
+const PHONE_FILLED = new Set(["IconAgent"]);
+
+const DRAWN_ICONS_PATH = "/mobile/app/src/ui/drawnIcons.ts";
+
+const MARK_NAMES = {
+  ...Object.fromEntries(
+    Object.entries(MARK_FUNCTIONS).map(([key, name]) => [name, key]),
+  ),
+  IconCodex: "codex",
+  IconOmp: "omp",
+  IconMuse: "muse",
+};
+
+const SHAPE_PROPS = new Set([
+  "d",
+  "x",
+  "y",
+  "width",
+  "height",
+  "rx",
+  "ry",
+  "cx",
+  "cy",
+  "r",
+  "x1",
+  "y1",
+  "x2",
+  "y2",
+  "points",
+]);
+const PAINT_PROPS = new Set([
+  "fill",
+  "stroke",
+  "strokeWidth",
+  "strokeDasharray",
+  "strokeLinecap",
+  "strokeLinejoin",
+  "fillRule",
+  "clipRule",
+  "opacity",
+  "transform",
+]);
+const IGNORED_PROPS = new Set([
+  "children",
+  "className",
+  "aria-hidden",
+  "xmlns",
+]);
+
+function outline(type, props) {
+  const n = (key) => number(props[key]);
+  switch (type) {
+    case "path":
+      return props.d.trim().replace(/\s+/g, " ");
+    case "rect":
+      return rectPath({ ...props, rx: props.rx ?? props.ry });
+    case "circle":
+    case "ellipse": {
+      const [cx, cy] = [n("cx"), n("cy")];
+      const [rx, ry] =
+        type === "circle" ? [n("r"), n("r")] : [n("rx"), n("ry")];
+      return `M${fixed(cx + rx)} ${cy}a${rx} ${ry} 0 1 1 ${fixed(-2 * rx)} 0a${rx} ${ry} 0 1 1 ${fixed(2 * rx)} 0z`;
+    }
+    case "line":
+      return `M${n("x1")} ${n("y1")}L${n("x2")} ${n("y2")}`;
+    case "polyline":
+    case "polygon":
+      return `M${props.points.trim().replace(/\s+/g, " L")}${type === "polygon" ? "Z" : ""}`;
+    default:
+      throw new Error(`the phone's icons cannot draw <${type}>`);
+  }
+}
+
+/**
+ * Every shape an icon's React element draws, with the paint it inherits from
+ * the groups and the <svg> around it, as one fill and one stroke apiece.
+ */
+function paintedShapes(element, inherited = {}, found = [], context = "") {
+  if (element == null || element === false) return found;
+  if (Array.isArray(element)) {
+    for (const child of element)
+      paintedShapes(child, inherited, found, context);
+    return found;
+  }
+  const { type, props } = element;
+  if (typeof type === "function")
+    return paintedShapes(type(props), inherited, found, context);
+  if (typeof type !== "string")
+    return paintedShapes(props.children, inherited, found, context);
+  for (const key of Object.keys(props)) {
+    const known =
+      PAINT_PROPS.has(key) ||
+      IGNORED_PROPS.has(key) ||
+      (type === "svg"
+        ? ["viewBox", "width", "height"].includes(key)
+        : SHAPE_PROPS.has(key));
+    if (!known)
+      throw new Error(
+        `${context}: the phone's icons ignore ${key} on <${type}>`,
+      );
+  }
+  const translate = [...(inherited.translate ?? [0, 0])];
+  if (props.transform) {
+    const match = props.transform.match(
+      /^translate\(\s*([-\d.]+)[ ,]+([-\d.]+)\s*\)$/,
+    );
+    if (!match) throw new Error(`${context}: only translate transforms draw`);
+    translate[0] += number(match[1]);
+    translate[1] += number(match[2]);
+  }
+  const own = Object.fromEntries(
+    Object.entries(props).filter(
+      ([key, value]) =>
+        PAINT_PROPS.has(key) && key !== "opacity" && value !== undefined,
+    ),
+  );
+  const paint = {
+    ...inherited,
+    ...own,
+    translate,
+    opacity: (inherited.opacity ?? 1) * number(props.opacity, 1),
+  };
+  if (type === "svg" || type === "g")
+    return paintedShapes(props.children, paint, found, context);
+  const d = outline(type, props);
+  if (paint.fill === undefined)
+    throw new Error(`${context}: a <${type}> has no fill; give it one`);
+  if (paint.fill !== "none") found.push({ ...paint, d, style: "fill" });
+  if (paint.stroke && paint.stroke !== "none") {
+    if (paint.stroke !== "currentColor")
+      throw new Error(
+        `${context}: strokes are drawn only in the current colour`,
+      );
+    for (const end of [paint.strokeLinecap, paint.strokeLinejoin])
+      if (end && end !== "round")
+        throw new Error(
+          `${context}: strokes are drawn only with round ends and joins`,
+        );
+    found.push({ ...paint, d, style: "stroke" });
+  }
+  return found;
+}
+
+function rootSvg(element) {
+  while (typeof element.type === "function")
+    element = element.type(element.props);
+  if (element.type !== "svg") throw new Error("an icon must draw one <svg>");
+  return element;
+}
+
+function phoneShapeLiteral(shape) {
+  const style =
+    shape.style === "fill"
+      ? `.fill(${paint(shape.fill, null, {})})`
+      : ".stroke";
+  const width = number(shape.strokeWidth, 1.4);
+  const dash = shape.strokeDasharray
+    ? String(shape.strokeDasharray)
+        .trim()
+        .split(/[\s,]+/)
+        .map((value) => number(value))
+    : [];
+  const extra =
+    (shape.style === "stroke" && width !== 1.4 ? `, lineWidth: ${width}` : "") +
+    (shape.style === "stroke" && dash.length
+      ? `, dash: [${dash.join(", ")}]`
+      : "");
+  return (
+    `IconShape(d: ${swiftString(shape.d)}, style: ${style}, opacity: ${fixed(shape.opacity)}, ` +
+    `evenOdd: ${shape.fillRule === "evenodd"}, translate: (${shape.translate.join(", ")})${extra})`
+  );
+}
+
+function phoneDef(key, element, context) {
+  const svgElement = rootSvg(element);
+  const body = paintedShapes(svgElement, {}, [], context).map(
+    (shape) => `        ${phoneShapeLiteral(shape)},`,
+  );
+  return `    static let ${key} = IconDef(viewBox: ${viewBox(svgElement.props.viewBox)}, shapes: [\n${body.join("\n")}\n    ])`;
+}
+
+function solid(element) {
+  const svgElement = rootSvg(element);
+  const props = { ...svgElement.props };
+  if (props.fill === "none" && props.stroke === "currentColor") {
+    props.fill = "currentColor";
+    props.stroke = "none";
+  }
+  return { ...svgElement, props };
+}
+
+function swiftName(name) {
+  const bare = name.replace(/^Icon/, "");
+  return bare[0].toLowerCase() + bare.slice(1);
+}
+
+const loader = await typescriptLoader();
+const tsIcons = await loader.ssrLoadModule("/shared/ui/Icons.tsx");
+const { DRAWN_ICONS } = await loader.ssrLoadModule(DRAWN_ICONS_PATH);
+await loader.close();
+
+const notchNames = Object.fromEntries(
+  Object.entries(LINE_ICONS).map(([key, name]) => [name, key]),
+);
+const phoneLines = [];
+const named = [];
+const namedFilled = [];
+
+for (const name of PHONE_ICONS) {
+  if (MARK_NAMES[name]) {
+    named.push(
+      `        case ${swiftString(name)}: return mark(${swiftString(MARK_NAMES[name])})`,
+    );
+    continue;
+  }
+  const component = tsIcons[name];
+  if (typeof component !== "function")
+    throw new Error(`shared/ui/Icons.tsx has no ${name}`);
+  const element = { type: component, props: { size: 16 } };
+  const notchKey = notchNames[name];
+  const filledByNotch = notchKey && FILLED_ICONS.has(notchKey);
+  let key = notchKey;
+  if (!notchKey || filledByNotch) {
+    key = filledByNotch ? `${notchKey}Line` : swiftName(name);
+    phoneLines.push(phoneDef(key, element, name));
+  }
+  named.push(`        case ${swiftString(name)}: return ${key}`);
+  if (PHONE_FILLED.has(name)) {
+    const filledKey = filledByNotch ? notchKey : `${key}Filled`;
+    if (!filledByNotch)
+      phoneLines.push(phoneDef(filledKey, solid(element), name));
+    namedFilled.push(`        case ${swiftString(name)}: return ${filledKey}`);
+  }
+}
+
+for (const [name, markup] of Object.entries(DRAWN_ICONS)) {
+  const element = {
+    type: "svg",
+    props: {
+      viewBox: "0 0 16 16",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: 1.4,
+      children: shapes(markup).map((shape) => ({
+        type: "path",
+        props: { d: shape.d },
+      })),
+    },
+  };
+  phoneLines.push(phoneDef(name, element, name));
+  named.push(`        case ${swiftString(name)}: return ${name}`);
+}
+
+const phoneSwift = `// Generated by scripts/generate-notch-icons.mjs from shared/ui/Icons.tsx and
+// mobile/app/src/ui/drawnIcons.ts. Do not edit by hand.
+
+extension Icons {
+${phoneLines.join("\n")}
+
+    /// The icon shared/ui/Icons.tsx exports as \`name\`, or one of the phone's own
+    /// drawn icons by its key; \`filled\` asks for the solid version of a line icon.
+    static func named(_ name: String, filled: Bool = false) -> IconDef? {
+        if filled {
+            switch name {
+${namedFilled.map((line) => `    ${line}`).join("\n")}
+            default: return nil
+            }
+        }
+        switch name {
+${named.join("\n")}
+        default: return nil
+        }
+    }
+}
+`;
+
+await emit(phoneOutputPath, phoneSwift);
