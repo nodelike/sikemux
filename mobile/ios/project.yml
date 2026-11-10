@@ -155,6 +155,8 @@ targets:
         Release:
           ASSETCATALOG_COMPILER_APPICON_NAME: sikemux
           EXCLUDED_SOURCE_FILE_NAMES: dev.icon
+          # Nothing loads symbols from the app, and the Rust library's exports alone took 1.8 MB.
+          OTHER_LDFLAGS: $(inherited) -Wl,-no_exported_symbols
 
   SikemuxNotifications:
     type: app-extension
