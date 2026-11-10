@@ -125,7 +125,10 @@ pub(crate) fn unlanded(worktree: &AgentWorktree) -> Result<Option<String>, Strin
     let Some(base) = worktree.base.as_deref() else {
         return Ok(None);
     };
-    let tip = line(git(&worktree.repo, &["rev-parse", &format!("refs/heads/{base}")])?);
+    let tip = line(git(
+        &worktree.repo,
+        &["rev-parse", &format!("refs/heads/{base}")],
+    )?);
     let head = line(git(&worktree.path, &["rev-parse", "HEAD"])?);
     let commits = own_commits(&worktree.path, &tip, &head)?;
     Ok((!commits.is_empty()).then(|| {
@@ -210,7 +213,14 @@ fn sync_from(worktree: &AgentWorktree, signing: &Signing) -> Result<Synced, Stri
             ));
         }
         let reflog = format!("sync: onto {base}");
-        if run(&worktree.path, &["update-ref", "-m", &reflog, "HEAD", &synced, &head], None, None).is_err() {
+        if run(
+            &worktree.path,
+            &["update-ref", "-m", &reflog, "HEAD", &synced, &head],
+            None,
+            None,
+        )
+        .is_err()
+        {
             continue;
         }
         return Ok(Synced {
@@ -243,7 +253,14 @@ fn follow(tree: &Path, before: &str, after: &str) -> Option<String> {
         ));
     }
     let reflog = "land: follow the landed commits";
-    if run(tree, &["update-ref", "-m", reflog, "HEAD", after, before], None, None).is_err() {
+    if run(
+        tree,
+        &["update-ref", "-m", reflog, "HEAD", after, before],
+        None,
+        None,
+    )
+    .is_err()
+    {
         return stays("it moved while landing".into());
     }
     apply(tree, steps, before, after);
