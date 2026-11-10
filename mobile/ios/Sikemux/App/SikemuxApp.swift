@@ -37,9 +37,14 @@ struct RootView: View {
         }
         .alert("New device on your account", isPresented: newDeviceShown, presenting: session.newDevice) { device in
             Button("Keep", role: .cancel) {}
-            Button("Remove", role: .destructive) { Task { try? await AccountCalls.removeDevice(device.key) } }
+            Button("Remove", role: .destructive) { session.remove(device) }
         } message: { device in
             Text(device.name)
+        }
+        .alert("Couldn't remove it", isPresented: removeFailed, presenting: session.removeProblem) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { problem in
+            Text(problem)
         }
         .onChange(of: account.state, initial: true) { _, state in
             session.follow(account.userId)
@@ -94,6 +99,10 @@ struct RootView: View {
                 LockCover()
             }
         }
+    }
+
+    private var removeFailed: Binding<Bool> {
+        Binding(get: { session.removeProblem != nil }, set: { if !$0 { session.removeProblem = nil } })
     }
 
     private var newDeviceShown: Binding<Bool> {

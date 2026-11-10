@@ -4,6 +4,19 @@ import Foundation
 /// Clerk hands back in each answer's Authorization header, kept in the Keychain so the phone stays signed in.
 @MainActor
 enum Clerk {
+    /// Where a sign-in, sign-up, verification or session stands, as Clerk names it; any other word is `other`.
+    enum Status: String, Decodable {
+        case complete, active, transferable
+        case needsFirstFactor = "needs_first_factor"
+        case needsSecondFactor = "needs_second_factor"
+        case needsClientTrust = "needs_client_trust"
+        case other
+
+        init(from decoder: Decoder) throws {
+            self = Status(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .other
+        }
+    }
+
     struct Factor: Decodable {
         let strategy: String
         let emailAddressId: String?
@@ -11,13 +24,13 @@ enum Clerk {
     }
 
     struct Verification: Decodable {
-        let status: String?
+        let status: Status?
         let externalVerificationRedirectUrl: String?
     }
 
     struct SignIn: Decodable {
         let id: String
-        let status: String
+        let status: Status
         let supportedFirstFactors: [Factor]?
         let supportedSecondFactors: [Factor]?
         let firstFactorVerification: Verification?
@@ -26,12 +39,12 @@ enum Clerk {
 
     struct SignUp: Decodable {
         let id: String
-        let status: String
+        let status: Status
         let createdSessionId: String?
     }
 
     struct SessionVerification: Decodable {
-        let status: String
+        let status: Status
         let supportedFirstFactors: [Factor]?
     }
 
@@ -57,7 +70,7 @@ enum Clerk {
     struct Session: Decodable {
         struct Token: Decodable { let jwt: String }
         let id: String
-        let status: String
+        let status: Status
         let user: User?
         let lastActiveToken: Token?
     }
@@ -67,8 +80,8 @@ enum Clerk {
         let lastActiveSessionId: String?
 
         var active: Session? {
-            sessions.first { $0.id == lastActiveSessionId && $0.status == "active" }
-                ?? sessions.first { $0.status == "active" }
+            sessions.first { $0.id == lastActiveSessionId && $0.status == .active }
+                ?? sessions.first { $0.status == .active }
         }
     }
 
@@ -143,7 +156,11 @@ enum Clerk {
         }
         let http = response as? HTTPURLResponse
         if let client = http?.value(forHTTPHeaderField: "Authorization"), !client.isEmpty {
-            try? Keychain.write(clientItem, client)
+            do {
+                try Keychain.write(clientItem, client)
+            } catch {
+                print("sikemux: could not keep Clerk's client in the Keychain: \(error)")
+            }
         }
         guard let status = http?.statusCode, (200..<300).contains(status) else {
             let first = (try? decoder.decode(Reported.self, from: data))?.errors?.first
@@ -179,6 +196,10 @@ enum Clerk {
     }
 
     static func signOut(session: String) async {
-        _ = try? await call("POST", "v1/client/sessions/\(session)/remove", as: Session.self)
+        do {
+            _ = try await call("POST", "v1/client/sessions/\(session)/remove", as: Session.self)
+        } catch {
+            print("sikemux: Clerk could not end the session: \(error)")
+        }
     }
 }
