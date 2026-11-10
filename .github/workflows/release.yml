@@ -269,7 +269,8 @@ jobs:
 
   # The build runs alongside the checks; only publishing waits for them.
   # Starts with the helpers rather than after them: only the helper crates and the app take
-  # their hashes, so everything else compiles while they are signed.
+  # their hashes, so everything else compiles while they are signed. The core goes into the
+  # app only when it is packed, so the app compiles while the core does.
   build:
     name: Build the app
     needs: [approve, plan]
@@ -329,16 +330,8 @@ jobs:
           flags=(--publish --stage compile)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
-          COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/compiled.tar" target/release/sikemux
           mkdir -p "$RUNNER_TEMP/symbols"
           ditto -c -k --keepParent target/release/sikemux.dSYM "$RUNNER_TEMP/symbols/Sikemux_${VERSION}_aarch64.app.dSYM.zip"
-
-      - name: Keep the compiled app
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: app-compiled
-          if-no-files-found: error
-          path: ${{ runner.temp }}/compiled.tar
 
       - name: Keep the app's symbols
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -347,55 +340,10 @@ jobs:
           if-no-files-found: error
           path: ${{ runner.temp }}/symbols/*.dSYM.zip
 
-  # The core goes into the app only here, so the app compiles while the core does.
-  package:
-    name: Pack the app
-    needs: [plan, sign-helpers, build, mac-core]
-    if: ${{ !cancelled() && needs.sign-helpers.result == 'success' && needs.build.result == 'success' && needs.mac-core.result == 'success' }}
-    runs-on: macos-26
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-        with:
-          run_install: false
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-
-      - name: Setup Rust
-        uses: ./.github/actions/setup-rust
-
-      - name: Fetch Rust dependencies
-        run: cargo fetch --locked
-
-      - name: Fetch helpers
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: helpers
-          path: ${{ runner.temp }}/helpers
-
       - name: Fetch the core
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: mac-core
-          path: ${{ runner.temp }}/core
-
-      - name: Fetch the compiled app
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: app-compiled
-          path: ${{ runner.temp }}/compiled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/wait-for-artifact.sh mac-core "$RUNNER_TEMP/core" "Build the Mac core"
 
       - name: Pack the app around the core and the signed helpers
         env:
@@ -403,9 +351,6 @@ jobs:
           VERSION: ${{ needs.plan.outputs.version }}
           CHANNEL: ${{ needs.plan.outputs.channel }}
         run: |
-          mkdir -p packaging/binaries
-          tar -xf "$RUNNER_TEMP/helpers/helpers.tar" -C packaging/binaries
-          tar -xf "$RUNNER_TEMP/compiled/compiled.tar"
           flags=(--publish --stage package)
           [[ "$CHANNEL" == "nightly" ]] && flags+=(--nightly)
           ./scripts/release.sh "$VERSION" "$(cat RELEASE_NOTES.md)" "${flags[@]}"
@@ -420,8 +365,9 @@ jobs:
 
   sign:
     name: Sign and notarize the app
-    needs: [plan, sign-helpers, package]
-    if: ${{ !cancelled() && needs.package.result == 'success' }}
+    # The app job takes the core as soon as it is kept; this waits for the core's job to end well too.
+    needs: [plan, sign-helpers, build, mac-core]
+    if: ${{ !cancelled() && needs.build.result == 'success' && needs.mac-core.result == 'success' }}
     runs-on: macos-26
     timeout-minutes: 60
     environment: release
