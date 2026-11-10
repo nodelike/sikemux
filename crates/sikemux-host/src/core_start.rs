@@ -61,9 +61,10 @@ pub async fn start(
     };
     let binary = launch.binary.clone();
     match found {
-        Ok(hello) if hello.build.same_build(build) => Ok(()),
+        Ok(hello) if hello.build.same_build(build) && runs(hello.pid, &binary) => Ok(()),
         Ok(hello) => {
-            match upgrade(&launch.socket, binary, hello.pid, Some(hello.build), force, false).await {
+            let old = (!hello.build.same_build(build)).then_some(hello.build);
+            match upgrade(&launch.socket, binary, hello.pid, old, force, false).await {
                 Ok(Upgrade::Done) => {}
                 Ok(Upgrade::Deferred) => eprintln!(
                     "Sikemux's core updates once its chats can be carried over; using it as it is until then"
@@ -82,6 +83,16 @@ pub async fn start(
                 })
         }
         Err(error) => Err(StartError::Unreachable(error)),
+    }
+}
+
+/// Whether the core `pid` runs from `binary`, such as the core the installer set up
+/// rather than one inside an AppImage. Where the system cannot tell, it counts as so.
+fn runs(pid: u32, binary: &Path) -> bool {
+    if cfg!(target_os = "linux") {
+        std::fs::read_link(format!("/proc/{pid}/exe")).map_or(true, |exe| exe == binary)
+    } else {
+        true
     }
 }
 

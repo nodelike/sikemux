@@ -263,6 +263,7 @@ install_linux() {
     step "Installing with pacman" as_root pacman -U --noconfirm "$TMP/$package"
     done_step "Installed Sikemux" "with pacman"
   else
+    install_guarded_core "$ARCH"
     download "Sikemux_${VERSION}_${DEB_ARCH}.AppImage" "the app"
     mkdir -p "$HOME/Applications"
     mv "$TMP/Sikemux_${VERSION}_${DEB_ARCH}.AppImage" "$HOME/Applications/Sikemux.AppImage"
@@ -320,27 +321,20 @@ systemctl daemon-reload
 systemctl enable --now sikemux-update.socket >/dev/null 2>&1
 '
 
-install_host() {
-  case "$(uname -m)" in
-    x86_64 | amd64) arch=x86_64 ;;
-    aarch64 | arm64) arch=aarch64 ;;
-    *) fail "a Sikemux host needs an x86_64 or arm64 machine" ;;
-  esac
+# The core keeps its secrets in a folder only the group sikemux may enter,
+# and runs setgid to it; you stay out of the group, so your agents do too.
+# A package sets this up itself; an AppImage cannot, since it runs from a mount
+# that ignores setgid, so its app starts this core instead of its own.
+install_guarded_core() {
   user=$(id -un)
   if id -nG "$user" | tr ' ' '\n' | grep -qx sikemux; then
     fail "$user is in the sikemux group, which would let your agents read the core's secrets; remove it with: sudo gpasswd -d $user sikemux"
   fi
   # sudo asks for a password here, if it needs one, before a spinner holds the line.
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then sudo -n true 2>/dev/null || sudo -v; fi
-  asset="sikemux-host-${VERSION}-linux-${arch}.tar.gz"
+  asset="sikemux-host-${VERSION}-linux-$1.tar.gz"
   download "$asset" "the core"
   tar -xzf "$TMP/$asset" -C "$TMP"
-  if [ "$(id -u)" -eq 0 ]; then bin=/usr/local/bin; else bin="$HOME/.local/bin"; fi
-  mkdir -p "$bin"
-  previous=""
-  [ -x "$bin/sikemux" ] && previous=$("$bin/sikemux" --version 2>/dev/null | sed 's/^sikemux //')
-  # The core keeps its secrets in a folder only the group sikemux may enter,
-  # and runs setgid to it; you stay out of the group, so your agents do too.
   # shellcheck disable=SC2016
   step "Setting up the core's secret store" as_root sh -c '
     set -e
@@ -352,11 +346,25 @@ install_host() {
     mv -f /usr/local/lib/sikemux/.sikemux-host.new /usr/local/lib/sikemux/sikemux-host
     install -d -o root -g sikemux -m 770 /var/lib/sikemux
   ' sh "$TMP/sikemux-host"
-  ln -sf /usr/local/lib/sikemux/sikemux-host "$bin/sikemux"
   if [ -d /run/systemd/system ]; then
     step "Setting up updates" as_root sh -c "$UPDATE_UNITS"
     done_step "Updates itself" "signed releases"
   fi
+}
+
+install_host() {
+  case "$(uname -m)" in
+    x86_64 | amd64) arch=x86_64 ;;
+    aarch64 | arm64) arch=aarch64 ;;
+    *) fail "a Sikemux host needs an x86_64 or arm64 machine" ;;
+  esac
+  if [ "$(id -u)" -eq 0 ]; then bin=/usr/local/bin; else bin="$HOME/.local/bin"; fi
+  mkdir -p "$bin"
+  previous=""
+  [ -x "$bin/sikemux" ] && previous=$("$bin/sikemux" --version 2>/dev/null | sed 's/^sikemux //')
+  install_guarded_core "$arch"
+  ln -sf /usr/local/lib/sikemux/sikemux-host "$bin/sikemux"
+  user=$(id -un)
   if [ "$(id -u)" -eq 0 ]; then
     note "Running as root, agents run as root too and can read anything; use your own account to keep them out of the core's secrets."
   fi

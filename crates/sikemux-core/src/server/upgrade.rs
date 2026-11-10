@@ -316,7 +316,8 @@ fn check_binary(
             binary.display(),
         ));
     }
-    if replacement == Replacement::Update && info.build().same_build(own) {
+    let same_file = std::env::current_exe().is_ok_and(|own_binary| own_binary == binary);
+    if replacement == Replacement::Update && info.build().same_build(own) && same_file {
         return Err(format!(
             "{} is the build this core already runs",
             binary.display()

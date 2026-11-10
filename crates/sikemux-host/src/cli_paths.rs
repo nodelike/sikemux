@@ -12,9 +12,10 @@ pub fn endpoint_to_read() -> Result<PathBuf, String> {
 }
 
 /// The core this app ships: inside a macOS release bundle, or beside the app's
-/// executable. `SIKEMUX_BIN_PATH` is not read here: every Sikemux terminal sets
-/// it, so an app started from one would run another build's core. Tests
-/// point the app elsewhere with `SIKEMUX_CORE_PATH`.
+/// executable. An AppImage's own core cannot keep secrets, so it runs the one the
+/// installer set up for it instead. `SIKEMUX_BIN_PATH` is not read here: every
+/// Sikemux terminal sets it, so an app started from one would run another build's
+/// core. Tests point the app elsewhere with `SIKEMUX_CORE_PATH`.
 pub fn cli_executable_path() -> Option<PathBuf> {
     if let Some(path) = sikemux_process::paths::env_path("SIKEMUX_CORE_PATH") {
         if path.is_file() {
@@ -22,6 +23,12 @@ pub fn cli_executable_path() -> Option<PathBuf> {
         }
     }
     let current = std::env::current_exe().ok()?;
+    let installed = Path::new(sikemux_core::host_update::INSTALLED_CORE);
+    let in_appimage =
+        sikemux_process::paths::env_path("APPDIR").is_some_and(|mount| current.starts_with(mount));
+    if in_appimage && installed.is_file() {
+        return Some(installed.to_path_buf());
+    }
     let directory = current.parent()?;
     let bundled = directory
         .parent()
