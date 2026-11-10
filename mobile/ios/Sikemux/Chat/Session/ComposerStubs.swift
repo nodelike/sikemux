@@ -5,12 +5,6 @@ struct Working: View {
     var body: some View { ProgressView().controlSize(.mini) }
 }
 
-extension ChatSession {
-    /// Puts waiting messages into the running turn now, as one, instead of after it.
-    func steer(_ ids: [String]) {}
-    func dropQueued(_ id: String) {}
-}
-
 struct MenuItem: View {
     @Environment(\.palette) private var palette
     let icon: IconDef

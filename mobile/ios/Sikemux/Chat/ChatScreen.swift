@@ -117,6 +117,7 @@ private struct ChatPane: View {
                 core: core, agentId: agentId, agentName: info?.name.map { "@\($0)" } ?? provider, hostName: hostName,
                 onClose: { menu = false },
                 onFind: session.attached == .live ? { finding = true } : nil,
+                onRecent: recalls(rows) ? { focus.recent = true } : nil,
                 onStop: watchOnly || session.attached != .live ? nil : { await session.stopChat() })
         }
         .onChange(of: rows.subagentRows) { _, rows in context.subagentRows = rows }
@@ -197,7 +198,7 @@ private struct ChatPane: View {
                 look.editable = canEdit && message.role == .user && message.promptId != nil && (message.context ?? []).isEmpty && unsent[message.id] == nil
                 look.editing = message.id == editing && canEdit
             },
-            footer: { TranscriptFooter(session: session, core: core, agentId: agentId, provider: provider, hostName: hostName, canAct: !watchOnly) })
+            footer: { TranscriptFooter(session: session, core: core, agentId: agentId, provider: provider, hostName: hostName, canAct: !watchOnly, focus: focus) })
     }
 
     @ViewBuilder private func askedStrip(_ rows: ChatRows) -> some View {
@@ -296,6 +297,10 @@ private struct ChatPane: View {
             offline: !live.isOpen, steers: steerable(rows), strip: strip, onSent: { scroll.toEnd() }, onRecent: nil, focus: focus)
     }
 
+    private func recalls(_ rows: ChatRows) -> Bool {
+        !watchOnly && (!rows.queued.isEmpty || rows.messages.contains { $0.role == .user })
+    }
+
     private func steerable(_ rows: ChatRows) -> Bool {
         rows.head.capabilities.steering == true && rows.running && !watchOnly
     }
@@ -309,6 +314,7 @@ private struct TranscriptFooter: View {
     let provider: String
     let hostName: String
     let canAct: Bool
+    let focus: ComposerFocus
 
     var body: some View {
         let rows = session.rows
@@ -317,7 +323,7 @@ private struct TranscriptFooter: View {
             if !rows.queued.isEmpty { QueuedLines(held: rows.queued) }
             if let activity { ActivityLine(provider: provider, label: activity, since: session.turnSince) }
             Trouble(session: session, provider: provider, hostName: hostName, canAct: canAct && session.attached == .live && Hub.shared.live(core).isOpen)
-            ChatQuestionsFooter(core: core, agentId: agentId, session: session)
+            ChatQuestionsFooter(core: core, agentId: agentId, session: session, canAnswer: canAct, focus: focus)
         }
         .padding(.bottom, 28)
     }
