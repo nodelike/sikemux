@@ -269,10 +269,18 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
         );
     }
 
-    let refused = lead.tool("git.commit", json!({ "push": true })).await;
-    assert!(
-        format!("{refused:?}").contains(&worker_name),
-        "the lead's push names the worker's commits: {refused:?}"
+    let led = lead
+        .tool("git.commit", json!({ "push": true }))
+        .await
+        .expect("the lead pushes what its worker landed");
+    assert_eq!(
+        led["pushed"]["pushed"].as_array().map(Vec::len),
+        Some(3),
+        "{led}"
+    );
+    assert_eq!(
+        git(&origin, &["log", "--format=%s", "main"]),
+        "worker: picked\nworker: clash\nworker: one\nmain moves on\nbase"
     );
     commit_file(
         &project,
@@ -289,7 +297,7 @@ async fn a_landed_commit_stays_its_agents_after_a_rebase_by_hand() {
         .expect("it pushes");
     assert_eq!(
         pushed["pushed"]["pushed"].as_array().map(Vec::len),
-        Some(4),
+        Some(1),
         "{pushed}"
     );
     assert_eq!(
