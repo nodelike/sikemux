@@ -70,6 +70,12 @@ targets:
         group: Sikemux/UI/Notch
       - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift
         group: Sikemux/UI/Notch
+      - path: ../../helpers/notch/Sources/NotchKit/Buddy.swift
+        group: Sikemux/UI/Notch
+      - path: ../../helpers/notch/Sources/NotchKit/Buddies.generated.swift
+        group: Sikemux/UI/Notch
+      - path: ../../helpers/notch/Sources/NotchKit/SVGDrawing.swift
+        group: Sikemux/UI/Notch
       - path: ../../helpers/notch/Fonts/Figtree_400Regular.ttf
         group: Sikemux/Resources/Fonts
         buildPhase: resources
