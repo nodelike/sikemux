@@ -394,7 +394,7 @@ mod tests {
         let files: Vec<(&str, &str)> = compare
             .files
             .iter()
-            .map(|f| (f.path.as_str(), f.status))
+            .map(|f| (f.path.as_str(), f.status.as_str()))
             .collect();
         assert_eq!(
             files,
