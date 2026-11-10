@@ -229,7 +229,7 @@ install_mac() {
 # An AppImage runs from a mount any program can make, so the core could not tell its
 # window from an agent's program. Unpacked where only root writes, beside the core, it can.
 install_appimage() {
-  file="Sikemux_${VERSION}_$1.AppImage"
+  file="Sikemux_${VERSION}_${DEB_ARCH}.AppImage"
   download "$file" "the app"
   chmod +x "$TMP/$file"
   # shellcheck disable=SC2016
@@ -304,7 +304,7 @@ install_linux() {
     done_step "Installed Sikemux" "with pacman"
   else
     install_guarded_core "$ARCH"
-    install_appimage "$DEB_ARCH"
+    install_appimage
   fi
   say ""
 }
