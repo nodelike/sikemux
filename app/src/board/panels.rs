@@ -995,7 +995,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
             ))
             .child(fact(
                 "Proof",
-                Toggle::new("board-pull-proof", "Show each slice's proof in its pull request, once you post it", proof_on)
+                Toggle::new("board-pull-proof", "Show proof in pull requests", proof_on)
                     .on_click(move |_, _, cx| {
                         on_proof.update(cx, |pane, cx| {
                             pane.change_settings(|params| params.pull_proof = Some(!proof_on), cx)
@@ -1006,7 +1006,7 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
             ))
             .child(fact(
                 "Pictures",
-                Toggle::new("board-pull-pictures", "Keep its picture on the code host (a sikemux-evidence branch on GitHub)", pictures_on)
+                Toggle::new("board-pull-pictures", "Keep pictures on the code host", pictures_on)
                     .on_click(move |_, _, cx| {
                         on_pictures.update(cx, |pane, cx| {
                             pane.change_settings(|params| params.pull_pictures = Some(!pictures_on), cx)
