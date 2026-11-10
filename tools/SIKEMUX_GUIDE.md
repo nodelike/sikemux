@@ -919,7 +919,8 @@ For anything else, run the `aws` CLI yourself, read-only.
 ## connectors: Pull requests, CI logs and SigNoz logs
 
 - Bitbucket's tools name a repository by `owner`, its workspace, and `name`,
-  its slug.
+  its slug. Left out, they default to the project's Bitbucket remote, and
+  `repo: "owner/name"` works too.
 - `bitbucket_pulls` leaves descriptions out, so a list stays short; read one
   whole with `bitbucket_pull`. `author` keeps those opened by a nickname or
   display name, `head` those from one branch, and `perPage` (at most 50) with

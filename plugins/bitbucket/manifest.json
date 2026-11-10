@@ -50,17 +50,17 @@
       "name": "bitbucket_pulls",
       "row": {"verb": "list", "kind": "read", "icon": "pull-request", "target": ["{name} pull requests"], "detail": ["{state}"]},
       "method": "pulls",
-      "description": "Pull requests, most recently updated first, with state, branches and reviewers but not descriptions; bitbucket_pull reads one whole. owner and name come from the git remote.",
+      "description": "Pull requests, newest update first, with state, branches and reviewers but no descriptions; bitbucket_pull reads one.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "state": { "type": "string", "enum": ["open", "closed", "all"], "description": "Default open. closed covers merged, declined and superseded." },
-        "author": { "type": "string", "description": "Only those opened by this nickname or display name." },
-        "head": { "type": "string", "description": "Only those from this branch." },
-        "perPage": { "type": "integer", "description": "Default and most 50." },
+        "author": { "type": "string", "description": "Opened by this nickname or name." },
+        "head": { "type": "string", "description": "From this branch." },
+        "perPage": { "type": "integer", "description": "At most 50." },
         "page": { "type": "integer", "description": "From 1." }
       },
-      "required": ["owner", "name"]
+      "required": []
     },
     {
       "name": "bitbucket_pull",
@@ -68,11 +68,11 @@
       "method": "pull",
       "description": "One pull request with its reviewers, headSha, builds, and whether it can merge; mergeState says why not.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "number": { "type": "integer", "description": "The pull request's id." }
       },
-      "required": ["owner", "name", "number"]
+      "required": ["number"]
     },
     {
       "name": "bitbucket_pull_files",
@@ -80,14 +80,14 @@
       "method": "pullFiles",
       "description": "The files a pull request changes, with status, line counts and any old path. Name paths for their diffs; a long diff comes in parts, with a note on the rest.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "number": { "type": "integer", "description": "The pull request's id." },
         "paths": { "type": "array", "items": { "type": "string" }, "description": "Only these files, each with its patch." },
         "offset": { "type": "integer", "description": "Patch line to start from, from 0. The note gives the next one." },
         "lines": { "type": "integer", "description": "Patch lines to return. Default 400, at most 1000; a patch also stops at 32 KB." }
       },
-      "required": ["owner", "name", "number"]
+      "required": ["number"]
     },
     {
       "name": "bitbucket_comments",
@@ -95,12 +95,12 @@
       "method": "comments",
       "description": "What people wrote on a pull request or an issue, oldest first. Issues are numbered apart from pull requests, so say which.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "number": { "type": "integer", "description": "The pull request's or issue's id." },
         "of": { "type": "string", "enum": ["pull", "issue"], "description": "Default pull." }
       },
-      "required": ["owner", "name", "number"]
+      "required": ["number"]
     },
     {
       "name": "bitbucket_issues",
@@ -108,12 +108,12 @@
       "method": "issues",
       "description": "Issues in the repository's Bitbucket tracker, recently updated first, 30 a page. A repository whose issues live in Jira has none here.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "state": { "type": "string", "enum": ["open", "closed", "all"], "description": "Default open." },
         "page": { "type": "integer", "description": "From 1." }
       },
-      "required": ["owner", "name"]
+      "required": []
     },
     {
       "name": "bitbucket_pipelines",
@@ -121,15 +121,15 @@
       "method": "runs",
       "description": "Recent Pipelines runs, newest first, with status and conclusion.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "branch": { "type": "string" },
         "status": { "type": "string", "enum": ["queued", "in_progress", "waiting", "completed", "success", "failure", "cancelled", "skipped"], "description": "A state or a conclusion." },
         "headSha": { "type": "string", "description": "A commit." },
         "perPage": { "type": "integer", "description": "Default 30, at most 100." },
         "page": { "type": "integer", "description": "From 1." }
       },
-      "required": ["owner", "name"]
+      "required": []
     },
     {
       "name": "bitbucket_pipeline",
@@ -137,29 +137,29 @@
       "method": "run",
       "description": "One pipeline with its steps and their status, to see which step failed.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "runId": { "type": "string", "description": "The {uuid} or build number." }
       },
-      "required": ["owner", "name", "runId"]
+      "required": ["runId"]
     },
     {
       "name": "bitbucket_step_log",
       "row": {"verb": "logs", "kind": "read", "icon": "log-lines", "target": ["step {jobId}"], "detail": ["“{grep}”"]},
       "method": "jobLogExcerpt",
-      "description": "The end of one pipeline step's log, or the lines asked for, at most 30,000 characters. Start with the default tail or grep for the error. truncated means lines were left out; note says which.",
+      "description": "One pipeline step's log: its end, grep matches or a line range, at most 30,000 characters. Start with the default tail or a grep for the error.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
-        "jobId": { "type": "string", "description": "A step's id from bitbucket_pipeline, or a step {uuid} with runId. stepId works too." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
+        "jobId": { "type": "string", "description": "A step's id from bitbucket_pipeline, or a step {uuid} with runId." },
         "runId": { "type": "string", "description": "A step {uuid}'s pipeline." },
-        "tail": { "type": "integer", "description": "Lines from the end, after grep; from from when given. Default 200, at most 2000." },
+        "tail": { "type": "integer", "description": "Lines kept, from the end or from from. Default 200, at most 2000." },
         "grep": { "type": "string", "description": "Only lines containing this, ignoring case." },
-        "context": { "type": "integer", "description": "Lines kept around each grep match, at most 50." },
-        "from": { "type": "integer", "description": "First line number to read." },
-        "to": { "type": "integer", "description": "Last line number to read." }
+        "context": { "type": "integer", "description": "Lines around each grep match." },
+        "from": { "type": "integer", "description": "First line." },
+        "to": { "type": "integer", "description": "Last line." }
       },
-      "required": ["owner", "name", "jobId"]
+      "required": ["jobId"]
     },
     {
       "name": "bitbucket_comment",
@@ -167,13 +167,13 @@
       "method": "addComment",
       "description": "Comment on a pull request or an issue, in markdown. Issues are numbered apart from pull requests, so say which.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "number": { "type": "integer", "description": "The pull request's or issue's id." },
         "body": { "type": "string" },
         "of": { "type": "string", "enum": ["pull", "issue"], "description": "Default pull." }
       },
-      "required": ["owner", "name", "number", "body"]
+      "required": ["number", "body"]
     },
     {
       "name": "bitbucket_review",
@@ -181,13 +181,13 @@
       "method": "reviewPull",
       "description": "Approve a pull request or request changes on it. A body is added as a comment after the verdict; COMMENT posts only the body.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "number": { "type": "integer", "description": "The pull request's id." },
         "event": { "type": "string", "enum": ["APPROVE", "REQUEST_CHANGES", "COMMENT"] },
         "body": { "type": "string", "description": "Markdown." }
       },
-      "required": ["owner", "name", "number", "event"]
+      "required": ["number", "event"]
     },
     {
       "name": "bitbucket_create_pull",
@@ -195,8 +195,8 @@
       "method": "createPull",
       "description": "Open a pull request from a pushed branch. Push the branch with git first. The body is markdown.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "title": { "type": "string" },
         "head": { "type": "string", "description": "The branch with the changes." },
         "base": { "type": "string", "description": "The branch to merge into." },
@@ -204,7 +204,7 @@
         "draft": { "type": "boolean" },
         "closeBranch": { "type": "boolean", "description": "Delete head once merged." }
       },
-      "required": ["owner", "name", "title", "head", "base"]
+      "required": ["title", "head", "base"]
     },
     {
       "name": "bitbucket_edit_pull",
@@ -212,14 +212,14 @@
       "method": "editPull",
       "description": "Change a pull request's title, markdown body or base. Only the fields given change.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "number": { "type": "integer", "description": "The pull request's id." },
         "title": { "type": "string" },
         "body": { "type": "string" },
         "base": { "type": "string" }
       },
-      "required": ["owner", "name", "number"]
+      "required": ["number"]
     },
     {
       "name": "bitbucket_merge",
@@ -227,14 +227,14 @@
       "method": "mergePull",
       "description": "Merge a pull request. sha is the headSha from bitbucket_pull; the merge is refused if the branch has moved since.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "number": { "type": "integer", "description": "The pull request's id." },
         "method": { "type": "string", "enum": ["merge", "squash", "fast_forward"], "description": "Default: the repository's." },
         "sha": { "type": "string", "description": "The head commit you reviewed." },
         "message": { "type": "string", "description": "Commit message." }
       },
-      "required": ["owner", "name", "number", "sha"]
+      "required": ["number", "sha"]
     },
     {
       "name": "bitbucket_decline",
@@ -242,12 +242,12 @@
       "method": "setPullState",
       "description": "Decline a pull request. Bitbucket cannot reopen a declined pull request, so do it only when asked.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "number": { "type": "integer", "description": "The pull request's id." },
         "state": { "type": "string", "enum": ["closed"] }
       },
-      "required": ["owner", "name", "number", "state"]
+      "required": ["number", "state"]
     },
     {
       "name": "bitbucket_create_issue",
@@ -255,12 +255,12 @@
       "method": "createIssue",
       "description": "Create an issue in the repository's Bitbucket tracker. The body is markdown. A repository whose issues live in Jira has no tracker here.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "title": { "type": "string" },
         "body": { "type": "string" }
       },
-      "required": ["owner", "name", "title"]
+      "required": ["title"]
     },
     {
       "name": "bitbucket_issue_state",
@@ -268,12 +268,12 @@
       "method": "setIssueState",
       "description": "Close an issue, which marks it resolved, or reopen it.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "number": { "type": "integer", "description": "The issue's id." },
         "state": { "type": "string", "enum": ["open", "closed"] }
       },
-      "required": ["owner", "name", "number", "state"]
+      "required": ["number", "state"]
     },
     {
       "name": "bitbucket_rerun",
@@ -281,11 +281,11 @@
       "method": "rerun",
       "description": "Run a pipeline again on the same commit. Bitbucket starts it as a new pipeline; list them to find it.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "runId": { "type": "string", "description": "The {uuid} from bitbucket_pipelines." }
       },
-      "required": ["owner", "name", "runId"]
+      "required": ["runId"]
     },
     {
       "name": "bitbucket_stop_pipeline",
@@ -293,11 +293,11 @@
       "method": "cancel",
       "description": "Stop a running pipeline.",
       "properties": {
-        "owner": { "type": "string", "description": "The workspace." },
-        "name": { "type": "string", "description": "The repository slug." },
+        "owner": { "type": "string" },
+        "name": { "type": "string" },
         "runId": { "type": "string", "description": "The {uuid} from bitbucket_pipelines." }
       },
-      "required": ["owner", "name", "runId"]
+      "required": ["runId"]
     }
   ]
 }

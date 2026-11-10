@@ -449,6 +449,7 @@ pub(crate) async fn call_agent_tool(
     let Some(Provided(plugins)) = core.config.plugins else {
         return Err("plugins are not loaded".into());
     };
+    let arguments = with_project_repo(core, &request.project, name, arguments).await?;
     if writes(core, name) && credits_claude(&arguments) {
         return Err(format!(
             "{name} did nothing: leave out the line crediting Claude, such as \"Generated with Claude Code\" or a Co-Authored-By trailer."
@@ -459,6 +460,52 @@ pub(crate) async fn call_agent_tool(
         return super::approvals::propose(core, request, gated, arguments).await;
     }
     run_agent_tool(core, name, arguments, deploy).await
+}
+
+/// A code host's tool names its repository by `owner` and `name`; one left out is taken from
+/// the repository the agent's project is on, when that is on the tool's own host.
+async fn with_project_repo(
+    core: &Arc<Core>,
+    project: &str,
+    tool: &str,
+    mut arguments: Value,
+) -> Result<Value, String> {
+    let given = |field: &str| arguments.get(field).is_some_and(|value| !value.is_null());
+    if given("owner") && given("name") {
+        return Ok(arguments);
+    }
+    let Some(plugin) = manifests(core).into_iter().find_map(|manifest| {
+        let tool = manifest.tools.iter().find(|each| each.name == tool)?;
+        let names_repo = ["owner", "name"]
+            .iter()
+            .all(|field| tool.properties.contains_key(*field));
+        names_repo.then_some(manifest.id.as_str())
+    }) else {
+        return Ok(arguments);
+    };
+    let unnamed = |why: &str| format!("{tool} needs owner and name, since {why}");
+    let repo = super::codehost::repo::of_project(core, project)
+        .await
+        .map_err(|failure| unnamed(&failure.message))?
+        .id();
+    if repo.provider != plugin {
+        return Err(unnamed(&format!(
+            "this project's origin is {}/{} on another code host",
+            repo.owner, repo.name
+        )));
+    }
+    for (field, value) in [("owner", repo.owner), ("name", repo.name)] {
+        match arguments.get(field).and_then(Value::as_str) {
+            Some(named) if named != value.as_str() => {
+                return Err(unnamed(&format!(
+                    "{field} {named} is not this project's, so the other cannot come from its origin"
+                )));
+            }
+            Some(_) => {}
+            None => arguments[field] = value.into(),
+        }
+    }
+    Ok(arguments)
 }
 
 /// Runs a tool call that may go, following it to its end when it deploys.
