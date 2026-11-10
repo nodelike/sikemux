@@ -258,7 +258,8 @@ done
 )
 # The same length keeps the libraries intact, and turns the processes' /usr/lib/… into
 # lib/…, found from usr/ inside the AppImage, which AppRun starts in.
-find "$APPDIR"/usr/lib* -name 'libwebkit*' -type f -exec sed -i -e 's|/usr|././|g' {} +rm -f "$APPDIR/AppRun" "$APPDIR/AppRun.wrapped"
+find "$APPDIR"/usr/lib* -name 'libwebkit*' -type f -exec sed -i -e 's|/usr|././|g' {} +
+rm -f "$APPDIR/AppRun" "$APPDIR/AppRun.wrapped"
 cat >"$APPDIR/AppRun" <<'APPRUN'
 #!/bin/sh
 APPDIR="$(dirname "$(readlink -f "$0")")"

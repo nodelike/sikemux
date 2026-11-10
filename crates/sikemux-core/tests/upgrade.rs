@@ -590,7 +590,7 @@ async fn an_upgrade_is_refused_for_a_binary_that_cannot_take_over() {
         (plain.clone(), "not an executable"),
         (core.dir.path().join("missing"), "cannot be read"),
         (PathBuf::from("relative/core"), "not an absolute path"),
-        (core.binary("same", "first", ""), "already runs"),
+        (PathBuf::from(CORE), "already runs"),
         (
             core.binary("chatty", "other", "echo nonsense; exit 0"),
             "unreadable",
