@@ -155,6 +155,11 @@ export interface ProjectInfo {
      * The core fills it in.
      */
     codeHost?: ProjectCodeHost;
+    /**
+     * How many saved chats it has that no agent holds, by the agent that saved
+     * them. The core fills it in.
+     */
+    savedChats?: Record<string, number>;
 }
 
 /** A repository or account picked for a project on one code host. */
