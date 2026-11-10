@@ -65,8 +65,11 @@ def page_drawn(run, name, region=None):
         shot = run.out / f"{name}.png"
         if not bounds or not shot.exists():
             return None
+        window = (run.state() or {}).get("window")
+        if not window:
+            return None
         pixels = subprocess.run(["identify", "-format", "%w", shot], capture_output=True, text=True).stdout
-        scale = int(pixels) / (run.state() or {}).get("window", [pixels])[0]
+        scale = int(pixels) / window[0]
         x, y, width, height = (round(value * scale) for value in bounds)
         mean, whole = spread(shot, (width, height, x, y))
         _, heading = spread(shot, (width, min(height, round(80 * scale)), x, y))
