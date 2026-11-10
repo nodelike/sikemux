@@ -52,6 +52,9 @@ if (Math.ceil(prunedHours / 24) !== promised) fail(`backups are deleted after ${
 for (const gate of ["fmt", "hakari", "clippy", "no-plugins", "gpui-clippy", "gpui-test"]) {
   if (!ciWorkflow.includes(`run: scripts/check-rust.sh ${gate}\n`)) fail(`CI does not run the ${gate} gate pnpm check runs`);
 }
+for (const half of ["core-unit-tests", "other-tests"]) {
+  if (!ciWorkflow.includes(`run: scripts/check-rust.sh ${half}\n`)) fail(`CI does not run the ${half} half of the Rust tests`);
+}
 if (!ciWorkflow.includes("run: pnpm check:helpers\n")) fail("CI does not build the helpers pnpm check builds");
 for (const crate of ["sikemux-gpui", ...fs.readdirSync("app/crates")]) {
   if (!hakari.includes(`"${crate}"`)) fail(`.config/hakari.toml lets workspace-hack traverse ${crate}, which would bring GPUI's dependencies into the core's builds`);

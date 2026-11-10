@@ -172,8 +172,8 @@ jobs:
       - name: Check formatting, lint, types and release tooling
         run: pnpm check:code
 
-  rust:
-    name: Rust formatting, lint, and tests
+  rust-lint:
+    name: Rust formatting and lint
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: macos-latest
@@ -205,25 +205,16 @@ jobs:
       - name: Run Clippy
         run: scripts/check-rust.sh clippy
 
-      # nextest runs every test binary at once; cargo test runs them one after another.
-      - name: Install cargo-nextest
-        run: |
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/nextest.tar.gz" https://github.com/nextest-rs/nextest/releases/download/cargo-nextest-0.9.149/cargo-nextest-0.9.149-universal-apple-darwin.tar.gz
-          echo "47b9941765a9ff94e304a3fe5444ac1c7593da655525b8b69f8f2b31a9217507  $RUNNER_TEMP/nextest.tar.gz" | shasum -a 256 -c -
-          bin="${CARGO_HOME:-$HOME/.cargo}/bin"
-          mkdir -p "$bin"
-          tar -xzf "$RUNNER_TEMP/nextest.tar.gz" -C "$bin"
-          echo "$bin" >>"$GITHUB_PATH"
-
-      - name: Run Rust tests
-        run: cargo nextest run --all-targets --all-features
-
       - name: Build without any plugins
         run: scripts/check-rust.sh no-plugins
 
-  # The job above leaves out the GPUI app, which this one builds alongside it.
-  gpui:
-    name: GPUI app formatting, lint, and tests
+      - name: Run Clippy on the GPUI app
+        run: scripts/check-rust.sh gpui-clippy
+
+  # The tests run as two jobs so that each compiles the core once: one runner compiling it with and
+  # without its unit tests at once took ten minutes, and three to four for each alone.
+  rust-core-tests:
+    name: Core unit tests
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: macos-latest
@@ -235,10 +226,59 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           cache: "true"
-          components: clippy rustfmt
 
-      - name: Run Clippy
-        run: scripts/check-rust.sh gpui-clippy
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
+      - name: Run the core's unit tests
+        run: scripts/check-rust.sh core-unit-tests
+
+  rust-tests:
+    name: Rust tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
+
+      - name: Install cargo-nextest
+        uses: ./.github/actions/install-nextest
+
+      - name: Run every test but the core's unit tests
+        run: scripts/check-rust.sh other-tests
+
+  # Branch protection requires a check of this name, which was one job before its work was split.
+  rust:
+    name: Rust formatting, lint, and tests
+    needs: [changes, rust-lint, rust-core-tests, rust-tests]
+    if: always() && needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail unless every Rust job passed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
+
+  # The test jobs above leave out the GPUI app, which this one builds alongside them.
+  gpui:
+    name: GPUI app tests
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          cache: "true"
 
       - name: Run Rust tests
         run: scripts/check-rust.sh gpui-test
