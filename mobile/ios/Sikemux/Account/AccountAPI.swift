@@ -5,7 +5,7 @@ import UIKit
 struct ApiProblem: LocalizedError {
     /// The server's status, or nil when it could not be reached at all.
     let status: Int?
-    let code: String?
+    let code: ErrorCode?
     let message: String
     /// Only with reverify_required: how recently the person must have proved who they are.
     var reverifyWithinMinutes: Int?
@@ -16,56 +16,14 @@ struct ApiProblem: LocalizedError {
     var unreachable: Bool { status == nil || status! >= 500 }
 }
 
-/// A device or host on the account.
-struct AccountDevice: Codable, Hashable, Identifiable {
-    let key: String
-    let role: String
-    let name: String
-    let platform: String
-    let channel: String?
-    let createdAt: String
-    let lastSeenAt: String?
-    var id: String { key }
-}
-
-/// The server's signed word that this phone and a host are on the same account.
-struct JoinTicket: Codable {
-    let v: Int
-    let keyId: String
-    let account: String
-    let host: String
-    let phone: String
-    let issuedAt: Int
-    let expiresAt: Int
-    let via: String?
-    let viaName: String?
-    let signature: String
-}
-
-struct AccountStanding: Codable {
-    enum Status: String, Codable {
-        case active, deleting
-    }
-    let status: Status
-    let deletesAt: String?
-    let restorableDays: Int
+extension WireDevice: Identifiable {
+    var id: DeviceKey { key }
 }
 
 /// The accounts server's routes, signed in as the person.
 @MainActor
 enum AccountAPI {
     static let offline = "Can't reach Sikemux. Check the phone is online."
-
-    private struct Failure: Decodable {
-        struct Detail: Decodable {
-            let code: String?
-            let message: String?
-            let reverifyWithinMinutes: Int?
-        }
-        let error: Detail?
-    }
-
-    private struct Nothing: Decodable {}
 
     static func send<Answer: Decodable>(
         _ method: String,
@@ -116,7 +74,7 @@ enum AccountAPI {
         do {
             request.setValue("Bearer \(try await Account.shared.token())", forHTTPHeaderField: "Authorization")
         } catch {
-            throw ApiProblem(status: 401, code: "unauthorized", message: "Sign in again.")
+            throw ApiProblem(status: 401, code: .unauthorized, message: "Sign in again.")
         }
         return request
     }
@@ -128,7 +86,7 @@ enum AccountAPI {
     private static func check(_ response: URLResponse, _ data: Data) throws {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard !(200..<300).contains(status) else { return }
-        let detail = (try? JSONDecoder().decode(Failure.self, from: data))?.error
+        let detail = (try? JSONDecoder().decode(ApiError.self, from: data))?.error
         throw ApiProblem(
             status: status,
             code: detail?.code,
@@ -146,20 +104,9 @@ struct AccountDeleting: Error {
 /// What this phone does on the account: join it, leave it, and read and change what is on it.
 @MainActor
 enum AccountCalls {
-    private struct Challenge: Decodable { let nonce: String }
-
     /// A one-time value for this phone to sign, valid for two minutes.
     static func challenge() async throws -> String {
         try await AccountAPI.send("POST", "/v1/devices/challenge", as: Challenge.self).nonce
-    }
-    private struct DeviceList: Decodable { let devices: [AccountDevice] }
-    private struct Registration: Encodable {
-        let key: String
-        let role = "client"
-        let name: String
-        let platform = "ios"
-        let nonce: String
-        let signature: String
     }
 
     /// Adds this phone to the account, proving it holds its key; again only updates its name. A deleted account
@@ -168,13 +115,15 @@ enum AccountCalls {
         do {
             let nonce = try await challenge()
             let me = try Identity.shared.deviceIdentity()
-            let registration = Registration(
+            let registration = DeviceRegistration(
                 key: me.id(),
+                role: .client,
                 name: String(UIDevice.current.name.prefix(64)),
+                platform: .ios,
                 nonce: nonce,
                 signature: try me.signRegistration(nonce: nonce, userId: userId)
             )
-            _ = try await AccountAPI.send("POST", "/v1/devices", body: registration, as: AccountDevice.self)
+            _ = try await AccountAPI.send("POST", "/v1/devices", body: registration, as: WireDevice.self)
         } catch let problem as ApiProblem where problem.status == 401 {
             let account = try? await standing()
             if account?.status == .deleting, let deletesAt = account?.deletesAt { throw AccountDeleting(deletesAt: deletesAt) }
@@ -190,11 +139,11 @@ enum AccountCalls {
         } catch let problem as ApiProblem where problem.status == 404 {}
     }
 
-    static func hosts() async throws -> [AccountDevice] {
+    static func hosts() async throws -> [WireDevice] {
         try await AccountAPI.send("GET", "/v1/devices?role=host", as: DeviceList.self).devices
     }
 
-    static func device(_ key: String) async throws -> AccountDevice? {
+    static func device(_ key: String) async throws -> WireDevice? {
         try await AccountAPI.send("GET", "/v1/devices", as: DeviceList.self).devices.first { $0.key == key }
     }
 
@@ -204,21 +153,20 @@ enum AccountCalls {
 
     static func joinTicket(host: String) async throws -> JoinTicket {
         let key = try Identity.shared.deviceIdentity().id()
-        return try await AccountAPI.send("POST", "/v1/devices/\(key)/join", body: ["host": host], as: JoinTicket.self)
+        return try await AccountAPI.send("POST", "/v1/devices/\(key)/join", body: JoinRequest(host: host), as: JoinTicket.self)
     }
 
-    static func standing() async throws -> AccountStanding {
-        try await AccountAPI.send("GET", "/v1/account", as: AccountStanding.self)
+    static func standing() async throws -> WireAccount {
+        try await AccountAPI.send("GET", "/v1/account", as: WireAccount.self)
     }
 
-    static func restore() async throws -> AccountStanding {
-        try await AccountAPI.send("POST", "/v1/account/restore", as: AccountStanding.self)
+    static func restore() async throws -> WireAccount {
+        try await AccountAPI.send("POST", "/v1/account/restore", as: WireAccount.self)
     }
 
     /// Deletes the account and every device on it, with Apple's code for the server to revoke when it signs in
     /// with Apple.
     static func delete(appleAuthorizationCode: String?) async throws {
-        let body = appleAuthorizationCode.map { ["appleAuthorizationCode": $0] }
-        try await AccountAPI.send("DELETE", "/v1/account", body: body)
+        try await AccountAPI.send("DELETE", "/v1/account", body: AccountDeletionRequest(appleAuthorizationCode: appleAuthorizationCode))
     }
 }

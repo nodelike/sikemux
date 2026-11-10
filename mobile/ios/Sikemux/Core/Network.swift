@@ -6,22 +6,6 @@ import SikemuxCore
 /// it. Relays rarely change, so a saved copy is used at once while the server is asked behind it.
 @MainActor @Observable
 final class Network {
-    struct Relay: Codable, Hashable {
-        let url: String
-        var region: String?
-        var quicPort: Int?
-    }
-
-    struct ChannelVersions: Codable, Hashable {
-        let stable: String
-        let nightly: String
-    }
-
-    private struct Answer: Codable {
-        var relays: [Relay]?
-        var minimumVersions: [String: ChannelVersions]?
-    }
-
     struct UpdateRequired: Equatable {
         let current: String
         let minimum: String
@@ -76,10 +60,10 @@ final class Network {
         request.timeoutInterval = 3
         if let (data, response) = try? await URLSession.shared.data(for: request),
            (response as? HTTPURLResponse)?.statusCode == 200,
-           let answer = try? JSONDecoder().decode(Answer.self, from: data)
+           let answer = try? JSONDecoder().decode(WireNetwork.self, from: data)
         {
-            if let minimum = answer.minimumVersions?["ios"] { check(minimum) }
-            let relays = (answer.relays ?? []).filter { $0.url.hasPrefix("http://") || $0.url.hasPrefix("https://") }
+            check(answer.minimumVersions.ios)
+            let relays = answer.relays.filter { $0.url.hasPrefix("http://") || $0.url.hasPrefix("https://") }
             if !relays.isEmpty {
                 try? data.write(to: saved, options: .atomic)
                 lastFresh = true
@@ -92,7 +76,7 @@ final class Network {
 
     private func savedRelays() -> [Relay]? {
         guard let data = try? Data(contentsOf: saved) else { return nil }
-        return (try? JSONDecoder().decode(Answer.self, from: data))?.relays
+        return (try? JSONDecoder().decode(WireNetwork.self, from: data))?.relays
     }
 
     /// Only an answer from the server decides this app is too old; failing to reach it never does. Development

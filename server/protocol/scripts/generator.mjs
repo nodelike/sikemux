@@ -579,6 +579,189 @@ export function rust(definitions, { include = () => true, imports = "" } = {}) {
   return out;
 }
 
+const SWIFT_KEYWORDS = new Set([
+  "as",
+  "case",
+  "catch",
+  "class",
+  "default",
+  "do",
+  "else",
+  "enum",
+  "extension",
+  "false",
+  "for",
+  "func",
+  "if",
+  "import",
+  "in",
+  "init",
+  "inout",
+  "internal",
+  "is",
+  "let",
+  "nil",
+  "operator",
+  "private",
+  "protocol",
+  "public",
+  "repeat",
+  "return",
+  "self",
+  "static",
+  "struct",
+  "subscript",
+  "super",
+  "switch",
+  "throw",
+  "true",
+  "try",
+  "var",
+  "where",
+  "while",
+]);
+
+function swiftName(value) {
+  const name = pascalCase(value);
+  const camel = name[0].toLowerCase() + name.slice(1);
+  return SWIFT_KEYWORDS.has(camel) ? `\`${camel}\`` : camel;
+}
+
+/** The definitions `type` names, directly or through an array. */
+function refsOf(type) {
+  if (type.array) return refsOf(type.array);
+  return type.ref ? [type.ref] : [];
+}
+
+/** `roots` and every definition they refer to, so a chosen type always compiles on its own. */
+function reachable(definitions, roots) {
+  const found = new Set();
+  const visit = (name) => {
+    if (found.has(name)) return;
+    const definition = definitions.get(name);
+    if (!definition) fail("swift", `"${name}" is not a definition`);
+    found.add(name);
+    const { file, schema } = definition;
+    const kind = kindOf(schema);
+    if (kind === "object")
+      for (const value of Object.values(schema.properties ?? {}))
+        refsOf(propertyType(name, value, file, definitions)).forEach(visit);
+    else if (kind === "union")
+      for (const member of schema.oneOf)
+        visit(resolveRef(name, member.$ref, file, definitions));
+    else if (kind === "alias")
+      refsOf(propertyType(name, schema, file, definitions)).forEach(visit);
+  };
+  roots.forEach(visit);
+  return found;
+}
+
+/**
+ * The Swift types of `roots` and what they refer to, for the iPhone app. A name the app already uses
+ * for something else, in `renamed`, gets the Wire prefix; one the app already has from the core's
+ * wire types, in `provided`, is used rather than written again.
+ */
+export function swift(
+  definitions,
+  { roots, renamed = new Set(), provided = new Set() },
+) {
+  const chosen = reachable(definitions, roots);
+  for (const name of provided) chosen.delete(name);
+  const nameOf = (name) => (renamed.has(name) ? `Wire${name}` : name);
+  const swiftType = (type) => {
+    let base;
+    if (type.ref) base = nameOf(type.ref);
+    else if (type.array) base = `[${swiftType(type.array)}]`;
+    else
+      base = {
+        string: "String",
+        integer: "Int",
+        number: "Double",
+        boolean: "Bool",
+      }[type.primitive];
+    return type.nullable ? `${base}?` : base;
+  };
+  let out = `${HEADER}\nimport Foundation\n`;
+  for (const { name: schemaName, file, schema } of sortedDefinitions(
+    definitions,
+  )) {
+    if (!chosen.has(schemaName)) continue;
+    const name = nameOf(schemaName);
+    out += "\n" + docComment(schema.description, "", "///");
+    const kind = kindOf(schema);
+    if (kind === "object") {
+      out += `struct ${name}: Codable, Hashable, Sendable {\n`;
+      const required = new Set(schema.required ?? []);
+      for (const [property, value] of Object.entries(schema.properties ?? {})) {
+        const field = SWIFT_KEYWORDS.has(property)
+          ? `\`${property}\``
+          : property;
+        out += docComment(value.description, "    ", "///");
+        if ("const" in value) {
+          out += `    var ${field} = ${JSON.stringify(value.const)}\n`;
+          continue;
+        }
+        const type = swiftType(
+          propertyType(schemaName, value, file, definitions),
+        );
+        const optional =
+          required.has(property) || type.endsWith("?") ? "" : "?";
+        out += `    var ${field}: ${type}${optional}\n`;
+      }
+      out += "}\n";
+    } else if (kind === "enum") {
+      const fallback = schema.enum.includes("unknown")
+        ? "unrecognized"
+        : "unknown";
+      out += `enum ${name}: String, Codable, Hashable, Sendable {\n`;
+      for (const value of schema.enum)
+        out += `    case ${swiftName(value)} = ${JSON.stringify(value)}\n`;
+      out +=
+        "    /// A value added after this build, which it cannot act on.\n";
+      out += `    case ${fallback}\n\n`;
+      out += "    init(from decoder: Decoder) throws {\n";
+      out += `        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .${fallback}\n`;
+      out += "    }\n}\n";
+    } else if (kind === "union") {
+      const tag = schema.discriminator.propertyName;
+      const members = schema.oneOf.map((member) => {
+        const target = definitions.get(
+          resolveRef(schemaName, member.$ref, file, definitions),
+        );
+        return { value: tagOf(target, tag), type: nameOf(target.name) };
+      });
+      out += `enum ${name}: Codable, Hashable, Sendable {\n`;
+      for (const { value, type } of members)
+        out += `    case ${swiftName(value)}(${type})\n`;
+      out +=
+        "    /// A message added after this build, which it cannot act on.\n";
+      out += "    case unknown\n\n";
+      out += `    private enum Tag: String, CodingKey {\n        case tag = ${JSON.stringify(tag)}\n    }\n\n`;
+      out += "    init(from decoder: Decoder) throws {\n";
+      out +=
+        "        switch try decoder.container(keyedBy: Tag.self).decode(String.self, forKey: .tag) {\n";
+      for (const { value, type } of members)
+        out += `        case ${JSON.stringify(value)}: self = .${swiftName(value)}(try ${type}(from: decoder))\n`;
+      out += "        default: self = .unknown\n        }\n    }\n\n";
+      out +=
+        "    func encode(to encoder: Encoder) throws {\n        switch self {\n";
+      for (const { value } of members)
+        out += `        case .${swiftName(value)}(let message): try message.encode(to: encoder)\n`;
+      out += "        case .unknown: break\n        }\n    }\n}\n";
+    } else if (kind === "numbered") {
+      out += `enum ${name}: Int, Sendable {\n`;
+      for (const member of schema.oneOf) {
+        out += docComment(member.description, "    ", "///");
+        out += `    case ${swiftName(member.title)} = ${member.const}\n`;
+      }
+      out += "}\n";
+    } else {
+      out += `typealias ${name} = ${swiftType(propertyType(schemaName, schema, file, definitions))}\n`;
+    }
+  }
+  return out;
+}
+
 const AUTH = new Set([
   "none",
   "signedIn",

@@ -12,6 +12,7 @@ import {
   openapi,
   rust,
   SchemaError,
+  swift,
   typescript,
 } from "./generator.mjs";
 
@@ -43,6 +44,36 @@ const PHONE_RUST = new Set([
   "Relay",
   "RevokeReason",
 ]);
+/**
+ * The definitions the iPhone app reads and sends, generated into Swift with everything they refer
+ * to. Its own names for other things, in SWIFT_RENAMED, take the Wire prefix here.
+ */
+const PHONE_SWIFT = [
+  "Account",
+  "AccountDeletionRequest",
+  "Challenge",
+  "Device",
+  "DeviceList",
+  "DeviceRegistration",
+  "ApiError",
+  "JoinRequest",
+  "JoinTicket",
+  "LiveAck",
+  "LiveCloseCode",
+  "LiveHello",
+  "LivePong",
+  "LiveServerMessage",
+  "Network",
+  "PendingHost",
+];
+const SWIFT_RENAMED = new Set([
+  "Account",
+  "AccountStatus",
+  "Device",
+  "Network",
+]);
+/** Definitions sikemux-wire carries, which the app already has in Wire.generated.swift. */
+const SWIFT_FROM_THE_WIRE = new Set(["RevokeReason"]);
 const FROM_THE_WIRE = "\nuse sikemux_wire::accounts::protocol::*;\n";
 const CORE_ONLY = new Map([
   ["share.json", { module: "share.rs", imports: FROM_THE_WIRE }],
@@ -76,6 +107,14 @@ try {
       openapi(definitions, routes),
     ),
     [join(protocol, "generated/client.ts")]: client(routes),
+    [join(repo, "mobile/ios/Sikemux/Account/Protocol.generated.swift")]: swift(
+      definitions,
+      {
+        roots: PHONE_SWIFT,
+        renamed: SWIFT_RENAMED,
+        provided: SWIFT_FROM_THE_WIRE,
+      },
+    ),
     [join(repo, "crates/sikemux-wire/src/accounts/protocol.rs")]: rust(
       definitions,
       {
@@ -107,7 +146,7 @@ try {
 
 const stale = [];
 for (const [path, raw] of Object.entries(outputs)) {
-  const text = path.endsWith(".rs") ? raw : await format(raw, path);
+  const text = /\.(rs|swift)$/.test(path) ? raw : await format(raw, path);
   const current = await readFile(path, "utf8").catch(() => null);
   if (current === text) continue;
   stale.push(relative(repo, path));

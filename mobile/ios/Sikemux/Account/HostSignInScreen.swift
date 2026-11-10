@@ -1,17 +1,5 @@
 import SwiftUI
 
-/// A host waiting behind a sign-in code, to check before approving it.
-struct PendingHost: Decodable {
-    let key: String
-    let name: String
-    let platform: String
-    let channel: String
-    let requestedAt: String
-    let requestedFrom: String?
-    let requestedNear: String?
-    let removedAt: String?
-}
-
 /// Signs in a host with no browser: the person types the code `sikemux login` shows there, checks when and where the
 /// host asked from, and adds it after proving it is them. A link never fills the code in.
 struct HostSignInScreen: View {
@@ -86,14 +74,20 @@ struct HostSignInScreen: View {
 
     private func check(_ code: String, _ host: PendingHost) -> some View {
         let near = host.requestedNear ?? host.requestedFrom
-        let platform = ["ios": "iOS", "android": "Android", "macos": "macOS", "linux": "Linux"][host.platform] ?? host.platform
+        let platform = switch host.platform {
+        case .ios: "iOS"
+        case .android: "Android"
+        case .macos: "macOS"
+        case .linux: "Linux"
+        case .unknown: "A computer"
+        }
         return Screen {
             Nav(back: "Back", onBack: { step = .enter }, title: { EmptyView() }, end: { EmptyView() })
             ScrollView(showsIndicators: false) {
                 Prompt(
-                    icon: host.platform == "linux" ? Icons.desktop : Icons.laptop,
+                    icon: host.platform == .linux ? Icons.desktop : Icons.laptop,
                     title: "Add \(host.name) to your account?",
-                    detail: "\(platform) · \(host.channel). Only add a computer you are setting up right now."
+                    detail: "\(platform) · \(host.channel.rawValue). Only add a computer you are setting up right now."
                 )
                 VStack(spacing: 12) {
                     Rows {
