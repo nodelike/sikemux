@@ -534,23 +534,62 @@ jobs:
             packaging/binaries/*
             latest.json
 
-  build-linux:
-    name: Build Linux packages (${{ matrix.arch }})
+  # The packages' core builds beside their app, as the Mac's does, on the same machines with the same libraries.
+  linux-core:
+    name: Build the core of the Linux packages (${{ matrix.arch }})
     needs: approve
     if: &approved ${{ !cancelled() && (needs.approve.result == 'success' || needs.approve.result == 'skipped') }}
     strategy:
       matrix:
-        include:
+        include: &linux_machines
           - arch: x86_64
             runner: ubuntu-24.04
           - arch: aarch64
             runner: ubuntu-24.04-arm
     # The oldest runners GitHub still supports; their glibc decides the oldest distribution the packages run on.
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 60
     permissions:
       contents: read
     env: *compiled_into_core
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+
+      - name: Install what the app builds with
+        run: |
+          sudo apt-get update
+          xargs sudo apt-get install -y <packaging/linux/build-packages.txt
+
+      - name: Build the core
+        env:
+          SIKEMUX_USAGE_REPORTING: app
+        run: cargo build --locked --release -p sikemux-host --bin sikemux-host
+
+      - name: Keep the core
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: linux-core-${{ matrix.arch }}
+          if-no-files-found: error
+          path: target/release/sikemux-host
+
+  build-linux:
+    name: Build Linux packages (${{ matrix.arch }})
+    needs: approve
+    if: *approved
+    strategy:
+      matrix:
+        include: *linux_machines
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -575,9 +614,22 @@ jobs:
           sudo apt-get update
           cat packaging/linux/build-packages.txt packaging/linux/pack-packages.txt | xargs sudo apt-get install -y
 
+      - name: Compile the app while the core builds
+        env:
+          SIKEMUX_USAGE_REPORTING: app
+          BUILD_STEP: compile
+        run: pnpm build:linux
+
+      - name: Fetch the core
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/wait-for-artifact.sh "linux-core-${{ matrix.arch }}" "$RUNNER_TEMP/core" "Build the core of the Linux packages (${{ matrix.arch }})"
+
       - name: Build the deb, rpm, AppImage and tarball
         env:
           SIKEMUX_USAGE_REPORTING: app
+          PREBUILT_CORE: ${{ runner.temp }}/core/sikemux-host
+          BUILD_STEP: package
         run: pnpm build:linux
 
       - name: Keep the built packages on the run

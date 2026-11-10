@@ -81,12 +81,25 @@ fetch() {
   chmod +x "$file"
 }
 
+# The Release workflow compiles the app while another machine builds the core (BUILD_STEP=compile),
+# then packs both (BUILD_STEP=package, the core as PREBUILT_CORE). The core lands in a folder the
+# app's crates watch, so the app is not compiled again after it.
+STEP="${BUILD_STEP:-all}"
+[[ "$STEP" == "all" || "$STEP" == "compile" || "$STEP" == "package" ]] || fail "BUILD_STEP must be compile or package"
+build_app() {
+  echo "→ Building the app"
+  (cd app && cargo build --release --locked --bin sikemux)
+}
+if [[ "$STEP" == "compile" ]]; then
+  build_app
+  exit 0
+fi
 echo "→ Building the core"
 node scripts/build-core.mjs
 CORE="$ROOT/packaging/binaries/sikemux-host-$TRIPLE"
-echo "→ Building the app"
-(cd app && cargo build --release --locked --bin sikemux)
+[[ "$STEP" == "package" ]] || build_app
 APP="$ROOT/target/release/sikemux"
+[[ -x "$APP" ]] || fail "the app is not compiled; run BUILD_STEP=compile first"
 PI_TOOLS="$ROOT/crates/sikemux-core/resources/sikemux_pi_tools.ts"
 POSTINST="$ROOT/packaging/linux/postinst.sh"
 
