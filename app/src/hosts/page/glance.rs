@@ -17,6 +17,8 @@ const APPS_SHOWN: usize = 3;
 
 pub struct Glance {
     pub bench: WeakEntity<Workbench>,
+    /// The host's name and state, else how busy it is and its top apps.
+    pub head: bool,
 }
 
 impl Render for Glance {
@@ -37,19 +39,13 @@ impl Render for Glance {
             .map_or_else(Vec::new, |stats| stats.top.iter().collect());
         apps.sort_by_key(|app| std::cmp::Reverse(app.cpu));
         apps.truncate(APPS_SHOWN);
-        div()
-            .w(px(264.))
-            .py(SPACE_1)
-            .flex()
-            .flex_col()
-            .child(
+        let frame = div().w(px(264.)).py(SPACE_1).flex().flex_col();
+        if self.head {
+            return frame.child(
                 div()
                     .flex()
                     .items_center()
                     .gap(SPACE_2H)
-                    .pb(SPACE_3)
-                    .border_b_1()
-                    .border_color(t.border)
                     .child(tile(host, 30., 15., &t))
                     .child(name_and_model(host, TEXT_SM, &t))
                     .child(
@@ -65,10 +61,11 @@ impl Render for Glance {
                                     .text_color(t.text_tertiary),
                             ),
                     ),
-            )
+            );
+        }
+        frame
             .children(host.online().then(|| {
                 div()
-                    .mt(SPACE_3)
                     .flex()
                     .flex_col()
                     .gap(SPACE_3)

@@ -45,7 +45,7 @@ pub struct Page {
     pub top_by_memory: bool,
     pub history_open: bool,
     /// The host picker's glance while it is open, drawn again when its host's stats change.
-    pub glance: Option<gpui_kit::WeakEntity<glance::Glance>>,
+    pub glance: Vec<gpui_kit::WeakEntity<glance::Glance>>,
     /// The people whose agents are folded away in the detail, by name.
     pub folded: HashSet<String>,
     /// Each app's icon by its key, empty while it is asked for or where it has none.
@@ -73,7 +73,7 @@ impl Page {
             top_open: false,
             top_by_memory: false,
             history_open: false,
-            glance: None,
+            glance: Vec::new(),
             folded: HashSet::new(),
             app_icons: HashMap::new(),
             watching: Vec::new(),
@@ -181,7 +181,7 @@ impl Workbench {
     /// core samples what its processes use only while it is watched, so the watch stays this
     /// tight.
     pub fn watch_hosts_page(&mut self) {
-        let glancing = self.hosts_page.glance.is_some();
+        let glancing = !self.hosts_page.glance.is_empty();
         let wanted: Vec<(Place, StatsSpan)> = match self.hosts_page_target() {
             None if glancing => {
                 let place = self.place();
@@ -247,11 +247,11 @@ impl Workbench {
     }
 
     fn redraw_glance(&self, cx: &mut Context<Self>) {
-        if let Some(glance) = self
+        for glance in self
             .hosts_page
             .glance
-            .as_ref()
-            .and_then(|glance| glance.upgrade())
+            .iter()
+            .filter_map(|glance| glance.upgrade())
         {
             glance.update(cx, |_, cx| cx.notify());
         }

@@ -256,13 +256,15 @@ fn glance(
     bench: WeakEntity<Workbench>,
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
-    let glance = cx.new(|_| Glance {
-        bench: bench.clone(),
-    });
-    let shown = glance.downgrade();
+    let part = |head: bool, cx: &mut Context<PopupMenu>| {
+        let bench = bench.clone();
+        cx.new(|_| Glance { bench, head })
+    };
+    let (head, body) = (part(true, cx), part(false, cx));
+    let shown = vec![head.downgrade(), body.downgrade()];
     bench
         .update(cx, |bench, _| {
-            bench.hosts_page.glance = Some(shown);
+            bench.hosts_page.glance = shown;
             bench.watch_hosts_page();
         })
         .ok();
@@ -270,14 +272,16 @@ fn glance(
     cx.on_release(move |_, cx| {
         closing
             .update(cx, |bench, _| {
-                bench.hosts_page.glance = None;
+                bench.hosts_page.glance.clear();
                 bench.watch_hosts_page();
             })
             .ok();
     })
     .detach();
     popup
-        .item(PopupMenuItem::element(move |_, _| glance.clone()).disabled(true))
+        .item(PopupMenuItem::element(move |_, _| head.clone()).disabled(true))
+        .separator()
+        .item(PopupMenuItem::element(move |_, _| body.clone()).disabled(true))
         .separator()
 }
 
