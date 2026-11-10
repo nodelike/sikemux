@@ -33,7 +33,7 @@ pub(crate) fn on_wake(
 }
 
 impl Core {
-    fn parts(&self) -> [&dyn Part; 29] {
+    fn parts(&self) -> [&dyn Part; 30] {
         [
             &self.harness,
             &self.layouts,
