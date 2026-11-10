@@ -1,7 +1,8 @@
 //! A page an agent showed, drawn inline in its chat reply, an HTML file shown as it reads, or a
 //! mod: a web view of its own that keeps no storage and never navigates. Its script can only
-//! report the page's height, a link the person clicked, a scroll the page had no use for and,
-//! from a mod, what it asks of its bridge; the app decides what each means.
+//! report the page's height, a link the person clicked, a scroll the page had no use for, the
+//! pointer coming over it and, from a mod, what it asks of its bridge; the app decides what each
+//! means.
 
 use std::path::Path;
 
@@ -16,7 +17,7 @@ pub use linux::PageView;
 pub use macos::PageView;
 
 /// Sizes the view to the page and hands over the links and scrolls the person meant.
-pub(crate) const BOOTSTRAP: &str = r#"(()=>{const post=(message)=>window.webkit.messageHandlers.sikemux.postMessage(JSON.stringify(message));const root=document.documentElement;root.setAttribute("data-sikemux-framed","");document.addEventListener("click",(event)=>{const link=event.isTrusted&&event.composedPath().find((target)=>target instanceof Element&&target.matches("a[href]"));if(!link)return;let url;try{url=new URL(link.getAttribute("href"),document.baseURI);}catch{return;}if(!/^https?:$/.test(url.protocol))return;event.preventDefault();post({kind:"link",url:url.href});},true);let reported=0;const report=()=>{const height=Math.ceil(root.getBoundingClientRect().height);if(height===reported)return;reported=height;post({kind:"height",height});};const observer=new ResizeObserver(report);observer.observe(root);document.addEventListener("DOMContentLoaded",()=>{if(document.body)observer.observe(document.body);report();});window.addEventListener("load",report);const scrollsItself=(node,down)=>{for(;node instanceof Element;node=node.parentElement){const style=getComputedStyle(node).overflowY;const scroller=(style==="auto"||style==="scroll")&&node!==document.body&&node!==root;if(scroller&&(down?node.scrollTop+node.clientHeight<node.scrollHeight-1:node.scrollTop>0))return true;}return false;};window.addEventListener("wheel",(event)=>{if(event.ctrlKey||Math.abs(event.deltaY)<=Math.abs(event.deltaX)||scrollsItself(event.target,event.deltaY>0))return;event.preventDefault();const scale=event.deltaMode===1?16:event.deltaMode===2?window.innerHeight:1;post({kind:"wheel",deltaY:event.deltaY*scale});},{passive:false});})();"#;
+pub(crate) const BOOTSTRAP: &str = r#"(()=>{const post=(message)=>window.webkit.messageHandlers.sikemux.postMessage(JSON.stringify(message));const root=document.documentElement;root.setAttribute("data-sikemux-framed","");document.addEventListener("click",(event)=>{const link=event.isTrusted&&event.composedPath().find((target)=>target instanceof Element&&target.matches("a[href]"));if(!link)return;let url;try{url=new URL(link.getAttribute("href"),document.baseURI);}catch{return;}if(!/^https?:$/.test(url.protocol))return;event.preventDefault();post({kind:"link",url:url.href});},true);let reported=0;const report=()=>{const height=Math.ceil(root.getBoundingClientRect().height);if(height===reported)return;reported=height;post({kind:"height",height});};const observer=new ResizeObserver(report);observer.observe(root);document.addEventListener("DOMContentLoaded",()=>{if(document.body)observer.observe(document.body);report();});window.addEventListener("load",report);root.addEventListener("mouseenter",()=>post({kind:"pointer",over:true}));root.addEventListener("mouseleave",()=>post({kind:"pointer",over:false}));const scrollsItself=(node,down)=>{for(;node instanceof Element;node=node.parentElement){const style=getComputedStyle(node).overflowY;const scroller=(style==="auto"||style==="scroll")&&node!==document.body&&node!==root;if(scroller&&(down?node.scrollTop+node.clientHeight<node.scrollHeight-1:node.scrollTop>0))return true;}return false;};window.addEventListener("wheel",(event)=>{if(event.ctrlKey||Math.abs(event.deltaY)<=Math.abs(event.deltaX)||scrollsItself(event.target,event.deltaY>0))return;event.preventDefault();const scale=event.deltaMode===1?16:event.deltaMode===2?window.innerHeight:1;post({kind:"wheel",deltaY:event.deltaY*scale});},{passive:false});})();"#;
 
 /// Where a page is drawn.
 #[derive(Clone, Copy)]
@@ -49,6 +50,8 @@ pub enum PageEvent {
     Link(String),
     /// A vertical scroll the page did not use, for whatever holds the page to scroll by.
     Wheel(f64),
+    /// The pointer came over the page, or left it.
+    Pointer(bool),
     /// What a mod's page asked of the bridge the app gave it.
     Mod(serde_json::Value),
 }
@@ -62,6 +65,7 @@ impl PageEvent {
                 .as_str()
                 .map(|url| PageEvent::Link(url.to_owned())),
             "wheel" => message["deltaY"].as_f64().map(PageEvent::Wheel),
+            "pointer" => message["over"].as_bool().map(PageEvent::Pointer),
             "mod" => Some(PageEvent::Mod(message)),
             _ => None,
         }

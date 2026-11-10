@@ -1391,6 +1391,49 @@ impl Workbench {
         self.show_on_desk(agent, url, cx)
     }
 
+    /// Brings forward the tab on `agent`'s desk that shows the page it showed with `page_show`,
+    /// or opens one, as the person's.
+    pub(crate) fn open_page_in_tab(&mut self, agent: &str, id: &str, cx: &mut Context<Self>) {
+        let Some(engine) = self.desks.read(cx).engine.clone() else {
+            return;
+        };
+        let page = self
+            .chat_target(agent)
+            .request_typed::<sikemux_core::server::call::ReadPage>(
+                sikemux_core::server::harness::pages::PageParams { id: id.to_owned() },
+            );
+        let files = self.desks.read(cx).page_files.clone();
+        self.open_agent(agent, cx);
+        if !self.desk_open_anywhere(agent) {
+            self.reveal_desk(agent);
+        }
+        let (agent, id) = (agent.to_owned(), id.to_owned());
+        runtime().spawn(async move {
+            let shown = async {
+                let html = page.await?.html;
+                let url = files.url(&id, &html)?;
+                let open = (engine.snapshot(&agent).ok())
+                    .and_then(|strip| strip.tabs.into_iter().find(|tab| tab.url == url));
+                match open {
+                    Some(tab) => engine
+                        .switch_tab(&agent, &tab.id)
+                        .map_err(|error| error.to_string()),
+                    None => {
+                        let tab_id = engine
+                            .open_tab(&agent, Some(&url))
+                            .await
+                            .map_err(|error| error.to_string())?;
+                        engine.keep(&agent, &tab_id);
+                        Ok(())
+                    }
+                }
+            };
+            if let Err(error) = shown.await {
+                eprintln!("sikemux: the page could not open in a tab: {error}");
+            }
+        });
+    }
+
     /// Opens `url` in a new page on `agent`'s desk, leaving the tab in front where it is.
     pub fn show_on_desk(&mut self, agent: &str, url: &str, cx: &App) -> bool {
         let Some(engine) = self.desks.read(cx).engine.clone() else {

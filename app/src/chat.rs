@@ -78,7 +78,7 @@ pub use mention::Tray;
 pub use moving::yolo_mode;
 mod meta;
 pub mod model_picker;
-mod page;
+pub(crate) mod page;
 mod questions;
 pub(crate) use questions::radio;
 mod rows;

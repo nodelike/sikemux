@@ -431,7 +431,8 @@ impl Workbench {
         }
     }
 
-    /// A page an agent kept, which an agent in a terminal sees on its desk.
+    /// A page an agent kept, which an agent in a terminal, or one that asked for a tab, sees on
+    /// its desk. A chat's card for the page gets a picture of the tab.
     pub(crate) fn show_page(
         &self,
         request: HarnessRequest,
@@ -448,6 +449,7 @@ impl Workbench {
         let page = (request.params["desk"] == true).then(|| {
             Target::here(&self.asks).request_typed::<call::ReadPage>(PageParams { id: id.clone() })
         });
+        let picture = request.params["picture"] == true;
         let files = self.desks.read(cx).page_files.clone();
         crate::desk::spawn(async move {
             let Some(page) = page else {
@@ -457,12 +459,17 @@ impl Workbench {
                 let page = page.await?;
                 let html = page.html;
                 let url = files.url(&id, &html)?;
-                files
-                    .engine()?
+                let engine = files.engine()?;
+                engine
                     .open_tab(&agent, Some(&url))
                     .await
                     .map_err(|error| error.to_string())?;
-                Ok(json!({}))
+                if !picture {
+                    return Ok(json!({}));
+                }
+                let taken = engine.front_picture(&agent).await.ok();
+                let picture = taken.and_then(|taken| crate::chat::page::thumbnail(&taken));
+                Ok(json!({ "picture": picture }))
             };
             answer(shown.await);
         });
