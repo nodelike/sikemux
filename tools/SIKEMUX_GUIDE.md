@@ -474,8 +474,9 @@ afterwards. The result names the field it typed `into` and carries its
 still empty. A `<select>` picks the option whose value or label matches the
 text.
 
-`browser_act` plays up to 20 `steps` in one call and answers once. Each step
-is an `action` with the fields of its tool:
+`browser_act` plays up to 20 `steps` in one call and answers once, so prefer it
+to separate calls whenever you know the next steps. Each step is an `action`
+with the fields of its tool:
 
 - `navigate`: `url`, or `go` back, forward or reload.
 - `click`, `type`, `press`: as `browser_click`, `browser_type` and
@@ -706,6 +707,13 @@ input, and `browser_wait` for waiting, rather than a polling loop in a script.
 A script that reloads or leaves the page loses its result; use
 `browser_navigate` with `go: "reload"` for that. It runs with the page's own session, so `fetch` of
 the site's API returns what the signed-in person would get.
+
+WebKit words some errors differently from Chrome. "The string did not match the
+expected pattern" from `response.json()` means the response was not JSON, such
+as an HTML error or sign-in page: read it with `response.text()` and check its
+status. "Load failed" means the request never got an answer: the server is
+down, the address is wrong, or CORS or a blocked mixed-content request
+stopped it; `browser_network` shows which.
 
 ## simulator: Driving the iOS Simulator
 
@@ -1351,7 +1359,9 @@ of them started, and only once their work is committed or handed on; their
 chats stay in Recent, and `agent_send` or `agent_spawn` with `resume` reopens
 one. A worktree an agent leaves behind stays until you remove it. When you have
 as many agents open as you may, `agent_spawn` closes the oldest of yours that
-is done with its work committed and landed to make room, and says so.
+is done with its work committed and landed to make room, and says so. Do not
+wait for that: close each teammate yourself once its work has landed and you
+need nothing more from it.
 
 ### When an agent started you
 

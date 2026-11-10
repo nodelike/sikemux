@@ -643,7 +643,7 @@
       "description": "Capture the tab or the whole page.",
       "properties": {
         "fullPage": {
-          "description": "Whole page, up to 14,400 px",
+          "description": "Whole page, up to 14,400 px and 30 s",
           "type": "boolean"
         },
         "annotate": {
@@ -1948,7 +1948,7 @@
           "maxLength": 16384
         },
         "promise": {
-          "description": "What it changes, in one sentence; makes it a slice that passes Built, Looks right and Landed",
+          "description": "What it changes, in one sentence of at most 200 characters; makes it a slice that passes Built, Looks right and Landed",
           "type": "string",
           "minLength": 1,
           "maxLength": 200
@@ -2038,7 +2038,7 @@
           "maxLength": 16384
         },
         "promise": {
-          "description": "What it changes, in one sentence; makes it a slice that passes Built, Looks right and Landed",
+          "description": "What it changes, in one sentence of at most 200 characters; makes it a slice that passes Built, Looks right and Landed",
           "type": "string",
           "minLength": 1,
           "maxLength": 200

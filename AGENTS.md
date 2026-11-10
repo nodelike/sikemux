@@ -201,3 +201,5 @@
 
 - Follow `DESIGN.md`. It is short on purpose: keep it to principles and tokens,
   and change it in the same commit when the look moves on.
+- A page or mockup of the app takes its Figtree from `helpers/notch/Fonts` by local
+  path; `page_show` inlines it.
