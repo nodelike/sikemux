@@ -217,7 +217,7 @@ await emit(
   buddiesSwiftPath,
   `// ${banner("shared/buddies")}
 
-/// Defines \`SikemuxBuddies.notchBuddy(buddies, agentId, state)\`, which returns an agent's buddy as an SVG document, or null when it shows its agent's mark.
+/// Defines \`SikemuxBuddies.notchFace(face, state)\`, an agent's face as an SVG document or null for one it does not know, and \`styledFace(agentId, style)\`, the face a host's style gives an agent.
 let buddiesScript = #"""
 ${buddiesScript}
 """#
