@@ -155,6 +155,19 @@ fn server_instructions_fit_before_agents_cut_them_off() {
     );
 }
 
+/// Every agent pays for the whole tool list and the instructions on every request, schemas
+/// included. Growing it needs a reason and a tool eval run showing agents do no worse.
+#[test]
+fn the_tool_list_every_agent_gets_stays_within_its_byte_budget() {
+    let offered = Manifest::load().offering(false, false);
+    let bytes =
+        Value::Array(offered.declarations()).to_string().len() + offered.instructions().len();
+    assert!(
+        bytes <= 33_400,
+        "every agent is sent {bytes} bytes of tools and instructions on each request; cut before adding"
+    );
+}
+
 /// The simulator tools reach only agents on a Mac that can run them, so like a
 /// plugin they answer to their own budget rather than the one every agent pays.
 #[test]

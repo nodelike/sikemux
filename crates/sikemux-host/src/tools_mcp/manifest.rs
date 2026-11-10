@@ -195,21 +195,21 @@ impl Manifest {
              Run dev servers, builds and anything the person may watch with process_start, not your shell; wait with events_wait, process_read or agent_wait, never sleep. \
              Open, show or preview web pages with browser_navigate, on your desk beside the person, in WebKit as Safari is; check pages there, not in headless Chromium or curl. \
              Before saying a page change works or is gone, look at the page there. To fix a bug a page shows, open it there, reproduce the bug and read browser_console before changing any code. \
-             Desk tabs are signed in as the person, so read what you need there, such as a mailbox, before asking them. When they say they are paying or typing in a tab right now, leave it alone and open others with newTab: true. \
+             Desk tabs are signed in as the person: read what you need there, such as a mailbox, before asking them. On grok.com, research in a new chat with Model set to Expert or Auto, never the Grok bot. When they say they are paying or typing in a tab right now, leave it alone and open others with newTab: true. \
              Load browser_navigate, _act, _state, _find, _click, _type, _wait and _screenshot together. \
              When a chart, diagram, mockup or comparison would answer better than prose, build an HTML page and show it in your reply with page_show, after page_preview and the pages topic of {}; open your own page with browser_navigate only when the person asks for the browser or a tab. Show a database schema as a ```dbml block instead. \
              Plugin tools such as jira_*, slack_*, signoz_*, aws_* and rundeck_* act through the person's Sikemux sign-in: for those services use them, never another MCP server, CLI or raw API, even if a skill or project instructions say to. If SigNoz has nothing for the service or environment asked about, look in CloudWatch with aws_logs before saying there is none. \
              Create or install skills only with the skills tool. \
-             Reach other agents, named with a word such as Otter, only with agent_list, agent_sessions for closed ones, agent_send, agent_spawn to start or resume one, agent_read and who_wrote, never your CLI's SendMessage; load them together and read the agents topic of {} first. \
-             who_wrote finds who broke CI, a build or a test, or wrote a commit or lines: call it before git log, gh or a CI's API, and if it says to sign in, tell the person. \
+             Reach other agents, named with a word such as Otter, only with agent_list, agent_sessions, agent_send, agent_spawn, agent_read and who_wrote, never your CLI's SendMessage; load them together and read the agents topic of {} first. \
+             who_wrote finds who broke CI, a build or a test, or wrote a commit or lines: call it before git log, gh or a CI's API; if it says to sign in, tell the person. \
              If a file you would change holds uncommitted lines you did not write, even ones your edit misses, another agent is working on it: call who_wrote on it and pass the request to its owner with agent_send instead of editing. Another agent's commit, build or test in your way is its owner's to fix too: message or resume it, unless the person says otherwise. \
              Ask owners, not the person, about their changes. When a tool refuses, do what its error says, such as messaging an agent, or tell the person; never get around it another way, such as raw git or a cd in a command. \
              If a local page differs from the code here, workspace_inspect shows which checkout serves its port. \
-             Hand a change the person calls big or long, or that will take you more than a few minutes, to a teammate with agent_spawn, which they can watch, pause and resume, instead of starting it, and tell them; a long command is a process, and your own subagents are for short pieces. \
+             Hand a change the person calls big or long, or that will take you more than a few minutes, to a teammate with agent_spawn, which they can watch, pause and resume, and tell them; a long command is a process, and your subagents are for short pieces. \
              When a request fits more than one place in the code, ask which before changing any. \
              Say when a message passes on the person's request; never push others' commits or ask an agent to push unless the person said so. \
              ask puts a question to your lead, or the person when you have none. \
-             Commit only with git_commit, never git commit or hand staging, even for one file: it knows which lines you wrote, now or in an earlier session, and takes only those, with paths for files your commands made. \
+             Commit only with git_commit, never git commit or hand staging, even for one file: it knows which lines you wrote, in any session, and takes only those, with paths for files your commands made. \
              Use react and gif freely, whenever they fit; never mention either.",
             self.guide.name, self.guide.name, self.guide.name
         );
@@ -400,40 +400,193 @@ impl Tool {
         ))
     }
 
-    /// The property an agent most likely meant by a name this tool lacks.
-    fn closest(&self, name: &str) -> Option<&str> {
+    /// The arguments as this tool takes them, so a call an agent got nearly right runs rather
+    /// than coming back refused: a name it commonly uses for one of this tool's is renamed,
+    /// `repo: "owner/name"` is split where the tool takes `owner` and `name`, a listed value
+    /// written in another case or spelling is matched, and a number past a bound is held at it.
+    pub fn settle(&self, arguments: Value) -> Value {
+        let Value::Object(mut object) = arguments else {
+            return arguments;
+        };
+        let unknown: Vec<String> = object
+            .keys()
+            .filter(|name| !self.properties.contains_key(*name))
+            .cloned()
+            .collect();
+        for name in unknown {
+            if let Some((owner, repo)) = self.split_repo(&name, &object[&name]) {
+                object.remove(&name);
+                if let Some(owner) = owner {
+                    object.entry("owner").or_insert(owner.into());
+                }
+                object.entry("name").or_insert(repo.into());
+                continue;
+            }
+            let Some(meant) = self.alias(&name) else {
+                continue;
+            };
+            if object.contains_key(meant) {
+                continue;
+            }
+            let Some(mut value) = object.remove(&name) else {
+                continue;
+            };
+            if meant == "timeoutMs" && in_seconds(&name, &value) {
+                value = value
+                    .as_f64()
+                    .map_or(value, |seconds| json!((seconds * 1000.0) as u64));
+            }
+            object.insert(meant.to_owned(), value);
+        }
+        for (name, value) in object.iter_mut() {
+            if let Some(schema) = self.properties.get(name) {
+                settle_value(value, schema);
+            }
+        }
+        Value::Object(object)
+    }
+
+    fn split_repo(&self, name: &str, value: &Value) -> Option<(Option<String>, String)> {
+        let takes = |field: &str| self.properties.contains_key(field);
+        if !matches!(name, "repo" | "repository" | "slug") || !takes("owner") || !takes("name") {
+            return None;
+        }
+        let slug = value.as_str()?.trim_matches('/');
+        Some(match slug.rsplit_once('/') {
+            Some((owner, repo)) => (Some(owner.to_owned()), repo.to_owned()),
+            None => (None, slug.to_owned()),
+        })
+    }
+
+    /// A name agents use for one of this tool's properties, from habits other tools taught them.
+    fn alias(&self, name: &str) -> Option<&'static str> {
         const SAME_MEANING: &[(&str, &[&str])] = &[
             (
                 "script",
                 &["expression", "code", "js", "javascript", "function"],
             ),
             ("selector", &["query", "css"]),
+            ("expression", &["query", "filter", "where"]),
             ("tail", &["lines"]),
             ("processId", &["name", "process", "task", "taskid", "id"]),
+            ("executionId", &["id", "execution", "execution_id"]),
+            (
+                "timeoutMs",
+                &[
+                    "timeout",
+                    "timeout_ms",
+                    "timeoutms",
+                    "timeoutseconds",
+                    "timeout_s",
+                ],
+            ),
             ("deltaY", &["y", "dy", "amount", "pixels"]),
             ("url", &["href", "link"]),
             ("text", &["value", "content"]),
             ("index", &["element", "ref", "number"]),
         ];
         let lowered = name.to_ascii_lowercase();
-        let known = |candidate: &str| self.properties.contains_key(candidate);
         SAME_MEANING
             .iter()
-            .find(|(meant, others)| known(meant) && others.contains(&lowered.as_str()))
-            .map(|(meant, _)| *meant)
-            .or_else(|| {
-                self.properties
-                    .keys()
-                    .map(|candidate| {
-                        (
-                            candidate,
-                            distance(&lowered, &candidate.to_ascii_lowercase()),
-                        )
-                    })
-                    .filter(|(_, apart)| *apart <= 2)
-                    .min_by_key(|(_, apart)| *apart)
-                    .map(|(candidate, _)| candidate.as_str())
+            .find(|(meant, others)| {
+                self.properties.contains_key(*meant) && others.contains(&lowered.as_str())
             })
+            .map(|(meant, _)| *meant)
+    }
+
+    /// The property an agent most likely meant by a name this tool lacks.
+    fn closest(&self, name: &str) -> Option<&str> {
+        let lowered = name.to_ascii_lowercase();
+        self.alias(name).or_else(|| {
+            self.properties
+                .keys()
+                .map(|candidate| {
+                    (
+                        candidate,
+                        distance(&lowered, &candidate.to_ascii_lowercase()),
+                    )
+                })
+                .filter(|(_, apart)| *apart <= 2)
+                .min_by_key(|(_, apart)| *apart)
+                .map(|(candidate, _)| candidate.as_str())
+        })
+    }
+}
+
+/// Whether a timeout given under another name counts seconds. A bare `timeout` under 1000
+/// does too: nobody waits less than a second on purpose, and shells and Python taught seconds.
+fn in_seconds(name: &str, value: &Value) -> bool {
+    let name = name.to_ascii_lowercase();
+    name.ends_with("seconds")
+        || name.ends_with("_s")
+        || (name == "timeout" && value.as_f64().is_some_and(|number| number < 1000.0))
+}
+
+fn settle_value(value: &mut Value, schema: &Value) {
+    match value {
+        Value::Number(number) => {
+            let Some(given) = number.as_f64() else {
+                return;
+            };
+            let bound = |key: &str| schema.get(key).and_then(Value::as_f64);
+            let held = match (bound("minimum"), bound("maximum")) {
+                (Some(least), _) if given < least => least,
+                (_, Some(most)) if given > most => most,
+                _ => return,
+            };
+            *value = if held.fract() == 0.0 && (number.is_i64() || number.is_u64()) {
+                json!(held as i64)
+            } else {
+                json!(held)
+            };
+        }
+        Value::String(text) => {
+            let Some(choices) = schema.get("enum").and_then(Value::as_array) else {
+                return;
+            };
+            if choices.iter().any(|choice| choice == text.as_str()) {
+                return;
+            }
+            let wanted = spelled(text);
+            if let Some(found) = choices
+                .iter()
+                .filter_map(Value::as_str)
+                .find(|choice| spelled(choice) == wanted)
+            {
+                *text = found.to_owned();
+            }
+        }
+        Value::Array(items) => {
+            if let Some(schema) = schema.get("items") {
+                items.iter_mut().for_each(|item| settle_value(item, schema));
+            }
+        }
+        Value::Object(fields) => {
+            let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+                return;
+            };
+            for (name, field) in fields.iter_mut() {
+                if let Some(schema) = properties.get(name) {
+                    settle_value(field, schema);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// A listed value as agents may write it: in any case, with `-`, `_` or a space between words,
+/// or as an operator such as `=` and `!=`.
+fn spelled(value: &str) -> String {
+    let words: String = value
+        .chars()
+        .filter(|letter| !matches!(letter, '-' | '_' | ' '))
+        .flat_map(char::to_lowercase)
+        .collect();
+    match words.as_str() {
+        "=" | "==" | "eq" | "is" => "equals".into(),
+        "!=" | "<>" | "ne" | "neq" | "isnot" => "notequals".into(),
+        _ => words,
     }
 }
 
@@ -519,12 +672,14 @@ fn check(value: &Value, schema: &Value, label: &str, shown: bool) -> Result<(), 
     }
     if let Some(text) = value.as_str() {
         let length = text.chars().count() as u64;
-        if schema
+        if let Some(most) = schema
             .get("maxLength")
             .and_then(Value::as_u64)
-            .is_some_and(|most| length > most)
+            .filter(|most| length > *most)
         {
-            return Err(fail(format!("{} is too long", describe(value))));
+            return Err(format!(
+                "{label} is {length} characters, over the {most} it takes; shorten it and call again"
+            ));
         }
         if let Some(least) = schema.get("minLength").and_then(Value::as_u64) {
             if length < least {

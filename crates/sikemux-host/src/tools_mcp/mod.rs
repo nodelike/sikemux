@@ -652,6 +652,7 @@ fn call(
     }
     let manifest = offer.built_in(quick);
     if let Some(tool) = manifest.tool(name) {
+        let arguments = &tool.settle(arguments.clone());
         if let Err(message) = tool.validate(arguments) {
             return invalid(&message);
         }
@@ -667,6 +668,7 @@ fn call(
     else {
         return content(vec![text(&format!("Unknown tool: {name}"))], true);
     };
+    let arguments = &tool.settle(arguments.clone());
     if let Err(message) = tool.validate(arguments) {
         return invalid(&message);
     }
