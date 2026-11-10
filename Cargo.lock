@@ -5632,6 +5632,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mermaid-svg"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe0e905ac75d52a4d30692373beadd4bd4e09d8ea5275a3cb8e29a5f7ab4af62"
+dependencies = [
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "metal"
 version = "0.33.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9316,6 +9325,7 @@ dependencies = [
  "jpeg-decoder",
  "libc",
  "lsp-types",
+ "mermaid-svg",
  "naga",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
@@ -9326,6 +9336,7 @@ dependencies = [
  "objc2-web-kit",
  "percent-encoding",
  "raw-window-handle",
+ "resvg 0.46.0",
  "rustls",
  "serde",
  "serde_json",

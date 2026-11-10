@@ -101,7 +101,7 @@ pub(super) fn row(
             _ => segments.push((tucked, vec![part])),
         }
     }
-    let live = ix + 1 == rows.len() && looks.reading.running;
+    let live = ix + 1 == rows.len() && looks.reading.running.get();
     let summed = if user {
         0.
     } else {

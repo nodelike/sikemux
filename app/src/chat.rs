@@ -72,6 +72,7 @@ mod link;
 pub(crate) mod live;
 mod looks;
 mod mention;
+mod mermaid;
 mod moving;
 pub(crate) use attach::{named, named_agents, pill, site_icon, Mention};
 pub use mention::Tray;
@@ -451,8 +452,9 @@ struct Reading {
     tools: tools::Opened,
     /// Each subagent's rows, by its session.
     subagents: HashMap<String, Vec<ChatRow>>,
-    /// A turn is running, so the last row's run of calls stays open.
-    running: bool,
+    /// A turn is running, so the last row's run of calls stays open. Shared with the chat's
+    /// diagrams, which read it while the rows are being drawn.
+    running: Rc<Cell<bool>>,
     /// The chat takes a sent message written again.
     editable: bool,
     editing: Option<edit::Editing>,
@@ -588,12 +590,13 @@ impl Chat {
         cx: &mut App,
     ) -> Chat {
         let reader = cx.new(|_| Reading::default());
+        let running = reader.read(cx).running.clone();
         let stage = bench.clone();
         let chat = agent.clone();
         let looks = Rc::new(RefCell::new(Rc::new(Looks::new(
             Tokens::get(cx),
             provider,
-            reader.clone(),
+            (reader.clone(), running),
             (bench.clone(), target.asks().clone()),
             agent.clone(),
             Rc::default(),
@@ -678,7 +681,7 @@ impl Chat {
                 let new = Looks::new(
                     Tokens::get(cx),
                     &provider,
-                    old.reader.clone(),
+                    (old.reader.clone(), old.running.clone()),
                     (old.bench.clone(), asks.clone()),
                     old.agent.clone(),
                     old.files.clone(),
@@ -925,8 +928,14 @@ impl Chat {
         let earlier_lost = self.state.as_ref().is_some_and(|head| head.earlier_lost);
         self.reader.update(cx, |reading, cx| {
             let now = (running, editable, earlier_lost);
-            if (reading.running, reading.editable, reading.earlier_lost) != now {
-                (reading.running, reading.editable, reading.earlier_lost) = now;
+            let was = (
+                reading.running.get(),
+                reading.editable,
+                reading.earlier_lost,
+            );
+            if was != now {
+                reading.running.set(running);
+                (reading.editable, reading.earlier_lost) = (editable, earlier_lost);
                 cx.notify();
             }
         });

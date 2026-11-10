@@ -11,6 +11,8 @@ use sikemux_grid::TerminalColors;
 use sikemux_view::theme::{Palette, ThemeEditor, ThemeHighlight};
 
 pub const UI: &str = "Figtree";
+pub const UI_REGULAR: &[u8] = include_bytes!("../../helpers/notch/Fonts/Figtree_400Regular.ttf");
+pub const UI_SEMIBOLD: &[u8] = include_bytes!("../../helpers/notch/Fonts/Figtree_600SemiBold.ttf");
 
 /// How much lighter-than-mid-grey text is thinned, as the power its glyphs' coverage is raised to
 /// for white text: the person's pick, nearer WebKit's weight on a dark ground. Retina screens
@@ -309,9 +311,9 @@ pub fn tabular() -> FontFeatures {
 /// Loads the bundled fonts and draws with the default theme until the core says which is picked.
 pub fn install(cx: &mut App) {
     let fonts = [
-        include_bytes!("../../helpers/notch/Fonts/Figtree_400Regular.ttf").as_slice(),
+        UI_REGULAR,
         include_bytes!("../../helpers/notch/Fonts/Figtree_500Medium.ttf").as_slice(),
-        include_bytes!("../../helpers/notch/Fonts/Figtree_600SemiBold.ttf").as_slice(),
+        UI_SEMIBOLD,
         include_bytes!("../assets/fonts/Figtree_400Regular_Italic.ttf").as_slice(),
         include_bytes!("../assets/fonts/Figtree_600SemiBold_Italic.ttf").as_slice(),
         include_bytes!("../assets/fonts/JetBrainsMonoNerdFontMono-Regular-Base.ttf").as_slice(),

@@ -19,6 +19,8 @@ pub(super) struct Looks {
     pub(super) accent: Hsla,
     pub(super) provider: String,
     pub(super) reader: Entity<Reading>,
+    /// Whether a turn is running, as the reader holds it.
+    pub(super) running: Rc<Cell<bool>>,
     pub(super) tints: Tints,
     pub(super) bench: WeakEntity<Workbench>,
     pub(super) agent: String,
@@ -145,7 +147,7 @@ impl Looks {
     pub(super) fn new(
         t: &Tokens,
         provider: &str,
-        reader: Entity<Reading>,
+        (reader, running): (Entity<Reading>, Rc<Cell<bool>>),
         (bench, asks): (WeakEntity<Workbench>, UnboundedSender<Ask>),
         agent: String,
         files: Rc<RefCell<files::Files>>,
@@ -178,7 +180,12 @@ impl Looks {
             },
             card: crate::reading::code_card(t),
             code: Some(code_colours(reader.clone())),
-            fences: Some(schema::fences(bench.clone(), agent.clone(), asks.clone())),
+            fences: Some(schema::fences(
+                bench.clone(),
+                agent.clone(),
+                asks.clone(),
+                running.clone(),
+            )),
             on_link: Some(Rc::new({
                 let (bench, agent) = (bench.clone(), agent.clone());
                 move |href: &str, window: &mut Window, cx: &mut App| {
@@ -262,6 +269,7 @@ impl Looks {
             accent: t.accent,
             provider: provider.to_owned(),
             reader,
+            running,
             tints: Tints::new(t),
             bench,
             agent,

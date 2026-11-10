@@ -1,6 +1,7 @@
 //! A DBML block in an agent's reply, drawn as a diagram of its tables, with its text a
-//! click away.
+//! click away; and the pieces of such a block a Mermaid block shares.
 
+use std::cell::Cell;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -16,20 +17,27 @@ use gpui_transcript::{Fence, Fences};
 
 use tokio::sync::mpsc::UnboundedSender;
 
+use super::mermaid;
 use crate::core::Ask;
 use crate::diagram::{Diagram, Kept, KeptKey};
 use crate::theme::{self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2H, SPACE_3H};
 use crate::workbench::Workbench;
 
-/// Draws the ```dbml blocks of `agent`'s chat.
+/// Draws the ```dbml and ```mermaid blocks of `agent`'s chat.
 pub(super) fn fences(
     bench: WeakEntity<Workbench>,
     agent: String,
     asks: UnboundedSender<Ask>,
+    running: Rc<Cell<bool>>,
 ) -> Fences {
     Fences {
-        langs: Rc::from(["dbml"]),
-        draw: Rc::new(move |fence, window, cx| block(fence, &bench, &agent, &asks, window, cx)),
+        langs: Rc::from(["dbml", mermaid::LANG]),
+        draw: Rc::new(move |fence, window, cx| {
+            match fence.lang.eq_ignore_ascii_case(mermaid::LANG) {
+                true => mermaid::block(fence, running.get(), window, cx),
+                false => block(fence, &bench, &agent, &asks, window, cx),
+            }
+        }),
     }
 }
 
@@ -89,26 +97,14 @@ fn block(
     let source = block.read(cx).source || empty;
     let t = Tokens::get(cx).clone();
     let card = crate::reading::code_card(&t);
-    let choice = |id: &'static str, label: &'static str, shows_source: bool| {
+    let shows = |id: &'static str, label: &'static str, shows_source: bool| {
         let block = block.clone();
-        let chosen = source == shows_source;
-        chip(id)
-            .text_color(if chosen {
-                t.text_primary
-            } else {
-                t.text_disabled
+        choice(id, label, source == shows_source, &t, move |cx| {
+            block.update(cx, |block, cx| {
+                block.source = shows_source;
+                cx.notify();
             })
-            .map(|chip| match chosen {
-                true => chip.bg(t.surface_chosen),
-                false => chip.hover(|chip| chip.bg(t.surface_hover)),
-            })
-            .on_click(move |_, _, cx| {
-                block.update(cx, |block, cx| {
-                    block.source = shows_source;
-                    cx.notify();
-                })
-            })
-            .child(label)
+        })
     };
     let open = {
         let (code, bench, agent) = (fence.code.clone(), bench.clone(), agent.to_owned());
@@ -121,25 +117,11 @@ fn block(
             .on_click(move |_, _, cx| open_on_desk(&code, &bench, &agent, cx))
             .child("Open on desk")
     };
-    let name = match fence.icon {
-        Some(icon) => icon,
-        None => div().truncate().child(fence.lang).into_any_element(),
-    };
-    let title = div()
-        .mt(SPACE_1H)
-        .h(px(22.))
-        .pl(SPACE_3H)
-        .pr(SPACE_2H)
-        .flex()
-        .items_center()
-        .gap(SPACE_0)
-        .text_size(px(10.))
-        .text_color(t.text_disabled)
-        .child(div().flex_1().min_w_0().flex().child(name))
+    let title = head(fence.icon, fence.lang, &t)
         .when(!empty, |title| {
             title
-                .child(choice("dbml-diagram", "Diagram", false))
-                .child(choice("dbml-source", "Source", true))
+                .child(shows("dbml-diagram", "Diagram", false))
+                .child(shows("dbml-source", "Source", true))
                 .child(div().w(px(1.)).h(px(10.)).mx(SPACE_1).bg(t.line_soft))
                 .child(open)
                 .child(div().w(px(6.)))
@@ -192,6 +174,48 @@ fn finished_lines(code: &SharedString) -> SharedString {
         Some(end) if end + 1 < code.len() => SharedString::from(code[..=end].to_string()),
         _ => code.clone(),
     }
+}
+
+/// The top of a block drawn as a picture: its language, then whatever the caller adds, which
+/// ends with the block's copy button.
+pub(super) fn head(icon: Option<AnyElement>, lang: SharedString, t: &Tokens) -> Div {
+    let name = match icon {
+        Some(icon) => icon,
+        None => div().truncate().child(lang).into_any_element(),
+    };
+    div()
+        .mt(SPACE_1H)
+        .h(px(22.))
+        .pl(SPACE_3H)
+        .pr(SPACE_2H)
+        .flex()
+        .items_center()
+        .gap(SPACE_0)
+        .text_size(px(10.))
+        .text_color(t.text_disabled)
+        .child(div().flex_1().min_w_0().flex().child(name))
+}
+
+/// One of the chips that choose between a block's picture and its text.
+pub(super) fn choice(
+    id: &'static str,
+    label: &'static str,
+    chosen: bool,
+    t: &Tokens,
+    pick: impl Fn(&mut App) + 'static,
+) -> Stateful<Div> {
+    chip(id)
+        .text_color(if chosen {
+            t.text_primary
+        } else {
+            t.text_disabled
+        })
+        .map(|chip| match chosen {
+            true => chip.bg(t.surface_chosen),
+            false => chip.hover(|chip| chip.bg(t.surface_hover)),
+        })
+        .on_click(move |_, _, cx| pick(cx))
+        .child(label)
 }
 
 fn chip(id: &'static str) -> Stateful<Div> {

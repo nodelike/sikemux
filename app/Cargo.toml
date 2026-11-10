@@ -45,8 +45,11 @@ gpui-native-view = { path = "crates/gpui-native-view" }
 gpui-terminal-grid = { path = "crates/gpui-terminal-grid" }
 gpui-transcript = { path = "crates/gpui-transcript" }
 lsp-types = "0.97"
+mermaid-svg = "0.7"
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 percent-encoding = "2"
+# Already in the build through GPUI's SVG drawing.
+resvg = { version = "0.46", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 smallvec = "1"

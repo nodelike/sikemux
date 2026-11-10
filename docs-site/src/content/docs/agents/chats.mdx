@@ -84,6 +84,10 @@ An agent can answer with a page it built, such as a chart, a table or a comparis
 
 When an agent writes a database schema in a ` ```dbml ` code block, the chat draws it as a diagram of its tables and the references between them. A scroll that starts over it pans the diagram, and one that starts elsewhere keeps scrolling the chat; pinch or `⌘`-scroll zooms, and tables drag. While the agent is still writing it, the diagram only grows, so it holds still between tables. **Fit** shows every table again and **Arrange** lays them out afresh. **Source** shows the DBML, the copy button copies it, and **Open on desk** opens it on the agent's desk, as a diagram with room to spread out and its DBML a click away.
 
+## Diagrams in a reply
+
+When an agent writes a ` ```mermaid ` code block, such as a flowchart, a sequence, class, state or ER diagram, a pie chart or a Gantt chart, the chat draws it as a diagram in your theme's colours. It draws it once the agent has finished writing the block, which shows its text until then. A diagram wider than the chat shrinks to fit. **Source** shows the Mermaid text and **Diagram** the drawing again; the copy button copies the text. A block that isn't a diagram Mermaid can draw stays as text, with **Can't draw** above it, and pointing at that says why. On the phone, a Mermaid block shows as its text.
+
 ## Reactions and GIFs
 
 An agent can react to your message with an emoji, which shows on the corner of your bubble, and can send a GIF, which shows where it sent it with **Powered by KLIPY** beneath it. When a turn's work folds away, its GIFs stay in view above the reply. Neither shows up as a step in the chat, and the agent doesn't mention them. A message from another agent can get a reaction too.
