@@ -47,10 +47,17 @@ struct SheetModifier<SheetContent: View>: ViewModifier {
         }
     }
 
+    /// The panel runs to the screen's bottom edge, so the safe area is read before it is ignored.
     private var panel: some View {
+        GeometryReader { safe in
+            panel(insets: safe.safeAreaInsets)
+        }
+    }
+
+    private func panel(insets: EdgeInsets) -> some View {
         GeometryReader { proxy in
             VStack(spacing: 0) {
-                Spacer(minLength: proxy.safeAreaInsets.top + 24)
+                Spacer(minLength: insets.top + 24)
                 VStack(spacing: 0) {
                     Capsule()
                         .fill(palette.borderStrong)
@@ -63,7 +70,7 @@ struct SheetModifier<SheetContent: View>: ViewModifier {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, proxy.safeAreaInsets.bottom + 12)
+                .padding(.bottom, insets.bottom + 12)
                 .frame(maxWidth: .infinity)
                 .frame(height: tall ? proxy.size.height * 0.82 : nil, alignment: .top)
                 .background(

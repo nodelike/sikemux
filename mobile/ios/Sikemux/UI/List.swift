@@ -68,10 +68,16 @@ struct Row<Mark: View, End: View, After: View>: View {
     @ViewBuilder var end: End
     /// A control of its own at the row's end, beside the row's press rather than inside it.
     @ViewBuilder var after: After
+    @State private var held = false
 
     var body: some View {
         let row = Button {
-            onPress?()
+            // A finger lifted after a long press has already done what the row does when held.
+            if held {
+                held = false
+            } else {
+                onPress?()
+            }
         } label: {
             content
         }
@@ -79,6 +85,7 @@ struct Row<Mark: View, End: View, After: View>: View {
         .disabled(onPress == nil && onLongPress == nil)
         .simultaneousGesture(LongPressGesture().onEnded { _ in
             guard let onLongPress else { return }
+            held = true
             Haptics.tap()
             onLongPress()
         }, including: onLongPress == nil ? .subviews : .all)
