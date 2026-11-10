@@ -242,6 +242,7 @@ struct Track<Value: Hashable>: View {
         }
         .padding(3)
         .frame(minHeight: 36)
+        .fixedSize(horizontal: false, vertical: true)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(palette.raised.opacity(0.8)))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
     }
