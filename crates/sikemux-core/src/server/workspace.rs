@@ -148,6 +148,40 @@ struct Saved {
     /// has not started yet offers the same models and efforts.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     launcher_options: BTreeMap<String, Value>,
+    /// The model and effort the person last picked for each kind of agent, which its new
+    /// chats start on.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    model_picks: BTreeMap<String, ModelPick>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ModelPick {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+}
+
+impl ModelPick {
+    /// Marks the picked model and effort as current in a session's `configOptions`, where
+    /// they are among its choices.
+    fn mark(&self, options: &mut Value) {
+        for row in options.as_array_mut().into_iter().flatten() {
+            let picked = if row["id"] == "model" {
+                &self.model
+            } else if sikemux_fold::pickers::is_effort(row) {
+                &self.effort
+            } else {
+                continue;
+            };
+            let Some(picked) = picked else { continue };
+            let (model, effort) = pickers::pickers(&Value::Array(vec![row.clone()]));
+            let offered = model
+                .or(effort)
+                .is_some_and(|picker| picker.choices.iter().any(|choice| &choice.value == picked));
+            if offered {
+                row["currentValue"] = Value::String(picked.clone());
+            }
+        }
+    }
 }
 
 impl Saved {

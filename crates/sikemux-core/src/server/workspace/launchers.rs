@@ -460,16 +460,43 @@ impl Workspaces {
         if !options.is_array() {
             return;
         }
-        let kept = self.published.locked().saved.launcher_options.get(launcher) == Some(options);
+        let mut options = options.clone();
+        let kind = LauncherId::parse(launcher).kind;
+        let published = self.published.locked();
+        if let Some(pick) = published.saved.model_picks.get(kind) {
+            pick.mark(&mut options);
+        }
+        let kept = published.saved.launcher_options.get(launcher) == Some(&options);
+        drop(published);
         if kept {
             return;
         }
         let _ = self.change(|saved| {
-            saved
-                .launcher_options
-                .insert(launcher.to_owned(), options.clone());
+            saved.launcher_options.insert(launcher.to_owned(), options);
             Ok(())
         });
+    }
+
+    /// The model and effort the person last picked for `kind`.
+    pub(crate) fn model_pick(&self, kind: &str) -> Option<ModelPick> {
+        self.published.locked().saved.model_picks.get(kind).cloned()
+    }
+
+    /// Keeps a model or effort the person picked for `kind`, so its new chats start on it.
+    pub(crate) fn keep_model_pick(&self, kind: &str, pick: ModelPick) -> CoreResult<()> {
+        self.change(|saved| {
+            let kept = saved.model_picks.entry(kind.to_owned()).or_default();
+            kept.model = pick.model.or(kept.model.take());
+            kept.effort = pick.effort.or(kept.effort.take());
+            let kept = kept.clone();
+            let of_a_profile = format!("{kind}:");
+            for (launcher, options) in saved.launcher_options.iter_mut() {
+                if launcher == kind || launcher.starts_with(&of_a_profile) {
+                    kept.mark(options);
+                }
+            }
+            Ok(())
+        })
     }
 
     /// Whether `launcher`'s agent is yet to be asked what it offers since the core started,

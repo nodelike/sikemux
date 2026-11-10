@@ -1,5 +1,6 @@
 //! What a chat offers to pick before its agent starts.
 
+use crate::server::workspace::ModelPick;
 use sikemux_view::workspace::ConfigPicker;
 
 use super::*;
@@ -142,7 +143,7 @@ pub(super) fn choose_before_start(
 }
 
 /// Keeps the model and effort a chat now runs on with its agent, so its next
-/// session starts on them. An effort its CLI does not take is left out.
+/// session starts on them, and with its kind of agent, so its new chats do too. An effort its CLI does not take is left out.
 pub(super) fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
     let Some(agent) = core.workspaces.agent(agent_id) else {
         return;
@@ -161,14 +162,16 @@ pub(super) fn keep_model_choice(core: &Core, agent_id: &str, options: &Value) {
     if model.is_none() && effort.is_none() {
         return;
     }
+    let pick = ModelPick { model, effort };
     let kept = core.workspaces.edit_agent(agent_id, |agent| {
-        if model.is_some() {
-            agent.model = model;
+        if pick.model.is_some() {
+            agent.model = pick.model.clone();
         }
-        if effort.is_some() {
-            agent.effort = effort;
+        if pick.effort.is_some() {
+            agent.effort = pick.effort.clone();
         }
     });
+    let kept = kept.and_then(|_| core.workspaces.keep_model_pick(&agent.provider, pick));
     if let Err(error) = kept {
         eprintln!("sikemux core: the agent's model choice was not kept: {error}");
     }

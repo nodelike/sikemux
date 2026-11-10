@@ -606,9 +606,13 @@ async fn start_new(
         remember_kind(core, &kind);
         return Ok((agent_id, not_started()));
     }
+    let pick = (choice.resume_id.is_none())
+        .then(|| core.workspaces.model_pick(&kind))
+        .flatten()
+        .unwrap_or_default();
     let (model_provider, model) = match &choice.resume_id {
         Some(session) => resumed_on(core, &kind, session.clone(), choice.model).await,
-        None => (None, choice.model),
+        None => (None, choice.model.or(pick.model)),
     };
     let chosen = Launch {
         agent_id: agent_id.clone(),
@@ -617,7 +621,7 @@ async fn start_new(
         permission_mode: choice.permission_mode,
         model,
         model_provider,
-        effort: choice.effort,
+        effort: choice.effort.or(pick.effort),
         resume_id: choice.resume_id,
         account: None,
         fallbacks: Vec::new(),
