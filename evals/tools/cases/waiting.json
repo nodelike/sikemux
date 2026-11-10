@@ -693,5 +693,98 @@
     "severity": "med",
     "tools": [],
     "skip": "Needs real GitHub Actions runs failing with a 403 and a multi-turn design judgment about release approval environments, which a scripted fixture cannot stand in for."
+  },
+  {
+    "id": "wait-14",
+    "from": [
+      "bitbucket pipeline polls, 2026-10-28 to 2026-11-10"
+    ],
+    "category": "wrong_tool",
+    "severity": "med",
+    "tools": [
+      "trigger_add",
+      "bitbucket_pipelines"
+    ],
+    "prompt": "I pushed fix/upload-retry to example-team/web-app on Bitbucket. Its pipeline takes about 15 minutes; let me know whether it passed once it's done.",
+    "fixture": {
+      "project": "work",
+      "plugins": [
+        "aws",
+        "jira",
+        "rundeck",
+        "signoz",
+        "vercel",
+        "bitbucket"
+      ],
+      "answers": [
+        {
+          "tool": "bitbucket_pipelines",
+          "reply": {
+            "runs": [
+              {
+                "id": "{6d1c0b7e-1111-4000-8000-000000000813}",
+                "number": 813,
+                "branch": "fix/upload-retry",
+                "headSha": "4f2a9c1e7b3d",
+                "status": "in_progress"
+              }
+            ]
+          }
+        },
+        {
+          "tool": "trigger_add",
+          "args": {
+            "ci": {
+              "$present": true
+            }
+          },
+          "reply": {
+            "trigger": 7,
+            "note": "Once CI on fix/upload-retry ends, it sends this chat its prompt, as a message you read like any other. It says how CI went, so end your turn now rather than waiting or polling."
+          }
+        }
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "trigger_add",
+          "args": {
+            "ci": {
+              "$present": true
+            }
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": "Bash",
+          "args": {
+            "command": "/\\bsleep\\b|\\bwhile\\b|\\buntil\\b/"
+          },
+          "why": "waited for CI in a shell"
+        },
+        {
+          "tool": "trigger_add",
+          "args": {
+            "every": {
+              "$present": true
+            }
+          },
+          "why": "polled CI on a timer instead of a ci trigger"
+        }
+      ],
+      "limit": [
+        {
+          "tool": [
+            "bitbucket_pipelines",
+            "bitbucket_pipeline",
+            "events_wait"
+          ],
+          "max": 2
+        }
+      ]
+    },
+    "maxTurns": 10
   }
 ]

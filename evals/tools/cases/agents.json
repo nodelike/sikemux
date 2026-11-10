@@ -1330,5 +1330,48 @@
       "guide"
     ],
     "skip": "Needs the Pi CLI, which the eval does not run, and is about the CLI knowing itself rather than a sikemux-tools call."
+  },
+  {
+    "id": "agents-25",
+    "from": [
+      "teammate cap refusals, 2026-10-28 to 2026-11-10"
+    ],
+    "category": "rage",
+    "severity": "med",
+    "tools": [
+      "agent_close"
+    ],
+    "prompt": "<agent-message from=\"Fern\" agent-id=\"agent-eval-2\" cli=\"claude\" note=\"Fern, your teammate, reports back.\">\nDone: the upload retry fix is committed and landed on main as 7e8f9a0, and its tests pass. Nothing is left on my side.\n</agent-message>",
+    "fixture": {
+      "agents": [
+        {
+          "name": "Fern",
+          "agentId": "agent-eval-2",
+          "title": "Upload retry fix",
+          "status": "idle",
+          "teammate": true
+        }
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "agent_close",
+          "args": {
+            "agents": "/Fern|agent-eval-2/"
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": "agent_send",
+          "args": {
+            "to": "/Fern|agent-eval-2/"
+          },
+          "why": "messaged a teammate that was done instead of closing it"
+        }
+      ]
+    },
+    "maxTurns": 8
   }
 ]

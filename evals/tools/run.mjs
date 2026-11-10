@@ -315,7 +315,7 @@ async function runAgent(variant, testCase, dir) {
   try {
     outcome =
       variant.runner === 'claude'
-        ? await runClaude({ model: variant.id, search: variant.search, dir, sandbox, servers, prompt: testCase.prompt, ...limits })
+        ? await runClaude({ model: variant.id, search: variant.search, dir, sandbox, servers, prompt: testCase.prompt, at, ...limits })
         : await runOmp({ model: variant.id, dir, sandbox, servers, prompt: testCase.prompt, ...limits });
   } finally {
     tools.close();

@@ -1823,5 +1823,95 @@
     },
     "judge": "Passes if the agent proposes the database with db_connect and then tells the person it waits on their approval in Sikemux. Fails if it tells the person to type the URL or its fields into the Database pane themselves, or says the database is already saved.",
     "maxTurns": 6
+  },
+  {
+    "id": "plugin-19",
+    "from": [
+      "rundeck_run holds, 2026-10-28 to 2026-11-10"
+    ],
+    "category": "rage",
+    "severity": "med",
+    "tools": [
+      "rundeck_run"
+    ],
+    "prompt": "Deploy the API to dev from main.",
+    "fixture": {
+      "project": "work",
+      "answers": [
+        {
+          "tool": "rundeck_jobs",
+          "reply": {
+            "jobs": [
+              {
+                "id": "job-dev-api",
+                "path": "dev/backend/deploy-api",
+                "project": "app",
+                "options": [
+                  {
+                    "name": "branch",
+                    "required": true,
+                    "default": "main"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "tool": "rundeck_plan",
+          "reply": {
+            "job": "dev/backend/deploy-api",
+            "branchOption": "branch",
+            "checkout": {
+              "branch": "main",
+              "clean": true,
+              "pushed": true,
+              "contains": true
+            }
+          }
+        },
+        {
+          "tool": "rundeck_run",
+          "reply": "Sent to the person to approve. Stop here and end your turn without guessing: what they decide comes to you as a message."
+        }
+      ]
+    },
+    "grade": {
+      "expect": [
+        {
+          "tool": "rundeck_run",
+          "args": {
+            "job": "/^(dev\\/backend\\/deploy-api|job-dev-api)$/"
+          }
+        }
+      ],
+      "forbid": [
+        {
+          "tool": [
+            "rundeck_executions",
+            "rundeck_execution",
+            "events_wait",
+            "agent_wait"
+          ],
+          "why": "checked on a run the person had not approved yet instead of ending its turn"
+        },
+        {
+          "tool": "Bash",
+          "args": {
+            "command": "/\\bsleep\\b|\\bwhile\\b|\\buntil\\b/"
+          },
+          "why": "waited in a shell for the approval"
+        }
+      ],
+      "limit": [
+        {
+          "tool": "rundeck_run",
+          "max": 1
+        }
+      ],
+      "reply": "/approv/i",
+      "replyWhy": "did not tell the person the deploy waits for their approval"
+    },
+    "maxTurns": 10
   }
 ]

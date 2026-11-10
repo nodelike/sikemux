@@ -230,5 +230,36 @@
     "severity": "med",
     "tools": ["page_preview"],
     "skip": "page_preview opening a tab on the person's desk is how the core draws previews, not a tool choice the agent makes."
+  },
+  {
+    "id": "page-13",
+    "from": [
+      "Nettle df670e59, 2026-11-10"
+    ],
+    "category": "wrong_tool",
+    "severity": "high",
+    "tools": [
+      "page_preview",
+      "page_show"
+    ],
+    "prompt": "Show me Pie chart bruv: the 48 failed CI runs this week were 21 flaky tests, 14 timeouts, 9 lint and 4 network.",
+    "grade": {
+      "expect": [
+        {
+          "tool": "page_show"
+        }
+      ],
+      "forbid": [
+        {
+          "tool": "Artifact",
+          "why": "published a claude.ai Artifact instead of showing the chart with page_show"
+        },
+        {
+          "tool": "browser_navigate",
+          "why": "opened its own chart in a desk tab though the person asked for no tab"
+        }
+      ]
+    },
+    "maxTurns": 10
   }
 ]

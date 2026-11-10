@@ -268,6 +268,7 @@ function builtIn(tool, args, { state, pages, agents, project, fixture, previewPr
           cli: args.cli ?? 'claude',
           reportsBack: true,
           note: 'Fern is starting in its own tab and gets your prompt once it is ready. Each time its turn ends, its final answer comes to you as a message.',
+          next: 'Its answer wakes you, so end your turn once your own work is done rather than waiting, polling or calling agent_wait.',
         },
       };
     case 'agent_read':

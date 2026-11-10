@@ -1,7 +1,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createWriteStream, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { REPO } from './surface.mjs';
+import { REPO, readRepo } from './surface.mjs';
 
 const EVAL = join(REPO, 'evals/tools');
 const SERVER_PREFIX = /^mcp__([^_]+(?:[-_][^_]+)*?)__(.+)$/;
@@ -64,7 +64,16 @@ export function run({ command, args, cwd, env, dir, timeoutMs, profile = join(di
   });
 }
 
-export async function runClaude({ model, search, dir, sandbox, servers, prompt, maxTurns, timeoutMs }) {
+// The lines Sikemux's native Claude driver appends to Claude's system prompt when it offers sikemux-tools.
+function sikemuxSystemLines(at) {
+  const constant = (path, name) => readRepo(path, at).match(new RegExp(`const ${name}: &str = "((?:[^"\\\\]|\\\\.)*)";`))[1].replace(/\\(.)/g, '$1');
+  return [
+    constant('crates/sikemux-core/src/server/gestures.rs', 'PERSONALITY'),
+    constant('crates/sikemux-core/src/server/chat/native/claude/mod.rs', 'SHOWING_PAGES'),
+  ].join('\n\n');
+}
+
+export async function runClaude({ model, search, dir, sandbox, servers, prompt, maxTurns, timeoutMs, at }) {
   const config = join(dir, 'agent', 'mcp.json');
   writeFileSync(config, JSON.stringify(servers, null, 1));
   const args = [
@@ -82,6 +91,8 @@ export async function runClaude({ model, search, dir, sandbox, servers, prompt, 
     '--max-turns',
     String(maxTurns),
     '--no-session-persistence',
+    '--append-system-prompt',
+    sikemuxSystemLines(at),
   ];
   const env = {
     ...sandbox.env,
