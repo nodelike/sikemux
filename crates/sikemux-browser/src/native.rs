@@ -35,7 +35,9 @@ async fn on_tab<T: Send + 'static>(
     match tokio::time::timeout(EVAL_TIMEOUT, view.ask(act)).await {
         Ok(Ok(result)) => result,
         Ok(Err(error)) => Err(error),
-        Err(_) => Err("the tab took too long to answer".into()),
+        Err(_) => Err(
+            "the tab took over 10 s to answer; wait for it with browser_wait and try again".into(),
+        ),
     }
 }
 
@@ -106,7 +108,7 @@ pub async fn run_script(view: &Tab, body: &str, limit: Duration) -> Result<Strin
 /// of its scripts.
 pub(crate) async fn run_helper(view: &Tab, body: &str) -> Result<String, String> {
     match run_in(view, body, World::Helper, EVAL_TIMEOUT).await {
-        Err(None) => Err("the page took too long to answer".into()),
+        Err(None) => Err("the page took over 10 s to answer, so a script is busy or a dialog holds it: answer any dialog with browser_dialog, or wait and try again".into()),
         other => other.map_err(Option::unwrap_or_default),
     }
 }

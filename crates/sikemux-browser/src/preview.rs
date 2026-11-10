@@ -56,7 +56,7 @@ impl Preview {
         match tokio::time::timeout(timeout, self.load.wait_for(Option::is_some)).await {
             Ok(Ok(load)) => load.clone().unwrap_or(Ok(())),
             Ok(Err(_)) => Err("the page went away while loading".into()),
-            Err(_) => Err("the page took too long to load".into()),
+            Err(_) => Err("the page took too long to load; have it load its scripts, styles and fonts from files beside it rather than from the network".into()),
         }
     }
 }

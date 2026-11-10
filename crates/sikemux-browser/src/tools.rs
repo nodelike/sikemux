@@ -1452,7 +1452,7 @@ pub(crate) async fn eval(view: &Tab, script: &str) -> Result<String, String> {
     match tokio::time::timeout(EVAL_TIMEOUT, view.eval(script)).await {
         Ok(Ok(result)) if !result.is_empty() => Ok(result),
         Ok(_) => Err("the page did not answer, so it may not have loaded; browser_network's documents show whether its load failed".into()),
-        Err(_) => Err("the page took too long to answer".into()),
+        Err(_) => Err("the page took over 10 s to answer, so a script is busy or a dialog holds it: answer any dialog with browser_dialog, or wait and try again".into()),
     }
 }
 
@@ -1493,7 +1493,8 @@ pub(crate) async fn screenshot(
     match tokio::time::timeout(limit, receiver).await {
         Ok(Ok(result)) => result,
         Ok(Err(_)) => Err("screenshot was abandoned".into()),
-        Err(_) => Err("screenshot took too long".into()),
+        Err(_) if height.is_some() => Err("a whole-page screenshot took over 30 s; capture the visible part after browser_scroll, or one element by selector, instead".into()),
+        Err(_) => Err("the screenshot took over 10 s, so the page is busy; wait for it with browser_wait and try again".into()),
     }
 }
 
