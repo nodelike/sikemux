@@ -12,7 +12,7 @@ import { Buffer } from 'node:buffer';
 import { createSign } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-import { releaseNotes } from './play-release.mjs';
+import { releaseNotes } from '../../app/scripts/play-release.mjs';
 
 const BUNDLE_ID = 'com.nodelike.sikemux.mobile';
 const API = 'https://api.appstoreconnect.apple.com';

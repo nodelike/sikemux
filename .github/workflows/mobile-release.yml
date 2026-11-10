@@ -49,6 +49,11 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME is not a release of $base, the version in mobile/app/app.json"
             exit 1
           fi
+          ios_base="$(sed -n 's/^ *MARKETING_VERSION: *//p' mobile/ios/project.yml)"
+          if [[ "$ios_base" != "$base" ]]; then
+            echo "::error::mobile/ios/project.yml is at $ios_base and mobile/app/app.json at $base: release both at one version"
+            exit 1
+          fi
           case "$version" in
             *-nightly.*) channel=nightly ;;
             *-*)
@@ -325,17 +330,9 @@ jobs:
   ios-build:
     name: Build iOS
     runs-on: macos-26
-    timeout-minutes: 120
+    timeout-minutes: 90
     needs: [approve, plan]
     if: *approved_plan
-    env:
-      APP_VARIANT: production
-      SIKEMUX_MOBILE_VERSION: ${{ needs.plan.outputs.version }}
-      SIKEMUX_MOBILE_CHANNEL: ${{ needs.plan.outputs.channel }}
-      # The account sheet shows which commit the build's own code came from.
-      EXPO_PUBLIC_COMMIT: ${{ needs.plan.outputs.commit }}
-      # This build does not report crashes, so it sends Sentry nothing either.
-      SENTRY_DISABLE_AUTO_UPLOAD: "true"
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -349,50 +346,38 @@ jobs:
           sudo xcode-select -s "$xcode"
           xcodebuild -version | head -n 1 >>"$GITHUB_STEP_SUMMARY"
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
-        with:
-          package_json_file: mobile/package.json
-          run_install: false
-
-      - name: Setup Node
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-
-      # The phone build takes rustup only from ~/.cargo/bin, and the macOS runner's rustup now comes from Homebrew.
       - name: Setup Rust
-        run: |
-          [ -x "$HOME/.cargo/bin/rustup" ] || curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none --no-modify-path
-          echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
-          channel="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
-          "$HOME/.cargo/bin/rustup" toolchain install "$channel" --profile minimal --no-self-update \
-            --target aarch64-apple-ios --target aarch64-apple-ios-sim
+        uses: ./.github/actions/setup-rust
+        with:
+          targets: aarch64-apple-ios
 
-      - name: Install phone dependencies
-        working-directory: mobile
-        run: pnpm install --frozen-lockfile
+      - name: Install XcodeGen
+        run: scripts/install-xcodegen.sh
 
       - name: Build the Rust client
-        working-directory: mobile
-        run: pnpm native:ios:release
+        run: mobile/ios/scripts/build-core.sh --profile mobile --device-only
 
-      - name: Generate the iOS project
-        working-directory: mobile/app
-        run: node scripts/run.mjs prebuild ios production
+      - name: Generate the Xcode project
+        working-directory: mobile/ios
+        run: xcodegen generate --quiet
 
       # Export takes each bundle's entitlements from the archive's signatures, so the archive is
       # signed ad hoc with them; export then signs it for the App Store.
       - name: Archive, signed ad hoc
-        working-directory: mobile/app/ios
+        working-directory: mobile/ios
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          BUILD: ${{ needs.plan.outputs.build }}
+          COMMIT: ${{ needs.plan.outputs.commit }}
         run: |
           archive="$RUNNER_TEMP/Sikemux.xcarchive"
-          build=(-workspace Sikemux.xcworkspace -scheme Sikemux -configuration Release -destination generic/platform=iOS)
-          xcodebuild "${build[@]}" -archivePath "$archive" CODE_SIGNING_ALLOWED=NO archive
+          settings=(CURRENT_PROJECT_VERSION="$BUILD" SIKEMUX_COMMIT="$COMMIT")
+          xcodebuild -project Sikemux.xcodeproj -scheme Sikemux -configuration Release -destination generic/platform=iOS \
+            -archivePath "$archive" "${settings[@]}" CODE_SIGNING_ALLOWED=NO archive
           entitlements="$RUNNER_TEMP/entitlements"
           xcodebuild -project Sikemux.xcodeproj -alltargets -configuration Release -sdk iphoneos \
-            -showBuildSettings -json >"$RUNNER_TEMP/settings.json"
-          node ../scripts/ios-entitlements.mjs "$RUNNER_TEMP/settings.json" "$entitlements"
+            "${settings[@]}" -showBuildSettings -json >"$RUNNER_TEMP/settings.json"
+          node scripts/entitlements.mjs "$RUNNER_TEMP/settings.json" "$entitlements"
           app="$archive/Products/Applications/Sikemux.app"
           [[ -f "$entitlements/Sikemux.app.plist" ]] || { echo "::error::The app has no entitlements"; exit 1; }
           find "$app" -depth -mindepth 1 \( -name '*.framework' -o -name '*.dylib' -o -name '*.appex' \) -print0 |
@@ -403,6 +388,9 @@ jobs:
             done
           codesign --force --sign - --generate-entitlement-der --entitlements "$entitlements/Sikemux.app.plist" "$app"
           codesign --verify --deep --strict "$app"
+          shipped="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Info.plist") ($(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Info.plist"))"
+          [[ "$shipped" == "${VERSION%%-*} ($BUILD)" ]] || { echo "::error::The app says it is $shipped"; exit 1; }
+          echo "Archived $shipped, $(du -sh "$app" | cut -f1) on disk" >>"$GITHUB_STEP_SUMMARY"
           COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$RUNNER_TEMP/archive.tar" -C "$RUNNER_TEMP" Sikemux.xcarchive
 
       - name: Keep the archive
@@ -462,9 +450,9 @@ jobs:
           codesign --verify --deep --strict "$archive/Products/Applications/Sikemux.app"
 
       # Xcode makes or fetches the distribution certificate and the profiles for the app and its
-      # notification extension with the App Store Connect API key, and sends the build to TestFlight.
+      # extensions with the App Store Connect API key, and sends the build to TestFlight.
       - name: Revoke the development certificates earlier runs made
-        working-directory: mobile/app
+        working-directory: mobile/ios
         env:
           APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -505,7 +493,7 @@ jobs:
           echo "Sent build $build to TestFlight" >>"$GITHUB_STEP_SUMMARY"
 
       - name: Send the build to the external testers through beta review
-        working-directory: mobile/app
+        working-directory: mobile/ios
         env:
           APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}

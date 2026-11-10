@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds the core's phone client (crates/sikemux-mobile) for iOS: the static
 # library as an xcframework, and its Swift bindings, into mobile/ios/build.
-#   build-core.sh [--profile debug|mobile] [--sim-only]
+#   build-core.sh [--profile debug|mobile] [--sim-only|--device-only]
 set -euo pipefail
 
 ios="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,6 +15,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --profile) profile="$2"; shift 2 ;;
     --sim-only) targets=(aarch64-apple-ios-sim); shift ;;
+    --device-only) targets=(aarch64-apple-ios); shift ;;
     *) echo "build-core.sh: unknown argument $1" >&2; exit 2 ;;
   esac
 done

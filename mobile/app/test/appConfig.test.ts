@@ -41,13 +41,12 @@ describe('updates', () => {
 });
 
 describe('build numbers', () => {
-  it('are the same on Android and iOS, and read back as the release', () => {
+  it('read back as the release', () => {
     const nightly = `${expo.version}-nightly.3`;
     const config = resolve({ APP_VARIANT: 'production', SIKEMUX_MOBILE_VERSION: nightly });
-    expect(config.ios.buildNumber).toBe(String(config.android.versionCode));
-    expect(versionFromBuild(config.ios.buildNumber)).toBe(nightly);
+    expect(versionFromBuild(String(config.android.versionCode))).toBe(nightly);
     const stable = resolve({ APP_VARIANT: 'production', SIKEMUX_MOBILE_VERSION: expo.version });
-    expect(versionFromBuild(stable.ios.buildNumber)).toBe(expo.version);
+    expect(versionFromBuild(String(stable.android.versionCode))).toBe(expo.version);
   });
 });
 
