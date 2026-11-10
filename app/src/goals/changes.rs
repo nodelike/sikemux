@@ -17,12 +17,12 @@ use sikemux_core::server::git::call as git_call;
 use sikemux_view::slice::{Evidence, Note, Proof, SliceView, Spot};
 
 use super::{evidence, GoalsPane};
+use crate::board::ChangesBoards;
 use crate::icons::Icon;
 use crate::theme::{
     self, Tokens, SPACE_1, SPACE_1H, SPACE_2, SPACE_3, SPACE_4, TEXT_2XS, TEXT_SM, TEXT_XS,
 };
 use crate::ui::{self, IconButton};
-use crate::board::ChangesBoards;
 use crate::workbench::Workbench;
 
 const PICTURE_HEIGHT: f32 = 340.;
