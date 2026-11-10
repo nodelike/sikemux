@@ -48,7 +48,7 @@ struct Palette: Equatable, Sendable {
 
     static let standard = Palette()
 
-    private static let names: [String: WritableKeyPath<Palette, Color>] = [
+    private static let names: [String: WritableKeyPath<Palette, Color> & Sendable] = [
         "sunken": \.sunken, "ground": \.ground, "raised": \.raised, "overlay": \.overlay, "composer": \.composer,
         "border": \.border, "borderStrong": \.borderStrong, "rest": \.rest, "ink": \.ink, "secondary": \.secondary,
         "tertiary": \.tertiary, "inkDim": \.inkDim, "inkFaint": \.inkFaint, "active": \.active,

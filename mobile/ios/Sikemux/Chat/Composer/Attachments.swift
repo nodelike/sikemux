@@ -121,7 +121,7 @@ private struct TileImage: View {
     }
 
     /// Enough pixels for its 58 points at 3x, and a little more.
-    private static func thumbnail(_ url: URL) -> UIImage? {
+    nonisolated private static func thumbnail(_ url: URL) -> UIImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,

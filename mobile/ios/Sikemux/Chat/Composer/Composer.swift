@@ -154,7 +154,7 @@ struct Composer: View {
             stash: adding == .stash, room: room,
             onAttach: { session.attach($0) },
             onStash: { fromStash($0) },
-            onStashPrompt: sendable && !uploading ? stashPrompt : nil,
+            onStashPrompt: sendable && !uploading ? { stashPrompt() } : nil,
             onProblem: { session.report($0) }
         )
         .liftedSheet(shown: $configuring) {

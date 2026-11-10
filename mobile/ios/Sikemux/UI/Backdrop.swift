@@ -77,7 +77,7 @@ struct PaneBackdrop: View {
     private static let stillAt = 2.5
     private static var revealed: Set<String> = []
     /// The picture is drawn no larger than this many pixels across, which is wider than any phone.
-    private static let widest: CGFloat = 1600
+    nonisolated private static let widest: CGFloat = 1600
 
     private struct Picture {
         let file: URL

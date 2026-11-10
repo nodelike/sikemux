@@ -224,9 +224,9 @@ final class FrameOnce {
         run()
     }
 
-    private final class Target: NSObject {
+    @MainActor private final class Target: NSObject {
         weak var owner: FrameOnce?
         init(_ owner: FrameOnce) { self.owner = owner }
-        @objc func fire() { MainActor.assumeIsolated { owner?.fire() } }
+        @objc func fire() { owner?.fire() }
     }
 }

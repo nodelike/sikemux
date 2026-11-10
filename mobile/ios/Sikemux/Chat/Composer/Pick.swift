@@ -136,12 +136,14 @@ enum Pick {
 }
 
 private final class PhotoDelegate: NSObject, PHPickerViewControllerDelegate {
-    let done: ([PHPickerResult]) -> Void
-    init(_ done: @escaping ([PHPickerResult]) -> Void) { self.done = done }
+    let done: (sending [PHPickerResult]) -> Void
+    init(_ done: @escaping (sending [PHPickerResult]) -> Void) { self.done = done }
 
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        done(results)
+        // Only the main actor reads them: the picker answers there, and `photos` waits there.
+        nonisolated(unsafe) let picked = results
+        done(picked)
     }
 }
 
