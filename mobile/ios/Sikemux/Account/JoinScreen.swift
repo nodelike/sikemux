@@ -58,7 +58,7 @@ struct JoinScreen: View {
 
     private func waiting(_ waiting: Bool, _ left: Int) -> some View {
         HStack(spacing: 12) {
-            ProgressView().controlSize(.small).tint(palette.live)
+            Working()
             Text(waiting ? "Waiting for \(name)" : "Reaching \(name)")
                 .font(Theme.ui(15)).foregroundStyle(palette.secondary).lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)

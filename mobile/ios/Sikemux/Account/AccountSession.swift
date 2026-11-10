@@ -74,6 +74,7 @@ final class AccountSession {
 
     func foreground() {
         front = true
+        connectArrivals()
         if registered { live?.start() } else { retryNow() }
     }
 
@@ -143,6 +144,18 @@ final class AccountSession {
         }
     }
 
+    /// Starts connecting to a host that signed in to the account after this phone did. A host that arrives while the
+    /// phone is in the background stays new until the phone is in front, so it still connects then.
+    func connectArrivals() {
+        guard let userId, front, AccountHosts.shared.loaded, Joining.screens == 0 else { return }
+        let hosts = AccountHosts.shared.hosts
+        Task {
+            let arrived = await Arrivals.shared.hostsArrived(account: userId, hosts: hosts)
+            guard let host = arrived.first(where: { found in !Hub.shared.devices.contains { $0.core == found.key } }) else { return }
+            Router.shared.open(.join(core: host.key, name: host.name, arrived: true))
+        }
+    }
+
     private func askAbout(_ key: String) async {
         if let device = try? await AccountCalls.device(key) { newDevice = device }
     }
@@ -181,6 +194,7 @@ final class AccountHosts {
                 hosts = found
                 loaded = true
                 problem = nil
+                AccountSession.shared.connectArrivals()
             } catch {
                 guard current == reading else { return }
                 problem = Sikemux.problem(error)

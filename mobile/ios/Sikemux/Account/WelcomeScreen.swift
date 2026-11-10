@@ -132,9 +132,9 @@ private struct Reel: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             Group {
                 switch line.state {
-                case .working: Circle().fill(palette.live).frame(width: 7, height: 7)
-                case .needs: Circle().fill(palette.warn).frame(width: 7, height: 7)
-                case .done: Circle().fill(palette.accent).frame(width: 8, height: 8)
+                case .working: Working()
+                case .needs: NeedsYou()
+                case .done: Dot(color: palette.accent)
                 }
             }
             .frame(width: 20)
