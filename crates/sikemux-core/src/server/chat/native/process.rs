@@ -122,7 +122,8 @@ impl Process {
         args: impl IntoIterator<Item = String>,
         env: impl IntoIterator<Item = (String, String)>,
     ) -> Result<(Self, Writer, Lines), String> {
-        let mut command = sikemux_process::user_environment::agent_command(&launch.program);
+        let mut command =
+            sikemux_process::user_environment::agent_command_in_own_cgroup(&launch.program);
         command
             .args(git_guard::shim::arguments(&launch.provider))
             .args(&launch.args)

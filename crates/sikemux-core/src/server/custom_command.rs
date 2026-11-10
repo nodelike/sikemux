@@ -43,7 +43,7 @@ pub(crate) async fn run(params: CommandParams) -> CoreResult<CommandResult> {
     }
     blocking(move || {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
-        let mut process = sikemux_process::user_environment::agent_command(shell);
+        let mut process = sikemux_process::user_environment::agent_command_in_own_cgroup(shell);
         process.args(["-lc", &params.command]);
         if let Some(cwd) = params.cwd.filter(|cwd| !cwd.as_os_str().is_empty()) {
             process.current_dir(cwd);

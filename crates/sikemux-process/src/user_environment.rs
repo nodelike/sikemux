@@ -77,12 +77,18 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
 
 /// [`command`] for an agent, an agent's CLI or a task: it inherits nothing of the agent session
 /// that started this process, so the caller sets the program's own Sikemux and account variables.
-/// It runs in a cgroup of its own, so running out of memory stops it rather than the core.
 pub fn agent_command(program: impl AsRef<OsStr>) -> Command {
     let mut command = command(program);
     for name in crate::vars::LAUNCHING_SESSION {
         command.env_remove(name);
     }
+    command
+}
+
+/// [`agent_command`] for what may run long and use a lot of memory, such as a chat's agent or a
+/// build: it runs in a cgroup of its own, so running out of memory stops it rather than the core.
+pub fn agent_command_in_own_cgroup(program: impl AsRef<OsStr>) -> Command {
+    let mut command = agent_command(program);
     crate::cgroups::give_own_cgroup(&mut command);
     command
 }
@@ -98,11 +104,11 @@ pub fn background_shell() -> Command {
     };
     match lowering.filter(|(program, _)| std::path::Path::new(program).exists()) {
         Some((program, args)) => {
-            let mut command = agent_command(program);
+            let mut command = agent_command_in_own_cgroup(program);
             command.args(args).arg(SHELL);
             command
         }
-        None => agent_command(SHELL),
+        None => agent_command_in_own_cgroup(SHELL),
     }
 }
 

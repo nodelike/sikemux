@@ -25,13 +25,13 @@ pub fn move_into_own_cgroup(pid: u32) {
 mod platform {
     use std::ffi::{CStr, CString};
     use std::fs;
-    use std::os::unix::ffi::{OsStrExt, OsStringExt};
+    use std::os::unix::ffi::OsStringExt;
     use std::os::unix::process::CommandExt;
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Mutex, OnceLock};
-    use std::time::{Duration, Instant};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use crate::sync::Locked;
 
@@ -39,7 +39,7 @@ mod platform {
     const OWN_SCOPE_PREFIX: &str = "sikemux-core-";
     const CORE_LEAF: &str = "core";
     const CHILD_LEAF_PREFIX: &str = "child-";
-    const CONTROLLERS: [&str; 2] = ["memory", "pids"];
+    const CONTROLLER: &str = "memory";
     /// A child cgroup still empty this long after it was made had its process exit, or was never used.
     const UNUSED_AFTER: Duration = Duration::from_secs(60);
 
@@ -55,32 +55,38 @@ mod platform {
     }
 
     pub(super) fn give_own_cgroup(command: &mut Command) {
-        let Some(procs) = new_child_cgroup() else {
+        let Some(cgroup) = new_child_cgroup() else {
             return;
         };
-        let Ok(procs) = CString::new(procs.into_os_string().into_vec()) else {
+        let procs = cgroup.join("cgroup.procs");
+        let (Ok(cgroup), Ok(procs)) = (
+            CString::new(cgroup.into_os_string().into_vec()),
+            CString::new(procs.into_os_string().into_vec()),
+        ) else {
             return;
         };
-        // SAFETY: the hook runs in the forked child before exec and calls only open, write and
-        // close, which are async-signal-safe; `procs` was built before the fork.
+        // SAFETY: the hook runs in the forked child before exec and calls only mkdir, open, write
+        // and close, which are async-signal-safe; both paths were built before the fork.
         unsafe {
             command.pre_exec(move || {
-                join(&procs);
+                join(&cgroup, &procs);
                 Ok(())
             });
         }
     }
 
     pub(super) fn move_into_own_cgroup(pid: u32) {
-        if let Some(procs) = new_child_cgroup() {
-            let _ = fs::write(procs, pid.to_string());
+        if let Some(cgroup) = new_child_cgroup() {
+            let _ = fs::write(cgroup.join("cgroup.procs"), pid.to_string());
         }
     }
 
-    /// Writing 0 to a cgroup's `cgroup.procs` moves the writing process into it.
-    fn join(procs: &CStr) {
-        // SAFETY: `procs` is a valid NUL-terminated path, and the fd opened here is closed here.
+    /// Writing 0 to a cgroup's `cgroup.procs` moves the writing process into it. The cgroup is
+    /// made again first in case it was cleared as unused before the command was spawned.
+    fn join(cgroup: &CStr, procs: &CStr) {
+        // SAFETY: both are valid NUL-terminated paths, and the fd opened here is closed here.
         unsafe {
+            libc::mkdir(cgroup.as_ptr(), 0o755);
             let fd = libc::open(procs.as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
             if fd >= 0 {
                 libc::write(fd, b"0".as_ptr().cast(), 1);
@@ -89,7 +95,7 @@ mod platform {
         }
     }
 
-    /// Makes an empty cgroup for one process and gives its `cgroup.procs` file.
+    /// Makes an empty cgroup for one process.
     fn new_child_cgroup() -> Option<PathBuf> {
         let root = ROOT.get()?.as_ref()?;
         let now = Instant::now();
@@ -105,16 +111,16 @@ mod platform {
             std::process::id()
         ));
         fs::create_dir(&path).ok()?;
-        let procs = path.join("cgroup.procs");
-        made.push((path, now));
-        Some(procs)
+        made.push((path.clone(), now));
+        Some(path)
     }
 
     /// The cgroup of a unit this core may make cgroups in: its own delegated service, or a scope
-    /// it starts for itself when something else, such as the desktop, launched it.
+    /// it starts for itself when something else, such as the desktop or another core's agent,
+    /// launched it.
     fn divisible_unit() -> Option<PathBuf> {
         let own = own_cgroup()?;
-        let mut components: Vec<&str> = own.split('/').filter(|part| !part.is_empty()).collect();
+        let components: Vec<&str> = own.split('/').filter(|part| !part.is_empty()).collect();
         let manager = components
             .iter()
             .position(|part| part.starts_with("user@"))?;
@@ -123,19 +129,25 @@ mod platform {
             .rposition(|part| part.ends_with(".scope") || part.ends_with(".service"))
             .filter(|&at| at > manager)?;
         let name = components[unit];
-        components.truncate(unit + 1);
-        let unit_path = Path::new(CGROUPS).join(components.join("/"));
-        if name.starts_with(OWN_SCOPE_PREFIX) && name.ends_with(".scope") {
+        let inside = &components[unit + 1..];
+        let at_top = inside.is_empty() || inside == [CORE_LEAF];
+        let unit_path = Path::new(CGROUPS).join(components[..=unit].join("/"));
+        if at_top && name.starts_with(&own_scope_prefix()) && name.ends_with(".scope") {
             return Some(unit_path);
         }
-        if name.ends_with(".service") {
-            return service_is_delegated().then_some(unit_path);
+        if at_top && name.ends_with(".service") && service_is_delegated() {
+            return Some(unit_path);
         }
         let slice = components[..unit]
-            .last()
-            .filter(|part| part.ends_with(".slice"))
+            .iter()
+            .rev()
+            .find(|part| part.ends_with(".slice"))
             .copied();
         start_own_scope(slice)
+    }
+
+    fn own_scope_prefix() -> String {
+        format!("{OWN_SCOPE_PREFIX}{}-", std::process::id())
     }
 
     fn own_cgroup() -> Option<String> {
@@ -186,28 +198,24 @@ mod platform {
         ])
     }
 
+    /// The name carries the start time as well as the pid, since agents of a core that crashed
+    /// can keep its scope alive until a later core is given the same pid.
     fn start_own_scope(slice: Option<&str>) -> Option<PathBuf> {
         let pid = std::process::id().to_string();
-        let name = format!("{OWN_SCOPE_PREFIX}{pid}.scope");
-        let mut properties = vec![
-            "PIDs",
-            "au",
-            "1",
-            &pid,
-            "Delegate",
-            "b",
-            "true",
-            "CollectMode",
-            "s",
-            "inactive-or-failed",
-            "Description",
-            "s",
-            "Sikemux core",
+        let started = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_millis());
+        let name = format!("{}{started}.scope", own_scope_prefix());
+        let mut properties: Vec<Vec<&str>> = vec![
+            vec!["PIDs", "au", "1", &pid],
+            vec!["Delegate", "b", "true"],
+            vec!["CollectMode", "s", "inactive-or-failed"],
+            vec!["Description", "s", "Sikemux core"],
         ];
         if let Some(slice) = slice {
-            properties.extend(["Slice", "s", slice]);
+            properties.push(vec!["Slice", "s", slice]);
         }
-        let count = (properties.len() / 3).to_string();
+        let count = properties.len().to_string();
         let mut args = vec![
             "call",
             "org.freedesktop.systemd1",
@@ -219,7 +227,7 @@ mod platform {
             "fail",
             &count,
         ];
-        args.extend(properties);
+        args.extend(properties.iter().flatten().copied());
         args.push("0");
         busctl(&args)?;
         let suffix = format!("/{name}");
@@ -247,38 +255,43 @@ mod platform {
         if fs::write(core.join("cgroup.procs"), std::process::id().to_string()).is_err() {
             return false;
         }
-        let available = fs::read_to_string(root.join("cgroup.controllers")).unwrap_or_default();
-        let wanted: Vec<String> = CONTROLLERS
-            .iter()
-            .filter(|controller| {
-                available
-                    .split_whitespace()
-                    .any(|have| have == **controller)
-            })
-            .map(|controller| format!("+{controller}"))
-            .collect();
-        let _ = fs::write(root.join("cgroup.subtree_control"), wanted.join(" "));
-        let enabled = fs::read_to_string(root.join("cgroup.subtree_control")).unwrap_or_default();
-        if !enabled
-            .split_whitespace()
-            .any(|controller| controller == "memory")
-        {
+        let has_memory = |file: &str| {
+            fs::read_to_string(root.join(file))
+                .unwrap_or_default()
+                .split_whitespace()
+                .any(|controller| controller == CONTROLLER)
+        };
+        if !has_memory("cgroup.controllers") {
             return false;
         }
-        remove_empty_children(root);
+        let _ = fs::write(
+            root.join("cgroup.subtree_control"),
+            format!("+{CONTROLLER}"),
+        );
+        if !has_memory("cgroup.subtree_control") {
+            return false;
+        }
+        remove_children_of_gone_cores(root);
         true
     }
 
-    fn remove_empty_children(root: &Path) {
+    /// Clears the empty child cgroups cores that ran here before left behind, leaving those of
+    /// any core still running.
+    fn remove_children_of_gone_cores(root: &Path) {
         let Ok(entries) = fs::read_dir(root) else {
             return;
         };
+        let own = std::process::id().to_string();
         for entry in entries.flatten() {
-            if entry
-                .file_name()
-                .as_bytes()
-                .starts_with(CHILD_LEAF_PREFIX.as_bytes())
-            {
+            let name = entry.file_name();
+            let Some(core) = name
+                .to_str()
+                .and_then(|name| name.strip_prefix(CHILD_LEAF_PREFIX))
+                .and_then(|rest| rest.split('-').next())
+            else {
+                continue;
+            };
+            if core == own || !Path::new("/proc").join(core).exists() {
                 let _ = fs::remove_dir(entry.path());
             }
         }
