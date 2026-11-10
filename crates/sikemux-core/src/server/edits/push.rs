@@ -12,7 +12,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use super::committer;
-use super::footer::verified;
+use super::footer::{self, verified};
+use super::land;
 use super::note;
 use super::owners::{git, run};
 use crate::server::Core;
@@ -63,6 +64,19 @@ impl Signing {
         let (host, agents) = trailers::verify(message, was, &self.hosts)?;
         (self.key.as_ref()?.public() == host).then_some(agents)
     }
+
+    /// The agents of the commit `git rebase` made `commit` from, when this host signed its footer.
+    fn agents_before_rebase(&self, top: &Path, commit: &str) -> Option<Vec<Agent>> {
+        let was = footer::before_rebase(top, commit)?;
+        let (tree, parents, message) = footer::read_commit(top, &was).ok()?;
+        self.agents_of(
+            &message,
+            &Commit {
+                tree: &tree,
+                parents: &parents,
+            },
+        )
+    }
 }
 
 pub(super) fn push(
@@ -99,7 +113,9 @@ pub(super) fn push(
 }
 
 /// Pushes the unpushed commits on `dir`'s branch that `whose` says are the
-/// caller's, as `whose` names the writers of each.
+/// caller's, as `whose` names the writers of each. When the remote has moved
+/// on, they go on its tip and the branch takes its new commits; when it moves
+/// while pushing, that happens again.
 fn push_as(
     dir: &Path,
     remote: &str,
@@ -111,26 +127,64 @@ fn push_as(
         .map_err(|_| "git_push pushes a branch; this checkout is not on one".to_owned())?
         .trim()
         .to_owned();
-    let head = line(git(&top, &["rev-parse", "HEAD"])?);
-    let base = match on_remote(&top, remote, &branch)? {
-        true => Some(fetched_tip(&top, remote, &branch, &head)?),
-        false => last_on_remote(&top, remote, &head)?,
+    for _ in 0..ATTEMPTS {
+        match push_once(&top, remote, &branch, &whose, signing) {
+            Err(Attempt::Raced) => continue,
+            Err(Attempt::Failed(why)) => return Err(why),
+            Ok(pushed) => return Ok(pushed),
+        }
+    }
+    Err(format!(
+        "{remote}/{branch} kept moving while pushing; call this again"
+    ))
+}
+
+enum Attempt {
+    Raced,
+    Failed(String),
+}
+
+impl From<String> for Attempt {
+    fn from(why: String) -> Self {
+        Self::Failed(why)
+    }
+}
+
+fn push_once(
+    top: &Path,
+    remote: &str,
+    branch: &str,
+    whose: &impl Fn(&str) -> Result<(bool, String), String>,
+    signing: &Signing,
+) -> Result<Pushed, Attempt> {
+    let head = line(git(top, &["rev-parse", "HEAD"])?);
+    let (base, fork) = match on_remote(top, remote, branch)? {
+        true => {
+            let tip = fetched_tip(top, remote, branch)?;
+            let fork = line(git(top, &["merge-base", &head, &tip])?);
+            (Some(tip), Some(fork))
+        }
+        false => {
+            let fork = last_on_remote(top, remote, &head)?;
+            (fork.clone(), fork)
+        }
     };
-    let unpushed = unpushed(&top, base.as_deref(), &head, whose)?;
+    let moved = base != fork;
+    let unpushed = unpushed(top, fork.as_deref(), base.as_deref(), &head, whose)?;
     if !unpushed.iter().any(|commit| commit.mine) {
-        return Err(match unpushed.is_empty() {
+        return Err(Attempt::Failed(match unpushed.is_empty() {
             true => "Nothing to push: every commit here is on the remote".to_owned(),
             false => format!(
                 "None of the unpushed commits are yours: {}",
                 kept(&unpushed).join("; ")
             ),
-        });
+        }));
     }
     let (ours, theirs): (Vec<&Unpushed>, Vec<&Unpushed>) =
         unpushed.iter().partition(|commit| commit.mine);
     let pushed = Pushed {
         remote: remote.to_owned(),
-        branch: branch.clone(),
+        branch: branch.to_owned(),
         pushed: ours
             .iter()
             .map(|commit| format!("{} {}", short(&commit.id), commit.subject))
@@ -138,46 +192,68 @@ fn push_as(
         kept: kept(&unpushed),
         note: None,
     };
-    if theirs.is_empty() {
-        remote_git(
-            &top,
-            &[
-                "push",
-                "--quiet",
-                remote,
-                &format!("{head}:refs/heads/{branch}"),
-            ],
-        )?;
+    if theirs.is_empty() && !moved {
+        send(top, remote, branch, &head)?;
         return Ok(pushed);
     }
     let cannot_go_alone = || {
-        format!(
-            "Your commits build on other agents' unpushed ones, so they cannot go alone: {}. Ask them to push, or push when the person says to.",
+        Attempt::Failed(format!(
+            "Your commits build on other agents' unpushed ones, so they cannot go alone: {}. Ask them to push theirs with agent_send, then push again.",
             kept(&unpushed).join("; ")
-        )
+        ))
+    };
+    let clash = match moved {
+        true => "onto the remote's newest commits",
+        false => WITHOUT_THEIRS,
     };
     let base = base.ok_or_else(cannot_go_alone)?;
-    let tip = replay(signing, &top, &base, &ours, WITHOUT_THEIRS).map_err(|_| cannot_go_alone())?;
-    let rebuilt =
-        replay(signing, &top, &tip, &theirs, WITHOUT_THEIRS).map_err(|_| cannot_go_alone())?;
-    if tree(&top, &rebuilt)? != tree(&top, &head)? {
-        return Err(cannot_go_alone());
+    let tip = replay(signing, top, &base, &ours, clash).map_err(|why| match moved {
+        true => Attempt::Failed(format!("{why}; pull and settle it, then push again")),
+        false => cannot_go_alone(),
+    })?;
+    let rebuilt = replay(signing, top, &tip, &theirs, clash).map_err(|_| cannot_go_alone())?;
+    match moved {
+        true => {
+            land::steps(top, &head, &rebuilt)?;
+        }
+        false if tree(top, &rebuilt)? != tree(top, &head)? => return Err(cannot_go_alone()),
+        false => {}
     }
-    remote_git(
-        &top,
-        &[
-            "push",
-            "--quiet",
-            remote,
-            &format!("{tip}:refs/heads/{branch}"),
-        ],
-    )?;
-    let rebased = rebase_branch(signing, &top, &branch, &head, &rebuilt)?;
+    send(top, remote, branch, &tip)?;
+    let rebased = rebase_branch(signing, top, branch, &head, &rebuilt, moved)?;
     Ok(Pushed {
         note: (!rebased).then(|| format!(
             "{branch} moved while pushing, so it still holds your pushed commits as they were; git pull --rebase drops them"
         )),
         ..pushed
+    })
+}
+
+/// Pushes `commit` as the remote's `branch`; a remote that moved on since it
+/// was fetched is a race to try again.
+fn send(top: &Path, remote: &str, branch: &str, commit: &str) -> Result<(), Attempt> {
+    remote_git(
+        top,
+        &[
+            "push",
+            "--quiet",
+            remote,
+            &format!("{commit}:refs/heads/{branch}"),
+        ],
+    )
+    .map_err(|why| {
+        let raced = [
+            "non-fast-forward",
+            "fetch first",
+            "stale info",
+            "cannot lock ref",
+        ]
+        .iter()
+        .any(|sign| why.contains(sign));
+        match raced {
+            true => Attempt::Raced,
+            false => Attempt::Failed(why),
+        }
     })
 }
 
@@ -194,21 +270,14 @@ fn on_remote(top: &Path, remote: &str, branch: &str) -> Result<bool, String> {
     Ok(!found.trim().is_empty())
 }
 
-/// The tip of `branch` on the remote, once it is known to hold nothing `head` lacks.
-fn fetched_tip(top: &Path, remote: &str, branch: &str, head: &str) -> Result<String, String> {
+/// The tip of `branch` on the remote, fetched.
+fn fetched_tip(top: &Path, remote: &str, branch: &str) -> Result<String, String> {
     let tracking = format!("refs/remotes/{remote}/{branch}");
     remote_git(
         top,
         &["fetch", "--quiet", remote, &format!("+{branch}:{tracking}")],
     )?;
-    let base = line(git(top, &["rev-parse", &tracking])?);
-    let ahead = git(top, &["rev-list", "--count", &format!("{head}..{base}")])?;
-    if ahead.trim() != "0" {
-        return Err(format!(
-            "{remote}/{branch} has commits this branch lacks; pull them first, then push"
-        ));
-    }
-    Ok(base)
+    Ok(line(git(top, &["rev-parse", &tracking])?))
 }
 
 /// For a branch the remote lacks: the newest commit of `head` that any of the
@@ -237,21 +306,26 @@ fn last_on_remote(top: &Path, remote: &str, head: &str) -> Result<Option<String>
     .map(line))
 }
 
-/// Moves `branch` from `head` to `rebuilt`, the same files with the pushed
-/// commits first, taking along commits others made on it meanwhile. Whether
-/// it moved.
+/// Moves `branch` from `head` to `rebuilt`, the pushed commits first and the
+/// others after them, taking along commits others made on it meanwhile. With
+/// the remote `moved` on, the checkout's files take its new commits as landing
+/// does; otherwise they stay exactly as they are. Whether it moved.
 fn rebase_branch(
     signing: &Signing,
     top: &Path,
     branch: &str,
     head: &str,
     rebuilt: &str,
+    moved: bool,
 ) -> Result<bool, String> {
     let reflog = "push: other agents' unpushed commits go after the pushed ones";
     let target = format!("refs/heads/{branch}");
     let mut from = head.to_owned();
     let mut onto = rebuilt.to_owned();
     for _ in 0..ATTEMPTS {
+        let Ok(steps) = land::steps(top, &from, &onto) else {
+            return Ok(false);
+        };
         if run(
             top,
             &["update-ref", "-m", reflog, &target, &onto, &from],
@@ -260,6 +334,7 @@ fn rebase_branch(
         )
         .is_ok()
         {
+            land::apply(top, steps, &from, &onto);
             return Ok(true);
         }
         let now = line(git(top, &["rev-parse", &target])?);
@@ -277,7 +352,7 @@ fn rebase_branch(
         let Ok(caught_up) = replay(signing, top, &onto, &later, WITHOUT_THEIRS) else {
             return Ok(false);
         };
-        if tree(top, &caught_up)? != tree(top, &now)? {
+        if !moved && tree(top, &caught_up)? != tree(top, &now)? {
             return Ok(false);
         }
         (from, onto) = (now, caught_up);
@@ -303,20 +378,28 @@ fn kept(unpushed: &[Unpushed]) -> Vec<String> {
         .collect()
 }
 
-/// The commits on `head` that `base` lacks, all of them with no `base`, oldest
-/// first, each with whether it is the caller's and who wrote it, as `whose` says.
+/// The commits on `head` that `fork` lacks, all of them with no `fork`, oldest
+/// first, leaving out those `tip` holds already as other commits, each with
+/// whether it is the caller's and who wrote it, as `whose` says.
 fn unpushed(
     top: &Path,
-    base: Option<&str>,
+    fork: Option<&str>,
+    tip: Option<&str>,
     head: &str,
     whose: impl Fn(&str) -> Result<(bool, String), String>,
 ) -> Result<Vec<Unpushed>, String> {
-    let range = base.map_or_else(|| head.to_owned(), |base| format!("{base}..{head}"));
+    let range = fork.map_or_else(|| head.to_owned(), |fork| format!("{fork}..{head}"));
     let merges = git(top, &["rev-list", "--merges", "--count", &range])?;
     if merges.trim() != "0" {
         return Err("The unpushed commits include a merge; push those by hand".into());
     }
-    let listed = git(top, &["log", "--reverse", "--format=%H%x00%s", &range])?;
+    let mut args = vec!["log", "--reverse", "--format=%H%x00%s"];
+    let beside = tip.map(|tip| format!("{tip}...{head}"));
+    match (&beside, tip != fork) {
+        (Some(beside), true) => args.extend(["--cherry-pick", "--right-only", beside.as_str()]),
+        _ => args.push(&range),
+    }
+    let listed = git(top, &args)?;
     listed
         .lines()
         .filter_map(|entry| entry.split_once('\0'))
@@ -381,7 +464,10 @@ pub(super) fn replay(
             tree: &line(git(top, &["rev-parse", &format!("{id}^{{tree}}")])?),
             parents: &old_parents,
         };
-        let message = match signing.agents_of(message, &was) {
+        let agents = signing
+            .agents_of(message, &was)
+            .or_else(|| signing.agents_before_rebase(top, id));
+        let message = match agents {
             Some(agents) => {
                 trailers::append(message, &trailers::footer(&agents, &made_of, key.as_ref()))
             }

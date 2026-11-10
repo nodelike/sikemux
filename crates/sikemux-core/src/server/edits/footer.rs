@@ -312,13 +312,26 @@ pub(super) fn known(core: &Core, dir: &Path, agent_id: &str) -> Option<Agent> {
 /// host or one linked with it, over the commit's own tree and parents, and
 /// naming only agents this host knows: a session one of its CLIs keeps, or a
 /// chat it recorded. Anything else is text anyone could have written.
+/// A commit `git rebase` made again keeps the footer signed for where it stood,
+/// so it is told by the commit it was made from.
 pub(crate) fn verified(core: &Core, dir: &Path, commit: &str) -> Result<Vec<Agent>, String> {
-    let (tree, parents, message) = read_commit(dir, commit)?;
-    let commit = Commit {
-        tree: &tree,
-        parents: &parents,
+    let hosts = core.remote.host_keys();
+    let signed = |id: &str| -> Result<Option<Vec<Agent>>, String> {
+        let (tree, parents, message) = read_commit(dir, id)?;
+        let commit = Commit {
+            tree: &tree,
+            parents: &parents,
+        };
+        Ok(trailers::verify(&message, &commit, &hosts).map(|(_, agents)| agents))
     };
-    let Some((_, agents)) = trailers::verify(&message, &commit, &core.remote.host_keys()) else {
+    let agents = match signed(commit)? {
+        Some(agents) => Some(agents),
+        None => match before_rebase(dir, commit) {
+            Some(was) => signed(&was)?,
+            None => None,
+        },
+    };
+    let Some(agents) = agents else {
         return Ok(Vec::new());
     };
     let project = core.workspaces.project_of(dir);
@@ -328,8 +341,47 @@ pub(crate) fn verified(core: &Core, dir: &Path, commit: &str) -> Result<Vec<Agen
         .collect())
 }
 
+/// The commit `commit` was made from by a `git rebase`: the newest with the
+/// same change among the ones the checkout's HEAD held lately and has left.
+pub(super) fn before_rebase(dir: &Path, commit: &str) -> Option<String> {
+    let change = |patch: &[u8]| -> Option<Vec<(String, String)>> {
+        let ids = run(dir, &["patch-id", "--stable"], None, Some(patch)).ok()?;
+        Some(
+            String::from_utf8_lossy(&ids)
+                .lines()
+                .filter_map(|line| line.split_once(' '))
+                .map(|(change, id)| (change.to_owned(), id.to_owned()))
+                .collect(),
+        )
+    };
+    let made = run(dir, &["show", "--format=commit %H", commit], None, None).ok()?;
+    let (wanted, _) = change(&made)?.into_iter().next()?;
+    let held = git(dir, &["log", "-g", "-n", "64", "--format=%H", "HEAD"]).ok()?;
+    if held.trim().is_empty() {
+        return None;
+    }
+    let mut args = vec![
+        "log",
+        "-p",
+        "-n",
+        "512",
+        "--no-merges",
+        "--format=commit %H",
+    ];
+    args.extend(held.lines());
+    args.extend(["--not", commit]);
+    let left = run(dir, &args, None, None).ok()?;
+    change(&left)?
+        .into_iter()
+        .find(|(change, id)| *change == wanted && id != commit)
+        .map(|(_, id)| id)
+}
+
 /// `commit`'s tree, parents and message.
-fn read_commit(dir: &Path, commit: &str) -> Result<(String, Vec<String>, String), String> {
+pub(super) fn read_commit(
+    dir: &Path,
+    commit: &str,
+) -> Result<(String, Vec<String>, String), String> {
     let object = git(dir, &["cat-file", "commit", commit])?;
     let (header, message) = object.split_once("\n\n").unwrap_or((&object, ""));
     let mut tree = String::new();

@@ -1111,8 +1111,9 @@ answer says so; commit, then sync. With nothing of yours left uncommitted,
 pushes your own commits only, and those of agents you lead, even when other
 agents' unpushed commits sit before them, and lists theirs as kept; with no
 `message` it only pushes. From a checkout of your own it pushes the branch you
-landed on, never your checkout's own, so land first. Push only when the person
-asked for it. In a checkout other agents work in, Sikemux refuses
+landed on, never your checkout's own, so land first. When the remote has moved
+on, your commits go on its tip and the branch takes its new commits as landing
+does. Push when the person or the project's rules say to. In a checkout other agents work in, Sikemux refuses
 `git add -A`, `commit -a`, `stash`, `reset --hard` and the like while it has
 uncommitted changes (`reset --keep` is always allowed), and
 `git checkout -- <path>` or `git restore` over another agent's uncommitted

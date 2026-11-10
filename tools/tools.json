@@ -2601,7 +2601,7 @@
           "type": "boolean"
         },
         "push": {
-          "description": "Push your commits; only when the person asked",
+          "description": "Push your commits, when the person or the project's rules say to",
           "type": "boolean"
         }
       },
