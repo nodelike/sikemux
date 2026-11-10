@@ -638,6 +638,7 @@ fn item(id: String, case: Case, what: String, at: u64) -> InboxItem {
         choices: None,
         question_id: None,
         answers: Vec::new(),
+        pictures: Vec::new(),
         url: None,
         handoff: None,
         recordings: Vec::new(),
@@ -799,10 +800,7 @@ fn card_item(card: &Summary, waits: &Waits, agents: &[Agent]) -> Option<InboxIte
                 format!("Stalled on {}", card.title),
                 card.updated_at,
             );
-            item.detail = Some(format!(
-                "{} Nobody holds it now: resume @{name} or hand it to someone else.",
-                why.words()
-            ));
+            item.detail = Some(format!("{} Nobody holds it now.", why.words()));
             item.agent_id = Some(agent.clone());
             item.name = Some(name.clone());
             item.stalled = Some(InboxStalled {
@@ -971,6 +969,7 @@ fn needs(core: &Core, agents: &[Agent], sessions: &[SessionInfo]) -> Vec<InboxIt
         item.detail = Some(line);
         item.question_id = Some(question.id.clone());
         item.answers.clone_from(&question.answers);
+        item.pictures.clone_from(&question.pictures);
         item.raised.clone_from(&question.raised);
         item.pick.clone_from(&question.pick);
         item.assumption.clone_from(&question.assumption);

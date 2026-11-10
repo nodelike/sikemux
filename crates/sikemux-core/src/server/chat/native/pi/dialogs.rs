@@ -60,6 +60,7 @@ impl Words {
         let choice = |label: &str| QuestionChoice {
             label: label.to_owned(),
             detail: None,
+            picture: None,
             recommended: false,
         };
         let keep = if self.prefill.is_some() {

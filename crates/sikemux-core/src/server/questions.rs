@@ -45,6 +45,10 @@ use reply::*;
 const FILE: &str = "agent-questions.json";
 /// Where the person's answers to secret questions wait for their agents.
 const SECRETS: &str = "agent-secrets";
+/// Where copies of the pictures choices show are kept, so they outlive the files agents made.
+const PICTURES: &str = "question-pictures";
+const PICTURE_TYPES: [&str; 5] = ["png", "jpg", "jpeg", "gif", "webp"];
+const MAX_PICTURE_BYTES: u64 = 20 * 1024 * 1024;
 /// The answers to secret questions kept for one agent, newest first.
 const MAX_SECRETS_PER_AGENT: usize = 8;
 const MAX_QUESTION_BYTES: usize = 8 * 1024;
@@ -353,6 +357,7 @@ pub(crate) struct Questions {
     state: Mutex<State>,
     kept: Kept,
     secrets: Option<std::path::PathBuf>,
+    pictures: Option<std::path::PathBuf>,
     /// Moves questions on and tells the window and phones of them.
     pub(crate) wake: Wake,
 }
@@ -368,6 +373,8 @@ pub(crate) struct ForPerson {
     pub access: bool,
     /// The answers it can be given in one tap, in order.
     pub answers: Vec<String>,
+    /// The picture each of `answers` shows, when its asker gave them.
+    pub pictures: Vec<Option<String>>,
     pub at: u64,
     pub raised: Option<InboxRaised>,
     /// The one of `answers` its asker would take.
@@ -421,8 +428,24 @@ impl Questions {
                 }
             }
         }
+        let pictures = data_dir.map(|dir| dir.join(PICTURES));
+        if let Some(entries) = pictures
+            .as_deref()
+            .and_then(|dir| std::fs::read_dir(dir).ok())
+        {
+            let shown: HashSet<String> = (record.open.iter())
+                .flat_map(|question| question.choices.iter())
+                .filter_map(|choice| choice.picture.clone())
+                .collect();
+            for entry in entries.flatten() {
+                if !shown.contains(&*entry.path().to_string_lossy()) {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
         Self {
             secrets,
+            pictures,
             state: Mutex::new(State {
                 dirty: !record.open.is_empty(),
                 open: record.open,
@@ -458,6 +481,32 @@ impl Questions {
             let _ = std::fs::remove_file(old);
         }
         Ok(path)
+    }
+
+    /// Copies the picture each choice names, a path from `folder`, into the core's own folder,
+    /// pointing the choice at the copy. Nothing is copied unless every picture can be.
+    fn keep_pictures(&self, folder: &str, choices: &mut [QuestionChoice]) -> Result<(), String> {
+        let given: Vec<std::path::PathBuf> = (choices.iter())
+            .filter_map(|choice| choice.picture.as_deref())
+            .map(|picture| picture_file(folder, picture))
+            .collect::<Result<_, _>>()?;
+        if given.is_empty() {
+            return Ok(());
+        }
+        let dir = (self.pictures.as_ref()).ok_or("Sikemux has nowhere to keep pictures")?;
+        std::fs::create_dir_all(dir)
+            .map_err(|error| format!("Sikemux could not keep the pictures: {error}"))?;
+        let shown = choices.iter_mut().filter(|choice| choice.picture.is_some());
+        for (choice, from) in shown.zip(given) {
+            let extension = (from.extension()).map_or(String::new(), |extension| {
+                extension.to_string_lossy().to_lowercase()
+            });
+            let to = dir.join(format!("{}.{extension}", uuid::Uuid::new_v4().simple()));
+            std::fs::copy(&from, &to)
+                .map_err(|error| format!("Sikemux could not keep {}: {error}", from.display()))?;
+            choice.picture = Some(to.to_string_lossy().into_owned());
+        }
+        Ok(())
     }
 
     /// The open questions changed: the window is told, and they are kept.
@@ -542,6 +591,17 @@ impl Questions {
                         .map(|choice| choice.label.clone())
                         .collect(),
                 },
+                pictures: match question.multi
+                    || question
+                        .choices
+                        .iter()
+                        .all(|choice| choice.picture.is_none())
+                {
+                    true => Vec::new(),
+                    false => (question.choices.iter())
+                        .map(|choice| choice.picture.clone())
+                        .collect(),
+                },
                 at: question.at,
                 raised: question.raise.as_ref().map(|raise| InboxRaised {
                     reason: raise.reason,
@@ -569,6 +629,7 @@ impl Questions {
                 answers: (question.choices.iter())
                     .map(|choice| choice.label.clone())
                     .collect(),
+                pictures: Vec::new(),
                 at: question.at,
                 raised: None,
                 pick: recommended_of(&question.choices),
@@ -773,8 +834,8 @@ fn choices(value: Option<&Value>) -> Result<Vec<QuestionChoice>, String> {
     }
     list.iter()
         .map(|choice| {
-            let (label, detail) = match choice {
-                Value::String(label) => (label.as_str(), None),
+            let (label, detail, picture) = match choice {
+                Value::String(label) => (label.as_str(), None, None),
                 Value::Object(choice) => (
                     choice
                         .get("label")
@@ -784,8 +845,9 @@ fn choices(value: Option<&Value>) -> Result<Vec<QuestionChoice>, String> {
                         .get("detail")
                         .or_else(|| choice.get("description"))
                         .and_then(Value::as_str),
+                    choice.get("picture").and_then(Value::as_str),
                 ),
-                _ => ("", None),
+                _ => ("", None, None),
             };
             let (label, recommended) = recommended(label);
             if label.is_empty() {
@@ -796,10 +858,29 @@ fn choices(value: Option<&Value>) -> Result<Vec<QuestionChoice>, String> {
                 detail: detail
                     .filter(|detail| !detail.trim().is_empty())
                     .map(|detail| clipped(detail, MAX_DETAIL_CHARS)),
+                picture: (picture.map(str::trim))
+                    .filter(|picture| !picture.is_empty())
+                    .map(str::to_owned),
                 recommended,
             })
         })
         .collect()
+}
+
+/// The image file a choice's `picture` names, from `folder` when it is not a whole path.
+fn picture_file(folder: &str, picture: &str) -> Result<std::path::PathBuf, String> {
+    let path = Path::new(folder).join(picture);
+    let extension = (path.extension()).map(|extension| extension.to_string_lossy().to_lowercase());
+    if !extension.is_some_and(|extension| PICTURE_TYPES.contains(&extension.as_str())) {
+        return Err(format!(
+            "picture {picture} is not a PNG, JPEG, GIF or WebP file"
+        ));
+    }
+    match std::fs::metadata(&path) {
+        Ok(file) if file.is_file() && file.len() <= MAX_PICTURE_BYTES => Ok(path),
+        Ok(file) if file.is_file() => Err(format!("picture {picture} is over 20 MB")),
+        _ => Err(format!("picture {picture} is not a file Sikemux can read")),
+    }
 }
 
 /// A choice's label without the "(recommended)" the agent put after it, and whether it did.
@@ -856,6 +937,16 @@ fn raise_of(
     }
     if needs_choice && pick.is_none() {
         missing.push("pick: the choice you would take".to_owned());
+    }
+    let bare: Vec<&str> = (choices.iter())
+        .filter(|choice| choice.picture.is_none())
+        .map(|choice| choice.label.as_str())
+        .collect();
+    if reason == Some(RaisedFor::Taste) && !choices.is_empty() && !bare.is_empty() {
+        missing.push(format!(
+            "picture on each choice: the path of a screenshot or mockup that shows it, missing from {}",
+            bare.join(", ")
+        ));
     }
     if breaks.is_none() {
         missing.push("breaks: what breaks if that is wrong".to_owned());
@@ -1036,6 +1127,9 @@ fn for_lead(question: &Question) -> (String, String) {
             if let Some(detail) = &choice.detail {
                 text.push_str(&format!(" — {detail}"));
             }
+            if let Some(picture) = &choice.picture {
+                text.push_str(&format!(" (picture: {picture})"));
+            }
         }
     }
     match &question.assumption {
@@ -1124,6 +1218,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         .map(|header| clipped(&header, MAX_HEADER_CHARS));
     if let Some(worker) = text_param(params, "for", 200)? {
         let raise = raise_of(params, &text, &mut choices)?;
+        (core.harness.questions).keep_pictures(&request.project, &mut choices)?;
         if let Some(foreign) = foreign_worker(core, &agent_id, &worker) {
             let choices = serde_json::to_value(&choices).map_err(|error| error.to_string())?;
             return super::hosts::route::pass_on(core, &agent_id, &foreign, text, choices, raise)
@@ -1174,6 +1269,7 @@ pub(crate) async fn ask(core: &Arc<Core>, request: &HarnessRequest) -> Result<Va
         .then(|| raise_of(params, &text, &mut choices))
         .transpose()?;
     mark_pick(params, &mut choices)?;
+    (core.harness.questions).keep_pictures(&request.project, &mut choices)?;
     let question = open(
         core,
         &agent_id,
@@ -1318,7 +1414,10 @@ pub(crate) fn pass_on_from(
 ) -> Result<Value, String> {
     let text = text_param(&json!({ "text": text }), "text", MAX_QUESTION_BYTES)?
         .ok_or("the question must be nonempty text")?;
-    let choices = self::choices(Some(choices))?;
+    let mut choices = self::choices(Some(choices))?;
+    for choice in &mut choices {
+        choice.picture = None;
+    }
     pass_on(core, lead, worker, text, choices, raise)
 }
 
@@ -1528,6 +1627,7 @@ fn reply_choices(choice: Choice) -> Vec<QuestionChoice> {
         .map(|option| QuestionChoice {
             label: clipped(option, MAX_LABEL_CHARS),
             detail: None,
+            picture: None,
             recommended: choice.pick.as_ref() == Some(option),
         })
         .collect()

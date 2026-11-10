@@ -785,6 +785,11 @@ export interface InboxItem {
      * takes the index as `choice`.
      */
     answers?: string[];
+    /**
+     * The picture each of `answers` shows, in the same order, when the agent that asked gave
+     * them.
+     */
+    pictures?: (string | null)[];
     url: string | null;
     handoff: InboxHandoff | null;
     recordings: InboxRecording[];
@@ -3665,6 +3670,8 @@ export interface AgentQuestion {
 export interface QuestionChoice {
     label: string;
     detail?: string;
+    /** A screenshot or mockup of it, in the core's own folder. */
+    picture?: string;
     /** The agent marked it as the one it would pick. */
     recommended?: boolean;
 }

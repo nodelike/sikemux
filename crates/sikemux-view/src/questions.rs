@@ -8,6 +8,9 @@ pub struct QuestionChoice {
     pub label: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// A screenshot or mockup of it, in the core's own folder.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<String>,
     /// The agent marked it as the one it would pick.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub recommended: bool,

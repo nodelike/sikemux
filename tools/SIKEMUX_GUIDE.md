@@ -957,7 +957,9 @@ agents it started, and only what follows reaches the person.
   or without `for` for a question of your own, and `reason`, `choices`, `pick` and
   `breaks`. `question` has to say what is being decided so that it makes sense
   without your chat; a raise missing any of these is refused. `reason: access`
-  needs no `choices` or `pick`.
+  needs no `choices` or `pick`. `reason: taste` also needs a `picture` on each
+  choice: the path of a screenshot or mockup that shows it. Sikemux keeps a copy
+  and the person's card leads with them.
 - A question ending your reply can show away from this chat, so it must say what
   is being decided, never only "Is that okay?".
 - A choice for the person always goes through `ask`, never only in your reply.

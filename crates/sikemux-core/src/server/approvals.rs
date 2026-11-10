@@ -208,6 +208,7 @@ pub(crate) async fn propose(
         .map(|offered| QuestionChoice {
             label: offered.label,
             detail: offered.detail,
+            picture: None,
             recommended: false,
         })
         .collect();

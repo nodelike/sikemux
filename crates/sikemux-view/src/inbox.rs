@@ -219,6 +219,10 @@ pub struct InboxItem {
     /// takes the index as `choice`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub answers: Vec<String>,
+    /// The picture each of `answers` shows, in the same order, when the agent that asked gave
+    /// them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pictures: Vec<Option<String>>,
     pub url: Option<String>,
     pub handoff: Option<InboxHandoff>,
     pub recordings: Vec<InboxRecording>,
