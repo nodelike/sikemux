@@ -1,5 +1,11 @@
 import { HandleSSOCallback, useAuth, useClerk, useUser } from "@clerk/react";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 
 import { Avatar } from "./Avatar.tsx";
 import { Backdrop } from "./Backdrop.tsx";
@@ -77,10 +83,13 @@ export function App() {
   const afterSignIn = () => returnTo(takeReturn() ?? "/");
 
   /** Clerk skips the callback page when the provider signs the person in at once, landing here instead. */
-  useEffect(() => {
-    if (!signedIn || path === "/sso-callback") return;
+  const resumeReturn = useEffectEvent(() => {
     const to = takeReturn();
     if (to) returnTo(to);
+  });
+
+  useEffect(() => {
+    if (signedIn && path !== "/sso-callback") resumeReturn();
   }, [signedIn, path]);
   const appReturning = signedIn ? appReturn() : null;
 
