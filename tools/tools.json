@@ -97,6 +97,24 @@
         "selector": {
           "type": "string",
           "maxLength": 512
+        },
+        "around": {
+          "description": "Read the text around this phrase instead of from the top",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "chars": {
+          "description": "With around: how much, default 2000",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 40000
+        },
+        "tail": {
+          "description": "Read only the last this many characters",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 40000
         }
       },
       "required": []
@@ -713,7 +731,7 @@
     },
     {
       "name": "browser_wait",
-      "row": {"verb": "wait", "kind": "think", "icon": "hourglass", "target": ["for “{text}”", "for “{textGone}” to go", "for {selector}", "for {selectorGone} to go", "for {url}", "for {urlGone} to go", "{ms}"]},
+      "row": {"verb": "wait", "kind": "think", "icon": "hourglass", "target": ["for “{text}”", "for “{textGone}” to go", "for {selector}", "for {selectorGone} to go", "for {url}", "for {urlGone} to go", "for {stable} to settle", "{ms}"]},
       "method": "browser.wait",
       "description": "Wait for text, a selector, a URL or quiet network.",
       "properties": {
@@ -753,11 +771,29 @@
           "description": "Until no request for 500 ms",
           "type": "boolean"
         },
+        "script": {
+          "description": "A page expression; until it is truthy",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 20000
+        },
+        "stable": {
+          "description": "A selector; until its text stops changing for quietMs",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "quietMs": {
+          "description": "With stable; default 1000",
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        },
         "timeoutMs": {
           "description": "Default 10000",
           "type": "integer",
           "minimum": 0,
-          "maximum": 60000
+          "maximum": 180000
         },
         "ms": {
           "description": "Fixed pause; prefer a condition",
@@ -797,13 +833,12 @@
       "description": "Close one of this agent's tabs.",
       "properties": {
         "tabId": {
+          "description": "Default the tab in front",
           "type": "string",
           "maxLength": 128
         }
       },
-      "required": [
-        "tabId"
-      ]
+      "required": []
     },
     {
       "name": "sim_devices",
@@ -1287,7 +1322,7 @@
           "maxLength": 128
         },
         "readyWhen": {
-          "description": "Output text meaning ready, e.g. Ready in",
+          "description": "Output text meaning ready, e.g. Ready in; events_wait until ready waits for it",
           "type": "string",
           "minLength": 1,
           "maxLength": 4096
@@ -1462,6 +1497,10 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 4000
+        },
+        "tab": {
+          "description": "Open it in a desk tab, with a card in your reply: for a mockup of a whole screen, app or site",
+          "type": "boolean"
         }
       },
       "required": [
@@ -1471,7 +1510,7 @@
     },
     {
       "name": "events_wait",
-      "row": {"verb": "wait", "kind": "think", "icon": "clock", "target": ["for {executionId}", "for {file}", "for pid {pid}", "for events"]},
+      "row": {"verb": "wait", "kind": "think", "icon": "clock", "target": ["for {executionId}", "for {file}", "for pid {pid}", "for events"], "detail": ["until {until}"]},
       "method": "events.wait",
       "description": "Wait for process or UI events, a file or a pid.",
       "properties": {
@@ -1482,11 +1521,17 @@
         "timeoutMs": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 30000
+          "maximum": 50000
         },
         "executionId": {
           "description": "Only this run's events",
           "type": "string"
+        },
+        "until": {
+          "description": "With executionId, instead of events: exit, ready (its readyWhen), or text it prints",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
         },
         "file": {
           "description": "Instead of a cursor: wait on this absolute path; with no text, until it stops changing",
@@ -1607,6 +1652,12 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 200
+        },
+        "repo": {
+          "description": "For an own checkout from a folder of repositories: the one to cut it from",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
         },
         "resume": {
           "description": "sessionId to reopen",
@@ -2352,6 +2403,18 @@
           "description": "Fire on each request to an address it returns, instead of at a time",
           "type": "boolean"
         },
+        "check": {
+          "description": "With every or daily: a shell command; fire only when its output changed",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "ci": {
+          "description": "Instead of a time: fire once CI ends on this commit, branch, or CI run address or id",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
         "weekdays": {
           "description": "With daily, the days it fires on; every day when left out",
           "type": "array",
@@ -2508,7 +2571,7 @@
       "description": "Commit only the lines you wrote.",
       "properties": {
         "message": {
-          "description": "Omit to only land or push; no Co-Authored-By trailer naming yourself",
+          "description": "Omit to only sync, land or push; no Co-Authored-By trailer naming yourself",
           "type": "string",
           "minLength": 1,
           "maxLength": 65536
@@ -2522,6 +2585,10 @@
             "minLength": 1,
             "maxLength": 4096
           }
+        },
+        "sync": {
+          "description": "From a checkout of your own: bring it up to the branch it was cut from",
+          "type": "boolean"
         },
         "land": {
           "description": "From a checkout of your own: put your commits on the branch it was cut from",
