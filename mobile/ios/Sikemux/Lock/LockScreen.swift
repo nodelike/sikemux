@@ -35,24 +35,9 @@ struct LockRow: View {
     @State private var problem: String?
 
     var body: some View {
-        HStack(spacing: 12) {
-            IconView(icon: Icons.lock, size: 18).foregroundStyle(palette.secondary)
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Lock Sikemux").font(Theme.ui(15, .medium)).tracking(-0.15).foregroundStyle(palette.ink)
-                if let problem { Text(problem).metaStyle(palette) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle("Lock Sikemux", isOn: Binding(get: { lock.on }, set: flip))
-                .labelsHidden()
-                .tint(palette.live)
-                .disabled(lock.asking)
+        SwitchRow(icon: Icons.lock, title: "Lock Sikemux", isOn: Binding(get: { lock.on }, set: flip), disabled: lock.asking) {
+            if let problem { Text(problem).metaStyle(palette) }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(minHeight: 52)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(palette.raised))
-        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(palette.border, lineWidth: 1))
-        .padding(.top, 8)
     }
 
     private func flip(_ next: Bool) {
