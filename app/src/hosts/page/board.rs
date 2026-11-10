@@ -24,12 +24,19 @@ const CARD_MIN: f32 = 262.;
 const CARD_MAX: f32 = 380.;
 const GAP: f32 = 12.;
 
+/// The page's search, buttons and filters, which stay in place, and the hosts and devices,
+/// which scroll under them.
+pub struct Board {
+    pub controls: AnyElement,
+    pub body: AnyElement,
+}
+
 pub fn board(
     bench: &Workbench,
     listed: &[Listed],
     chosen: Option<&str>,
     cx: &mut Context<Workbench>,
-) -> AnyElement {
+) -> Board {
     let t = Tokens::get(cx).clone();
     let page = &bench.hosts_page;
     let query = page.search.read(cx).value().trim().to_lowercase();
@@ -43,10 +50,10 @@ pub fn board(
         (false, true) => table(&shown, chosen, &t, cx),
         (false, false) => cards(&shown, chosen, &t, cx),
     };
-    div()
+    let controls = div()
+        .flex_none()
         .px(SPACE_6)
         .pt(SPACE_6)
-        .pb(px(48.))
         .flex()
         .flex_col()
         .child(head(bench, listed, page, &t, cx))
@@ -62,9 +69,16 @@ pub fn board(
                 ),
         )
         .child(filters(listed.len(), needing, page, &t, cx))
+        .into_any_element();
+    let body = div()
+        .px(SPACE_6)
+        .pb(px(48.))
+        .flex()
+        .flex_col()
         .child(hosts)
         .child(super::devices::devices(bench, &query, &t, cx))
-        .into_any_element()
+        .into_any_element();
+    Board { controls, body }
 }
 
 fn matches(host: &Listed, query: &str) -> bool {
@@ -107,14 +121,15 @@ fn head(
     };
     div()
         .flex()
+        .flex_wrap()
         .items_end()
         .gap(SPACE_4)
         .child(
             div()
+                .flex_none()
                 .flex()
                 .flex_col()
                 .gap(px(5.))
-                .min_w_0()
                 .child(
                     ui::text("Devices", TEXT_XL, FontWeight::SEMIBOLD)
                         .text_color(t.text_primary)
@@ -135,6 +150,8 @@ fn head(
             div()
                 .ml_auto()
                 .flex()
+                .flex_wrap()
+                .justify_end()
                 .items_center()
                 .gap(SPACE_2)
                 .child(
