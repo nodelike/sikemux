@@ -9,8 +9,8 @@
 //! paths in the bundle or build it runs from. On Linux that path is all there is, and it is
 //! weaker: a process can connect and then `exec` the app, keeping the
 //! connection. The installed core trusts only the AppImage unpacked beside it, never one
-//! running from its own mount, which any program could make. A dev build also trusts the program that started it, such as a
-//! test.
+//! running from its own mount, which any program could make. A dev build also trusts the
+//! program that started it, such as a test.
 
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
@@ -19,6 +19,7 @@ use std::sync::OnceLock;
 use tokio::net::UnixStream;
 
 use super::access::Peer;
+use crate::host_update;
 
 /// The window's executable, beside the core's own in a build.
 const APP: &str = sikemux_process::names::APP_PROGRAM;
@@ -77,8 +78,8 @@ fn app_paths_beside(own: &Path) -> Vec<PathBuf> {
         }
         None => paths.push(directory.join(APP)),
     }
-    if own == Path::new(crate::host_update::INSTALLED_CORE) {
-        paths.push(Path::new(crate::host_update::INSTALLED_APP).join(crate::host_update::INSTALLED_APP_PROGRAM));
+    if own == Path::new(host_update::INSTALLED_CORE) {
+        paths.push(Path::new(host_update::INSTALLED_APP).join(host_update::INSTALLED_APP_PROGRAM));
     }
     if cfg!(debug_assertions) {
         paths.extend(DEV_PROGRAMS.iter().map(|dev| directory.join(dev)));
