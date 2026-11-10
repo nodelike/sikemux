@@ -9,6 +9,11 @@ use sikemux_view::prefs::UpdateChannel;
 
 /// Where the installer puts the core, setgid to the group that guards its secrets.
 pub const INSTALLED_CORE: &str = "/usr/local/lib/sikemux/sikemux-host";
+/// Where the installer unpacks the AppImage for that core, so its window runs from
+/// a file only root can change rather than from a mount anyone can make.
+pub const INSTALLED_APP: &str = "/usr/local/lib/sikemux/app";
+/// The window's program inside [`INSTALLED_APP`].
+pub const INSTALLED_APP_PROGRAM: &str = "usr/bin/sikemux";
 /// Where the root service that installs a new core listens.
 pub const SOCKET: &str = "/run/sikemux-update.sock";
 /// The guarded store's entry holding whether this person's host updates. Only

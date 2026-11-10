@@ -226,6 +226,46 @@ install_mac() {
   open "$dest/Sikemux.app"
 }
 
+# An AppImage runs from a mount any program can make, so the core could not tell its
+# window from an agent's program. Unpacked where only root writes, beside the core, it can.
+install_appimage() {
+  file="Sikemux_${VERSION}_$1.AppImage"
+  download "$file" "the app"
+  chmod +x "$TMP/$file"
+  # shellcheck disable=SC2016
+  step "Unpacking the app" sh -c 'cd "$1" && "$2" --appimage-extract' sh "$TMP" "$TMP/$file"
+  # shellcheck disable=SC2016
+  step "Installing the app" as_root sh -c '
+    set -e
+    rm -rf /usr/local/lib/sikemux/.app.new /usr/local/lib/sikemux/.app.old
+    cp -R "$1" /usr/local/lib/sikemux/.app.new
+    chown -R root:root /usr/local/lib/sikemux/.app.new
+    chmod -R go-w /usr/local/lib/sikemux/.app.new
+    chmod 755 /usr/local/lib/sikemux/.app.new
+    if [ -e /usr/local/lib/sikemux/app ]; then mv /usr/local/lib/sikemux/app /usr/local/lib/sikemux/.app.old; fi
+    mv /usr/local/lib/sikemux/.app.new /usr/local/lib/sikemux/app
+    rm -rf /usr/local/lib/sikemux/.app.old
+  ' sh "$TMP/squashfs-root"
+  done_step "Installed Sikemux" "/usr/local/lib/sikemux/app"
+  add_to_launcher /usr/local/lib/sikemux/app
+}
+
+# App launchers list only apps with a .desktop entry, and an unpacked AppImage installs none.
+add_to_launcher() {
+  app=$1
+  data="${XDG_DATA_HOME:-$HOME/.local/share}"
+  mkdir -p "$data/applications" "$data/icons"
+  [ -d "$app/usr/share/icons" ] && cp -R "$app/usr/share/icons/." "$data/icons/"
+  for entry in "$app"/*.desktop; do
+    [ -f "$entry" ] || continue
+    sed "s|^Exec=[^ ]*|Exec=\"$app/AppRun\"|" "$entry" >"$data/applications/${entry##*/}"
+    command -v xdg-mime >/dev/null 2>&1 && xdg-mime default "${entry##*/}" x-scheme-handler/sikemux 2>/dev/null || true
+  done
+  command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$data/applications" 2>/dev/null || true
+  command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q "$data/icons/hicolor" 2>/dev/null || true
+  done_step "Added to the app launcher"
+}
+
 install_linux() {
   case "$(uname -m)" in
     x86_64 | amd64) ARCH=x86_64 DEB_ARCH=amd64 ;;
@@ -264,16 +304,12 @@ install_linux() {
     done_step "Installed Sikemux" "with pacman"
   else
     install_guarded_core "$ARCH"
-    download "Sikemux_${VERSION}_${DEB_ARCH}.AppImage" "the app"
-    mkdir -p "$HOME/Applications"
-    mv "$TMP/Sikemux_${VERSION}_${DEB_ARCH}.AppImage" "$HOME/Applications/Sikemux.AppImage"
-    chmod +x "$HOME/Applications/Sikemux.AppImage"
-    done_step "Installed Sikemux" "$(home_path "$HOME/Applications/Sikemux.AppImage")"
+    install_appimage "$DEB_ARCH"
   fi
   say ""
 }
 
-# Root replaces the core when the person's core asks over this socket. It
+# Root replaces the core, and the app unpacked beside it, when the person's core asks over this socket. It
 # takes nothing from the caller but who they are and the channel they follow,
 # and installs only a release signed with Sikemux's updater key.
 UPDATE_UNITS='
@@ -308,7 +344,7 @@ ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
 NoNewPrivileges=yes
-CapabilityBoundingSet=CAP_CHOWN CAP_FSETID CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_CHOWN CAP_FSETID CAP_DAC_READ_SEARCH CAP_DAC_OVERRIDE CAP_FOWNER
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=yes
 ProtectKernelTunables=yes
@@ -324,7 +360,7 @@ systemctl enable --now sikemux-update.socket >/dev/null 2>&1
 # The core keeps its secrets in a folder only the group sikemux may enter,
 # and runs setgid to it; you stay out of the group, so your agents do too.
 # A package sets this up itself; an AppImage cannot, since it runs from a mount
-# that ignores setgid, so its app starts this core instead of its own.
+# that ignores setgid, so the installed app starts this core instead of its own.
 install_guarded_core() {
   user=$(id -un)
   if id -nG "$user" | tr ' ' '\n' | grep -qx sikemux; then
