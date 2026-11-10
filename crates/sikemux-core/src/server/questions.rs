@@ -1383,12 +1383,17 @@ pub(crate) fn put_proof_to_person(
             text: clipped(&text, MAX_QUESTION_BYTES),
             header: Some(clipped(&header, MAX_HEADER_CHARS)),
             choices: vec![
-                choice("Post", "Write it now, and keep it up to date on later pushes"),
+                choice(
+                    "Post",
+                    "Write it now, and keep it up to date on later pushes",
+                ),
                 choice("Skip", "Never write to this pull request"),
             ],
             multi: false,
             blocked: false,
-            assumption: Some("Nothing is written to the pull request until you post it.".to_owned()),
+            assumption: Some(
+                "Nothing is written to the pull request until you post it.".to_owned(),
+            ),
             secret: false,
             approval: None,
             proof: Some(proof),
