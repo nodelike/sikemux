@@ -6103,6 +6103,57 @@ struct MarkdownOptions: Codable, Hashable, Sendable {
     var references: Bool?
 }
 
+/// What a phone wants to hear about from this host. The phone owns these
+/// and sends them on every connection.
+struct NotifyPrefs: Codable, Hashable, Sendable {
+    /// Permission requests, and terminal agents waiting for input.
+    var needsYou: Bool
+    var finished: Bool
+    var problems: Bool
+    var when: NotifyWhen
+    var muted: [NotifyMute]?
+}
+
+enum NotifyWhen: String, Codable, Hashable, Sendable {
+    /// Only while nobody is using this host: locked, or untouched for a
+    /// couple of minutes.
+    case away
+    case always
+    case off
+    /// One added after this build.
+    case unknown
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .unknown
+    }
+}
+
+struct NotifyMute: Codable, Hashable, Sendable {
+    var agentId: String
+    /// Milliseconds since the Unix epoch, or `None` while the agent runs.
+    var until: Int?
+}
+
+/// What kind of failure a request met, which a client branches on and words itself.
+enum ErrorKind: String, Codable, Hashable, Sendable {
+    /// The file holds something other than text.
+    case notText
+    /// The file changed since the client read it.
+    case fileConflict
+    /// A language's server is not installed. The detail says which.
+    case languageServerMissing
+    /// This core has no such method, being older than the client.
+    case unknownMethod
+    /// What was answered has been answered or withdrawn already.
+    case notPending
+    /// One added after this build.
+    case other
+
+    init(from decoder: any Decoder) throws {
+        self = Self(rawValue: try decoder.singleValueContainer().decode(String.self)) ?? .other
+    }
+}
+
 /// What a call that takes nothing is sent; whatever a client sends reads as nothing.
 struct NoParams: Codable, Hashable, Sendable {}
 

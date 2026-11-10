@@ -101,10 +101,12 @@ final class Keys {
       kSecValueData as String: data,
       kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
     ]
-    if SecItemUpdate(query as CFDictionary, update as CFDictionary) == errSecItemNotFound {
+    var status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+    if status == errSecItemNotFound {
       query.merge(update) { $1 }
-      SecItemAdd(query as CFDictionary, nil)
+      status = SecItemAdd(query as CFDictionary, nil)
     }
+    if status != errSecSuccess { print("sikemux: could not keep a notification key: \(status)") }
   }
 
   private func delete(_ account: String) {
