@@ -47,6 +47,9 @@ impl Render for Glance {
                     .flex()
                     .items_center()
                     .gap(SPACE_2H)
+                    .pb(SPACE_3)
+                    .border_b_1()
+                    .border_color(t.border)
                     .child(tile(host, 30., 15., &t))
                     .child(name_and_model(host, TEXT_SM, &t))
                     .child(
