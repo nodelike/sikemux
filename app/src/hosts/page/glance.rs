@@ -35,7 +35,7 @@ impl Render for Glance {
         let mut apps: Vec<&ProcessUse> = host
             .stats()
             .map_or_else(Vec::new, |stats| stats.top.iter().collect());
-        apps.sort_by(|a, b| b.cpu.cmp(&a.cpu));
+        apps.sort_by_key(|app| std::cmp::Reverse(app.cpu));
         apps.truncate(APPS_SHOWN);
         div()
             .w(px(264.))
