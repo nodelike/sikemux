@@ -7,8 +7,8 @@ final class HostFiles {
 
     /// A file that just failed is asked for again only once this has passed.
     private static let retryAfter: TimeInterval = 60
-    private static let location = #"(?::\d+){1,2}$|#L\d+(?:C\d+)?$"#
-    private static let drawn: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif"]
+    private nonisolated static let location = #"(?::\d+){1,2}$|#L\d+(?:C\d+)?$"#
+    private nonisolated static let drawn: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "bmp", "ico", "avif", "tif", "tiff", "heic", "heif"]
 
     private var fetching: [String: Task<URL?, Never>] = [:]
     private var failedAt: [String: Date] = [:]
@@ -57,6 +57,7 @@ final class HostFiles {
                 _ = try await connection.callToFile(method: "chatFile", paramsJson: params, field: "data", path: file.path)
                 return file
             } catch {
+                print("sikemux: could not fetch \(path) from the host: \(error)")
                 return nil
             }
         }

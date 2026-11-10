@@ -210,7 +210,14 @@ final class ChatSession {
             listening.cancel()
             // What arrived but was not applied yet goes into the chat now, so the next attach picks up after it.
             self?.feed.applyPending()
-            if connection.isOpen() { Task { try? await connection.detachChat(agentId: agentId) } }
+            guard connection.isOpen() else { return }
+            Task {
+                do {
+                    try await connection.detachChat(agentId: agentId)
+                } catch {
+                    print("sikemux: could not detach \(agentId): \(error)")
+                }
+            }
         }
         let began = Date()
         let mark = feed.mark
@@ -404,7 +411,7 @@ final class ChatSession {
         emit()
         let params = EditParams(agentId: agentId, messageId: messageId, text: text, paths: row.attachments ?? [])
         Task {
-            await ask("Could not edit the message", undo: { [weak self] in self?.retry() }) { _ = try await $0.call(PhoneCall.EditMessage.self, params) }
+            await ask("Could not edit the message", undo: { self.retry() }) { _ = try await $0.call(PhoneCall.EditMessage.self, params) }
         }
     }
 

@@ -27,8 +27,14 @@ struct KeptChat: Sendable {
     }
 
     func load() -> Kept? {
-        guard let data = try? Data(contentsOf: file), let kept = try? JSONDecoder().decode(Kept.self, from: data) else { return nil }
-        return kept.build == Self.build ? kept : nil
+        guard FileManager.default.fileExists(atPath: file.path) else { return nil }
+        do {
+            let kept = try JSONDecoder().decode(Kept.self, from: Data(contentsOf: file))
+            return kept.build == Self.build ? kept : nil
+        } catch {
+            print("sikemux: could not read the chat kept on this phone: \(error)")
+            return nil
+        }
     }
 
     /// Off the main thread, so leaving a chat never waits on writing it down.
@@ -54,7 +60,11 @@ struct KeptChat: Sendable {
         else { return }
         let age = { (url: URL) in (try? url.resourceValues(forKeys: keys).contentModificationDate) ?? .distantPast }
         for url in files.sorted(by: { age($0) < age($1) }).prefix(files.count - maxChats) {
-            try? FileManager.default.removeItem(at: url)
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                print("sikemux: could not let go of a kept chat: \(error)")
+            }
         }
     }
 }
