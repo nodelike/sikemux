@@ -11,16 +11,16 @@ struct ShareView: View {
       case .loading:
         Spacer()
       case .signedOut:
-        Settled(icon: Icons.brand, tone: Theme.secondary, title: "Sign in to Sikemux first", detail: "Open the app and sign in, then share again.")
+        Settled(icon: Icons.brand, tone: palette.secondary, title: "Sign in to Sikemux first", detail: "Open the app and sign in, then share again.")
       case let .done(title, detail):
-        Settled(icon: Icons.check, tone: Theme.live, title: title, detail: detail)
+        Settled(icon: Icons.check, tone: palette.live, title: title, detail: detail)
       case let .failed(problem):
-        Settled(icon: Icons.globe, tone: Theme.secondary, title: "Couldn't stash this", detail: problem, retry: model.retry)
+        Settled(icon: Icons.globe, tone: palette.secondary, title: "Couldn't stash this", detail: problem, retry: model.retry)
       case .ready, .sending:
         form
       }
     }
-    .background(Theme.ground.ignoresSafeArea())
+    .background(palette.overlay.ignoresSafeArea())
     .preferredColorScheme(.dark)
   }
 
@@ -32,11 +32,11 @@ struct ShareView: View {
   private var header: some View {
     HStack {
       Button(action: cancel) {
-        Text("Cancel").font(Theme.ui(16)).foregroundColor(Theme.secondary)
+        Text("Cancel").font(Theme.ui(16)).foregroundColor(palette.secondary)
       }
       .frame(width: 70, alignment: .leading)
       Spacer()
-      Text("Sikemux").font(Theme.semibold(16)).foregroundColor(Theme.ink)
+      Text("Sikemux").font(Theme.ui(16, .semibold)).foregroundColor(palette.ink)
       Spacer()
       Color.clear.frame(width: 70, height: 1)
     }
@@ -51,18 +51,18 @@ struct ShareView: View {
           Preview(model: model, progress: sending)
           if !model.tooBig.isEmpty {
             Text("\(model.tooBig.count == 1 ? model.tooBig[0] : "\(model.tooBig.count) files") \(model.tooBig.count == 1 ? "is" : "are") over 25 MB, too big to stash")
-              .font(Theme.ui(13.5)).foregroundColor(Theme.danger).padding(.top, 8)
+              .font(Theme.ui(13.5)).foregroundColor(palette.danger).padding(.top, 8)
           }
           Group {
-            TextField("", text: $model.note, prompt: Text("Add a note").foregroundColor(Theme.tertiary), axis: .vertical)
+            TextField("", text: $model.note, prompt: Text("Add a note").foregroundColor(palette.tertiary), axis: .vertical)
               .lineLimit(1 ... 5)
               .font(Theme.ui(15))
-              .foregroundColor(Theme.ink)
-              .tint(Theme.accent)
+              .foregroundColor(palette.ink)
+              .tint(palette.accent)
               .padding(.horizontal, 14)
               .padding(.vertical, 12)
-              .background(RoundedRectangle(cornerRadius: 12).fill(Theme.sunken))
-              .overlay(RoundedRectangle(cornerRadius: 12).stroke(Theme.border, lineWidth: 1))
+              .background(RoundedRectangle(cornerRadius: 12).fill(palette.sunken))
+              .overlay(RoundedRectangle(cornerRadius: 12).stroke(palette.border, lineWidth: 1))
               .padding(.top, 10)
             if !model.chats.isEmpty || model.newChat != nil {
               SectionLabel(text: "To a chat")
@@ -86,19 +86,19 @@ struct ShareView: View {
       }
       .scrollDismissesKeyboard(.interactively)
       VStack(spacing: 0) {
-        Theme.border.frame(height: 1)
+        palette.border.frame(height: 1)
         Button(action: model.toStash) {
           HStack(spacing: 8) {
             if sending != nil {
-              ProgressView().tint(Theme.ground).controlSize(.small)
+              ProgressView().tint(palette.overlay).controlSize(.small)
             } else {
               IconView(icon: Icons.stack, size: 17)
             }
-            Text(sending == nil ? "Stash" : "Stashing").font(Theme.semibold(16))
+            Text(sending == nil ? "Stash" : "Stashing").font(Theme.ui(16, .semibold))
           }
-          .foregroundColor(Color(hex: "#0f0f13"))
+          .foregroundColor(palette.ground)
           .frame(maxWidth: .infinity, minHeight: 50)
-          .background(RoundedRectangle(cornerRadius: 12).fill(Theme.ink))
+          .background(RoundedRectangle(cornerRadius: 12).fill(palette.ink))
         }
         .buttonStyle(Pressed())
         .disabled(sending != nil || model.sendable.isEmpty)
@@ -127,16 +127,16 @@ private struct Preview: View {
       if let progress {
         GeometryReader { frame in
           ZStack(alignment: .leading) {
-            Theme.border
-            Theme.ink.frame(width: frame.size.width * progress)
+            palette.border
+            palette.ink.frame(width: frame.size.width * progress)
           }
         }
         .frame(height: 3)
       }
     }
-    .background(Theme.raised)
+    .background(palette.raised)
     .clipShape(RoundedRectangle(cornerRadius: 14))
-    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Theme.border, lineWidth: 1))
+    .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.border, lineWidth: 1))
   }
 
   @ViewBuilder private var content: some View {
@@ -148,10 +148,10 @@ private struct Preview: View {
         }
         VStack(alignment: .leading, spacing: 4) {
           Text(model.title ?? url.absoluteString.replacingOccurrences(of: "https://", with: ""))
-            .font(Theme.semibold(14.5)).foregroundColor(Theme.ink).lineLimit(2)
+            .font(Theme.ui(14.5, .semibold)).foregroundColor(palette.ink).lineLimit(2)
           HStack(spacing: 6) {
-            IconView(icon: Icons.globe, size: 12).foregroundColor(Theme.tertiary)
-            Text(url.host ?? url.absoluteString).font(Theme.ui(12.5)).foregroundColor(Theme.tertiary).lineLimit(1)
+            IconView(icon: Icons.globe, size: 12).foregroundColor(palette.tertiary)
+            Text(url.host ?? url.absoluteString).font(Theme.ui(12.5)).foregroundColor(palette.tertiary).lineLimit(1)
           }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -159,7 +159,7 @@ private struct Preview: View {
         .padding(.vertical, 11)
       }
     case let .text(text)?:
-      Text(text).font(Theme.ui(14.5)).foregroundColor(Theme.secondary).lineLimit(6)
+      Text(text).font(Theme.ui(14.5)).foregroundColor(palette.secondary).lineLimit(6)
         .frame(maxWidth: .infinity, alignment: .leading).padding(14)
     default:
       files
@@ -176,10 +176,10 @@ private struct Preview: View {
     let size = all.reduce(Int64(0)) { $0 + $1.2 }
     return HStack(spacing: 12) {
       if model.thumbnails.isEmpty {
-        IconView(icon: Icons.file, size: 20).foregroundColor(Theme.secondary)
+        IconView(icon: Icons.file, size: 20).foregroundColor(palette.secondary)
           .frame(width: 52, height: 52)
-          .background(RoundedRectangle(cornerRadius: 10).fill(Theme.ground))
-          .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 1))
+          .background(RoundedRectangle(cornerRadius: 10).fill(palette.overlay))
+          .overlay(RoundedRectangle(cornerRadius: 10).stroke(palette.border, lineWidth: 1))
       } else {
         HStack(spacing: 6) {
           ForEach(Array(model.thumbnails.enumerated()), id: \.offset) { _, image in
@@ -188,8 +188,8 @@ private struct Preview: View {
         }
       }
       VStack(alignment: .leading, spacing: 4) {
-        Text(title).font(all.count == 1 && pictures == 0 ? Theme.mono(13) : Theme.semibold(14.5)).foregroundColor(Theme.ink).lineLimit(2)
-        Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)).font(Theme.ui(12.5)).foregroundColor(Theme.tertiary)
+        Text(title).font(all.count == 1 && pictures == 0 ? Theme.mono(13) : Theme.ui(14.5, .semibold)).foregroundColor(palette.ink).lineLimit(2)
+        Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)).font(Theme.ui(12.5)).foregroundColor(palette.tertiary)
       }
       Spacer(minLength: 0)
     }
@@ -202,8 +202,8 @@ private struct SectionLabel: View {
 
   var body: some View {
     HStack(spacing: 10) {
-      Text(text.uppercased()).font(Theme.medium(11)).tracking(1.76).foregroundColor(Theme.tertiary)
-      Theme.rule.frame(height: 1)
+      Text(text.uppercased()).font(Theme.ui(11, .medium)).tracking(1.76).foregroundColor(palette.tertiary)
+      palette.ink.opacity(0.09).frame(height: 1)
     }
     .padding(.horizontal, 4)
     .padding(.top, 18)
@@ -220,15 +220,15 @@ private struct ChatRow: View {
       HStack(spacing: 10) {
         AgentMark(provider: chat.provider, size: 20)
         VStack(alignment: .leading, spacing: 1) {
-          Text(chat.title).font(Theme.medium(14.5)).foregroundColor(Theme.ink).lineLimit(1)
+          Text(chat.title).font(Theme.ui(14.5, .medium)).foregroundColor(palette.ink).lineLimit(1)
           HStack(spacing: 4) {
-            IconView(icon: Icons.folder, size: 11).foregroundColor(Theme.live)
-            Text("\(chat.project) · \(chat.hostName)").font(Theme.ui(12)).foregroundColor(Theme.tertiary).lineLimit(1)
+            IconView(icon: Icons.folder, size: 11).foregroundColor(palette.live)
+            Text("\(chat.project) · \(chat.hostName)").font(Theme.ui(12)).foregroundColor(palette.tertiary).lineLimit(1)
           }
         }
         Spacer(minLength: 8)
         if let name = chat.name {
-          Text(name).font(Theme.ui(11.5)).foregroundColor(Theme.tertiary).lineLimit(1)
+          Text(name).font(Theme.ui(11.5)).foregroundColor(palette.tertiary).lineLimit(1)
         }
       }
       .padding(.horizontal, 8)
@@ -247,11 +247,11 @@ private struct NewChatRow: View {
   var body: some View {
     Button(action: pick) {
       HStack(spacing: 10) {
-        IconView(icon: Icons.plus, size: 18).foregroundColor(Theme.secondary).frame(width: 20, height: 20)
+        IconView(icon: Icons.plus, size: 18).foregroundColor(palette.secondary).frame(width: 20, height: 20)
         VStack(alignment: .leading, spacing: 1) {
-          (Text("New chat in ").foregroundColor(Theme.secondary) + Text(chat.project).foregroundColor(Theme.ink))
-            .font(Theme.medium(14.5)).lineLimit(1)
-          Text(chat.hostName).font(Theme.ui(12)).foregroundColor(Theme.tertiary).lineLimit(1)
+          (Text("New chat in ").foregroundColor(palette.secondary) + Text(chat.project).foregroundColor(palette.ink))
+            .font(Theme.ui(14.5, .medium)).lineLimit(1)
+          Text(chat.hostName).font(Theme.ui(12)).foregroundColor(palette.tertiary).lineLimit(1)
         }
         Spacer(minLength: 0)
       }
@@ -266,7 +266,7 @@ private struct NewChatRow: View {
 
 private struct RowPress: ButtonStyle {
   func makeBody(configuration: Configuration) -> some View {
-    configuration.label.background(RoundedRectangle(cornerRadius: 9).fill(configuration.isPressed ? Theme.ink.opacity(0.1) : .clear))
+    configuration.label.background(RoundedRectangle(cornerRadius: 9).fill(configuration.isPressed ? palette.ink.opacity(0.1) : .clear))
   }
 }
 
@@ -283,17 +283,17 @@ private struct Settled: View {
       IconView(icon: icon, size: 22)
         .foregroundColor(tone)
         .frame(width: 44, height: 44)
-        .background(RoundedRectangle(cornerRadius: 12).fill(tone == Theme.live ? Theme.live.opacity(0.07) : Theme.raised))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(tone == Theme.live ? Theme.live.opacity(0.4) : Theme.border, lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 12).fill(tone == palette.live ? palette.live.opacity(0.07) : palette.raised))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(tone == palette.live ? palette.live.opacity(0.4) : palette.border, lineWidth: 1))
         .padding(.bottom, 12)
-      Text(title).font(Theme.semibold(19)).foregroundColor(Theme.ink).multilineTextAlignment(.center)
-      Text(detail).font(Theme.ui(14)).foregroundColor(Theme.tertiary).multilineTextAlignment(.center)
+      Text(title).font(Theme.ui(19, .semibold)).foregroundColor(palette.ink).multilineTextAlignment(.center)
+      Text(detail).font(Theme.ui(14)).foregroundColor(palette.tertiary).multilineTextAlignment(.center)
       if let retry {
         Button(action: retry) {
-          Text("Try again").font(Theme.semibold(14)).foregroundColor(Theme.ink)
+          Text("Try again").font(Theme.ui(14, .semibold)).foregroundColor(palette.ink)
             .padding(.horizontal, 13).frame(height: 32)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.raised))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.borderStrong, lineWidth: 1))
+            .background(RoundedRectangle(cornerRadius: 10).fill(palette.raised))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(palette.borderStrong, lineWidth: 1))
         }
         .padding(.top, 12)
       }

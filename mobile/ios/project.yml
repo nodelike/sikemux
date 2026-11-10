@@ -64,6 +64,7 @@ targets:
       - path: ../../server/protocol/src/release.json
         group: Sikemux/Resources
         buildPhase: resources
+      - path: Shared
       - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
         group: Sikemux/UI/Notch
       - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift
@@ -85,7 +86,10 @@ targets:
         buildPhase: resources
     dependencies:
       - target: SikemuxCore
+      - target: SikemuxNotifications
+      - target: SikemuxShare
       - sdk: SystemConfiguration.framework
+      - sdk: MetalKit.framework
     info:
       path: Sikemux/Resources/Info.plist
       properties:
@@ -94,6 +98,12 @@ targets:
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         SikemuxVariant: $(SIKEMUX_VARIANT)
         LSRequiresIPhoneOS: true
+        SikemuxKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify
+        SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)
+        SikemuxStashKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).stash
+        UIBackgroundModes: [remote-notification]
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
         ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: Sikemux reaches your hosts directly when they are on the same network.
         UIUserInterfaceStyle: Dark
@@ -114,7 +124,12 @@ targets:
     entitlements:
       path: Sikemux/Resources/Sikemux.entitlements
       properties:
-        keychain-access-groups: [$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID)]
+        aps-environment: development
+        com.apple.security.application-groups: [group.$(SIKEMUX_BUNDLE_ID)]
+        keychain-access-groups:
+          - $(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID)
+          - $(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).notify
+          - $(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).stash
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(SIKEMUX_BUNDLE_ID)
@@ -128,6 +143,77 @@ targets:
         Release:
           ASSETCATALOG_COMPILER_APPICON_NAME: sikemux
           EXCLUDED_SOURCE_FILE_NAMES: dev.icon
+
+  SikemuxNotifications:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Notifications
+        excludes: [Info.plist, SikemuxNotifications.entitlements]
+      - path: Shared/Notify
+    info:
+      path: Notifications/Info.plist
+      properties:
+        CFBundleDisplayName: SikemuxNotifications
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        SikemuxKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).notify
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    entitlements:
+      path: Notifications/SikemuxNotifications.entitlements
+      properties:
+        keychain-access-groups: [$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).notify]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SIKEMUX_BUNDLE_ID).notifications
+        CODE_SIGN_STYLE: Automatic
+
+  SikemuxShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: Share
+        excludes: [Info.plist, SikemuxShare.entitlements]
+      - path: Shared/Stash
+      - path: Sikemux/UI/Theme.swift
+      - path: ../../helpers/notch/Sources/NotchKit/IconView.swift
+        group: Share/Notch
+      - path: ../../helpers/notch/Sources/NotchKit/Icons.generated.swift
+        group: Share/Notch
+    dependencies:
+      - sdk: LinkPresentation.framework
+    info:
+      path: Share/Info.plist
+      properties:
+        CFBundleDisplayName: $(SIKEMUX_DISPLAY_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        SikemuxAppGroup: group.$(SIKEMUX_BUNDLE_ID)
+        SikemuxStashKeychainGroup: $(DEVELOPMENT_TEAM).$(SIKEMUX_BUNDLE_ID).stash
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsImageWithMaxCount: 10
+              NSExtensionActivationSupportsMovieWithMaxCount: 4
+              NSExtensionActivationSupportsFileWithMaxCount: 10
+              NSExtensionActivationSupportsAttachmentsWithMaxCount: 10
+    entitlements:
+      path: Share/SikemuxShare.entitlements
+      properties:
+        com.apple.security.application-groups: [group.$(SIKEMUX_BUNDLE_ID)]
+        keychain-access-groups: [$(AppIdentifierPrefix)$(SIKEMUX_BUNDLE_ID).stash]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(SIKEMUX_BUNDLE_ID).share
+        CODE_SIGN_STYLE: Automatic
 
 schemes:
   Sikemux:
