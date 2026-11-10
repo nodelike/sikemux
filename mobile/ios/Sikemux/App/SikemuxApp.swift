@@ -18,29 +18,38 @@ struct SikemuxApp: App {
 /// The screens, once the account and the paired hosts are known.
 struct RootView: View {
     @Environment(\.palette) private var palette
+    @Environment(\.scenePhase) private var scene
     @Bindable private var router = Router.shared
     private let account = Account.shared
     private let hub = Hub.shared
+    private let session = AccountSession.shared
+    private let lock = Lock.shared
+    private let network = Network.shared
 
     var body: some View {
         ZStack {
             palette.ground.ignoresSafeArea()
-            switch account.state {
-            case .loading:
-                EmptyView()
-            case .signedOut:
-                NavigationStack {
-                    WelcomeScreen()
-                        .navigationDestination(for: Route.self) { ScreenFor(route: $0) }
-                }
-            case .signedIn:
-                if hub.loaded {
-                    NavigationStack(path: $router.path) {
-                        DevicesScreen()
-                            .navigationDestination(for: Route.self) { ScreenFor(route: $0) }
-                    }
-                }
+            if let required = network.updateRequired {
+                UpdateRequiredScreen(required: required)
+            } else {
+                screens
             }
+        }
+        .alert("New device on your account", isPresented: newDeviceShown, presenting: session.newDevice) { device in
+            Button("Keep", role: .cancel) {}
+            Button("Remove", role: .destructive) { Task { try? await AccountCalls.removeDevice(device.key) } }
+        } message: { device in
+            Text(device.name)
+        }
+        .onChange(of: account.state, initial: true) { _, state in
+            session.follow(account.userId)
+            if state != .loading { lock.follow(signedIn: account.isSignedIn) }
+        }
+        .onChange(of: scene) { _, phase in
+            if phase == .active { session.foreground() } else if phase == .background { session.background() }
+        }
+        .onChange(of: network.updateRequired) { _, required in
+            if required != nil { Task { await Identity.shared.goOffline() } }
         }
         .task {
             Task { _ = await Network.shared.relays() }
@@ -54,6 +63,41 @@ struct RootView: View {
             StashStore.shared.start()
             try? await Notify.shared.syncPushToken()
         }
+    }
+
+    @ViewBuilder
+    private var screens: some View {
+        switch account.state {
+        case .loading:
+            EmptyView()
+        case .signedOut:
+            if let farewell = session.farewell {
+                FarewellScreen(farewell: farewell)
+            } else {
+                NavigationStack {
+                    WelcomeScreen()
+                        .navigationDestination(for: Route.self) { ScreenFor(route: $0) }
+                }
+            }
+        case .signedIn:
+            if !lock.opened {
+                if lock.on { LockScreen() }
+            } else {
+                if case .deleting(let deletesAt) = session.status {
+                    RestoreAccountScreen(deletesAt: deletesAt)
+                } else if hub.loaded {
+                    NavigationStack(path: $router.path) {
+                        DevicesScreen()
+                            .navigationDestination(for: Route.self) { ScreenFor(route: $0) }
+                    }
+                }
+                LockCover()
+            }
+        }
+    }
+
+    private var newDeviceShown: Binding<Bool> {
+        Binding(get: { session.newDevice != nil }, set: { if !$0 { session.newDevice = nil } })
     }
 }
 
