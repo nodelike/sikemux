@@ -3,7 +3,7 @@
 //! moves only if no one moved it meanwhile. The checkout's files stay as they
 //! are, and the shared index takes in only what was committed.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
@@ -45,7 +45,7 @@ pub(crate) struct Committed {
 }
 
 /// What `git_commit` did: the commit, and what it pushed when asked to.
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 struct Done {
     #[serde(flatten, skip_serializing_if = "Option::is_none")]
@@ -53,12 +53,17 @@ struct Done {
     /// Why nothing was committed before landing or pushing.
     #[serde(skip_serializing_if = "Option::is_none")]
     nothing_committed: Option<String>,
+    /// Why the commit made was not synced, landed or pushed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    not_synced: Option<String>,
     /// Why the commit made was neither landed nor pushed.
     #[serde(skip_serializing_if = "Option::is_none")]
     not_landed: Option<String>,
     /// Why its commits were not pushed: a push waits on the person.
     #[serde(skip_serializing_if = "Option::is_none")]
     not_pushed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    synced: Option<super::land::Synced>,
     #[serde(skip_serializing_if = "Option::is_none")]
     landed: Option<super::land::Landed>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -119,15 +124,15 @@ struct Change {
 }
 
 /// `git_commit`: commits the calling agent's lines in its checkout, then
-/// when asked lands them from a checkout of its own onto the branch it was
-/// cut from, and pushes its unpushed commits.
+/// when asked brings a checkout of its own up to the branch it was cut from,
+/// lands them on that branch, and pushes its unpushed commits.
 pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<Value, String> {
     let agent_id = crate::server::caller::agent_of(request, "git_commit")?;
     let flag = |name: &str| request.params.get(name).and_then(Value::as_bool) == Some(true);
-    let (land, push) = (flag("land"), flag("push"));
+    let (sync, land, push) = (flag("sync"), flag("land"), flag("push"));
     let message = match request.params.get("message") {
         Some(Value::String(message)) => Some(message.clone()),
-        None | Some(Value::Null) if land || push => None,
+        None | Some(Value::Null) if sync || land || push => None,
         _ => return Err("message must be the commit message".into()),
     };
     let named: Vec<String> = match request.params.get("paths") {
@@ -137,60 +142,78 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
         }
     };
     let project = PathBuf::from(&request.project);
-    let named: Vec<String> = named
-        .iter()
-        .map(|path| project.join(path).to_string_lossy().into_owned())
-        .collect();
     let core = core.clone();
     blocking(move || {
-        let (dir, named) = checkout_for(&project, &named)?;
+        let (dir, named) = checkout_for(&core, &agent_id, &project, &named)?;
         let (committed, nothing_committed) = match &message {
             Some(message) => match commit(&core, &dir, &agent_id, message, &named) {
                 Ok(committed) => (Some(committed), None),
-                Err(Refusal::NothingYours(why)) if land || push => (None, Some(why)),
+                Err(Refusal::NothingYours(why)) if sync || land || push => (None, Some(why)),
                 Err(refusal) => return Err(String::from(refusal).into()),
             },
             None => (None, None),
         };
-        let landed = match land {
-            true => match super::land::land(&core, &agent_id) {
-                Ok(landed) => Some(landed),
+        let synced = match sync {
+            true => match super::land::sync(&core, &agent_id) {
+                Ok(synced) => Some(synced),
                 Err(why) if committed.is_some() => {
                     return Ok(Done {
                         committed,
                         nothing_committed,
-                        not_landed: Some(why),
-                        not_pushed: None,
-                        landed: None,
-                        pushed: None,
+                        not_synced: Some(why),
+                        ..Done::default()
                     })
                 }
                 Err(why) => return Err(why.into()),
             },
             false => None,
         };
-        let from = landed
-            .as_ref()
-            .map_or(dir.as_path(), |landed| landed.repo.as_path());
+        let landed = match land {
+            true => match super::land::land(&core, &agent_id) {
+                Ok(landed) => Some(landed),
+                Err(why) if committed.is_some() || synced.is_some() => {
+                    return Ok(Done {
+                        committed,
+                        nothing_committed,
+                        synced,
+                        not_landed: Some(why),
+                        ..Done::default()
+                    })
+                }
+                Err(why) => return Err(why.into()),
+            },
+            false => None,
+        };
+        let own =
+            super::land::own_checkout(&core, &agent_id).filter(|tree| dir.starts_with(&tree.path));
+        let (from, unlanded) = match (&landed, own) {
+            (Some(landed), _) => (landed.repo.clone(), None),
+            (None, Some(tree)) if push => (tree.repo.clone(), super::land::unlanded(&tree)?),
+            _ => (dir.clone(), None),
+        };
         let ship = crate::ship::Ship {
             kind: sikemux_view::inbox::ShipKind::Push,
             what: "git_commit push".to_owned(),
             target: None,
         };
-        let not_pushed = push
-            .then(|| super::super::ship::check(&core, &agent_id, ship, from).err())
-            .flatten();
+        let not_pushed = match push {
+            true => {
+                unlanded.or_else(|| super::super::ship::check(&core, &agent_id, ship, &from).err())
+            }
+            false => None,
+        };
         let pushed = match push && not_pushed.is_none() {
-            true => Some(super::push::push(&core, from, &agent_id, "origin")?),
+            true => Some(super::push::push(&core, &from, &agent_id, "origin")?),
             false => None,
         };
         Ok(Done {
             committed,
             nothing_committed,
-            not_landed: None,
             not_pushed,
+            synced,
             landed,
             pushed,
+            ..Done::default()
         })
     })
     .await
@@ -199,12 +222,34 @@ pub(crate) async fn call(core: &Arc<Core>, request: &HarnessRequest) -> Result<V
 }
 
 /// The checkout to commit in, the one holding the `named` paths, which may lie
-/// outside the project's own, else the project's, with those paths as they lie
-/// there: from a folder of repositories, one of them holds the paths.
-fn checkout_for(project: &Path, named: &[String]) -> Result<(PathBuf, Vec<String>), String> {
+/// outside the project's own, with those paths as they lie there. A relative
+/// path is looked for in the agent's own folder, then the project's, then among
+/// the files the agent changed; from a folder of repositories, one of them holds
+/// it. With no paths, the agent's own checkout, else the project's, else the one
+/// holding what the agent changed and has not committed.
+fn checkout_for(
+    core: &Core,
+    agent_id: &str,
+    project: &Path,
+    named: &[String],
+) -> Result<(PathBuf, Vec<String>), String> {
+    let own = core
+        .workspaces
+        .agent(agent_id)
+        .map_or_else(|| project.to_owned(), |agent| agent.cwd);
+    let mut edited: Option<HashSet<String>> = None;
+    let mut changed = || -> HashSet<String> {
+        edited
+            .get_or_insert_with(|| core.edits.paths_of(core, agent_id))
+            .clone()
+    };
+    let named: Vec<String> = named
+        .iter()
+        .map(|path| placed(path, &own, project, &mut changed))
+        .collect();
     let mut tops = BTreeSet::new();
     let mut found = Vec::with_capacity(named.len());
-    for path in named {
+    for path in &named {
         let place = Path::new(path);
         let folder = place
             .ancestors()
@@ -224,13 +269,31 @@ fn checkout_for(project: &Path, named: &[String]) -> Result<(PathBuf, Vec<String
         tops.insert(PathBuf::from(top.trim()));
     }
     match tops.len() {
-        0 => match git(project, &["rev-parse", "--show-toplevel"]) {
-            Ok(_) => Ok((project.to_owned(), found)),
-            Err(_) => Err(format!(
-                "{} is not in a git checkout; name the paths to commit, inside the repository that holds them",
-                project.display()
-            )),
-        },
+        0 => {
+            if let Some(folder) = [own.as_path(), project]
+                .into_iter()
+                .find(|folder| git(folder, &["rev-parse", "--show-toplevel"]).is_ok())
+            {
+                return Ok((folder.to_owned(), found));
+            }
+            let mut holding = uncommitted_in(&changed());
+            match holding.len() {
+                1 => Ok((holding.pop().unwrap_or_default(), found)),
+                0 => Err(format!(
+                    "{} is not in a git checkout, and nothing you changed waits to be committed in one; name the paths to commit, inside the repository that holds them",
+                    own.display()
+                )),
+                _ => Err(format!(
+                    "Nothing was committed: what you changed lies in {} checkouts ({}). Commit each checkout's paths in a call of its own.",
+                    holding.len(),
+                    holding
+                        .iter()
+                        .map(|top| top.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )),
+            }
+        }
         1 => Ok((tops.into_iter().next().unwrap_or_default(), found)),
         _ => Err(format!(
             "Nothing was committed: the paths lie in {} checkouts ({}). Commit each checkout's paths in a call of its own.",
@@ -241,6 +304,67 @@ fn checkout_for(project: &Path, named: &[String]) -> Result<(PathBuf, Vec<String
                 .join(", ")
         )),
     }
+}
+
+/// Where the relative `path` an agent in `own` named lies: in its folder, then
+/// the project's, then the one file it changed whose path ends so. Absolute
+/// paths stay as they are.
+fn placed(
+    path: &str,
+    own: &Path,
+    project: &Path,
+    changed: &mut impl FnMut() -> HashSet<String>,
+) -> String {
+    let given = Path::new(path);
+    if given.is_absolute() {
+        return path.to_owned();
+    }
+    if let Some(found) = [own, project]
+        .into_iter()
+        .map(|folder| folder.join(given))
+        .find(|place| place.symlink_metadata().is_ok())
+    {
+        return found.to_string_lossy().into_owned();
+    }
+    let ending = format!("/{}", path.trim_start_matches("./").trim_end_matches('/'));
+    let changed = changed();
+    let mut ends = changed.iter().filter(|file| file.ends_with(&ending));
+    if let (Some(file), None) = (ends.next(), ends.next()) {
+        return file.clone();
+    }
+    let in_git = own.ancestors().any(|folder| folder.join(".git").exists());
+    let folder = if in_git { own } else { project };
+    folder.join(given).to_string_lossy().into_owned()
+}
+
+/// The checkouts where any of `files` has changes not committed yet.
+fn uncommitted_in(files: &HashSet<String>) -> Vec<PathBuf> {
+    let mut by_top: BTreeMap<PathBuf, Vec<String>> = BTreeMap::new();
+    for file in files {
+        let file = Path::new(file);
+        let Some(top) = file
+            .ancestors()
+            .skip(1)
+            .find(|folder| folder.join(".git").exists())
+        else {
+            continue;
+        };
+        if let Ok(inside) = file.strip_prefix(top) {
+            by_top
+                .entry(top.to_owned())
+                .or_default()
+                .push(format!(":(top,literal){}", inside.display()));
+        }
+    }
+    by_top
+        .into_iter()
+        .filter(|(top, files)| {
+            let mut args = vec!["status", "--porcelain", "-z", "--"];
+            args.extend(files.iter().map(String::as_str));
+            git(top, &args).is_ok_and(|status| !status.is_empty())
+        })
+        .map(|(top, _)| top)
+        .collect()
 }
 
 /// For a `folder` outside any repository whose repositories lie one level down:
@@ -285,15 +409,6 @@ pub(crate) fn repo_below(folder: &Path, path: &Path) -> Result<Option<PathBuf>, 
     }
 }
 
-/// A trailer crediting Claude, which the person never wants on a commit.
-fn credits_claude(message: &str) -> bool {
-    message.lines().any(|line| {
-        let line = line.trim().to_lowercase();
-        line.starts_with("co-authored-by:")
-            && (line.contains("claude") || line.contains("anthropic"))
-    })
-}
-
 /// Commits what `agent_id` wrote in `dir`'s checkout, and every change in the
 /// `named` paths that holds no other agent's lines.
 pub(crate) fn commit(
@@ -308,9 +423,9 @@ pub(crate) fn commit(
             "message must say what the commit does".into(),
         ));
     }
-    if credits_claude(message) {
+    if super::footer::credits_claude(message) {
         return Err(Refusal::Other(
-            "Nothing was committed: leave out the Co-Authored-By trailer naming Claude. Sikemux's footer credits the agent already.".into(),
+            "Nothing was committed: leave out the line crediting Claude, such as a Co-Authored-By trailer or \"Generated with Claude Code\". Sikemux's footer credits the agent already.".into(),
         ));
     }
     for _ in 0..ATTEMPTS {
@@ -940,12 +1055,24 @@ fn build(
         args.extend(["-p", parent.as_str()]);
     }
     args.extend(["-F", "-"]);
-    let commit = run(&diff.top, &args, None, Some(message.as_bytes()))?;
+    let commit = run(&diff.top, &args, None, Some(message.as_bytes()))
+        .map_err(|error| no_identity(&diff.top, error))?;
     Ok((
         String::from_utf8_lossy(&commit).trim().to_owned(),
         message,
         blobs,
     ))
+}
+
+/// `error`, or what to do about it when git has no name and email to commit with.
+fn no_identity(top: &Path, error: String) -> String {
+    if !error.contains("identity unknown") {
+        return error;
+    }
+    format!(
+        "Nothing was committed: git has no name and email to commit with in {}. Ask the person which to use, set them with git config user.name and user.email, then commit again.",
+        top.display()
+    )
 }
 
 fn git_in(top: &Path, args: &[&str], index: Option<&Path>) -> Result<String, String> {
