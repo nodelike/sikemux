@@ -492,8 +492,9 @@ impl Workbench {
     pub fn start_chat_in(&mut self, project: &str, window: &mut Window, cx: &mut Context<Self>) {
         match self.launcher() {
             Some(launcher) => {
+                let launcher = self.new_chat_launcher(launcher);
                 self.target()
-                    .start_chat(launcher.id.clone(), project.to_owned(), None, None)
+                    .start_chat(launcher, project.to_owned(), None, None)
             }
             None => self.toggle_agent_palette(window, cx),
         }

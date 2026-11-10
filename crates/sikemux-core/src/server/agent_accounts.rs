@@ -12,6 +12,7 @@ use super::changed::Topic;
 use super::connection::blocking;
 use super::workspace::refresh_launchers;
 use super::{Core, CoreResult};
+use crate::agent_accounts::allocate::{self, Aim, Candidate, Placement};
 use crate::agent_accounts::{chat_account, defaults, folders, status, usage, Book, Profile};
 use crate::agent_catalog::{AgentEntry, AGENTS};
 use crate::flights::{shared, Flights};
@@ -118,13 +119,22 @@ pub struct Unpicking {
     pub provider: String,
     pub picked: String,
     pub back_to: String,
+    /// The account new chats were pinned to before, when the pick pinned them.
+    #[serde(default)]
+    pub pinned_before: Option<String>,
     pub moved: Vec<MovedChat>,
 }
 
+/// Whether new chats go to the account whose week ends soonest, for every agent.
 #[derive(Serialize, Deserialize)]
-pub struct Switching {
-    pub provider: String,
+pub struct Smart {
     pub on: bool,
+}
+
+/// The agent whose pin to take away.
+#[derive(Serialize, Deserialize)]
+pub struct Unpinning {
+    pub provider: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -230,27 +240,34 @@ pub(super) async fn select(core: &Arc<Core>, choosing: Choosing) -> CoreResult<B
     Ok(pick(core, choosing).await?.book)
 }
 
+/// Makes the account the one the agent's chats start on. While smart is on, that pins new chats
+/// to it and leaves open chats where they are; otherwise the open chats move there too.
 pub(super) async fn pick(core: &Arc<Core>, choosing: Choosing) -> CoreResult<Picked> {
     let turn = pick_turn(&choosing.provider);
     let _turn = turn.lock().await;
-    let back_to = core
-        .workspaces
-        .accounts()
-        .unwrap_or_default()
-        .chosen(&choosing.provider);
+    let before = core.workspaces.accounts().unwrap_or_default();
+    let back_to = before.chosen(&choosing.provider);
+    let pinned_before = before.pinned.get(&choosing.provider).cloned();
     let (provider, id) = (choosing.provider.clone(), choosing.id.clone());
     let book = change(core, move |book| {
+        if book.smart {
+            book.pinned.insert(provider.clone(), id.clone());
+        }
         book.selected.insert(provider, id);
         Ok(())
     })
     .await?;
-    let (moved, stayed) = move_chats(core, &choosing.provider, &choosing.id).await;
+    let (moved, stayed) = match book.smart {
+        true => (Vec::new(), Vec::new()),
+        false => move_chats(core, &choosing.provider, &choosing.id).await,
+    };
     Ok(Picked {
         book,
         undo: Unpicking {
             provider: choosing.provider,
             picked: choosing.id,
             back_to,
+            pinned_before,
             moved,
         },
         stayed,
@@ -269,6 +286,10 @@ pub(super) async fn unpick(core: &Arc<Core>, undoing: Unpicking) -> CoreResult<B
         if !known {
             return Err(format!("{back_to} is not an account of {provider}"));
         }
+        match &undoing.pinned_before {
+            Some(pinned) => book.pinned.insert(provider.clone(), pinned.clone()),
+            None => book.pinned.remove(&provider),
+        };
         book.selected.insert(provider, back_to);
         Ok(())
     })
@@ -305,12 +326,118 @@ pub(super) async fn unpick(core: &Arc<Core>, undoing: Unpicking) -> CoreResult<B
     Ok(book)
 }
 
-pub(super) async fn set_auto_switch(core: &Arc<Core>, switching: Switching) -> CoreResult<Book> {
+pub(super) async fn set_smart(core: &Arc<Core>, smart: Smart) -> CoreResult<Book> {
     change(core, move |book| {
-        book.auto_switch.insert(switching.provider, switching.on);
+        book.smart = smart.on;
         Ok(())
     })
     .await
+}
+
+pub(super) async fn unpin(core: &Arc<Core>, unpinning: Unpinning) -> CoreResult<Book> {
+    change(core, move |book| {
+        book.pinned.remove(&unpinning.provider);
+        Ok(())
+    })
+    .await
+}
+
+/// The person's accounts with `provider`'s agent that could take a new chat now: signed in,
+/// each with its last reading. Empty while smart is off or fewer than two could, so one account
+/// costs nothing.
+fn candidates(book: &Book, provider: &str) -> Vec<(Profile, Option<usage::Reading>)> {
+    if !book.smart {
+        return Vec::new();
+    }
+    let signed_in: Vec<Profile> = (book.clone().with_built_ins().profiles.into_iter())
+        .filter(|profile| profile.provider == provider)
+        .filter(|profile| {
+            let env = chat_account(provider, &profile.id, "", profile.config_path.as_deref()).env;
+            matches!(
+                crate::agent_accounts::sign_in::signed_in(provider, &env),
+                Some(crate::agent_accounts::sign_in::SignIn::Account(_))
+            )
+        })
+        .collect();
+    if signed_in.len() < 2 {
+        return Vec::new();
+    }
+    (signed_in.into_iter())
+        .map(|profile| {
+            let reading = usage::last_reading(provider, profile.config_path.as_deref());
+            (profile, reading)
+        })
+        .collect()
+}
+
+/// The account a chat of `provider` on `model` goes to while smart is on, and why: the one the
+/// person pinned for a new chat, else the one [`allocate::place`] picks. None while smart is
+/// off, the agent has one account here, or no reading leaves any room.
+pub(crate) fn placement(
+    book: &Book,
+    provider: &str,
+    model: Option<&str>,
+    aim: Aim,
+    among: impl Fn(&Profile) -> bool,
+) -> Option<Placement> {
+    let candidates: Vec<_> = (candidates(book, provider).into_iter())
+        .filter(|(profile, _)| among(profile))
+        .collect();
+    let pinned = book.pinned.get(provider).filter(|_| aim == Aim::Soonest);
+    if let Some(pinned) = pinned.filter(|id| candidates.iter().any(|(p, _)| &p.id == *id)) {
+        return Some(Placement {
+            id: pinned.clone(),
+            why: "You pinned new chats to it".into(),
+        });
+    }
+    let offered: Vec<Candidate> = (candidates.iter())
+        .map(|(profile, reading)| Candidate {
+            id: &profile.id,
+            usage: reading.as_ref().map(|reading| &reading.usage),
+        })
+        .collect();
+    allocate::place(&offered, model, aim, sikemux_process::clock::epoch_ms())
+}
+
+/// How long a chat waits to start for its accounts' readings to come in, before it is placed
+/// on what is already known.
+const FRESH_READINGS_WITHIN: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Reads again the plan of each of `provider`'s accounts whose reading is older than a
+/// lookup is kept, waiting a moment for them; a slow lookup carries on behind.
+pub(crate) async fn freshen(core: Arc<Core>, book: Book, provider: String) {
+    let provider = provider.as_str();
+    let now = sikemux_process::clock::epoch_ms();
+    let old = |reading: &Option<usage::Reading>| {
+        reading.as_ref().is_none_or(|reading| {
+            now.saturating_sub(reading.read_at) > usage::USAGE_TTL.as_millis() as u64
+        })
+    };
+    let lookups: Vec<_> = (candidates(&book, provider).into_iter())
+        .filter(|(_, reading)| old(reading))
+        .map(|(profile, _)| {
+            let (core, provider) = (core.clone(), provider.to_owned());
+            tokio::spawn(async move {
+                let account = Account {
+                    provider: provider.clone(),
+                    config_path: profile.config_path.clone(),
+                };
+                if let Ok(program) = program(&core, &account).await {
+                    let config_path = profile.config_path.as_deref();
+                    let _ = usage::usage(&provider, &program, config_path).await;
+                    core.changed(What::Read(Topic::Usage));
+                }
+            })
+        })
+        .collect();
+    if lookups.is_empty() {
+        return;
+    }
+    let _ = tokio::time::timeout(
+        FRESH_READINGS_WITHIN,
+        futures_util::future::join_all(lookups),
+    )
+    .await;
 }
 
 pub(super) async fn add(adding: Adding) -> CoreResult<String> {
@@ -517,6 +644,12 @@ pub struct AccountUsage {
     pub read_at: Option<u64>,
     /// Why the latest lookup found no reading.
     pub problem: Option<String>,
+    /// Whether smart accounts would start the agent's next new chat on it.
+    #[serde(default)]
+    pub next: bool,
+    /// Whether the person pinned the agent's new chats to it.
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// How old a reading may grow before it says so: three of the app's reads missed.
@@ -530,6 +663,26 @@ impl AccountUsage {
             || self
                 .read_at
                 .is_some_and(|read| now_ms.saturating_sub(read) >= READING_STALE_AFTER_MS)
+    }
+}
+
+/// Keeps the plan limits a chat's agent reported on the account `account_id` as that account's
+/// reading, telling clients when it changed.
+pub(crate) fn note_live(
+    core: &Core,
+    provider: &str,
+    account_id: Option<&str>,
+    live: Vec<usage::UsageWindow>,
+) {
+    let book = core
+        .workspaces
+        .accounts()
+        .unwrap_or_default()
+        .with_built_ins();
+    let profile = account_id.and_then(|id| book.profile(id));
+    let config_path = profile.and_then(|profile| profile.config_path.as_deref());
+    if usage::note_live(provider, config_path, live) {
+        core.changed(What::Read(Topic::Usage));
     }
 }
 
@@ -581,9 +734,35 @@ async fn usages_read(core: &Arc<Core>, ask: bool) -> Vec<AccountUsage> {
             read_at: reading.as_ref().map(|reading| reading.read_at),
             usage: reading.map(|reading| reading.usage),
             problem,
+            next: false,
+            pinned: false,
         });
     }
+    mark_next(core, &mut found);
     found
+}
+
+/// Marks the account each agent's next new chat goes to, and the one the person pinned.
+fn mark_next(core: &Core, found: &mut [AccountUsage]) {
+    let book = core.workspaces.accounts().unwrap_or_default();
+    let providers: std::collections::BTreeSet<String> = found
+        .iter()
+        .map(|account| account.provider.clone())
+        .collect();
+    for provider in providers {
+        let next = placement(&book, &provider, None, Aim::Soonest, |_| true);
+        let pinned = book.pinned.get(&provider).filter(|_| book.smart);
+        for account in found
+            .iter_mut()
+            .filter(|account| account.provider == provider)
+        {
+            let id = super::workspace::LauncherId::parse(&account.launcher).account;
+            account.next = next
+                .as_ref()
+                .is_some_and(|next| Some(next.id.as_str()) == id);
+            account.pinned = pinned.is_some_and(|pinned| Some(pinned.as_str()) == id);
+        }
+    }
 }
 
 /// An agent Sikemux can run, as this host has it on the account the person chose for it.

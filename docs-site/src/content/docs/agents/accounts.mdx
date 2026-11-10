@@ -9,17 +9,23 @@ Claude Code and Codex can keep several accounts, such as one for work and one fo
 
 In **Settings → Accounts**, under Claude or Codex, choose **Add account**, give it a name, then sign in in your browser. Once it is signed in, **Switch to** it, or **Keep using** the account you had. Each account in the list has **Use** to switch to it, which moves your open chats there too, and its **⋯** menu signs it out or removes it.
 
-With two or more accounts, **Auto-rotate at limits** lets a chat that hits a usage limit carry on with your next signed-in account. It is off by default: each provider's terms expect one person's ordinary use per plan.
+## Smart accounts
+
+**Smart accounts** is on by default, for every agent, and only acts once an agent has two or more signed-in accounts. Each new chat then starts on the account whose week ends soonest, since what a week leaves unused is lost at its reset; accounts whose weeks end within an hour of each other go to the one with more left. An account takes a new chat only while its 5-hour window is under 80% used and its week, and the week of the chat's model where the plan has one, are under 95%. When no account has room, the chat starts on the account you chose, as with smart accounts off. The chat says which account it started on and why.
+
+A chat that hits a usage limit carries on in the signed-in account with the most of its week left. A chat already going never moves for balance alone: its cache lives with its account, and moving it would send its whole conversation again.
+
+To turn it off, switch off **Smart accounts** under **Rotation** at the top of **Settings → Accounts**. Chats then start on the account you chose and wait for a limit to reset. Check each provider's terms first: they expect one person's ordinary use per plan, and rotating several paid accounts may not be within them. A chat never moves to another agent's account.
 
 ## Choose a chat's account
 
-With two or more signed-in accounts, the strip above a chat's composer shows the chat's account at its right end. Pick another there: a new or sleeping chat starts on it when you begin writing, and a chat already going moves to it, carrying on any turn in progress.
+With two or more signed-in accounts, the strip above a chat's composer shows the chat's account at its right end. Pick another there: a new or sleeping chat starts on it when you begin writing, and a chat already going moves to it, carrying on any turn in progress. The menu lists only accounts that can take the chat, and says why when none can, such as when the others are signed out. If a move fails, the chat stays on its account and Sikemux says why.
 
 ## Limits
 
 The foot of the tab rail's agents page shows each agent's weekly limit, for Claude and Codex together, or just the agent chosen in the rail. Each row is the agent's mark, a ruler and what is left of the week added up across its accounts: `84% / 200%` is 84 points left out of two accounts' 100 each. The ruler fills with what is left and turns amber, then red, as it runs low.
 
-Rest the pointer on the rows and a float opens with one line per account: its ruler, how much of its week is left and the countdown to its reset, with the account in use lifted. **Move chats here** on another account puts the agent on it and moves your open chats there too; **Undo**, for a few seconds, puts each chat back on the account it was on. Chats running in a terminal stay where they are. With every agent listed, each has a **+** in the float to add an account; with one agent, the **+** is beside the refresh button. A signed-out account offers **Sign in**.
+Rest the pointer on the rows and a float opens with one line per account: its ruler, how much of its week is left and the countdown to its reset, with the account in use lifted. With smart accounts on, the lifted account is where the next new chat starts; **Pin new chats here** sends every new chat to an account until you choose **Unpin** on it, and leaves open chats where they are. With smart accounts off, **Move chats here** on another account puts the agent on it and moves your open chats there too. Either way, **Undo**, for a few seconds, takes the pick back and puts each chat it moved on the account it was on. Chats running in a terminal stay where they are. With every agent listed, each has a **+** in the float to add an account; with one agent, the **+** is beside the refresh button. A signed-out account offers **Sign in**.
 
 The chip beside the Goals button in the top bar shows each agent's week left, added up the same way; click it for the same rows and accounts in a popover, without having to hover. Sikemux reads your limits when it starts, every five minutes while the panel or the popover is on screen, and when you open the popover on a reading older than that; the refresh button reads them again now. A failed read keeps the last numbers and says how old they are.
 

@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::agent_accounts::allocate::Aim;
 use crate::agent_catalog::AgentKind;
 use crate::cli::protocol::TOOLS_OFFER_ENV;
 use crate::launch::homes;
@@ -17,6 +18,7 @@ use crate::launch::terminal::{self, TerminalRun};
 use crate::launch::tools::Tools;
 use crate::launch::{AgentSpec, PermissionMode};
 use serde_json::{json, Value};
+use sikemux_fold::UpdateKind;
 use sikemux_process::vars;
 use sikemux_pty::launch::{LaunchKind, PtyAgentProfile, PtyContext, PtyDirectCommand};
 use sikemux_view::workspace::WorkspaceAgent;
@@ -298,8 +300,9 @@ pub(crate) struct Launch {
 pub(crate) async fn start(
     core: &Arc<Core>,
     by: Option<&Arc<ClientConn>>,
-    chosen: Launch,
+    mut chosen: Launch,
 ) -> CoreResult<Arc<chat::Chat>> {
+    let notice = place(core, &mut chosen).await;
     let launcher = core.workspaces.launcher(&chosen.launcher)?;
     let program = match chosen.program {
         Some(program) => program,
@@ -324,11 +327,59 @@ pub(crate) async fn start(
     launch.effort = chosen.effort;
     launch.account = chosen.account;
     launch.fallbacks = chosen.fallbacks;
-    let started = chat::begin(core, launch, by, Some(launcher_id), waits_for_person, false)?;
+    let starting = chat::Starting {
+        waits_for_person,
+        briefed: false,
+        notice,
+    };
+    let started = chat::begin_as(core, launch, by, Some(launcher_id), starting)?;
     core.changed(What::Event(&Event::ChatBegun {
         chat: started.info(),
     }));
     Ok(started)
+}
+
+/// Puts a chat that names only its agent on the account smart accounts picks for it, and
+/// answers what the chat says of that once its agent is up. A chat that names its account, as
+/// one the person picked or one woken on the account it ran on, keeps it. One shown to the person
+/// before its agent starts is placed at once, on the readings already kept.
+async fn place(core: &Arc<Core>, chosen: &mut Launch) -> Option<Value> {
+    let named = LauncherId::parse(&chosen.launcher);
+    if named.account.is_some() || chosen.account.is_some() {
+        return None;
+    }
+    let kind = named.kind.to_owned();
+    let book = core.workspaces.accounts().unwrap_or_default();
+    let freshening = super::agent_accounts::freshen(core.clone(), book.clone(), kind.clone());
+    match chosen.waits_for_person {
+        true => drop(tokio::spawn(freshening)),
+        false => freshening.await,
+    }
+    let placed = super::agent_accounts::placement(
+        &book,
+        &kind,
+        chosen.model.as_deref(),
+        Aim::Soonest,
+        |_| true,
+    )?;
+    let id = LauncherId::on(&kind, &placed.id).to_string();
+    let launcher = core
+        .workspaces
+        .launcher(&id)
+        .ok()
+        .filter(|found| found.id == id)?;
+    chosen.launcher = id;
+    let label = book
+        .with_built_ins()
+        .profile(&placed.id)
+        .map_or(launcher.label, |profile| profile.name.clone());
+    Some(json!({
+        "sessionUpdate": UpdateKind::AccountSwitched,
+        "account": placed.id,
+        "label": label,
+        "reason": "placed",
+        "why": placed.why,
+    }))
 }
 
 /// Starts an agent of the workspace as its record says, on its saved

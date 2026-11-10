@@ -2056,6 +2056,8 @@ export interface AccountMove {
     label: string;
     from?: string;
     reason: MoveReason;
+    /** Why smart accounts started the chat on this account, as a person reads it. */
+    placed?: string;
 }
 
 export type MoveReason = "limit" | "chosen";

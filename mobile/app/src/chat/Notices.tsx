@@ -60,12 +60,13 @@ export function AgentNoticeLine({ notice }: { notice: AgentNotice }) {
 export function AccountLine({ move }: { move: AccountMove }) {
   const colors = useColors();
   const styles = useStyles(makeStyles);
-  const why = move.reason === 'limit' && move.from ? `${move.from} reached its usage limit` : null;
+  const why = move.reason === 'limit' && move.from ? `${move.from} reached its usage limit` : (move.placed ?? null);
+  const said = move.placed ? 'Started on' : 'Moved to';
   return (
-    <View style={styles.notice} accessible accessibilityLabel={`Moved to ${move.label}${why ? `. ${why}` : ''}`}>
+    <View style={styles.notice} accessible accessibilityLabel={`${said} ${move.label}${why ? `. ${why}` : ''}`}>
       <View style={styles.noticeHead}>
         <Icon name="IconUser" size={12} color={colors.inkFaint} />
-        <Text style={styles.noticeState}>Moved to</Text>
+        <Text style={styles.noticeState}>{said}</Text>
         <Text style={styles.noticeName} numberOfLines={1}>
           {move.label}
         </Text>

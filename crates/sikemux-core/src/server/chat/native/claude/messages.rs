@@ -32,6 +32,10 @@ pub(crate) enum Message {
         command_uuid: Option<String>,
     },
     ConversationReset,
+    RateLimitEvent {
+        #[serde(default)]
+        rate_limit_info: Value,
+    },
     #[serde(other)]
     Other,
 }

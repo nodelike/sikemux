@@ -1422,4 +1422,7 @@ pub struct AccountMove {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
     pub reason: MoveReason,
+    /// Why smart accounts started the chat on this account, as a person reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placed: Option<String>,
 }

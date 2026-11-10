@@ -161,8 +161,14 @@ impl<'a> Agent<'a> {
                 .collect()
         };
         let current = bench.accounts.current(provider).map(|profile| &profile.id);
-        let in_use = (accounts.iter())
-            .position(|shown| shown.profile.map(|profile| &profile.id) == current)
+        let next = accounts
+            .iter()
+            .position(|shown| shown.usage.is_some_and(|usage| usage.next));
+        let in_use = next
+            .or_else(|| {
+                (accounts.iter())
+                    .position(|shown| shown.profile.map(|profile| &profile.id) == current)
+            })
             .unwrap_or(0);
         Self {
             provider,
@@ -227,6 +233,8 @@ struct View {
     undo: Option<String>,
     /// How tall the float's list may grow before it scrolls.
     room: f32,
+    /// Whether smart accounts places new chats, so a pick pins them rather than moving any.
+    smart: bool,
 }
 
 impl View {
@@ -331,6 +339,7 @@ fn view(
             .as_ref()
             .map(|undo| undo.undoing.back_to.clone()),
         room,
+        smart: bench.accounts.smart(),
     }
 }
 
@@ -721,7 +730,8 @@ fn status(view: &View, shown: &Shown) -> Option<String> {
 }
 
 /// An account as one line: its name, then its week's ruler. Clicking one not in use moves the
-/// agent's chats onto it.
+/// agent's chats onto it; while smart accounts is on, clicking one pins new chats to it, or
+/// unpins it.
 fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &App) -> AnyElement {
     let t = Tokens::get(cx);
     let key = shown.key(agent.provider);
@@ -808,8 +818,21 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                 .child(when_cell(window, view.now, age.as_deref(), cx)),
             None => end.child(note(shown.nothing(), cx)),
         });
-    let target = shown.profile.filter(|_| !in_use).cloned();
+    let smart = view.smart && agent.accounts.len() > 1;
+    let pinned = shown.usage.is_some_and(|usage| usage.pinned);
+    let tip = match (smart && in_use, tip) {
+        (true, Some(tip)) => Some(format!("New chats start here. {tip}")),
+        (true, None) => Some("New chats start here".to_owned()),
+        (false, tip) => tip,
+    };
+    let target = shown.profile.filter(|_| smart || !in_use).cloned();
     let pickable = target.is_some();
+    let offer = match (smart, pinned) {
+        (true, true) => "Unpin",
+        (true, false) => "Pin new chats here",
+        (false, _) => "Move chats here",
+    };
+    let provider = agent.provider.to_owned();
     frame()
         .id(id)
         .group(group.clone())
@@ -820,14 +843,20 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
         .when_some(target, |line, target| {
             line.cursor_pointer()
                 .hover(|line| line.bg(t.surface_hover))
-                .on_click(view.on(move |bench, _, cx| pick(bench, &target, cx)))
+                .on_click(view.on(move |bench, _, cx| match pinned {
+                    true => crate::accounts::unpin(bench, &provider, cx),
+                    false => pick(bench, &target, cx),
+                }))
         })
         .child(
             div()
                 .flex_none()
                 .w(px(label_column(view)))
                 .flex()
-                .child(name(shown.name.clone())),
+                .items_baseline()
+                .gap(px(5.))
+                .child(name(shown.name.clone()))
+                .when(smart && pinned, |names| names.child(meta("Pinned".into()))),
         )
         .child(end.when(pickable, |end| {
             end.group_hover(group.clone(), |end| end.opacity(0.))
@@ -844,8 +873,7 @@ fn account_line(view: &View, agent: &Agent, shown: &Shown, in_use: bool, cx: &Ap
                     .opacity(0.)
                     .group_hover(group.clone(), |action| action.opacity(1.))
                     .child(
-                        ui::text("Move chats here", TEXT_3XS, FontWeight::NORMAL)
-                            .text_color(t.text_primary),
+                        ui::text(offer, TEXT_3XS, FontWeight::NORMAL).text_color(t.text_primary),
                     ),
             )
         })

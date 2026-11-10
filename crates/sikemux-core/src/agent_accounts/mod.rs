@@ -4,6 +4,7 @@
 //! variables it gets. Signing in runs the agent's own login; Sikemux never
 //! reads or stores a credential.
 
+pub mod allocate;
 pub mod defaults;
 pub mod folders;
 pub mod sign_in;
@@ -51,16 +52,36 @@ impl Profile {
 }
 
 /// Every profile, and which one each agent starts on, by provider.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Book {
     pub profiles: Vec<Profile>,
     #[serde(default)]
     pub selected: BTreeMap<String, String>,
-    /// Whether a chat moves to the next signed-in account at a usage limit,
-    /// by provider. Off unless the person turns it on.
+    /// Whether each new chat starts on the account whose week ends soonest, and a chat at a
+    /// usage limit carries on in the account with the most left. On unless the person turns
+    /// it off; a chat never moves to another agent's account.
+    #[serde(default = "smart_by_default")]
+    pub smart: bool,
+    /// The account each agent's new chats go to while smart is on, by provider, as the person
+    /// pinned it.
     #[serde(default)]
-    pub auto_switch: BTreeMap<String, bool>,
+    pub pinned: BTreeMap<String, String>,
+}
+
+fn smart_by_default() -> bool {
+    true
+}
+
+impl Default for Book {
+    fn default() -> Self {
+        Self {
+            profiles: Vec::new(),
+            selected: BTreeMap::new(),
+            smart: smart_by_default(),
+            pinned: BTreeMap::new(),
+        }
+    }
 }
 
 /// What the ids of the accounts each agent starts with begin with.
@@ -84,10 +105,9 @@ impl Book {
                 || profile.environment_keys.len() > 64
         });
         let selected = |(provider, id): (&String, &String)| long(provider) || long(id);
-        let oversized = oversized
-            || self.selected.iter().any(selected)
-            || self.auto_switch.keys().any(|provider| long(provider));
-        let many = [self.selected.len(), self.auto_switch.len()]
+        let oversized =
+            oversized || self.selected.iter().any(selected) || self.pinned.iter().any(selected);
+        let many = [self.selected.len(), self.pinned.len()]
             .into_iter()
             .any(|len| len > MAX_PROFILES);
         if self.profiles.len() > MAX_PROFILES || oversized || many {
@@ -104,6 +124,8 @@ impl Book {
     /// for another provider goes.
     pub fn save(&mut self, profile: Profile) {
         self.selected
+            .retain(|provider, id| id != &profile.id || provider == &profile.provider);
+        self.pinned
             .retain(|provider, id| id != &profile.id || provider == &profile.provider);
         self.profiles.retain(|kept| kept.id != profile.id);
         self.profiles.push(profile);
@@ -139,6 +161,7 @@ impl Book {
         }
         self.profiles.retain(|profile| profile.id != id);
         self.selected.retain(|_, selected| selected != id);
+        self.pinned.retain(|_, pinned| pinned != id);
         Ok(())
     }
 
@@ -282,13 +305,14 @@ pub fn cli(
 pub const NO_ACCOUNTS: &str = "Only Claude and Codex keep separate accounts";
 
 /// The core's calls about accounts and their limits, all of them the app's own.
-pub const METHODS: [&str; 16] = [
+pub const METHODS: [&str; 17] = [
     "agentAccounts",
     "setAgentAccounts",
     "saveAgentAccount",
     "removeAgentAccount",
     "selectAgentAccount",
-    "setAccountAutoSwitch",
+    "setSmartAccounts",
+    "unpinAgentAccount",
     "addAgentAccount",
     "agentStatus",
     "agentAccountStatus",

@@ -186,7 +186,10 @@ impl Workbench {
         let Some(Strip::Project(project)) = self.strip() else {
             return;
         };
-        let Some(launcher) = self.launcher().map(|launcher| launcher.id.clone()) else {
+        let Some(launcher) = self
+            .launcher()
+            .map(|launcher| self.new_chat_launcher(launcher))
+        else {
             return self.toggle_agent_palette(window, cx);
         };
         let folder = self

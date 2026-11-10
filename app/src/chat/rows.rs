@@ -1127,10 +1127,15 @@ pub(super) fn part(
                 .from
                 .as_ref()
                 .filter(|_| moved.reason == MoveReason::Limit)
-                .map(|from| format!("{from} reached its usage limit"));
+                .map(|from| format!("{from} reached its usage limit"))
+                .or_else(|| moved.placed.clone());
+            let said = match moved.placed {
+                Some(_) => "Started on",
+                None => "Moved to",
+            };
             notice_box(looks)
                 .child(ui::icon(Icon::User, 12.).text_color(looks.quiet))
-                .child(div().flex_none().child("Moved to"))
+                .child(div().flex_none().child(said))
                 .child(notice_name(moved.label.clone(), false, looks))
                 .children(why.map(notice_summary))
                 .into_any_element()

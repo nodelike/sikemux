@@ -100,7 +100,7 @@ impl Usage {
 /// Every lookup boots the provider's CLI and asks the provider's usage
 /// endpoint, which refuses callers that ask often. So an answer is kept for a
 /// while, a failed one too, and a refusal for longer.
-const USAGE_TTL: Duration = Duration::from_secs(120);
+pub(crate) const USAGE_TTL: Duration = Duration::from_secs(120);
 const FAILED_TTL: Duration = Duration::from_secs(60);
 const REFUSED_TTL: Duration = Duration::from_secs(600);
 
@@ -230,6 +230,87 @@ fn save(readings: &Readings) {
             });
         }
     }
+}
+
+/// Folds the windows an agent reported while it worked into its account's reading, which then
+/// counts as fresh, and answers whether that changed what a person would see.
+pub(crate) fn note_live(provider: &str, config_path: Option<&str>, live: Vec<UsageWindow>) -> bool {
+    if live.is_empty() {
+        return false;
+    }
+    let key = key(provider, config_path);
+    let mut readings = readings().locked();
+    let reading = readings
+        .by_account
+        .entry(key.clone())
+        .or_insert_with(|| Reading {
+            read_at: 0,
+            usage: Usage {
+                provider: provider.to_owned(),
+                plan: None,
+                windows: Vec::new(),
+                unavailable_reason: None,
+            },
+        });
+    let mut changed = false;
+    for window in live {
+        match (reading.usage.windows.iter_mut()).find(|kept| kept.label == window.label) {
+            Some(kept) => {
+                changed |= (kept.used_percent - window.used_percent).abs() >= 1.0
+                    || kept.resets_at.as_ref().and_then(UsageResetAt::unix_ms)
+                        != window.resets_at.as_ref().and_then(UsageResetAt::unix_ms);
+                *kept = window;
+            }
+            None => {
+                reading.usage.windows.push(window);
+                changed = true;
+            }
+        }
+    }
+    reading.read_at = sikemux_process::clock::epoch_ms();
+    let usage = reading.usage.clone();
+    if changed {
+        save(&readings);
+    }
+    drop(readings);
+    usage_cache()
+        .locked()
+        .insert(key, (Instant::now(), USAGE_TTL, Ok(usage)));
+    changed
+}
+
+/// The windows in the limit Claude reports on its stream as a turn goes, whose use is a
+/// fraction where its usage lookup gives a percentage.
+pub(crate) fn claude_live(info: &Value) -> Vec<UsageWindow> {
+    let Some(windows) = info.get("unifiedWindows").and_then(Value::as_object) else {
+        return Vec::new();
+    };
+    let named = |key: &str| match key {
+        "five_hour" => Some(("5h", 300)),
+        "seven_day" => Some(("7d", 10_080)),
+        "seven_day_opus" => Some(("Opus · 7d", 10_080)),
+        "seven_day_sonnet" => Some(("Sonnet · 7d", 10_080)),
+        _ => None,
+    };
+    (windows.iter())
+        .filter_map(|(key, window)| {
+            let (label, minutes) = named(key)?;
+            Some(UsageWindow {
+                label: label.to_owned(),
+                used_percent: (window.get("utilization")?.as_f64()? * 100.0).clamp(0.0, 100.0),
+                resets_at: window.get("resetsAt").and_then(usage_reset_at),
+                window_minutes: Some(minutes),
+            })
+        })
+        .collect()
+}
+
+/// The windows in the limits Codex sends as they change.
+pub(crate) fn codex_live(params: &Value) -> Vec<UsageWindow> {
+    let Some(limits) = params.get("rateLimits").filter(|limits| limits.is_object()) else {
+        return Vec::new();
+    };
+    parse_codex_usage_result(&serde_json::json!({ "rateLimits": limits })).windows
 }
 
 /// The account's last good reading, however old, without asking its CLI.

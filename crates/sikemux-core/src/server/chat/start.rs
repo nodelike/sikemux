@@ -173,18 +173,35 @@ pub(crate) fn begin(
     waits_for_person: bool,
     briefed: bool,
 ) -> CoreResult<Arc<Chat>> {
+    let starting = Starting {
+        waits_for_person,
+        briefed,
+        notice: None,
+    };
+    begin_as(core, launch_spec, subscriber, launcher, starting)
+}
+
+/// Starts a chat as [`begin`] does, as `starting` says.
+pub(crate) fn begin_as(
+    core: &Arc<Core>,
+    launch_spec: ChatLaunch,
+    subscriber: Option<&Arc<ClientConn>>,
+    launcher: Option<String>,
+    starting: Starting,
+) -> CoreResult<Arc<Chat>> {
     let origin = Origin {
         started_by: subscriber.and_then(|client| client.peer.device_id()),
         launcher,
     };
-    start(
-        core,
-        launch_spec,
-        origin,
-        subscriber,
-        waits_for_person,
-        briefed,
-    )
+    start(core, launch_spec, origin, subscriber, starting)
+}
+
+/// How a chat starts: once the person writes in it or at once, with its brief already in its
+/// launch or not, and what it says once its agent is up.
+pub(crate) struct Starting {
+    pub waits_for_person: bool,
+    pub briefed: bool,
+    pub notice: Option<Value>,
 }
 
 /// Starts a chat agent another agent asked for, with `lead` as who started it.
@@ -198,7 +215,12 @@ pub(crate) fn begin_worker(
         started_by: Some(lead.to_owned()),
         launcher,
     };
-    start(core, launch_spec, origin, None, false, true)
+    let starting = Starting {
+        waits_for_person: false,
+        briefed: true,
+        notice: None,
+    };
+    start(core, launch_spec, origin, None, starting)
 }
 
 pub(super) fn start(
@@ -206,9 +228,13 @@ pub(super) fn start(
     mut launch_spec: ChatLaunch,
     origin: Origin,
     subscriber: Option<&Arc<ClientConn>>,
-    waits_for_person: bool,
-    briefed: bool,
+    starting: Starting,
 ) -> CoreResult<Arc<Chat>> {
+    let Starting {
+        waits_for_person,
+        briefed,
+        notice,
+    } = starting;
     crate::server::launching::own_tools(core, &mut launch_spec);
     rebind::name_accounts(core, &mut launch_spec);
     for (key, value) in crate::server::plugins::agent_environment(core, &launch_spec.cwd) {
@@ -263,7 +289,7 @@ pub(super) fn start(
         queue,
         Begin::Start {
             rebind: None,
-            notice: None,
+            notice,
         },
     );
     Ok(chat)

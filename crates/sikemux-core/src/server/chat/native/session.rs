@@ -276,6 +276,14 @@ impl Sink {
         self.chat.note_cli_version(version);
     }
 
+    /// Keeps the plan limits the agent reported as it worked as its account's reading.
+    pub fn plan_limits(&self, live: Vec<crate::agent_accounts::usage::UsageWindow>) {
+        if let Some(core) = self.chat.core.upgrade() {
+            let provider = self.chat.provider();
+            agent_accounts::note_live(&core, provider, self.account.as_deref(), live);
+        }
+    }
+
     /// The agent began work nobody here asked for, such as answering a
     /// background task that finished.
     pub fn work_started(&self) {
@@ -925,7 +933,7 @@ impl<B: Backend> Running<'_, B> {
             FailureKind::Limit if state.reloadable && switches_at_limit(chat) => {
                 let mut tried = state.exhausted.clone();
                 tried.extend(current.clone());
-                next_account(self.provider, self.launch, &tried).and_then(|next| {
+                next_account(chat, self.provider, self.launch, &tried).and_then(|next| {
                     let notice = switch_notice(self.launch, next, "limit");
                     let moved = on_account(self.provider, self.launch, next);
                     chat.relaunch(&moved).map(|launch| Rebind {

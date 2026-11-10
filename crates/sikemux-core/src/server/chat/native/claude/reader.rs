@@ -529,6 +529,9 @@ impl Reader {
                     self.sink.letter_unread(letter);
                 }
             }
+            Message::RateLimitEvent { rate_limit_info } => self
+                .sink
+                .plan_limits(crate::agent_accounts::usage::claude_live(&rate_limit_info)),
             Message::ConversationReset => {
                 self.data.task_plan.clear();
                 self.send(None, self.data.task_plan.plan());

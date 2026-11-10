@@ -115,26 +115,40 @@ pub(super) fn name_accounts(core: &Core, launch: &mut ChatLaunch) {
     launch.fallbacks = takers.others;
 }
 
-/// Whether the person lets a chat of this agent move to another account
-/// when its own runs out of usage.
+/// Whether the person lets a chat move to another of their accounts with its agent when its
+/// own runs out of usage: while smart accounts is on, as it is unless they turned it off.
 pub(super) fn switches_at_limit(chat: &Chat) -> bool {
     chat.core
         .upgrade()
-        .and_then(|core| core.workspaces.accounts())
-        .is_some_and(|book| book.auto_switch.get(chat.provider()) == Some(&true))
+        .is_none_or(|core| core.workspaces.accounts().unwrap_or_default().smart)
 }
 
-/// The first account to move to that has usage left to try and is signed in.
+/// The account to move to that has usage left to try and is signed in: of those, the one with
+/// the most of its week left, so the chat can keep going, else the first.
 pub(super) fn next_account<'a>(
+    chat: &Chat,
     provider: &str,
     launch: &'a ChatLaunch,
     exhausted: &[String],
 ) -> Option<&'a ChatAccount> {
-    launch.fallbacks.iter().find(|fallback| {
-        !exhausted.contains(&fallback.id)
-            && sign_in::signed_in(provider, &on_account(provider, launch, fallback).env)
-                != Some(SignIn::SignedOut)
-    })
+    let open: Vec<&ChatAccount> = (launch.fallbacks.iter())
+        .filter(|fallback| {
+            !exhausted.contains(&fallback.id)
+                && sign_in::signed_in(provider, &on_account(provider, launch, fallback).env)
+                    != Some(SignIn::SignedOut)
+        })
+        .collect();
+    let placed = chat.core.upgrade().and_then(|core| {
+        crate::server::agent_accounts::placement(
+            &core.workspaces.accounts().unwrap_or_default(),
+            provider,
+            launch.model.as_deref(),
+            crate::agent_accounts::allocate::Aim::Headroom,
+            |profile| open.iter().any(|fallback| fallback.id == profile.id),
+        )
+    });
+    let best = placed.and_then(|placed| open.iter().find(|fallback| fallback.id == placed.id));
+    best.or(open.first()).copied()
 }
 
 pub(super) fn switch_notice(launch: &ChatLaunch, to: &ChatAccount, reason: &str) -> Value {

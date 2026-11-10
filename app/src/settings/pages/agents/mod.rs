@@ -77,10 +77,11 @@ pub fn render(
         Page::Chats => vec![sessions::render(&fields.sessions, lit, this, cx)],
         Page::Skills => vec![skills::render(&fields.skills, lit, this, cx)],
         Page::Accounts => {
-            let mut sections: Vec<AnyElement> = signs_in(bench)
-                .into_iter()
-                .map(|provider| accounts::render(bench, &provider, lit, this, cx))
-                .collect();
+            let mut sections = vec![accounts::smart(bench, lit, this, cx)];
+            sections.extend(
+                (signs_in(bench).into_iter())
+                    .map(|provider| accounts::render(bench, &provider, lit, this, cx)),
+            );
             sections.push(profiles::render(bench, &fields.profiles, lit, this, cx));
             sections
         }

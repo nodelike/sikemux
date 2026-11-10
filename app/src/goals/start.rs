@@ -284,9 +284,15 @@ impl GoalsPane {
             let bench = bench.read(cx);
             let launcher = self.start_launcher(bench)?;
             let skips = skips_asking(bench, &launcher.provider);
-            Some((launcher, skips))
+            let starts_with = match &self.start.chosen.launcher {
+                Some(picked) => picked.clone(),
+                None => bench.new_chat_launcher(&launcher),
+            };
+            Some((launcher, skips, starts_with))
         });
-        let (Some((launcher, skips)), Some(project)) = (launcher, self.start_project(cx)) else {
+        let (Some((launcher, skips, starts_with)), Some(project)) =
+            (launcher, self.start_project(cx))
+        else {
             self.said(
                 "No agent is set up to start; set one up from the agents rail",
                 cx,
@@ -309,7 +315,7 @@ impl GoalsPane {
         let first_model = model.clone().filter(|_| payer.is_none());
         let worktree = project.git.is_some() && project.worktree_default;
         here.start_chat_as(
-            launcher.id,
+            starts_with,
             project.id.clone(),
             asking,
             (first_model, effort),

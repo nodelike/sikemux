@@ -301,9 +301,10 @@ calls! { core, client, method, params;
     "selectAgentAccount" SelectAgentAccount (agent_accounts::Choosing) -> crate::agent_accounts::Book: NoDevice, counted => agent_accounts::select(&core, params).await?,
     "pickAgentAccount" PickAgentAccount (agent_accounts::Choosing) -> agent_accounts::Picked: NoDevice, counted => agent_accounts::pick(&core, params).await?,
     "undoAgentAccountPick" UndoAgentAccountPick (agent_accounts::Unpicking) -> crate::agent_accounts::Book: NoDevice, counted => agent_accounts::unpick(&core, params).await?,
-    "setAccountAutoSwitch" SetAccountAutoSwitch (agent_accounts::Switching) -> crate::agent_accounts::Book: NoDevice, counted => {
-        agent_accounts::set_auto_switch(&core, params).await?
+    "setSmartAccounts" SetSmartAccounts (agent_accounts::Smart) -> crate::agent_accounts::Book: NoDevice, counted => {
+        agent_accounts::set_smart(&core, params).await?
     },
+    "unpinAgentAccount" UnpinAgentAccount (agent_accounts::Unpinning) -> crate::agent_accounts::Book: NoDevice, counted => agent_accounts::unpin(&core, params).await?,
     "retryFailed" RetryFailed (agent_accounts::ChatAccountsParams) -> (): Full => agent_accounts::retry_failed(&core, params)?,
     "discardFailed" DiscardFailed (agent_accounts::ChatAccountsParams) -> (): Full => agent_accounts::discard_failed(&core, params)?,
     "chatAccounts" ChatAccounts (agent_accounts::ChatAccountsParams) -> agent_accounts::ChatAccounts: Full => {

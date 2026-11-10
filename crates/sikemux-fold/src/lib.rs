@@ -1198,6 +1198,9 @@ impl Fold {
                     } else {
                         MoveReason::Chosen
                     },
+                    placed: (text_of(update.get("reason")) == Some("placed"))
+                        .then(|| text_of(update.get("why")).map(str::to_owned))
+                        .flatten(),
                 };
                 self.append_part(index, &None, |id| ChatPart::Account { id, moved }, false);
             }

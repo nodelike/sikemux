@@ -590,6 +590,17 @@ impl Workbench {
             .or_else(|| of_kind(&launchers.first()?.provider))
     }
 
+    /// What a new chat of `launcher`'s agent, with no account picked for it, starts with: the
+    /// agent alone while smart accounts places it, so the core picks the account, else the
+    /// launcher.
+    pub fn new_chat_launcher(&self, launcher: &LauncherInfo) -> String {
+        let placed = self.accounts.smart() && self.accounts.of(&launcher.provider).len() > 1;
+        match placed {
+            true => launcher.provider.clone(),
+            false => launcher.id.clone(),
+        }
+    }
+
     /// The launcher that starts the kind of agent on the account the person chose for it.
     pub fn launcher_of_kind(&self, kind: &str) -> Option<&LauncherInfo> {
         let launchers = self.launchers();

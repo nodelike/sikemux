@@ -654,7 +654,7 @@ fn account_launch(agent_id: &str, history: &std::path::Path, limited: &str) -> C
 
 /// Lets chats of the fake agent move to another account at a usage limit.
 async fn switch_at_limit(client: &CoreClient) {
-    let book = json!({ "profiles": [], "selected": {}, "autoSwitch": { "opencode": true } });
+    let book = json!({ "profiles": [], "selected": {}, "smart": true });
     client
         .call("setAgentAccounts", book)
         .await

@@ -57,6 +57,12 @@ impl RpcAgent for Session {
     }
 
     fn notification(driver: &Driver, method: &str, params: Value) {
+        if method == "account/rateLimits/updated" {
+            driver
+                .sink
+                .plan_limits(crate::agent_accounts::usage::codex_live(&params));
+            return;
+        }
         let effects = driver.session.locked().handle(method, &params);
         driver.apply(effects);
     }

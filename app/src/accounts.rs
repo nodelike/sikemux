@@ -18,7 +18,7 @@ use sikemux_core::agent_accounts::{Book, Profile};
 use sikemux_core::agent_catalog::AgentKind;
 use sikemux_core::server::agent_accounts::{
     Account as AgentAccount, AccountUsage, Adding, ChatAccounts, ChatAccountsParams, Choosing,
-    Forget, MoveChatParams, Removing, Saving, Switching, Unpicking,
+    Forget, MoveChatParams, Removing, Saving, Smart, Unpicking, Unpinning,
 };
 use sikemux_core::server::agent_sign_in::AfterSignIn;
 use sikemux_core::server::agent_sign_in::{Account as SignInAccount, Code};
@@ -202,11 +202,16 @@ impl Accounts {
             .copied()
     }
 
-    pub fn auto_switch(&self, provider: &str) -> bool {
-        self.book
-            .as_ref()
-            .and_then(|book| book.auto_switch.get(provider).copied())
-            .unwrap_or(false)
+    /// Whether new chats go to the account whose week ends soonest, as they do unless the person
+    /// turned it off.
+    pub fn smart(&self) -> bool {
+        self.book.as_ref().is_none_or(|book| book.smart)
+    }
+
+    /// The account the person pinned the agent's new chats to, while smart is on.
+    pub fn pinned(&self, provider: &str) -> Option<&str> {
+        let book = self.book.as_ref().filter(|book| book.smart)?;
+        book.pinned.get(provider).map(String::as_str)
     }
 }
 
@@ -408,12 +413,14 @@ pub fn unpick(bench: &Workbench, undoing: Unpicking, cx: &mut Context<Workbench>
     change::<call::UndoAgentAccountPick>(bench, undoing, cx);
 }
 
-pub fn set_auto_switch(bench: &Workbench, provider: &str, on: bool, cx: &mut Context<Workbench>) {
-    let params = Switching {
-        provider: provider.to_owned(),
-        on,
-    };
-    change::<call::SetAccountAutoSwitch>(bench, params, cx);
+pub fn set_smart(bench: &Workbench, on: bool, cx: &mut Context<Workbench>) {
+    change::<call::SetSmartAccounts>(bench, Smart { on }, cx);
+}
+
+/// Lets the agent's new chats go wherever smart accounts places them again.
+pub fn unpin(bench: &Workbench, provider: &str, cx: &mut Context<Workbench>) {
+    let provider = provider.to_owned();
+    change::<call::UnpinAgentAccount>(bench, Unpinning { provider }, cx);
 }
 
 /// What the account is called: who it is signed in as while it still has its agent's own

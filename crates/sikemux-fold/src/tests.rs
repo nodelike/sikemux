@@ -1493,6 +1493,7 @@ mod reducer {
                     label: "Work".into(),
                     from: Some("Personal".into()),
                     reason: MoveReason::Limit,
+                    placed: None,
                 }
             ),
             other => panic!("expected an account move, got {other:?}"),

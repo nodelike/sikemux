@@ -298,6 +298,30 @@ fn account_row(
         .into_any_element()
 }
 
+/// The one switch for every agent: each new chat starts on the account whose week ends soonest,
+/// and a chat at its limit carries on where the most is left.
+pub fn smart(
+    bench: &Workbench,
+    lit: &dyn Fn(&str) -> bool,
+    this: &Entity<Workbench>,
+    cx: &App,
+) -> AnyElement {
+    let this = this.clone();
+    let row = rows::row_with(
+        None,
+        "Smart accounts",
+        Some("Starts each chat on the account whose week ends soonest and moves on at a limit. Check each provider's terms first.".into()),
+        Switch::new("smart-accounts")
+            .checked(bench.accounts.smart())
+            .on_change(move |on: &bool, _, cx| {
+                let on = *on;
+                this.update(cx, |bench, cx| accounts::set_smart(bench, on, cx))
+            }),
+        cx,
+    );
+    rows::section("Rotation", None, None, lit("Rotation"), row, cx)
+}
+
 pub fn render(
     bench: &Workbench,
     provider: &str,
@@ -312,23 +336,6 @@ pub fn render(
         .current(provider)
         .map(|profile| profile.id.clone());
     let count = list.len();
-    let auto = (count > 1).then(|| {
-        let (this, provider) = (this.clone(), provider.to_owned());
-        rows::row_with(
-            None,
-            "Auto-rotate at limits",
-            Some(format!("Moves to the next account when one hits its limit. Check {title}'s terms first.").into()),
-            Switch::new(SharedString::from(format!("auto-rotate-{provider}")))
-                .checked(bench.accounts.auto_switch(&provider))
-                .on_change(move |on: &bool, _, cx| {
-                    let on = *on;
-                    this.update(cx, |bench, cx| {
-                        accounts::set_auto_switch(bench, &provider, on, cx)
-                    })
-                }),
-            cx,
-        )
-    });
     let add = {
         let (this, provider) = (this.clone(), provider.to_owned());
         div().p(SPACE_2H).child(
@@ -355,7 +362,6 @@ pub fn render(
                 cx,
             )
         }))
-        .children(auto)
         .child(add)
         .when(bench.accounts.book.is_none(), |body| {
             body.child(rows::note("Reading accounts…", cx))
