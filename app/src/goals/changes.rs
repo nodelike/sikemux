@@ -222,6 +222,9 @@ pub(super) fn picture(
                 if !drawn.contains(&event.position) {
                     return;
                 }
+                // The pane takes focus on a mouse down unless told not to, which would take it
+                // from the change line this opens.
+                window.prevent_default();
                 let along = |at: Pixels, from: Pixels, span: Pixels| {
                     (f32::from(at - from) / f32::from(span)).clamp(0., 1.)
                 };
