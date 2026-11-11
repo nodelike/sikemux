@@ -24,7 +24,7 @@ use sikemux_core::server::saved::SessionSearchParams;
 use sikemux_core::server::stash::ShownStashItem;
 use sikemux_plugin_api::codehost::{TrackedItem, TrackedKind};
 use sikemux_view::workspace::ProjectInfo;
-use sikemux_wire::protocol::ChatContext;
+use sikemux_wire::protocol::{ChatContext, PermissionMode};
 
 use super::Composing;
 use crate::drag::DraggedChat;
@@ -47,8 +47,26 @@ const EARLIER_BUDGET_MS: u64 = 600;
 /// How long the person's typing must settle before the core searches earlier chats.
 const SETTLE: Duration = Duration::from_millis(150);
 
-/// The command the app answers itself, by opening the composer's model picker.
-const PICK_MODEL: &str = "model";
+/// A command Sikemux answers itself rather than sending to the agent; an agent's command of
+/// the same name is left out of the menu.
+#[derive(Clone, Copy, PartialEq)]
+enum Own {
+    Model,
+    Clear,
+    Yolo,
+}
+
+impl Own {
+    const ALL: [Own; 3] = [Own::Model, Own::Clear, Own::Yolo];
+
+    fn name(self) -> &'static str {
+        match self {
+            Own::Model => "model",
+            Own::Clear => "clear",
+            Own::Yolo => "yolo",
+        }
+    }
+}
 
 /// A word the caret is at the end of that starts with one of the menu's triggers.
 #[derive(Clone, PartialEq)]
@@ -65,7 +83,8 @@ fn typed(text: &str, caret: usize) -> Option<Typed> {
     let mut word = before[start..].chars();
     let trigger = word
         .next()
-        .filter(|first| matches!(first, '@' | '+' | '/' | '#' | '!' | '&'))?;
+        .filter(|first| matches!(first, '@' | '+' | '/' | '#' | '!' | '&'))
+        .filter(|&first| first != '/' || before[..start].trim().is_empty())?;
     Some(Typed {
         trigger,
         start,
@@ -92,6 +111,7 @@ enum Choice {
         description: String,
         hint: Option<String>,
     },
+    Own(Own, String),
     /// A saved chat no agent holds, which the core opens again for the message: one
     /// the person named and closed, or one found by what was said in it.
     Earlier {
@@ -300,36 +320,7 @@ impl Workbench {
         let needle = typed.needle.to_lowercase();
         let choices: Rc<[Choice]> = match typed.trigger {
             '@' => self.mates(agent, &needle).into(),
-            '/' => self
-                .chats
-                .open
-                .get(agent)
-                .and_then(|chat| chat.state.as_ref())
-                .map_or(Vec::new(), |head| {
-                    let ours = head.model.is_some();
-                    let own = ours.then(|| Choice::Command {
-                        name: PICK_MODEL.to_owned(),
-                        description: "Pick the model".to_owned(),
-                        hint: None,
-                    });
-                    let theirs = head
-                        .commands
-                        .iter()
-                        .filter(|command| !ours || command.name != PICK_MODEL)
-                        .map(|command| Choice::Command {
-                            name: command.name.clone(),
-                            description: command.description.clone(),
-                            hint: command.hint.clone(),
-                        });
-                    own.into_iter()
-                        .chain(theirs)
-                        .filter(|choice| {
-                            matches!(choice, Choice::Command { name, .. } if name.to_lowercase().contains(&needle))
-                        })
-                        .take(SHOWN)
-                        .collect()
-                })
-                .into(),
+            '/' => self.commands(agent, &needle).into(),
             '#' | '!' => {
                 let tracked = self.tracked_of(agent);
                 tracked_choices(tracked, typed.trigger, &typed.needle).into()
@@ -469,6 +460,48 @@ impl Workbench {
 
     /// The other named agents whose name starts with `needle`: the chat's own project's
     /// first, then every other project's.
+    fn commands(&self, agent: &str, needle: &str) -> Vec<Choice> {
+        let Some(head) = (self.chats.open.get(agent)).and_then(|chat| chat.state.as_ref()) else {
+            return Vec::new();
+        };
+        let saved = self.saved_agent(agent);
+        let yolo = saved.filter(|saved| {
+            (self.reads.catalog.kind(&saved.provider))
+                .is_some_and(|kind| kind.can_skip_asking(self.in_terminal(agent)))
+        });
+        let own = Own::ALL.into_iter().filter_map(|own| {
+            let description = match own {
+                Own::Model => head.model.as_ref().map(|_| "Pick the model".to_owned()),
+                Own::Clear => saved.map(|_| "Start a fresh chat with this agent".to_owned()),
+                Own::Yolo => yolo.map(|saved| match saved.permission_mode {
+                    PermissionMode::Bypass => "Ask before acting again".to_owned(),
+                    PermissionMode::WorkspaceWrite => "Act without asking".to_owned(),
+                }),
+            }?;
+            Some((own, description))
+        });
+        let own: Vec<(Own, String)> = own.collect();
+        let taken: Vec<&str> = own.iter().map(|(own, _)| own.name()).collect();
+        let theirs = (head.commands.iter())
+            .filter(|command| !taken.contains(&command.name.as_str()))
+            .map(|command| Choice::Command {
+                name: command.name.clone(),
+                description: command.description.clone(),
+                hint: command.hint.clone(),
+            });
+        let own = own
+            .into_iter()
+            .map(|(own, description)| Choice::Own(own, description));
+        own.chain(theirs)
+            .filter(|choice| match choice {
+                Choice::Own(own, _) => own.name().contains(needle),
+                Choice::Command { name, .. } => name.to_lowercase().contains(needle),
+                _ => false,
+            })
+            .take(SHOWN)
+            .collect()
+    }
+
     fn mates(&self, agent: &str, needle: &str) -> Vec<Choice> {
         let own = self
             .shown()
@@ -762,9 +795,6 @@ impl Workbench {
     ) {
         let project = self.project().map(|project| project.path.clone());
         let target = self.chat_target(agent);
-        let picks_model = (self.chats.open.get(agent))
-            .and_then(|chat| chat.state.as_ref())
-            .is_some_and(|head| head.model.is_some());
         let Some(composing) = self.composing_mut(agent) else {
             return;
         };
@@ -774,13 +804,17 @@ impl Workbench {
         let Some(choice) = menu.choices.get(index.unwrap_or(menu.selected)).cloned() else {
             return;
         };
-        if picks_model && matches!(&choice, Choice::Command { name, .. } if name == PICK_MODEL) {
+        if let Choice::Own(own, _) = choice {
             composing.draft.update(cx, |draft, cx| {
                 let end = draft.cursor();
                 draft.set_selected_range(menu.typed.start..end, cx);
                 draft.replace("", window, cx);
             });
-            composing.model_open = true;
+            match own {
+                Own::Model => composing.model_open = true,
+                Own::Clear => self.fresh_chat(agent),
+                Own::Yolo => self.toggle_yolo(agent),
+            }
             return cx.notify();
         }
         let stashed = match &choice {
@@ -877,7 +911,7 @@ impl Workbench {
                     format!("{EARLIER}{cli}/{session}"),
                     format!("@{name}"),
                 )),
-                Choice::Earlier { .. } | Choice::Stashed(_) => {
+                Choice::Earlier { .. } | Choice::Stashed(_) | Choice::Own(..) => {
                     draft.replace("", window, cx);
                     None
                 }
@@ -1077,6 +1111,9 @@ pub fn dock(
                         .detail(description.clone())
                         .aside(hint.clone().map(SharedString::from)),
                 }
+            }
+            Choice::Own(own, description) => {
+                DockRow::new(format!("/{}", own.name()), choose).detail(description.clone())
             }
             Choice::Earlier {
                 cli,

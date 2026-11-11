@@ -113,12 +113,32 @@ impl Workbench {
         }
     }
 
+    pub fn saved_agent(&self, agent: &str) -> Option<&WorkspaceAgent> {
+        (self.shown()?.workspace.agents.iter()).find(|saved| saved.id == agent)
+    }
+
+    /// Starts a new chat in `agent`'s project with the same agent, account, model and mode.
+    pub fn fresh_chat(&self, agent: &str) {
+        let Some(saved) = self.saved_agent(agent) else {
+            return;
+        };
+        let own =
+            (saved.profile_id.as_ref()).map(|profile| format!("{}:{profile}", saved.provider));
+        let launcher = own
+            .filter(|own| self.launchers().iter().any(|launcher| &launcher.id == own))
+            .unwrap_or_else(|| saved.provider.clone());
+        self.target().start_chat_as(
+            launcher,
+            saved.project.clone(),
+            Some(saved.permission_mode),
+            (saved.model.clone(), saved.effort.clone()),
+            None,
+        );
+    }
+
     /// Lets `agent` run without asking, or has it ask again, when its kind of agent can.
     pub fn toggle_yolo(&self, agent: &str) {
-        let Some(saved) = self
-            .shown()
-            .and_then(|view| view.workspace.agents.iter().find(|saved| saved.id == agent))
-        else {
+        let Some(saved) = self.saved_agent(agent) else {
             return;
         };
         let can = self
