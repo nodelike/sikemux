@@ -40,6 +40,7 @@ struct Dock: View {
                     Text(detail).font(Theme.ui(12.5)).foregroundStyle(palette.tertiary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
                 if let pager, pager.count > 1 { pages(pager) }
             }
             ScrollView(showsIndicators: false) {
@@ -79,8 +80,6 @@ struct Dock: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(palette.borderStrong, lineWidth: 1)
         )
         .padding(.bottom, 8)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(title) \(detail)")
     }
 
     private func button(_ act: DockAct) -> some View {
