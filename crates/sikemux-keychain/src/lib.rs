@@ -21,12 +21,16 @@ pub enum KeychainError {
     Invalid(String),
     /// The keychain could not be reached or would not do it, such as when it is locked.
     Failed(String),
+    /// The account vault does not let this caller use the secret.
+    Refused(String),
 }
 
 impl fmt::Display for KeychainError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Invalid(message) | Self::Failed(message) => formatter.write_str(message),
+            Self::Invalid(message) | Self::Failed(message) | Self::Refused(message) => {
+                formatter.write_str(message)
+            }
         }
     }
 }
