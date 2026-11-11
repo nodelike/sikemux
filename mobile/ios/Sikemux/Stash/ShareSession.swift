@@ -199,12 +199,15 @@ final class ShareSession {
                 take(plain)
             }
         case .answer(let answer):
-            guard let plain = link.open(answer.sealed) else { return }
+            // An answer that cannot be read does not say which question it answers, so every question waiting is
+            // let go rather than left to time out.
+            guard let plain = link.open(answer.sealed) else { return settleAnswers() }
             do {
                 let answer = try JSONDecoder().decode(ShareReply.self, from: Data(plain.utf8))
                 answers.removeValue(forKey: answer.id)?.resume(returning: answer.error == nil ? answer : nil)
             } catch {
                 print("sikemux: the sharer's computer sent an answer this app cannot read: \(error)")
+                settleAnswers()
             }
         case .host(let host):
             hostOnline = host.online
