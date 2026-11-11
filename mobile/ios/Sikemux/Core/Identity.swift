@@ -22,7 +22,7 @@ final class Identity {
 
     /// This phone's key in hex, for the share extension, which signs its requests to the accounts server with it.
     func keyHex() throws -> String {
-        try key().map { String(format: "%02x", $0) }.joined()
+        try key().hex
     }
 
     /// This phone on the network. A failure is not kept, so the next call tries again.
@@ -74,7 +74,7 @@ final class Identity {
             return bytes
         }
         let key = newDeviceKey()
-        try Keychain.write(Self.keyItem, key.map { String(format: "%02x", $0) }.joined())
+        try Keychain.write(Self.keyItem, key.hex)
         return key
     }
 }
@@ -82,19 +82,4 @@ final class Identity {
 enum IdentityError: LocalizedError {
     case damaged
     var errorDescription: String? { "This phone's key is damaged; reinstall the app to connect again." }
-}
-
-extension Data {
-    init?(hex: String) {
-        var bytes = [UInt8]()
-        bytes.reserveCapacity(hex.count / 2)
-        var index = hex.startIndex
-        while index < hex.endIndex {
-            let next = hex.index(index, offsetBy: 2, limitedBy: hex.endIndex) ?? hex.endIndex
-            guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
-            bytes.append(byte)
-            index = next
-        }
-        self.init(bytes)
-    }
 }

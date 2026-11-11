@@ -72,8 +72,7 @@ final class CrashReports {
         SentrySDK.setUser(
             account.map { id in
                 let user = User()
-                user.userId = SHA256.hash(data: Data("sikemux-usage|\(id)".utf8)).map { String(format: "%02x", $0) }
-                    .joined()
+                user.userId = SHA256.hash(data: Data("sikemux-usage|\(id)".utf8)).hex
                 return user
             })
     }

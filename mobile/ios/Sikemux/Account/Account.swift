@@ -129,9 +129,7 @@ final class Account {
     private static func expiry(of jwt: String) -> Date? {
         let parts = jwt.split(separator: ".")
         guard parts.count > 1 else { return nil }
-        var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
-        guard let data = Data(base64Encoded: payload),
+        guard let data = Data(base64URL: String(parts[1])),
             let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let exp = claims["exp"] as? Double
         else { return nil }

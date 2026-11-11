@@ -59,7 +59,7 @@ final class StashUpload: Sendable {
         if let note { body["note"] = note }
         if let target { body["target"] = try JSONSerialization.jsonObject(with: try JSONEncoder().encode(target)) }
         let data = try JSONSerialization.data(withJSONObject: body)
-        var request = try signed(body: Self.hex(SHA256.hash(data: data)))
+        var request = try signed(body: SHA256.hash(data: data).hex)
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         try answer(try await perform { try await self.session.upload(for: request, from: data) })
     }
@@ -71,12 +71,12 @@ final class StashUpload: Sendable {
         let message = "sikemux-device-request|POST|\(url.path)|\(time)|\(bodyHash)"
         let signature: String
         do {
-            signature = Self.hex(try key.signature(for: Data(message.utf8)))
+            signature = try key.signature(for: Data(message.utf8)).hex
         } catch {
             print("sikemux: could not sign the share with this phone's key: \(error)")
             throw StashProblem.unsigned
         }
-        let publicKey = Self.hex(key.publicKey.rawRepresentation)
+        let publicKey = key.publicKey.rawRepresentation.hex
         var request = URLRequest(url: url, timeoutInterval: 60)
         request.httpMethod = "POST"
         request.setValue("SikemuxDevice \(publicKey).\(time).\(signature)", forHTTPHeaderField: "authorization")
@@ -108,11 +108,7 @@ final class StashUpload: Sendable {
         while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
             hash.update(data: chunk)
         }
-        return hex(hash.finalize())
-    }
-
-    private static func hex<Bytes: Sequence>(_ bytes: Bytes) -> String where Bytes.Element == UInt8 {
-        bytes.map { String(format: "%02x", $0) }.joined()
+        return hash.finalize().hex
     }
 }
 
@@ -131,21 +127,5 @@ private final class Progress: NSObject, URLSessionTaskDelegate, Sendable {
         guard totalBytesExpectedToSend > 0 else { return }
         let share = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
         Task { @MainActor in report(share) }
-    }
-}
-
-extension Data {
-    init?(hex: String) {
-        guard hex.count % 2 == 0 else { return nil }
-        var bytes = [UInt8]()
-        bytes.reserveCapacity(hex.count / 2)
-        var index = hex.startIndex
-        while index < hex.endIndex {
-            let next = hex.index(index, offsetBy: 2)
-            guard let byte = UInt8(hex[index..<next], radix: 16) else { return nil }
-            bytes.append(byte)
-            index = next
-        }
-        self.init(bytes)
     }
 }
