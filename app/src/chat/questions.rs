@@ -12,7 +12,8 @@ use sikemux_core::server::questions::AnswerParams;
 use sikemux_core::server::questions::AnswersParams;
 
 use crate::theme::{
-    SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_SM, TEXT_XS, TEXT_XS_H,
+    SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, TEXT_2XS, TEXT_3XS, TEXT_MD, TEXT_SM, TEXT_XS,
+    TEXT_XS_H,
 };
 
 /// The person's answers on their way to the core, which the questions they answer wait on.
@@ -1041,112 +1042,99 @@ pub(super) struct Answered<'a> {
     pub files: Vec<AnyElement>,
 }
 
-/// The questions an agent asked and the person's answers, in one card under who asked: each
-/// question with its answer under it, numbered when there are several.
+/// The questions an agent asked and the person's answers, as the conversation they were: each
+/// question in the asker's bubble at the left, its mark on the first, and the answer in the
+/// person's bubble at the right. A teammate's questions say who asked above them.
 pub(super) fn answered_questions(
     mark: AnyElement,
     asker: Option<&str>,
     answers: Vec<Answered>,
-    t: &Tokens,
+    looks: &Looks,
 ) -> gpui_kit::Div {
-    let count = answers.len();
-    let things = match count {
-        1 => String::new(),
-        count => format!(" {count} things"),
-    };
-    let asked = match asker {
-        Some(name) => {
-            let name = format!("@{name}");
-            let bold = HighlightStyle {
-                color: Some(t.text_secondary),
-                font_weight: Some(FontWeight::SEMIBOLD),
-                ..Default::default()
-            };
-            StyledText::new(format!("{name} asked you{things}"))
-                .with_highlights([(0..name.len(), bold)])
-                .into_any_element()
-        }
-        None => format!("Asked you{things}").into_any_element(),
-    };
-    let head = div()
-        .px(SPACE_3)
-        .py(px(9.))
-        .flex()
-        .items_center()
-        .gap(px(7.))
-        .border_b_1()
-        .border_color(t.border)
-        .text_size(crate::theme::ui_text(TEXT_2XS))
-        .text_color(t.text_tertiary)
-        .child(mark)
-        .child(asked);
-    let pairs = answers.into_iter().enumerate().map(|(ix, answered)| {
+    let asked_by = asker.map(|name| {
+        div()
+            .pl(px(ASKER_MARK + 10.))
+            .text_size(crate::theme::ui_text(TEXT_XS))
+            .text_color(looks.quiet)
+            .child(format!("@{name}"))
+    });
+    let mut mark = Some(mark);
+    let pairs = answers.into_iter().map(|answered| {
+        let face = match mark.take() {
+            Some(mark) => div().mt(px(13.)).child(mark),
+            None => div().w(px(ASKER_MARK)),
+        };
+        let question = div()
+            .min_w_0()
+            .px(px(14.))
+            .py(SPACE_2H)
+            .rounded(rows::BUBBLE_RADIUS)
+            .rounded_bl(SPACE_1H)
+            .border_1()
+            .border_color(looks.line)
+            .bg(looks.asked)
+            .text_color(looks.ink)
+            .child(answered.question.to_owned());
         let said = if answered.secret {
-            Some(div().text_color(t.text_tertiary).child("Kept private"))
+            Some(div().text_color(looks.quiet).child("Kept private"))
         } else {
             (!answered.answer.is_empty()).then(|| {
                 div()
-                    .text_color(t.text_primary)
-                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(looks.ink)
                     .child(answered.answer.to_owned())
             })
         };
         let files = (!answered.files.is_empty()).then(|| {
             div()
-                .pt(SPACE_1)
                 .flex()
                 .flex_wrap()
+                .justify_end()
                 .items_end()
                 .gap(SPACE_2)
                 .children(answered.files)
         });
-        let number = (count > 1).then(|| {
-            div()
-                .w(px(12.))
-                .flex_none()
-                .text_size(crate::theme::ui_text(TEXT_2XS))
-                .line_height(px(20.))
-                .text_color(t.text_disabled)
-                .child((ix + 1).to_string())
-        });
         div()
-            .px(SPACE_3)
-            .pt(SPACE_2H)
-            .pb(SPACE_3)
             .flex()
-            .gap(SPACE_2H)
-            .when(ix > 0, |pair| pair.border_t_1().border_color(t.border))
-            .children(number)
+            .flex_col()
+            .gap(SPACE_1H)
+            .child(
+                div()
+                    .max_w(relative(0.78))
+                    .flex()
+                    .items_start()
+                    .gap(px(10.))
+                    .child(face.flex_none())
+                    .child(question),
+            )
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .flex()
                     .flex_col()
+                    .items_end()
                     .gap(SPACE_1H)
-                    .text_size(crate::theme::ui_text(13.5))
-                    .line_height(px(20.))
-                    .child(
+                    .children(files)
+                    .children(said.map(|said| {
                         div()
-                            .text_color(t.text_secondary)
-                            .child(answered.question.to_owned()),
-                    )
-                    .children(said)
-                    .children(files),
+                            .max_w(relative(0.78))
+                            .child(rows::bubble(looks).child(said))
+                    })),
             )
     });
     div()
         .w_full()
         .flex()
         .flex_col()
-        .overflow_hidden()
-        .border_1()
-        .border_color(t.border)
-        .rounded(theme::RADIUS_3)
-        .bg(t.surface_composer)
-        .child(head)
+        .gap(SPACE_1H)
+        .text_size(crate::theme::ui_text(TEXT_MD))
+        .line_height(relative(1.6))
+        .children(asked_by)
         .children(pairs)
 }
+
+/// How wide the asker's mark is beside its first question.
+pub(super) const ASKER_MARK: f32 = 16.;
 
 /// The questions the agent put to the person, answered from its chat.
 impl Chat {

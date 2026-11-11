@@ -670,10 +670,10 @@ fn answer_thread(
         }
     });
     answered_questions(
-        looks.mark_of(&asker.agent_id, &asker.cli, 16., cx),
+        looks.mark_of(&asker.agent_id, &asker.cli, questions::ASKER_MARK, cx),
         (asker.agent_id != looks.agent).then_some(asker.name.as_str()),
         answered.collect(),
-        t,
+        looks,
     )
     .into_any_element()
 }

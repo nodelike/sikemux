@@ -11,6 +11,8 @@ pub(super) struct Looks {
     pub(super) scale: Cell<f32>,
     pub(super) line: Hsla,
     pub(super) bubble: Hsla,
+    /// The bubble an agent's question to the person sits in.
+    pub(super) asked: Hsla,
     pub(super) quiet: Hsla,
     pub(super) faint: Hsla,
     pub(super) ink: Hsla,
@@ -269,6 +271,7 @@ impl Looks {
                 a: 0.075,
                 ..theme::mix(t.accent, t.text_primary, 0.25)
             },
+            asked: t.surface_composer,
             quiet: t.text_tertiary,
             faint: t.text_disabled,
             ink: t.text_primary,

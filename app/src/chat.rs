@@ -18,7 +18,7 @@ use gpui_kit::{
     actions, div, px, relative, AnyElement, AnyView, App, AppContext, Context, Div, Entity,
     Focusable, FontWeight, HighlightStyle, Hsla, InteractiveElement, IntoElement, KeyBinding,
     ParentElement, Radians, Render, SharedString, StatefulInteractiveElement, StyleRefinement,
-    Styled, StyledText, Subscription, Transformation, WeakEntity, Window,
+    Styled, Subscription, Transformation, WeakEntity, Window,
 };
 use gpui_transcript::{
     AwayChanged, Change, CodeColours, EmptyChanged, FoundChanged, Markdown, Pen, Row, RowsChanged,
