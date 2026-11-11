@@ -3387,55 +3387,20 @@ export interface BoardSettings {
     provider: string | null;
     model: string | null;
     landing: Landing;
-    /** Auto also takes cards agents added, once their team is through with them. */
-    agentCards: boolean;
     /**
      * Who reviews each change before it merges; none for any signed-in
      * agent on another CLI than its builder's.
      */
     reviewer: ReviewerChoice | null;
-    /** The reviewer builds and uses the change, rather than only reading it. */
-    reviewerRuns: boolean;
-    /** Each builder proposes a contract, reviewed blind, before it builds. */
-    contract: boolean;
     /**
      * Where the project deploys, in the order its slices reach them. None
      * gives slices the usual ladder and holds every deploy for the person.
      */
     environments?: Environment[];
-    /**
-     * A card's agent that fails, dies or hangs is brought back without the person, and a
-     * stalled slice Auto can run is taken on.
-     */
-    recover: boolean;
-    /** The project's `fastCheck`, when it names one, stands in for its check on most commits. */
-    fastCheck: boolean;
-    /** A failed check is traced to the commit that broke it, and one agent mends it. */
-    culpritFinding: boolean;
-    /** A card that spends without progress, or keeps failing the same way, is held. */
-    progressGuard: boolean;
     /** Whole dollars of Auto's spending in the project past which it starts no new cards. */
     spendCeiling: number | null;
-    /** A change merges only after its check passed on top of the latest base. */
-    mergeQueue: boolean;
-    /** The project's `reservoir`, when it names one, keeps cards on the board. */
-    reservoir: boolean;
-    /** A small change away from anything sensitive gets a read review and no contract round. */
-    scaledReview: boolean;
-    /** Each card's commits are kept on the remote, so a lost worktree can be made again. */
-    branchBackup: boolean;
     /** The linked hosts cards go to past this host's places, by key, the first with room first. */
     hosts?: string[];
-    /**
-     * Its slices' pull requests carry their proof in their descriptions, each written the
-     * first time only once the person posts it.
-     */
-    pullProof: boolean;
-    /**
-     * That proof's picture is kept on the code host: on GitHub a `sikemux-evidence` branch
-     * of the repository, on GitLab its uploads, on Bitbucket its downloads.
-     */
-    pullPictures: boolean;
 }
 
 /**

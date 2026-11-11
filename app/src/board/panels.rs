@@ -5,6 +5,7 @@ use crate::board::ChangesBoards;
 use std::rc::Rc;
 
 use gpui_kit::component::input::{Input, Textarea};
+use gpui_kit::component::switch::Switch;
 use gpui_kit::{
     div, px, AnyElement, Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement, Styled,
@@ -26,11 +27,12 @@ use sikemux_core::server::messages::MessageKind;
 use crate::board::{owner, short_title, BoardPane, Open};
 use crate::chat::model_picker;
 use crate::icons::Icon;
+use crate::settings::rows;
 use crate::theme::{
-    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, TEXT_SM,
-    TEXT_XS, TEXT_XS_H,
+    self, Tokens, SPACE_0, SPACE_1, SPACE_1H, SPACE_2, SPACE_2H, SPACE_3, SPACE_3H, SPACE_4,
+    TEXT_SM, TEXT_XS, TEXT_XS_H,
 };
-use crate::ui::{self, select, Button, IconButton, Pick, Toggle, Variant};
+use crate::ui::{self, select, Button, IconButton, Pick, Variant};
 
 /// Keeps a choice made in a picker as the board's settings.
 type Save = Rc<dyn Fn(BoardReviewerParams, &mut gpui_kit::App)>;
@@ -128,7 +130,7 @@ fn fact(name: &'static str, value: AnyElement, cx: &mut Context<BoardPane>) -> A
 /// The two ways a project's slices land, as the board's and the Goals view's settings offer them.
 pub(crate) fn landing_picks() -> Vec<Pick> {
     vec![
-        Pick::new("core", "Once on the branch")
+        Pick::new("core", "By itself")
             .hint("Sikemux passes Landed, and Auto merges its pull request itself"),
         Pick::new("person", "When you pass it").hint(
             "Nothing counts as landed until you pass Landed; Auto leaves its pull request for you to merge",
@@ -139,7 +141,7 @@ pub(crate) fn landing_picks() -> Vec<Pick> {
 /// The pick and words shown for `landing`.
 pub(crate) fn landing_choice(landing: Landing) -> (&'static str, &'static str) {
     match landing {
-        Landing::Core => ("core", "Once on the branch"),
+        Landing::Core => ("core", "By itself"),
         Landing::Person => ("person", "When you pass it"),
     }
 }
@@ -149,22 +151,6 @@ pub(crate) fn landing_of(key: &str) -> Landing {
         "person" => Landing::Person,
         _ => Landing::Core,
     }
-}
-
-/// A group of settings running edge to edge under a hairline, its name above its fields.
-fn settings_group(name: &'static str, cx: &mut Context<BoardPane>) -> gpui_kit::Div {
-    let t = Tokens::get(cx).clone();
-    div()
-        .flex()
-        .flex_col()
-        .gap(SPACE_2)
-        .mt(SPACE_1)
-        .px(SPACE_3H)
-        .pt(SPACE_3)
-        .pb(SPACE_2H)
-        .border_t_1()
-        .border_color(t.border)
-        .child(ui::caps(name, cx))
 }
 
 /// The cards under `id`, and theirs, which it cannot be put under.
@@ -831,7 +817,7 @@ fn hosts_row(
         },
         cx,
     );
-    Some(fact("Hosts", field, cx))
+    Some(rows::row("Hosts", None, field, cx).into_any_element())
 }
 
 fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
@@ -839,31 +825,15 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
         return div().into_any_element();
     };
     let settings = board.settings.clone();
-    let slots = SLOT_CHOICES
-        .into_iter()
-        .map(|slots| {
-            Pick::new(
-                slots.to_string(),
-                if slots == 1 {
-                    "1 agent".to_owned()
-                } else {
-                    format!("{slots} agents")
-                },
-            )
-        })
+    let busy = pane.busy;
+    let agents = |slots: u32| match slots {
+        1 => "1 agent".to_owned(),
+        slots => format!("{slots} agents"),
+    };
+    let slots = (SLOT_CHOICES.into_iter())
+        .map(|slots| Pick::new(slots.to_string(), agents(slots)))
         .collect();
-    let landings = landing_picks();
-    let (landing_key, landing_shown) = landing_choice(settings.landing);
-    let entity = || cx.entity();
-    let (on_slots, on_landing, on_recover) = (entity(), entity(), entity());
-    let (on_guard, on_ceiling, on_backup) = (entity(), entity(), entity());
-    let backup_on = settings.branch_backup;
-    let (on_proof, on_pictures) = (entity(), entity());
-    let (proof_on, pictures_on) = (settings.pull_proof, settings.pull_pictures);
-    let guard_on = settings.progress_guard;
-    let ceilings = [0]
-        .into_iter()
-        .chain(CEILING_CHOICES)
+    let ceilings = ([0].into_iter().chain(CEILING_CHOICES))
         .map(|dollars| {
             Pick::new(
                 dollars.to_string(),
@@ -871,280 +841,103 @@ fn auto_panel(pane: &BoardPane, cx: &mut Context<BoardPane>) -> AnyElement {
             )
         })
         .collect();
-    let recover_on = settings.recover;
-    let reviewer = settings.reviewer.clone();
-    let auto_on = settings.auto;
-    let agent_cards = settings.agent_cards;
-    let (reviewer_runs, contract) = (settings.reviewer_runs, settings.contract);
-    let scaled_review = settings.scaled_review;
-    let (fast_check, culprit_finding) = (settings.fast_check, settings.culprit_finding);
-    let merge_queue = settings.merge_queue;
-    let reservoir = settings.reservoir;
-    let hosts_row = hosts_row(pane, &settings.hosts, pane.busy, cx);
-    let mut view = div()
+    let (landing_key, landing_shown) = landing_choice(settings.landing);
+    let entity = || cx.entity();
+    let (on_auto, on_slots, on_landing, on_ceiling) = (entity(), entity(), entity(), entity());
+    let auto = Switch::new("board-auto-on")
+        .checked(settings.auto)
+        .on_change(move |on: &bool, _, cx| {
+            let on = *on;
+            on_auto.update(cx, |pane, cx| {
+                pane.change_settings(|params| params.auto = Some(on), cx)
+            })
+        });
+    let slots = select(
+        "board-slots",
+        agents(settings.slots),
+        slots,
+        Some(settings.slots.to_string().into()),
+        busy,
+        move |slots, _, cx| {
+            let slots: u32 = slots.parse().unwrap_or(2);
+            on_slots.update(cx, |pane, cx| {
+                pane.change_settings(|params| params.slots = Some(slots), cx)
+            })
+        },
+        cx,
+    );
+    let builder = auto_picker(
+        pane,
+        Role::Agent,
+        settings.launcher.as_deref(),
+        settings.provider.as_deref(),
+        settings.model.as_deref(),
+        cx,
+    );
+    let reviewer = settings.reviewer.as_ref();
+    let reviewer = auto_picker(
+        pane,
+        Role::Reviewer,
+        reviewer.map(|reviewer| reviewer.launcher.as_str()),
+        reviewer.and_then(|reviewer| reviewer.provider.as_deref()),
+        reviewer.and_then(|reviewer| reviewer.model.as_deref()),
+        cx,
+    );
+    let landing = select(
+        "board-landing",
+        landing_shown,
+        landing_picks(),
+        Some(landing_key.into()),
+        busy,
+        move |landing, _, cx| {
+            let landing = landing_of(landing.as_ref());
+            on_landing.update(cx, |pane, cx| {
+                pane.change_settings(|params| params.landing = Some(landing), cx)
+            })
+        },
+        cx,
+    );
+    let ceiling = select(
+        "board-spend-ceiling",
+        ceiling_words(settings.spend_ceiling),
+        ceilings,
+        Some(settings.spend_ceiling.unwrap_or(0).to_string().into()),
+        busy,
+        move |dollars, _, cx| {
+            let ceiling = dollars.parse().ok().filter(|dollars: &u32| *dollars > 0);
+            on_ceiling.update(cx, |pane, cx| {
+                pane.change_settings(|params| params.spend_ceiling = Some(ceiling), cx)
+            })
+        },
+        cx,
+    );
+    let note = board.auto_note.clone().map(|note| {
+        div()
+            .px(SPACE_4)
+            .py(SPACE_2H)
+            .child(ui::meta(note, cx).whitespace_normal())
+    });
+    div()
         .flex()
         .flex_col()
-        .child(head(ui::text("Auto", TEXT_SM, FontWeight::SEMIBOLD).into_any_element(), cx))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(SPACE_2)
-                .px(SPACE_3H)
-                .py(SPACE_2H)
-                .child(
-                    Toggle::new("board-auto-on", "Start agents on cards by itself", auto_on).on_click(
-                        cx.listener(move |pane, _, _, cx| {
-                            pane.change_settings(|params| params.auto = Some(!auto_on), cx)
-                        }),
-                    ),
-                )
-                .child(
-                    Toggle::new("board-agent-cards", "Also take cards agents add", agent_cards).on_click(
-                        cx.listener(move |pane, _, _, cx| {
-                            pane.change_settings(|params| params.agent_cards = Some(!agent_cards), cx)
-                        }),
-                    ),
-                )
-                .child(
-                    Toggle::new("board-reservoir", "Refill from the project's reservoir", reservoir).on_click(
-                        cx.listener(move |pane, _, _, cx| {
-                            pane.change_settings(|params| params.reservoir = Some(!reservoir), cx)
-                        }),
-                    ),
-                )
-                .child(
-                    ui::meta(
-                        "Starts agents on open cards, each on its own branch; another agent reviews the work before it lands.",
-                        cx,
-                    )
-                    .whitespace_normal(),
-                ),
-        );
-    if let Some(note) = board.auto_note.clone() {
-        view = view.child(
-            div()
-                .px(SPACE_3H)
-                .child(ui::meta(note, cx).whitespace_normal()),
-        );
-    }
-    let busy = pane.busy;
-    view.child(
-        settings_group("Agents", cx)
-            .child(fact(
-                "At once",
-                select(
-                    "board-slots",
-                    if settings.slots == 1 {
-                        "1 agent".to_owned()
-                    } else {
-                        format!("{} agents", settings.slots)
-                    },
-                    slots,
-                    Some(settings.slots.to_string().into()),
-                    busy,
-                    move |slots, _, cx| {
-                        let slots: u32 = slots.parse().unwrap_or(2);
-                        on_slots.update(cx, |pane, cx| {
-                            pane.change_settings(|params| params.slots = Some(slots), cx)
-                        })
-                    },
-                    cx,
-                ),
-                cx,
-            ))
-            .child(fact(
-                "Lands",
-                select(
-                    "board-landing",
-                    landing_shown,
-                    landings,
-                    Some(landing_key.into()),
-                    busy,
-                    move |landing, _, cx| {
-                        let landing = landing_of(landing.as_ref());
-                        on_landing.update(cx, |pane, cx| {
-                            pane.change_settings(|params| params.landing = Some(landing), cx)
-                        })
-                    },
-                    cx,
-                ),
-                cx,
-            ))
-            .child(fact(
-                "Recover",
-                Toggle::new("board-recover", "Bring back agents that stop", recover_on)
-                    .on_click(move |_, _, cx| {
-                        on_recover.update(cx, |pane, cx| {
-                            pane.change_settings(|params| params.recover = Some(!recover_on), cx)
-                        })
-                    })
-                    .into_any_element(),
-                cx,
-            ))
-            .child(fact(
-                "Backup",
-                Toggle::new("board-branch-backup", "Keep each card's commits on the remote", backup_on)
-                    .on_click(move |_, _, cx| {
-                        on_backup.update(cx, |pane, cx| {
-                            pane.change_settings(|params| params.branch_backup = Some(!backup_on), cx)
-                        })
-                    })
-                    .into_any_element(),
-                cx,
-            ))
-            .child(fact(
-                "Proof",
-                Toggle::new("board-pull-proof", "Show proof in pull requests", proof_on)
-                    .on_click(move |_, _, cx| {
-                        on_proof.update(cx, |pane, cx| {
-                            pane.change_settings(|params| params.pull_proof = Some(!proof_on), cx)
-                        })
-                    })
-                    .into_any_element(),
-                cx,
-            ))
-            .child(fact(
-                "Pictures",
-                Toggle::new("board-pull-pictures", "Keep pictures on the code host", pictures_on)
-                    .on_click(move |_, _, cx| {
-                        on_pictures.update(cx, |pane, cx| {
-                            pane.change_settings(|params| params.pull_pictures = Some(!pictures_on), cx)
-                        })
-                    })
-                    .into_any_element(),
-                cx,
-            ))
-            .child(fact(
-                "Progress",
-                Toggle::new("board-progress-guard", "Hold cards that spend without progress", guard_on)
-                    .on_click(move |_, _, cx| {
-                        on_guard.update(cx, |pane, cx| {
-                            pane.change_settings(|params| params.progress_guard = Some(!guard_on), cx)
-                        })
-                    })
-                    .into_any_element(),
-                cx,
-            ))
-            .child(fact(
-                "Ceiling",
-                select(
-                    "board-spend-ceiling",
-                    ceiling_words(settings.spend_ceiling),
-                    ceilings,
-                    Some(settings.spend_ceiling.unwrap_or(0).to_string().into()),
-                    busy,
-                    move |dollars, _, cx| {
-                        let ceiling = dollars.parse().ok().filter(|dollars: &u32| *dollars > 0);
-                        on_ceiling.update(cx, |pane, cx| {
-                            pane.change_settings(|params| params.spend_ceiling = Some(ceiling), cx)
-                        })
-                    },
-                    cx,
-                ),
-                cx,
-            ))
-            .children(hosts_row)
-            .child({
-                let picker = auto_picker(
-                    pane,
-                    Role::Agent,
-                    settings.launcher.as_deref(),
-                    settings.provider.as_deref(),
-                    settings.model.as_deref(),
-                    cx,
-                );
-                fact("Agent", picker, cx)
-            }),
-    )
-    .child(
-        settings_group("Checks", cx)
-            .child(
-                Toggle::new("board-fast-check", "Fast check on most commits", fast_check).on_click(
-                    cx.listener(move |pane, _, _, cx| {
-                        pane.change_settings(|params| params.fast_check = Some(!fast_check), cx)
-                    }),
-                ),
-            )
-            .child(
-                Toggle::new("board-culprit", "Find the commit that broke it", culprit_finding)
-                    .on_click(cx.listener(move |pane, _, _, cx| {
-                        pane.change_settings(
-                            |params| params.culprit_finding = Some(!culprit_finding),
-                            cx,
-                        )
-                    })),
-            )
-            .child(
-                Toggle::new("board-merge-queue", "Check on the latest branch before merging", merge_queue)
-                    .on_click(cx.listener(move |pane, _, _, cx| {
-                        pane.change_settings(|params| params.merge_queue = Some(!merge_queue), cx)
-                    })),
-            )
-            .child(
-                ui::meta(
-                    "The fast check runs only when sikemux.json names a fastCheck. Finding the commit tells one agent to mend it instead of everyone.",
-                    cx,
-                )
-                .whitespace_normal(),
-            ),
-    )
-    .child(
-        settings_group("Reviewer", cx)
-            .child({
-                let picker = auto_picker(
-                    pane,
-                    Role::Reviewer,
-                    reviewer.as_ref().map(|reviewer| reviewer.launcher.as_str()),
-                    reviewer
-                        .as_ref()
-                        .and_then(|reviewer| reviewer.provider.as_deref()),
-                    reviewer
-                        .as_ref()
-                        .and_then(|reviewer| reviewer.model.as_deref()),
-                    cx,
-                );
-                fact("Reviewer", picker, cx)
-            })
-            .child(
-                ui::meta(
-                    "The reviewer checks each change against its card before it merges.",
-                    cx,
-                )
-                .whitespace_normal(),
-            )
-            .child(
-                Toggle::new(
-                    "board-reviewer-runs",
-                    "Reviewer builds and uses the change",
-                    reviewer_runs,
-                )
-                .on_click(cx.listener(move |pane, _, _, cx| {
-                    pane.change_settings(|params| params.reviewer_runs = Some(!reviewer_runs), cx)
-                })),
-            )
-            .child(
-                Toggle::new(
-                    "board-scaled-review",
-                    "Scale review to the risk of the change",
-                    scaled_review,
-                )
-                .on_click(cx.listener(move |pane, _, _, cx| {
-                    pane.change_settings(|params| params.scaled_review = Some(!scaled_review), cx)
-                })),
-            )
-            .child(
-                Toggle::new(
-                    "board-contract",
-                    "Agree what to build before building",
-                    contract,
-                )
-                .on_click(cx.listener(move |pane, _, _, cx| {
-                    pane.change_settings(|params| params.contract = Some(!contract), cx)
-                })),
-            ),
-    )
-    .into_any_element()
+        .child(head(
+            ui::text("Auto", TEXT_SM, FontWeight::SEMIBOLD).into_any_element(),
+            cx,
+        ))
+        .child(rows::row(
+            "Start agents on cards by itself",
+            Some("Each on its own branch; another agent reviews before it lands"),
+            auto,
+            cx,
+        ))
+        .children(note)
+        .child(rows::row("Agents at once", None, slots, cx))
+        .child(rows::row("Builder", None, builder, cx))
+        .child(rows::row("Reviewer", None, reviewer, cx))
+        .child(rows::row("Merge", None, landing, cx))
+        .child(rows::row("Spend ceiling", None, ceiling, cx))
+        .children(hosts_row(pane, &settings.hosts, busy, cx))
+        .into_any_element()
 }
 
 fn sender(id: Option<&str>, name: Option<&String>) -> String {

@@ -581,7 +581,6 @@ struct WatchedTurn {
     id: u64,
     stage: RunStage,
     agent: String,
-    recovers: bool,
     timed_since: Option<u64>,
     /// Where its agent works, when losing it brings the worktree back.
     worktree: Option<PathBuf>,
@@ -610,7 +609,9 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                 if work.is_some_and(|work| work.job) {
                     continue;
                 }
-                if run.stage == RunStage::Merging && run.queue.is_some() && board.settings.queues()
+                if run.stage == RunStage::Merging
+                    && run.queue.is_some()
+                    && board.settings.lands_itself()
                 {
                     continue;
                 }
@@ -676,22 +677,17 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
                             _ => &run.agent,
                         };
                         if running.contains(watched) {
-                            if (board.settings.recover
-                                || board.settings.progress_guard
-                                || board.settings.backs_up())
-                                && matches!(
-                                    run.stage,
-                                    RunStage::Working | RunStage::Fixing | RunStage::Reviewing
-                                )
-                            {
+                            if matches!(
+                                run.stage,
+                                RunStage::Working | RunStage::Fixing | RunStage::Reviewing
+                            ) {
                                 watched_turns.push(WatchedTurn {
                                     project: key.0.clone(),
                                     id: key.1,
                                     stage: run.stage,
                                     agent: watched.clone(),
-                                    recovers: board.settings.recover,
-                                    timed_since: guard::timed_since(board, card, run),
-                                    worktree: (board.settings.backs_up()
+                                    timed_since: guard::timed_since(card, run),
+                                    worktree: (board.settings.lands_itself()
                                         && matches!(
                                             run.stage,
                                             RunStage::Working | RunStage::Fixing
@@ -741,7 +737,6 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             id,
             stage,
             agent,
-            recovers,
             timed_since,
             worktree,
         } = turn;
@@ -750,13 +745,9 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
             continue;
         }
         if let Some(looked) = timed_since {
-            next = sooner(
-                next,
-                Some(guard::look(core, &project, id, &agent, looked, recovers)),
-            );
+            next = sooner(next, Some(guard::look(core, &project, id, &agent, looked)));
         }
-        let hangs = recovers.then(|| recover::hangs_at(core, &agent)).flatten();
-        match hangs {
+        match recover::hangs_at(core, &agent) {
             Some(at) if at <= now => due.push((project, id, stage)),
             at => next = sooner(next, at),
         }
@@ -991,7 +982,7 @@ pub(super) async fn merge(core: &Arc<Core>, step: &Step, pull: &AutoPull, head: 
         step.note(core, RunStage::Watching, &why);
         return;
     }
-    if step.settings.queues() {
+    if step.settings.lands_itself() {
         return queue::arrived(core, step, head).await;
     }
     step.note(core, RunStage::Merging, "Merging its pull request");

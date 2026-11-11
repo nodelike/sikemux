@@ -85,18 +85,10 @@ pub(super) fn due(core: &Arc<Core>) {
     let starts: Vec<(String, Option<u64>)> = {
         let mut state = core.boards.state.locked();
         let State {
-            boards,
-            reservoirs,
-            dirty,
-            ..
+            boards, reservoirs, ..
         } = &mut *state;
-        for (project, board) in boards.iter_mut() {
-            if !board.settings.reservoir && board.reservoir_note.take().is_some() {
-                dirty.insert(project.clone());
-            }
-        }
         let on: HashSet<&String> = (boards.iter())
-            .filter(|(_, board)| board.settings.auto && board.settings.reservoir)
+            .filter(|(_, board)| board.settings.auto)
             .map(|(project, _)| project)
             .collect();
         reservoirs.began.retain(|project| on.contains(project));
@@ -404,8 +396,7 @@ fn close_gone(
 fn apply(core: &Arc<Core>, project: &str, listed: &Listed, started_at: u64) -> Applied {
     let boards = &core.boards;
     let mut state = boards.state.locked();
-    let wanted = (state.boards.get(project))
-        .is_some_and(|board| board.settings.auto && board.settings.reservoir);
+    let wanted = (state.boards.get(project)).is_some_and(|board| board.settings.auto);
     if !wanted {
         return Applied::default();
     }

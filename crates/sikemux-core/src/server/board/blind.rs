@@ -55,7 +55,7 @@ const NOTHING_RUNS_NAMED: &[&str] = &["license", "licence", "notice", "authors",
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum Running {
-    /// The project turned it off, or the change was rated low risk, so the reviewer reads.
+    /// The change was rated low risk, so the reviewer reads.
     #[default]
     Off,
     /// Every file the change touches is one nothing runs.
@@ -582,14 +582,8 @@ fn judge(core: &Core, step: &Step, head: &str) -> Result<Judged, String> {
         areas: areas.clone(),
         why,
     };
-    if !step.settings.reviewer_runs {
-        return Ok(judged(Running::Off, None));
-    }
     if paths.iter().all(|path| runs_nothing(path)) {
         return Ok(judged(Running::NothingToRun, None));
-    }
-    if !step.settings.scaled_review {
-        return Ok(judged(Running::Required, None));
     }
     let (diff, cut) = git::diff(repo, &from, head, MAX_DIFF_BYTES)?;
     let past: Vec<RunRecord> = {

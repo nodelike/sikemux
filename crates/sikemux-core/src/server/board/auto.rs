@@ -76,47 +76,18 @@ pub struct BoardSettings {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub landing: Landing,
-    /// Auto also takes cards agents added, once their team is through with them.
-    pub agent_cards: bool,
     /// Who reviews each change before it merges; none for any signed-in
     /// agent on another CLI than its builder's.
     pub reviewer: Option<ReviewerChoice>,
-    /// The reviewer builds and uses the change, rather than only reading it.
-    pub reviewer_runs: bool,
-    /// Each builder proposes a contract, reviewed blind, before it builds.
-    pub contract: bool,
     /// Where the project deploys, in the order its slices reach them. None
     /// gives slices the usual ladder and holds every deploy for the person.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub environments: Vec<Environment>,
-    /// A card's agent that fails, dies or hangs is brought back without the person, and a
-    /// stalled slice Auto can run is taken on.
-    pub recover: bool,
-    /// The project's `fastCheck`, when it names one, stands in for its check on most commits.
-    pub fast_check: bool,
-    /// A failed check is traced to the commit that broke it, and one agent mends it.
-    pub culprit_finding: bool,
-    /// A card that spends without progress, or keeps failing the same way, is held.
-    pub progress_guard: bool,
     /// Whole dollars of Auto's spending in the project past which it starts no new cards.
     pub spend_ceiling: Option<u32>,
-    /// A change merges only after its check passed on top of the latest base.
-    pub merge_queue: bool,
-    /// The project's `reservoir`, when it names one, keeps cards on the board.
-    pub reservoir: bool,
-    /// A small change away from anything sensitive gets a read review and no contract round.
-    pub scaled_review: bool,
-    /// Each card's commits are kept on the remote, so a lost worktree can be made again.
-    pub branch_backup: bool,
     /// The linked hosts cards go to past this host's places, by key, the first with room first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hosts: Vec<String>,
-    /// Its slices' pull requests carry their proof in their descriptions, each written the
-    /// first time only once the person posts it.
-    pub pull_proof: bool,
-    /// That proof's picture is kept on the code host: on GitHub a `sikemux-evidence` branch
-    /// of the repository, on GitLab its uploads, on Bitbucket its downloads.
-    pub pull_pictures: bool,
 }
 
 impl BoardSettings {
@@ -142,42 +113,16 @@ impl BoardSettings {
             .map_or("A person", Environment::step_words)
     }
 
-    /// Each behaviour a project can turn off, by name, for a card's run record.
+    /// What a card's run record compares runs by.
     pub(super) fn switches(&self) -> BTreeMap<String, bool> {
-        [
-            ("coreLands", self.landing == Landing::Core),
-            ("agentCards", self.agent_cards),
-            ("reviewerRuns", self.reviewer_runs),
-            ("contract", self.contract),
-            ("autoRecovery", self.recover),
-            ("fastCheck", self.fast_check),
-            ("culpritFinding", self.culprit_finding),
-            ("progressGuard", self.progress_guard),
-            ("mergeQueue", self.merge_queue),
-            ("reservoir", self.reservoir),
-            ("scaledReview", self.scaled_review),
-            ("branchBackup", self.branch_backup),
-        ]
-        .map(|(name, on)| (name.to_owned(), on))
-        .into()
+        BTreeMap::from([("coreLands".to_owned(), self.lands_itself())])
     }
 
-    /// Whether a card's builder agrees a contract first. A change the person
-    /// lands themselves has no reviewer to grade it against one.
-    fn wants_contract(&self) -> bool {
-        self.contract && self.landing == Landing::Core
-    }
-
-    /// Whether Auto's merges of this project wait their turn. A person who
-    /// lands the changes merges them as they please.
-    /// Whether Auto keeps a card's commits on the remote. It pushes nothing of its own to a
-    /// project the person lands themselves.
-    pub(super) fn backs_up(&self) -> bool {
-        self.branch_backup && self.landing == Landing::Core
-    }
-
-    pub(super) fn queues(&self) -> bool {
-        self.merge_queue && self.landing == Landing::Core
+    /// Whether Auto merges the project's changes itself, and so agrees a contract first, keeps
+    /// each card's commits on the remote and queues its merges. A person who lands the changes
+    /// merges them as they please, with nothing of Auto's pushed.
+    pub(super) fn lands_itself(&self) -> bool {
+        self.landing == Landing::Core
     }
 
     /// Where a deploy's health is read after it, for the environment called `name`.
@@ -195,23 +140,10 @@ impl Default for BoardSettings {
             provider: None,
             model: None,
             landing: Landing::Core,
-            agent_cards: true,
             reviewer: None,
-            reviewer_runs: true,
-            contract: true,
             environments: Vec::new(),
-            recover: true,
-            fast_check: true,
-            culprit_finding: true,
-            progress_guard: true,
             spend_ceiling: None,
-            merge_queue: true,
-            reservoir: true,
-            scaled_review: false,
-            branch_backup: true,
             hosts: Vec::new(),
-            pull_proof: false,
-            pull_pictures: false,
         }
     }
 }
@@ -261,25 +193,9 @@ pub struct BoardSettingsParams {
     )]
     pub reviewer: Option<Option<BoardReviewerParams>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reviewer_runs: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub contract: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub landing: Option<Landing>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent_cards: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environments: Option<Vec<Environment>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recover: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fast_check: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub culprit_finding: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub progress_guard: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scaled_review: Option<bool>,
     #[serde(
         default,
         deserialize_with = "given",
@@ -287,17 +203,7 @@ pub struct BoardSettingsParams {
     )]
     pub spend_ceiling: Option<Option<u32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub merge_queue: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reservoir: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub branch_backup: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hosts: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pull_proof: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pull_pictures: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -363,56 +269,17 @@ impl BoardSettings {
                 .map(|reviewer| reviewer.choice(&knows))
                 .transpose()?;
         }
-        if let Some(reviewer_runs) = params.reviewer_runs {
-            settings.reviewer_runs = reviewer_runs;
-        }
-        if let Some(contract) = params.contract {
-            settings.contract = contract;
-        }
         if let Some(landing) = params.landing {
             settings.landing = landing;
         }
-        if let Some(agent_cards) = params.agent_cards {
-            settings.agent_cards = agent_cards;
-        }
         if let Some(environments) = params.environments {
             settings.environments = super::environments::checked(environments)?;
-        }
-        if let Some(recover) = params.recover {
-            settings.recover = recover;
-        }
-        if let Some(fast_check) = params.fast_check {
-            settings.fast_check = fast_check;
-        }
-        if let Some(culprit_finding) = params.culprit_finding {
-            settings.culprit_finding = culprit_finding;
-        }
-        if let Some(progress_guard) = params.progress_guard {
-            settings.progress_guard = progress_guard;
-        }
-        if let Some(scaled_review) = params.scaled_review {
-            settings.scaled_review = scaled_review;
         }
         if let Some(spend_ceiling) = params.spend_ceiling {
             if spend_ceiling == Some(0) {
                 return Err("spendCeiling must be at least 1 dollar".into());
             }
             settings.spend_ceiling = spend_ceiling;
-        }
-        if let Some(merge_queue) = params.merge_queue {
-            settings.merge_queue = merge_queue;
-        }
-        if let Some(branch_backup) = params.branch_backup {
-            settings.branch_backup = branch_backup;
-        }
-        if let Some(pull_proof) = params.pull_proof {
-            settings.pull_proof = pull_proof;
-        }
-        if let Some(pull_pictures) = params.pull_pictures {
-            settings.pull_pictures = pull_pictures;
-        }
-        if let Some(reservoir) = params.reservoir {
-            settings.reservoir = reservoir;
         }
         if let Some(hosts) = params.hosts {
             settings.hosts = elsewhere::checked_hosts(hosts)?;
@@ -679,13 +546,12 @@ impl Reservoir {
     }
 
     /// Whether Auto may start an agent on the card, as far as the board can say.
-    fn takes(&self, settings: &BoardSettings, card: &Card) -> bool {
+    fn takes(&self, card: &Card) -> bool {
         card.status == CardStatus::Open
             && card.owner.is_none()
             && card.auto.is_none()
-            && (card.created_by.is_none() || settings.agent_cards)
             && card.ticket_done_unlanded().is_none()
-            && stalled_allows(settings, card)
+            && stalled_allows(card)
             && !card.depends_on.iter().any(|id| self.blocking.contains(id))
             && !self.parents.contains(&card.id)
             && self.runs_above(card) <= MAX_RUNS_ABOVE
@@ -708,12 +574,11 @@ pub(super) fn run_adding(core: &Core, board: &Board, agent: &str) -> Option<u64>
         .map(|card| card.id)
 }
 
-/// A slice whose owner lost the lease is Auto's only with recovery on, and not when it stays
-/// with the person.
-fn stalled_allows(settings: &BoardSettings, card: &Card) -> bool {
+/// A slice whose owner lost the lease is Auto's, unless it stays with the person.
+fn stalled_allows(card: &Card) -> bool {
     (card.slice.as_ref())
         .and_then(|slice| slice.stalled.as_ref())
-        .is_none_or(|stalled| settings.recover && !stalled.stays)
+        .is_none_or(|stalled| !stalled.stays)
 }
 
 /// Whether some board has Auto on with work it could still do, which keeps
@@ -724,9 +589,8 @@ pub(crate) fn has_work(boards: &super::Boards) -> bool {
         board.settings.auto && {
             let reservoir = Reservoir::of(board);
             let starts_more = !guard::ceiling_reached(board);
-            (board.cards.iter()).any(|card| {
-                (starts_more && reservoir.takes(&board.settings, card)) || card.run().is_some()
-            })
+            (board.cards.iter())
+                .any(|card| (starts_more && reservoir.takes(card)) || card.run().is_some())
         }
     })
 }
@@ -745,7 +609,7 @@ fn picks(
     }
     let reservoir = Reservoir::of(board);
     let mut takeable: Vec<(Reverse<i32>, u64, Option<&str>)> = (board.cards.iter())
-        .filter(|card| reservoir.takes(&board.settings, card) && !stepping.contains(&card.id))
+        .filter(|card| reservoir.takes(card) && !stepping.contains(&card.id))
         .map(|card| (Reverse(card.priority), card.id, card.maker_id()))
         .collect();
     if takeable.is_empty() {
@@ -826,7 +690,8 @@ pub(super) fn start_free(core: &Arc<Core>) {
             let settings = board.settings.clone();
             for (index, id) in picks.into_iter().enumerate() {
                 let agent = crate::server::names::new_agent_id();
-                let no_contract = (settings.scaled_review && settings.wants_contract())
+                let no_contract = settings
+                    .lands_itself()
                     .then(|| {
                         board
                             .card(id)
@@ -848,7 +713,7 @@ pub(super) fn start_free(core: &Arc<Core>) {
                     card.auto = Some(AutoRun::starting(agent.clone(), place.clone()));
                     card.record = Some(RunRecord::begun(&settings, card.reservoir.is_some()));
                     card.contract =
-                        (place.is_none() && settings.wants_contract() && no_contract.is_none())
+                        (place.is_none() && settings.lands_itself() && no_contract.is_none())
                             .then(Contract::awaited);
                     if let Some(record) = card.record.as_mut() {
                         record.contract_outcome = no_contract;

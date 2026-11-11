@@ -196,7 +196,7 @@ pub(super) fn due(core: &Arc<Core>) -> Option<u64> {
 fn waiting_lanes(state: &State) -> BTreeMap<LaneKey, Vec<Waiting>> {
     let mut lanes: BTreeMap<LaneKey, Vec<Waiting>> = BTreeMap::new();
     for (project, board) in &state.boards {
-        if !board.settings.queues() {
+        if !board.settings.lands_itself() {
             continue;
         }
         for card in &board.cards {

@@ -43,7 +43,7 @@ What counts:
 
 Nothing sent to `localhost`, `127.*`, `::1`, a `.local` name or a `file:` address is held, and neither is anything from the pages Sikemux shows you itself.
 
-A project that lands slices **Once on the branch** ([when slices land](/agents/board/#when-slices-land)) lets agents land their own work, so their pushes and merges there go through without asking. Sikemux reads a push as part of landing, since a push is how commits reach the project's branch. Deploying, publishing and changing production data always wait for you.
+A project whose slices land **By itself** ([when slices land](/agents/board/#when-slices-land)) lets agents land their own work, so their pushes and merges there go through without asking. Sikemux reads a push as part of landing, since a push is how commits reach the project's branch. Deploying, publishing and changing production data always wait for you.
 
 Sikemux catches these where agents run commands: it stands in for each of those programs on every agent's `PATH`, so agents in chats and in terminal tabs are both held, and a chat with Claude Code, Grok or Hermes also checks each shell command before it runs. A process an agent starts in Sikemux, by its command or one from `sikemux.json`, is checked the same way before it starts. The person's answer reaches an agent in a terminal tab as a message, typed in once it is waiting for one. What it doesn't catch:
 

@@ -2055,23 +2055,6 @@ pub(crate) fn triggers_changed(core: &Core, project: &str) {
     core.changed(What::ReadIn(Topic::Boards, Some(project), None));
 }
 
-/// What a project's check does of what its board's settings turn off.
-pub(crate) struct CheckSwitches {
-    pub fast: bool,
-    pub culprit: bool,
-}
-
-pub(crate) fn check_switches(core: &Core, project: &str) -> CheckSwitches {
-    let state = core.boards.state.locked();
-    let settings = state.boards.get(project).map(|board| &board.settings);
-    let defaults = auto::BoardSettings::default();
-    let settings = settings.unwrap_or(&defaults);
-    CheckSwitches {
-        fast: settings.fast_check,
-        culprit: settings.culprit_finding,
-    }
-}
-
 /// The open card that holds a project's failing CI, which is that failure's one work item.
 pub(crate) struct CiCard {
     pub label: String,

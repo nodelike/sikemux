@@ -189,7 +189,7 @@ pub(super) fn rescued(core: &Core, step: &Step) -> bool {
             | RunStage::Merging
     );
     if !takes_up
-        || !step.settings.backs_up()
+        || !step.settings.lands_itself()
         || step.run.recovery.fresh
         || !worktree_lost(&step.run)
     {
@@ -216,13 +216,7 @@ pub(super) fn ended(
     ending: &Ending,
 ) {
     let held = |note: String| finish::hold(core, project, id, agent, RunHold::Unblock, note);
-    let on = {
-        let state = core.boards.state.locked();
-        state
-            .boards
-            .get(project)
-            .is_some_and(|board| board.settings.recover)
-    };
+    let on_board = core.boards.state.locked().boards.contains_key(project);
     let (why, cause) = match ending {
         Ending::Finished => return,
         Ending::Stopped | Ending::Gone { asked: true, .. } => {
@@ -240,7 +234,7 @@ pub(super) fn ended(
             ),
         },
     };
-    if !on || !matches!(stage, RunStage::Working | RunStage::Fixing) {
+    if !on_board || !matches!(stage, RunStage::Working | RunStage::Fixing) {
         held(why);
         return;
     }
@@ -343,8 +337,7 @@ pub(super) async fn settle(core: &Arc<Core>, step: Step) {
         .workspaces
         .agent(&agent)
         .is_some_and(|known| known.asleep);
-    if !step.settings.recover || asleep || closed_here(core, &step) || core.workspaces.held(&agent)
-    {
+    if asleep || closed_here(core, &step) || core.workspaces.held(&agent) {
         hold(core, &step, cut_short);
         return;
     }
@@ -503,7 +496,7 @@ async fn fresh(core: &Arc<Core>, step: &Step, why: &str) {
     let agent = step.agent().to_owned();
     let name = step.name(core);
     let lost = worktree_lost(&step.run);
-    if step.run.worktree.is_empty() || (lost && !step.settings.backs_up()) {
+    if step.run.worktree.is_empty() || (lost && !step.settings.lands_itself()) {
         hold(
             core,
             step,

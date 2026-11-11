@@ -490,8 +490,7 @@ async fn run_batch(
         core.checks.wake.now();
         return;
     }
-    let switches = crate::server::board::check_switches(&core, &project);
-    let fast = named.then(|| fast_check(&project, switches.fast)).flatten();
+    let fast = named.then(|| fast_check(&project)).flatten();
     let (tier, command, commits) = choose_tier(&core, &project, &dir, commits, full, fast);
     let Some(newest) = commits.last().map(|commit| commit.sha.clone()) else {
         core.checks.state.locked().running.remove(&project);
@@ -613,7 +612,7 @@ async fn run_batch(
         }
         return;
     }
-    let hunts = switches.culprit && !was_broken;
+    let hunts = !was_broken;
     {
         let mut state = core.checks.state.locked();
         state.running.insert(project.clone(), Vec::new());
@@ -656,16 +655,7 @@ async fn run_batch(
             .ok()
             .flatten();
     let digest = report::digest(&ran.text, log.as_deref());
-    blame(
-        &core,
-        &project,
-        &command,
-        &commits,
-        &digest,
-        &hunted,
-        switches.culprit,
-    )
-    .await;
+    blame(&core, &project, &command, &commits, &digest, &hunted).await;
     crate::server::board::record_check(&core, &project, &check_ran(&commits, &ran, &hunted));
     {
         let mut state = core.checks.state.locked();
@@ -1023,7 +1013,6 @@ async fn wait_for_ci(
             };
             ended(&core, &project, &label, &checked, outcome, true, Tier::Full);
             if let Some(digest) = failed_output {
-                let switches = crate::server::board::check_switches(&core, &project);
                 blame(
                     &core,
                     &project,
@@ -1031,7 +1020,6 @@ async fn wait_for_ci(
                     &checked,
                     &digest,
                     &Hunted::NotTried,
-                    switches.culprit,
                 )
                 .await;
             }
@@ -1227,7 +1215,6 @@ async fn blame(
     commits: &[Commit],
     digest: &str,
     hunted: &Hunted,
-    one_owner: bool,
 ) {
     let mut authors: Vec<String> = Vec::new();
     for commit in commits.iter().rev() {
@@ -1242,21 +1229,6 @@ async fn blame(
         "The project's check, {command}, failed on {}.",
         crate::git::short(newest)
     );
-    if !one_owner {
-        for agent in authors {
-            let yours: Vec<String> = commits
-                .iter()
-                .filter(|commit| commit.agents.contains(&agent))
-                .map(|commit| format!("{} ({})", crate::git::short(&commit.sha), commit.subject))
-                .collect();
-            let text = format!(
-                "{failed} It came after your commit {}. Mend it with a commit.\n{digest}",
-                yours.join(", ")
-            );
-            send_note(core, agent, text).await;
-        }
-        return;
-    }
     if let Some(card) = crate::server::board::ci_card(core, project) {
         let holder = card.owner.as_deref().map(|owner| someone(core, owner));
         let who = holder.unwrap_or_else(|| format!("card {}", card.label));
@@ -1416,11 +1388,8 @@ fn found_check(core: &Core, project: &str) -> Option<String> {
 }
 
 /// `fastCheck` of `project`'s `sikemux.json`, when the fast cadence is on.
-fn fast_check(project: &str, on: bool) -> Option<String> {
+fn fast_check(project: &str) -> Option<String> {
     use crate::tasks::config::ConfigLoad;
-    if !on {
-        return None;
-    }
     match crate::tasks::config::load(Path::new(project)) {
         ConfigLoad::Valid { config, .. } => config.fast_check,
         _ => None,

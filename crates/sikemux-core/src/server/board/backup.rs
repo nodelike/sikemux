@@ -25,7 +25,7 @@ pub(crate) fn committed(core: &Core, agent: &str) {
     let lead = core.names.team_of(agent);
     let mut state = core.boards.state.locked();
     let found = state.boards.iter().find_map(|(project, board)| {
-        if !board.settings.backs_up() {
+        if !board.settings.lands_itself() {
             return None;
         }
         let card = board.cards.iter().find(|card| {

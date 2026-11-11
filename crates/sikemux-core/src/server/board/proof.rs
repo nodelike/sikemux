@@ -1,8 +1,7 @@
 //! Each slice's proof in the description of its pull request: the block `slice/words.rs`
 //! draws, written whenever what it shows changes and rewritten in place on later pushes. A
 //! slice is matched to an open pull request by its latest commit, or is the one Auto opened.
-//! Nothing is written unless the project turned it on, and the first write to each pull
-//! request waits for the person to post the exact block.
+//! The first write to each pull request waits for the person to post the exact block.
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
@@ -40,7 +39,7 @@ pub(super) fn due(core: &Arc<Core>) {
         let mut state = core.boards.state.locked();
         let State { boards, proofs, .. } = &mut *state;
         for (project, board) in boards.iter() {
-            if !board.settings.pull_proof || proofs.writing.contains(project) {
+            if proofs.writing.contains(project) {
                 continue;
             }
             let mut dues = Vec::new();
@@ -148,9 +147,7 @@ async fn rewrite(core: &Arc<Core>, project: &str, card: u64, pull: AutoPull) -> 
             _ => Consent::Unasked,
         };
         let kept = linked.and_then(|linked| linked.picture.clone());
-        let picture = (slice.proof_picture())
-            .filter(|_| board.settings.pull_pictures)
-            .map(|(id, path)| (id, path.to_owned()));
+        let picture = (slice.proof_picture()).map(|(id, path)| (id, path.to_owned()));
         let owner = (held.owner_id().map(str::to_owned))
             .or_else(|| held.auto.as_ref().map(|run| run.agent.clone()));
         (consent, picture, kept, owner)

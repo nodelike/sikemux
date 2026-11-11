@@ -134,16 +134,13 @@ fn failure_key(what: &str) -> String {
     }
 }
 
-fn trip(core: &Core, card: &mut Card, run: &mut AutoRun, recovers: bool, why: String) {
+fn trip(core: &Core, card: &mut Card, run: &mut AutoRun, why: String) {
     if let Some(record) = card.record.as_mut() {
         record.tripped(&why);
     }
     let why = recover::clipped(&why, MAX_REASON_CHARS);
     if run.burn.fresh_tried {
         let note = format!("Auto held it for you, as a fresh agent got no further. {why}");
-        finish::mark_held(core, card, run, RunHold::Fix, note);
-    } else if !recovers {
-        let note = format!("Auto held it for you. {why}");
         finish::mark_held(core, card, run, RunHold::Fix, note);
     } else {
         run.burn.handed_on();
@@ -190,19 +187,18 @@ pub(super) fn heard_cost(core: &Core, agent: &str, cost: f64) {
         return;
     };
     let limit = limit_usd(board);
-    let (guarded, recovers) = (board.settings.progress_guard, board.settings.recover);
     let card = &mut board.cards[index];
     let Some(mut run) = card.auto.take() else {
         return;
     };
     let added = run.burn.heard(agent, cost);
     let worker = agent != run.agent && lead == run.agent;
-    let why = (guarded && worker && at_work_stage(&run))
+    let why = (worker && at_work_stage(&run))
         .then(|| run.burn.over_money(limit))
         .flatten();
     let tripped = why.is_some();
     if let Some(why) = why {
-        trip(core, card, &mut run, recovers, why);
+        trip(core, card, &mut run, why);
     }
     card.auto = Some(run);
     board.auto_spent_usd += added;
@@ -224,9 +220,6 @@ pub(super) fn check_passed(core: &Core, step: &Step, head: &str) {
 /// The checks on the run's pushed commit failed. True when that tripped it, so its agent is
 /// not asked to fix them.
 pub(super) fn check_failed(core: &Core, step: &Step, what: &str) -> bool {
-    if !step.settings.progress_guard {
-        return false;
-    }
     let limit = limit_of(core, &step.project);
     let mut tripped = false;
     finish::change_run(core, &step.project, step.id, step.agent(), |card, run| {
@@ -239,7 +232,7 @@ pub(super) fn check_failed(core: &Core, step: &Step, what: &str) -> bool {
             false => run.burn.over_money(limit),
         };
         if let Some(why) = why {
-            trip(core, card, run, step.settings.recover, why);
+            trip(core, card, run, why);
             tripped = true;
         }
     });
@@ -254,9 +247,6 @@ pub(super) fn turned_down(
     verdict: &Verdict,
     findings: &[String],
 ) -> bool {
-    if !step.settings.progress_guard {
-        return false;
-    }
     let limit = limit_of(core, &step.project);
     let mut failing: Vec<&str> = (verdict.criteria.iter())
         .filter(|graded| !graded.pass)
@@ -282,7 +272,7 @@ pub(super) fn turned_down(
             false => run.burn.over_money(limit),
         };
         if let Some(why) = why {
-            trip(core, card, run, step.settings.recover, why);
+            trip(core, card, run, why);
             tripped = true;
         }
     });
@@ -292,14 +282,10 @@ pub(super) fn turned_down(
 /// The project's check ran on commits of `ran`'s authors: for each run they work for, a pass is
 /// progress and a failure of theirs counts towards a trip. True when a run changed.
 pub(super) fn checked(core: &Core, board: &mut Board, ran: &CheckRan<'_>) -> bool {
-    if !board.settings.progress_guard {
-        return false;
-    }
     let by_lead: Vec<(String, &String)> = (ran.authors.iter())
         .map(|author| (core.names.team_of(author), *author))
         .collect();
     let limit = limit_usd(board);
-    let recovers = board.settings.recover;
     let mut changed = false;
     for card in &mut board.cards {
         if card.run().is_none() {
@@ -327,7 +313,7 @@ pub(super) fn checked(core: &Core, board: &mut Board, ran: &CheckRan<'_>) -> boo
                     false => run.burn.over_money(limit),
                 };
                 if let Some(why) = why {
-                    trip(core, card, &mut run, recovers, why);
+                    trip(core, card, &mut run, why);
                 }
                 changed = true;
             }
@@ -344,21 +330,13 @@ fn prices_its_work(card: &Card, run: &AutoRun) -> bool {
 }
 
 /// When agent time was last counted for the run, if it goes by time: its CLI reports no cost.
-pub(super) fn timed_since(board: &Board, card: &Card, run: &AutoRun) -> Option<u64> {
-    (board.settings.progress_guard && at_work_stage(run) && !prices_its_work(card, run))
-        .then_some(run.burn.looked)
+pub(super) fn timed_since(card: &Card, run: &AutoRun) -> Option<u64> {
+    (at_work_stage(run) && !prices_its_work(card, run)).then_some(run.burn.looked)
 }
 
 /// Counts agent time for a run that goes by time, and trips it at the limit. Answers when to
 /// look again.
-pub(super) fn look(
-    core: &Core,
-    project: &str,
-    id: u64,
-    agent: &str,
-    looked: u64,
-    recovers: bool,
-) -> u64 {
+pub(super) fn look(core: &Core, project: &str, id: u64, agent: &str, looked: u64) -> u64 {
     let now = epoch_ms();
     if looked + LOOK_EVERY_MS > now {
         return looked + LOOK_EVERY_MS;
@@ -377,16 +355,14 @@ pub(super) fn look(
                 "Its agents worked {} hours with no check passing and no criterion newly met; its CLI reports no cost, so Auto goes by time",
                 run.burn.work_ms / (60 * 60 * 1000)
             );
-            trip(core, card, run, recovers, why);
+            trip(core, card, run, why);
         }
     });
     now + LOOK_EVERY_MS
 }
 
 pub(super) fn ceiling_reached(board: &Board) -> bool {
-    board.settings.progress_guard
-        && (board.settings.spend_ceiling)
-            .is_some_and(|ceiling| board.auto_spent_usd >= f64::from(ceiling))
+    (board.settings.spend_ceiling).is_some_and(|ceiling| board.auto_spent_usd >= f64::from(ceiling))
 }
 
 /// Why Auto starts nothing new here, once the project's ceiling is reached.
